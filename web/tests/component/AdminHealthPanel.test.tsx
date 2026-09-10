@@ -135,6 +135,12 @@ describe('AdminHealthPanel', () => {
     expect(screen.getByTestId('admin-invites-recovery-note')).toHaveTextContent('9 days');
     expect(screen.getByTestId('admin-nav')).toHaveTextContent('Diagnostics');
     expect(screen.queryByTestId('admin-jobs-panel')).toBeNull();
+    expect(api.getAdminUsers).toHaveBeenCalledOnce();
+    expect(api.getAdminAuditLog).not.toHaveBeenCalled();
+    expect(api.getAdminErrors).not.toHaveBeenCalled();
+    expect(api.getAdminHealth).not.toHaveBeenCalled();
+    expect(api.getAdminJobs).not.toHaveBeenCalled();
+    expect(api.getHealth).not.toHaveBeenCalled();
   });
 
   it('reuses personal diagnostics beside deployment health', async () => {
