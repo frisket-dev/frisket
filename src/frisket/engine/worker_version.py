@@ -21,12 +21,14 @@ subprocess call per process is cheap. Tests needing a fresh read call
 from __future__ import annotations
 
 import subprocess
+import re
 from functools import lru_cache
 from importlib import metadata as importlib_metadata
 from pathlib import Path
 
 VERSION_FILE_NAME = "VERSION"
 UNKNOWN_CODE_VERSION = "unknown"
+_VERSION_IDENTITY_RE = re.compile(r"^[0-9a-f]{40}(?:\+[A-Za-z0-9._-]{1,87})?$")
 
 
 def _repo_root() -> Path:
@@ -61,16 +63,14 @@ def _version_file(root: Path) -> str | None:
         value = (root / VERSION_FILE_NAME).read_text(encoding="utf-8").strip()
     except (OSError, UnicodeError):
         return None
-    if len(value) != 40 or any(
-        character not in "0123456789abcdef" for character in value
-    ):
+    if _VERSION_IDENTITY_RE.fullmatch(value) is None:
         return None
     return value
 
 
 def _installed_package_version() -> str | None:
     try:
-        value = importlib_metadata.version("frisket").strip()
+        value = importlib_metadata.version("frisket-data").strip()
     except Exception:  # noqa: BLE001 — identity lookup must never break a worker
         return None
     return value or None
