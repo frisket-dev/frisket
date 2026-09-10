@@ -105,11 +105,29 @@ class TestCodeVersion:
         monkeypatch.setattr(
             worker_version.importlib_metadata,
             "version",
-            lambda distribution: "1.2.3" if distribution == "frisket" else None,
+            lambda distribution: "1.2.3" if distribution == "frisket-data" else None,
         )
         worker_version.code_version.cache_clear()
         try:
             assert worker_version.code_version() == "1.2.3"
+        finally:
+            worker_version.code_version.cache_clear()
+
+    def test_composite_image_version_identity_precedes_installed_metadata(
+        self, tmp_path, monkeypatch
+    ):
+        identity = f"{'a' * 40}+public.{'b' * 40}"
+        (tmp_path / "VERSION").write_text(identity, encoding="utf-8")
+        monkeypatch.setattr(worker_version, "_repo_root", lambda: tmp_path)
+        monkeypatch.setattr(worker_version, "_git_describe", lambda root: None)
+        monkeypatch.setattr(
+            worker_version.importlib_metadata,
+            "version",
+            lambda _distribution: "1.2.3",
+        )
+        worker_version.code_version.cache_clear()
+        try:
+            assert worker_version.code_version() == identity
         finally:
             worker_version.code_version.cache_clear()
 
