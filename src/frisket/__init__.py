@@ -2,6 +2,9 @@ import csv as _csv
 import sys as _sys
 
 
+DISTRIBUTION_NAME = "frisket-data"
+
+
 # CPython's CSV parser otherwise starts with a 128 KiB per-field ceiling. Set
 # the process policy once, before any ``frisket.*`` module can construct a CSV
 # reader, so all Frisket CSV consumers have the same local-memory-bound

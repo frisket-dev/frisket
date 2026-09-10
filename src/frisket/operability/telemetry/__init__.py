@@ -309,8 +309,10 @@ class ProductTelemetryRuntime:
 
 
 def _package_version() -> str:
+    from frisket import DISTRIBUTION_NAME
+
     try:
-        value = metadata.version("frisket").strip()
+        value = metadata.version(DISTRIBUTION_NAME).strip()
     except metadata.PackageNotFoundError:
         return "development"
     return value or "development"

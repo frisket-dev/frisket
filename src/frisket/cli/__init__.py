@@ -864,8 +864,10 @@ def _subcommands() -> "dict[str, tuple]":
 def _version() -> str:
     from importlib.metadata import PackageNotFoundError, version
 
+    from frisket import DISTRIBUTION_NAME
+
     try:
-        return version("frisket")
+        return version(DISTRIBUTION_NAME)
     except PackageNotFoundError:  # editable/source checkout without metadata
         return "unknown"
 

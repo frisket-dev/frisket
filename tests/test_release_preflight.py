@@ -6,6 +6,7 @@ import subprocess
 import tomllib
 from pathlib import Path
 
+from frisket import DISTRIBUTION_NAME
 from scripts.release.release_preflight import package_metadata_findings
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -53,6 +54,7 @@ def test_distribution_name_keeps_frisket_import_module():
         project = tomllib.load(handle)
 
     assert project["project"]["name"] == "frisket-data"
+    assert DISTRIBUTION_NAME == project["project"]["name"]
     assert project["tool"]["uv"]["build-backend"]["module-name"] == "frisket"
     assert project["tool"]["uv"]["build-backend"]["source-include"] == [
         "src/frisket/web_static/**"
