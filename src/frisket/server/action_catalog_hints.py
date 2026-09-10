@@ -839,7 +839,7 @@ def _recipe_engines(
             if parakeet_local_ok
             else (
                 "Install Frisket's standard tier in the environment that runs "
-                "the app (pip install 'frisket[standard]'), then restart Frisket."
+                "the app (pip install 'frisket-data[standard]'), then restart Frisket."
                 if not parakeet_runtime_ok
                 else "Download the pinned Parakeet + Silero models "
                 "(Settings → Local models, or POST /api/providers/models/pull) "
@@ -879,7 +879,7 @@ def _recipe_engines(
             if faster_whisper_ok
             else (
                 "Install Frisket's standard tier in the environment that runs "
-                "the app (pip install 'frisket[standard]'), then restart Frisket."
+                "the app (pip install 'frisket-data[standard]'), then restart Frisket."
             )
         )
         faster_whisper_engine = _declared_engine(

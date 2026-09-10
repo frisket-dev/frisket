@@ -76,7 +76,7 @@ def spacy_available(model: str | None = None) -> tuple[bool, str | None]:
     if not library:
         return False, (
             "spaCy is not installed. Install with "
-            "pip install 'frisket[standard]', then confirm the managed "
+            "pip install 'frisket-data[standard]', then confirm the managed "
             "download for the pinned pipeline model."
         )
     if target_model == DEFAULT_SPACY_MODEL:

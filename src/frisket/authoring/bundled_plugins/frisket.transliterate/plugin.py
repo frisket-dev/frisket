@@ -89,7 +89,7 @@ def _icu_transliterate(text: str) -> str:
         raise ValueError(
             f"engine={ENGINE_ICU!r} was requested but PyICU is not usable "
             "(either not installed, or installed but failed to load -- "
-            "pip install 'frisket[entities]', or `pip install pyicu` directly)"
+            "pip install 'frisket-data[entities]', or `pip install pyicu` directly)"
         )
     return str(transliterator.transliterate(text))
 

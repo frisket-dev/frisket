@@ -384,7 +384,7 @@ def render_playwright_url(
         # chromium` fills ~/.cache/ms-playwright without the Python package.
         raise RuntimeError(
             "Dynamic capture needs Python Playwright, which is not installed:\n"
-            "  pip install 'frisket[browser]'\n"
+            "  pip install 'frisket-data[browser]'\n"
             "  playwright install chromium"
         ) from exc
 

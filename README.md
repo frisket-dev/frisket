@@ -7,7 +7,7 @@ I wanted a spreadsheet that did AI things for investigative journalism. The NYT 
 Use the [cloud version](https://app.frisket.dev/) or run locally with Python 3.12:
 
 ```
-pip install 'frisket[standard]'
+pip install 'frisket-data[standard]'
 frisket ./my-workspace
 ```
 
@@ -35,11 +35,11 @@ Frisket requires Python 3.12.
 If you just want to run Frisket on your own computer, use **solo mode**.
 
 ```
-pip install 'frisket[standard]'
+pip install 'frisket-data[standard]'
 frisket ./my-workspace
 ```
 
-If you want more shiny extras, use `pip install 'frisket[complete]'`.
+If you want more shiny extras, use `pip install 'frisket-data[complete]'`.
 
 ### Team
 

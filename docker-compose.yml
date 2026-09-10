@@ -320,7 +320,7 @@ services:
   #
   # The current Compose stack requires bundled Postgres for its control plane
   # and dedicated run queue. Postgres-free single-user use is the non-Docker
-  # local product (`pip install frisket`), not a Compose surgery.
+  # local product (`pip install frisket-data`), not a Compose surgery.
   #
   # Image: a plain major-version tag, not a single-platform digest — pin a
   # digest here only if you re-pin it from a multi-arch index (verify with

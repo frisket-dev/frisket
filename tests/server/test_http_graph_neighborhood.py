@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 pytest.importorskip(
     "followthemoney",
-    reason="requires the entities extra: pip install 'frisket[entities]'",
+    reason="requires the entities extra: pip install 'frisket-data[entities]'",
 )
 
 from frisket.server.app import create_app

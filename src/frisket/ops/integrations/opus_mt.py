@@ -6,7 +6,7 @@ with the Opus-MT SentencePiece tokenizers -- no torch, ~412 chars/s (the
 benchmark that made Opus-MT the local default). Packaged behind the optional
 ``standard`` tier (``ctranslate2`` + ``sentencepiece``); absent-runtime ->
 ``runtime_available()`` is False and the engine reports unavailable with a
-``pip install 'frisket[standard]'`` remediation, exactly like local ASR.
+``pip install 'frisket-data[standard]'`` remediation, exactly like local ASR.
 
 This module lives on its own so the heavy runtime import is isolated;
 ``TranslateRecipe.execute`` calls in with a thin dispatch hook.
@@ -20,7 +20,7 @@ from typing import Any
 
 from frisket.ops.integrations.translate_common import SUPPORTED_LANGUAGE_NAMES
 
-REMEDIATION = "Install the local translation runtime: pip install 'frisket[standard]'"
+REMEDIATION = "Install the local translation runtime: pip install 'frisket-data[standard]'"
 
 # name (lowercased) -> ISO-639-1 code, inverted from the shared roster so the
 # recipe can accept either a code ("es") or an English name ("Spanish") for the

@@ -52,15 +52,15 @@ PLAIN_HTTP_BASE_URL_REJECTED = "plain_http_base_url_rejected"
 BOOT_FAILURE_CATALOG: dict[str, dict[str, str | None]] = {
     PEP668_NO_PIP: {
         "what": (
-            "`pip install frisket` fails immediately with "
+            "`pip install frisket-data` fails immediately with "
             "'error: externally-managed-environment' (PEP 668) on a stock "
             "Debian/Ubuntu Python -- the system pip refuses a global install."
         ),
         "todo": (
             "Install inside a virtual environment instead of the system "
             "Python: `python3 -m venv .venv && source .venv/bin/activate "
-            "&& pip install frisket` (or `pipx install frisket` / "
-            "`uv tool install frisket`)."
+            "&& pip install frisket-data` (or `pipx install frisket-data` / "
+            "`uv tool install frisket-data`)."
         ),
         "route": None,
     },
@@ -75,7 +75,7 @@ BOOT_FAILURE_CATALOG: dict[str, dict[str, str | None]] = {
             "Base frisket works without it. Run `frisket doctor` for a real "
             "compiler/Python-header/pkg-config/ICU preflight. Install the "
             "reported prerequisites (or conda-forge pyicu in a conda env), "
-            "then `pip install 'frisket[entities]'`."
+            "then `pip install 'frisket-data[entities]'`."
         ),
         "route": "Settings → Diagnostics → entities extra",
     },

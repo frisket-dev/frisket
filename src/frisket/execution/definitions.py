@@ -611,7 +611,7 @@ class StaticExecutionTargetProvider:
             if not parakeet_runtime_present():
                 return (
                     "Install Frisket's standard tier in the environment that "
-                    "runs the app (pip install 'frisket[standard]'), then "
+                    "runs the app (pip install 'frisket-data[standard]'), then "
                     "restart Frisket."
                 )
             return (

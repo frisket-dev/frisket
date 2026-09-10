@@ -23,7 +23,7 @@ from __future__ import annotations
 import contextlib
 from collections.abc import Iterator
 
-ENTITIES_EXTRA_REMEDIATION = "pip install 'frisket[entities]'"
+ENTITIES_EXTRA_REMEDIATION = "pip install 'frisket-data[entities]'"
 
 
 @contextlib.contextmanager

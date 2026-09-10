@@ -951,7 +951,7 @@ def entities_report() -> dict[str, Any]:
             False,
             (
                 "FollowTheMoney entity support failed to load "
-                f"({exc}). Install with pip install 'frisket[entities]'."
+                f"({exc}). Install with pip install 'frisket-data[entities]'."
             ),
         )
     preflight = pyicu_install_preflight()

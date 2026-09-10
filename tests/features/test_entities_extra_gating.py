@@ -2,7 +2,7 @@
 graceful-degradation contract via monkeypatch (so they run identically
 whether or not the extra actually happens to be installed in this env) —
 every listed import site must fail closed with the remediation string
-`pip install 'frisket[entities]'`, never a bare traceback.
+`pip install 'frisket-data[entities]'`, never a bare traceback.
 
 Adversarial cases cover direct-submodule imports, native FtM action failures,
 a discoverable-but-broken-install simulation, and per-probe diagnose
@@ -28,7 +28,7 @@ from frisket.engine.store import Project
 from frisket.features.graph import neighborhood
 from frisket.operability import diagnostics
 
-REMEDIATION = "pip install 'frisket[entities]'"
+REMEDIATION = "pip install 'frisket-data[entities]'"
 ROOT = Path(__file__).resolve().parents[2]
 FTM_PLUGIN_ROOT = (
     ROOT / "src" / "frisket" / "authoring" / "bundled_plugins" / "frisket.ftm"

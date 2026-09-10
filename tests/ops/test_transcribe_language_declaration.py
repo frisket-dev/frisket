@@ -305,7 +305,7 @@ def test_recipe_engines_disable_parakeet_when_the_asr_extra_is_missing(monkeypat
 
     parakeet = engines["parakeet-tdt"]
     assert parakeet["available"] is False
-    assert "pip install 'frisket[standard]'" in parakeet["error"]
+    assert "pip install 'frisket-data[standard]'" in parakeet["error"]
 
 
 def test_recipe_engines_disable_whisper_when_its_runtime_is_missing(monkeypatch):
@@ -316,7 +316,7 @@ def test_recipe_engines_disable_whisper_when_its_runtime_is_missing(monkeypatch)
 
     whisper = engines["faster_whisper"]
     assert whisper["available"] is False
-    assert "pip install 'frisket[standard]'" in whisper["error"]
+    assert "pip install 'frisket-data[standard]'" in whisper["error"]
 
 
 def test_openai_whisper_1_availability_follows_effective_provider_keys(
