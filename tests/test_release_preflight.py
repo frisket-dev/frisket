@@ -48,6 +48,17 @@ def test_release_preflight_static_checks_pass_without_network_or_upload():
     assert "uv publish" not in proc.stdout
 
 
+def test_distribution_name_keeps_frisket_import_module():
+    with (ROOT / "pyproject.toml").open("rb") as handle:
+        project = tomllib.load(handle)
+
+    assert project["project"]["name"] == "frisket-data"
+    assert project["tool"]["uv"]["build-backend"]["module-name"] == "frisket"
+    assert project["tool"]["uv"]["build-backend"]["source-include"] == [
+        "src/frisket/web_static/**"
+    ]
+
+
 def test_release_preflight_recognizes_only_the_explicit_frontend_host_package(
     monkeypatch,
 ):
