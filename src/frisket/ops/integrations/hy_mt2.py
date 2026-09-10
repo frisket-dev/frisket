@@ -31,9 +31,7 @@ from typing import Any
 from frisket.ops.integrations.translate_common import SUPPORTED_LANGUAGE_NAMES
 from frisket.ai.models.artifact_manifest import HY_MT2_REF
 
-REMEDIATION = (
-    "Install the local GGUF translation runtime: pip install 'frisket-data[translate-gguf]'"
-)
+REMEDIATION = "Install the local GGUF translation runtime: pip install 'frisket-data[translate-gguf]'"
 
 # Deterministic per-row decoding: greedy, no sampling variance. The card
 # recommends temperature 0.7 for general use, but per-row translation wants

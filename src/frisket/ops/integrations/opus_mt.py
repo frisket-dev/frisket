@@ -20,7 +20,9 @@ from typing import Any
 
 from frisket.ops.integrations.translate_common import SUPPORTED_LANGUAGE_NAMES
 
-REMEDIATION = "Install the local translation runtime: pip install 'frisket-data[standard]'"
+REMEDIATION = (
+    "Install the local translation runtime: pip install 'frisket-data[standard]'"
+)
 
 # name (lowercased) -> ISO-639-1 code, inverted from the shared roster so the
 # recipe can accept either a code ("es") or an English name ("Spanish") for the
