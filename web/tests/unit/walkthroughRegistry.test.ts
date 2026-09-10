@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import { walkthroughsForEdition } from '../../src/walkthrough/registry';
-import type { WalkthroughDefinition } from '../../src/walkthrough/walkthroughs';
+import {
+  WALKTHROUGHS,
+  type WalkthroughDefinition,
+  type WalkthroughTarget,
+} from '../../src/walkthrough/walkthroughs';
+import { ACTION_PLACEMENTS } from '../../src/actions/model';
+import { BASE_ACT_TAB_IDS } from '../../src/workbench/actSurface';
 import {
   immutableEditionDescriptor,
   LOCAL_EDITION_DESCRIPTOR,
@@ -59,5 +65,31 @@ describe('edition walkthrough registry', () => {
     expect(() => walkthroughsForEdition(edition('operator'), [
       { ...CLOUD_GUIDE, id: 'local-model-lab' },
     ])).toThrow('Duplicate walkthrough id: local-model-lab');
+  });
+});
+
+function directTarget(target: WalkthroughTarget): WalkthroughTarget {
+  return target.kind === 'completed-run' ? directTarget(target.target) : target;
+}
+
+describe('walkthrough action targets', () => {
+  it('names real tabs and canonical actions in the tab that displays them', () => {
+    const tabIds = new Set<string>(BASE_ACT_TAB_IDS);
+    for (const walkthrough of WALKTHROUGHS) {
+      let activeTab: string | null = null;
+      for (const step of walkthrough.steps) {
+        const target = directTarget(step.target);
+        if (target.kind === 'action-tab') {
+          expect(tabIds.has(target.id), `${walkthrough.id}/${step.id} names an unknown tab`).toBe(true);
+          activeTab = target.id;
+        }
+        if (target.kind === 'action') {
+          const placement = ACTION_PLACEMENTS[target.id];
+          expect(placement, `${walkthrough.id}/${step.id} names an unknown action`).toBeDefined();
+          expect(activeTab, `${walkthrough.id}/${step.id} does not first reveal its action tab`)
+            .toBe(placement?.tab);
+        }
+      }
+    }
   });
 });

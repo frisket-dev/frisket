@@ -27,22 +27,22 @@ const highlightedTarget: Record<string, string | RegExp> = {
   'open-dispatches': /^workbench-mainView-tab-/,
   'open-dispatches-grid': 'view-switch-grid',
   'inspect-story-column': 'grid-column-story',
-  'open-extract': 'ribbon-tab-extract',
+  'open-extract': 'ribbon-tab-analyze',
   'open-regex': 'ribbon-action-map.regex_extract',
-  'choose-source': 'text-source-column-select',
+  'choose-source': 'field-input_columns',
   'enter-pattern': 'field-pattern',
-  'name-output': 'new-column-name',
-  'run-action': 'run-button',
+  'name-output': 'field-output-extracted',
+  'run-action': 'generated-action-run',
   'review-results': 'grid',
   'open-analyze': 'ribbon-tab-tables',
   'open-join': 'ribbon-action-derive.join',
   'choose-right-sheet': 'field-join_right_sheet',
   'choose-left-key': 'field-join_key_left-0',
   'choose-right-key': 'field-join_key_right-0',
-  'choose-outer-join': 'field-join_how',
+  'choose-outer-join': 'field-how',
   'enable-indicator': 'field-join_indicator',
-  'name-join': 'field-target_sheet_name',
-  'run-join': 'run-button',
+  'name-join': 'field-sheet_name',
+  'run-join': 'generated-action-run',
   'review-join': 'grid',
 };
 
@@ -53,13 +53,16 @@ function imageName(step: WalkthroughStep, stepIndex: number): string {
 async function advanceRegexStep(page: Page, step: WalkthroughStep): Promise<void> {
   switch (step.id) {
     case 'choose-source':
-      await page.getByTestId('text-source-column-select').selectOption('story');
+      await page.getByTestId('field-input_columns').click();
+      await page.getByTestId('field-input_columns-menu').getByRole('option')
+        .filter({ hasText: 'story' }).click();
+      await page.getByTestId('field-input_columns').click();
       break;
     case 'enter-pattern':
       await page.getByTestId('field-pattern').fill('\\bCTR-\\d{4}-\\d{3}\\b');
       break;
     case 'name-output':
-      await page.getByTestId('new-column-name').fill('contract_id');
+      await page.getByTestId('field-output-extracted').fill('contract_id');
       break;
     case 'choose-right-sheet':
       await page.getByTestId('field-join_right_sheet').selectOption('Contracts');
@@ -71,10 +74,10 @@ async function advanceRegexStep(page: Page, step: WalkthroughStep): Promise<void
       await page.getByTestId('field-join_key_right-0').selectOption('contract_id');
       break;
     case 'choose-outer-join':
-      await page.getByTestId('field-join_how').selectOption('outer');
+      await page.getByTestId('field-how').selectOption('outer');
       break;
     case 'name-join':
-      await page.getByTestId('field-target_sheet_name').fill('Contract trail');
+      await page.getByTestId('field-sheet_name').fill('Contract trail');
       break;
   }
 

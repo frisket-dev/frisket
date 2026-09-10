@@ -175,16 +175,16 @@ test('menu-bar mode: dropdown opens, closes on backdrop + Esc, and an item opens
   // `.act-menubar-backdrop` click-catcher this test used to click retired
   // with it. The OUTCOME under test (outside click dismisses) is unchanged;
   // only the implementation-detail testid this asserted through is gone.
-  await page.getByTestId('menubar-menu-documents').click();
-  await expect(page.getByTestId('menubar-dropdown-documents')).toBeVisible();
+  await page.getByTestId('menubar-menu-media').click();
+  await expect(page.getByTestId('menubar-dropdown-media')).toBeVisible();
   await page.getByTestId('chrome-bar').click({ position: { x: 1, y: 1 } });
-  await expect(page.getByTestId('menubar-dropdown-documents')).toHaveCount(0);
+  await expect(page.getByTestId('menubar-dropdown-media')).toHaveCount(0);
 
   // Esc also closes it.
-  await page.getByTestId('menubar-menu-documents').click();
-  await expect(page.getByTestId('menubar-dropdown-documents')).toBeVisible();
+  await page.getByTestId('menubar-menu-media').click();
+  await expect(page.getByTestId('menubar-dropdown-media')).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(page.getByTestId('menubar-dropdown-documents')).toHaveCount(0);
+  await expect(page.getByTestId('menubar-dropdown-media')).toHaveCount(0);
 
   // Native menu-bar gesture while a menu is open: hovering sibling triggers
   // switches the open category without encoding the current category names.
@@ -266,7 +266,7 @@ test('contextual categories are keyed to column types in both ribbon and compact
   await expect(page.getByTestId('menubar-menu-ctx-pdf')).toHaveCount(0);
 
   await page.getByTestId('ribbon-expand').click();
-  await expect(page.getByTestId('ribbon-tab-home')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('ribbon-tab-analyze')).toHaveAttribute('aria-selected', 'true');
 });
 
 test('ribbonMode persists across reload', async ({ page }) => {

@@ -322,7 +322,7 @@ export function createScopedChromePreferenceOwner(
           'project',
           'activeRibbonTab',
           chromeStorageKeys.activeRibbonTab(projectId),
-          'home',
+          'analyze',
           (raw) => raw || undefined,
         ),
         discoverOpen: readPreference(

@@ -59,7 +59,7 @@ test('ribbon and compact menu expose identical ordered categories and leaves', a
   // The catalog fetch (listActionCatalog) that populates actActionTemplates
   // is async. Wait for a real action leaf before snapshotting the shared
   // model; fixed command leaves can render before the catalog settles.
-  await page.getByTestId('ribbon-tab-home').click();
+  await page.getByTestId('ribbon-tab-analyze').click();
   await expect(page.getByTestId('ribbon-action-map.ask')).toBeVisible();
 
   const ribbonCategories = await page
@@ -192,11 +192,11 @@ test('focused categories stay reachable without pushing ribbon controls offscree
   await seedProject(page);
 
   const collapse = page.getByTestId('ribbon-collapse');
-  await expect(page.getByTestId('ribbon-tab-location')).toBeAttached();
+  await expect(page.getByTestId('ribbon-tab-research')).toBeAttached();
   const ribbonScrolls = await page.locator('.act-ribbon-tabs').evaluate((tabs) =>
     tabs.scrollWidth > tabs.clientWidth);
-  expect(ribbonScrolls).toBe(true);
-  await page.getByTestId('ribbon-tab-location').click();
+  expect(ribbonScrolls).toBe(false);
+  await page.getByTestId('ribbon-tab-research').click();
   await expect(page.getByTestId('ribbon-action-enrich.geocode')).toBeVisible();
   const collapseBox = await collapse.boundingBox();
   expect(collapseBox).not.toBeNull();
@@ -206,9 +206,9 @@ test('focused categories stay reachable without pushing ribbon controls offscree
   const expand = page.getByTestId('ribbon-expand');
   const menuScrolls = await page.locator('.act-menubar-menus').evaluate((tabs) =>
     tabs.scrollWidth > tabs.clientWidth);
-  expect(menuScrolls).toBe(true);
-  await page.getByTestId('menubar-menu-location').click();
-  const menu = page.getByTestId('menubar-dropdown-location');
+  expect(menuScrolls).toBe(false);
+  await page.getByTestId('menubar-menu-research').click();
+  const menu = page.getByTestId('menubar-dropdown-research');
   await expect(menu).toBeVisible();
   const [menuBox, expandBox] = await Promise.all([menu.boundingBox(), expand.boundingBox()]);
   expect(menuBox).not.toBeNull();
@@ -220,7 +220,7 @@ test('focused categories stay reachable without pushing ribbon controls offscree
   await expect(page.getByTestId('generated-action-form')).toBeVisible();
 });
 
-for (const savedTab of ['read', 'location']) {
+for (const savedTab of ['data', 'research']) {
   test(`catalog loading preserves saved ${savedTab} until tabs can be resolved`, async ({ page }) => {
     const { pid } = await seedProject(page);
     await expect(page.getByTestId('ribbon-action-map.ask')).toBeVisible();
@@ -241,7 +241,6 @@ for (const savedTab of ['read', 'location']) {
     } finally {
       releaseCatalog();
     }
-    const expectedTab = savedTab === 'read' ? 'home' : savedTab;
-    await expect(page.getByTestId(`ribbon-tab-${expectedTab}`)).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId(`ribbon-tab-${savedTab}`)).toHaveAttribute('aria-selected', 'true');
   });
 }

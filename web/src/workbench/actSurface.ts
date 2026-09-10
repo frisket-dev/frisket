@@ -183,41 +183,56 @@ interface RibbonTabLayout {
 // the file header: no action kind is named below.
 const RIBBON_LAYOUT: readonly RibbonTabLayout[] = [
   {
-    id: 'data', label: 'Data', groups: [{ caption: 'DATA', commands: [
-      { command: 'import', label: 'Import data…', icon: Upload, primary: true },
-      { command: 'sources', label: 'Sources & connections', icon: Database },
-      { command: 'export-csv', label: 'Export data', icon: Download },
-      { command: 'export-google-sheets', label: 'Google Sheets', icon: FileSpreadsheet },
-      { command: 'export-column-tables', label: 'Tables as ZIP', icon: FileArchive },
-    ] }],
-  },
-  { id: 'web', label: 'Web', groups: [{ caption: 'WEB' }] },
-  { id: 'video', label: 'Video', groups: [{ caption: 'VIDEO' }] },
-  {
-    id: 'transcripts', label: 'Transcripts', groups: [{ caption: 'TRANSCRIPTS', commands: [
-      { command: 'transcribe-compare', label: 'Transcribe Compare', icon: AudioLines },
-      { command: 'topic-compare', label: 'Topic Compare', icon: Rows3 },
-    ] }],
+    id: 'data', label: 'Data', groups: [
+      { caption: 'DATA', commands: [
+        { command: 'import', label: 'Import data…', icon: Upload, primary: true },
+        { command: 'sources', label: 'Sources & connections', icon: Database },
+        { command: 'export-csv', label: 'Export data', icon: Download },
+        { command: 'export-google-sheets', label: 'Google Sheets', icon: FileSpreadsheet },
+        { command: 'export-column-tables', label: 'Tables as ZIP', icon: FileArchive },
+      ] },
+      { caption: 'WEB' },
+    ],
   },
   {
-    id: 'documents', label: 'Documents', groups: [{ caption: 'DOCUMENTS', commands: [
-      { command: 'ocr-compare', label: 'OCR Compare', icon: ScanText },
-    ] }],
+    id: 'media', label: 'Media', groups: [
+      { caption: 'DOCUMENTS', commands: [
+        { command: 'ocr-compare', label: 'OCR Compare', icon: ScanText },
+      ] },
+      { caption: 'TRANSCRIPTS', commands: [
+        { command: 'transcribe-compare', label: 'Transcribe Compare', icon: AudioLines },
+        { command: 'topic-compare', label: 'Topic Compare', icon: Rows3 },
+      ] },
+      { caption: 'VIDEO' },
+    ],
+  },
+  {
+    id: 'analyze', label: 'Analyze', groups: [
+      { caption: 'ANALYZE' },
+      { caption: 'EXTRACT' },
+      { caption: 'LIBRARY' },
+    ],
+  },
+  {
+    id: 'transform', label: 'Transform', groups: [
+      { caption: 'TRANSFORM' },
+      { caption: 'RESOLVE' },
+      { caption: 'LANGUAGE', commands: [
+        { command: 'translate-compare', label: 'Translate Compare', icon: Languages },
+      ] },
+    ],
   },
   { id: 'tables', label: 'Tables', groups: [{ caption: 'TABLES' }] },
-  // Keep the Analyze id for persisted selection and the missing-tab fallback.
-  { id: 'home', label: 'Analyze', groups: [{ caption: 'ANALYZE' }, { caption: 'LIBRARY' }] },
-  { id: 'extract', label: 'Extract', groups: [{ caption: 'EXTRACT' }] },
-  { id: 'transform', label: 'Transform', groups: [{ caption: 'TRANSFORM' }] },
-  { id: 'resolve', label: 'Resolve', groups: [{ caption: 'RESOLVE' }] },
   {
-    id: 'language', label: 'Language', groups: [{ caption: 'LANGUAGE', commands: [
-      { command: 'translate-compare', label: 'Translate Compare', icon: Languages },
-    ] }],
+    id: 'research', label: 'Research', groups: [
+      { caption: 'RESEARCH' },
+      { caption: 'LOCATION' },
+    ],
   },
-  { id: 'research', label: 'Research', groups: [{ caption: 'RESEARCH' }] },
-  { id: 'location', label: 'Location', groups: [{ caption: 'LOCATION' }] },
 ];
+
+/** Permanent tab identities, derived from the layout that both Act surfaces render. */
+export const BASE_ACT_TAB_IDS: readonly string[] = RIBBON_LAYOUT.map((tab) => tab.id);
 
 // Contextual tabs keyed to the presence of a column type via the SHARED
 // dataRequirements helper (never a bespoke column-type check). PDF tools iff a
@@ -609,18 +624,17 @@ export function resolveRibbonTabs(
     if (groups.length === 0) continue;
     tabs.push({ id: layout.id, label: layout.label, contextual: false, groups });
   }
-  // Plugin launchers ingest into the LIBRARY group (Analyze tab, whose stable
-  // internal id remains `home`). LIBRARY carries no fixed command anymore
+  // Plugin launchers ingest into the LIBRARY group in Analyze. LIBRARY carries no fixed command anymore
   // (the 'Custom action' tile was removed), so the group is dropped as empty by
   // the loop above — recreate it here on demand, then normalize the first
   // launcher to primary to preserve the one-primary-per-group invariant.
   if (pluginLaunchers.length > 0) {
-    const homeTab = tabs.find((tab) => tab.id === 'home');
-    if (homeTab) {
-      let libraryGroup = homeTab.groups.find((group) => group.caption === 'LIBRARY');
+    const analyzeTab = tabs.find((tab) => tab.id === 'analyze');
+    if (analyzeTab) {
+      let libraryGroup = analyzeTab.groups.find((group) => group.caption === 'LIBRARY');
       if (!libraryGroup) {
         libraryGroup = { caption: 'LIBRARY', items: [] };
-        homeTab.groups.push(libraryGroup);
+        analyzeTab.groups.push(libraryGroup);
       }
       for (const launcher of pluginLaunchers) {
         libraryGroup.items.push({

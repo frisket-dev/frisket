@@ -65,7 +65,7 @@ test('Combine values walkthrough cleans agency names and repairs their counts', 
     await expect(values).toContainText('Riverton Water Authority');
   });
   await walkthroughStep('open-transform', async () => {
-    await page.getByTestId('ribbon-tab-resolve').click();
+    await page.getByTestId('ribbon-tab-transform').click();
     await expect(page.getByTestId('ribbon-action-resolve.combine')).toBeVisible();
   });
   await walkthroughStep('open-combine', async () => {

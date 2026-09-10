@@ -61,8 +61,8 @@ describe('createChromeStore', () => {
     expect(createChromeState(PROJECT_ID).ribbonMode).toBe('ribbon');
   });
 
-  it('activeRibbonTab loads the stored value or falls back to "home"', () => {
-    expect(createChromeState(PROJECT_ID).activeRibbonTab).toBe('home');
+  it('activeRibbonTab loads the stored value or falls back to "analyze"', () => {
+    expect(createChromeState(PROJECT_ID).activeRibbonTab).toBe('analyze');
     localStorage.setItem(`frisket:ribbon-tab:${PROJECT_ID}`, 'act');
     expect(createChromeState(PROJECT_ID).activeRibbonTab).toBe('act');
   });

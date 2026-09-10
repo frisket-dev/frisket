@@ -2,7 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Braces, LocateFixed } from 'lucide-react';
 import type { ActionTemplate } from '../../src/api/types';
 import { actionTemplatesFromCatalog } from '../../src/actions/model';
-import { ACTION_ICON_BY_KIND, resolveRibbonTabs } from '../../src/workbench/actSurface';
+import {
+  ACTION_ICON_BY_KIND,
+  BASE_ACT_TAB_IDS,
+  resolveRibbonTabs,
+} from '../../src/workbench/actSurface';
 import {
   completeMappedActionCatalog,
   syntheticActionCatalogEntry,
@@ -78,6 +82,12 @@ describe('action icon semantics', () => {
 });
 
 describe('resolveRibbonTabs placement invariants', () => {
+  it('keeps the permanent surface to six broad tabs', () => {
+    expect(BASE_ACT_TAB_IDS).toEqual([
+      'data', 'media', 'analyze', 'transform', 'tables', 'research',
+    ]);
+  });
+
   it.each([
     ['derive.join', 'derive_join'], ['join.semantic', 'semantic_join'],
   ])('places %s once in Tables under its canonical ID', (canonical, retired) => {
@@ -166,7 +176,7 @@ describe('resolveRibbonTabs placement invariants', () => {
   });
 });
 
-// The four resolve launchers join cluster in resolve/RESOLVE via
+// The four resolve launchers join cluster in transform/RESOLVE via
 // ACTION_PLACEMENTS, orders
 // 1-4 behind cluster's order-0 primary.
 describe('resolve/RESOLVE group placement', () => {
@@ -186,7 +196,7 @@ describe('resolve/RESOLVE group placement', () => {
     );
     const tabs = resolveRibbonTabs(templates, EMPTY_CONTEXT);
     const group = tabs
-      .find((tab) => tab.id === 'resolve')
+      .find((tab) => tab.id === 'transform')
       ?.groups.find((candidate) => candidate.caption === 'RESOLVE');
     const actions = (group?.items ?? []).filter((item) => item.kind === 'action');
     expect(actions.map((item) => (item.kind === 'action' ? item.launcherKind : null))).toEqual([
@@ -208,7 +218,7 @@ describe('documents metadata group placement', () => {
       completeMappedActionCatalog({ stockEntries: [METADATA_ENTRY] }));
     const tabs = resolveRibbonTabs(templates, EMPTY_CONTEXT);
     const group = tabs
-      .find((tab) => tab.id === 'documents')
+      .find((tab) => tab.id === 'media')
       ?.groups.find((candidate) => candidate.caption === 'DOCUMENTS');
 
     expect(group?.items).toEqual(expect.arrayContaining([
@@ -241,13 +251,13 @@ describe('semantic action placement', () => {
     expect(launcherKinds).not.toContain('to_geo_point');
   });
 
-  it('keeps generated geo conversion in Location with its canonical icon', () => {
+  it('keeps generated geo conversion in the Location group with its canonical icon', () => {
     const entry = syntheticActionCatalogEntry('map.to_geo_point');
     const templates = actionTemplatesFromCatalog(
       completeMappedActionCatalog({ stockEntries: [entry] }),
     );
     const item = resolveRibbonTabs(templates, EMPTY_CONTEXT)
-      .find((tab) => tab.id === 'location')
+      .find((tab) => tab.id === 'research')
       ?.groups.find((group) => group.caption === 'LOCATION')
       ?.items.find((candidate) => candidate.kind === 'action'
         && candidate.launcherKind === entry.kind);
@@ -279,7 +289,7 @@ describe('semantic action placement', () => {
     );
     const template = templates.find((candidate) => candidate.actionKind === entry.kind);
     const item = resolveRibbonTabs(templates, EMPTY_CONTEXT)
-      .find((tab) => tab.id === 'home')
+      .find((tab) => tab.id === 'analyze')
       ?.groups.find((group) => group.caption === 'ANALYZE')
       ?.items.find((candidate) => candidate.kind === 'action'
         && candidate.launcherKind === entry.kind);
@@ -298,10 +308,10 @@ describe('semantic action placement', () => {
     const templates = actionTemplatesFromCatalog(completeMappedActionCatalog());
     const tabs = resolveRibbonTabs(templates, EMPTY_CONTEXT);
     const categorize = tabs
-      .find((tab) => tab.id === 'home')
+      .find((tab) => tab.id === 'analyze')
       ?.groups.find((candidate) => candidate.caption === 'ANALYZE');
     const convert = tabs
-      .find((tab) => tab.id === 'language')
+      .find((tab) => tab.id === 'transform')
       ?.groups.find((candidate) => candidate.caption === 'LANGUAGE');
 
     expect(categorize?.items).toEqual(expect.arrayContaining([
@@ -362,24 +372,25 @@ describe('link contextual action placement', () => {
 });
 
 describe('focused media action placement', () => {
-  it('separates video editing, transcript work, documents and language tools', () => {
+  it('separates video editing, transcript work, documents and language into groups', () => {
     const templates = actionTemplatesFromCatalog(completeMappedActionCatalog());
     const tabs = resolveRibbonTabs(templates, EMPTY_CONTEXT);
-    const identities = (id: string) => tabs.find((tab) => tab.id === id)?.groups
+    const identities = (id: string, caption: string) => tabs.find((tab) => tab.id === id)?.groups
+      .filter((group) => group.caption === caption)
       .flatMap((group) => group.items)
       .map((item) => item.kind === 'action' ? item.launcherKind
         : item.kind === 'command' ? item.command : item.contributionId);
-    expect(identities('video')).toEqual(expect.arrayContaining([
+    expect(identities('media', 'VIDEO')).toEqual(expect.arrayContaining([
       'map.find_visual_cuts', 'temporal.extract_range', 'derive.temporal_segments',
     ]));
-    expect(identities('transcripts')).toEqual(expect.arrayContaining([
+    expect(identities('media', 'TRANSCRIPTS')).toEqual(expect.arrayContaining([
       'media.transcribe', 'map.find_topic_sections', 'derive.transcript_segments',
       'transcribe-compare', 'topic-compare',
     ]));
-    expect(identities('documents')).toEqual(expect.arrayContaining([
+    expect(identities('media', 'DOCUMENTS')).toEqual(expect.arrayContaining([
       'media.ocr', 'media.to_markdown', 'media.extract_pdf_tables', 'ocr-compare',
     ]));
-    expect(identities('language')).toContain('translate-compare');
+    expect(identities('transform', 'LANGUAGE')).toContain('translate-compare');
   });
 });
 

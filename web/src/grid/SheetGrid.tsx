@@ -2165,7 +2165,6 @@ function SheetGridSurface({ controller }: { controller: SheetGridController }) {
             className="grid-walkthrough-column-anchor"
             data-testid={`grid-column-${column.name}`}
             data-walkthrough-grid-column={column.name}
-            aria-hidden="true"
             style={{
               top: headerTop,
               left,

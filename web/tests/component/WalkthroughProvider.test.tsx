@@ -143,31 +143,31 @@ afterEach(() => {
 describe('walkthrough targets', () => {
   it('uses the action surface that is currently rendered', () => {
     const compact = document.createElement('button');
-    compact.dataset.testid = 'menubar-menu-extract';
+    compact.dataset.testid = 'menubar-menu-analyze';
     document.body.append(compact);
 
-    expect(resolveWalkthroughTarget({ kind: 'action-tab', id: 'extract' })).toBe(compact);
+    expect(resolveWalkthroughTarget({ kind: 'action-tab', id: 'analyze' })).toBe(compact);
 
     const ribbon = document.createElement('button');
-    ribbon.dataset.testid = 'ribbon-tab-extract';
+    ribbon.dataset.testid = 'ribbon-tab-analyze';
     document.body.prepend(ribbon);
 
-    expect(resolveWalkthroughTarget({ kind: 'action-tab', id: 'extract' })).toBe(ribbon);
+    expect(resolveWalkthroughTarget({ kind: 'action-tab', id: 'analyze' })).toBe(ribbon);
   });
 
   it('ignores a matching control inside a hidden ancestor', () => {
     const hiddenParent = document.createElement('div');
     hiddenParent.style.display = 'none';
     const hidden = document.createElement('button');
-    hidden.dataset.testid = 'ribbon-tab-extract';
+    hidden.dataset.testid = 'ribbon-tab-analyze';
     hiddenParent.append(hidden);
     document.body.append(hiddenParent);
 
     const visible = document.createElement('button');
-    visible.dataset.testid = 'ribbon-tab-extract';
+    visible.dataset.testid = 'ribbon-tab-analyze';
     document.body.append(visible);
 
-    expect(resolveWalkthroughTarget({ kind: 'action-tab', id: 'extract' })).toBe(visible);
+    expect(resolveWalkthroughTarget({ kind: 'action-tab', id: 'analyze' })).toBe(visible);
   });
 
   it('notices a target whose test id changes in place after loading', async () => {
@@ -340,7 +340,7 @@ describe('Regex walkthrough', () => {
     expect(markdown).toContain('# Follow contracts across sheets');
     expect(markdown).toContain('## 1. Open Dispatches');
     expect(markdown).toContain('## 3. Read the source stories');
-    expect(markdown).toContain('## 4. Open Extract');
+    expect(markdown).toContain('## 4. Open Analyze');
     expect(markdown).toContain('## 20. Inspect the contract trail');
     expect(markdown).toContain('**Then:** Stories with a contract reference');
   });
@@ -415,9 +415,9 @@ describe('Regex walkthrough', () => {
         </button>
         <button type="button" data-testid="view-switch-grid">Grid</button>
         <span data-testid="grid-column-story" data-walkthrough-grid-column="story" />
-        <button type="button" data-testid="ribbon-tab-extract">Extract</button>
-        <button type="button" data-testid="ribbon-action-regex">Regex extract</button>
-        <button type="button" data-testid="text-source-column-select">Story</button>
+        <button type="button" data-testid="ribbon-tab-analyze">Analyze</button>
+        <button type="button" data-testid="ribbon-action-map.regex_extract">Extract text with regex</button>
+        <button type="button" data-testid="field-input_columns">Story</button>
       </WalkthroughProvider>,
     );
 
@@ -451,28 +451,28 @@ describe('Regex walkthrough', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Open Extract' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Open Analyze' })).toBeInTheDocument();
       expect(screen.getByTestId('walkthrough-target-box')).toHaveAttribute(
         'data-target-testid',
-        'ribbon-tab-extract',
+        'ribbon-tab-analyze',
       );
     });
 
-    fireEvent.click(screen.getByTestId('ribbon-tab-extract'));
+    fireEvent.click(screen.getByTestId('ribbon-tab-analyze'));
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Choose Regex extract' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Choose Extract text with regex' })).toBeInTheDocument();
       expect(screen.getByTestId('walkthrough-target-box')).toHaveAttribute(
         'data-target-testid',
-        'ribbon-action-regex',
+        'ribbon-action-map.regex_extract',
       );
     });
 
-    fireEvent.click(screen.getByTestId('ribbon-action-regex'));
+    fireEvent.click(screen.getByTestId('ribbon-action-map.regex_extract'));
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: 'Choose the source text' })).toBeInTheDocument();
       expect(screen.getByTestId('walkthrough-target-box')).toHaveAttribute(
         'data-target-testid',
-        'text-source-column-select',
+        'field-input_columns',
       );
     });
   });
@@ -507,8 +507,8 @@ describe('Regex walkthrough', () => {
         </button>
         <button type="button" data-testid="view-switch-grid">Grid</button>
         <span data-testid="grid-column-story" data-walkthrough-grid-column="story" />
-        <button type="button" data-testid="ribbon-tab-extract">Extract</button>
-        <button type="button" data-testid="ribbon-action-regex">Regex extract</button>
+        <button type="button" data-testid="ribbon-tab-analyze">Analyze</button>
+        <button type="button" data-testid="ribbon-action-map.regex_extract">Extract text with regex</button>
       </WalkthroughProvider>,
     );
 
@@ -523,14 +523,14 @@ describe('Regex walkthrough', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     expect(screen.getByRole('heading', { name: 'Read the source stories' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
-    expect(screen.getByRole('heading', { name: 'Open Extract' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Open Analyze' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
-    expect(screen.getByRole('heading', { name: 'Choose Regex extract' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Choose Extract text with regex' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Pause walkthrough' }));
     expect(screen.queryByTestId('walkthrough-card')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Resume' }));
-    expect(screen.getByRole('heading', { name: 'Choose Regex extract' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Choose Extract text with regex' })).toBeInTheDocument();
   });
 
   it('restores a matching project paused and re-resolves its target on resume', async () => {
@@ -655,7 +655,7 @@ describe('Regex walkthrough', () => {
     render(
       <WalkthroughProvider>
         <Launcher />
-        <button type="button" data-testid="ribbon-tab-extract">Extract</button>
+        <button type="button" data-testid="ribbon-tab-analyze">Analyze</button>
       </WalkthroughProvider>,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Start' }));
