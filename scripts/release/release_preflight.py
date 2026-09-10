@@ -18,8 +18,8 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ARTIFACT_DIR = Path("/tmp/frisket-release-preflight-dist")
-OWNER_CONFIRM_PHRASE = "owner-account-frisket"
-PYPI_JSON_URL = "https://pypi.org/pypi/frisket/json"
+OWNER_CONFIRM_PHRASE = "owner-account-frisket-data"
+PYPI_JSON_URL = "https://pypi.org/pypi/frisket-data/json"
 FRONTEND_HOST_PACKAGE_NAME = "@frisket/frontend-host"
 NPM_REGISTRY_URL = "https://registry.npmjs.org/@frisket%2Ffrontend-host"
 DIRECT_REQUIREMENT_RE = re.compile(r"^\s*([A-Za-z0-9_.-]+)(?:\[[^\]]+\])?\s*@\s*\S+")
@@ -166,7 +166,7 @@ def check_url_status(name: str, url: str, timeout: float) -> int:
 def artifact_paths(artifact_dir: Path, version: str) -> list[Path]:
     if not artifact_dir.exists():
         return []
-    prefix = f"frisket-{version}"
+    prefix = f"frisket_data-{version}"
     return sorted(
         path
         for path in artifact_dir.iterdir()
@@ -188,7 +188,7 @@ def handle_pypi_publish(args: argparse.Namespace) -> int:
     artifacts = artifact_paths(args.artifact_dir, version)
     if not artifacts:
         print(
-            f"refusing PyPI publish: no frisket {version} artifacts in {args.artifact_dir}; run --build first",
+            f"refusing PyPI publish: no frisket-data {version} artifacts in {args.artifact_dir}; run --build first",
             file=sys.stderr,
         )
         return 2
@@ -268,7 +268,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.check_availability:
         pypi_status = check_url_status(
-            "PyPI frisket", PYPI_JSON_URL, args.registry_timeout
+            "PyPI frisket-data", PYPI_JSON_URL, args.registry_timeout
         )
         npm_status = check_url_status(
             f"npm {FRONTEND_HOST_PACKAGE_NAME}",

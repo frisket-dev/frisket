@@ -23,12 +23,12 @@ def run_preflight(*args: str) -> subprocess.CompletedProcess[str]:
 
 
 def test_release_preflight_ignores_stale_pypi_artifacts(tmp_path):
-    (tmp_path / "frisket-0.0.1.tar.gz").write_text("stale")
+    (tmp_path / "frisket_data-0.0.1.tar.gz").write_text("stale")
 
     proc = run_preflight(
         "--publish-pypi",
         "--confirm-owner-account",
-        "owner-account-frisket",
+        "owner-account-frisket-data",
         "--artifact-dir",
         str(tmp_path),
     )
@@ -36,7 +36,7 @@ def test_release_preflight_ignores_stale_pypi_artifacts(tmp_path):
     assert proc.returncode == 2
     with (ROOT / "pyproject.toml").open("rb") as handle:
         version = tomllib.load(handle)["project"]["version"]
-    assert f"no frisket {version} artifacts" in proc.stderr
+    assert f"no frisket-data {version} artifacts" in proc.stderr
 
 
 def test_release_preflight_static_checks_pass_without_network_or_upload():
@@ -77,7 +77,7 @@ def test_release_preflight_rejects_direct_url_dependencies(tmp_path):
     (tmp_path / "pyproject.toml").write_text(
         """
 [project]
-name = "frisket"
+name = "frisket-data"
 description = "test package"
 license = "Apache-2.0"
 readme = "README.md"
@@ -119,7 +119,7 @@ def test_release_preflight_refuses_npm_publish_without_a_registry_workflow():
     proc = run_preflight(
         "--publish-npm",
         "--confirm-owner-account",
-        "owner-account-frisket",
+        "owner-account-frisket-data",
         "--execute-upload",
     )
 
