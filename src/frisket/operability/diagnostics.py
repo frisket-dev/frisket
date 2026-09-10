@@ -720,7 +720,7 @@ def engines_report() -> dict[str, Any]:
     summary = (
         ", ".join(_label(name) for name in installed)
         if installed
-        else "none installed (repair base install; ASR needs frisket[standard])"
+        else "none installed (repair base install; ASR needs frisket-data[standard])"
     )
     remediation: str | None = None
     needs_provisioning = [*fetches_on_first_use, *offline_unavailable]
@@ -878,7 +878,7 @@ def pyicu_install_preflight() -> dict[str, Any]:
         remediation = (
             "create a Miniforge environment, run "
             "`conda install -c conda-forge pyicu`, then install "
-            "`frisket[entities]` with pip in that environment"
+            "`frisket-data[entities]` with pip in that environment"
         )
         return {
             **base,

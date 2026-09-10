@@ -200,7 +200,7 @@ def test_opus_mt_availability_tracks_runtime_not_pairs(monkeypatch) -> None:
     assert opus["tier"] == "local"
     assert opus["billable"] is False
     assert opus["available"] is False
-    assert "frisket[standard]" in opus["error"]
+    assert "frisket-data[standard]" in opus["error"]
     assert "models" not in opus  # no pairs installed -> no models list
     assert "downloadable_pairs" in opus  # the roster is always present
 
@@ -225,7 +225,7 @@ def test_hy_mt2_is_experimental_opt_in_without_quality_claims(monkeypatch) -> No
     assert hy["tier"] == "local"
     assert hy["billable"] is False
     assert hy["available"] is False  # runtime absent -> unavailable + remediation
-    assert "frisket[translate-gguf]" in hy["error"]
+    assert "frisket-data[translate-gguf]" in hy["error"]
     assert "experimental" in hy["label"].lower()
     # Experimental copy makes no unsupported "higher quality"/"better" claim.
     blob = f"{hy['label']} {hy.get('error', '')}".lower()

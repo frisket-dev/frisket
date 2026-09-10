@@ -333,7 +333,7 @@ def test_unavailable_extra_refuses_before_source_read(tmp_path, monkeypatch):
     monkeypatch.setattr(
         entity_package,
         "entities_available",
-        lambda: (False, "Install frisket[entities]."),
+        lambda: (False, "Install frisket-data[entities]."),
     )
     with closing(Project.create(tmp_path / "project")) as project:
         bound, _ = _bound(import_entities, {"document": "not-readable"})

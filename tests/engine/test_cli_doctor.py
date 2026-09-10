@@ -162,7 +162,7 @@ def test_doctor_local_engines_line_labels_every_engine_state():
     line = next(ln for ln in proc.stdout.splitlines() if "local engines:" in ln)
     body = line.split("local engines:", 1)[1].strip()
     assert body == (
-        "none installed (repair base install; ASR needs frisket[standard])"
+        "none installed (repair base install; ASR needs frisket-data[standard])"
     ) or re.fullmatch(
         rf"({_ENGINE_LABEL})(, {_ENGINE_LABEL})*",
         body,

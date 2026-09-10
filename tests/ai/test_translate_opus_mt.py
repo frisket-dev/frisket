@@ -141,7 +141,7 @@ async def test_recipe_opus_mt_runtime_absent_reports_remediation(monkeypatch):
             ctx,
         )
     assert excinfo.value.code == "unavailable"
-    assert "frisket[standard]" in excinfo.value.message
+    assert "frisket-data[standard]" in excinfo.value.message
 
 
 def test_translate_catalog_reports_installed_and_downloadable_pairs(monkeypatch):
