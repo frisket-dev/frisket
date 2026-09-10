@@ -1,0 +1,23 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check --fix
+        language: system
+        types_or: [python, pyi]
+        files: ^(src|tests)/
+        require_serial: true
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format
+        language: system
+        types_or: [python, pyi]
+        files: ^(src|tests)/
+        require_serial: true
+      - id: gitleaks-staged
+        name: gitleaks staged audit
+        entry: uv run python scripts/gitleaks_audit.py staged
+        language: system
+        pass_filenames: false
+        always_run: true

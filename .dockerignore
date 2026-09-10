@@ -1,0 +1,15 @@
+# Keep host-side state out of the image build context. Without this, the
+# `COPY web/ ./` stage overlays the host's web/node_modules on top of the
+# container's own `npm ci` (platform mismatch + races with a host npm run),
+# and `.git`/worktrees bloat the context enormously.
+.git
+.claude
+.venv
+**/node_modules
+web/dist
+dist
+src/frisket/web_static
+**/__pycache__
+*.pyc
+.secrets
+data

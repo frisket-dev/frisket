@@ -1,0 +1,163 @@
+name: docker
+# Image builds are expensive and the release workflow rebuilds them for every
+# tag, so per-push builds only earn their cost when the image inputs change.
+# The weekly cron catches base-image/toolchain drift between releases.
+on:
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - uv.lock
+      - pyproject.toml
+      - scripts/smoke/smoke_media_metadata_runtime.py
+      - .github/workflows/docker.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - uv.lock
+      - pyproject.toml
+      - scripts/smoke/smoke_media_metadata_runtime.py
+      - .github/workflows/docker.yml
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build and smoke (${{ matrix.platform }})
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            tag_suffix: amd64
+            runs_on: ubuntu-latest
+          - platform: linux/arm64
+            tag_suffix: arm64
+            runs_on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+    # Each leg now runs on a runner native to its platform (no QEMU), so both
+    # observe amd64-class build/smoke times (~7m).  Kept generous for runner
+    # contention.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+      - name: Derive OCI image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=sha,format=long,prefix=sha-
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+      - name: Build image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile
+          platforms: ${{ matrix.platform }}
+          load: true
+          push: false
+          tags: frisket-ci:${{ github.sha }}-${{ matrix.tag_suffix }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=frisket-docker-ci-${{ matrix.tag_suffix }}
+          cache-to: type=gha,mode=max,scope=frisket-docker-ci-${{ matrix.tag_suffix }}
+          build-args: |
+            FRISKET_BUILD_SHA=${{ github.sha }}
+      - name: Smoke-test packaged media metadata runtime
+        shell: bash
+        run: |
+          image="frisket-ci:${{ github.sha }}-${{ matrix.tag_suffix }}"
+          version="$(docker run --rm --platform '${{ matrix.platform }}' --entrypoint exiftool "$image" -ver)"
+          test "$version" = "13.59"
+          docker run --rm --platform '${{ matrix.platform }}' \
+            --entrypoint uv \
+            --volume "$PWD/scripts/smoke/smoke_media_metadata_runtime.py:/tmp/smoke_media_metadata_runtime.py:ro" \
+            "$image" \
+            run --no-sync python /tmp/smoke_media_metadata_runtime.py
+      # Boot the shipped self-host Compose stack on this platform's native
+      # runner and wait for /api/ready to report ok. This catches two failures
+      # a successful image build alone cannot detect:
+      #   - on amd64 it proves every image in the default service graph
+      #     (including the bundled `db` postgres reference) resolves to a
+      #     bootable manifest for x86_64, preventing an architecture-specific
+      #     digest from passing the build and failing only at startup;
+      #   - /api/ready returns ok:true only once the control database, the
+      #     provisioned run queue, AND a live current-version worker
+      #     heartbeat all exist (src/frisket/team/readiness.py) — so one
+      #     poll is also the worker-reaches-ready assertion and catches a
+      #     worker command that merely crash-loops.
+      # The image was `docker load`-ed by the build step above, so `up` must
+      # never trigger Compose's build-if-missing fallback — exactly the
+      # artifact-deploy premise tests/team/test_selfhosting_compose_contract.py
+      # encodes statically.
+      - name: Boot the self-host Compose stack to worker-ready
+        shell: bash
+        run: |
+          cp .env.example .env
+          echo "FRISKET_IMAGE=frisket-ci:${{ github.sha }}-${{ matrix.tag_suffix }}" >> .env
+          docker compose up -d --quiet-pull
+          body=""
+          for _ in $(seq 1 60); do
+            body="$(curl -fsS http://127.0.0.1:8000/api/ready 2>/dev/null || true)"
+            if [ -n "$body" ] && python3 -c 'import json,sys; sys.exit(0 if json.loads(sys.argv[1]).get("ok") is True else 1)' "$body"; then
+              echo "ready: $body"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "compose stack never reached ready; last /api/ready body: ${body:-<none>}"
+          docker compose ps
+          docker compose logs --tail 100
+          exit 1
+      # The downstream image extension contract: every promise a downstream
+      # overlay builds on, asserted against the real image and the stack
+      # booted above. This step IS the contract — a downstream overlay
+      # relies on it, so edit them together.
+      - name: Assert the downstream overlay contract
+        shell: bash
+        run: |
+          set -x
+          image="frisket-ci:${{ github.sha }}-${{ matrix.tag_suffix }}"
+          run() { docker run --rm --platform '${{ matrix.platform }}' "$@"; }
+          # Default CMD is `frisket server` as a plain CMD — no ENTRYPOINT
+          # wrapper, so a downstream CMD override replaces it cleanly.
+          test "$(docker inspect --format '{{json .Config.Cmd}}' "$image")" = '["frisket","server"]'
+          test "$(docker inspect --format '{{json .Config.Entrypoint}}' "$image")" = 'null'
+          # Non-root runtime identity: user frisket, fixed uid/gid 10001:10001,
+          # both in image metadata and live in the booted app and worker.
+          test "$(docker inspect --format '{{.Config.User}}' "$image")" = 'frisket'
+          test "$(run "$image" id -u)" = '10001'
+          test "$(run "$image" id -g)" = '10001'
+          test "$(docker compose exec -T app id -u)" = '10001'
+          test "$(docker compose exec -T worker id -u)" = '10001'
+          # /data is the single writable data root, owned by the runtime user
+          # in the image so fresh named volumes inherit it.
+          test "$(run "$image" stat -c '%u:%g' /data)" = '10001:10001'
+          test "$(run "$image" sh -c 'printf %s "$FRISKET_DATA_DIR"')" = '/data'
+          # /api/ready answers ok on the booted stack (the boot step polled it
+          # to true already; asserted here so the contract step stands alone).
+          body="$(curl -fsS http://127.0.0.1:8000/api/ready)"
+          python3 -c 'import json,sys; sys.exit(0 if json.loads(sys.argv[1]).get("ok") is True else 1)' "$body"
+          # Media toolbelt at the exact pinned versions (Dockerfile pins).
+          test "$(run --entrypoint exiftool "$image" -ver)" = '13.59'
+          run --entrypoint deno "$image" --version | head -n 1 | grep -q '^deno 2\.9\.3 '
+      - name: Tear down Compose stack
+        if: always()
+        shell: bash
+        run: docker compose down --volumes --remove-orphans || true

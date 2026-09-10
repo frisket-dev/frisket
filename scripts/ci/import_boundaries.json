@@ -1,0 +1,250 @@
+{
+  "rules": [
+    {
+      "id": "no-public-to-private-imports",
+      "comment": "No module of the public package may import an optional composition package at module level, inside a function, under TYPE_CHECKING, or through a literal dynamic import. Optional packages may import public code; public code must remain independently installable.",
+      "modules": [
+        "frisket",
+        "frisket.*"
+      ],
+      "exclude": [
+        "frisket_composition",
+        "frisket_composition.*"
+      ],
+      "forbidden_imports": [
+        "frisket.hosted",
+        "frisket.hosted.*",
+        "frisket_composition",
+        "frisket_composition.*",
+        "frisket.composition",
+        "frisket.composition.*"
+      ],
+      "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "base-endpoint-catalog-leaf",
+      "modules": [
+        "frisket.contracts.http.endpoint_catalog"
+      ],
+      "allowed_imports": [],
+      "allow_stdlib": true,
+      "reject_unresolved_dynamic": true
+    },
+    {
+      "id": "plugin-rpc-contract-authority-is-pure",
+      "comment": "PLUGIN-01: the versioned plugin RPC authority is schema-only and may depend only on Pydantic, stdlib, and the existing pure WritePlan contract. Process, provider, project, and server/runtime imports belong to PLUGIN-02 or host adapters.",
+      "modules": [
+        "frisket.contracts.plugin_rpc"
+      ],
+      "allowed_imports": [
+        "pydantic",
+        "frisket.contracts.plugin_write_plan"
+      ],
+      "allow_stdlib": true,
+      "reject_unresolved_dynamic": true
+    },
+    {
+      "id": "runner-split-leaves-do-not-import-the-engine",
+      "comment": "map_runner split: extracted leaf modules must never re-import the engine, or the split re-fuses. Wildcard over the runner package; only the package facade (__init__) is a legitimate map_runner importer.",
+      "modules": ["frisket.engine.runner.*"],
+      "exclude": ["frisket.engine.runner", "frisket.engine.runner.map_runner"],
+      "forbidden_imports": ["frisket.engine.runner.map_runner"],
+      "reject_unresolved_dynamic": true
+    },
+    {
+      "id": "store-split-leaves-do-not-import-the-project-facade",
+      "comment": "project.py split: extracted store leaf modules must never re-import the Project facade, or the split re-fuses. Wildcard over the store package; the excludes are the facade itself plus the frozen set of pre-split stores that already take a typed Project (evidence, media_clip, artifact_timeline). New leaf modules get no exclusion — they receive the project duck-typed.",
+      "modules": ["frisket.engine.store.*"],
+      "exclude": [
+        "frisket.engine.store.project",
+        "frisket.engine.store.evidence",
+        "frisket.engine.store.media_clip",
+        "frisket.engine.store.artifact_timeline"
+      ],
+      "forbidden_imports": ["frisket.engine.store.project"],
+      "reject_unresolved_dynamic": true
+    },
+    {
+      "id": "preview-never-imports-execution",
+      "comment": "The frisket.preview family is read-only by contract (no receipts, no runs, no job queue, no project writes; see preview/__init__.py). The forbidden set is the receipted execution machinery: the action executor, the job queue, the run engine, the receipt store, and the whole frisket.engine.runner package. No exclude is needed: preview.cluster shares deterministic fingerprint-clustering helpers from the ops layer instead.",
+      "modules": [
+        "frisket.preview",
+        "frisket.preview.*"
+      ],
+      "forbidden_imports": [
+        "frisket.engine.executor",
+        "frisket.engine.executor.*",
+        "frisket.engine.jobs",
+        "frisket.engine.jobs.*",
+        "frisket.engine.runner",
+        "frisket.engine.runner.*",
+        "frisket.engine.receipt_index",
+        "frisket.engine.receipt_index.*"
+      ],
+      "reject_unresolved_dynamic": true
+    },
+    {
+      "id": "engine-does-not-import-server-or-team",
+      "comment": "Layer rule: the execution core must not depend on the web/server or team layers. The exclude list is the frozen set of pre-existing edges (runner.review -> server.paging; executor export/source families -> server.exports/server.sources/server.notifications; jobs -> server.provider_config/server.notifications/server.sources/team.control_plane; store.credentials -> team.security). No new engine module may add such an import.",
+      "modules": [
+        "frisket.engine",
+        "frisket.engine.*"
+      ],
+      "exclude": [
+        "frisket.engine.runner.review",
+        "frisket.engine.executor.action_families.exports",
+        "frisket.engine.executor.action_families.exports_column_tables",
+        "frisket.engine.executor.collection_read",
+        "frisket.engine.executor.source_poll_action",
+        "frisket.engine.jobs.model_pull",
+        "frisket.engine.jobs.worker",
+        "frisket.engine.jobs.ports",
+        "frisket.engine.jobs.notifications_digest",
+        "frisket.engine.jobs.sources",
+        "frisket.engine.jobs.notifications_delivery",
+        "frisket.engine.jobs.runs",
+        "frisket.engine.store.credentials"
+      ],
+      "forbidden_imports": [
+        "frisket.server",
+        "frisket.server.*",
+        "frisket.team",
+        "frisket.team.*"
+      ],
+      "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "engine-does-not-import-features",
+      "comment": "Layer rule: the execution core must not depend on the features layer. The exclude list is the frozen set of feature consumers, including entity_package (the admitted FollowTheMoney dataset/package adapter), typed mutation_action, file_fetch (the admitted adapter replacing the SDK fetch classifier), and visual_cuts_read/topic_sections_read (the admitted temporal adapters replacing SDK finder orchestration), executor temporal/url_classification/watchlists/geometry/topic_segmentation consumers; jobs watchlists; store url_classification/watchlists — the store edge now lives in store.watches after the project.py split. No unrelated engine module may add such an import. The store.bundle_migrations exception is gone with the migration layer: its only features import was the watch-spec metadata backfill.",
+      "modules": [
+        "frisket.engine",
+        "frisket.engine.*"
+      ],
+      "exclude": [
+        "frisket.engine.executor.entity_package",
+        "frisket.engine.executor.transcript_read",
+        "frisket.engine.executor.file_fetch",
+        "frisket.engine.executor.temporal_materialization",
+        "frisket.engine.executor.temporal_annotations",
+        "frisket.engine.executor.plugin_write_apply",
+        "frisket.engine.executor.mutation_action",
+        "frisket.engine.executor.temporal_finder_provenance",
+        "frisket.engine.executor.visual_cuts_read",
+        "frisket.engine.executor.topic_sections_read",
+        "frisket.engine.executor.collection_read",
+        "frisket.engine.executor.action_families.imports",
+        "frisket.engine.jobs.sources",
+        "frisket.engine.jobs.watches",
+        "frisket.engine.store.media_download_candidates",
+        "frisket.engine.store.watches"
+      ],
+      "forbidden_imports": [
+        "frisket.features",
+        "frisket.features.*"
+      ],
+      "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "ops-does-not-import-server-or-team",
+      "comment": "Layer rule: op implementations must not depend on the web/server or team layers.",
+      "modules": [
+        "frisket.ops",
+        "frisket.ops.*"
+      ],
+      "forbidden_imports": [
+        "frisket.server",
+        "frisket.server.*",
+        "frisket.team",
+        "frisket.team.*"
+      ],
+      "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "store-never-imports-the-web-server",
+      "modules": [
+        "frisket.engine.store",
+        "frisket.engine.store.*"
+      ],
+      "forbidden_imports": [
+        "frisket.server",
+        "frisket.server.*"
+      ],
+      "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "workbench-wire-contracts-never-import-runtime-shared",
+      "comment": "Workbench wire-version constants live in the pure workbench contract. Neither that owner nor the generic contracts package may depend on the plugin runtime helper that consumes them.",
+      "modules": [
+        "frisket.authoring.workbench.contracts",
+        "frisket.contracts",
+        "frisket.contracts.*"
+      ],
+      "forbidden_imports": [
+        "frisket.authoring.workbench.plugin_runtime_shared"
+      ],
+      "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "contracts-import-no-service-or-runtime-layer",
+      "comment": "The contracts package is the pure wire/schema layer: request/response shapes, action descriptors, and endpoint policy/catalog. It may reference descriptor constants, but never the service/runtime layers that execute work.",
+      "modules": [
+        "frisket.contracts",
+        "frisket.contracts.*"
+      ],
+      "forbidden_imports": [
+        "frisket.server",
+        "frisket.server.*",
+        "frisket.engine",
+        "frisket.engine.*",
+        "frisket.ai",
+        "frisket.ai.*",
+        "frisket.team",
+        "frisket.team.*",
+        "frisket.authoring.actions",
+        "frisket.authoring.actions.*"
+      ],
+      "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "map-points-service-stays-projection-backend-generic",
+      "comment": "The map-points service consumes whatever projection backend the plugin registry provides; it must never re-weld itself to a geo-branded module.",
+      "modules": [
+        "frisket.server.services.map_points"
+      ],
+      "forbidden_imports": [
+        "frisket.features.geometry",
+        "frisket.features.geometry.*"
+      ],
+      "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "plugins-and-media-never-import-yt-dlp-in-process",
+      "comment": "Media acquisition runs the installed yt-dlp dependency out of process (`python -I -m yt_dlp`). No plugin/transport module may re-grow an in-process `import yt_dlp`.",
+      "modules": [
+        "frisket.plugins",
+        "frisket.plugins.*",
+        "frisket.ops.media_metadata"
+      ],
+      "forbidden_imports": [
+        "yt_dlp",
+        "yt_dlp.*"
+      ],
+      "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "sdk-never-imports-the-web-server-or-team",
+      "comment": "The sdk is the embeddable public surface. It composes executor/contracts/store/ops, but must not depend on the web server or the hosted control plane.",
+      "modules": [
+        "frisket.sdk",
+        "frisket.sdk.*"
+      ],
+      "forbidden_imports": [
+        "frisket.server",
+        "frisket.server.*",
+        "frisket.team",
+        "frisket.team.*"
+      ],
+      "reject_unresolved_dynamic": false
+    }
+  ]
+}

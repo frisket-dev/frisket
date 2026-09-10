@@ -1,0 +1,59 @@
+{
+  "note": "Hand-labeled from the literal report text; lat/lon in signed decimal degrees (N/E positive).",
+  "reports": [
+    {
+      "file": "ANC23LA011.pdf",
+      "ntsb_no": "ANC23LA011",
+      "lat": 60.726361,
+      "lon": -151.29916,
+      "source_quote": "60.726361,-151.29916(est)",
+      "has_coordinates": true,
+      "format": "decimal degrees with (est) suffix"
+    },
+    {
+      "file": "CEN23LA073.pdf",
+      "ntsb_no": "CEN23LA073",
+      "lat": 35.019889,
+      "lon": -92.555111,
+      "source_quote": "35.019889,-92.555111(est)",
+      "has_coordinates": true,
+      "format": "decimal degrees with (est) suffix"
+    },
+    {
+      "file": "CEN23LA075.pdf",
+      "ntsb_no": "CEN23LA075",
+      "lat": 35.4887,
+      "lon": -97.8213,
+      "source_quote": "35.4887,-97.8213",
+      "has_coordinates": true,
+      "format": "decimal degrees"
+    },
+    {
+      "file": "ERA23LA102.pdf",
+      "ntsb_no": "ERA23LA102",
+      "lat": 34.450082,
+      "lon": -84.938189,
+      "source_quote": "34.450082,-84.938189",
+      "has_coordinates": true,
+      "format": "decimal degrees"
+    },
+    {
+      "file": "ERA23LA107.pdf",
+      "ntsb_no": "ERA23LA107",
+      "lat": 40.333721,
+      "lon": -74.342052,
+      "source_quote": "40.333721,-74.342052(est)",
+      "has_coordinates": true,
+      "format": "decimal degrees with (est) suffix"
+    },
+    {
+      "file": "WPR23LA082.pdf",
+      "ntsb_no": "WPR23LA082",
+      "lat": 36.935733,
+      "lon": -121.78963,
+      "source_quote": "36.935733,-121.78963",
+      "has_coordinates": true,
+      "format": "decimal degrees"
+    }
+  ]
+}

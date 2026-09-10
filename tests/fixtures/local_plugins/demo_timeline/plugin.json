@@ -1,0 +1,63 @@
+{
+  "schema_version": "frisket.plugin.v1",
+  "id": "demo.timeline",
+  "version": "0.1.0",
+  "contributes": {
+    "workbench_views": ["demo.timeline.view.timeline"],
+    "workbench_panels": [],
+    "actions": [],
+    "importers": [],
+    "operators": [],
+    "projections": ["demo.timeline.projection.timeline"],
+    "column_types": [],
+    "job_handlers": []
+  },
+  "requires": {
+    "capabilities": ["plugin:trusted_local_backend"],
+    "secrets": []
+  },
+  "runtime": {
+    "actions": [],
+    "importers": [],
+    "operators": [],
+    "projections": [
+      {
+        "kind": "demo.timeline.projection.timeline",
+        "handler_api": "plugin_projection",
+        "title": "Build timeline projection",
+        "description": "Builds a host-owned timeline artifact from typed date rows.",
+        "module_path": "plugin.py",
+        "inputs": [
+          {
+            "name": "date",
+            "column_types": ["date"]
+          },
+          {
+            "name": "title",
+            "column_types": ["text"]
+          },
+          {
+            "name": "case_id",
+            "column_types": ["text"],
+            "optional": true
+          }
+        ],
+        "writes": [
+          {
+            "name": "timeline",
+            "type": "projection_artifact",
+            "schema": "frisket.timeline_projection_artifact.v1"
+          }
+        ]
+      }
+    ],
+    "job_handlers": [],
+    "workbench_components": [
+      {
+        "contribution_id": "demo.timeline.view.timeline",
+        "module_key": "trustedLocal.demoTimeline",
+        "component_key": "trustedLocal.demoTimeline.TimelineView"
+      }
+    ]
+  }
+}

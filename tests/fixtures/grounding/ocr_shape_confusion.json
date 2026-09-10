@@ -1,0 +1,52 @@
+{
+  "name": "ocr_shape_confusion",
+  "note": "shape-tolerant blend matches 'modern'/'modem' (rn~m), 'received'/'recelved' (l~1)",
+  "strategy": "align",
+  "target": {
+    "kind": "text",
+    "text": "modern"
+  },
+  "source": {
+    "kind": "word",
+    "tokens": [
+      {
+        "text": "the",
+        "box": [
+          0.1,
+          0.1,
+          0.2,
+          0.15
+        ],
+        "page": 1,
+        "source": "ocr"
+      },
+      {
+        "text": "modem",
+        "box": [
+          0.25,
+          0.1,
+          0.4,
+          0.15
+        ],
+        "page": 1,
+        "source": "ocr"
+      },
+      {
+        "text": "era",
+        "box": [
+          0.45,
+          0.1,
+          0.55,
+          0.15
+        ],
+        "page": 1,
+        "source": "ocr"
+      }
+    ]
+  },
+  "expect": {
+    "matches": true,
+    "min_spans": 1,
+    "granularity": "block"
+  }
+}

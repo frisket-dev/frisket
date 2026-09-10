@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+  Fixture provenance (guardrail 3: real-but-public government data).
+  Source: U.S. National Park Service (NPS) unit boundaries, KML, via data.gov.
+  Dataset: "National Park Boundaries" (catalog.data.gov/dataset/national-park-boundaries).
+  Direct KMZ: http://gstore.unm.edu/apps/rgisarchive/datasets/7bbe8af5-029b-4adf-b06c-134f0dd57226/nps_boundary.derived.kml
+  Fetched: 2026-07-07 (KMZ; inner entry nps_boundary.kml). Trimming step: kept
+  the first 2 <Placemark> elements and their real <Schema>/SchemaData; each
+  Polygon <coordinates> ring truncated to its first 6 real NPS vertices and
+  re-closed, to keep the fixture small. UNIT_* values are unmodified real data.
+-->
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document><Folder><name>nps_boundary</name>
+<Schema name="nps_boundary" id="nps_boundary">
+	<SimpleField name="Name" type="string"></SimpleField>
+	<SimpleField name="Description" type="string"></SimpleField>
+	<SimpleField name="GIS_LOC_ID" type="string"></SimpleField>
+	<SimpleField name="UNIT_CODE" type="string"></SimpleField>
+	<SimpleField name="GROUP_CODE" type="string"></SimpleField>
+	<SimpleField name="UNIT_NAME" type="string"></SimpleField>
+	<SimpleField name="UNIT_TYPE" type="string"></SimpleField>
+	<SimpleField name="META_MIDF" type="string"></SimpleField>
+	<SimpleField name="LANDS_CODE" type="string"></SimpleField>
+	<SimpleField name="DATE_EDIT" type="string"></SimpleField>
+	<SimpleField name="GIS_NOTES" type="string"></SimpleField>
+</Schema>
+<Placemark>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#nps_boundary">
+		<SimpleData name="UNIT_CODE">UPDE</SimpleData>
+		<SimpleData name="UNIT_NAME">Upper Delaware</SimpleData>
+		<SimpleData name="UNIT_TYPE">Scenic and Recreational River</SimpleData>
+		<SimpleData name="DATE_EDIT">2006/06/06</SimpleData>
+		<SimpleData name="GIS_NOTES"></SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-74.921123110691994,41.49030328378052 -74.919181316104769,41.491221902274859 -74.915570102160132,41.492913601314214 -74.914031730345016,41.493264381264567 -74.899930445882006,41.479279261751863 -74.899077968232916,41.477667207637644 -74.921123110691994,41.49030328378052</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+<Placemark>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#nps_boundary">
+		<SimpleData name="UNIT_CODE">BAND</SimpleData>
+		<SimpleData name="UNIT_NAME">Bandelier</SimpleData>
+		<SimpleData name="UNIT_TYPE">National Monument</SimpleData>
+		<SimpleData name="GIS_NOTES">Park Created Boundary</SimpleData>
+	</SchemaData></ExtendedData>
+      <MultiGeometry><Polygon><outerBoundaryIs><LinearRing><coordinates>-106.195846713541485,35.853781906058664 -106.221429674347988,35.853885157086708 -106.221543164727208,35.854064313509113 -106.221767380712933,35.854242343832567 -106.221882255675752,35.854511640971864 -106.222107857259573,35.854779811669516 -106.195846713541485,35.853781906058664</coordinates></LinearRing></outerBoundaryIs></Polygon><Polygon><outerBoundaryIs><LinearRing><coordinates>-106.399208008237792,35.805697437576569 -106.399650607403217,35.805692284636287 -106.399982556703534,35.805688418862204 -106.400426738231616,35.805773398427455 -106.401092220539567,35.805855796991068 -106.401869938320488,35.806027036697394 -106.399208008237792,35.805697437576569</coordinates></LinearRing></outerBoundaryIs></Polygon></MultiGeometry>
+  </Placemark>
+</Folder></Document>
+</kml>

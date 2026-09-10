@@ -1,0 +1,202 @@
+#!/bin/sh
+# Provider-neutral, read-only evidence collector for a local Frisket Compose
+# host.  It intentionally uses Docker's project/service labels rather than
+# the Compose CLI: it would load the installation's .env file, which this
+# collector must never read or print.
+#
+# `--output` is the one permitted write: a new, mode-0600 report file suitable
+# for attaching to a failed smoke.  Nothing in the deployment is changed.
+set -u
+
+SCHEMA=frisket.deployment-diagnostics.v1
+ROOT=/srv/frisket
+PROJECT=frisket
+READINESS_URL=http://127.0.0.1:8000/api/ready
+TAIL=80
+OUTPUT=
+
+usage() {
+  cat >&2 <<'EOF'
+Usage: frisket-deployment-diagnostics [--root PATH] [--project NAME]
+                                      [--readiness-url URL] [--tail LINES]
+                                      [--output PATH]
+
+Collect bounded, redacted, read-only diagnostics for a local Frisket Docker
+Compose deployment.  Output goes to stdout unless --output names a new report
+file.  The collector never reads or prints .env files or Docker environment
+metadata.
+EOF
+  exit 2
+}
+
+die() {
+  printf '%s\n' "frisket-deployment-diagnostics: $*" >&2
+  exit 2
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --root) [ "$#" -ge 2 ] || usage; ROOT=$2; shift 2 ;;
+    --project) [ "$#" -ge 2 ] || usage; PROJECT=$2; shift 2 ;;
+    --readiness-url) [ "$#" -ge 2 ] || usage; READINESS_URL=$2; shift 2 ;;
+    --tail) [ "$#" -ge 2 ] || usage; TAIL=$2; shift 2 ;;
+    --output) [ "$#" -ge 2 ] || usage; OUTPUT=$2; shift 2 ;;
+    -h|--help) usage ;;
+    *) usage ;;
+  esac
+done
+
+case "$TAIL" in ''|*[!0-9]*) die "--tail must be a nonnegative integer" ;; esac
+[ "$TAIL" -le 500 ] 2>/dev/null || die "--tail must not exceed 500"
+case "$ROOT" in /*) ;; *) die "--root must be an absolute path" ;; esac
+case "$READINESS_URL" in http://*|https://*) ;; *) die "--readiness-url must be an http(s) URL" ;; esac
+case "$READINESS_URL" in *'@'*|*'?'*|*'#'*|*' '*) die "--readiness-url must not contain credentials, query, fragment, or spaces" ;; esac
+case "$PROJECT" in ''|*'/'*|*' '*|*[!A-Za-z0-9_.-]*) die "--project contains unsupported characters" ;; esac
+
+if [ -n "$OUTPUT" ]; then
+  [ "$OUTPUT" != "-" ] || die "use stdout by omitting --output"
+  [ ! -e "$OUTPUT" ] || die "refusing to overwrite existing output: $OUTPUT"
+  case "$OUTPUT" in
+    */*) output_parent=${OUTPUT%/*}; [ -n "$output_parent" ] || output_parent=/ ;;
+    *) output_parent=. ;;
+  esac
+  [ -d "$output_parent" ] && [ -w "$output_parent" ] || die "output parent is not writable: $output_parent"
+  # Open the report once with noclobber, then retain that inode through fd 3.
+  # Reopening OUTPUT by pathname here would let a rename between the create and
+  # redirect send root-owned diagnostic output to an attacker-chosen target.
+  umask 077
+  set -C
+  exec 4>&2
+  if command exec 3> "$OUTPUT" 2>/dev/null; then
+    exec 2>&4 4>&-
+  else
+    exec 2>&4 4>&-
+    set +C
+    die "cannot create output: $OUTPUT"
+  fi
+  set +C
+  exec 1>&3
+  exec 3>&-
+fi
+
+# This is deliberately conservative.  Logs can contain third-party errors, so
+# redact all recognizable secret shapes before any line reaches the report.
+redact() {
+  sed \
+    -e 's/FRISKET_SETUP_CODE[ =:][^[:space:]]*/FRISKET_SETUP_CODE [redacted]/g' \
+    -e 's/[Bb]earer[[:space:]][^[:space:]]*/Bearer [redacted]/g' \
+    -e 's/[Bb]asic[[:space:]][^[:space:]]*/Basic [redacted]/g' \
+    -e 's/\([Cc]ookie:\).*/\1 [redacted]/g' \
+    -e 's/\([Ss]et-[Cc]ookie:\).*/\1 [redacted]/g' \
+    -e 's#postgres://[^[:space:]]*#postgres://[redacted]#g' \
+    -e 's#postgresql[^[:space:]]*://[^[:space:]]*#postgresql://[redacted]#g' \
+    -e 's/\([Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]\)[ =:][^,[:space:]]*/\1=[redacted]/g' \
+    -e 's/\([Tt][Oo][Kk][Ee][Nn]\)[ =:][^,[:space:]]*/\1=[redacted]/g' \
+    -e 's/\([Ss][Ee][Cc][Rr][Ee][Tt]\)[ =:][^,[:space:]]*/\1=[redacted]/g' \
+    -e 's/\([Aa][Pp][Ii]_\{0,1\}[Kk][Ee][Yy]\)[ =:][^,[:space:]]*/\1=[redacted]/g' \
+    -e 's/\([Dd][Aa][Tt][Aa][Bb][Aa][Ss][Ee]_\{0,1\}[Uu][Rr][Ll]\)[ =:][^,[:space:]]*/\1=[redacted]/g' \
+    -e 's/"[Tt][Oo][Kk][Ee][Nn]"[[:space:]]*:[[:space:]]*"[^"]*"/"token":"[redacted]"/g' \
+    -e 's/"[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]"[[:space:]]*:[[:space:]]*"[^"]*"/"password":"[redacted]"/g' \
+    -e 's/"[Ss][Ee][Cc][Rr][Ee][Tt]"[[:space:]]*:[[:space:]]*"[^"]*"/"secret":"[redacted]"/g' \
+    -e 's/"[Aa][Pp][Ii]_\{0,1\}[Kk][Ee][Yy]"[[:space:]]*:[[:space:]]*"[^"]*"/"api_key":"[redacted]"/g'
+}
+
+say() { printf '%s\n' "$*" | redact; }
+section() { say ""; say "== $1 =="; }
+
+say "schema=$SCHEMA"
+say "collector=frisket-deployment-diagnostics"
+say "project=$PROJECT"
+say "root=$ROOT"
+
+section "owned paths and disk"
+for path in "$ROOT" "$ROOT/data" "$ROOT/postgres" "$ROOT/caddy" "$ROOT/caddy/data" "$ROOT/caddy/config"; do
+  if [ -e "$path" ]; then
+    # Metadata only; never enumerate or open files within these paths.
+    ls -ld "$path" 2>&1 | redact
+  else
+    say "PATH|$path|missing"
+  fi
+done
+if [ -e "$ROOT" ]; then
+  df -Pk "$ROOT" 2>&1 | redact
+else
+  root_parent=${ROOT%/*}
+  [ -n "$root_parent" ] || root_parent=/
+  df -Pk "$root_parent" 2>&1 | redact
+fi
+
+section "docker project status and image identities"
+if ! command -v docker >/dev/null 2>&1; then
+  say "DOCKER|unavailable|docker command not found"
+  container_ids=
+else
+  container_ids=$(docker ps -aq --filter "label=com.docker.compose.project=$PROJECT" 2>/dev/null) || container_ids=
+  if [ -z "$container_ids" ]; then
+    say "CONTAINERS|none found for project=$PROJECT"
+  fi
+fi
+
+app_id=
+worker_id=
+provision_id=
+migrate_id=
+
+for container_id in $container_ids; do
+  service=$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' "$container_id" 2>/dev/null || printf '%s' unknown)
+  state=$(docker inspect --format '{{.State.Status}}' "$container_id" 2>/dev/null || printf '%s' unavailable)
+  health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container_id" 2>/dev/null || printf '%s' unavailable)
+  image_ref=$(docker inspect --format '{{.Config.Image}}' "$container_id" 2>/dev/null || printf '%s' unavailable)
+  image_id=$(docker inspect --format '{{.Image}}' "$container_id" 2>/dev/null || printf '%s' unavailable)
+  say "CONTAINER|service=$service|id=$container_id|state=$state|health=$health|image=$image_ref|image_id=$image_id"
+  say "PORTS|service=$service"
+  docker port "$container_id" 2>&1 | redact || say "PORTS|service=$service|none or unavailable"
+  case "$service" in
+    app) app_id=$container_id ;;
+    worker) worker_id=$container_id ;;
+    run-queue-provision) provision_id=$container_id ;;
+    run-queue-migrate) migrate_id=$container_id ;;
+  esac
+done
+
+section "one-shot service status"
+for one_shot in run-queue-provision run-queue-migrate; do
+  case "$one_shot" in
+    run-queue-provision) one_shot_id=$provision_id ;;
+    run-queue-migrate) one_shot_id=$migrate_id ;;
+  esac
+  if [ -n "$one_shot_id" ]; then
+    one_shot_state=$(docker inspect --format '{{.State.Status}}' "$one_shot_id" 2>/dev/null || printf '%s' unavailable)
+    one_shot_exit=$(docker inspect --format '{{.State.ExitCode}}' "$one_shot_id" 2>/dev/null || printf '%s' unavailable)
+    say "ONE_SHOT|service=$one_shot|state=$one_shot_state|exit_code=$one_shot_exit"
+  else
+    say "ONE_SHOT|service=$one_shot|missing"
+  fi
+done
+
+section "readiness"
+if command -v curl >/dev/null 2>&1; then
+  readiness=$(curl --max-time 5 -sS -w '\nhttp_status=%{http_code}\n' "$READINESS_URL" 2>&1)
+  readiness_exit=$?
+  say "READINESS|url=$READINESS_URL|curl_exit=$readiness_exit"
+  printf '%s\n' "$readiness" | redact
+else
+  say "READINESS|unavailable|curl command not found"
+fi
+
+section "bounded redacted log tails"
+for log_service in app worker; do
+  case "$log_service" in
+    app) log_id=$app_id ;;
+    worker) log_id=$worker_id ;;
+  esac
+  if [ -n "$log_id" ]; then
+    say "LOG|service=$log_service|tail=$TAIL"
+    docker logs --tail "$TAIL" "$log_id" 2>&1 | redact || say "LOG|service=$log_service|unavailable"
+  else
+    say "LOG|service=$log_service|missing"
+  fi
+done
+
+say ""
+say "collector_status=complete"

@@ -1,0 +1,38 @@
+[project]
+name = "frisket-worker-moss"
+version = "0.1.0"
+description = "Isolated MOSS-Transcribe-Diarize transcription worker leaf (Boundary C) for the frisket-models sidecar"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "Jonathan Soma", email = "jonathan.soma@gmail.com" }]
+
+# The adapter itself is LIGHT: it is an HTTP client to the MOSS native server
+# (Boundary D), so it needs only the shared contract package and httpx. The
+# heavy GPU runtime (a pinned vLLM build + the model weights) is NOT a Python
+# dependency of this package — it lives in the serving container defined in this
+# leaf's Dockerfile. Keeping it out here is what lets the recorded-output parser
+# and conformance gates run on CPU.
+dependencies = [
+    "frisket-models",
+    "httpx>=0.28.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+# ``frisket-models`` is the sibling sidecar package two directories up; it
+# carries the frozen transcription contract and the reusable worker wrapper.
+[tool.uv.sources]
+frisket-models = { path = "../..", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/frisket_worker_moss"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

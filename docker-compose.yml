@@ -1,0 +1,379 @@
+# Frisket source-build / extended developer Compose stack.
+#
+# This is not the small release installer graph. For the provider-neutral
+# Standalone and Multi-service release packages use deploy/release/. This file
+# keeps the larger source-checkout profiles and
+# can either build locally or consume an explicitly supplied FRISKET_IMAGE.
+#
+# Set FRISKET_BUILD_SHA for `docker compose build` / `up --build`. If you
+# supply a prebuilt FRISKET_IMAGE, pin it by digest rather than relying on the
+# local development fallback tag below.
+#
+# Production overlays (a real domain's TLS cert via a managed proxy, custom
+# firewalling) live in the operator's own infra repo. For a from-scratch
+# public deployment with no such infra, use the optional `proxy` profile
+# below. Frisket's own
+# config validation refuses a public plain-HTTP FRISKET_BASE_URL
+# (loopback-only), so some TLS terminator is not optional for reaching this
+# from outside the host.
+
+# Shared by app and worker via YAML merge.
+x-frisket-env: &frisket-env
+  # Control plane / infra.
+  # FRISKET_TEAM_DATABASE_URL is the name src/frisket/team/config.py reads for
+  # the team app itself.
+  # FRISKET_DATABASE_URL carries the same value: it's what the worker's
+  # job-handler registration (src/frisket/engine/jobs/runs.py) reads for
+  # control-plane access, so both names must resolve to one Postgres URL
+  # — set FRISKET_TEAM_DATABASE_URL once in .env and both follow it.
+  FRISKET_TEAM_DATABASE_URL: ${FRISKET_TEAM_DATABASE_URL:-postgresql+psycopg://frisket:frisket@db:5432/frisket}
+  FRISKET_DATABASE_URL: ${FRISKET_TEAM_DATABASE_URL:-postgresql+psycopg://frisket:frisket@db:5432/frisket}
+  # REQUIRED, no committed default — same runtime-queue-locator contract
+  # as run-queue-provision/run-queue-migrate below. Set it in
+  # your own .env (cp .env.example .env, then edit).
+  FRISKET_RUN_QUEUE_DATABASE_URL: "${FRISKET_RUN_QUEUE_DATABASE_URL:?FRISKET_RUN_QUEUE_DATABASE_URL is required. Copy .env.example to .env and set it.}"
+  FRISKET_RUN_QUEUE_SCHEMA_MODE: strict
+  FRISKET_DATA_DIR: /data
+  FRISKET_PROJECTS_ROOT: /data
+  # loopback-only unless a TLS terminator sits in front of this instance
+  # (frisket.team.config refuses any other plain-http origin at boot); use
+  # the `proxy` profile below for public TLS termination.
+  FRISKET_BASE_URL: ${FRISKET_BASE_URL:-http://localhost:8000}
+  FRISKET_ORGANIZATION_NAME: ${FRISKET_ORGANIZATION_NAME:-frisket}
+  FRISKET_SECRETS_MASTER_KEY: ${FRISKET_SECRETS_MASTER_KEY:-}
+  # Alternative to FRISKET_SECRETS_MASTER_KEY: point at a persistent key
+  # file instead. Empty means "use the default location under the /data
+  # volume" (frisket.team.config's own fallback), not "no key file".
+  FRISKET_SECRETS_KEY_FILE: ${FRISKET_SECRETS_KEY_FILE:-}
+  # Sign-in channels.
+  # Local-password setup/login is the default. Magic links are opt-in:
+  # enable only after configuring a real SMTP relay and sender below.
+  # OIDC is likewise optional; {} means no SSO buttons.
+  FRISKET_MAGIC_LINK_ENABLED: ${FRISKET_MAGIC_LINK_ENABLED:-false}
+  FRISKET_SMTP_HOST: ${FRISKET_SMTP_HOST:-}
+  FRISKET_SMTP_PORT: ${FRISKET_SMTP_PORT:-587}
+  FRISKET_SMTP_USERNAME: ${FRISKET_SMTP_USERNAME:-}
+  FRISKET_SMTP_PASSWORD: ${FRISKET_SMTP_PASSWORD:-}
+  FRISKET_SMTP_FROM: ${FRISKET_SMTP_FROM:-}
+  # TLS mode for the SMTP relay above. Exactly one of these two may be
+  # true (the app rejects both at once); picking an "SSL port" like 465
+  # does NOT by itself select implicit SSL — FRISKET_SMTP_SSL must be
+  # set explicitly, since frisket.team.auth_runtime only uses SMTP_SSL
+  # when config.smtp_ssl is true. Default matches the app's own default
+  # (STARTTLS on, implicit SSL off).
+  FRISKET_SMTP_STARTTLS: ${FRISKET_SMTP_STARTTLS:-true}
+  FRISKET_SMTP_SSL: ${FRISKET_SMTP_SSL:-false}
+  # JSON object of OIDC/SSO providers; {} means "no SSO buttons".
+  FRISKET_OIDC_PROVIDERS_JSON: ${FRISKET_OIDC_PROVIDERS_JSON:-{}}
+  # Trust forwarding headers only from explicitly named reverse-proxy networks.
+  FRISKET_TRUSTED_PROXY_CIDRS: ${FRISKET_TRUSTED_PROXY_CIDRS:-}
+  # Web UI.
+  # Matches the Dockerfile's own baked-in default (the image ships the
+  # built bundle at this path) — only override if you're running
+  # frisket.team.app:create_team_app_from_env yourself instead of this
+  # image.
+  FRISKET_STATIC_DIR: ${FRISKET_STATIC_DIR:-/app/static/team}
+  FRISKET_CLIENT_ERROR_CAPTURE: ${FRISKET_CLIENT_ERROR_CAPTURE:-}
+  # FRISKET_MAP_API_KEY is embedded in every page the SPA serves and is
+  # visible to anyone who views source — use a publishable,
+  # origin-restricted key, never a secret/server-side one.
+  FRISKET_MAP_TILE_URL_TEMPLATE: ${FRISKET_MAP_TILE_URL_TEMPLATE:-}
+  FRISKET_MAP_API_KEY: ${FRISKET_MAP_API_KEY:-}
+  FRISKET_MAP_ATTRIBUTION: ${FRISKET_MAP_ATTRIBUTION:-}
+  # Optional organization provider keys.
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+  OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+  CENSUS_API_KEY: ${CENSUS_API_KEY:-}
+  # frisket-models sidecar discovery (the 'models' profile below): unset
+  # by default → sidecar engines report a
+  # pointer, the light local engines still work. Run `docker compose
+  # --profile models up` to start the sidecar and these point the app at
+  # it. The token is the shared bearer secret (the sidecar refuses to
+  # start without one).
+  FRISKET_MODELS_URL: ${FRISKET_MODELS_URL:-}
+  FRISKET_MODELS_TOKEN: ${FRISKET_MODELS_TOKEN:-}
+  # Local/self-hosted model server discovery (the 'ollama' profile
+  # below): this is operator deployment infrastructure, not a tenant
+  # credential, so it reaches org runs
+  # the same way FRISKET_MODELS_URL does, regardless of whose provider
+  # keys a run has. Empty means no local endpoint. Set it explicitly to the
+  # in-network profile service (OLLAMA_URL=http://ollama:11434) or another
+  # OpenAI-compatible local server.
+  OLLAMA_URL: ${OLLAMA_URL:-}
+  # Split-host bundle discovery for docker-compose.heavy.yml and
+  # deploy/Caddyfile.heavy on a separate GPU box:
+  # all optional and empty by default — a single-host `ollama` profile
+  # deployment never sets any of these. Generate distinct random tokens with
+  # `openssl rand -hex 32` for a split-host deployment.
+  FRISKET_ENABLE_MODEL_PULL: ${FRISKET_ENABLE_MODEL_PULL:-}
+  FRISKET_LLM_TOKEN: ${FRISKET_LLM_TOKEN:-}
+  FRISKET_LLM_PROVISIONING_TOKEN: ${FRISKET_LLM_PROVISIONING_TOKEN:-}
+  FRISKET_LLM_EDGE_AUTH: ${FRISKET_LLM_EDGE_AUTH:-}
+services:
+  run-queue-provision:
+    image: ${FRISKET_IMAGE:-frisket-team:local}
+    command: ["frisket", "queue", "provision"]
+    environment:
+      # Fixed-shape contract enforced by frisket.jobs.queue_provision: the
+      # admin locator must point at Postgres's own "postgres" maintenance
+      # database using a role that can create databases/roles (the bundled
+      # `db` service's POSTGRES_USER is a superuser, so it qualifies); the
+      # runtime locator must name the database `frisket_run_queue` and use
+      # the role frisket_run_queue_runtime: (full example shape:
+      # postgresql+psycopg://frisket_run_queue_runtime:<password>@db:5432/frisket_run_queue)
+      # — both are hardcoded requirements, not suggestions, and provisioning
+      # fails loudly if you rename either.
+      #
+      # REQUIRED, no committed default: this owner-principal credential is
+      # deliberately not shipped as a fallback literal here. Set both
+      # variables in your own `.env` (cp .env.example .env, then edit);
+      # `docker compose config`/`up`
+      # refuses to render with a clear error if either is left unset or
+      # empty.
+      FRISKET_DATABASE_ADMIN_URL: "${FRISKET_DATABASE_ADMIN_URL:?FRISKET_DATABASE_ADMIN_URL is required. Copy .env.example to .env and set it.}"
+      FRISKET_RUN_QUEUE_DATABASE_URL: "${FRISKET_RUN_QUEUE_DATABASE_URL:?FRISKET_RUN_QUEUE_DATABASE_URL is required. Copy .env.example to .env and set it.}"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  run-queue-migrate:
+    image: ${FRISKET_IMAGE:-frisket-team:local}
+    command: ["frisket", "queue", "migrate"]
+    environment:
+      # Same required, no-default contract as run-queue-provision above —
+      # see that service's comment for the fixed database/role shape.
+      FRISKET_DATABASE_ADMIN_URL: "${FRISKET_DATABASE_ADMIN_URL:?FRISKET_DATABASE_ADMIN_URL is required. Copy .env.example to .env and set it.}"
+      FRISKET_RUN_QUEUE_DATABASE_URL: "${FRISKET_RUN_QUEUE_DATABASE_URL:?FRISKET_RUN_QUEUE_DATABASE_URL is required. Copy .env.example to .env and set it.}"
+    depends_on:
+      run-queue-provision:
+        condition: service_completed_successfully
+    restart: "no"
+
+  app:
+    build:
+      context: .
+      args:
+        # Only consulted when Compose actually builds (see the file header):
+        # a source-checkout dev should pass the checkout's full 40-hex SHA.
+        # Self-hosters running the pre-built artifact never trigger a build,
+        # so this default is never exercised in that path.
+        FRISKET_BUILD_SHA: ${FRISKET_BUILD_SHA:-unknown}
+    image: ${FRISKET_IMAGE:-frisket-team:local}
+    # The image's default CMD (`frisket server`) is the standalone SQLite
+    # composition — it overwrites the Postgres URLs below at startup. This
+    # multi-service stack needs the ASGI app run directly instead, so it
+    # actually uses the Postgres control plane the `worker` service shares.
+    command: ["uvicorn", "frisket.team.asgi:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers"]
+    restart: unless-stopped
+    environment:
+      <<: *frisket-env
+      # App-only: Resend credentials and sender identity for Watch
+      # notifications/digests. Sign-in email uses the FRISKET_SMTP_* settings
+      # shared above.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      FRISKET_EMAIL_FROM_ADDRESS: ${FRISKET_EMAIL_FROM_ADDRESS:-}
+      FRISKET_EMAIL_FROM_NAME: ${FRISKET_EMAIL_FROM_NAME:-}
+    volumes:
+      - frisket-data:/data
+    depends_on:
+      db:
+        condition: service_healthy
+      run-queue-migrate:
+        condition: service_completed_successfully
+    ports:
+      # Loopback by default: safe with no reverse proxy in front. Override
+      # FRISKET_PUBLISH_HOST=0.0.0.0 only if you understand the consequence
+      # only behind a trusted TLS terminator. The `proxy` profile below is a
+      # path to a real public, TLS-terminated deployment and
+      # reaches this service over the internal Compose network regardless of
+      # this bind, so you should not need to change it for that path.
+      - "${FRISKET_PUBLISH_HOST:-127.0.0.1}:8000:8000"
+
+  worker:
+    build:
+      context: .
+      args:
+        FRISKET_BUILD_SHA: ${FRISKET_BUILD_SHA:-unknown}
+    image: ${FRISKET_IMAGE:-frisket-team:local}
+    restart: unless-stopped
+    # Self-hosted job execution. `frisket worker` is the self-hostable entry
+    # point with full recipe/code-execution capability. `frisket hosted-worker`
+    # is a different, managed-worker-only mode: it refuses to register
+    # handlers at all unless an external managed-worker composition is
+    # installed, and crash-loops forever on this artifact — never wire that
+    # command here.
+    command: ["frisket", "worker"]
+    # The worker has no HTTP server, so disable the image's app healthcheck.
+    healthcheck:
+      disable: true
+    environment:
+      <<: *frisket-env
+    volumes:
+      - frisket-data:/data
+    depends_on:
+      db:
+        condition: service_healthy
+      run-queue-migrate:
+        condition: service_completed_successfully
+
+  # Optional, opt-in TLS reverse proxy for a from-scratch public deployment
+  # with no existing infra (the alternative to bringing your own proxy/TLS
+  # terminator). Gated behind the 'proxy' profile — a self-hoster who
+  # already has a reverse proxy, or is only testing on loopback, should not
+  # see this service at all on a plain `docker compose up`.
+  #
+  # `caddy reverse-proxy` automatically requests and renews a Let's Encrypt
+  # certificate for FRISKET_PUBLIC_DOMAIN and forwards to `app:8000` over the
+  # internal Compose network (independent of the app service's own `ports:`
+  # bind above). Requirements: FRISKET_PUBLIC_DOMAIN must be a real DNS name
+  # that already resolves to this host's public IP, and ports 80/443 must be
+  # reachable from the internet (Let's Encrypt's HTTP-01 challenge uses 80).
+  # Run `docker compose --profile proxy up -d` once DNS is in place, and set
+  # FRISKET_BASE_URL=https://<FRISKET_PUBLIC_DOMAIN> to match. Operators with
+  # an existing proxy can terminate TLS themselves instead.
+  proxy:
+    profiles: ["proxy"]
+    image: caddy:2-alpine
+    restart: unless-stopped
+    # FRISKET_PUBLIC_DOMAIN: no ${VAR:?err} guard here on purpose — base
+    # `docker compose config` interpolates every service's env regardless of
+    # profile (same reasoning as the 'models' service below), so a required
+    # var here would break the no-proxy default path for everyone. An unset
+    # value instead fails fast and loud inside the caddy container itself
+    # (a real DNS name is required as the --from argument) the moment you
+    # actually enable this opt-in profile.
+    command: >-
+      caddy reverse-proxy
+      --from ${FRISKET_PUBLIC_DOMAIN:-}
+      --to app:8000
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - frisket-caddy-data:/data
+      - frisket-caddy-config:/config
+    depends_on:
+      - app
+
+  # Opt-in per-project SQLite replication. Litestream does not expand the glob
+  # in litestream.yml; the entrypoint must generate explicit database entries or
+  # replication silently does nothing. Missing replica configuration is fatal.
+  litestream:
+    profiles: ["litestream"]
+    image: litestream/litestream:0.3
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/usr/local/bin/litestream-entrypoint.sh"]
+    environment:
+      FRISKET_DATA_DIR: /data
+      # Rescan interval: new projects start replicating within this window.
+      LITESTREAM_RESCAN_INTERVAL: ${LITESTREAM_RESCAN_INTERVAL:-60}
+      LITESTREAM_BUCKET: ${LITESTREAM_BUCKET:-}
+      LITESTREAM_PREFIX: ${LITESTREAM_PREFIX:-prod}
+      LITESTREAM_ENDPOINT: ${LITESTREAM_ENDPOINT:-}
+      LITESTREAM_REGION: ${LITESTREAM_REGION:-auto}
+      LITESTREAM_ACCESS_KEY_ID: ${LITESTREAM_ACCESS_KEY_ID:-}
+      LITESTREAM_SECRET_ACCESS_KEY: ${LITESTREAM_SECRET_ACCESS_KEY:-}
+    volumes:
+      # litestream.yml is the documented replica-shape reference for operators;
+      # the entrypoint generates the real config from it conceptually.
+      - ./litestream.yml:/etc/litestream.yml:ro
+      - ./scripts/release/litestream-entrypoint.sh:/usr/local/bin/litestream-entrypoint.sh:ro
+      - frisket-data:/data
+    depends_on:
+      - app
+
+  # The model sidecar (sidecar/ — PaddleOCR-VL, Docling, Faster Whisper,
+  # GLiNER, rerank, embeddings). Gated behind the 'models' profile: heavy
+  # image + GPU/CPU model downloads, opt-in only. `docker compose --profile
+  # models up` starts it; set FRISKET_MODELS_URL=http://models:8500 and a
+  # shared FRISKET_MODELS_TOKEN in the environment so the app routes
+  # sidecar-backed recipes here.
+  models:
+    profiles: ["models"]
+    build: ./sidecar
+    image: frisket-models:latest
+    restart: unless-stopped
+    environment:
+      # The sidecar refuses to start without a token (never anonymous) — so
+      # an empty value here is a fast, loud failure at `models` startup, not
+      # a silent anonymous service. (We don't use the ${VAR:?err} form: base
+      # `docker compose config` interpolates every service's env regardless
+      # of profile, and that would break the no-models default path.)
+      FRISKET_MODELS_TOKEN: ${FRISKET_MODELS_TOKEN:-}
+      FRISKET_MODELS_CONCURRENCY: ${FRISKET_MODELS_CONCURRENCY:-2}
+    volumes:
+      # Models download once at first use; persist them across restarts.
+      - frisket-models-cache:/models
+    expose:
+      - "8500"
+
+  # MUST-CHANGE default creds: the frisket/frisket user/password below is a
+  # convenience default for local trial, not a secret. Anyone who can reach
+  # port 5432 (or a leaked FRISKET_TEAM_DATABASE_URL / FRISKET_DATABASE_ADMIN_URL)
+  # gets full read/write on the control plane with these values unchanged.
+  # Override POSTGRES_PASSWORD (and FRISKET_TEAM_DATABASE_URL /
+  # FRISKET_DATABASE_ADMIN_URL to match) before exposing this compose file
+  # beyond localhost.
+  #
+  # The current Compose stack requires bundled Postgres for its control plane
+  # and dedicated run queue. Postgres-free single-user use is the non-Docker
+  # local product (`pip install frisket`), not a Compose surgery.
+  #
+  # Image: a plain major-version tag, not a single-platform digest — pin a
+  # digest here only if you re-pin it from a multi-arch index (verify with
+  # `docker manifest inspect`), never from a single-architecture dev machine.
+  # A digest copied from an arm64 dev box silently produces an arm64-only
+  # image reference that fails with "exec format error" on any amd64 host.
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: frisket
+      # MUST-CHANGE before exposing this instance beyond localhost. If you
+      # override this, also update FRISKET_TEAM_DATABASE_URL and
+      # FRISKET_DATABASE_ADMIN_URL above (app + worker + provision/migrate)
+      # to match — they are not derived from this value automatically.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-frisket}
+      POSTGRES_DB: frisket
+    volumes:
+      - frisket-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U frisket"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Local open-weight model server (Ollama), gated behind the opt-in `ollama`
+  # profile using the same idiom as `models` above. Enable it with
+  # `OLLAMA_URL=http://ollama:11434 docker compose --profile ollama up`.
+  # The explicit URL makes the profile service available to org runs;
+  # in-app pulls additionally need
+  # FRISKET_ENABLE_MODEL_PULL;
+  # without it, model management is `docker exec <container> ollama pull`.
+  #
+  # `expose` only, never `ports`: the daemon's HTTP API is unauthenticated
+  # by design, so it must stay compose-network-only, reachable from `app`/
+  # `worker` but not the host's public interfaces.
+  #
+  ollama:
+    profiles: ["ollama"]
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      # Dedicated weights volume — model weights are large (multi-GB per
+      # model); give this volume's disk headroom the same attention as
+      # frisket-data before pulling models.
+      - frisket-ollama:/root/.ollama
+    expose:
+      - "11434"
+
+volumes:
+  frisket-data:
+  frisket-ollama:
+  frisket-pg:
+  frisket-models-cache:
+  frisket-caddy-data:
+  frisket-caddy-config:

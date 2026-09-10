@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "frisket.workbench_descriptor_package.v1",
+  "descriptors": [
+    {
+      "schemaVersion": "frisket.command.v1",
+      "id": "demo.command.command.hello",
+      "kind": "command",
+      "title": "Demo Hello Command",
+      "ownerPluginId": "demo.command",
+      "componentKey": "demo.command.commands.HelloCommand",
+      "commandId": "demo.command.command.hello",
+      "handlerKey": "demo.command.commands.HelloCommand",
+      "placements": [
+        {
+          "host": "commandPalette",
+          "mode": "command",
+          "slot": "launcher",
+          "placementId": "demo-command-hello",
+          "order": 100
+        }
+      ],
+      "requires": [],
+      "dataRequirements": []
+    }
+  ]
+}

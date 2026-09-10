@@ -1,0 +1,119 @@
+{
+  "status": "complete",
+  "result_url": null,
+  "expires_in": null,
+  "output_format": "json",
+  "chunks": null,
+  "json": {
+    "children": [
+      {
+        "html": "<p><span data-bbox=\"79 313 277 410\" data-confidence=\"0.998\">Hello</span> <span data-bbox=\"291 312 559 410\" data-confidence=\"0.999\">Datalab</span></p>",
+        "bbox": [
+          0.0,
+          0.0,
+          2352.0,
+          784.0
+        ],
+        "polygon": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            2352.0,
+            0.0
+          ],
+          [
+            2352.0,
+            784.0
+          ],
+          [
+            0.0,
+            784.0
+          ]
+        ],
+        "id": "/page/0/Page/0",
+        "block_type": "Page",
+        "children": [
+          {
+            "id": "/page/0/Text/0",
+            "block_type": "Text",
+            "html": "<p><span data-bbox=\"79 313 277 410\" data-confidence=\"0.998\">Hello</span> <span data-bbox=\"291 312 559 410\" data-confidence=\"0.999\">Datalab</span></p>",
+            "page": 0,
+            "polygon": [
+              [
+                58.0,
+                312.0
+              ],
+              [
+                571.0,
+                312.0
+              ],
+              [
+                571.0,
+                397.0
+              ],
+              [
+                58.0,
+                397.0
+              ]
+            ],
+            "bbox": [
+              58.0,
+              312.0,
+              571.0,
+              397.0
+            ],
+            "section_hierarchy": {},
+            "images": {},
+            "markdown": null,
+            "inference_failed": false,
+            "metadata": {
+              "confidence": 0.9984996244367099
+            }
+          }
+        ],
+        "section_hierarchy": {},
+        "metadata": {
+          "confidence": 0.9986240781878066
+        }
+      }
+    ],
+    "metadata": {
+      "page_stats": [
+        {
+          "page_id": 0,
+          "num_blocks": 1
+        }
+      ]
+    }
+  },
+  "markdown": null,
+  "html": null,
+  "extraction_schema_json": null,
+  "extraction_score_average": null,
+  "extraction_mode": null,
+  "segmentation_results": null,
+  "segmentation_schema": null,
+  "images": {},
+  "metadata": {
+    "page_stats": [
+      {
+        "page_id": 0,
+        "num_blocks": 1
+      }
+    ]
+  },
+  "success": true,
+  "error": "",
+  "parse_quality_score": 5.0,
+  "page_count": 1,
+  "total_cost": 1,
+  "cost_breakdown": {
+    "final_cost_cents": 1.0
+  },
+  "runtime": 6.669026136398315,
+  "checkpoint_id": null,
+  "versions": null,
+  "evaluation": null
+}

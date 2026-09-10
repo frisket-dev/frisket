@@ -1,0 +1,41 @@
+{
+  "schemaVersion": "frisket.workbench_descriptor_package.v1",
+  "descriptors": [
+    {
+      "schemaVersion": "frisket.workbench.panel.v1",
+      "id": "demo.selection_summary.panel.selection_summary",
+      "kind": "panel",
+      "title": "Selection summary",
+      "ownerPluginId": "demo.selection_summary",
+      "componentKey": "trustedLocal.demoSelectionSummary.SelectionSummaryPanel",
+      "placements": [
+        {
+          "host": "rightInspector",
+          "mode": "panel",
+          "slot": "inspection",
+          "placementId": "demo-selection-summary-right-inspector",
+          "order": 55
+        }
+      ],
+      "requires": [
+        {
+          "kind": "hostCapability",
+          "id": "sheet.active"
+        },
+        {
+          "kind": "hostCapability",
+          "id": "selection.rows"
+        },
+        {
+          "kind": "hostCapability",
+          "id": "host.navigation.openRow"
+        }
+      ],
+      "dataRequirements": [
+        {
+          "kind": "activeSheet"
+        }
+      ]
+    }
+  ]
+}

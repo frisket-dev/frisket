@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "frisket.workbench_descriptor_package.v1",
+  "descriptors": [
+    {
+      "schemaVersion": "frisket.workbench.panel.v1",
+      "id": "demo.sidebar_panel.panel.scope",
+      "kind": "panel",
+      "title": "Demo Sidebar Panel",
+      "shortTitle": "Demo Scope",
+      "ownerPluginId": "demo.sidebar_panel",
+      "componentKey": "demo.sidebar_panel.components.ScopePanel",
+      "placements": [
+        {
+          "host": "leftSidebar",
+          "mode": "panel",
+          "slot": "scope",
+          "placementId": "demo-sidebar-panel",
+          "order": 100
+        }
+      ],
+      "requires": [{ "kind": "hostCapability", "id": "sheet.active" }],
+      "dataRequirements": [{ "kind": "activeSheet" }]
+    }
+  ]
+}

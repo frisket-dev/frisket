@@ -1,0 +1,192 @@
+{
+  "schemaVersion": "frisket.workbench_contract_fixtures.v1",
+  "cases": [
+    {
+      "id": "three_pane_roundtrip",
+      "layout": {
+        "schemaVersion": "frisket.workbench_layout.v1",
+        "profileId": "frisket.workspace.profile.geo_review",
+        "activePaneId": "pane-grid",
+        "main": {
+          "type": "split",
+          "axis": "horizontal",
+          "weights": [0.5, 0.3, 0.2],
+          "children": [
+            {"type": "leaf", "paneId": "pane-grid", "contributionId": "frisket.core.view.grid", "state": {"sheetId": "sheet_people"}},
+            {"type": "leaf", "paneId": "pane-map", "contributionId": "frisket.geo.view.map", "state": {"geoColumnId": "col_geo"}},
+            {"type": "leaf", "paneId": "pane-evidence", "contributionId": "frisket.core.view.evidence", "state": {"evidenceLinkId": 42}}
+          ]
+        },
+        "regions": {
+          "activityRail": [{"contributionId": "frisket.investigative.panel.friendly_filters"}],
+          "leftSidebar": [{"contributionId": "frisket.core.panel.sources", "collapsed": false, "size": 300}],
+          "rightInspector": [{"contributionId": "frisket.core.panel.actions", "collapsed": false, "size": 420}],
+          "bottomDock": [
+            {
+              "contributionId": "frisket.core.panel.jobs",
+              "collapsed": true,
+              "chrome": {
+                "mode": "tab",
+                "activeContributionId": "frisket.core.panel.jobs",
+                "contributionOrder": ["frisket.core.panel.jobs", "frisket.core.panel.errors"]
+              }
+            }
+          ]
+        }
+      },
+      "runtimeState": {
+        "schemaVersion": "frisket.workbench_runtime_state.v1",
+        "activeSheetId": "sheet_people",
+        "selectedRowIds": ["row_7"],
+        "activeRowId": "row_7",
+        "activeCell": {"rowId": "row_7", "columnId": "col_geo"},
+        "activeEvidenceLinkId": 42,
+        "activePaneId": "pane-map",
+        "activeDockTabId": "frisket.core.panel.jobs"
+      },
+      "expected": {"roundtrips": true, "runtimeKeysPersistedInProfile": false}
+    },
+    {
+      "id": "hidden_not_uninstalled_profile",
+      "descriptors": [
+        {
+          "schemaVersion": "frisket.workbench.panel.v1",
+          "id": "frisket.core.panel.watches",
+          "kind": "panel",
+          "ownerPluginId": "frisket.media",
+          "title": "OCR compare preview",
+          "componentKey": "media.panels.OcrComparePreview",
+          "placements": [
+            {"host": "bottomDock", "mode": "tab", "placementId": "ocr-compare-preview", "order": 70, "tabChrome": {"closeable": true, "singleton": true}},
+            {"host": "rightInspector", "mode": "panel", "order": 90}
+          ],
+          "requires": [{"kind": "hostCapability", "id": "ocr.preview"}],
+          "dataRequirements": [{"kind": "activeCell"}]
+        }
+      ],
+      "projectProfile": {
+        "schemaVersion": "frisket.workspace_profile.v1",
+        "profileId": "frisket.workspace.profile.import_cleanup",
+        "title": "Import cleanup",
+        "scope": "projectDefault",
+        "hiddenContributions": ["frisket.geo.view.map", "frisket.core.panel.watches"],
+        "pinnedContributions": {"leftSidebar": ["frisket.core.panel.sources"]},
+        "defaults": {
+          "schemaVersion": "frisket.workbench_layout.v1",
+          "profileId": "frisket.workspace.profile.import_cleanup",
+          "main": {"type": "leaf", "paneId": "pane-grid", "contributionId": "frisket.core.view.grid"},
+          "regions": {"leftSidebar": [{"contributionId": "frisket.core.panel.sources"}]}
+        }
+      },
+      "expectedResolved": [
+        {"id": "frisket.geo.view.map", "status": "hidden", "reason": "hidden_by_profile", "discoverableIn": ["activityRail", "commandPalette"]},
+        {"id": "frisket.core.panel.watches", "status": "hidden", "reason": "hidden_by_profile", "discoverableIn": ["activityRail", "commandPalette"]}
+      ]
+    },
+    {
+      "id": "personal_override_vs_project_default_merge_conflict",
+      "projectDefault": {
+        "hiddenContributions": ["frisket.graph.view.neighborhood"],
+        "defaults": {
+          "regions": {"leftSidebar": [{"contributionId": "frisket.core.panel.sources", "collapsed": false, "size": 300}]}
+        }
+      },
+      "personalOverrides": {
+        "schemaVersion": "frisket.personal_layout_overrides.v1",
+        "projectId": "proj_123",
+        "openByContribution": {"frisket.core.panel.sources": false},
+        "sizeByContribution": {"frisket.core.panel.sources": 360},
+        "lastActiveByRegion": {"leftSidebar": "frisket.core.panel.sources"},
+        "lastActiveTabByHost": {"bottomDock": "frisket.core.panel.errors"}
+      },
+      "expectedMerge": {
+        "hiddenStillProjectOwned": ["frisket.graph.view.neighborhood"],
+        "sourcesCollapsed": true,
+        "sourcesSize": 360,
+        "sharedTeamPolicyCreated": false
+      }
+    },
+    {
+      "id": "legacy_local_storage_migration",
+      "legacyLocalStorage": {
+        "frisket:action-panel-width": "424",
+        "frisket:action-panel-open:proj_123": "false",
+        "frisket:sources-open:proj_123": "true",
+        "frisket:facets-open:proj_123": "false",
+        "frisket:row-drawer-width": "560",
+        "frisket:grid:row-height": "compact",
+        "frisket:grid:column-order:sheet_people": "[\"name\",\"geo\"]",
+        "frisket:grid:frozen-columns:sheet_people": "2"
+      },
+      "expectedMigration": {
+        "personalOverrides": {
+          "sizeByContribution": {
+            "frisket.core.panel.actions": 424,
+            "frisket.core.inspector.row": 560
+          },
+          "openByContribution": {
+            "frisket.core.panel.actions": false,
+            "frisket.core.panel.sources": true,
+            "frisket.investigative.panel.friendly_filters": false
+          }
+        },
+        "notWorkbenchProfileKeys": [
+          "frisket:grid:row-height",
+          "frisket:grid:column-order:sheet_people",
+          "frisket:grid:frozen-columns:sheet_people"
+        ]
+      }
+    },
+    {
+      "id": "alias_resolution_layout_rewrite",
+      "aliases": {
+        "frisket.core.view.evidence_legacy": "frisket.core.view.evidence",
+        "frisket.geo.panel.map": "frisket.geo.view.map"
+      },
+      "layoutRefs": ["frisket.core.view.evidence_legacy", "frisket.geo.panel.map"],
+      "expectedLayoutRefs": ["frisket.core.view.evidence", "frisket.geo.view.map"],
+      "expectedDiagnostics": []
+    },
+    {
+      "id": "malformed_persisted_layout_migration",
+      "persisted": {
+        "schemaVersion": "frisket.workbench_layout.v1",
+        "profileId": "frisket.workspace.profile.broken",
+        "main": {"type": "split", "axis": "diagonal", "weights": [1], "children": []},
+        "regions": {"right": [{"contributionId": "frisket.core.panel.actions"}]}
+      },
+      "expectedRepair": {
+        "fallbackProfileId": "frisket.workspace.profile.default",
+        "diagnostics": ["malformed_layout", "unsupported_region"],
+        "canonicalRegionsOnly": true
+      }
+    },
+    {
+      "id": "route_restore_failure",
+      "route": {"routeKey": "evidence", "urlState": {"evidenceLinkId": "missing_link"}, "onRestoreFailure": "fallback"},
+      "expectedResolved": {"status": "disabled", "reason": "route_restore_failed", "fallbackContributionId": "frisket.core.view.grid"}
+    },
+    {
+      "id": "main_view_table_tabs",
+      "layout": {
+        "schemaVersion": "frisket.workbench_layout.v1",
+        "profileId": "frisket.workspace.profile.default",
+        "main": {"type": "leaf", "paneId": "pane-grid", "contributionId": "frisket.core.view.grid"},
+        "regions": {
+          "mainView": [
+            {
+              "contributionId": "frisket.core.view.grid",
+              "chrome": {
+                "mode": "tab",
+                "activeContributionId": "frisket.core.view.grid",
+                "contributionOrder": ["frisket.core.view.grid", "frisket.geo.view.map", "frisket.core.view.evidence"]
+              },
+              "state": {"openSheets": ["sheet_people", "sheet_sources"], "activeSheetId": "sheet_people"}
+            }
+          ]
+        }
+      },
+      "expected": {"tabsAreHostChrome": true}
+    }
+  ]
+}

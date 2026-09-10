@@ -1,0 +1,44 @@
+{
+  "schemaVersion": "frisket.workbench_portability_contract_fixtures.v1",
+  "cases": [
+    {
+      "id": "trusted_local_install_placeholder",
+      "layoutRef": {
+        "profileId": "frisket.workspace.profile.geo_review",
+        "host": "mainView",
+        "slot": "work.companion",
+        "placementId": "trusted-geo-map",
+        "contributionId": "local.example.view.geo_map",
+        "path": "/main/children/1"
+      },
+      "startingState": {
+        "resolvedStatus": "missing",
+        "reason": "missing_plugin",
+        "ownerPluginId": "local.example"
+      },
+      "expectedActions": [
+        "install_plugin",
+        "remove_from_layout",
+        "replace_with_grid"
+      ],
+      "expectedState": {
+        "installUsesBackendLifecycle": true,
+        "repairMutatesLayoutProfile": true,
+        "layoutMutatedBeforeInstall": false
+      }
+    },
+    {
+      "id": "old_path_removal_expectations",
+      "implementationExpectations": [
+        {"surface": "FriendlyFiltersPanel", "oldPath": "web/src/components/Sidebar.tsx", "removalCondition": "workbench-portability-facets-portable-proof-v1"},
+        {"surface": "SourcesPanel", "oldPath": "web/src/components/Sidebar.tsx", "removalCondition": "workbench-portability-first-party-panels-v1"},
+        {"surface": "ActionPanel", "oldPath": "web/src/App.tsx", "removalCondition": "workbench-portability-first-party-panels-v1"},
+        {"surface": "grid+map split", "oldPath": "web/src/App.tsx", "removalCondition": "workbench-portability-mainview-modal-containment-v1"}
+      ],
+      "expected": {
+        "dualRunAllowedAtCompletion": false,
+        "prototypeControlsRemoved": ["Move Map", "Map target: mainView"]
+      }
+    }
+  ]
+}

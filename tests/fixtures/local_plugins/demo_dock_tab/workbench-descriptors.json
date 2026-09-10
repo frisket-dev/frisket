@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "frisket.workbench_descriptor_package.v1",
+  "descriptors": [
+    {
+      "schemaVersion": "frisket.workbench.panel.v1",
+      "id": "demo.dock_tab.panel.dock",
+      "kind": "panel",
+      "title": "Demo Dock Tab",
+      "shortTitle": "Demo Dock",
+      "ownerPluginId": "demo.dock_tab",
+      "componentKey": "demo.dock_tab.components.DockTab",
+      "placements": [
+        {
+          "host": "bottomDock",
+          "mode": "tab",
+          "slot": "companion.output",
+          "placementId": "demo-dock-tab",
+          "order": 100,
+          "tabChrome": { "closeable": true, "singleton": true }
+        }
+      ],
+      "requires": [{ "kind": "hostCapability", "id": "sheet.active" }],
+      "dataRequirements": [{ "kind": "activeSheet" }]
+    }
+  ]
+}

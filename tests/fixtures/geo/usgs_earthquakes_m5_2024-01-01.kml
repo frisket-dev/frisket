@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Fixture provenance (guardrail 3: real-but-public government data).
+  Source: U.S. Geological Survey (USGS) FDSNWS event service, KML format.
+  URL: https://earthquake.usgs.gov/fdsnws/event/1/query?format=kml&starttime=2024-01-01&endtime=2024-01-02&minmagnitude=5
+  Fetched: 2026-07-07. Query window is a fixed historical range so the
+  result set is stable. Trimming step: kept the first 3 <Placemark> elements
+  from the returned <Document>; nothing else altered. Placemarks carry <name>,
+  <description> (CDATA), and a <Point> whose 3rd coordinate (altitude) the
+  import.kml reader drops to 2D lon/lat.
+-->
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document>
+  <name>USGS Earthquakes</name>
+  <Style id="circle"><IconStyle><scale>0.6</scale></IconStyle></Style>
+<Placemark id="us6000m0yg"><name>M 5.1 - 73 km WSW of Sado, Japan</name><description><![CDATA[<h2>M 5.1 - 73 km WSW of Sado, Japan</h2><dl><dt>Time</dt><dd>2024-01-01 09:45:26 UTC</dd><dd>2024-01-01 09:45:26 UTC at epicenter</dd><dt>Location</dt><dd>37.811&deg;N 137.566&deg;E</dd><dt>Depth</dt><dd>10.00 km (6.21 mi)</dd></dl><p class="links"><a href="https://earthquake.usgs.gov/earthquakes/eventpage/us6000m0yg">Details from USGS web site</a><br/><a href="https://earthquake.usgs.gov/fdsnws/event/1/query?eventid=us6000m0yg&amp;format=kml">Google Earth KML layers for this event</a></p>]]></description><Snippet maxLines="0"></Snippet><LookAt><longitude>137.5664</longitude><latitude>37.8107</latitude><range>1000000</range></LookAt><styleUrl>#circle</styleUrl><Style><IconStyle><color>ddffffff</color><scale>0.6</scale></IconStyle></Style><Point><coordinates>137.5664,37.8107,0</coordinates></Point></Placemark>
+<Placemark id="us6000m0yf"><name>M 5.0 - 23 km WSW of Anamizu, Japan</name><description><![CDATA[<h2>M 5.0 - 23 km WSW of Anamizu, Japan</h2><dl><dt>Time</dt><dd>2024-01-01 09:39:59 UTC</dd><dd>2024-01-01 09:39:59 UTC at epicenter</dd><dt>Location</dt><dd>37.148&deg;N 136.656&deg;E</dd><dt>Depth</dt><dd>10.00 km (6.21 mi)</dd></dl><p class="links"><a href="https://earthquake.usgs.gov/earthquakes/eventpage/us6000m0yf">Details from USGS web site</a><br/><a href="https://earthquake.usgs.gov/fdsnws/event/1/query?eventid=us6000m0yf&amp;format=kml">Google Earth KML layers for this event</a></p>]]></description><Snippet maxLines="0"></Snippet><LookAt><longitude>136.6562</longitude><latitude>37.1479</latitude><range>1000000</range></LookAt><styleUrl>#circle</styleUrl><Style><IconStyle><color>ddffffff</color><scale>0.6</scale></IconStyle></Style><Point><coordinates>136.6562,37.1479,0</coordinates></Point></Placemark>
+<Placemark id="us6000m0ye"><name>M 5.2 - 50 km NE of Anamizu, Japan</name><description><![CDATA[<h2>M 5.2 - 50 km NE of Anamizu, Japan</h2><dl><dt>Time</dt><dd>2024-01-01 09:30:21 UTC</dd><dd>2024-01-01 09:30:21 UTC at epicenter</dd><dt>Location</dt><dd>37.500&deg;N 137.359&deg;E</dd><dt>Depth</dt><dd>10.00 km (6.21 mi)</dd></dl><p class="links"><a href="https://earthquake.usgs.gov/earthquakes/eventpage/us6000m0ye">Details from USGS web site</a><br/><a href="https://earthquake.usgs.gov/fdsnws/event/1/query?eventid=us6000m0ye&amp;format=kml">Google Earth KML layers for this event</a></p>]]></description><Snippet maxLines="0"></Snippet><LookAt><longitude>137.3585</longitude><latitude>37.4998</latitude><range>1000000</range></LookAt><styleUrl>#circle</styleUrl><Style><IconStyle><color>ddffffff</color><scale>0.6</scale></IconStyle></Style><Point><coordinates>137.3585,37.4998,0</coordinates></Point></Placemark>
+</Document>
+</kml>

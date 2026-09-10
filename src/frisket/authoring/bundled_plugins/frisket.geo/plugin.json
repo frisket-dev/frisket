@@ -1,0 +1,53 @@
+{
+  "contributes": {
+    "actions": [],
+    "column_types": [],
+    "importers": [],
+    "job_handlers": [],
+    "operators": [],
+    "projections": [
+      "frisket.geo.projection.map_points"
+    ],
+    "workbench_commands": [],
+    "workbench_panels": [],
+    "workbench_views": [
+      "frisket.geo.view.map"
+    ]
+  },
+  "id": "frisket.geo",
+  "requires": {
+    "capabilities": [
+      "plugin:trusted_local_backend"
+    ],
+    "secrets": []
+  },
+  "runtime": {
+    "actions": [],
+    "importers": [],
+    "job_handlers": [],
+    "operators": [],
+    "projections": [
+      {
+        "execution": {
+          "mode": "runtime_plan",
+          "role": "map_points"
+        },
+        "handler_api": "plugin_projection",
+        "handler_key": "frisket.geo:map_points",
+        "kind": "frisket.geo.projection.map_points",
+        "module_path": "plugin.py",
+        "title": "Map points projection"
+      }
+    ],
+    "workbench_components": [
+      {
+        "component_key": "frisket.geo.components.MapView",
+        "contribution_id": "frisket.geo.view.map",
+        "module_key": "frisket.geo.ui",
+        "module_path": "frontend/plugin.js"
+      }
+    ]
+  },
+  "schema_version": "frisket.plugin.v1",
+  "version": "1.0.0"
+}

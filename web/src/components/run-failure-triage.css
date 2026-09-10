@@ -1,0 +1,97 @@
+.run-failure-triage {
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  font-size: 12px;
+}
+
+.run-failure-triage-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.run-failure-triage-title {
+  font-weight: 600;
+}
+
+.run-failure-buckets {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.run-failure-bucket {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.run-failure-bucket-count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+
+.run-failure-bucket-note {
+  flex-basis: 100%;
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+.media-proxy-remediation {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-6);
+  background: var(--bg-hover);
+}
+
+.media-proxy-remediation-head {
+  display: grid;
+  gap: 2px;
+}
+
+.media-proxy-remediation-title {
+  font-weight: 600;
+}
+
+.media-proxy-remediation-subline,
+.media-proxy-remediation-copy {
+  margin: 0;
+  opacity: 0.85;
+}
+
+.media-proxy-remediation-steps {
+  margin: 0;
+  padding-left: 16px;
+  display: grid;
+  gap: 8px;
+}
+
+.media-proxy-remediation-status {
+  display: flex;
+  align-items: center;
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.media-proxy-remediation-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-right: 6px;
+  background: var(--amber);
+}
+
+.media-proxy-remediation-status.is-connected .media-proxy-remediation-dot {
+  background: var(--green);
+}

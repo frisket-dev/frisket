@@ -1,0 +1,103 @@
+{
+  "description": "Shared accept/reject cases for the strict-JSON twins: web/src/actions/strictJson.ts (parseStrictJson) and src/frisket/ops/api_call_request.py (strict_json_loads). Both are deliberately independent implementations of the same rule set (reject duplicate object keys, comparing DECODED key strings not source spelling; reject non-finite numbers) and carry no shared runtime code — this fixture is the parity guard. Consumed by web/tests/unit/strictJson.test.ts and tests/ops/test_strict_json_fixture.py. `expect` is 'accept' or 'reject'; 'reason' categorizes the rejection (informational only — the two implementations raise different exception types/messages).",
+  "cases": [
+    {
+      "name": "plain_object",
+      "input": "{\"a\":1,\"b\":2}",
+      "expect": "accept"
+    },
+    {
+      "name": "nested_arrays_and_objects",
+      "input": "{\"a\":[1,2,{\"b\":3}],\"c\":{\"d\":[4,5]}}",
+      "expect": "accept"
+    },
+    {
+      "name": "repeated_key_in_different_objects",
+      "input": "{\"left\":{\"id\":1},\"right\":{\"id\":2}}",
+      "expect": "accept"
+    },
+    {
+      "name": "finite_negative_exponent",
+      "input": "{\"a\":-1.5e10}",
+      "expect": "accept"
+    },
+    {
+      "name": "unicode_escape_string_value",
+      "input": "{\"a\":\"\\u00e9\\u2603\"}",
+      "expect": "accept"
+    },
+    {
+      "name": "big_integer",
+      "input": "{\"n\":12345678901234567890}",
+      "expect": "accept",
+      "note": "Structurally accepted by both; Python keeps arbitrary precision while JS numbers lose precision above 2^53 (no rejection either side)."
+    },
+    {
+      "name": "duplicate_key_top_level",
+      "input": "{\"role\":\"user\",\"role\":\"admin\"}",
+      "expect": "reject",
+      "reason": "duplicate-key"
+    },
+    {
+      "name": "duplicate_key_nested_object",
+      "input": "{\"outer\":{\"id\":1,\"id\":2}}",
+      "expect": "reject",
+      "reason": "duplicate-key"
+    },
+    {
+      "name": "duplicate_key_inside_array_of_objects",
+      "input": "{\"items\":[{\"x\":1},{\"x\":2,\"x\":3}]}",
+      "expect": "reject",
+      "reason": "duplicate-key"
+    },
+    {
+      "name": "duplicate_key_via_unicode_escape_spelling",
+      "input": "{\"name\":1,\"\\u006eame\":2}",
+      "expect": "reject",
+      "reason": "duplicate-key",
+      "note": "Both implementations compare DECODED key strings, not source spelling: \\u006e decodes to 'n', so this collides with the literal 'name' key."
+    },
+    {
+      "name": "nan_literal",
+      "input": "{\"a\":NaN}",
+      "expect": "reject",
+      "reason": "non-finite"
+    },
+    {
+      "name": "infinity_literal",
+      "input": "{\"a\":Infinity}",
+      "expect": "reject",
+      "reason": "non-finite"
+    },
+    {
+      "name": "negative_infinity_literal",
+      "input": "{\"a\":-Infinity}",
+      "expect": "reject",
+      "reason": "non-finite"
+    },
+    {
+      "name": "exponent_overflows_to_infinity",
+      "input": "{\"value\":1e999}",
+      "expect": "reject",
+      "reason": "non-finite"
+    },
+    {
+      "name": "negative_exponent_overflows_to_negative_infinity",
+      "input": "{\"value\":-1e999}",
+      "expect": "reject",
+      "reason": "non-finite"
+    },
+    {
+      "name": "trailing_garbage_after_object",
+      "input": "{\"a\":1} garbage",
+      "expect": "reject",
+      "reason": "trailing-garbage"
+    },
+    {
+      "name": "trailing_garbage_after_array",
+      "input": "[1,2,3]xyz",
+      "expect": "reject",
+      "reason": "trailing-garbage"
+    }
+  ]
+}

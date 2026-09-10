@@ -1,0 +1,98 @@
+{
+  "schemaVersion": "frisket.workbench_portability_contract_fixtures.v1",
+  "cases": [
+    {
+      "id": "malformed_layout_recovery",
+      "persisted": {
+        "schemaVersion": "frisket.workbench_layout.v1",
+        "profileId": "frisket.workspace.profile.broken",
+        "main": {"type": "split", "axis": "diagonal", "weights": [1], "children": []},
+        "regions": {"right": [{"contributionId": "frisket.core.panel.actions"}]}
+      },
+      "expectedRepair": {
+        "fallbackProfileId": "frisket.workspace.profile.default",
+        "diagnostics": ["malformed_layout"],
+        "canonicalRegionsOnly": true
+      }
+    },
+    {
+      "id": "route_restore_failure",
+      "route": {
+        "routeKey": "evidence",
+        "urlState": {"evidenceLinkId": "missing_link"},
+        "layoutState": {"paneId": "pane-evidence", "placementId": "evidence-companion"},
+        "onRestoreFailure": "fallback"
+      },
+      "expectedResolved": {
+        "status": "disabled",
+        "reason": "route_restore_failed",
+        "fallbackContributionId": "frisket.core.view.grid"
+      }
+    },
+    {
+      "id": "legacy_local_storage_migration",
+      "legacyLocalStorage": {
+        "frisket:action-panel-width": "424",
+        "frisket:action-panel-open:proj_123": "false",
+        "frisket:sources-open:proj_123": "true",
+        "frisket:facets-open:proj_123": "false",
+        "frisket:row-drawer-width": "560",
+        "frisket:grid:row-height": "compact",
+        "frisket:grid:column-order:sheet_people": "[\"name\",\"geo\"]",
+        "frisket:grid:frozen-columns:sheet_people": "2"
+      },
+      "expectedMigration": {
+        "personalOverrides": {
+          "sizeByContribution": {
+            "frisket.core.panel.actions": 424,
+            "frisket.core.inspector.row": 560
+          },
+          "openByContribution": {
+            "frisket.core.panel.actions": false,
+            "frisket.core.panel.sources": true,
+            "frisket.investigative.panel.friendly_filters": false
+          }
+        },
+        "notWorkbenchProfileKeys": [
+          "frisket:grid:row-height",
+          "frisket:grid:column-order:sheet_people",
+          "frisket:grid:frozen-columns:sheet_people"
+        ]
+      }
+    },
+    {
+      "id": "split_pane_interaction",
+      "layout": {
+        "schemaVersion": "frisket.workbench_layout.v1",
+        "profileId": "frisket.workspace.profile.geo_review",
+        "main": {
+          "type": "split",
+          "axis": "horizontal",
+          "weights": [0.58, 0.42],
+          "children": [
+            {"type": "leaf", "paneId": "pane-grid", "contributionId": "frisket.core.view.grid", "slot": "work.primary", "state": {"sheetId": "sheet_people"}},
+            {"type": "leaf", "paneId": "pane-map", "contributionId": "frisket.geo.view.map", "slot": "work.companion", "state": {"geoColumnId": "col_geo"}}
+          ]
+        },
+        "regions": {
+          "leftSidebar": [{"contributionId": "frisket.core.panel.sources", "slot": "scope", "collapsed": false, "size": 300}],
+          "rightInspector": [{"contributionId": "frisket.investigative.panel.friendly_filters", "slot": "inspection", "collapsed": false, "size": 360}],
+          "bottomDock": [{"contributionId": "frisket.core.panel.jobs", "slot": "companion.output", "collapsed": true}]
+        }
+      },
+      "runtimeState": {
+        "schemaVersion": "frisket.workbench_runtime_state.v1",
+        "activeSheetId": "sheet_people",
+        "selectedRowIds": ["row_7"],
+        "activeRowId": "row_7",
+        "activeCell": {"rowId": "row_7", "columnId": "col_geo"},
+        "activePaneId": "pane-map"
+      },
+      "expected": {
+        "roundtrips": true,
+        "runtimeKeysPersistedInProfile": false,
+        "gridFilterCapability": "grid.filter.applyBbox"
+      }
+    }
+  ]
+}

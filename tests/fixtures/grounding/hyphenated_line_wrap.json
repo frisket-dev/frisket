@@ -1,0 +1,41 @@
+{
+  "name": "hyphenated_line_wrap",
+  "note": "de-hyphenate infor-\\nmation across two OCR line blocks -> 2 line boxes",
+  "strategy": "align",
+  "target": {
+    "kind": "text",
+    "text": "information flows"
+  },
+  "source": {
+    "kind": "word",
+    "tokens": [
+      {
+        "text": "the quick brown infor-",
+        "box": [
+          0.1,
+          0.1,
+          0.8,
+          0.15
+        ],
+        "page": 1,
+        "source": "ocr"
+      },
+      {
+        "text": "mation flows onward",
+        "box": [
+          0.1,
+          0.2,
+          0.8,
+          0.25
+        ],
+        "page": 1,
+        "source": "ocr"
+      }
+    ]
+  },
+  "expect": {
+    "matches": true,
+    "min_spans": 2,
+    "granularity": "block"
+  }
+}

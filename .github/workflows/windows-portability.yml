@@ -1,0 +1,47 @@
+name: windows-portability
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      PYTHONUTF8: "1"
+      FRISKET_NO_WORKER: "1"
+      FRISKET_SECRETS_MASTER_KEY: "windows-portability-test-key-not-for-production"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --dev --locked --extra asr
+      - name: Import Windows-sensitive package graph
+        run: >-
+          uv run --no-sync python -c "import av; import cv2; import huggingface_hub; import onnx_asr; import onnxruntime; import rapidocr; import frisket; import frisket.cli; import frisket.operability.doctor.embeddings; import frisket.engine.jobs.queue; import frisket.engine.jobs.worker; import frisket.sdk.ops.transcribe; import frisket.project_identity; import frisket.authoring.recipe_registry; import frisket.engine.sandbox; import frisket.engine.sandbox.broker; import frisket.engine.sandbox.shim; import frisket.team.security.secrets; import frisket.server.app; import frisket.server.services.projects; import frisket.server.workspace; import frisket.team.app; import frisket.team.team_bootstrap; import frisket.ops.ytdlp"
+      - name: Run RapidOCR portable worker and session contracts
+        run: >-
+          uv run --no-sync pytest -q tests/engine/test_rapidocr_worker.py tests/engine/test_rapidocr_session.py
+      - name: Run deployment self-probe
+        run: uv run --no-sync frisket doctor
+      - name: Run core store, queue, and locking subset
+        run: >-
+          uv run --no-sync pytest -q tests/ai/test_store.py::TestBasics::test_create_open_roundtrip tests/ai/test_store.py::TestConcurrentOpenMigration::test_concurrent_open_does_not_raise_duplicate_column tests/engine/test_store_leases.py tests/engine/test_job_queue.py tests/engine/test_queue_memory_engines.py tests/team/test_byo_keys.py tests/engine/test_server.py::TestProjects::test_saved_recipe_concurrent_writes_keep_all_entries tests/server/test_recipe_registry.py tests/team/test_team_entrypoint_hardening.py::test_independent_process_boots_converge_to_one_org tests/server/test_server_project_lifecycle_routes.py tests/engine/test_sandbox.py::TestBroker::test_sandboxed_op_completes_via_broker_without_keys
+      - name: Run sandbox process-tree cancellation proof (native Windows Job Object teardown)
+        # The descendant-marker proof for the cancellation contract: a sandboxed
+        # parent spawns a grandchild (sometimes orphaned or TERM-ignoring);
+        # cancellation / timeout / outer-cancel must tear down the whole tree
+        # (Windows owns it via a kill-on-close Job Object) so the grandchild
+        # never writes its marker. The interactive framed-process contract runs
+        # beside it so Job assignment-before-I/O, graceful close, strict reap,
+        # and interrupted exchange cleanup get the same native proof; these
+        # cannot be proven by the POSIX/macOS local suite alone (contract
+        # §"Platform proof").
+        run: uv run --no-sync pytest -q tests/engine/test_sandbox_cancellation.py tests/engine/test_sandbox_process.py

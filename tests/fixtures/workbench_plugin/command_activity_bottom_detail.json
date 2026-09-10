@@ -1,0 +1,133 @@
+{
+  "schemaVersion": "frisket.workbench_contract_fixtures.v1",
+  "cases": [
+    {
+      "id": "command_palette_panel_control",
+      "commands": [
+        {
+          "schemaVersion": "frisket.command.v1",
+          "id": "frisket.core.command.open_sources",
+          "kind": "command",
+          "ownerPluginId": "frisket.core",
+          "title": "Open Sources",
+          "commandId": "frisket.core.command.open_sources",
+          "handlerKey": "core.commands.openContribution",
+          "placements": [{"host": "commandPalette", "mode": "command", "default": true}],
+          "requires": [{"kind": "contribution", "id": "frisket.core.panel.sources"}]
+        },
+        {
+          "schemaVersion": "frisket.command.v1",
+          "id": "frisket.core.command.hide_map",
+          "kind": "command",
+          "ownerPluginId": "frisket.core",
+          "title": "Hide Map",
+          "commandId": "frisket.core.command.hide_map",
+          "handlerKey": "core.commands.hideContribution",
+          "placements": [{"host": "commandPalette", "mode": "command"}],
+          "requires": [{"kind": "contribution", "id": "frisket.geo.view.map"}]
+        },
+        {
+          "schemaVersion": "frisket.command.v1",
+          "id": "frisket.core.command.reveal_map",
+          "kind": "command",
+          "ownerPluginId": "frisket.core",
+          "title": "Reveal Map",
+          "commandId": "frisket.core.command.reveal_map",
+          "handlerKey": "core.commands.revealContribution",
+          "placements": [{"host": "commandPalette", "mode": "command"}],
+          "requires": [{"kind": "contribution", "id": "frisket.geo.view.map"}]
+        },
+        {
+          "schemaVersion": "frisket.command.v1",
+          "id": "frisket.core.command.move_map_mainview",
+          "kind": "command",
+          "ownerPluginId": "frisket.core",
+          "title": "Move Map to mainView",
+          "commandId": "frisket.core.command.move_map_mainview",
+          "handlerKey": "core.commands.moveContribution",
+          "placements": [{"host": "commandPalette", "mode": "command"}],
+          "requires": [{"kind": "contribution", "id": "frisket.geo.view.map"}]
+        },
+        {
+          "schemaVersion": "frisket.command.v1",
+          "id": "frisket.core.command.run_actions",
+          "kind": "command",
+          "ownerPluginId": "frisket.core",
+          "title": "Open Actions",
+          "commandId": "frisket.core.command.run_actions",
+          "handlerKey": "core.commands.runContribution",
+          "placements": [{"host": "commandPalette", "mode": "command"}],
+          "requires": [{"kind": "contribution", "id": "frisket.core.panel.actions"}]
+        }
+      ],
+      "expectedActions": ["open", "reveal", "hide", "move", "run"],
+      "expectedManifest": {"forbiddenRuntimeKeys": ["handlerKey"]}
+    },
+    {
+      "id": "activity_rail_recovery",
+      "hiddenContribution": "frisket.geo.view.map",
+      "activityRailEntry": {
+        "contributionId": "frisket.geo.view.map",
+        "status": "hidden",
+        "reason": "hidden_by_profile",
+        "actions": ["reveal", "move_to_mainView", "reset_profile"]
+      },
+      "expected": {"hiddenIsRecoverable": true}
+    },
+    {
+      "id": "bottom_dock_jobs_errors_preview_tabs",
+      "descriptors": [
+        {"id": "frisket.core.panel.jobs", "kind": "panel", "placements": [{"host": "bottomDock", "mode": "tab", "tabChrome": {"closeable": false, "singleton": true}}]},
+        {"id": "frisket.core.panel.errors", "kind": "panel", "placements": [{"host": "bottomDock", "mode": "tab", "tabChrome": {"closeable": true, "singleton": true}}]},
+        {"id": "frisket.core.view.preview", "kind": "view", "placements": [{"host": "bottomDock", "mode": "tab", "tabChrome": {"closeable": true, "singleton": false}}]}
+      ],
+      "expected": {"tabsAreHostChrome": true, "forbiddenKinds": ["BottomTab", "MainViewTab", "DetailTab"]}
+    },
+    {
+      "id": "ftm_entity_connections_detail_tabs",
+      "descriptors": [
+        {
+          "schemaVersion": "frisket.workbench.view.v1",
+          "id": "frisket.ftm.view.entity_connections",
+          "kind": "view",
+          "ownerPluginId": "frisket.ftm",
+          "title": "Connections",
+          "componentKey": "ftm.views.EntityConnections",
+          "placements": [{"host": "entityDetail", "mode": "tab", "placementId": "entity-connections", "order": 20, "tabChrome": {"closeable": false, "singleton": true}}],
+          "dataRequirements": [{"kind": "activeEntity"}]
+        },
+        {
+          "schemaVersion": "frisket.workbench.view.v1",
+          "id": "frisket.ftm.view.source_detail",
+          "kind": "view",
+          "ownerPluginId": "frisket.ftm",
+          "title": "Source",
+          "componentKey": "ftm.views.SourceDetail",
+          "placements": [{"host": "sourceDetail", "mode": "tab", "placementId": "source-detail", "order": 10, "tabChrome": {"closeable": false, "singleton": true}}],
+          "dataRequirements": [{"kind": "activeSource"}]
+        }
+      ],
+      "expected": {"detailTabsUsePlacementMetadata": true}
+    },
+    {
+      "id": "data_requirement_disabled_map_view",
+      "contributionId": "frisket.geo.view.map",
+      "descriptors": [
+        {
+          "schemaVersion": "frisket.workbench.view.v1",
+          "id": "frisket.geo.view.map",
+          "kind": "view",
+          "ownerPluginId": "frisket.geo",
+          "title": "Map",
+          "componentKey": "geo.views.MapView",
+          "placements": [{"host": "mainView", "mode": "pane", "default": true}],
+          "dataRequirements": [
+            {"kind": "sheetHasColumnType", "columnType": "frisket.core.column_type.geo_point"}
+          ]
+        }
+      ],
+      "hostContext": {"activeSheetId": "sheet_people", "columnTypes": {"name": "text", "age": "number"}},
+      "expectedResolved": {"status": "disabled", "activation": "blocked", "reason": "data_requirement_unmet"}
+    }
+  ]
+}

@@ -1,0 +1,147 @@
+{
+  "schemaVersion": "frisket.workbench_descriptor_package.v1",
+  "descriptors": [
+    {
+      "schemaVersion": "frisket.workbench.panel.v1",
+      "id": "demo.detail_panels.panel.row",
+      "kind": "panel",
+      "title": "Demo Row Tab",
+      "ownerPluginId": "demo.detail_panels",
+      "componentKey": "demo.detail_panels.components.RowTab",
+      "placements": [
+        {
+          "host": "rowDetail",
+          "mode": "tab",
+          "slot": "detail",
+          "placementId": "demo-row-detail",
+          "order": 100
+        }
+      ],
+      "requires": [
+        {
+          "kind": "hostCapability",
+          "id": "sheet.active"
+        }
+      ],
+      "dataRequirements": [
+        {
+          "kind": "activeSheet"
+        }
+      ]
+    },
+    {
+      "schemaVersion": "frisket.workbench.panel.v1",
+      "id": "demo.detail_panels.panel.column",
+      "kind": "panel",
+      "title": "Demo Column Section",
+      "ownerPluginId": "demo.detail_panels",
+      "componentKey": "demo.detail_panels.components.ColumnSection",
+      "placements": [
+        {
+          "host": "columnInspector",
+          "mode": "section",
+          "slot": "detail",
+          "placementId": "demo-column-section",
+          "order": 100
+        }
+      ],
+      "requires": [
+        {
+          "kind": "hostCapability",
+          "id": "sheet.active"
+        }
+      ],
+      "dataRequirements": [
+        {
+          "kind": "activeSheet"
+        }
+      ]
+    },
+    {
+      "schemaVersion": "frisket.workbench.panel.v1",
+      "id": "demo.detail_panels.panel.entity",
+      "kind": "panel",
+      "title": "Demo Entity Tab",
+      "shortTitle": "Demo Entity",
+      "ownerPluginId": "demo.detail_panels",
+      "componentKey": "demo.detail_panels.components.EntityTab",
+      "placements": [
+        {
+          "host": "entityDetail",
+          "mode": "tab",
+          "slot": "detail",
+          "placementId": "demo-entity-detail",
+          "order": 100
+        }
+      ],
+      "requires": [
+        {
+          "kind": "hostCapability",
+          "id": "sheet.active"
+        }
+      ],
+      "dataRequirements": [
+        {
+          "kind": "activeSheet"
+        }
+      ]
+    },
+    {
+      "schemaVersion": "frisket.workbench.panel.v1",
+      "id": "demo.detail_panels.panel.source",
+      "kind": "panel",
+      "title": "Demo Source Tab",
+      "shortTitle": "Demo Source",
+      "ownerPluginId": "demo.detail_panels",
+      "componentKey": "demo.detail_panels.components.SourceTab",
+      "placements": [
+        {
+          "host": "sourceDetail",
+          "mode": "tab",
+          "slot": "detail",
+          "placementId": "demo-source-detail",
+          "order": 100
+        }
+      ],
+      "requires": [
+        {
+          "kind": "hostCapability",
+          "id": "sheet.active"
+        }
+      ],
+      "dataRequirements": [
+        {
+          "kind": "activeSheet"
+        }
+      ]
+    },
+    {
+      "schemaVersion": "frisket.workbench.panel.v1",
+      "id": "demo.detail_panels.panel.column_tab",
+      "kind": "panel",
+      "title": "Demo Column Tab",
+      "ownerPluginId": "demo.detail_panels",
+      "componentKey": "demo.detail_panels.components.ColumnTab",
+      "placements": [
+        {
+          "host": "columnDetail",
+          "mode": "tab",
+          "slot": "detail",
+          "placementId": "demo-column-tab",
+          "order": 110
+        }
+      ],
+      "requires": [
+        {
+          "kind": "hostCapability",
+          "id": "sheet.active"
+        }
+      ],
+      "dataRequirements": [
+        {
+          "kind": "activeSheet"
+        }
+      ]
+    }
+  ]
+}

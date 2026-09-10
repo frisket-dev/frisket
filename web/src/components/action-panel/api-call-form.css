@@ -1,0 +1,160 @@
+.api-action-form {
+  min-height: 100%;
+}
+
+.api-action-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+}
+
+.api-method-row {
+  display: grid;
+  grid-template-columns: 92px;
+  gap: 8px;
+}
+
+.api-url-row {
+  width: 100%;
+}
+
+.api-method-field {
+  min-width: 0;
+}
+
+.api-template-hint {
+  margin-top: -12px;
+}
+
+.api-pair-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.api-pair-row,
+.api-route-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 28px;
+  gap: 6px;
+}
+
+.api-route-row {
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr) 28px;
+  align-items: center;
+}
+
+.api-pair-row {
+  align-items: start;
+}
+
+.api-pair-row + .api-pair-row {
+  margin-top: 8px;
+}
+
+.api-pair-row > * {
+  min-width: 0;
+}
+
+.api-pair-row .template-insert-bar.compact {
+  padding: 6px 8px;
+}
+
+.api-pair-row .template-insert-bar.compact .template-column-insert {
+  width: 100%;
+}
+
+.api-pair-remove {
+  width: 28px;
+  height: 28px;
+  color: var(--text-light);
+}
+
+.api-advanced {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.api-advanced > summary {
+  cursor: pointer;
+  padding: var(--space-10) var(--space-12);
+  font-size: var(--font-size-small);
+  font-weight: 600;
+}
+
+.api-advanced-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border-top: 1px solid var(--border);
+  padding: var(--space-12);
+}
+
+.api-number-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-8);
+}
+
+.api-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  font-size: var(--font-size-small);
+}
+
+.api-egress-note,
+.api-local-note,
+.api-empty {
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: var(--space-10) var(--space-12);
+  color: var(--text-mid);
+  font-size: var(--font-size-meta);
+  line-height: 1.45;
+}
+
+@media (max-width: 520px) {
+  .api-method-row,
+  .api-number-row,
+  .api-pair-row,
+  .api-route-row {
+    grid-template-columns: 1fr;
+  }
+
+  .api-pair-remove {
+    justify-self: end;
+  }
+}
+
+.api-curl-import {
+  margin-bottom: 10px;
+}
+
+.api-curl-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-6);
+}
+
+.api-curl-panel {
+  margin-top: var(--space-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+
+.api-curl-textarea {
+  min-height: 72px;
+  font-family: var(--mono);
+  font-size: var(--font-size-small);
+}
+
+.api-curl-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}

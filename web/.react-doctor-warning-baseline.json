@@ -1,0 +1,622 @@
+{
+  "generatedAt": "2026-07-26T23:51:23.000Z",
+  "note": "File-level (rule, file) pairs, not line-level \u2014 line drift alone must not churn this baseline. Regenerate deliberately, reviewing every diff entry, not mechanically. A pair dispositioned in doctor.config.ts belongs THERE, not here: one record per finding.",
+  "warnings": [
+    {
+      "rule": "deslop/unused-export",
+      "file": "src/actions/model.ts"
+    },
+    {
+      "rule": "deslop/unused-export",
+      "file": "src/attemptReceiptModel.ts"
+    },
+    {
+      "rule": "deslop/unused-export",
+      "file": "src/components/action-panel/nerLabelModel.ts"
+    },
+    {
+      "rule": "deslop/unused-export",
+      "file": "src/components/mentionsPanelModel.ts"
+    },
+    {
+      "rule": "deslop/unused-export",
+      "file": "src/components/RowDrawer.tsx"
+    },
+    {
+      "rule": "deslop/unused-export",
+      "file": "src/temporal/draft.ts"
+    },
+    {
+      "rule": "deslop/unused-file",
+      "file": "e2e-duration-diagnostics.mjs"
+    },
+    {
+      "rule": "react-doctor/advanced-event-handler-refs",
+      "file": "src/grid/SheetGrid.tsx"
+    },
+    {
+      "rule": "react-doctor/async-await-in-loop",
+      "file": "src/components/embeddings/useEmbeddingsPanelController.ts"
+    },
+    {
+      "rule": "react-doctor/async-await-in-loop",
+      "file": "src/components/ExportColumnTablesModal.tsx"
+    },
+    {
+      "rule": "react-doctor/async-await-in-loop",
+      "file": "src/workbench/LineagePanel.tsx"
+    },
+    {
+      "rule": "react-doctor/async-defer-await",
+      "file": "src/components/ClusterReviewForm.tsx"
+    },
+    {
+      "rule": "react-doctor/async-defer-await",
+      "file": "src/state/jobStore.ts"
+    },
+    {
+      "rule": "react-doctor/click-events-have-key-events",
+      "file": "src/App.tsx"
+    },
+    {
+      "rule": "react-doctor/click-events-have-key-events",
+      "file": "src/components/resolve/ValueList.tsx"
+    },
+    {
+      "rule": "react-doctor/control-has-associated-label",
+      "file": "src/components/action-panel/ActionParams.tsx"
+    },
+    {
+      "rule": "react-doctor/exhaustive-deps",
+      "file": "src/components/resolve/GroupCard.tsx"
+    },
+    {
+      "rule": "react-doctor/exhaustive-deps",
+      "file": "src/workbench/mediaCompareSession.ts"
+    },
+    {
+      "rule": "react-doctor/interactive-supports-focus",
+      "file": "src/components/resolve/ValueList.tsx"
+    },
+    {
+      "rule": "react-doctor/js-combine-iterations",
+      "file": "src/components/ClusterReviewForm.tsx"
+    },
+    {
+      "rule": "react-doctor/js-combine-iterations",
+      "file": "src/components/resolve/CombineForm.tsx"
+    },
+    {
+      "rule": "react-doctor/js-combine-iterations",
+      "file": "src/components/temporal/TemporalDraftEditor.tsx"
+    },
+    {
+      "rule": "react-doctor/js-combine-iterations",
+      "file": "src/components/TemporalSplitForm.tsx"
+    },
+    {
+      "rule": "react-doctor/js-combine-iterations",
+      "file": "src/components/TranslatePairPicker.tsx"
+    },
+    {
+      "rule": "react-doctor/js-combine-iterations",
+      "file": "src/workbench/ActMenuBar.tsx"
+    },
+    {
+      "rule": "react-doctor/js-combine-iterations",
+      "file": "src/workbench/documentMedia.ts"
+    },
+    {
+      "rule": "react-doctor/js-flatmap-filter",
+      "file": "src/components/action-panel/parseCurl.ts"
+    },
+    {
+      "rule": "react-doctor/js-flatmap-filter",
+      "file": "src/components/ExportColumnTablesModal.tsx"
+    },
+    {
+      "rule": "react-doctor/js-index-maps",
+      "file": "src/components/EvidenceViewer.tsx"
+    },
+    {
+      "rule": "react-doctor/js-index-maps",
+      "file": "src/components/resolve/SubstituteForm.tsx"
+    },
+    {
+      "rule": "react-doctor/js-set-map-lookups",
+      "file": "src/components/action-panel/parseCurl.ts"
+    },
+    {
+      "rule": "react-doctor/js-tosorted-immutable",
+      "file": "src/attemptReceiptModel.ts"
+    },
+    {
+      "rule": "react-doctor/js-tosorted-immutable",
+      "file": "src/components/resolve/ValueList.tsx"
+    },
+    {
+      "rule": "react-doctor/js-tosorted-immutable",
+      "file": "src/components/TranslatePairPicker.tsx"
+    },
+    {
+      "rule": "react-doctor/js-tosorted-immutable",
+      "file": "src/runFailureTaxonomy.ts"
+    },
+    {
+      "rule": "react-doctor/js-tosorted-immutable",
+      "file": "src/workbench/textAnnotationModel.ts"
+    },
+    {
+      "rule": "react-doctor/jsx-no-jsx-as-prop",
+      "file": "src/components/action-panel/ApiCallForm.tsx"
+    },
+    {
+      "rule": "react-doctor/jsx-no-jsx-as-prop",
+      "file": "src/components/ClusterReviewForm.tsx"
+    },
+    {
+      "rule": "react-doctor/jsx-no-jsx-as-prop",
+      "file": "src/components/TemporalExtractRangeForm.tsx"
+    },
+    {
+      "rule": "react-doctor/jsx-no-jsx-as-prop",
+      "file": "src/components/TemporalSplitForm.tsx"
+    },
+    {
+      "rule": "react-doctor/label-has-associated-control",
+      "file": "src/components/action-panel/ApiCallForm.tsx"
+    },
+    {
+      "rule": "react-doctor/label-has-associated-control",
+      "file": "src/settings/SettingsSections.tsx"
+    },
+    {
+      "rule": "react-doctor/label-has-associated-control",
+      "file": "src/workbench/TranslateCompareTab.tsx"
+    },
+    {
+      "rule": "react-doctor/no-array-index-as-key",
+      "file": "src/components/action-panel/ApiCallForm.tsx"
+    },
+    {
+      "rule": "react-doctor/no-array-index-as-key",
+      "file": "src/components/RowDrawer.tsx"
+    },
+    {
+      "rule": "react-doctor/no-array-index-as-key",
+      "file": "src/workbench/MediaCompareShell.tsx"
+    },
+    {
+      "rule": "react-doctor/no-cascading-set-state",
+      "file": "src/components/ActionPanel.tsx"
+    },
+    {
+      "rule": "react-doctor/no-cascading-set-state",
+      "file": "src/components/resolve/CombineForm.tsx"
+    },
+    {
+      "rule": "react-doctor/no-cascading-set-state",
+      "file": "src/components/resolve/ReplaceForm.tsx"
+    },
+    {
+      "rule": "react-doctor/no-cascading-set-state",
+      "file": "src/components/resolve/useColumnValuesPreview.ts"
+    },
+    {
+      "rule": "react-doctor/no-cascading-set-state",
+      "file": "src/workbench/AnswersView.tsx"
+    },
+    {
+      "rule": "react-doctor/no-cascading-set-state",
+      "file": "src/workbench/LineagePanel.tsx"
+    },
+    {
+      "rule": "react-doctor/no-cascading-set-state",
+      "file": "src/workbench/useDocumentView.ts"
+    },
+    {
+      "rule": "react-doctor/no-derived-useState",
+      "file": "src/components/ModelPullProgress.tsx"
+    },
+    {
+      "rule": "react-doctor/no-derived-useState",
+      "file": "src/components/resolve/GroupCard.tsx"
+    },
+    {
+      "rule": "react-doctor/no-derived-useState",
+      "file": "src/settings/SettingsSections.tsx"
+    },
+    {
+      "rule": "react-doctor/no-dynamic-import-path",
+      "file": "src/workbench/trustedLocalModule.ts"
+    },
+    {
+      "rule": "react-doctor/no-event-handler",
+      "file": "src/components/CodeEditor.tsx"
+    },
+    {
+      "rule": "react-doctor/no-event-handler",
+      "file": "src/components/EnginePicker.tsx"
+    },
+    {
+      "rule": "react-doctor/no-event-handler",
+      "file": "src/components/EvidenceViewer.tsx"
+    },
+    {
+      "rule": "react-doctor/no-event-handler",
+      "file": "src/components/HomeScreen.tsx"
+    },
+    {
+      "rule": "react-doctor/no-event-handler",
+      "file": "src/components/MultiColumnPicker.tsx"
+    },
+    {
+      "rule": "react-doctor/no-event-handler",
+      "file": "src/components/resolve/GroupCard.tsx"
+    },
+    {
+      "rule": "react-doctor/no-event-handler",
+      "file": "src/settings/SettingsSections.tsx"
+    },
+    {
+      "rule": "react-doctor/no-event-handler",
+      "file": "src/workbench/PluginManager.tsx"
+    },
+    {
+      "rule": "react-doctor/no-fetch-in-effect",
+      "file": "src/workbench/TextFileViewer.tsx"
+    },
+    {
+      "rule": "react-doctor/no-giant-component",
+      "file": "src/components/AccountMenu.tsx"
+    },
+    {
+      "rule": "react-doctor/no-giant-component",
+      "file": "src/components/action-panel/ApiCallForm.tsx"
+    },
+    {
+      "rule": "react-doctor/no-giant-component",
+      "file": "src/components/ActionPanel.tsx"
+    },
+    {
+      "rule": "react-doctor/no-giant-component",
+      "file": "src/components/ClusterReviewForm.tsx"
+    },
+    {
+      "rule": "react-doctor/no-giant-component",
+      "file": "src/components/EnginePicker.tsx"
+    },
+    {
+      "rule": "react-doctor/no-giant-component",
+      "file": "src/components/ImportCsv.tsx"
+    },
+    {
+      "rule": "react-doctor/no-giant-component",
+      "file": "src/components/resolve/CombineForm.tsx"
+    },
+    {
+      "rule": "react-doctor/no-giant-component",
+      "file": "src/components/resolve/ReplaceForm.tsx"
+    },
+    {
+      "rule": "react-doctor/no-giant-component",
+      "file": "src/components/resolve/SubstituteForm.tsx"
+    },
+    {
+      "rule": "react-doctor/no-giant-component",
+      "file": "src/components/TemporalSplitForm.tsx"
+    },
+    {
+      "rule": "react-doctor/no-giant-component",
+      "file": "src/workbench/AnswersView.tsx"
+    },
+    {
+      "rule": "react-doctor/no-giant-component",
+      "file": "src/workbench/DocumentView.tsx"
+    },
+    {
+      "rule": "react-doctor/no-giant-component",
+      "file": "src/workbench/PluginManager.tsx"
+    },
+    {
+      "rule": "react-doctor/no-giant-component",
+      "file": "src/workbench/TopicSegmentationCompareTab.tsx"
+    },
+    {
+      "rule": "react-doctor/no-giant-component",
+      "file": "src/workbench/TranslateCompareTab.tsx"
+    },
+    {
+      "rule": "react-doctor/no-giant-component",
+      "file": "src/workbench/WorkbenchCommandPalette.tsx"
+    },
+    {
+      "rule": "react-doctor/no-giant-component",
+      "file": "src/workspace/gridMenus.tsx"
+    },
+    {
+      "rule": "react-doctor/no-initialize-state",
+      "file": "src/components/resolve/ValueList.tsx"
+    },
+    {
+      "rule": "react-doctor/no-initialize-state",
+      "file": "src/grid/SheetGrid.tsx"
+    },
+    {
+      "rule": "react-doctor/no-initialize-state",
+      "file": "src/workbench/useWindowedRowList.ts"
+    },
+    {
+      "rule": "react-doctor/no-many-boolean-props",
+      "file": "src/components/action-panel/OutputFieldsEditor.tsx"
+    },
+    {
+      "rule": "react-doctor/no-multi-comp",
+      "file": "src/workbench/MediaCompareShell.tsx"
+    },
+    {
+      "rule": "react-doctor/no-multi-comp",
+      "file": "src/workbench/WorkbenchListDetailPanel.tsx"
+    },
+    {
+      "rule": "react-doctor/no-noninteractive-element-interactions",
+      "file": "src/App.tsx"
+    },
+    {
+      "rule": "react-doctor/no-noninteractive-element-interactions",
+      "file": "src/workbench/LineagePanel.tsx"
+    },
+    {
+      "rule": "react-doctor/no-noninteractive-element-interactions",
+      "file": "src/workbench/PluginPeekHost.tsx"
+    },
+    {
+      "rule": "react-doctor/no-pass-data-to-parent",
+      "file": "src/workbench/mediaCompareSession.ts"
+    },
+    {
+      "rule": "react-doctor/no-pass-data-to-parent",
+      "file": "src/workbench/TopicSegmentationCompareTab.tsx"
+    },
+    {
+      "rule": "react-doctor/no-pass-data-to-parent",
+      "file": "src/workbench/TranslateCompareTab.tsx"
+    },
+    {
+      "rule": "react-doctor/no-pass-live-state-to-parent",
+      "file": "src/workbench/mediaCompareSession.ts"
+    },
+    {
+      "rule": "react-doctor/no-pass-live-state-to-parent",
+      "file": "src/workbench/TranslateCompareTab.tsx"
+    },
+    {
+      "rule": "react-doctor/no-prop-callback-in-effect",
+      "file": "src/workbench/TranslateCompareTab.tsx"
+    },
+    {
+      "rule": "react-doctor/no-redundant-roles",
+      "file": "src/components/EnginePicker.tsx"
+    },
+    {
+      "rule": "react-doctor/no-render-in-render",
+      "file": "src/components/resolve/CombineForm.tsx"
+    },
+    {
+      "rule": "react-doctor/no-render-in-render",
+      "file": "src/components/resolve/ValueList.tsx"
+    },
+    {
+      "rule": "react-doctor/no-static-element-interactions",
+      "file": "src/App.tsx"
+    },
+    {
+      "rule": "react-doctor/no-static-element-interactions",
+      "file": "src/components/SearchPanel.tsx"
+    },
+    {
+      "rule": "react-doctor/only-export-components",
+      "file": "src/components/LocalServerGuidance.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-html-dialog",
+      "file": "src/components/EnginePicker.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-html-dialog",
+      "file": "src/components/ExportColumnTablesModal.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-html-dialog",
+      "file": "src/components/RowDrawer.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-module-scope-pure-function",
+      "file": "src/components/action-panel/ActionForm.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-module-scope-pure-function",
+      "file": "src/components/AdminPage.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-module-scope-pure-function",
+      "file": "src/components/ReplayModeBanner.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-module-scope-pure-function",
+      "file": "src/settings/SettingsSections.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-module-scope-pure-function",
+      "file": "src/workbench/WorkbenchCommandPalette.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-tag-over-role",
+      "file": "src/components/action-panel/ApiCallForm.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-tag-over-role",
+      "file": "src/components/action-panel/NerFieldControls.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-tag-over-role",
+      "file": "src/components/action-panel/RunScopeFooter.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-tag-over-role",
+      "file": "src/components/EnginePicker.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-tag-over-role",
+      "file": "src/components/ExportColumnTablesModal.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-tag-over-role",
+      "file": "src/components/MentionsPanel.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-tag-over-role",
+      "file": "src/components/ModelPullProgress.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-tag-over-role",
+      "file": "src/components/resolve/CombineForm.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-tag-over-role",
+      "file": "src/components/resolve/SubstituteForm.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-tag-over-role",
+      "file": "src/components/resolve/ValueList.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-tag-over-role",
+      "file": "src/components/RowDrawer.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-tag-over-role",
+      "file": "src/components/TemporalExtractRangeForm.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-tag-over-role",
+      "file": "src/components/TemporalSplitForm.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-tag-over-role",
+      "file": "src/workbench/TopicSegmentationCompareTab.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-useReducer",
+      "file": "src/components/action-panel/ActionForm.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-useReducer",
+      "file": "src/components/action-panel/ApiCallForm.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-useReducer",
+      "file": "src/components/ClusterReviewForm.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-useReducer",
+      "file": "src/components/EnginePicker.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-useReducer",
+      "file": "src/components/ExportColumnTablesModal.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-useReducer",
+      "file": "src/components/HomeScreen.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-useReducer",
+      "file": "src/components/LocalServerGuidance.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-useReducer",
+      "file": "src/components/ModelPullProgress.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-useReducer",
+      "file": "src/components/resolve/CombineForm.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-useReducer",
+      "file": "src/components/resolve/ReplaceForm.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-useReducer",
+      "file": "src/components/resolve/SubstituteForm.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-useReducer",
+      "file": "src/components/TemporalExtractRangeForm.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-useReducer",
+      "file": "src/components/TemporalSplitForm.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-useReducer",
+      "file": "src/settings/SettingsSections.tsx"
+    },
+    {
+      "rule": "react-doctor/prefer-useReducer",
+      "file": "src/workbench/TranslateCompareTab.tsx"
+    },
+    {
+      "rule": "react-doctor/rerender-lazy-state-init",
+      "file": "src/components/action-panel/ApiCallForm.tsx"
+    },
+    {
+      "rule": "react-doctor/rerender-memo-before-early-return",
+      "file": "src/components/action-panel/ActionForm.tsx"
+    },
+    {
+      "rule": "react-doctor/rerender-memo-with-default-value",
+      "file": "src/components/action-panel/ApiCallForm.tsx"
+    },
+    {
+      "rule": "react-doctor/rerender-memo-with-default-value",
+      "file": "src/components/action-panel/SourceInputControl.tsx"
+    },
+    {
+      "rule": "react-doctor/rerender-memo-with-default-value",
+      "file": "src/components/TemporalExtractRangeForm.tsx"
+    },
+    {
+      "rule": "react-doctor/rerender-memo-with-default-value",
+      "file": "src/components/TemporalSplitForm.tsx"
+    },
+    {
+      "rule": "react-doctor/rerender-state-only-in-handlers",
+      "file": "src/components/ModelPullProgress.tsx"
+    },
+    {
+      "rule": "react-doctor/rerender-state-only-in-handlers",
+      "file": "src/components/resolve/CombineForm.tsx"
+    },
+    {
+      "rule": "react-doctor/rerender-state-only-in-handlers",
+      "file": "src/components/resolve/GroupCard.tsx"
+    },
+    {
+      "rule": "react-doctor/rerender-state-only-in-handlers",
+      "file": "src/settings/SettingsSections.tsx"
+    },
+    {
+      "rule": "react-doctor/rerender-state-only-in-handlers",
+      "file": "src/workbench/TopicSegmentationCompareTab.tsx"
+    },
+    {
+      "rule": "react-doctor/rerender-state-only-in-handlers",
+      "file": "src/workbench/WorkbenchBottomDock.tsx"
+    },
+    {
+      "rule": "react-doctor/role-supports-aria-props",
+      "file": "src/components/resolve/ValueList.tsx"
+    }
+  ]
+}

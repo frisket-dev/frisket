@@ -1,0 +1,24 @@
+{
+  "future_document_flag": {"introduced_by": "a-2028-writer"},
+  "promise_set_hash": "written-by-a-newer-writer-under-its-own-field-lists",
+  "promises": [
+    {
+      "audience": "user_claim",
+      "basis": null,
+      "field": "region",
+      "future_column": 7,
+      "op": "matches_glob",
+      "order_ref": null,
+      "value": "eu-*"
+    },
+    {
+      "audience": "user_claim",
+      "basis": {"retention_ref": "retention.v3"},
+      "field": "data_retention_days",
+      "op": "le",
+      "order_ref": null,
+      "value": 30
+    }
+  ],
+  "schema_gen": 2
+}

@@ -1,0 +1,14 @@
+# Optional domain edge; release.env supplies the immutable image digest.
+services:
+  caddy:
+    image: "${CADDY_IMAGE:?Set CADDY_IMAGE to the published Caddy image digest}"
+    restart: unless-stopped
+    environment:
+      FRISKET_DOMAIN: "${FRISKET_DOMAIN:?Set FRISKET_DOMAIN}"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy/data:/data
+      - ./caddy/config:/config

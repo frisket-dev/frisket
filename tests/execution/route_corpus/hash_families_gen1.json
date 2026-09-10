@@ -1,0 +1,140 @@
+{
+  "families": {
+    "frisket.action_identity.v1": {
+      "pinned_hash": "55da5a7eff7918ca5077aa049f3f205bf55d11b30cef0506b856580d6120004c",
+      "rules": {
+        "float_policy": "reject",
+        "nfc_strings": true,
+        "output": "hex"
+      },
+      "sample": {
+        "action_kind": "media.transcribe",
+        "engine": "parakeet-tdt",
+        "input_columns": [
+          "media"
+        ],
+        "output_name": "café",
+        "sheet_id": "3",
+        "vad": true
+      }
+    },
+    "frisket.basis_identity.v1": {
+      "pinned_hash": "74e86ea4e0c799ff4da5ff8a24e5d2f4361f75789a0b6f868fed681b02273b02",
+      "rules": {
+        "float_policy": "reject",
+        "nfc_strings": true,
+        "output": "hex"
+      },
+      "sample": {
+        "order_ref": null,
+        "pricing_key": "test.gateway.audio_second",
+        "quantity_unit": "audio_second",
+        "throughput_ref": null
+      }
+    },
+    "frisket.epoch_provenance.v1": {
+      "pinned_hash": "88681336af6e4095d2a88059b2e29e9ed250e36fbd211a66582f3c7f2baca9c1",
+      "rules": {
+        "float_policy": "reject",
+        "nfc_strings": true,
+        "output": "hex"
+      },
+      "sample": {
+        "credential_source": "local",
+        "device": "cpu",
+        "engine": "faster_whisper",
+        "provenance": "frisket.transcribe_binding.v1",
+        "revision": "abc",
+        "target_id": "local"
+      }
+    },
+    "frisket.promise_row.v1": {
+      "pinned_hash": "8b5ea2bc45bf49df2b2ee9bd5065f2fa644d57cacc8c06e8c13b068ba01235a9",
+      "rules": {
+        "float_policy": "reject",
+        "nfc_strings": true,
+        "output": "hex"
+      },
+      "sample": {
+        "basis": {
+          "pricing_key": "test.gateway.audio_second"
+        },
+        "field": "cost",
+        "op": "le",
+        "order_ref": null,
+        "value": "1.50"
+      }
+    },
+    "frisket.promise_set.v1": {
+      "pinned_hash": "50244eec8c5e4890c93ffa4de0b935bbcd62658a12983d7e3d82399aa399418f",
+      "rules": {
+        "float_policy": "reject",
+        "nfc_strings": true,
+        "output": "hex"
+      },
+      "sample": [
+        {
+          "audience": "user_claim",
+          "basis": null,
+          "field": "egress_class",
+          "op": "eq",
+          "order_ref": null,
+          "value": "none"
+        }
+      ]
+    },
+    "frisket.route_facts.v1": {
+      "pinned_hash": "04dc4f71384a4202bc05474705c82395426cf64ac917dca34f61dd5c28f1a784",
+      "rules": {
+        "float_policy": "reject",
+        "nfc_strings": true,
+        "output": "hex"
+      },
+      "sample": {
+        "cost_posture": "operator_borne",
+        "credential_source": "local",
+        "egress_class": "none",
+        "operator": "self",
+        "region": null
+      }
+    },
+    "frisket.route_violation.v1": {
+      "pinned_hash": "1aced87598dd54e15bb7a6ae69e68c79ff3c6bd1bebd5e8d3168c51e852d313c",
+      "rules": {
+        "float_policy": "reject",
+        "nfc_strings": true,
+        "output": "hex"
+      },
+      "sample": {
+        "observed_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "promise_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    "frisket.standing_policy.v1": {
+      "pinned_hash": "64cfda62b8b6c3c37d3b3ebb7655861767f79cfa8ec67f69d258a416e1772113",
+      "rules": {
+        "float_policy": "reject",
+        "nfc_strings": true,
+        "output": "hex"
+      },
+      "sample": {
+        "currency": "USD",
+        "policy": "cost_under_gate_v1",
+        "threshold_usd": "1"
+      }
+    },
+    "frisket.test.v1": {
+      "pinned_hash": "9f6225847a0c60adaba1be844d83d5b8dcad6a9f31d3f475ac55ddea6f1cccd7",
+      "rules": {
+        "float_policy": "reject",
+        "nfc_strings": true,
+        "output": "hex"
+      },
+      "sample": {
+        "a": 1,
+        "b": "x"
+      }
+    }
+  },
+  "schema_gen": 1
+}

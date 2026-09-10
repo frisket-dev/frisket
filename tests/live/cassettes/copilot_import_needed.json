@@ -1,0 +1,115 @@
+{
+ "cases": [
+  {
+   "id": "empty_project_csv_request",
+   "expect_needs_import": true,
+   "reply": {
+    "schema_version": "frisket.copilot_reply.v1",
+    "reply": "It looks like your project doesn't have any data yet! Please **import your CSV file** first before I can draft any actions on it.\n\nHere's how to get started:\n1. Click the **Import** button in your project.\n2. Upload your contracts CSV file.\n3. Once the data is loaded, come back and I'll draft a classification action for you right away! \ud83d\uddc2\ufe0f",
+    "needs_import": true,
+    "proposals": [],
+    "cost_usd": 0.0068189999999999995
+   }
+  },
+  {
+   "id": "empty_project_upload_request",
+   "expect_needs_import": true,
+   "reply": {
+    "schema_version": "frisket.copilot_reply.v1",
+    "reply": "Before I can draft an action to extract incident dates, you'll need to **import your PDF files** into the project first. Here's how:\n\n1. **Upload your folder of PDFs** using the import/upload option in the project.\n2. Once the files are ingested and appear as rows in a sheet, come back and I'll draft an extraction action to pull out the incident dates automatically.\n\nOnce your PDFs are imported, I can set up an action to extract structured fields like incident date, report number, and more \u2014 just let me know!",
+    "needs_import": true,
+    "proposals": [],
+    "cost_usd": 0.007268999999999999
+   }
+  },
+  {
+   "id": "empty_project_url_request",
+   "expect_needs_import": true,
+   "reply": {
+    "schema_version": "frisket.copilot_reply.v1",
+    "reply": "Before I can summarize the data, you'll need to **import it first**. Here's how:\n\n1. Copy the URL: `https://example.com/budget-data`\n2. Use the **Import** feature in frisket to fetch the page and load the table as a sheet.\n\nOnce the data is imported and appears as a sheet in your project, I can draft a summarization action on it!",
+    "needs_import": true,
+    "proposals": [],
+    "cost_usd": 0.0068579999999999995
+   }
+  },
+  {
+   "id": "empty_project_youtube_request",
+   "expect_needs_import": true,
+   "reply": {
+    "schema_version": "frisket.copilot_reply.v1",
+    "reply": "Before I can draft a transcription action, you'll need to **import the video first**. Here's how:\n\n1. Click **Import** in your project.\n2. Paste the YouTube URL: `https://www.youtube.com/watch?v=dQw4w9WgXcQ`\n3. Once it's imported as a row in your project, come back and I'll set up the transcription action for you!",
+    "needs_import": true,
+    "proposals": [],
+    "cost_usd": 0.00699
+   }
+  },
+  {
+   "id": "populated_project_actionable_request",
+   "expect_needs_import": false,
+   "reply": {
+    "schema_version": "frisket.copilot_reply.v1",
+    "reply": "Here's an action that will classify each article in your **articles** sheet into one of three categories: **housing**, **infrastructure**, or **other**.",
+    "needs_import": false,
+    "proposals": [
+     {
+      "kind": "map",
+      "title": "Classify articles by topic",
+      "spec": {
+       "sheet_id": 1,
+       "model": "gemini/gemini-2.5-flash",
+       "input_columns": [
+        "headline",
+        "body"
+       ],
+       "input_template": null,
+       "prompt": null,
+       "context": null,
+       "instruction": null,
+       "query": null,
+       "template": null,
+       "code": null,
+       "pattern": null,
+       "output_name": null,
+       "target_language": null,
+       "preset": null,
+       "guidelines": null,
+       "judged_column": null,
+       "provider": null,
+       "geography": null,
+       "engine": null,
+       "target_sheet": null,
+       "target_column": null,
+       "source_column": null,
+       "include_justification": false,
+       "include_confidence": null,
+       "include_moe": null,
+       "match_threshold": null,
+       "confident_threshold": null,
+       "frame_count": null,
+       "count": null,
+       "interval_seconds": null,
+       "output_fields": [
+        {
+         "name": "topic_category",
+         "type": "category",
+         "description": "The primary topic of the article.",
+         "labels": [
+          "housing",
+          "infrastructure",
+          "other"
+         ]
+        }
+       ],
+       "carry_columns": null,
+       "group_by": null,
+       "params": null,
+       "action_kind": "map.classify"
+      }
+     }
+    ],
+    "cost_usd": 0.008657999999999999
+   }
+  }
+ ]
+}

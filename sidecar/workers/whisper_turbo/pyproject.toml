@@ -1,0 +1,37 @@
+[project]
+name = "frisket-whisper-turbo"
+version = "0.1.0"
+description = "Fixed Whisper Turbo worker for Frisket transcription"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "faster-whisper==1.2.1",
+    "frisket-models",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.17,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+# The worker is built from its own project inside a clean CUDA image. Keep the
+# relative lock policy local instead of inheriting it from a developer checkout.
+exclude-newer = "1 week"
+
+[tool.uv.sources]
+frisket-models = { path = "../..", editable = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "ruff>=0.15.16",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]

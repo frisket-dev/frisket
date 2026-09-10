@@ -1,0 +1,544 @@
+{
+  "auto_enable": true,
+  "contributes": {
+    "actions": [
+      "demo.scalar_params.format_text",
+      "demo.scalar_params.combine_columns",
+      "demo.scalar_params.template_sources"
+    ],
+    "column_types": [],
+    "importers": [],
+    "job_handlers": [],
+    "operators": [],
+    "projections": [],
+    "workbench_commands": [],
+    "workbench_panels": [],
+    "workbench_views": []
+  },
+  "id": "demo.scalar_params",
+  "requires": {
+    "capabilities": [
+      "plugin:trusted_local_backend"
+    ],
+    "secrets": []
+  },
+  "runtime": {
+    "actions": [
+      {
+        "catalog_entry": {
+          "async_mode": "sync",
+          "cost_policy": {
+            "kind": "none",
+            "requires_confirmation": false
+          },
+          "description": "Formats a text column using declared scalar params.",
+          "errors": [
+            {
+              "code": "invalid_action_request",
+              "message": "The typed action request is malformed."
+            },
+            {
+              "code": "invalid_params",
+              "message": "The action parameters are invalid."
+            },
+            {
+              "code": "invalid_input_ref",
+              "message": "A source sheet, row, or column reference is invalid."
+            },
+            {
+              "code": "output_column_exists",
+              "message": "A requested output column already exists."
+            },
+            {
+              "code": "output_column_busy",
+              "message": "A requested output column is claimed by another run."
+            },
+            {
+              "code": "network_disabled",
+              "message": "The action attempted an unadmitted network request."
+            },
+            {
+              "code": "map_rows_failed",
+              "message": "The row program failed to produce usable output."
+            },
+            {
+              "code": "project_write_failed",
+              "message": "The project write or receipt update failed."
+            },
+            {
+              "code": "idempotency_conflict",
+              "message": "The idempotency key was used for different work."
+            },
+            {
+              "code": "idempotency_in_progress",
+              "message": "The idempotent action is already running."
+            },
+            {
+              "code": "idempotency_stale_running",
+              "message": "A stale running reservation was cleared."
+            },
+            {
+              "code": "stale_replay",
+              "message": "Stored outputs no longer match the committed receipt."
+            }
+          ],
+          "examples": [],
+          "execution_mode": "per_row",
+          "idempotency": {
+            "behavior": "Same request keys replay committed results.",
+            "key_field": "idempotency_key",
+            "scope": "project",
+            "supported": true
+          },
+          "input_schema": {
+            "$defs": {
+              "ColumnRef_str_": {
+                "title": "ColumnRef[str]",
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "properties": {
+              "prefix": {
+                "default": "",
+                "title": "Prefix",
+                "type": "string"
+              },
+              "repeat": {
+                "default": 1,
+                "title": "Repeat",
+                "type": "integer"
+              },
+              "text": {
+                "$ref": "#/$defs/ColumnRef_str_"
+              },
+              "uppercase": {
+                "default": false,
+                "title": "Uppercase",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "text"
+            ],
+            "title": "FormatParams",
+            "type": "object"
+          },
+          "kind": "demo.scalar_params.format_text",
+          "output_schema": {
+            "properties": {
+              "formatted": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Formatted"
+              }
+            },
+            "required": [
+              "formatted"
+            ],
+            "title": "FormatOutput",
+            "type": "object"
+          },
+          "receipt_policy": "writes_receipt",
+          "required_capabilities": [
+            "project:write"
+          ],
+          "required_credentials": [],
+          "retry_policy": {
+            "strategy": "idempotency_replay",
+            "supported": true
+          },
+          "row_scope_policy": {
+            "kind": "sheet_rows",
+            "selectors": [
+              "all_rows",
+              "exact_membership"
+            ]
+          },
+          "side_effects": [
+            "read_input_rows",
+            "create_generated_columns",
+            "write_run_results",
+            "write_map_op",
+            "write_receipt"
+          ],
+          "title": "Format text with params",
+          "ui_hints": {
+            "category": "text",
+            "form": "generated",
+            "logical_outputs": [
+              {
+                "column_type": "text",
+                "key": "formatted"
+              }
+            ],
+            "semantic_controls": {
+              "text": "column"
+            },
+            "source_requirements": [
+              {
+                "accepted_column_types": [
+                  "text"
+                ],
+                "id": "text",
+                "label": "Text",
+                "min": 1,
+                "mode": "column",
+                "param": "text"
+              }
+            ]
+          },
+          "writes_project": true
+        },
+        "handler_api": "typed_action",
+        "handler_key": "demo.scalar_params:format_text",
+        "kind": "demo.scalar_params.format_text",
+        "module_path": "plugin.py"
+      },
+      {
+        "catalog_entry": {
+          "async_mode": "sync",
+          "cost_policy": {
+            "kind": "none",
+            "requires_confirmation": false
+          },
+          "description": "Combines multiple selected source columns into one output.",
+          "errors": [
+            {
+              "code": "invalid_action_request",
+              "message": "The typed action request is malformed."
+            },
+            {
+              "code": "invalid_params",
+              "message": "The action parameters are invalid."
+            },
+            {
+              "code": "invalid_input_ref",
+              "message": "A source sheet, row, or column reference is invalid."
+            },
+            {
+              "code": "output_column_exists",
+              "message": "A requested output column already exists."
+            },
+            {
+              "code": "output_column_busy",
+              "message": "A requested output column is claimed by another run."
+            },
+            {
+              "code": "network_disabled",
+              "message": "The action attempted an unadmitted network request."
+            },
+            {
+              "code": "map_rows_failed",
+              "message": "The row program failed to produce usable output."
+            },
+            {
+              "code": "project_write_failed",
+              "message": "The project write or receipt update failed."
+            },
+            {
+              "code": "idempotency_conflict",
+              "message": "The idempotency key was used for different work."
+            },
+            {
+              "code": "idempotency_in_progress",
+              "message": "The idempotent action is already running."
+            },
+            {
+              "code": "idempotency_stale_running",
+              "message": "A stale running reservation was cleared."
+            },
+            {
+              "code": "stale_replay",
+              "message": "Stored outputs no longer match the committed receipt."
+            }
+          ],
+          "examples": [],
+          "execution_mode": "per_row",
+          "idempotency": {
+            "behavior": "Same request keys replay committed results.",
+            "key_field": "idempotency_key",
+            "scope": "project",
+            "supported": true
+          },
+          "input_schema": {
+            "$defs": {
+              "ColumnRef_str_": {
+                "title": "ColumnRef[str]",
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "description": "Exactly two source columns, the typed form of the old manifest\n`cardinality: many` with min and max 2.",
+            "properties": {
+              "separator": {
+                "default": " / ",
+                "title": "Separator",
+                "type": "string"
+              },
+              "sources": {
+                "items": {
+                  "$ref": "#/$defs/ColumnRef_str_"
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "title": "Sources",
+                "type": "array"
+              }
+            },
+            "required": [
+              "sources"
+            ],
+            "title": "CombineParams",
+            "type": "object"
+          },
+          "kind": "demo.scalar_params.combine_columns",
+          "output_schema": {
+            "properties": {
+              "combined": {
+                "title": "Combined",
+                "type": "string"
+              }
+            },
+            "required": [
+              "combined"
+            ],
+            "title": "CombineOutput",
+            "type": "object"
+          },
+          "receipt_policy": "writes_receipt",
+          "required_capabilities": [
+            "project:write"
+          ],
+          "required_credentials": [],
+          "retry_policy": {
+            "strategy": "idempotency_replay",
+            "supported": true
+          },
+          "row_scope_policy": {
+            "kind": "sheet_rows",
+            "selectors": [
+              "all_rows",
+              "exact_membership"
+            ]
+          },
+          "side_effects": [
+            "read_input_rows",
+            "create_generated_columns",
+            "write_run_results",
+            "write_map_op",
+            "write_receipt"
+          ],
+          "title": "Combine source columns",
+          "ui_hints": {
+            "category": "text",
+            "form": "generated",
+            "logical_outputs": [
+              {
+                "column_type": "text",
+                "key": "combined"
+              }
+            ],
+            "semantic_controls": {
+              "sources": "columns"
+            },
+            "source_requirements": [
+              {
+                "accepted_column_types": [
+                  "text"
+                ],
+                "id": "sources",
+                "label": "Sources",
+                "max": 2,
+                "min": 2,
+                "mode": "columns",
+                "param": "sources"
+              }
+            ]
+          },
+          "writes_project": true
+        },
+        "handler_api": "typed_action",
+        "handler_key": "demo.scalar_params:combine_columns",
+        "kind": "demo.scalar_params.combine_columns",
+        "module_path": "plugin.py"
+      },
+      {
+        "catalog_entry": {
+          "async_mode": "sync",
+          "cost_policy": {
+            "kind": "none",
+            "requires_confirmation": false
+          },
+          "description": "Receives source columns derived from the template parameter.",
+          "errors": [
+            {
+              "code": "invalid_action_request",
+              "message": "The typed action request is malformed."
+            },
+            {
+              "code": "invalid_params",
+              "message": "The action parameters are invalid."
+            },
+            {
+              "code": "invalid_input_ref",
+              "message": "A source sheet, row, or column reference is invalid."
+            },
+            {
+              "code": "output_column_exists",
+              "message": "A requested output column already exists."
+            },
+            {
+              "code": "output_column_busy",
+              "message": "A requested output column is claimed by another run."
+            },
+            {
+              "code": "network_disabled",
+              "message": "The action attempted an unadmitted network request."
+            },
+            {
+              "code": "map_rows_failed",
+              "message": "The row program failed to produce usable output."
+            },
+            {
+              "code": "project_write_failed",
+              "message": "The project write or receipt update failed."
+            },
+            {
+              "code": "idempotency_conflict",
+              "message": "The idempotency key was used for different work."
+            },
+            {
+              "code": "idempotency_in_progress",
+              "message": "The idempotent action is already running."
+            },
+            {
+              "code": "idempotency_stale_running",
+              "message": "A stale running reservation was cleared."
+            },
+            {
+              "code": "stale_replay",
+              "message": "Stored outputs no longer match the committed receipt."
+            }
+          ],
+          "examples": [],
+          "execution_mode": "per_row",
+          "idempotency": {
+            "behavior": "Same request keys replay committed results.",
+            "key_field": "idempotency_key",
+            "scope": "project",
+            "supported": true
+          },
+          "input_schema": {
+            "$defs": {
+              "Template_str_": {
+                "additionalProperties": false,
+                "properties": {
+                  "text": {
+                    "title": "Text",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "text"
+                ],
+                "title": "Template[str]",
+                "type": "object"
+              }
+            },
+            "additionalProperties": false,
+            "description": "A template carries the columns it references, which is the typed form of\nthe old `cardinality: template` input pointing at a scalar template param.",
+            "properties": {
+              "template": {
+                "$ref": "#/$defs/Template_str_"
+              }
+            },
+            "required": [
+              "template"
+            ],
+            "title": "TemplateParams",
+            "type": "object"
+          },
+          "kind": "demo.scalar_params.template_sources",
+          "output_schema": {
+            "properties": {
+              "template_summary": {
+                "title": "Template Summary",
+                "type": "string"
+              }
+            },
+            "required": [
+              "template_summary"
+            ],
+            "title": "TemplateOutput",
+            "type": "object"
+          },
+          "receipt_policy": "writes_receipt",
+          "required_capabilities": [
+            "project:write"
+          ],
+          "required_credentials": [],
+          "retry_policy": {
+            "strategy": "idempotency_replay",
+            "supported": true
+          },
+          "row_scope_policy": {
+            "kind": "sheet_rows",
+            "selectors": [
+              "all_rows",
+              "exact_membership"
+            ]
+          },
+          "side_effects": [
+            "read_input_rows",
+            "create_generated_columns",
+            "write_run_results",
+            "write_map_op",
+            "write_receipt"
+          ],
+          "title": "Template-derived sources",
+          "ui_hints": {
+            "category": "text",
+            "form": "generated",
+            "logical_outputs": [
+              {
+                "column_type": "text",
+                "key": "template_summary"
+              }
+            ],
+            "semantic_controls": {
+              "template": "template"
+            },
+            "source_requirements": [
+              {
+                "id": "template",
+                "label": "Template",
+                "min": 0,
+                "mode": "template",
+                "param": "template",
+                "template_columns": "union"
+              }
+            ]
+          },
+          "writes_project": true
+        },
+        "handler_api": "typed_action",
+        "handler_key": "demo.scalar_params:template_sources",
+        "kind": "demo.scalar_params.template_sources",
+        "module_path": "plugin.py"
+      }
+    ],
+    "importers": [],
+    "job_handlers": [],
+    "operators": [],
+    "projections": []
+  },
+  "schema_version": "frisket.plugin.v1",
+  "version": "0.1.0"
+}

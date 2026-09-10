@@ -1,0 +1,1 @@
+[0.00][S01]Hold on, I want to add something[1.40][1.10][S02]Sorry, go ahead[2.30][2.30][S01]As I was saying, the numbers look good[4.90]

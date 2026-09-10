@@ -1,0 +1,88 @@
+# Caddy 2.10 split-host GPU edge. Ollama uses an exact method/path/bearer
+# allowlist and default-denies its management API. The model site delegates
+# bearer validation to the sidecar.
+#
+# Public names use automatic ACME. Private names require `tls internal` in both
+# sites and the Caddy root installed on clients.
+#
+# Matchers accept one current token; rotation requires recreating Caddy.
+# Header matching is not constant-time, so require random >=128-bit tokens and
+# a firewall/VPN/mTLS boundary.
+#
+# Ollama is unauthenticated; never forward the edge bearer upstream.
+(ollama_upstream) {
+	reverse_proxy ollama:11434 {
+		header_up -Authorization
+	}
+}
+
+llm.{$FRISKET_HEAVY_HOST} {
+	# Inference token only.
+	@chat_authed {
+		method POST
+		path /v1/chat/completions
+		header Authorization "Bearer {$FRISKET_LLM_TOKEN}"
+	}
+	handle @chat_authed {
+		import ollama_upstream
+	}
+
+	# Inference token only.
+	@embed_authed {
+		method POST
+		path /v1/embeddings
+		header Authorization "Bearer {$FRISKET_LLM_TOKEN}"
+	}
+	handle @embed_authed {
+		import ollama_upstream
+	}
+
+	# Required by the authenticated compatibility probe.
+	@models_authed {
+		method GET
+		path /v1/models
+		header Authorization "Bearer {$FRISKET_LLM_TOKEN}"
+	}
+	handle @models_authed {
+		import ollama_upstream
+	}
+
+	# Probe/diagnostics use inference auth; provisioning may also list tags.
+	@tags_inference_authed {
+		method GET
+		path /api/tags
+		header Authorization "Bearer {$FRISKET_LLM_TOKEN}"
+	}
+	@tags_provisioning_authed {
+		method GET
+		path /api/tags
+		header Authorization "Bearer {$FRISKET_LLM_PROVISIONING_TOKEN}"
+	}
+	handle @tags_inference_authed {
+		import ollama_upstream
+	}
+	handle @tags_provisioning_authed {
+		import ollama_upstream
+	}
+
+	# Provisioning only; inference credentials cannot manage models.
+	@pull_authed {
+		method POST
+		path /api/pull
+		header Authorization "Bearer {$FRISKET_LLM_PROVISIONING_TOKEN}"
+	}
+	handle @pull_authed {
+		import ollama_upstream
+	}
+
+	# Load-bearing default deny: blocks bad auth, unknown routes, management
+	# APIs, and unsupported local transcription.
+	handle {
+		respond 403
+	}
+}
+
+models.{$FRISKET_HEAVY_HOST} {
+	# Preserve Authorization for sidecar bearer validation.
+	reverse_proxy frisket-models:8500
+}

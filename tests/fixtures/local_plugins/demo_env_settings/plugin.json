@@ -1,0 +1,27 @@
+{
+  "schema_version": "frisket.plugin.v1",
+  "id": "demo.env_settings",
+  "version": "0.1.0",
+  "contributes": {
+    "job_handlers": ["demo.env_settings.noop"]
+  },
+  "requires": {
+    "capabilities": ["plugin:trusted_local_backend"],
+    "secrets": ["DEMO_API_KEY"]
+  },
+  "settings": [
+    {
+      "id": "demo.env_settings.enabled",
+      "title": "Enabled",
+      "type": "boolean",
+      "default": true
+    },
+    {
+      "id": "demo.env_settings.mode",
+      "title": "Mode",
+      "type": "enum",
+      "default": "summary",
+      "enum": ["summary", "detail"]
+    }
+  ]
+}

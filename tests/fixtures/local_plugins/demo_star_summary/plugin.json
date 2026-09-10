@@ -1,0 +1,286 @@
+{
+  "auto_enable": true,
+  "contributes": {
+    "actions": [
+      "demo.star_summary.summarize_stars"
+    ],
+    "column_types": [],
+    "importers": [],
+    "job_handlers": [],
+    "operators": [],
+    "projections": [],
+    "workbench_commands": [],
+    "workbench_panels": [],
+    "workbench_views": []
+  },
+  "id": "demo.star_summary",
+  "requires": {
+    "capabilities": [
+      "plugin:trusted_local_backend"
+    ],
+    "secrets": []
+  },
+  "runtime": {
+    "actions": [
+      {
+        "catalog_entry": {
+          "async_mode": "sync",
+          "cost_policy": {
+            "kind": "none",
+            "requires_confirmation": false
+          },
+          "description": "Aggregates the selected rows into a star summary sheet.",
+          "errors": [
+            {
+              "code": "invalid_input_ref",
+              "message": "The admitted table source is invalid or unavailable."
+            },
+            {
+              "code": "invalid_action_request",
+              "message": "The typed action request is malformed."
+            },
+            {
+              "code": "invalid_params",
+              "message": "The table parameters or produced rows are invalid."
+            },
+            {
+              "code": "invalid_column_type",
+              "message": "A declared column type is unavailable."
+            },
+            {
+              "code": "duplicate_column_name",
+              "message": "Created sheet columns must have unique names."
+            },
+            {
+              "code": "duplicate_sheet_name",
+              "message": "A sheet with the requested name already exists."
+            },
+            {
+              "code": "stale_replay",
+              "message": "The published table or lineage has changed."
+            },
+            {
+              "code": "row_shape_mismatch",
+              "message": "Every row must match the declared columns."
+            },
+            {
+              "code": "import_workload_limit_exceeded",
+              "message": "The import exceeds the deployment row limit."
+            },
+            {
+              "code": "invalid_temporal_value",
+              "message": "A temporal value is malformed."
+            },
+            {
+              "code": "timeline_not_found",
+              "message": "A temporal timeline is missing."
+            },
+            {
+              "code": "timeline_stale",
+              "message": "A temporal timeline anchor is stale."
+            },
+            {
+              "code": "timeline_duration_required",
+              "message": "A timeline duration is not finalized."
+            },
+            {
+              "code": "ambiguous_time_mapping",
+              "message": "A temporal mapping is ambiguous."
+            },
+            {
+              "code": "range_out_of_bounds",
+              "message": "A temporal value exceeds its timeline duration."
+            },
+            {
+              "code": "idempotency_conflict",
+              "message": "The idempotency key was used for different work."
+            },
+            {
+              "code": "project_write_failed",
+              "message": "The sheet, rows, operation, or receipt could not be written."
+            }
+          ],
+          "examples": [],
+          "execution_mode": "whole_project",
+          "idempotency": {
+            "behavior": "Same request keys replay committed results.",
+            "key_field": "idempotency_key",
+            "scope": "project",
+            "supported": true
+          },
+          "input_schema": {
+            "$defs": {
+              "ColumnRef_float_": {
+                "title": "ColumnRef[float]",
+                "type": "string"
+              },
+              "ColumnRef_str_": {
+                "title": "ColumnRef[str]",
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "properties": {
+              "emit_invalid_row": {
+                "default": false,
+                "title": "Emit Invalid Row",
+                "type": "boolean"
+              },
+              "group_by": {
+                "$ref": "#/$defs/ColumnRef_str_"
+              },
+              "label_column": {
+                "$ref": "#/$defs/ColumnRef_str_"
+              },
+              "value_column": {
+                "$ref": "#/$defs/ColumnRef_float_"
+              }
+            },
+            "required": [
+              "group_by",
+              "value_column",
+              "label_column"
+            ],
+            "title": "StarSummaryParams",
+            "type": "object"
+          },
+          "kind": "demo.star_summary.summarize_stars",
+          "output_schema": {
+            "properties": {
+              "average_rating": {
+                "title": "Average Rating",
+                "type": "number"
+              },
+              "constellation": {
+                "title": "Constellation",
+                "type": "string"
+              },
+              "source_row_count": {
+                "title": "Source Row Count",
+                "type": "integer"
+              },
+              "star_count": {
+                "title": "Star Count",
+                "type": "integer"
+              },
+              "top_star": {
+                "title": "Top Star",
+                "type": "string"
+              }
+            },
+            "required": [
+              "constellation",
+              "star_count",
+              "average_rating",
+              "top_star",
+              "source_row_count"
+            ],
+            "title": "StarSummaryOutput",
+            "type": "object"
+          },
+          "receipt_policy": "writes_receipt",
+          "required_capabilities": [
+            "project:write"
+          ],
+          "required_credentials": [],
+          "retry_policy": {
+            "strategy": "idempotency_replay",
+            "supported": true
+          },
+          "row_scope_policy": {
+            "kind": "sheet_rows",
+            "selectors": [
+              "all_rows",
+              "exact_membership"
+            ]
+          },
+          "side_effects": [
+            "create_sheet",
+            "create_columns",
+            "create_rows",
+            "write_op",
+            "write_receipt"
+          ],
+          "title": "Summarize star ratings",
+          "ui_hints": {
+            "category": "convert",
+            "form": "generated",
+            "logical_outputs": [
+              {
+                "column_type": "text",
+                "key": "constellation"
+              },
+              {
+                "column_type": "integer",
+                "key": "star_count"
+              },
+              {
+                "column_type": "number",
+                "key": "average_rating"
+              },
+              {
+                "column_type": "text",
+                "key": "top_star"
+              },
+              {
+                "column_type": "integer",
+                "key": "source_row_count"
+              }
+            ],
+            "semantic_controls": {
+              "group_by": "column",
+              "label_column": "column",
+              "value_column": "column"
+            },
+            "source_requirements": [
+              {
+                "accepted_column_types": [
+                  "text"
+                ],
+                "id": "group_by",
+                "label": "Group by",
+                "min": 1,
+                "mode": "column",
+                "param": "group_by"
+              },
+              {
+                "accepted_column_types": [
+                  "number"
+                ],
+                "id": "value_column",
+                "label": "Value column",
+                "min": 1,
+                "mode": "column",
+                "param": "value_column"
+              },
+              {
+                "accepted_column_types": [
+                  "text"
+                ],
+                "id": "label_column",
+                "label": "Label column",
+                "min": 1,
+                "mode": "column",
+                "param": "label_column"
+              }
+            ],
+            "typed_action": {
+              "creates_sheet": true
+            }
+          },
+          "writes_project": true
+        },
+        "handler_api": "typed_action",
+        "handler_key": "demo.star_summary:summarize_stars",
+        "kind": "demo.star_summary.summarize_stars",
+        "module_path": "plugin.py"
+      }
+    ],
+    "importers": [],
+    "job_handlers": [],
+    "operators": [],
+    "projections": []
+  },
+  "schema_version": "frisket.plugin.v1",
+  "version": "0.1.0"
+}

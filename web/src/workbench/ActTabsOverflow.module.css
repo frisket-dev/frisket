@@ -1,0 +1,25 @@
+/* Keep the control at the end of each tab strip usable while its tabs scroll. */
+.ribbonTabstrip {
+  min-width: 0;
+}
+
+.ribbonTabs,
+.menuTabs {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.ribbonCollapse,
+.menuExpand {
+  flex: 0 0 auto;
+  margin-left: 8px;
+}
+
+.menuTabs {
+  overflow-y: hidden;
+}
+
+.menuTab {
+  flex: 0 0 auto;
+}

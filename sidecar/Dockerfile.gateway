@@ -1,0 +1,27 @@
+# Light models-only gateway. Model runtimes and weights belong in isolated
+# worker images; this image installs only the base HTTP/contract package.
+FROM python:3.12-slim@sha256:423ed6ab25b1921a477529254bfeeabf5855151dc2c3141699a1bfc852199fbf
+
+COPY --from=ghcr.io/astral-sh/uv@sha256:eb2843a1e56fd9e30c7276ce1a52cba86e64c7b385f5e3279a0e08e02dd058fc /uv /usr/local/bin/uv
+
+WORKDIR /app
+COPY pyproject.toml uv.lock README.md ./
+COPY src/ src/
+RUN uv sync --locked --no-dev
+
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    FRISKET_MODELS_CONCURRENCY=1 \
+    FRISKET_TRANSCRIPTION_SPOOL_DIR=/var/spool/frisket-transcription
+
+RUN mkdir -p /var/spool/frisket-transcription
+VOLUME /var/spool/frisket-transcription
+EXPOSE 8500
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8500/health', timeout=3).read()"]
+
+CMD ["uvicorn", "--factory", \
+     "frisket_models.transcription.models_gpu_runtime:create_models_gateway_app", \
+     "--host", "0.0.0.0", "--port", "8500"]

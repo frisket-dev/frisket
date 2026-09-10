@@ -1,0 +1,664 @@
+#!/bin/sh
+# Provider-neutral install helper for the two published Compose graphs.
+# Beyond first install it owns exactly one lifecycle operation: --upgrade, an
+# in-place move of an existing installation to this bundle's pinned release.
+# It deliberately owns no conversion, backup, rollback, uninstall, or cloud
+# lifecycle operation. Run with --help for the supported host contract.
+set -eu
+
+FORMAT=3
+PROJECT=frisket
+DEFAULT_ROOT=/srv/frisket
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ -d "$SCRIPT_DIR/deploy/release" ]; then
+  DEFAULT_ARTIFACT_DIR=$SCRIPT_DIR/deploy/release
+else
+  DEFAULT_ARTIFACT_DIR=$SCRIPT_DIR/../../deploy/release
+fi
+ARTIFACT_DIR=${FRISKET_INSTALL_ARTIFACT_DIR:-"$DEFAULT_ARTIFACT_DIR"}
+DIAGNOSTICS_SOURCE=$SCRIPT_DIR/frisket-deployment-diagnostics
+ROOT=$DEFAULT_ROOT
+PACKAGE=standalone
+MODE=
+ORIGIN=
+YES=false
+CHECK=false
+UPGRADE=false
+UPGRADED=false
+INTERACTIVE=false
+SELECTION_SUPPLIED=false
+READY_SECONDS=${FRISKET_INSTALL_READY_SECONDS:-90}
+
+die() { printf '%s\n' "frisket-install: $*" >&2; exit 1; }
+note() { printf '%s\n' "frisket-install: $*" >&2; }
+
+usage() {
+  cat >&2 <<'EOF'
+Usage: frisket-install [--package standalone|multi-service] (--tunnel | --domain HOST | --behind-proxy HTTPS_ORIGIN) [--yes]
+       frisket-install --upgrade [--yes]
+       frisket-install --check [--upgrade] [--package standalone|multi-service] [--tunnel | --domain HOST | --behind-proxy HTTPS_ORIGIN]
+       frisket-install
+
+Installs one release-pinned Frisket Compose package on this Linux/amd64 or
+Linux/arm64 Docker host. It does not install Docker or manage backups,
+rollback, or cloud hosts.
+
+--upgrade moves an existing installation to this bundle's pinned release in
+place: .env and ./data are preserved, the generated Compose files are
+refreshed, and the stack is restarted. Take an off-host snapshot first. It
+never changes the package, public origin,
+edge, or Postgres image; with no other flags the installed selection is read
+from the installation marker.
+
+With no arguments, prompts for a package and access mode. --check performs the
+same host preflight without pulling images, creating files, or starting Frisket.
+EOF
+  exit 2
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --package) [ "$#" -ge 2 ] || usage; PACKAGE=$2; SELECTION_SUPPLIED=true; shift 2 ;;
+    --tunnel) [ -z "$MODE" ] || usage; MODE=tunnel; SELECTION_SUPPLIED=true; shift ;;
+    --domain) [ "$#" -ge 2 ] || usage; [ -z "$MODE" ] || usage; MODE=domain; ORIGIN=$2; SELECTION_SUPPLIED=true; shift 2 ;;
+    --behind-proxy) [ "$#" -ge 2 ] || usage; [ -z "$MODE" ] || usage; MODE=behind-proxy; ORIGIN=$2; SELECTION_SUPPLIED=true; shift 2 ;;
+    --yes) YES=true; shift ;;
+    --check) CHECK=true; shift ;;
+    --upgrade) UPGRADE=true; shift ;;
+    -h|--help) usage ;;
+    *) usage ;;
+  esac
+done
+
+prompt() {
+  printf '%s' "frisket-install: $1" >&2
+  if ! IFS= read -r ANSWER; then
+    die "interactive input ended; rerun with explicit --package and access flags"
+  fi
+}
+
+# Tests may redirect the fixed root, but it is intentionally not an advertised
+# option and cannot be selected accidentally in a production invocation.
+# Resolved before selection: --upgrade reads its selection from the marker.
+if [ -n "${FRISKET_INSTALL_TEST_ROOT:-}" ]; then
+  [ "${FRISKET_INSTALL_ALLOW_TEST_ROOT:-}" = 1 ] || die "test root override requires FRISKET_INSTALL_ALLOW_TEST_ROOT=1"
+  ROOT=$FRISKET_INSTALL_TEST_ROOT
+fi
+
+if [ "$UPGRADE" = true ] && [ "$SELECTION_SUPPLIED" = false ]; then
+  # An upgrade reuses the installed selection; explicit flags stay available
+  # to assert the expected configuration (a mismatch dies in verify_marker).
+  [ -f "$ROOT/.frisket-install" ] || die "nothing to upgrade: no Frisket installation at $ROOT"
+  marker_package= marker_mode= marker_base_url=
+  while IFS='=' read -r key value; do
+    case "$key" in
+      package) marker_package=$value ;;
+      mode) marker_mode=$value ;;
+      base_url) marker_base_url=$value ;;
+    esac
+  done < "$ROOT/.frisket-install"
+  PACKAGE=${marker_package:-standalone}
+  MODE=$marker_mode
+  case "$MODE" in
+    domain) ORIGIN=${marker_base_url#https://} ;;
+    behind-proxy) ORIGIN=$marker_base_url ;;
+    tunnel) ;;
+    *) die "installation marker is truncated" ;;
+  esac
+elif [ "$SELECTION_SUPPLIED" = false ]; then
+  if [ "$CHECK" = true ]; then
+    # The preflight-only default mirrors the recommended interactive choices
+    # without waiting for input on an automation or support run.
+    MODE=tunnel
+  elif [ "$YES" = true ]; then
+    # --yes is an automation flag, not permission to guess an access mode.
+    usage
+  else
+    INTERACTIVE=true
+    prompt "Package [1=Standalone (recommended), 2=Multi-service] (default 1): "
+    case "$ANSWER" in
+      ''|1|standalone) PACKAGE=standalone ;;
+      2|multi-service) PACKAGE=multi-service ;;
+      *) die "invalid package choice; enter 1 or 2" ;;
+    esac
+    prompt "Access [1=SSH tunnel (recommended), 2=public domain, 3=existing HTTPS proxy] (default 1): "
+    case "$ANSWER" in
+      ''|1|tunnel) MODE=tunnel ;;
+      2|domain)
+        MODE=domain
+        prompt "Public DNS hostname (for example frisket.example.org): "
+        ORIGIN=$ANSWER
+        ;;
+      3|proxy|behind-proxy)
+        MODE=behind-proxy
+        prompt "Public HTTPS origin (for example https://frisket.example.org): "
+        ORIGIN=$ANSWER
+        ;;
+      *) die "invalid access choice; enter 1, 2, or 3" ;;
+    esac
+  fi
+elif [ "$CHECK" = true ] && [ -z "$MODE" ]; then
+  # Package-specific checks still use the recommended tunnel port contract
+  # unless the operator asks to validate a different access mode.
+  MODE=tunnel
+fi
+
+[ "$PACKAGE" = standalone ] || [ "$PACKAGE" = multi-service ] || die "--package must be standalone or multi-service"
+[ -n "$MODE" ] || usage
+
+valid_domain() {
+  value=$1
+  [ "${#value}" -le 253 ] || return 1
+  printf '%s' "$value" | LC_ALL=C grep -q '[[:cntrl:]]' && return 1
+  case "$value" in
+    ''|*" "*|*'/'*|*'@'*|*'?'*|*'#'*|*'$'*|*'{'*|*'}'*|*'%'*|*'\\'*|*'"'*|*"'"*) return 1 ;;
+  esac
+  case "$value" in *[A-Za-z]*) ;; *) return 1 ;; esac
+  printf '%s' "$value" | grep -Eq '^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$'
+}
+
+valid_origin() {
+  value=$1
+  printf '%s' "$value" | LC_ALL=C grep -q '[[:cntrl:]]' && return 1
+  case "$value" in
+    https://*) ;;
+    *) return 1 ;;
+  esac
+  rest=${value#https://}
+  case "$rest" in
+    ''|*'/'*|*'@'*|*'?'*|*'#'*|*'$'*|*'{'*|*'}'*|*'%'*|*'\\'*|*' '*) return 1 ;;
+  esac
+  host=${rest%%:*}
+  port=${rest#"$host"}
+  valid_domain "$host" || return 1
+  if [ -n "$port" ]; then
+    printf '%s' "$port" | grep -Eq '^:[0-9]{1,5}$' || return 1
+    number=${port#:}
+    [ "$number" -ge 1 ] 2>/dev/null && [ "$number" -le 65535 ] 2>/dev/null
+  fi
+}
+
+case "$MODE" in
+  tunnel) BASE_URL=http://localhost:8000; EDGE=none ;;
+  domain) valid_domain "$ORIGIN" || die "invalid domain (use one DNS hostname only)"; ORIGIN=$(printf '%s' "$ORIGIN" | tr '[:upper:]' '[:lower:]'); BASE_URL="https://$ORIGIN"; EDGE=caddy ;;
+  behind-proxy) valid_origin "$ORIGIN" || die "invalid HTTPS origin (use https://host[:port] with no path or credentials)"; ORIGIN=$(printf '%s' "$ORIGIN" | tr '[:upper:]' '[:lower:]'); BASE_URL=$ORIGIN; EDGE=none ;;
+esac
+
+is_digest_ref() { printf '%s' "$1" | grep -Eq '^[^[:space:]]+@sha256:[0-9a-f]{64}$'; }
+
+# Published bundles carry these three pins in a data-only file.  Source-tree
+# tests and release engineering can still supply the explicit environment
+# variables, but ordinary operators never have to find or paste a digest.
+release_frisket=
+release_postgres=
+release_caddy=
+if [ -f "$ARTIFACT_DIR/release.env" ]; then
+  while IFS='=' read -r key value; do
+    case "$key" in
+      ''|'#'*) ;;
+      FRISKET_IMAGE) release_frisket=$value ;;
+      POSTGRES_IMAGE) release_postgres=$value ;;
+      CADDY_IMAGE) release_caddy=$value ;;
+      *) die "invalid key in release.env: $key" ;;
+    esac
+  done < "$ARTIFACT_DIR/release.env"
+fi
+FRISKET_IMAGE=${release_frisket:-${FRISKET_RELEASE_IMAGE:-${FRISKET_IMAGE:-}}}
+POSTGRES_IMAGE=${release_postgres:-${FRISKET_RELEASE_POSTGRES_IMAGE:-${POSTGRES_IMAGE:-}}}
+CADDY_IMAGE=${release_caddy:-${FRISKET_RELEASE_CADDY_IMAGE:-${CADDY_IMAGE:-}}}
+RELEASE_VERSION=unknown
+if [ -f "$SCRIPT_DIR/VERSION" ]; then
+  IFS= read -r RELEASE_VERSION < "$SCRIPT_DIR/VERSION" || RELEASE_VERSION=unknown
+  case "$RELEASE_VERSION" in ''|*[!A-Za-z0-9._+-]*) RELEASE_VERSION=unknown ;; esac
+fi
+
+sha256() { sha256sum "$1" | awk '{print $1}'; }
+verify_marker() {
+  marker=$ROOT/.frisket-install
+  [ -f "$marker" ] || return 1
+  old_format= old_package= old_image= old_postgres_image= old_caddy_image=
+  old_edge= old_mode= old_base_url=
+  seen_format=false seen_package=false seen_image=false
+  seen_postgres_image=false seen_caddy_image=false
+  seen_edge=false seen_mode=false seen_base_url=false
+  seen_hash_compose=false seen_hash_env=false
+  seen_hash_diagnostics=false
+  seen_hash_edge=false seen_hash_caddyfile=false
+  while IFS='=' read -r key value; do
+    case "$key" in
+      format) old_format=$value; seen_format=true ;;
+      package) old_package=$value; seen_package=true ;;
+      image) old_image=$value; seen_image=true ;;
+      postgres_image) old_postgres_image=$value; seen_postgres_image=true ;;
+      caddy_image) old_caddy_image=$value; seen_caddy_image=true ;;
+      edge) old_edge=$value; seen_edge=true ;;
+      mode) old_mode=$value; seen_mode=true ;;
+      base_url) old_base_url=$value; seen_base_url=true ;;
+      hash_*)
+        file=${key#hash_}
+        case "$file" in
+          compose.yaml) seen_hash_compose=true ;;
+          .env) seen_hash_env=true ;;
+          frisket-deployment-diagnostics) seen_hash_diagnostics=true ;;
+          compose.edge.yaml) seen_hash_edge=true ;;
+          Caddyfile) seen_hash_caddyfile=true ;;
+          *) die "invalid generated-file entry in marker" ;;
+        esac
+        # An upgrade replaces every generated file except .env, so drift or
+        # absence there is repairable, not fatal — this is what lets an
+        # interrupted upgrade be rerun instead of bricking the tree. A
+        # missing .env stays fatal in every mode: the generated secrets the
+        # stack depends on are gone.
+        if [ ! -f "$ROOT/$file" ]; then
+          if [ "$UPGRADE" = true ] && [ "$file" != .env ]; then
+            note "generated file is missing and will be recreated by the upgrade: $file"
+            continue
+          fi
+          die "generated file was modified or truncated: $file"
+        fi
+        actual=$(sha256 "$ROOT/$file")
+        # .env is operator-owned after install (SMTP relay, provider keys,
+        # …); an edit is configuration, not corruption. The rerun path never
+        # rewrites it, and the release/origin pins a rerun must not drift on
+        # are enforced against the marker's own image=/base_url= entries.
+        if [ "$file" = .env ]; then
+          [ "$actual" = "$value" ] || note ".env differs from the installer-generated original (operator edits are expected and kept)"
+        elif [ "$UPGRADE" = true ]; then
+          [ "$actual" = "$value" ] || note "generated file differs and will be refreshed by the upgrade: $file"
+        else
+          [ "$actual" = "$value" ] || die "generated file was modified or truncated: $file"
+        fi
+        ;;
+      *) die "invalid installation marker entry: $key" ;;
+    esac
+  done < "$marker"
+  for present in "$seen_format" "$seen_package" "$seen_image" \
+    "$seen_postgres_image" "$seen_caddy_image" "$seen_edge" "$seen_mode" \
+    "$seen_base_url" "$seen_hash_compose" "$seen_hash_env" \
+    "$seen_hash_diagnostics"; do
+    [ "$present" = true ] || die "installation marker is truncated"
+  done
+  if [ "$EDGE" = caddy ]; then
+    [ "$seen_hash_edge" = true ] && [ "$seen_hash_caddyfile" = true ] || die "installation marker is truncated"
+  fi
+  [ "${old_format:-}" = "$FORMAT" ] || die "unsupported installed format"
+  [ "${old_package:-}" = "$PACKAGE" ] || die "unsupported package conversion"
+  if [ "${old_image:-}" != "$FRISKET_IMAGE" ] && [ "$UPGRADE" != true ]; then
+    die "installed release differs from this bundle; rerun with --upgrade to move the installation to the bundled release"
+  fi
+  [ "${old_base_url:-}" = "$BASE_URL" ] || die "unsupported public-origin reconfiguration"
+  # Frisket and Caddy pins may move under --upgrade; the Postgres pin never
+  # does — its on-disk data format is not the installer's to migrate.
+  [ "$PACKAGE" != multi-service ] || [ "${old_postgres_image:-}" = "$POSTGRES_IMAGE" ] || die "unsupported Postgres image change (not handled by --upgrade)"
+  [ "$EDGE" != caddy ] || [ "${old_caddy_image:-}" = "$CADDY_IMAGE" ] || [ "$UPGRADE" = true ] || die "unsupported Caddy image change"
+  [ "${old_edge:-}" = "$EDGE" ] && [ "${old_mode:-}" = "$MODE" ] || die "unsupported edge reconfiguration"
+  if [ ! -x "$ROOT/frisket-deployment-diagnostics" ]; then
+    [ "$UPGRADE" = true ] || die "generated file was modified or truncated: frisket-deployment-diagnostics"
+  fi
+  return 0
+}
+
+PREFLIGHT_ISSUES=0
+preflight_fail() {
+  note "preflight FAIL: $*"
+  PREFLIGHT_ISSUES=$((PREFLIGHT_ISSUES + 1))
+}
+
+listening_on() {
+  wanted=$1
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltnH | awk -v wanted="$wanted" '
+      BEGIN { count=split(wanted, ports, ",") }
+      { for (i=1; i<=count; i++) if ($4 ~ (":" ports[i] "$")) found=1 }
+      END { exit !found }
+    '
+    return
+  fi
+  netstat -ltn | awk -v wanted="$wanted" '
+    BEGIN { count=split(wanted, ports, ",") }
+    { for (i=1; i<=count; i++) if ($4 ~ (":" ports[i] "$")) found=1 }
+    END { exit !found }
+  '
+}
+
+# Compose creates one implicit `${PROJECT}_default` network for these graphs.
+# All persistent storage is bind-mounted, so there are no named project
+# volumes to inspect or adopt.
+collect_project_networks() {
+  project_network_ids=
+  labeled_network_ids=$(docker network ls -q --filter "label=com.docker.compose.project=$PROJECT" 2>/dev/null) || return 1
+  named_network_ids=$(docker network ls -q --filter "name=${PROJECT}_default" 2>/dev/null) || return 1
+  for network_id in $labeled_network_ids $named_network_ids; do
+    case " $project_network_ids " in *" $network_id "*) continue ;; esac
+    network_name=$(docker network inspect --format '{{.Name}}' "$network_id" 2>/dev/null) || return 1
+    network_project=$(docker network inspect --format '{{ index .Labels "com.docker.compose.project" }}' "$network_id" 2>/dev/null) || return 1
+    if [ "$network_project" = "$PROJECT" ] || [ "$network_name" = "${PROJECT}_default" ]; then
+      project_network_ids="${project_network_ids}${project_network_ids:+ }$network_id"
+    fi
+  done
+}
+
+verify_project_network_ownership() {
+  for network_id in $project_network_ids; do
+    network_name=$(docker network inspect --format '{{.Name}}' "$network_id" 2>/dev/null) || return 1
+    network_project=$(docker network inspect --format '{{ index .Labels "com.docker.compose.project" }}' "$network_id" 2>/dev/null) || return 1
+    network_kind=$(docker network inspect --format '{{ index .Labels "com.docker.compose.network" }}' "$network_id" 2>/dev/null) || return 1
+    [ "$network_name" = "${PROJECT}_default" ] && \
+      [ "$network_project" = "$PROJECT" ] && \
+      [ "$network_kind" = default ] && \
+      [ -f "$ROOT/.frisket-install" ] || return 1
+    connected_ids=$(docker ps -aq --filter "network=$network_id" 2>/dev/null) || return 1
+    for connected_id in $connected_ids; do
+      connected_project=$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' "$connected_id" 2>/dev/null) || return 1
+      connected_root=$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' "$connected_id" 2>/dev/null) || return 1
+      [ "$connected_project" = "$PROJECT" ] && [ "$connected_root" = "$ROOT" ] || return 1
+    done
+  done
+}
+
+note "selection: package=$PACKAGE access=$MODE public_origin=$BASE_URL"
+
+[ -f "$ARTIFACT_DIR/compose.$PACKAGE.yaml" ] || preflight_fail "release artifact is missing: compose.$PACKAGE.yaml"
+[ -f "$DIAGNOSTICS_SOURCE" ] || preflight_fail "release artifact is missing: frisket-deployment-diagnostics"
+if [ "$EDGE" = caddy ]; then
+  [ -f "$ARTIFACT_DIR/compose.edge.yaml" ] || preflight_fail "release artifact is missing: compose.edge.yaml"
+  [ -f "$ARTIFACT_DIR/Caddyfile" ] || preflight_fail "release artifact is missing: Caddyfile"
+fi
+is_digest_ref "$FRISKET_IMAGE" || preflight_fail "Frisket image pin is not an immutable image@sha256 digest"
+if [ "$PACKAGE" = multi-service ]; then
+  is_digest_ref "$POSTGRES_IMAGE" || preflight_fail "Postgres image pin is not an immutable image@sha256 digest"
+fi
+if [ "$EDGE" = caddy ]; then
+  is_digest_ref "$CADDY_IMAGE" || preflight_fail "Caddy image pin is not an immutable image@sha256 digest"
+fi
+case "$READY_SECONDS" in
+  ''|*[!0-9]*) preflight_fail "FRISKET_INSTALL_READY_SECONDS must be a nonnegative integer" ;;
+esac
+
+host_os=$(uname -s 2>/dev/null || true)
+host_arch=$(uname -m 2>/dev/null || true)
+[ "$host_os" = Linux ] || preflight_fail "unsupported host OS '$host_os' (requires Linux)"
+case "$host_arch" in x86_64|amd64|aarch64|arm64) ;; *) preflight_fail "unsupported CPU architecture '$host_arch' (requires amd64 or arm64)" ;; esac
+
+docker_available=false
+docker_ready=false
+if command -v docker >/dev/null 2>&1; then
+  docker_available=true
+else
+  preflight_fail "Docker Engine is missing; install Docker first"
+fi
+command -v curl >/dev/null 2>&1 || preflight_fail "curl is missing (required for readiness checks)"
+command -v flock >/dev/null 2>&1 || preflight_fail "flock/util-linux is missing (required for installer locking)"
+command -v sha256sum >/dev/null 2>&1 || preflight_fail "sha256sum is missing (required for generated-file integrity checks)"
+if ! command -v ss >/dev/null 2>&1 && ! command -v netstat >/dev/null 2>&1; then
+  preflight_fail "no TCP port inspector found; install iproute2 or net-tools"
+fi
+if [ "$PACKAGE" = multi-service ] && ! command -v openssl >/dev/null 2>&1 && ! command -v od >/dev/null 2>&1; then
+  preflight_fail "openssl or od is required to generate database credentials"
+fi
+
+check_project_ids=
+project_network_ids=
+if [ "$docker_available" = true ]; then
+  docker_context=$(docker context show 2>/dev/null || true)
+  [ "$docker_context" = default ] || preflight_fail "Docker context '$docker_context' is selected; use the local default context"
+  if docker info >/dev/null 2>&1; then
+    docker_ready=true
+    if docker info --format '{{json .SecurityOptions}}' 2>/dev/null | grep -qi rootless; then
+      preflight_fail "rootless Docker is unsupported in v1"
+    fi
+  else
+    preflight_fail "local rootful Docker daemon is unavailable"
+  fi
+  docker compose version >/dev/null 2>&1 || preflight_fail "Docker Compose v2 is missing"
+  if [ "$docker_ready" = true ]; then
+    if ! check_project_ids=$(docker ps -aq --filter "label=com.docker.compose.project=$PROJECT" 2>/dev/null); then
+      preflight_fail "cannot inspect existing Docker Compose projects"
+      check_project_ids=
+    fi
+    for container_id in $check_project_ids; do
+      project_root=$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' "$container_id" 2>/dev/null || true)
+      [ "$project_root" = "$ROOT" ] || preflight_fail "a different Docker Compose project named $PROJECT already exists"
+    done
+    if ! collect_project_networks; then
+      preflight_fail "cannot inspect existing Docker Compose networks"
+    elif ! verify_project_network_ownership; then
+      preflight_fail "a different Docker Compose network for project $PROJECT already exists"
+    fi
+  fi
+fi
+
+PARENT=$(dirname "$ROOT")
+[ -d "$PARENT" ] && [ -w "$PARENT" ] || preflight_fail "installation parent is not writable: $PARENT"
+if [ "$UPGRADE" = true ] && [ ! -f "$ROOT/.frisket-install" ]; then
+  preflight_fail "nothing to upgrade: no Frisket installation at $ROOT"
+fi
+if [ -e "$ROOT" ]; then
+  [ -f "$ROOT/.frisket-install" ] || preflight_fail "target exists but is not a valid Frisket installation: $ROOT"
+elif command -v ss >/dev/null 2>&1 || command -v netstat >/dev/null 2>&1; then
+  listening_on 8000 && preflight_fail "port 8000 is already in use"
+  if [ "$EDGE" = caddy ] && listening_on 80,443; then
+    preflight_fail "port 80 or 443 is already in use"
+  fi
+fi
+
+if [ "$PREFLIGHT_ISSUES" -ne 0 ]; then
+  die "preflight found $PREFLIGHT_ISSUES issue(s); no changes made"
+fi
+if [ "$CHECK" = true ]; then
+  if [ -e "$ROOT" ]; then
+    verify_marker || die "target exists but is not a valid Frisket installation: $ROOT"
+  fi
+  note "preflight passed: host, release artifacts, Docker/Compose, install path, and selected access requirements"
+  note "preflight made no changes"
+  exit 0
+fi
+
+if [ "$INTERACTIVE" = true ]; then
+  prompt "Install this configuration? [y/N]: "
+  case "$ANSWER" in
+    y|Y|yes|Yes|YES) YES=true ;;
+    ''|n|N|no|No|NO) note "cancelled; no changes made"; exit 0 ;;
+    *) die "enter y or n; no changes made" ;;
+  esac
+fi
+[ "$YES" = true ] || die "review the selection above and rerun with --yes"
+
+# The lock is deliberately outside the not-yet-existing target.  flock is
+# released by the kernel on every process exit, including SIGKILL; the file is
+# only a stable inode and contains no state or secret.
+old_umask=$(umask)
+umask 077
+LOCK_FILE=$PARENT/.frisket-install.lock
+exec 9>"$LOCK_FILE"
+flock -n 9 || die "another Frisket installation is already running"
+
+project_ids=$(docker ps -aq --filter "label=com.docker.compose.project=$PROJECT") || die "cannot inspect existing Docker Compose projects"
+collect_project_networks || die "cannot inspect existing Docker Compose networks"
+verify_project_ownership() {
+  for container_id in $project_ids; do
+    project_root=$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' "$container_id" 2>/dev/null) || die "cannot inspect existing Docker Compose project $PROJECT"
+    [ "$project_root" = "$ROOT" ] || die "a different Docker Compose project named $PROJECT already exists"
+  done
+}
+
+if [ "$EDGE" = caddy ]; then
+  COMPOSE_COMMAND="docker compose -p $PROJECT -f compose.yaml -f compose.edge.yaml"
+else
+  COMPOSE_COMMAND="docker compose -p $PROJECT -f compose.yaml"
+fi
+
+if [ -e "$ROOT" ]; then
+  verify_marker || die "target exists but is not a valid Frisket installation: $ROOT"
+  verify_project_ownership
+  verify_project_network_ownership || die "a different Docker Compose network for project $PROJECT already exists"
+  wants_upgrade=false
+  if [ "$UPGRADE" = true ]; then
+    [ "${old_image:-}" = "$FRISKET_IMAGE" ] || wants_upgrade=true
+    [ "$EDGE" != caddy ] || [ "${old_caddy_image:-}" = "$CADDY_IMAGE" ] || wants_upgrade=true
+  fi
+  if [ "$wants_upgrade" = true ]; then
+    UPGRADED=true
+    note "upgrading the installed release in place; .env and ./data are preserved"
+    note "an off-host snapshot taken beforehand is the only rollback path"
+    docker pull "$FRISKET_IMAGE" >/dev/null
+    [ "$PACKAGE" != multi-service ] || docker pull "$POSTGRES_IMAGE" >/dev/null
+    [ "$EDGE" != caddy ] || docker pull "$CADDY_IMAGE" >/dev/null
+    cd "$ROOT"
+    # Single-writer rollover: stop the old release before any file changes so
+    # a mixed-version stack never runs against one data directory.
+    $COMPOSE_COMMAND down
+    cp "$ARTIFACT_DIR/compose.$PACKAGE.yaml" compose.yaml
+    chmod 0644 compose.yaml
+    cp "$DIAGNOSTICS_SOURCE" frisket-deployment-diagnostics
+    chmod 0755 frisket-deployment-diagnostics
+    if [ "$EDGE" = caddy ]; then
+      cp "$ARTIFACT_DIR/compose.edge.yaml" compose.edge.yaml
+      cp "$ARTIFACT_DIR/Caddyfile" Caddyfile
+      chmod 0644 compose.edge.yaml Caddyfile
+    fi
+    # .env is operator-owned: rewrite only the release image pins, keep every
+    # other line (SMTP relay, provider keys, generated database credentials).
+    awk -v frisket_image="$FRISKET_IMAGE" -v caddy_image="${CADDY_IMAGE:-}" -v edge="$EDGE" '
+      BEGIN { seen = 0 }
+      /^FRISKET_IMAGE=/ { print "FRISKET_IMAGE=" frisket_image; seen = 1; next }
+      edge == "caddy" && /^CADDY_IMAGE=/ { print "CADDY_IMAGE=" caddy_image; next }
+      { print }
+      END { if (!seen) print "FRISKET_IMAGE=" frisket_image }
+    ' .env > .env.upgrading
+    chmod 600 .env.upgrading
+    mv .env.upgrading .env
+    docker compose -p "$PROJECT" -f compose.yaml config --quiet >/dev/null 2>&1 || die "release Compose validation failed"
+    if [ "$EDGE" = caddy ]; then docker compose -p "$PROJECT" -f compose.yaml -f compose.edge.yaml config --quiet >/dev/null 2>&1 || die "release Caddy overlay validation failed"; fi
+    {
+      printf 'format=%s\npackage=%s\nimage=%s\npostgres_image=%s\ncaddy_image=%s\nedge=%s\nmode=%s\nbase_url=%s\n' "$FORMAT" "$PACKAGE" "$FRISKET_IMAGE" "$POSTGRES_IMAGE" "$CADDY_IMAGE" "$EDGE" "$MODE" "$BASE_URL"
+      for f in compose.yaml .env frisket-deployment-diagnostics; do printf 'hash_%s=%s\n' "$f" "$(sha256 "$f")"; done
+      [ "$EDGE" != caddy ] || for f in compose.edge.yaml Caddyfile; do printf 'hash_%s=%s\n' "$f" "$(sha256 "$f")"; done
+    } > .frisket-install.upgrading
+    mv .frisket-install.upgrading .frisket-install
+  else
+    note "same release already materialized; retrying Compose startup without changing configuration"
+  fi
+else
+  [ "$UPGRADE" = false ] || die "nothing to upgrade: no Frisket installation at $ROOT"
+  listening_on 8000 && die "port 8000 is already in use"
+  [ "$EDGE" != caddy ] || ! listening_on 80,443 || die "port 80 or 443 is already in use"
+  [ -z "$project_ids" ] || die "a different Docker Compose project named $PROJECT already exists"
+  [ -z "$project_network_ids" ] || die "a different Docker Compose network for project $PROJECT already exists"
+
+  # Pull before target/staging mutation. Compose will pull the other pins on
+  # first startup, but every selected release image is verified up front.
+  docker pull "$FRISKET_IMAGE" >/dev/null
+  [ "$PACKAGE" != multi-service ] || docker pull "$POSTGRES_IMAGE" >/dev/null
+  [ "$EDGE" != caddy ] || docker pull "$CADDY_IMAGE" >/dev/null
+  STAGE="$PARENT/.frisket.staging"
+  if [ -e "$STAGE" ] || [ -L "$STAGE" ]; then
+    [ ! -L "$STAGE" ] && [ -d "$STAGE" ] && [ -f "$STAGE/.frisket-stage" ] || die "unsafe stale staging path: $STAGE"
+    [ "$(sed -n '1p' "$STAGE/.frisket-stage")" = "format=$FORMAT" ] || die "unrecognized stale staging directory: $STAGE"
+    note "removing an interrupted first-install staging directory"
+    rm -rf "$STAGE"
+  fi
+  trap 'rm -rf "$STAGE"' EXIT HUP INT TERM
+  mkdir "$STAGE"
+  printf 'format=%s\n' "$FORMAT" > "$STAGE/.frisket-stage"
+  cp "$ARTIFACT_DIR/compose.$PACKAGE.yaml" "$STAGE/compose.yaml"
+  cp "$DIAGNOSTICS_SOURCE" "$STAGE/frisket-deployment-diagnostics"
+  chmod 0755 "$STAGE/frisket-deployment-diagnostics"
+  if [ "$EDGE" = caddy ]; then
+    cp "$ARTIFACT_DIR/compose.edge.yaml" "$STAGE/compose.edge.yaml"
+    cp "$ARTIFACT_DIR/Caddyfile" "$STAGE/Caddyfile"
+    mkdir -p "$STAGE/caddy/data" "$STAGE/caddy/config"
+  fi
+  mkdir "$STAGE/data"
+  # The release image runs as non-root uid/gid 10001:10001 (downstream
+  # overlay contract, asserted in .github/workflows/docker.yml); the
+  # bind-mounted data root just created belongs to the installing host user,
+  # so hand it to the container user via the already-pulled image (root only
+  # inside this one-shot chown).
+  docker run --rm --pull=never --network none --user 0 \
+    -v "$STAGE/data:/data" "$FRISKET_IMAGE" chown 10001:10001 /data \
+    || die "cannot set container ownership on the data directory"
+  [ "$PACKAGE" != multi-service ] || mkdir "$STAGE/postgres"
+  if [ "$PACKAGE" = multi-service ]; then
+    db_password=$(openssl rand -hex 32 2>/dev/null || od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
+    queue_password=$(openssl rand -hex 32 2>/dev/null || od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
+    POSTGRES_PASSWORD=$db_password
+    TEAM_URL="postgresql+psycopg://frisket:$db_password@db:5432/frisket"
+    ADMIN_URL="postgresql+psycopg://frisket:$db_password@db:5432/postgres"
+    QUEUE_URL="postgresql+psycopg://frisket_run_queue_runtime:$queue_password@db:5432/frisket_run_queue"
+  fi
+  {
+    printf 'FRISKET_IMAGE=%s\n' "$FRISKET_IMAGE"
+    printf 'FRISKET_BASE_URL=%s\n' "$BASE_URL"
+    [ "$PACKAGE" != multi-service ] || printf 'POSTGRES_IMAGE=%s\nPOSTGRES_PASSWORD=%s\nFRISKET_TEAM_DATABASE_URL=%s\nFRISKET_DATABASE_ADMIN_URL=%s\nFRISKET_RUN_QUEUE_DATABASE_URL=%s\n' "$POSTGRES_IMAGE" "$POSTGRES_PASSWORD" "$TEAM_URL" "$ADMIN_URL" "$QUEUE_URL"
+    [ "$EDGE" != caddy ] || printf 'CADDY_IMAGE=%s\nFRISKET_DOMAIN=%s\n' "$CADDY_IMAGE" "$ORIGIN"
+  } > "$STAGE/.env"
+  chmod 600 "$STAGE/.env"
+  (cd "$STAGE" && docker compose -p "$PROJECT" -f compose.yaml config --quiet) >/dev/null 2>&1 || die "release Compose validation failed"
+  # Validate the selected overlay too; the shell expansion above deliberately
+  # avoids passing an empty -f argument.
+  if [ "$EDGE" = caddy ]; then (cd "$STAGE" && docker compose -p "$PROJECT" -f compose.yaml -f compose.edge.yaml config --quiet) >/dev/null 2>&1 || die "release Caddy overlay validation failed"; fi
+  {
+    printf 'format=%s\npackage=%s\nimage=%s\npostgres_image=%s\ncaddy_image=%s\nedge=%s\nmode=%s\nbase_url=%s\n' "$FORMAT" "$PACKAGE" "$FRISKET_IMAGE" "$POSTGRES_IMAGE" "$CADDY_IMAGE" "$EDGE" "$MODE" "$BASE_URL"
+    for f in compose.yaml .env frisket-deployment-diagnostics; do printf 'hash_%s=%s\n' "$f" "$(sha256 "$STAGE/$f")"; done
+    [ "$EDGE" != caddy ] || for f in compose.edge.yaml Caddyfile; do printf 'hash_%s=%s\n' "$f" "$(sha256 "$STAGE/$f")"; done
+  } > "$STAGE/.frisket-install"
+  [ ! -e "$ROOT" ] || die "installation target appeared while staging: $ROOT"
+  mv "$STAGE" "$ROOT"
+  rm -f "$ROOT/.frisket-stage"
+  trap - EXIT HUP INT TERM
+  umask "$old_umask"
+fi
+
+cd "$ROOT"
+$COMPOSE_COMMAND up -d
+
+deadline=$(( $(date +%s) + READY_SECONDS ))
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  if curl --max-time 5 -fsS http://127.0.0.1:8000/api/ready >/dev/null 2>&1; then
+    if [ "$EDGE" = caddy ] && ! curl --max-time 10 -fsS "$BASE_URL/api/ready" >/dev/null 2>&1; then
+      note "runtime ready, public edge pending; repair DNS/firewall/ACME, inspect with: cd $ROOT && $COMPOSE_COMMAND logs --tail=100"
+      exit 1
+    fi
+    # An upgrade ends here: the server is already claimed, so the setup URL,
+    # setup code, and operator-token mint below would mislead — and minting a
+    # fresh operator token on every upgrade would accumulate live credentials.
+    if [ "$UPGRADED" = true ]; then
+      note "upgraded: version=$RELEASE_VERSION package=$PACKAGE access=$MODE"
+      note "Status: cd $ROOT && $COMPOSE_COMMAND ps"
+      note "Logs: cd $ROOT && $COMPOSE_COMMAND logs --tail=100"
+      note "Diagnostics: cd $ROOT && ./frisket-deployment-diagnostics"
+      exit 0
+    fi
+    case "$MODE" in
+      tunnel) note "From your workstation: ssh -L 8000:127.0.0.1:8000 <host>" ;;
+      behind-proxy) note "Point your HTTPS proxy upstream at http://127.0.0.1:8000" ;;
+      domain) ;;
+    esac
+    note "ready: version=$RELEASE_VERSION package=$PACKAGE access=$MODE"
+    note "Setup URL: $BASE_URL/setup"
+    note "Setup code: cd $ROOT && $COMPOSE_COMMAND logs --no-log-prefix app | grep '^FRISKET_SETUP_CODE ' | tail -n 1"
+    # First-connection bootstrap: mint the initial operator token inside the
+    # running app container. The raw token reaches stdout only (never note's
+    # stderr stream, never a file); on any failure fall back to printing the
+    # exact command for the operator to run themselves.
+    SUGGESTED_NAME=${BASE_URL#*://}
+    SUGGESTED_NAME=${SUGGESTED_NAME%%:*}
+    SUGGESTED_NAME=${SUGGESTED_NAME%%/*}
+    OPERATOR_TOKEN=$($COMPOSE_COMMAND exec -T app frisket-control token mint --label initial 2>/dev/null) || OPERATOR_TOKEN=
+    case "$OPERATOR_TOKEN" in frisket_operator_*) ;; *) OPERATOR_TOKEN= ;; esac
+    if [ -n "$OPERATOR_TOKEN" ]; then
+      printf 'Operator token (shown once): %s\n' "$OPERATOR_TOKEN"
+      printf 'Pair a workstation: frisket remote link %s --token %s --name %s\n' "$BASE_URL" "$OPERATOR_TOKEN" "$SUGGESTED_NAME"
+    else
+      note "operator token not minted automatically; run: cd $ROOT && $COMPOSE_COMMAND exec -T app frisket-control token mint --label initial"
+    fi
+    note "Status: cd $ROOT && $COMPOSE_COMMAND ps"
+    note "Logs: cd $ROOT && $COMPOSE_COMMAND logs --tail=100"
+    note "Diagnostics: cd $ROOT && ./frisket-deployment-diagnostics"
+    exit 0
+  fi
+  sleep 2
+done
+[ "$UPGRADED" != true ] || note "the upgraded runtime did not become ready; restoring your pre-upgrade snapshot is the rollback path"
+die "runtime did not become ready; inspect: cd $ROOT && $COMPOSE_COMMAND logs --tail=100"

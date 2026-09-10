@@ -1,0 +1,30 @@
+{
+  "promise_set_hash": "f15045373dc923a38e35fddbf0ecb814433a5041a974653c29c17c59f138fca5",
+  "promises": [
+    {
+      "audience": "system_promise",
+      "basis": null,
+      "field": "operator",
+      "op": "eq",
+      "order_ref": null,
+      "value": "openai"
+    },
+    {
+      "audience": "user_claim",
+      "basis": null,
+      "field": "egress_class",
+      "op": "satisfies_order",
+      "order_ref": "egress.v1",
+      "value": "third_party_api"
+    },
+    {
+      "audience": "user_claim",
+      "basis": null,
+      "field": "cost",
+      "op": "unbounded",
+      "order_ref": null,
+      "value": null
+    }
+  ],
+  "schema_gen": 1
+}

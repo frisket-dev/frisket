@@ -1,0 +1,24 @@
+/** Shared editor-only contract. Python-generated Params own field names/values. */
+import type { ComponentType } from 'react';
+
+export interface ActionUIHost { React: typeof import('react'); }
+export interface ActionFieldProps<Value> {
+  name: string;
+  label: string;
+  id: string;
+  testid: string;
+  value: Value | undefined;
+  onChange(value: Value): void;
+  error?: { ok: boolean; message?: string; position?: number };
+}
+export type ActionBodyProps<Params, Context extends object = object> = Context & {
+  params: Params;
+  setParams(params: Params): void;
+  errors: Record<string, { ok: boolean; message?: string; position?: number }>;
+  setEditorProblem?(message: string | null): void;
+  Field: ComponentType<{ name: Extract<keyof Params, string>; testId?: string; label?: string }>;
+};
+export interface ActionUI<Params, Context extends object = object, FieldContext extends object = object> {
+  fields?: { [Key in Extract<keyof Params, string>]?: ComponentType<ActionFieldProps<Params[Key]> & FieldContext> };
+  body?: ComponentType<ActionBodyProps<Params, Context>>;
+}

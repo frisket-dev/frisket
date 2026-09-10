@@ -1,0 +1,12 @@
+{
+  "schema_version": "frisket.plugin.v1",
+  "id": "demo.stars",
+  "version": "0.1.0",
+  "contributes": {
+    "column_types": ["stars"]
+  },
+  "requires": {
+    "capabilities": ["plugin:trusted_local_backend"],
+    "secrets": []
+  }
+}

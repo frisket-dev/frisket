@@ -1,0 +1,6 @@
+{
+  "status": 403,
+  "body": {
+    "message": "Forbidden. You can find more info in our docs: https://developers.deepl.com/docs/getting-started/auth"
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "frisket.workbench_descriptor_package.v1",
+  "descriptors": [
+    {
+      "schemaVersion": "frisket.workbench.view.v1",
+      "id": "demo.timeline.view.timeline",
+      "kind": "view",
+      "title": "Timeline",
+      "ownerPluginId": "demo.timeline",
+      "componentKey": "trustedLocal.demoTimeline.TimelineView",
+      "projectionKind": "demo.timeline.projection.timeline",
+      "placements": [
+        {
+          "host": "mainView",
+          "mode": "pane",
+          "slot": "work.companion",
+          "placementId": "demo-timeline-main-view",
+          "order": 45
+        }
+      ],
+      "requires": [
+        {
+          "kind": "hostCapability",
+          "id": "projection.status"
+        },
+        {
+          "kind": "hostCapability",
+          "id": "projection.build"
+        },
+        {
+          "kind": "hostCapability",
+          "id": "projection.artifact.read"
+        },
+        {
+          "kind": "hostCapability",
+          "id": "host.navigation.openRow"
+        }
+      ],
+      "dataRequirements": [
+        {
+          "kind": "activeSheet"
+        },
+        {
+          "kind": "sheetHasColumnType",
+          "columnType": "date"
+        }
+      ]
+    }
+  ]
+}

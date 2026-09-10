@@ -1,0 +1,104 @@
+{
+  "descriptor": {
+    "engine": "fixture-intrinsic",
+    "model_ids": [
+      "example/transcription-fixture"
+    ],
+    "revision": "0123456789abcdef",
+    "runtime_image_id": "oci:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "options": {
+      "diarization_mode": "intrinsic",
+      "speaker_hint": "none",
+      "language": true,
+      "model_size": false,
+      "vad": false,
+      "context": true,
+      "clean": false
+    }
+  },
+  "descriptor_optional_count": {
+    "engine": "fixture-optional-count",
+    "model_ids": [
+      "example/transcription-fixture-optional"
+    ],
+    "revision": "fedcba9876543210",
+    "runtime_image_id": null,
+    "options": {
+      "diarization_mode": "optional",
+      "speaker_hint": "count",
+      "language": true,
+      "model_size": false,
+      "vad": true,
+      "context": false,
+      "clean": false
+    }
+  },
+  "options": {
+    "language": "en",
+    "context": "Frisket GPU contract fixture"
+  },
+  "result": {
+    "engine": "fixture-intrinsic",
+    "text": "Hello there. General Kenobi.",
+    "segments": [
+      {
+        "start": 0.0,
+        "end": 1.4,
+        "text": "Hello there.",
+        "speaker": "SPEAKER_00",
+        "speaker_confidence": "approximate",
+        "words": [
+          {
+            "word": "Hello",
+            "start": 0.0,
+            "end": 0.45
+          },
+          {
+            "word": "there.",
+            "start": 0.5,
+            "end": 1.2
+          }
+        ]
+      },
+      {
+        "start": 1.1,
+        "end": 2.3,
+        "text": "General Kenobi.",
+        "speaker": "SPEAKER_01",
+        "speaker_confidence": "approximate",
+        "words": null
+      }
+    ],
+    "language": "en",
+    "duration": 2.3,
+    "model_ids": [
+      "example/transcription-fixture"
+    ],
+    "revision": "0123456789abcdef",
+    "device": "cuda:0",
+    "dtype": "bfloat16",
+    "timings": {
+      "load_seconds": 1.25,
+      "inference_seconds": 0.42,
+      "total_seconds": 1.67
+    },
+    "warnings": [
+      "fixture warning preserves first-class warnings"
+    ],
+    "accepted_options": {
+      "language": "en",
+      "context": "Frisket GPU contract fixture"
+    }
+  },
+  "error": {
+    "contract_version": "frisket.transcription.v1",
+    "error": {
+      "code": "unsupported_option",
+      "message": "engine 'fixture-intrinsic' does not support the requested options",
+      "retryable": false,
+      "details": {
+        "reason": "engine 'fixture-intrinsic': unsupported transcription option(s): diarize"
+      }
+    }
+  }
+}

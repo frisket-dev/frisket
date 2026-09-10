@@ -1,0 +1,134 @@
+{
+  "sources": {
+    "litellm": "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json",
+    "openrouter": "https://openrouter.ai/api/v1/models"
+  },
+  "updated": "2026-09-03",
+  "text": {
+    "claude-haiku-4-5": [
+      1.0,
+      5.0
+    ],
+    "claude-sonnet-4-6": [
+      3.0,
+      15.0
+    ],
+    "claude-sonnet-5": [
+      2.0,
+      10.0
+    ],
+    "claude-opus-4-8": [
+      5.0,
+      25.0
+    ],
+    "claude-fable-5": [
+      10.0,
+      50.0
+    ],
+    "gpt-5-mini": [
+      0.25,
+      2.0
+    ],
+    "gpt-5": [
+      1.25,
+      10.0
+    ],
+    "gpt-5.6-luna": [
+      0.2,
+      1.2
+    ],
+    "gpt-5.6-terra": [
+      2.0,
+      12.0
+    ],
+    "gpt-5.6-sol": [
+      4.0,
+      20.0
+    ],
+    "gemini-3.5-flash-lite": [
+      0.3,
+      2.5
+    ],
+    "gemini-3.1-flash-lite": [
+      0.25,
+      1.5
+    ],
+    "gemini-3.5-flash": [
+      1.5,
+      9.0
+    ],
+    "gemini-3.6-flash": [
+      0.75,
+      3.75
+    ],
+    "gemini-3.1-pro-preview": [
+      2.0,
+      12.0
+    ],
+    "qwen/qwen3-8b": [
+      0.117,
+      0.455
+    ],
+    "qwen/qwen3-vl-8b-instruct": [
+      0.117,
+      0.455
+    ],
+    "qwen/qwen3-vl-32b-instruct": [
+      0.104,
+      0.416
+    ],
+    "z-ai/glm-5.3-flash": [
+      0.075,
+      0.25
+    ],
+    "moonshotai/kimi-k3": [
+      3.0,
+      15.0
+    ],
+    "xiaomi/mimo-v2.5": [
+      0.14,
+      0.28
+    ],
+    "minimax/minimax-m3": [
+      0.3,
+      1.2
+    ]
+  },
+  "audio": {
+    "gpt-4o-mini-transcribe": {
+      "input_per_token": 1.25e-06,
+      "output_per_token": 5e-06
+    },
+    "gpt-4o-mini-transcribe-2025-03-20": {
+      "input_per_token": 1.25e-06,
+      "output_per_token": 5e-06
+    },
+    "gpt-4o-mini-transcribe-2025-12-15": {
+      "input_per_token": 1.25e-06,
+      "output_per_token": 5e-06
+    },
+    "gpt-4o-transcribe": {
+      "input_per_token": 2.5e-06,
+      "output_per_token": 1e-05
+    },
+    "gpt-4o-transcribe-diarize": {
+      "input_per_token": 2.5e-06,
+      "output_per_token": 1e-05
+    },
+    "gpt-live-transcribe": {
+      "per_second": 0.0002833333333333333
+    },
+    "gpt-realtime-whisper": {
+      "per_second": 0.0002833333333333333
+    },
+    "gpt-transcribe": {
+      "per_second": 7.5e-05
+    },
+    "microsoft/mai-transcribe-2": {
+      "per_second": 2.777777777777778e-05
+    },
+    "whisper-1": {
+      "per_second": 0.0001
+    }
+  }
+}

@@ -1,0 +1,3 @@
+{"id":"frisket:project:ftm-migration-harness:sheet:1:row:1","properties":{"jurisdiction":["us"],"name":["Acme LLC"],"registrationNumber":["DE-123"]},"schema":"Company"}
+{"id":"frisket:project:ftm-migration-harness:sheet:2:row:2","properties":{"alias":["J. Smith"],"birthDate":["1980-01-02"],"name":["Jane Smith"],"sourceUrl":["https://example.test/profile/jane"]},"schema":"Person"}
+{"id":"frisket:project:ftm-migration-harness:sheet:4:row:4","properties":{"member":["person-1"],"organization":["company-1"],"role":["Director"],"startDate":["2020-03-04"]},"schema":"Membership"}

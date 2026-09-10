@@ -1,0 +1,190 @@
+{
+  "auto_enable": true,
+  "contributes": {
+    "actions": [
+      "demo.env_probe.prove_env"
+    ],
+    "column_types": [],
+    "importers": [],
+    "job_handlers": [],
+    "operators": [],
+    "projections": [],
+    "workbench_commands": [],
+    "workbench_panels": [],
+    "workbench_views": []
+  },
+  "id": "demo.env_probe",
+  "requires": {
+    "capabilities": [
+      "plugin:trusted_local_backend"
+    ],
+    "secrets": [
+      "DEMO_API_KEY"
+    ]
+  },
+  "runtime": {
+    "actions": [
+      {
+        "catalog_entry": {
+          "async_mode": "sync",
+          "cost_policy": {
+            "kind": "none",
+            "requires_confirmation": false
+          },
+          "description": "Reads a declared project-scoped secret through the host reader.",
+          "errors": [
+            {
+              "code": "invalid_action_request",
+              "message": "The typed action request is malformed."
+            },
+            {
+              "code": "invalid_params",
+              "message": "The action parameters are invalid."
+            },
+            {
+              "code": "invalid_input_ref",
+              "message": "A source sheet, row, or column reference is invalid."
+            },
+            {
+              "code": "output_column_exists",
+              "message": "A requested output column already exists."
+            },
+            {
+              "code": "output_column_busy",
+              "message": "A requested output column is claimed by another run."
+            },
+            {
+              "code": "network_disabled",
+              "message": "The action attempted an unadmitted network request."
+            },
+            {
+              "code": "map_rows_failed",
+              "message": "The row program failed to produce usable output."
+            },
+            {
+              "code": "project_write_failed",
+              "message": "The project write or receipt update failed."
+            },
+            {
+              "code": "idempotency_conflict",
+              "message": "The idempotency key was used for different work."
+            },
+            {
+              "code": "idempotency_in_progress",
+              "message": "The idempotent action is already running."
+            },
+            {
+              "code": "idempotency_stale_running",
+              "message": "A stale running reservation was cleared."
+            },
+            {
+              "code": "stale_replay",
+              "message": "Stored outputs no longer match the committed receipt."
+            }
+          ],
+          "examples": [],
+          "execution_mode": "per_row",
+          "idempotency": {
+            "behavior": "Same request keys replay committed results.",
+            "key_field": "idempotency_key",
+            "scope": "project",
+            "supported": true
+          },
+          "input_schema": {
+            "$defs": {
+              "ColumnRef_str_": {
+                "title": "ColumnRef[str]",
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/ColumnRef_str_"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "title": "ProveEnvParams",
+            "type": "object"
+          },
+          "kind": "demo.env_probe.prove_env",
+          "output_schema": {
+            "properties": {
+              "env_probe": {
+                "title": "Env Probe",
+                "type": "string"
+              }
+            },
+            "required": [
+              "env_probe"
+            ],
+            "title": "ProveEnvOutput",
+            "type": "object"
+          },
+          "receipt_policy": "writes_receipt",
+          "required_capabilities": [
+            "project:write"
+          ],
+          "required_credentials": [],
+          "retry_policy": {
+            "strategy": "idempotency_replay",
+            "supported": true
+          },
+          "row_scope_policy": {
+            "kind": "sheet_rows",
+            "selectors": [
+              "all_rows",
+              "exact_membership"
+            ]
+          },
+          "side_effects": [
+            "read_input_rows",
+            "create_generated_columns",
+            "write_run_results",
+            "write_map_op",
+            "write_receipt"
+          ],
+          "title": "Prove project secret injection",
+          "ui_hints": {
+            "category": "text",
+            "form": "generated",
+            "logical_outputs": [
+              {
+                "column_type": "text",
+                "key": "env_probe"
+              }
+            ],
+            "semantic_controls": {
+              "name": "column"
+            },
+            "source_requirements": [
+              {
+                "accepted_column_types": [
+                  "text"
+                ],
+                "id": "name",
+                "label": "Name",
+                "min": 1,
+                "mode": "column",
+                "param": "name"
+              }
+            ]
+          },
+          "writes_project": true
+        },
+        "handler_api": "typed_action",
+        "handler_key": "demo.env_probe:prove_env",
+        "kind": "demo.env_probe.prove_env",
+        "module_path": "plugin.py"
+      }
+    ],
+    "importers": [],
+    "job_handlers": [],
+    "operators": [],
+    "projections": []
+  },
+  "schema_version": "frisket.plugin.v1",
+  "version": "0.1.0"
+}

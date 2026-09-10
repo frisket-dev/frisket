@@ -1,0 +1,101 @@
+{
+  "name": "anchor_id_segment_lookup",
+  "note": "numbered segments; model returns indices; resolve by lookup, score 1.0",
+  "strategy": "anchor_id",
+  "target": {
+    "kind": "anchor",
+    "unit_ids": [
+      4,
+      5,
+      6
+    ]
+  },
+  "source": {
+    "kind": "anchor",
+    "units": [
+      {
+        "unit_id": 0,
+        "text": "seg 0",
+        "spans": [
+          {
+            "span_kind": "temporal",
+            "start_ms": 0,
+            "end_ms": 1000
+          }
+        ]
+      },
+      {
+        "unit_id": 1,
+        "text": "seg 1",
+        "spans": [
+          {
+            "span_kind": "temporal",
+            "start_ms": 1000,
+            "end_ms": 2000
+          }
+        ]
+      },
+      {
+        "unit_id": 2,
+        "text": "seg 2",
+        "spans": [
+          {
+            "span_kind": "temporal",
+            "start_ms": 2000,
+            "end_ms": 3000
+          }
+        ]
+      },
+      {
+        "unit_id": 3,
+        "text": "seg 3",
+        "spans": [
+          {
+            "span_kind": "temporal",
+            "start_ms": 3000,
+            "end_ms": 4000
+          }
+        ]
+      },
+      {
+        "unit_id": 4,
+        "text": "seg 4",
+        "spans": [
+          {
+            "span_kind": "temporal",
+            "start_ms": 4000,
+            "end_ms": 5000
+          }
+        ]
+      },
+      {
+        "unit_id": 5,
+        "text": "seg 5",
+        "spans": [
+          {
+            "span_kind": "temporal",
+            "start_ms": 5000,
+            "end_ms": 6000
+          }
+        ]
+      },
+      {
+        "unit_id": 6,
+        "text": "seg 6",
+        "spans": [
+          {
+            "span_kind": "temporal",
+            "start_ms": 6000,
+            "end_ms": 7000
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "matches": true,
+    "min_spans": 3,
+    "granularity": "segment",
+    "score": 1.0
+  }
+}

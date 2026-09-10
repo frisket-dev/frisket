@@ -1,0 +1,20 @@
+# Replica-shape reference only; litestream-entrypoint.sh generates the live
+# per-project config. The sample glob does not expand in Litestream.
+
+dbs:
+  - path: ${FRISKET_DATA_DIR:-/data}/*/project.db
+    replicas:
+      - type: s3
+        bucket: ${LITESTREAM_BUCKET}
+        # The entrypoint appends /<project> for one-to-one restore mapping.
+        path: frisket/${LITESTREAM_PREFIX:-prod}/projects
+        endpoint: ${LITESTREAM_ENDPOINT}
+        region: ${LITESTREAM_REGION:-auto}
+        # Required for MinIO; harmless for R2.
+        force-path-style: true
+        access-key-id: ${LITESTREAM_ACCESS_KEY_ID}
+        secret-access-key: ${LITESTREAM_SECRET_ACCESS_KEY}
+        retention: 168h
+        retention-check-interval: 1h
+        snapshot-interval: 1h
+        sync-interval: 10s

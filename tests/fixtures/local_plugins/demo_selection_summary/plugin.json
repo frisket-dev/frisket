@@ -1,0 +1,33 @@
+{
+  "schema_version": "frisket.plugin.v1",
+  "id": "demo.selection_summary",
+  "version": "0.1.0",
+  "contributes": {
+    "workbench_views": [],
+    "workbench_panels": ["demo.selection_summary.panel.selection_summary"],
+    "actions": [],
+    "importers": [],
+    "operators": [],
+    "projections": [],
+    "column_types": [],
+    "job_handlers": []
+  },
+  "requires": {
+    "capabilities": [],
+    "secrets": []
+  },
+  "runtime": {
+    "actions": [],
+    "importers": [],
+    "operators": [],
+    "projections": [],
+    "job_handlers": [],
+    "workbench_components": [
+      {
+        "contribution_id": "demo.selection_summary.panel.selection_summary",
+        "module_key": "trustedLocal.demoSelectionSummary",
+        "component_key": "trustedLocal.demoSelectionSummary.SelectionSummaryPanel"
+      }
+    ]
+  }
+}

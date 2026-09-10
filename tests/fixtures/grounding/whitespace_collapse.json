@@ -1,0 +1,41 @@
+{
+  "name": "whitespace_collapse",
+  "note": "a quote carrying newlines/multi-space collapses to match the stream",
+  "strategy": "align",
+  "target": {
+    "kind": "text",
+    "text": "annual   revenue\n  grew"
+  },
+  "source": {
+    "kind": "word",
+    "tokens": [
+      {
+        "text": "annual revenue",
+        "box": [
+          0.1,
+          0.1,
+          0.6,
+          0.15
+        ],
+        "page": 1,
+        "source": "ocr"
+      },
+      {
+        "text": "grew sharply",
+        "box": [
+          0.1,
+          0.2,
+          0.6,
+          0.25
+        ],
+        "page": 1,
+        "source": "ocr"
+      }
+    ]
+  },
+  "expect": {
+    "matches": true,
+    "min_spans": 2,
+    "granularity": "block"
+  }
+}

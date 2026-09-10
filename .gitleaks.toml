@@ -1,0 +1,4 @@
+title = "Frisket default gitleaks policy"
+
+[extend]
+useDefault = true

@@ -1,0 +1,70 @@
+{
+  "schemaVersion": "frisket.workbench_descriptor_package.v1",
+  "descriptors": [
+    {
+      "schemaVersion": "frisket.workbench.view.v1",
+      "id": "frisket.geosmoke.view.real_local_smoke",
+      "kind": "view",
+      "title": "Real Local Smoke",
+      "ownerPluginId": "frisket.geosmoke",
+      "componentKey": "trustedLocal.frisketGeo.realLocalSmoke.MapView",
+      "placements": [
+        {
+          "host": "mainView",
+          "mode": "pane",
+          "slot": "work.companion",
+          "placementId": "frisket-geo-real-local-smoke",
+          "order": -10
+        }
+      ],
+      "requires": [
+        {
+          "kind": "hostCapability",
+          "id": "sheet.rows.read"
+        },
+        {
+          "kind": "hostCapability",
+          "id": "host.navigation.openRow"
+        }
+      ],
+      "dataRequirements": [
+        {
+          "kind": "activeSheet"
+        }
+      ]
+    },
+    {
+      "schemaVersion": "frisket.workbench.view.v1",
+      "id": "frisket.geosmoke.view.map",
+      "kind": "view",
+      "title": "Map",
+      "ownerPluginId": "frisket.geosmoke",
+      "componentKey": "trustedLocal.frisketGeo.realLocalSmoke.MapView",
+      "placements": [
+        {
+          "host": "mainView",
+          "mode": "pane",
+          "slot": "work.companion",
+          "placementId": "frisket-geo-map-companion"
+        }
+      ],
+      "requires": [
+        {
+          "kind": "hostCapability",
+          "id": "projection.status"
+        },
+        {
+          "kind": "hostCapability",
+          "id": "grid.filter.applyBbox"
+        }
+      ],
+      "dataRequirements": [
+        {
+          "kind": "sheetHasColumnType",
+          "columnType": "geo_point"
+        }
+      ],
+      "projectionKind": "frisket.geosmoke.projection.map_points"
+    }
+  ]
+}

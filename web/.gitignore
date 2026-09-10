@@ -1,0 +1,34 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Playwright artifacts (regenerable: npm run e2e / npm run gallery)
+test-results
+playwright-report
+screenshots/gallery
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.react-doctor*
+# The committed disposition-trail gate baseline (react-doctor-gate-lib.mjs /
+# check-react-doctor-gate.mjs) is deliberately excepted — it must be tracked
+# so new warnings show up as a real diff.
+!.react-doctor-warning-baseline.json

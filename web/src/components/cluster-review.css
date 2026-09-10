@@ -1,0 +1,101 @@
+/* cluster-drawer-chrome-v1: ClusterReviewForm adopts the shared .action-form
+   drawer chrome (sticky header band + bottom-pinned footer) from styles.css
+   instead of the bespoke .cluster-panel white card. The header/footer visuals
+   come ENTIRELY from the shared `.action-drawer .action-form > .form-header`
+   / `> .action-run-actions` rules once the root carries `.action-form` and the
+   mount sits inside `.action-panel.action-drawer-form-host`; these scoped rules
+   only restyle the BODY (control stack + group cards) so it reads like the
+   generic Clean dates / Extract forms. Deliberately scoped under
+   `.action-form.cluster-review-form` so nothing leaks and no styles.css edit
+   is needed. */
+
+/* Controls: a plain vertical field stack (was a cramped 2-column grid that
+   clipped the "Method"/"Save to" labels and floated Preview mid-card). Matches
+   the stacked-field rhythm of the generic ActionForm body. */
+.action-form.cluster-review-form .cluster-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  margin-top: 4px;
+}
+.action-form.cluster-review-form .cluster-controls > .field-group {
+  margin-top: 16px;
+}
+.action-form.cluster-review-form .cluster-controls > .field-group:first-child {
+  margin-top: 0;
+}
+/* The method hint hugs the Method select (4px) instead of taking a full row. */
+.action-form.cluster-review-form .cluster-controls > .form-hint {
+  margin-top: 6px;
+}
+
+/* Sentence-case semibold labels: the shared `.field-labels` is only a font
+   size, so mirror `.action-panel .form-label`'s weight/color/size here. */
+.action-form.cluster-review-form .field-labels {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-mid);
+}
+
+/* Preview-state notices sit under the controls with a little air. */
+.action-form.cluster-review-form > .form-hint,
+.action-form.cluster-review-form > .form-error {
+  margin-top: 14px;
+}
+
+/* Group cards: keep the existing bordered `.cluster-card` look (its styles.css
+   rules stay) but give the list room below the controls and read like Extract's
+   field rows. */
+.action-form.cluster-review-form .cluster-list {
+  margin-top: 16px;
+  gap: 12px;
+}
+.action-form.cluster-review-form .cluster-card {
+  border-color: var(--border);
+  border-radius: 12px;
+  padding: 12px;
+}
+.action-form.cluster-review-form .cluster-card .field-group {
+  margin-top: 2px;
+}
+.action-form.cluster-review-form .cluster-values {
+  margin-top: 10px;
+  margin-bottom: 0;
+}
+
+/* Footer: reuse the shared run-cluster classes — ghost `.btn` Preview on the
+   left (via `.run-actions-row > .btn`) and the primary commit wrapped in
+   `.run-scope-control` on the right so it escapes the ghost rule and keeps its
+   `.btn-primary` fill, exactly like the generic Run footer. Sticky/edge-bleed
+   comes from `.action-drawer .action-form > .action-run-actions`. */
+.action-form.cluster-review-form .run-actions-row .btn-primary {
+  min-height: 38px;
+  padding: 0 16px;
+  border-radius: 10px;
+}
+.action-form.cluster-review-form .action-run-actions .form-error {
+  margin-top: 0;
+  text-align: left;
+}
+
+/* Advanced: cluster-key disclosure — a collapsed derived-key template input
+   under Method. Closed by default so the common flow stays uncluttered. */
+.action-form.cluster-review-form .cluster-advanced > summary {
+  cursor: pointer;
+  font-size: var(--font-size-small);
+  color: var(--text-mid);
+  user-select: none;
+}
+.action-form.cluster-review-form .cluster-advanced > summary:hover {
+  color: var(--text);
+}
+.action-form.cluster-review-form .cluster-advanced .field-group {
+  margin-top: var(--space-8);
+}
+.action-form.cluster-review-form .cluster-advanced code {
+  font-size: var(--font-size-meta);
+  padding: 1px var(--space-4);
+  border-radius: 4px;
+  background: var(--bg-hover);
+}

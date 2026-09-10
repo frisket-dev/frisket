@@ -1,0 +1,33 @@
+.secrets/
+# The operator's own credentials file (`cp .env.example .env`) must never be
+# committed.
+.env
+# Local developer reports and captures; never committed.
+.artifacts/
+__pycache__/
+*.pyc
+.venv/
+node_modules
+.e2e-ws/
+.frisket/
+.fastembed-cache/
+web/.react-doctor/
+web/.react-doctor-current/
+frisket-projects/
+pal_precommit.changeset
+temp
+.DS_Store
+# Local agent skills are untracked except for Frisket's shipped caller skill.
+skills/*
+!skills/frisket/
+skills/frisket/*
+!skills/frisket/SKILL.md
+web/temp
+web/tmp/
+# Built web UI staged into the wheel by scripts/release/build_frontend.py at release
+# time (frisket.server.static_serving.packaged_static_dir reads it at runtime).
+# It is a build artifact, never committed — dev checkouts run vite instead.
+src/frisket/web_static/
+test-results
+.codex
+.claude

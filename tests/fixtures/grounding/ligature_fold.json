@@ -1,0 +1,30 @@
+{
+  "name": "ligature_fold",
+  "note": "NFKC folds the fi/fl ligatures so a clean quote matches",
+  "strategy": "align",
+  "target": {
+    "kind": "text",
+    "text": "file office flow"
+  },
+  "source": {
+    "kind": "word",
+    "tokens": [
+      {
+        "text": "ﬁle oﬃce ﬂow",
+        "box": [
+          0.1,
+          0.1,
+          0.8,
+          0.15
+        ],
+        "page": 1,
+        "source": "ocr"
+      }
+    ]
+  },
+  "expect": {
+    "matches": true,
+    "min_spans": 1,
+    "granularity": "block"
+  }
+}

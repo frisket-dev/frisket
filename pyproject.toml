@@ -1,0 +1,265 @@
+[project]
+name = "frisket"
+version = "0.1.1a68"
+description = "Local-first AI spreadsheet workflows for journalists and researchers."
+readme = "README.md"
+authors = [
+    { name = "Jonathan Soma", email = "jonathan.soma@gmail.com" }
+]
+requires-python = ">=3.12"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+keywords = ["ai", "data-analysis", "journalism", "spreadsheet"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Web Environment",
+    "Intended Audience :: End Users/Desktop",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+]
+dependencies = [
+    "argon2-cffi>=25.1.0",
+    "aiosqlite>=0.22.1",
+    # Direct dependency for AES-256-GCM/HKDF envelope encryption.
+    "cryptography>=48.0.0",
+    "ddgs>=9.14.4",
+    "fastapi>=0.136.3",
+    # Local semantic search, joins, clustering, and embedding indexes are core
+    # product paths. Model weights still download lazily on first use.
+    "fastembed>=0.4",
+    # Local OCR is a base capability. RapidOCR loads an ONNX backend
+    # dynamically, so own the tested CPU runtime explicitly. The optimized
+    # worker currently targets RapidOCR 3.8's private session seam.
+    "rapidocr>=3.8.1,<3.9",
+    "onnxruntime>=1.18.1,<1.27,!=1.24.1",
+    # Optional system Tesseract remains selectable; this wrapper is harmless
+    # when the external binary is absent and lets diagnostics name that one
+    # missing prerequisite accurately.
+    "pytesseract>=0.3.10",
+    # Local document conversion is part of the default toolbelt. HTML support
+    # is MarkItDown core (0.1.6 declares no `html` extra); docx/pdf enable the
+    # two format adapters that are genuinely extra-gated. This does not
+    # download model weights at install time.
+    "markitdown[docx,pdf]>=0.1.6",
+    "httpx>=0.28.1",
+    "itsdangerous>=2.2.0",
+    # Structured-output validation and its conformance oracle.
+    "jsonschema>=4.26.0",
+    "openpyxl>=3.1.5",
+    # OpenCV's four wheel variants all install the same ``cv2`` namespace and
+    # explicitly must not coexist. RapidOCR requires the full distribution, so
+    # make it Frisket's single provider rather than combining it with headless
+    # and leaving uv/pip to overwrite shared files in installation order.
+    "opencv-python>=4.13.0.92,<5",
+    # Use the full OpenCV variant; the headless extra conflicts on cv2.
+    "scenedetect>=0.7,<0.8",
+    "psycopg[binary]>=3.3.4",
+    # Generic team OIDC validates signed ID tokens against provider JWKS.
+    "pyjwt[crypto]>=2.13.0",
+    "pydantic>=2.13.4",
+    "pypdf>=5.1.0",
+    "python-multipart>=0.0.32",
+    "regex>=2026.5.9",
+    "sqlalchemy>=2.0.50",
+    "trafilatura>=2.1.0",
+    "uvicorn[standard]>=0.49.0",
+    "yt-dlp[default]>=2026.1.1",
+    "dateparser>=1.4.0",
+    "feedparser>=6.0.12",
+    # Cross-platform locking for production critical sections.
+    "filelock>=3.29.1",
+    # MCP 2.x removes the FastMCP and in-memory session APIs used by Frisket's
+    # server and integration tests. Keep resolution on the tested 1.x SDK
+    # until that transport boundary is migrated deliberately.
+    "mcp>=1.27.2,<2",
+    "pyarrow>=18.0.0",
+    "numpy>=2.0",
+    "requests>=2.34.2",
+    "lxml>=5.0",
+    "shapely>=2.0",
+    # Base dependency for quote alignment without the full pdf extra.
+    "rapidfuzz>=3.14.5",
+    # Pure-Python ASCII transliteration fallback for the bundled
+    # frisket.transliterate plugin when PyICU isn't loadable.
+    # This is an explicit direct dependency because the plugin's "always
+    # available, every base install" claim needs an owned constraint, not a
+    # dependency that can silently disappear with an unrelated package.
+    "text-unidecode>=1.3",
+    # Structured-output retry/dialect engine. Use slim core without provider
+    # SDKs; Frisket owns transport, jsonschema validation, and pricing.
+    "pydantic-ai-slim>=2.2.0",
+]
+
+[project.scripts]
+frisket = "frisket.cli:main"
+frisket-control = "frisket.operability.control.cli:main"
+
+[project.urls]
+Homepage = "https://frisket.dev"
+Repository = "https://github.com/frisket-dev/frisket"
+Issues = "https://github.com/frisket-dev/frisket/issues"
+
+[project.optional-dependencies]
+ner-spacy = [
+    # The pinned en_core_web_sm wheel is downloaded at runtime through
+    # Frisket's managed model cache. Move this bound with that manifest pin or
+    # incompatibility surfaces only when the cached pipeline is loaded.
+    "spacy>=3.8,<3.9",
+]
+asr = [
+    "faster-whisper>=1.2.1",
+    # The run-scoped Parakeet worker relies on 0.11.0's explicit `path=`
+    # resolver contract and file layout.  Keep this exact until a later
+    # onnx-asr release is compatibility-probed against the pinned snapshots.
+    "onnx-asr==0.11.0",
+    # Frisket imports both dependencies directly: ONNX Runtime in the offline
+    # inference child and the Hub client in the supervised artifact resolver.
+    # 1.24.1 is excluded for its known runtime regression; the upper bound
+    # keeps ASR and OCR on the compatibility-tested runtime line. The complete
+    # image resolves 1.20.1 on Python 3.12 Windows because the base conversion
+    # runtime's Magika dependency caps that platform, not because RapidOCR does.
+    "onnxruntime>=1.18.1,<1.27,!=1.24.1",
+    "huggingface-hub>=0.30.2,<2",
+    # Non-WAV Parakeet inputs decode in the private worker rather than through
+    # faster-whisper, so own PyAV directly instead of relying on that sibling's
+    # transitive dependency.
+    "av>=11",
+]
+models = [
+    "docling>=2.97.0",
+]
+cloud = [
+    # Deployment tooling for the hosted gateway and its isolated workers.
+    "modal>=1.4.0",
+]
+pdf = [
+    "natural-pdf>=0.6.5",
+]
+browser = [
+    # Dynamic page/screenshot capture (render_mode="playwright"). The browser
+    # BINARIES are not shipped with the wheel and are downloaded separately by
+    # `playwright install chromium`, which pins a browser build per Playwright
+    # release — so the runtime that downloaded them must be the same one that
+    # launches them. Keep this bound loose and let that command own the pairing
+    # rather than pinning a revision here that nothing verifies.
+    "playwright>=1.40",
+]
+entities = [
+    # FollowTheMoney -> normality -> PyICU. Official PyPI publishes PyICU as
+    # an sdist only (zero wheels on every platform), so this remains opt-in.
+    "followthemoney>=4.9.2",
+]
+translate = [
+    # CPU-only Opus-MT runtime; conversion runs offline and never needs torch.
+    "ctranslate2>=4",
+    "sentencepiece>=0.2",
+    "huggingface-hub>=0.24",
+]
+translate-gguf = [
+    # Native llama-cpp-python builds are platform-fragile; keep GGUF separate.
+    "llama-cpp-python>=0.3",
+]
+
+# The blessed fuller install for ordinary workstations. This deliberately
+# excludes `entities`: FollowTheMoney's PyICU chain is sdist-only and still
+# needs a local ICU/C++ toolchain. Keep these requirements identical to the
+# component extras above; tests enforce the aggregate contract.
+standard = [
+    # ner-spacy
+    "spacy>=3.8,<3.9",
+    # asr
+    "faster-whisper>=1.2.1",
+    "onnx-asr==0.11.0",
+    "onnxruntime>=1.18.1,<1.27,!=1.24.1",
+    "huggingface-hub>=0.30.2,<2",
+    "av>=11",
+    # translate
+    "ctranslate2>=4",
+    "sentencepiece>=0.2",
+    "huggingface-hub>=0.24",
+    # pdf
+    "natural-pdf>=0.6.5",
+    # browser
+    "playwright>=1.40",
+]
+
+# Everything Frisket can install from Python metadata. This is intentionally
+# the large/platform-fragile tier: Docling pulls a torch-class model stack,
+# llama-cpp-python may build locally, and FollowTheMoney may build PyICU.
+complete = [
+    # standard
+    "spacy>=3.8,<3.9",
+    "faster-whisper>=1.2.1",
+    "onnx-asr==0.11.0",
+    "onnxruntime>=1.18.1,<1.27,!=1.24.1",
+    "huggingface-hub>=0.30.2,<2",
+    "av>=11",
+    "ctranslate2>=4",
+    "sentencepiece>=0.2",
+    "huggingface-hub>=0.24",
+    "natural-pdf>=0.6.5",
+    "playwright>=1.40",
+    # hosted deployment tooling
+    "modal>=1.4.0",
+    # models + translate-gguf + entities
+    "docling>=2.97.0",
+    "llama-cpp-python>=0.3",
+    "followthemoney>=4.9.2",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.17,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+exclude-newer = "1 week"
+
+[dependency-groups]
+dev = [
+    "faster-whisper>=1.2.1",
+    "httpx>=0.28.1",
+    "hypothesis>=6.155.1",
+    "markitdown[docx,pdf]>=0.1.6",
+    "pdfminer.six>=20250506",
+    "pre-commit>=4.6.0",
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.4.0",
+    "pytest-httpx>=0.36.2",
+    "pytest-reportlog>=1.0",
+    "pytest-xdist>=3.8.0",
+    "pyyaml>=6.0.3",
+    "ruff>=0.15.16",
+]
+
+[tool.pytest.ini_options]
+addopts = "-m 'not gap and not network and not plugin_contract'"
+# executor_harness.py holds the shared parametrized lifecycle tests for the
+# v1 executor family; without this entry the default test_*.py glob would
+# silently drop it from suite-wide collection.
+python_files = ["test_*.py", "executor_harness.py"]
+# Bare `pytest` collects only the top-level suite. sidecar/tests has its own
+# conftest and is run from sidecar/ (or by the cross-repository OCR check, which
+# passes the path explicitly); collecting both from the repo root loads two
+# incompatible conftest modules.
+testpaths = ["tests"]
+# Red-first probes are excluded from the default suite.
+markers = [
+    "network: hits the live internet (deselect with -m 'not network')",
+    "gap: a known-RED completion probe (expected to fail until the feature ships)",
+    "gap_env: designated environment proof: requires preloaded immutable images/env contracts; excluded from stock CI",
+    "plugin_contract: isolated RED-first plugin extensibility gauntlet",
+    # sidecar/tests carry `real` (heavy engine + model download); the
+    # OCR-engines cross-repo check collects sidecar/tests from this env, so the
+    # mark is registered here too. Those tests importorskip their libraries, so
+    # they SKIP in the dep-less/default suite.
+    "real: loads a real engine (heavy extras + model download required)",
+    "live: spends real provider money on a live API call (skip-by-default; needs keys + a real project)",
+    "real_bundled_plugins: opts out of tests/conftest.py's hermetic empty bundled-plugins root to exercise the real shipped plugin tree",
+    "realtime: sanctioned real-clock tier — positive latency/bound assertions only; never use for negative assertions",
+    "integration: durable end-to-end proof crossing real process seams in one process (in-process ASGI; no GPU, no network; runs in the default suite)",
+]
+tmp_path_retention_policy = "failed"
+tmp_path_retention_count = "1"

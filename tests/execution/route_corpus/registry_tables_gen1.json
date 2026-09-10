@@ -1,0 +1,9 @@
+{
+  "order": {
+    "egress.v1": {
+      "chain": ["none", "operator_lan", "frisket_dedicated_org", "frisket_shared"],
+      "unordered": ["third_party_api"]
+    }
+  },
+  "throughput": {}
+}

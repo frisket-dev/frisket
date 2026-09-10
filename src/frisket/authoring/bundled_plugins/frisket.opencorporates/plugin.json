@@ -1,0 +1,955 @@
+{
+  "auto_enable": false,
+  "contributes": {
+    "actions": [
+      "frisket.opencorporates.match_company",
+      "frisket.opencorporates.lookup_company"
+    ],
+    "column_types": [],
+    "importers": [],
+    "job_handlers": [],
+    "operators": [],
+    "projections": [],
+    "workbench_commands": [],
+    "workbench_panels": [],
+    "workbench_views": []
+  },
+  "id": "frisket.opencorporates",
+  "requires": {
+    "capabilities": [
+      "plugin:trusted_local_backend",
+      "external:opencorporates"
+    ],
+    "secrets": [
+      "OPENCORPORATES_API_TOKEN"
+    ]
+  },
+  "runtime": {
+    "actions": [
+      {
+        "catalog_entry": {
+          "async_mode": "queued",
+          "cost_policy": {
+            "kind": "external_metered",
+            "requires_confirmation": true
+          },
+          "description": "Reconciles each company name, optionally within one jurisdiction, then writes company fields only when the provider score meets the configured threshold. The score is a ranking signal, not a calibrated probability.",
+          "errors": [
+            {
+              "code": "invalid_action_request",
+              "message": "The typed action request is malformed."
+            },
+            {
+              "code": "invalid_params",
+              "message": "The action parameters are invalid."
+            },
+            {
+              "code": "invalid_input_ref",
+              "message": "A source sheet, row, or column reference is invalid."
+            },
+            {
+              "code": "output_column_exists",
+              "message": "A requested output column already exists."
+            },
+            {
+              "code": "output_column_busy",
+              "message": "A requested output column is claimed by another run."
+            },
+            {
+              "code": "network_disabled",
+              "message": "The action attempted an unadmitted network request."
+            },
+            {
+              "code": "project_write_failed",
+              "message": "The project write or receipt update failed."
+            },
+            {
+              "code": "idempotency_conflict",
+              "message": "The idempotency key was used for different work."
+            },
+            {
+              "code": "idempotency_in_progress",
+              "message": "The idempotent action is already running."
+            },
+            {
+              "code": "idempotency_stale_running",
+              "message": "A stale running reservation was cleared."
+            },
+            {
+              "code": "stale_replay",
+              "message": "Stored outputs no longer match the committed receipt."
+            },
+            {
+              "code": "stale_input",
+              "message": "The queued source or output target changed before execution."
+            },
+            {
+              "code": "external_cost_requires_confirmation",
+              "message": "External provider use requires confirmation."
+            },
+            {
+              "code": "external_rows_failed",
+              "message": "The external provider failed for every selected row."
+            },
+            {
+              "code": "missing_action_credential",
+              "message": "A required provider credential is unavailable."
+            }
+          ],
+          "examples": [],
+          "execution_mode": "per_row",
+          "idempotency": {
+            "behavior": "Same request keys replay committed results.",
+            "key_field": "idempotency_key",
+            "scope": "project",
+            "supported": true
+          },
+          "input_schema": {
+            "$defs": {
+              "NameColumn": {
+                "title": "NameColumn",
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "properties": {
+              "company_name": {
+                "$ref": "#/$defs/NameColumn"
+              },
+              "jurisdiction_code": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Jurisdiction Code"
+              },
+              "minimum_match_score": {
+                "default": 75.0,
+                "maximum": 100,
+                "minimum": 0,
+                "title": "Minimum Match Score",
+                "type": "number"
+              }
+            },
+            "required": [
+              "company_name"
+            ],
+            "title": "MatchParams",
+            "type": "object"
+          },
+          "kind": "frisket.opencorporates.match_company",
+          "output_schema": {
+            "properties": {
+              "oc_company_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Company Id"
+              },
+              "oc_company_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Company Name"
+              },
+              "oc_company_number": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Company Number"
+              },
+              "oc_company_status": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Company Status"
+              },
+              "oc_company_type": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Company Type"
+              },
+              "oc_company_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Company Url"
+              },
+              "oc_dissolution_date": {
+                "anyOf": [
+                  {
+                    "format": "date",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Dissolution Date"
+              },
+              "oc_inactive": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Inactive"
+              },
+              "oc_incorporation_date": {
+                "anyOf": [
+                  {
+                    "format": "date",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Incorporation Date"
+              },
+              "oc_jurisdiction_code": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Jurisdiction Code"
+              },
+              "oc_match_method": {
+                "title": "Oc Match Method",
+                "type": "string"
+              },
+              "oc_match_score": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Match Score"
+              },
+              "oc_match_state": {
+                "title": "Oc Match State",
+                "type": "string"
+              },
+              "oc_match_threshold": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Match Threshold"
+              },
+              "oc_registered_address": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Registered Address"
+              },
+              "oc_registry_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Registry Url"
+              },
+              "oc_retrieved_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Retrieved At"
+              },
+              "oc_upstream_match": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Upstream Match"
+              }
+            },
+            "required": [
+              "oc_match_state",
+              "oc_match_method",
+              "oc_match_score",
+              "oc_match_threshold",
+              "oc_upstream_match",
+              "oc_company_id",
+              "oc_company_name",
+              "oc_company_number",
+              "oc_jurisdiction_code",
+              "oc_company_type",
+              "oc_company_status",
+              "oc_inactive",
+              "oc_incorporation_date",
+              "oc_dissolution_date",
+              "oc_registered_address",
+              "oc_company_url",
+              "oc_registry_url",
+              "oc_retrieved_at"
+            ],
+            "title": "CompanyOutput",
+            "type": "object"
+          },
+          "receipt_policy": "writes_receipt",
+          "required_capabilities": [
+            "project:write",
+            "external:opencorporates"
+          ],
+          "required_credentials": [
+            "OPENCORPORATES_API_TOKEN"
+          ],
+          "retry_policy": {
+            "strategy": "provider_retry_then_idempotency_replay",
+            "supported": true
+          },
+          "row_scope_policy": {
+            "kind": "sheet_rows",
+            "selectors": [
+              "all_rows",
+              "exact_membership"
+            ]
+          },
+          "side_effects": [
+            "read_input_rows",
+            "call_external_provider",
+            "create_generated_columns",
+            "write_run_results",
+            "write_map_op",
+            "write_receipt"
+          ],
+          "title": "Match company with OpenCorporates",
+          "ui_hints": {
+            "category": "extract",
+            "form": "generated",
+            "logical_outputs": [
+              {
+                "column_type": "text",
+                "key": "oc_match_state"
+              },
+              {
+                "column_type": "text",
+                "key": "oc_match_method"
+              },
+              {
+                "column_type": "number",
+                "key": "oc_match_score"
+              },
+              {
+                "column_type": "number",
+                "key": "oc_match_threshold"
+              },
+              {
+                "column_type": "boolean",
+                "key": "oc_upstream_match"
+              },
+              {
+                "column_type": "text",
+                "key": "oc_company_id"
+              },
+              {
+                "column_type": "text",
+                "key": "oc_company_name"
+              },
+              {
+                "column_type": "text",
+                "key": "oc_company_number"
+              },
+              {
+                "column_type": "text",
+                "key": "oc_jurisdiction_code"
+              },
+              {
+                "column_type": "text",
+                "key": "oc_company_type"
+              },
+              {
+                "column_type": "text",
+                "key": "oc_company_status"
+              },
+              {
+                "column_type": "boolean",
+                "key": "oc_inactive"
+              },
+              {
+                "column_type": "date",
+                "key": "oc_incorporation_date"
+              },
+              {
+                "column_type": "date",
+                "key": "oc_dissolution_date"
+              },
+              {
+                "column_type": "text",
+                "key": "oc_registered_address"
+              },
+              {
+                "column_type": "link",
+                "key": "oc_company_url"
+              },
+              {
+                "column_type": "link",
+                "key": "oc_registry_url"
+              },
+              {
+                "column_type": "text",
+                "key": "oc_retrieved_at"
+              }
+            ],
+            "semantic_controls": {
+              "company_name": "column"
+            },
+            "source_requirements": [
+              {
+                "accepted_column_types": [
+                  "text",
+                  "category"
+                ],
+                "id": "company_name",
+                "label": "Company name",
+                "min": 1,
+                "mode": "column",
+                "param": "company_name"
+              }
+            ]
+          },
+          "writes_project": true
+        },
+        "handler_api": "typed_action",
+        "handler_key": "frisket.opencorporates:match_company",
+        "kind": "frisket.opencorporates.match_company",
+        "module_path": "plugin.py"
+      },
+      {
+        "catalog_entry": {
+          "async_mode": "queued",
+          "cost_policy": {
+            "kind": "external_metered",
+            "requires_confirmation": true
+          },
+          "description": "Looks up the exact OpenCorporates company key formed by jurisdiction code plus company number. Exact keys bypass reconciliation scoring.",
+          "errors": [
+            {
+              "code": "invalid_action_request",
+              "message": "The typed action request is malformed."
+            },
+            {
+              "code": "invalid_params",
+              "message": "The action parameters are invalid."
+            },
+            {
+              "code": "invalid_input_ref",
+              "message": "A source sheet, row, or column reference is invalid."
+            },
+            {
+              "code": "output_column_exists",
+              "message": "A requested output column already exists."
+            },
+            {
+              "code": "output_column_busy",
+              "message": "A requested output column is claimed by another run."
+            },
+            {
+              "code": "network_disabled",
+              "message": "The action attempted an unadmitted network request."
+            },
+            {
+              "code": "project_write_failed",
+              "message": "The project write or receipt update failed."
+            },
+            {
+              "code": "idempotency_conflict",
+              "message": "The idempotency key was used for different work."
+            },
+            {
+              "code": "idempotency_in_progress",
+              "message": "The idempotent action is already running."
+            },
+            {
+              "code": "idempotency_stale_running",
+              "message": "A stale running reservation was cleared."
+            },
+            {
+              "code": "stale_replay",
+              "message": "Stored outputs no longer match the committed receipt."
+            },
+            {
+              "code": "stale_input",
+              "message": "The queued source or output target changed before execution."
+            },
+            {
+              "code": "external_cost_requires_confirmation",
+              "message": "External provider use requires confirmation."
+            },
+            {
+              "code": "external_rows_failed",
+              "message": "The external provider failed for every selected row."
+            },
+            {
+              "code": "missing_action_credential",
+              "message": "A required provider credential is unavailable."
+            }
+          ],
+          "examples": [],
+          "execution_mode": "per_row",
+          "idempotency": {
+            "behavior": "Same request keys replay committed results.",
+            "key_field": "idempotency_key",
+            "scope": "project",
+            "supported": true
+          },
+          "input_schema": {
+            "$defs": {
+              "NameColumn": {
+                "title": "NameColumn",
+                "type": "string"
+              },
+              "NumberColumn": {
+                "title": "NumberColumn",
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "properties": {
+              "company_number": {
+                "$ref": "#/$defs/NumberColumn"
+              },
+              "jurisdiction_code": {
+                "$ref": "#/$defs/NameColumn"
+              }
+            },
+            "required": [
+              "jurisdiction_code",
+              "company_number"
+            ],
+            "title": "LookupParams",
+            "type": "object"
+          },
+          "kind": "frisket.opencorporates.lookup_company",
+          "output_schema": {
+            "properties": {
+              "oc_company_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Company Id"
+              },
+              "oc_company_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Company Name"
+              },
+              "oc_company_number": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Company Number"
+              },
+              "oc_company_status": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Company Status"
+              },
+              "oc_company_type": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Company Type"
+              },
+              "oc_company_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Company Url"
+              },
+              "oc_dissolution_date": {
+                "anyOf": [
+                  {
+                    "format": "date",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Dissolution Date"
+              },
+              "oc_inactive": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Inactive"
+              },
+              "oc_incorporation_date": {
+                "anyOf": [
+                  {
+                    "format": "date",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Incorporation Date"
+              },
+              "oc_jurisdiction_code": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Jurisdiction Code"
+              },
+              "oc_match_method": {
+                "title": "Oc Match Method",
+                "type": "string"
+              },
+              "oc_match_score": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Match Score"
+              },
+              "oc_match_state": {
+                "title": "Oc Match State",
+                "type": "string"
+              },
+              "oc_match_threshold": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Match Threshold"
+              },
+              "oc_registered_address": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Registered Address"
+              },
+              "oc_registry_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Registry Url"
+              },
+              "oc_retrieved_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Retrieved At"
+              },
+              "oc_upstream_match": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Oc Upstream Match"
+              }
+            },
+            "required": [
+              "oc_match_state",
+              "oc_match_method",
+              "oc_match_score",
+              "oc_match_threshold",
+              "oc_upstream_match",
+              "oc_company_id",
+              "oc_company_name",
+              "oc_company_number",
+              "oc_jurisdiction_code",
+              "oc_company_type",
+              "oc_company_status",
+              "oc_inactive",
+              "oc_incorporation_date",
+              "oc_dissolution_date",
+              "oc_registered_address",
+              "oc_company_url",
+              "oc_registry_url",
+              "oc_retrieved_at"
+            ],
+            "title": "CompanyOutput",
+            "type": "object"
+          },
+          "receipt_policy": "writes_receipt",
+          "required_capabilities": [
+            "project:write",
+            "external:opencorporates"
+          ],
+          "required_credentials": [
+            "OPENCORPORATES_API_TOKEN"
+          ],
+          "retry_policy": {
+            "strategy": "provider_retry_then_idempotency_replay",
+            "supported": true
+          },
+          "row_scope_policy": {
+            "kind": "sheet_rows",
+            "selectors": [
+              "all_rows",
+              "exact_membership"
+            ]
+          },
+          "side_effects": [
+            "read_input_rows",
+            "call_external_provider",
+            "create_generated_columns",
+            "write_run_results",
+            "write_map_op",
+            "write_receipt"
+          ],
+          "title": "Look up OpenCorporates company key",
+          "ui_hints": {
+            "category": "extract",
+            "form": "generated",
+            "logical_outputs": [
+              {
+                "column_type": "text",
+                "key": "oc_match_state"
+              },
+              {
+                "column_type": "text",
+                "key": "oc_match_method"
+              },
+              {
+                "column_type": "number",
+                "key": "oc_match_score"
+              },
+              {
+                "column_type": "number",
+                "key": "oc_match_threshold"
+              },
+              {
+                "column_type": "boolean",
+                "key": "oc_upstream_match"
+              },
+              {
+                "column_type": "text",
+                "key": "oc_company_id"
+              },
+              {
+                "column_type": "text",
+                "key": "oc_company_name"
+              },
+              {
+                "column_type": "text",
+                "key": "oc_company_number"
+              },
+              {
+                "column_type": "text",
+                "key": "oc_jurisdiction_code"
+              },
+              {
+                "column_type": "text",
+                "key": "oc_company_type"
+              },
+              {
+                "column_type": "text",
+                "key": "oc_company_status"
+              },
+              {
+                "column_type": "boolean",
+                "key": "oc_inactive"
+              },
+              {
+                "column_type": "date",
+                "key": "oc_incorporation_date"
+              },
+              {
+                "column_type": "date",
+                "key": "oc_dissolution_date"
+              },
+              {
+                "column_type": "text",
+                "key": "oc_registered_address"
+              },
+              {
+                "column_type": "link",
+                "key": "oc_company_url"
+              },
+              {
+                "column_type": "link",
+                "key": "oc_registry_url"
+              },
+              {
+                "column_type": "text",
+                "key": "oc_retrieved_at"
+              }
+            ],
+            "semantic_controls": {
+              "company_number": "column",
+              "jurisdiction_code": "column"
+            },
+            "source_requirements": [
+              {
+                "accepted_column_types": [
+                  "text",
+                  "category"
+                ],
+                "id": "jurisdiction_code",
+                "label": "Jurisdiction code",
+                "min": 1,
+                "mode": "column",
+                "param": "jurisdiction_code"
+              },
+              {
+                "accepted_column_types": [
+                  "text",
+                  "category",
+                  "integer"
+                ],
+                "id": "company_number",
+                "label": "Company number",
+                "min": 1,
+                "mode": "column",
+                "param": "company_number"
+              }
+            ]
+          },
+          "writes_project": true
+        },
+        "handler_api": "typed_action",
+        "handler_key": "frisket.opencorporates:lookup_company",
+        "kind": "frisket.opencorporates.lookup_company",
+        "module_path": "plugin.py"
+      }
+    ],
+    "importers": [],
+    "job_handlers": [],
+    "operators": [],
+    "projections": []
+  },
+  "schema_version": "frisket.plugin.v1",
+  "version": "1.0.0"
+}

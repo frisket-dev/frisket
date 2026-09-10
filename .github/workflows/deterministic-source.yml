@@ -1,0 +1,37 @@
+name: deterministic-source
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: deterministic-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Compile Python sources
+        run: python -m compileall -q src scripts/ci tests
+      - name: Run deterministic source checks
+        run: |
+          set -euo pipefail
+          for check in scripts/ci/lint_*.py; do
+            python "$check"
+          done
+          python scripts/ci/check_import_boundaries.py \
+            --source-root src \
+            --config scripts/ci/import_boundaries.json

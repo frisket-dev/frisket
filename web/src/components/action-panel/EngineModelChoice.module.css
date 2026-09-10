@@ -1,0 +1,14 @@
+.choice {
+  display: grid;
+  gap: 8px;
+  margin: 18px 0 0;
+  min-width: 0;
+}
+
+.label {
+  margin: 0;
+}
+
+.picker {
+  min-width: 0;
+}

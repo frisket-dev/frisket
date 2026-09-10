@@ -1,0 +1,75 @@
+{
+  "name": "multi_column_per_token_fallback",
+  "note": "one merged row + several orphan rows -> orphan rate >0.3 -> per_token_fallback, not a wrong merged band",
+  "strategy": "align",
+  "target": {
+    "kind": "text",
+    "text": "alpha beta gamma delta epsilon"
+  },
+  "source": {
+    "kind": "word",
+    "tokens": [
+      {
+        "text": "alpha",
+        "box": [
+          0.1,
+          0.1,
+          0.2,
+          0.13
+        ],
+        "page": 1,
+        "source": "ocr"
+      },
+      {
+        "text": "beta",
+        "box": [
+          0.3,
+          0.1,
+          0.4,
+          0.13
+        ],
+        "page": 1,
+        "source": "ocr"
+      },
+      {
+        "text": "gamma",
+        "box": [
+          0.1,
+          0.3,
+          0.2,
+          0.33
+        ],
+        "page": 1,
+        "source": "ocr"
+      },
+      {
+        "text": "delta",
+        "box": [
+          0.1,
+          0.5,
+          0.2,
+          0.53
+        ],
+        "page": 1,
+        "source": "ocr"
+      },
+      {
+        "text": "epsilon",
+        "box": [
+          0.1,
+          0.7,
+          0.2,
+          0.73
+        ],
+        "page": 1,
+        "source": "ocr"
+      }
+    ]
+  },
+  "expect": {
+    "matches": true,
+    "min_spans": 5,
+    "granularity": "block",
+    "grouping": "per_token_fallback"
+  }
+}

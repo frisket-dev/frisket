@@ -1,0 +1,70 @@
+name: goldens
+
+# Golden projects #1 (tariff country search) and #2 (NTSB lat/lon extraction)
+# run end-to-end through the real UI with live model calls. The goldens config
+# refuses to start without a provider key.
+#
+# Budget per run (deliberately capped by row counts, not trust):
+#   #1 tariff: 6 rows × (1 DDG search [free] + summarize + score) on
+#      gemini-2.5-flash ≈ $0.003
+#   #2 NTSB:   6 rows × (local markitdown [free] + 1 structured extract) on
+#      gemini-2.5-flash ≈ $0.002
+#   total ≈ $0.005/run, ≈ $0.02/month on the weekly schedule.
+
+permissions:
+  contents: read
+
+on:
+  schedule:
+    - cron: '0 6 * * 1' # Mondays 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  goldens:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      # Missing secret = LOUD red, never a silent skip or a false green. A
+      # scheduled golden that quietly no-ops is a dead alarm.
+      - name: Require golden secrets
+        run: |
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo '::error title=GOLDENS NOT RUN — missing secret::The GEMINI_API_KEY repository secret is not set. The golden projects make live model calls by design and cannot run without it. Add GEMINI_API_KEY under Settings → Secrets and variables → Actions, then re-run this workflow.'
+            exit 1
+          fi
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      # Base MarkItDown backs media.to_markdown for the NTSB PDF golden.
+      # FRISKET_E2E_MINIMAL_DEPS=1 below makes e2e_backend.sh run `uv run
+      # --no-sync`, so this explicit sync IS the backend environment.
+      - run: uv sync --no-dev
+      - run: npx playwright install --with-deps chromium
+        working-directory: web
+      - run: FRISKET_E2E_MINIMAL_DEPS=1 npm run e2e:goldens
+        working-directory: web
+      # Screenshots, exported CSVs, and traces — pass or fail. The exported
+      # tariff CSV and final-grid screenshots are the live-demo evidence a
+      # checkpoint needs, not just a green suite.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: ${{ always() }}
+        with:
+          name: goldens-run-artifacts
+          path: |
+            web/test-results/
+            .frisket/e2e-duration-*
+          if-no-files-found: ignore
+          retention-days: 30

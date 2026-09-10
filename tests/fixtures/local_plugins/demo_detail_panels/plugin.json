@@ -1,0 +1,64 @@
+{
+  "schema_version": "frisket.plugin.v1",
+  "id": "demo.detail_panels",
+  "version": "0.1.0",
+  "contributes": {
+    "workbench_views": [],
+    "workbench_panels": [
+      "demo.detail_panels.panel.row",
+      "demo.detail_panels.panel.column",
+      "demo.detail_panels.panel.entity",
+      "demo.detail_panels.panel.source",
+      "demo.detail_panels.panel.column_tab"
+    ],
+    "actions": [],
+    "importers": [],
+    "operators": [],
+    "projections": [],
+    "column_types": [],
+    "job_handlers": []
+  },
+  "requires": {
+    "capabilities": [],
+    "secrets": []
+  },
+  "runtime": {
+    "actions": [],
+    "importers": [],
+    "operators": [],
+    "projections": [],
+    "job_handlers": [],
+    "workbench_components": [
+      {
+        "contribution_id": "demo.detail_panels.panel.row",
+        "module_key": "demo.detail_panels.ui",
+        "component_key": "demo.detail_panels.components.RowTab",
+        "module_path": "frontend/plugin.js"
+      },
+      {
+        "contribution_id": "demo.detail_panels.panel.column",
+        "module_key": "demo.detail_panels.ui",
+        "component_key": "demo.detail_panels.components.ColumnSection",
+        "module_path": "frontend/plugin.js"
+      },
+      {
+        "contribution_id": "demo.detail_panels.panel.entity",
+        "module_key": "demo.detail_panels.ui",
+        "component_key": "demo.detail_panels.components.EntityTab",
+        "module_path": "frontend/plugin.js"
+      },
+      {
+        "contribution_id": "demo.detail_panels.panel.source",
+        "module_key": "demo.detail_panels.ui",
+        "component_key": "demo.detail_panels.components.SourceTab",
+        "module_path": "frontend/plugin.js"
+      },
+      {
+        "contribution_id": "demo.detail_panels.panel.column_tab",
+        "module_key": "demo.detail_panels.ui",
+        "component_key": "demo.detail_panels.components.ColumnTab",
+        "module_path": "frontend/plugin.js"
+      }
+    ]
+  }
+}

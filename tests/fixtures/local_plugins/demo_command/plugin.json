@@ -1,0 +1,35 @@
+{
+  "schema_version": "frisket.plugin.v1",
+  "id": "demo.command",
+  "version": "0.1.0",
+  "contributes": {
+    "workbench_views": [],
+    "workbench_panels": [],
+    "workbench_commands": ["demo.command.command.hello"],
+    "actions": [],
+    "importers": [],
+    "operators": [],
+    "projections": [],
+    "column_types": [],
+    "job_handlers": []
+  },
+  "requires": {
+    "capabilities": [],
+    "secrets": []
+  },
+  "runtime": {
+    "actions": [],
+    "importers": [],
+    "operators": [],
+    "projections": [],
+    "job_handlers": [],
+    "workbench_components": [
+      {
+        "contribution_id": "demo.command.command.hello",
+        "module_key": "demo.command.ui",
+        "component_key": "demo.command.commands.HelloCommand",
+        "module_path": "frontend/plugin.js"
+      }
+    ]
+  }
+}

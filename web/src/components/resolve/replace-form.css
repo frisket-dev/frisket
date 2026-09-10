@@ -1,0 +1,138 @@
+/* ReplaceForm ("Replace by rules") drawer-body styles. Companion to
+   resolve.css (same conventions: every class prefixed `resolve-replace-`,
+   visual tokens from styles.css custom properties). This file is the only
+   stylesheet the form adds — resolve.css and styles.css are not edited. */
+
+.resolve-replace-form {
+  gap: 14px;
+}
+/* Section/field labels read as the app's sentence-case field labels. */
+.resolve-replace-form .field-labels {
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* ── scope row: column field + ordering caption below it ───────────────── */
+
+.resolve-replace-scope {
+  display: flex;
+}
+.resolve-replace-column-field { flex: 1; min-width: 0; }
+.resolve-replace-order-hint { margin: 0; }
+
+/* ── ordered rules list ────────────────────────────────────────────────── */
+
+.resolve-replace-rules {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  overflow-y: auto;
+  min-height: 0;
+}
+/* Flat, divider-separated rows (matching Extract's field rows) — no card
+   fill or box, just a hairline between rules. */
+.resolve-replace-rule {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.resolve-replace-rule:first-child { padding-top: 4px; }
+.resolve-replace-rule-main,
+.resolve-replace-rule-target-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.resolve-replace-rule-index {
+  flex-shrink: 0;
+  min-width: 14px;
+  text-align: right;
+  color: var(--text-light);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+.resolve-replace-rule .form-input { height: 26px; font-size: 11.5px; }
+.resolve-replace-rule-kind { flex-shrink: 0; width: 92px; }
+.resolve-replace-rule-pattern {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+}
+.resolve-replace-rule-pattern[aria-invalid='true'] {
+  border-color: var(--red, #b3452f);
+}
+.resolve-replace-case {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+.resolve-replace-case.is-on,
+.resolve-replace-null-toggle.is-on {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.resolve-replace-rule-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+/* target line: "→ set to [value | (null)] ∅" */
+.resolve-replace-rule-target-row { padding-left: 21px; }
+.resolve-replace-arrow { color: var(--text-light); flex-shrink: 0; }
+.resolve-replace-set-to {
+  flex-shrink: 0;
+  color: var(--text-light);
+  font-size: 12px;
+}
+.resolve-replace-rule-target { flex: 1; min-width: 0; font-weight: 600; }
+.resolve-replace-null-chip {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-6);
+  background: var(--bg);
+  color: var(--text-light);
+  font-size: 11.5px;
+  font-style: italic;
+  cursor: pointer;
+  text-align: left;
+}
+.resolve-replace-null-toggle { flex-shrink: 0; font-size: 12px; }
+
+/* per-rule meta line: count / skipped note / regex error */
+.resolve-replace-rule-meta {
+  display: flex;
+  align-items: center;
+  padding-left: 21px;
+  font-size: 11px;
+}
+.resolve-replace-rule-count {
+  color: var(--text-light);
+  font-variant-numeric: tabular-nums;
+}
+.resolve-replace-rule-note { color: var(--text-light); font-style: italic; }
+
+.resolve-replace-add-rule { align-self: flex-start; margin-top: 10px; }
+
+/* Anything computed for a superseded rules list dims until the fresh
+   preview lands (counts, footer summary). */
+.resolve-replace-stale { opacity: 0.45; }
+
+/* ── no-match policy row ────────────────────────────────────────────────── */
+
+.resolve-replace-policy-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.resolve-replace-policy { width: auto; min-width: 150px; }

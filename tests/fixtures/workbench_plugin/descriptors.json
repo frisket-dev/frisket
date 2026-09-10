@@ -1,0 +1,213 @@
+{
+  "schemaVersion": "frisket.workbench_contract_fixtures.v1",
+  "source": "tests/fixtures/workbench_plugin/README.md",
+  "cases": [
+    {
+      "id": "friendly_filters_panel_descriptor",
+      "description": "Docked panel can move across legal regions and keep row/evidence capabilities.",
+      "rawDescriptor": {
+        "schemaVersion": "frisket.workbench.panel.v1",
+        "id": "frisket.investigative.panel.friendly_filters",
+        "kind": "panel",
+        "ownerPluginId": "frisket.core",
+        "title": "Entity facets",
+        "shortTitle": "Facets",
+        "icon": "Tags",
+        "tags": ["investigative", "facets"],
+        "componentKey": "core.panels.FriendlyFiltersPanel",
+        "placements": [
+          {"host": "leftSidebar", "mode": "panel", "default": true, "order": 30, "minSize": 240, "defaultSize": 320},
+          {"host": "rightInspector", "mode": "panel", "order": 80},
+          {"host": "activityRail", "mode": "panel", "order": 30, "chrome": "minimal"}
+        ],
+        "requires": [
+          {"kind": "hostCapability", "id": "host.navigation.openRow"},
+          {"kind": "hostCapability", "id": "host.evidence.open", "optional": true}
+        ],
+        "dataRequirements": [
+          {"kind": "activeProject"},
+          {"kind": "activeSheet"}
+        ],
+        "badge": {"source": "hostState", "key": "entityFacetCount", "format": "count"}
+      },
+      "expectedManifest": {
+        "forbiddenRuntimeKeys": ["componentKey"],
+        "keptKeys": ["schemaVersion", "id", "kind", "ownerPluginId", "title", "shortTitle", "icon", "tags", "placements", "requires", "dataRequirements", "badge"]
+      },
+      "expectedResolved": {
+        "status": "enabled",
+        "activation": "loadAllowed",
+        "legalHosts": ["leftSidebar", "rightInspector", "activityRail"]
+      }
+    },
+    {
+      "id": "sources_panel_and_source_kind_forms",
+      "rawDescriptor": {
+        "schemaVersion": "frisket.workbench.panel.v1",
+        "id": "frisket.core.panel.sources",
+        "kind": "panel",
+        "ownerPluginId": "frisket.core",
+        "title": "Sources",
+        "icon": "Database",
+        "componentKey": "core.panels.SourcesPanel",
+        "placements": [
+          {"host": "leftSidebar", "mode": "panel", "default": true, "order": 20},
+          {"host": "bottomDock", "mode": "tab", "placementId": "source-runs", "order": 50, "tabChrome": {"closeable": true, "singleton": true}}
+        ],
+        "requires": [
+          {"kind": "hostCapability", "id": "source.list"},
+          {"kind": "hostCapability", "id": "source.poll"},
+          {"kind": "hostCapability", "id": "host.navigation.openSheet"}
+        ],
+        "provides": ["frisket.core.source_kind_form.rss", "frisket.core.source_kind_form.api_list_dicts"]
+      },
+      "sourceKindForms": [
+        {
+          "schemaVersion": "frisket.source.kind.form.v1",
+          "id": "frisket.core.source_kind_form.rss",
+          "kind": "provider",
+          "ownerPluginId": "frisket.core",
+          "title": "RSS source",
+          "componentKey": "core.sources.RssSourceForm",
+          "placements": [{"host": "modalOrPeek", "mode": "peek", "default": true}],
+          "accepts": [{"kind": "objectType", "id": "source.rss"}]
+        }
+      ],
+      "expectedResolved": {"status": "enabled", "activation": "loadAllowed"}
+    },
+    {
+      "id": "actions_panel_and_action_forms",
+      "rawDescriptor": {
+        "schemaVersion": "frisket.workbench.panel.v1",
+        "id": "frisket.core.panel.actions",
+        "kind": "panel",
+        "ownerPluginId": "frisket.core",
+        "title": "Actions",
+        "icon": "Play",
+        "componentKey": "core.panels.ActionPanel",
+        "placements": [
+          {"host": "rightInspector", "mode": "panel", "default": true, "order": 10, "minSize": 320, "defaultSize": 420},
+          {"host": "mainView", "mode": "pane", "placementId": "action-preview-companion", "order": 60}
+        ],
+        "requires": [
+          {"kind": "hostCapability", "id": "action.run"},
+          {"kind": "hostCapability", "id": "action.preview"},
+          {"kind": "permission", "id": "project.write"}
+        ],
+        "dataRequirements": [{"kind": "activeSheet"}]
+      },
+      "actionForms": [
+        {
+          "schemaVersion": "frisket.action.form.v1",
+          "id": "frisket.core.action_form.map_extract",
+          "kind": "action",
+          "ownerPluginId": "frisket.core",
+          "title": "Extract fields",
+          "actionKind": "frisket.core.action.map_extract",
+          "componentKey": "core.actions.MapExtractForm",
+          "modes": ["run", "preview", "proposalInspect"],
+          "placements": [{"host": "modalOrPeek", "mode": "peek", "default": true}]
+        }
+      ],
+      "expectedResolved": {"status": "enabled", "activation": "loadAllowed"}
+    },
+    {
+      "id": "map_view_split_layout",
+      "rawDescriptor": {
+        "schemaVersion": "frisket.workbench.view.v1",
+        "id": "frisket.geo.view.map",
+        "kind": "view",
+        "ownerPluginId": "frisket.geo",
+        "title": "Map",
+        "icon": "Map",
+        "componentKey": "geo.views.MapView",
+        "placements": [
+          {"host": "mainView", "mode": "pane", "default": true, "order": 20, "density": "wide"},
+          {"host": "mainView", "mode": "tab", "placementId": "map-tab", "order": 20, "tabChrome": {"closeable": true, "singleton": true}}
+        ],
+        "requires": [
+          {"kind": "hostCapability", "id": "grid.filter.applyBbox"},
+          {"kind": "hostCapability", "id": "projection.status"}
+        ],
+        "dataRequirements": [
+          {"kind": "activeSheet"},
+          {"kind": "sheetHasColumnType", "columnType": "frisket.core.column_type.geo_point"}
+        ],
+        "preferredPane": "companion",
+        "activationCost": "medium"
+      },
+      "expectedResolved": {"status": "enabled", "activation": "loadAllowed"}
+    },
+    {
+      "id": "projection_status_panel_descriptor",
+      "rawDescriptor": {
+        "schemaVersion": "frisket.workbench.panel.v1",
+        "id": "frisket.core.panel.projection_status",
+        "kind": "panel",
+        "ownerPluginId": "frisket.core",
+        "title": "Projection status",
+        "icon": "Activity",
+        "componentKey": "core.panels.ProjectionStatusPanel",
+        "placements": [
+          {"host": "bottomDock", "mode": "tab", "placementId": "projection-status-tab", "order": 45, "tabChrome": {"closeable": false, "singleton": true}},
+          {"host": "rightInspector", "mode": "panel", "order": 50},
+          {"host": "activityRail", "mode": "panel", "order": 70}
+        ],
+        "requires": [
+          {"kind": "hostCapability", "id": "projection.status"}
+        ],
+        "dataRequirements": [
+          {"kind": "activeProjection"}
+        ],
+        "expectedSources": ["frisket.geo.view.map"],
+        "activationCost": "low"
+      },
+      "hostContext": {"activeProjection": true},
+      "expectedResolved": {"status": "enabled", "activation": "loadAllowed"}
+    },
+    {
+      "id": "evidence_view_peek_and_main_companion",
+      "rawDescriptor": {
+        "schemaVersion": "frisket.workbench.view.v1",
+        "id": "frisket.core.view.evidence",
+        "kind": "view",
+        "ownerPluginId": "frisket.core",
+        "title": "Evidence",
+        "icon": "FileSearch",
+        "componentKey": "core.views.EvidenceViewer",
+        "placements": [
+          {"host": "modalOrPeek", "mode": "peek", "default": true, "order": 10},
+          {"host": "mainView", "mode": "pane", "placementId": "evidence-companion", "order": 40, "density": "wide"},
+          {"host": "mainView", "mode": "tab", "placementId": "evidence-tab", "order": 40, "tabChrome": {"closeable": true, "singleton": false}}
+        ],
+        "requires": [{"kind": "hostCapability", "id": "evidence.resolve"}],
+        "dataRequirements": [{"kind": "activeEvidence"}],
+        "preferredPane": "companion"
+      },
+      "expectedResolved": {"status": "enabled", "activation": "loadAllowed"}
+    },
+    {
+      "id": "row_inspector_evidence_section",
+      "rawDescriptor": {
+        "schemaVersion": "frisket.row_inspector.section.v1",
+        "id": "frisket.core.inspector.row.evidence_section",
+        "kind": "inspector",
+        "ownerPluginId": "frisket.core",
+        "title": "Evidence",
+        "componentKey": "core.inspectors.RowEvidenceSection",
+        "sectionId": "evidence",
+        "emptyBehavior": "showEmpty",
+        "placements": [
+          {"host": "rowInspector", "mode": "section", "default": true, "order": 30},
+          {"host": "rowDetail", "mode": "tab", "placementId": "row-evidence-tab", "order": 30, "tabChrome": {"closeable": false, "singleton": true}}
+        ],
+        "requires": [
+          {"kind": "hostCapability", "id": "evidence.listForRow"},
+          {"kind": "hostCapability", "id": "evidence.open"}
+        ],
+        "dataRequirements": [{"kind": "activeRow"}]
+      },
+      "expectedResolved": {"status": "enabled", "activation": "loadAllowed"}
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+{"datasets": ["case-alpha"], "id": "person-1", "properties": {"alias": ["J. Smith", "Jane S."], "birthDate": ["1980-01-02"], "name": ["Jane Smith"], "sourceUrl": ["https://example.test/profile/jane"]}, "schema": "Person", "source_refs": [{"kind": "url", "url": "https://example.test/profile/jane"}]}
+{"id": "company-1", "properties": {"jurisdiction": ["us"], "name": ["Acme LLC"], "registrationNumber": ["DE-123"]}, "schema": "Company"}
+{"id": "membership-1", "properties": {"member": ["person-1"], "organization": ["company-1"], "role": ["Director"], "startDate": ["2020-03-04"]}, "schema": "Membership"}
+{"id": "person-missing-name", "properties": {"birthDate": ["1999-01-01"]}, "schema": "Person"}
+{"id": "address-1", "properties": {"full": ["1 Main Street"]}, "schema": "Address"}

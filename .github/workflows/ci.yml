@@ -1,0 +1,466 @@
+name: ci
+
+permissions:
+  contents: read
+on:
+  workflow_dispatch:
+
+# A superseding manual run obsoletes the in-flight run — cancel it rather than
+# pay for two full pipelines when only the newest result matters.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Coarse path classification for per-layer test selection. Diff-based and
+  # dependency-free; it FAILS OPEN (runs everything) whenever the base commit
+  # cannot be resolved. A manual dispatch has no comparison event, so the
+  # explicit hosted gate intentionally runs every layer. Two independent
+  # outputs:
+  #   * job gates (backend/frontend/infra) skip a whole job a commit
+  #     provably cannot affect -- e.g. a frontend-only commit skips the Python
+  #     suite; a backend-only commit skips the web vitest+build.
+  #   * pytest_target selects the Python suite subset. engine is the execution
+  #     spine (server/team/features/ops/... import it), so any engine, shared-
+  #     module, root-file, config, or multi-layer change runs the WHOLE suite.
+  #     Only a commit confined to a single non-engine leaf layer earns
+  #     `tests/<layer> tests/*.py` -- that layer plus the root tests, which
+  #     host the boundary + cross-cutting suites. The ruff/rule-19/
+  #     deterministic-time lints and the import-boundary gate in the `test`
+  #     job stay unconditional regardless of this subset.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      sidecar: ${{ steps.filter.outputs.sidecar }}
+      models_gpu: ${{ steps.filter.outputs.models_gpu }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      infra: ${{ steps.filter.outputs.infra }}
+      pytest_target: ${{ steps.filter.outputs.pytest_target }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            base="$PR_BASE_SHA"
+          else
+            base="$PUSH_BEFORE"
+          fi
+          allchanged=0
+          if [ -z "$base" ] \
+            || [ "$base" = "0000000000000000000000000000000000000000" ] \
+            || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            allchanged=1
+            files=""
+          else
+            files="$(git diff --name-only "$base" HEAD)"
+          fi
+          match() {
+            if [ "$allchanged" = "1" ]; then echo true; return; fi
+            if printf '%s\n' "$files" | grep -Eq "$1"; then echo true; else echo false; fi
+          }
+          # backend = anything the Python suite can depend on, including the
+          # web/sdk TS toolchain the renderer-matrix/plugin-build tests shell
+          # out to (a web/src-only change does NOT flip this).
+          backend_re='^(src/|tests/|sidecar/|scripts/|deploy/release/|\.github/|pyproject\.toml|uv\.lock|web/package(-lock)?\.json|web/tsconfig.*\.json|sdk/package(-lock)?\.json|sdk/tsconfig.*\.json)'
+          backend="$(match "$backend_re")"
+          # `sidecar/` is its own uv project and is deliberately excluded from
+          # the root pytest collection. Keep its light contract suite visible
+          # whenever the sidecar (including its shared transcription fixtures
+          # under sidecar/tests/fixtures/), the app's mirror copy of the
+          # contract (transcription_sidecar.py --
+          # sidecar/tests/test_contract_mirror_parity.py loads it by file path
+          # since the sidecar venv never installs the frisket package; a
+          # root-pytest-only run cannot see an app-copy-only drift), or this
+          # workflow changes.
+          sidecar="$(match '^(sidecar/|src/frisket/contracts/transcription_sidecar\.py|\.github/workflows/ci\.yml)')"
+          # Executable deployment validation owns the standalone GPU host
+          # artifacts; pure topology edits do not need either Python suite.
+          models_gpu="$(match '^(docker-compose\.models-gpu\.yml|deploy/Caddyfile\.models-gpu|scripts/ci/validate_models_gpu_topology\.sh|\.github/workflows/ci\.yml)$')"
+          # The transcription fallback artifact is backend-owned but imported
+          # directly by the web bundle, so its changes must run the web build.
+          frontend="$(match '^(web/|sdk/|src/frisket/data/transcribe_builtin_declarations\.json$|src/frisket/data/plugin_sdk\.mjs$|src/frisket/authoring/bundled_plugins/frisket\.geo/\.frisket-sdk/index\.mjs$)')"
+          infra="$(match '^(\.github/|scripts/|pyproject\.toml|uv\.lock)')"
+          target="tests"
+          if [ "$allchanged" = "0" ] && [ -n "$files" ]; then
+            leaves="ai authoring features operability ops preview server team"
+            touched=""
+            other=0
+            while IFS= read -r f; do
+              [ -z "$f" ] && continue
+              hit=""
+              # shellcheck disable=SC2086  # intentional word split over the space-separated leaf list
+              for L in $leaves; do
+                case "$f" in
+                  src/frisket/$L/*|tests/$L/*) hit="$L"; break;;
+                esac
+              done
+              if [ -n "$hit" ]; then
+                case " $touched " in *" $hit "*) : ;; *) touched="$touched $hit";; esac
+              else
+                other=1
+              fi
+            done <<< "$files"
+            # shellcheck disable=SC2086  # intentional word split to count distinct touched layers
+            set -- $touched
+            if [ "$other" = "0" ] && [ "$#" = "1" ]; then
+              target="tests/$1 tests/*.py"
+            fi
+          fi
+          {
+            echo "backend=$backend"
+            echo "sidecar=$sidecar"
+            echo "models_gpu=$models_gpu"
+            echo "frontend=$frontend"
+            echo "infra=$infra"
+            echo "pytest_target=$target"
+          } >> "$GITHUB_OUTPUT"
+  models-gpu-topology:
+    needs: changes
+    if: ${{ needs.changes.outputs.models_gpu == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - run: scripts/ci/validate_models_gpu_topology.sh
+  sidecar-contract:
+    needs: changes
+    if: ${{ needs.changes.outputs.sidecar == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sidecar
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      - run: uv sync --dev
+      - run: uv run --no-sync ruff check src tests
+      - run: uv run --no-sync ruff format --check src tests
+      # Scoped to the shared sidecar tests: the Whisper Turbo leaf
+      # below runs in its OWN locked env, and collecting it here imports a
+      # package the shared env deliberately does not install.
+      - run: uv run --no-sync pytest -q tests
+      # The CUDA worker is an isolated locked leaf. Its tests are CPU mocks,
+      # but installing its own environment catches dependency/API drift that
+      # the intentionally light shared sidecar environment cannot see.
+      - run: uv sync --project workers/whisper_turbo --locked --dev
+      - run: uv run --project workers/whisper_turbo --no-sync ruff check workers/whisper_turbo
+      - run: uv run --project workers/whisper_turbo --no-sync ruff format --check workers/whisper_turbo
+      - run: uv run --project workers/whisper_turbo --no-sync pytest -q workers/whisper_turbo/tests
+      # The VibeVoice leaf keeps model dependencies in its GPU extra; these
+      # tests exercise the worker contract without weights or a CUDA install.
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: uv sync --project workers/vibevoice_asr --locked --dev
+      - run: uv run --project workers/vibevoice_asr --no-sync ruff check workers/vibevoice_asr
+      - run: uv run --project workers/vibevoice_asr --no-sync ruff format --check workers/vibevoice_asr
+      - run: uv run --project workers/vibevoice_asr --no-sync pytest -q workers/vibevoice_asr/tests
+  test:
+    needs: changes
+    # Skipped only when a commit touches frontend SOURCE alone. This is the
+    # always-run gate: ruff, the rule-19 + deterministic-time lints, and the
+    # import-boundary check are never gated by the per-layer pytest subset.
+    if: ${{ needs.changes.outputs.backend == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      # tests/test_http_typescript_renderer_matrix.py shells out to
+      # web/node_modules/.bin/tsc to compile+run the generated TS contract
+      # module. The plugin-build tests resolve sdk/node_modules/.bin/esbuild
+      # first; without the SDK install they fall back to a fresh `npx -y`
+      # invocation for every build. Cache both lockfiles and provision both
+      # dependency trees before pytest.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            sdk/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - run: npm ci
+        working-directory: sdk
+      # OCR/conversion are base engines (rapidocr, markitdown) whose tests are
+      # written to run offline; poppler backs the PDF paths;
+      # ffmpeg backs the real subprocess clip/frame-extraction tests
+      # (test_provenance_download_clip.py, test_citation_span_runs.py,
+      # test_media_video_frames_executor.py) -- they shell out for real,
+      # no importorskip; ripgrep backs the URL-classification guard in
+      # tests/features/test_url_classification_routing.py.
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils ffmpeg ripgrep
+      # entities: followthemoney/normality/pyicu -- pyicu 2.16.2 ships an
+      # sdist only (uv.lock has no wheel entry for it), so this builds from
+      # source against ubuntu-latest's toolchain; it was already a BASE
+      # dependency built the same way here before it became an optional
+      # extra, so this adds no new CI failure mode. The Windows lane
+      # deliberately omits the extra because it has no ICU build toolchain.
+      # Keeps the FollowTheMoney test suite exercised for real here alongside
+      # the base OCR and conversion runtimes.
+      - run: uv sync --dev --extra entities
+      # Real RapidOCR tests skip when the model files are absent. Do not hydrate
+      # them here: a cold third-party model host must not turn the product-test
+      # signal red before repository-owned checks execute.
+      # --no-sync: these run after the explicit uv sync above; prevent an
+      # implicit resync from drifting the provisioned environment.
+      - run: uv run --no-sync ruff check src tests
+      - run: uv run --no-sync ruff format --check src tests
+      # Tests never read repository source as text.
+      # Heuristic scan; legitimate survivors carry `# rule19: <reason>`.
+      - run: uv run --no-sync python scripts/ci/lint_test_source_reads.py
+      - run: uv run --no-sync python scripts/ci/check_cell_write_ownership.py
+      # Raw sleep/monotonic/Thread calls make tests timing-dependent, so the
+      # deterministic-time allowlist only shrinks.
+      - run: uv run --no-sync python scripts/ci/lint_test_deterministic_time.py
+      - run: uv run --no-sync python scripts/ci/lint_test_subprocess_spawns.py
+      # The routed dispatch files may read only their pinned pre-route env
+      # fallbacks; placement facts arrive on the ConnectionConfig.
+      - run: uv run --no-sync python scripts/ci/lint_placement_env_reads.py
+      - run: uv run --no-sync python scripts/ci/lint_no_internal_paths.py
+      # Registered ActionPrechecks receive the pydantic-validated ActionSpec;
+      # container-type re-guards on params are unreachable and stay deleted
+      # (WARM-01).
+      - run: uv run --no-sync python scripts/ci/lint_precheck_container_guards.py
+      # Import-boundary gate: the declarative rules in
+      # scripts/ci/import_boundaries.json checked against the real source tree
+      # (the single boundary system). Never narrowed by the per-layer pytest
+      # subset below.
+      - run: uv run --no-sync python scripts/ci/check_import_boundaries.py --source-root src --config scripts/ci/import_boundaries.json
+      # keyless by design: replay_strict against the committed response cache.
+      # No -m override here: pyproject.toml's addopts ("not gap and not
+      # network and not plugin_contract") is the real default subset --
+      # respecifying "-m not network" on the command line replaces rather
+      # than composes with addopts, silently letting the 18 plugin_contract
+      # gauntlet tests (deliberately isolated from the default suite) back in.
+      # Keep loadfile until a representative post-esbuild worksteal benchmark
+      # proves it improves the tail. The duration report keeps that decision
+      # evidence visible on every run without changing test semantics.
+      # pytest_target is `tests` (full suite) for every engine/shared/root/
+      # multi-layer commit, or `tests/<layer> tests/*.py` for a single
+      # non-engine-leaf commit. The root tests/*.py always ride along, so the
+      # boundary + cross-cutting suites run under either target.
+      - run: FRISKET_CHECKLOG_DISABLE=1 uv run --no-sync pytest ${{ needs.changes.outputs.pytest_target }} -q -n auto --dist loadfile --durations=50 --durations-min=0.5 -o faulthandler_timeout=120
+      # The keyless gap subset runs with the manually dispatched hosted gate,
+      # not nightly. It must also stay green in focused local testing. gap_env
+      # is the disjoint designated-environment-proof subset
+      # (preloaded immutable images/Postgres/credentials that a stock runner
+      # never has); it is deliberately excluded here and never gets a
+      # schedule trigger -- it runs manually or via a prepared
+      # workflow_dispatch environment instead. This -m override replaces
+      # rather than composes with addopts (same caveat as above), which is
+      # fine here because the expression only re-adds "gap" and narrows it,
+      # rather than dropping "not network"/"not plugin_contract" coverage
+      # the step above already ran.
+      - run: uv run --no-sync pytest -q -m "gap and not gap_env" tests/ --durations=20 --durations-min=0.5
+  deploy-smoke:
+    needs: changes
+    # Full-stack browser journey: run for any backend or frontend change; a
+    # docs-only commit cannot alter the journey, so it skips.
+    if: ${{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true' }}
+    # One keyless browser journey through the real local stack: health,
+    # project creation, CSV import, deterministic regex action, and persisted
+    # result readback. Keep the provider-backed/full e2e suite local-only.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      # This one journey uses only the base application surface (project/CSV/
+      # deterministic regex). Keep dev, convert, and entities/PyICU out of the
+      # environment; e2e_backend.sh's explicit minimal mode then uses this
+      # already-synced environment without silently restoring those groups.
+      - run: uv sync --frozen --no-dev
+      # Playwright recommends installing the single required browser with its
+      # OS dependencies in CI; caching the browser archive is not worthwhile
+      # on hosted Linux runners, while the npm download cache above is.
+      - run: npx playwright install --with-deps chromium
+        working-directory: web
+      - run: FRISKET_E2E_MINIMAL_DEPS=1 npm run e2e:smoke
+        working-directory: web
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: ${{ failure() }}
+        with:
+          name: deploy-smoke-failure
+          path: |
+            web/test-results/
+            .frisket/e2e-duration-*
+          if-no-files-found: ignore
+          retention-days: 7
+  e2e-cassette-core:
+    needs: changes
+    # Same trigger shape as deploy-smoke: any backend or frontend change; a
+    # docs-only commit cannot alter these journeys, so it skips.
+    if: ${{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true' }}
+    # Cassette-backed core e2e: four specs that create their own projects and
+    # prime the committed-response LLM cache (ResponseCache) before running, so
+    # every "model" call replays from the cassette. Keyless BY CONSTRUCTION,
+    # twice over: --no-deps skips the chromium project's `seed` dependency, so
+    # seed.setup.ts (real ~$0.25 model calls) can never fire, and
+    # FRISKET_CACHE_MODE=replay_strict pins the backend to the cache-only
+    # posture — a cache miss raises typed CacheMiss instead of calling any
+    # provider (`replay_strict_cannot_egress`, engine/runner/validation.py),
+    # so no run here can spend or egress. Exactly these four specs, exactly
+    # 9 tests; the full provider-backed suite stays local-only.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      # These journeys use only the base application surface plus the primed
+      # response cache. Same minimal environment as deploy-smoke:
+      # e2e_backend.sh's FRISKET_E2E_MINIMAL_DEPS mode boots frisket with
+      # --no-sync against this already-synced env.
+      - run: uv sync --frozen --no-dev
+      - run: npx playwright install --with-deps chromium
+        working-directory: web
+      # The self-booting stack (playwright.config.ts webServer) starts backend
+      # + vite itself; no hand-started processes. FRISKET_CACHE_MODE is
+      # inherited by the webServer backend command, so the server-side cost/
+      # key gates see the strict-replay proof and admit the keyless cassette.
+      - run: >
+          UV_NO_SYNC=1 FRISKET_E2E_MINIMAL_DEPS=1 FRISKET_CACHE_MODE=replay_strict
+          npm run e2e --
+          --project=chromium --no-deps --workers=1
+          derive-object-list.spec.ts
+          explain-cell.spec.ts
+          golden-extract-people-search.spec.ts
+          workbench-ia-sheet-tabs.spec.ts
+        working-directory: web
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: ${{ failure() }}
+        with:
+          name: e2e-cassette-core-failure
+          path: |
+            web/test-results/
+            .frisket/e2e-duration-*
+          if-no-files-found: ignore
+          retention-days: 7
+  postgres:
+    needs: changes
+    # Pure Python job (pytest tests/engine/test_job_queue.py). Skip on frontend-only
+    # or docs-only commits that cannot touch the queue schema.
+    if: ${{ needs.changes.outputs.backend == 'true' }}
+    # The base `test` job builds the control plane fresh from `metadata` via
+    # create_all() on SQLite, so it can NEVER see schema/dialect drift between
+    # the SQLite test env and the Postgres prod env. This job runs the gated
+    # real-Postgres tests against a service container so that drift (e.g. a
+    # model column with no migration helper, or a SQLite-only column type
+    # emitted on Postgres) is caught pre-merge.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env: {POSTGRES_USER: frisket, POSTGRES_PASSWORD: frisket, POSTGRES_DB: frisket}
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U frisket -d frisket"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      FRISKET_PG_TEST_URL: postgresql+psycopg://frisket:frisket@localhost:5432/frisket
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v5
+      # psycopg[binary] is a core dependency, so no apt/extras are needed here
+      - run: uv sync --dev
+      # gated on FRISKET_PG_TEST_URL: the control-plane migration/dialect
+      # regression plus the real SKIP LOCKED job-queue and invite-authority
+      # concurrency tests
+      - run: uv run --no-sync pytest -q tests/engine/test_job_queue.py tests/team/test_invite_authority_postgres.py
+  web:
+    needs: changes
+    # Frontend lint + unit/component suite + build; depends on web/sdk sources and
+    # the one backend-owned declaration artifact imported by the bundle. Also
+    # runs on CI-infra changes. Other backend-only Python changes skip it.
+    if: ${{ needs.changes.outputs.frontend == 'true' || needs.changes.outputs.infra == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            sdk/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - run: npm ci
+        working-directory: sdk
+      - name: Verify vendored plugin SDK freshness
+        run: |
+          set -euo pipefail
+          sdk_vendor="src/frisket/data/plugin_sdk.mjs"
+          sdk_geo_vendor="src/frisket/authoring/bundled_plugins/frisket.geo/.frisket-sdk/index.mjs"
+          sdk_vendor_snapshot="$(mktemp)"
+          restore_sdk_vendor() {
+            cp "$sdk_vendor_snapshot" "$sdk_vendor"
+          }
+          cp "$sdk_vendor" "$sdk_vendor_snapshot"
+          trap restore_sdk_vendor EXIT
+          npm --prefix sdk run build
+          cp "$sdk_vendor_snapshot" "$sdk_vendor"
+          cmp sdk/dist/index.mjs "$sdk_vendor"
+          cmp "$sdk_vendor" "$sdk_geo_vendor"
+      # The real-served-catalog battery in v1ActionSpecContract.test.ts projects
+      # the catalog through the backend, so this job needs frisket importable.
+      # Those cases self-skip without it -- and a battery that silently skips in
+      # CI is how a synthetic fixture shipped a paid-provider regression once.
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      - run: uv sync --frozen --no-dev
+      - run: python3 scripts/ci/lint_web_source_hygiene.py
+      - run: npm run lint
+        working-directory: web
+      # Run the full frontend unit/component suite separately from the build:
+      # TypeScript and bundling checks do not execute behavioral tests.
+      - run: npm run test:unit
+        working-directory: web
+      - run: npm run build
+        working-directory: web
+      # The separate deploy-smoke job owns the one keyless Playwright journey.
+      # The full 279-spec provider-backed/local suite remains deliberately
+      # unwired here; this job only owns frontend unit tests and the build.

@@ -1,0 +1,6 @@
+{
+  "status": 401,
+  "body": {
+    "detail": "Invalid API key provided.  Set the X-API-Key header to your API key."
+  }
+}

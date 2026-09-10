@@ -1,0 +1,1 @@
+[0.00][S01]first segment[1.50][3.00][S02]second segment[4.20][4.50][S0

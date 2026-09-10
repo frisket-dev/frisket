@@ -1,0 +1,28 @@
+{
+  "schema_version": "frisket.plugin.v1",
+  "id": "demo.peek_panel",
+  "version": "0.1.0",
+  "contributes": {
+    "workbench_views": [],
+    "workbench_panels": ["demo.peek_panel.panel.peek"],
+    "workbench_commands": ["demo.peek_panel.command.open_peek"],
+    "actions": [],
+    "importers": [],
+    "operators": [],
+    "projections": [],
+    "column_types": [],
+    "job_handlers": []
+  },
+  "requires": { "capabilities": [], "secrets": [] },
+  "runtime": {
+    "actions": [],
+    "importers": [],
+    "operators": [],
+    "projections": [],
+    "job_handlers": [],
+    "workbench_components": [
+      { "contribution_id": "demo.peek_panel.panel.peek", "module_key": "demo.peek_panel.ui", "component_key": "demo.peek_panel.components.PeekPanel", "module_path": "frontend/plugin.js" },
+      { "contribution_id": "demo.peek_panel.command.open_peek", "module_key": "demo.peek_panel.ui", "component_key": "demo.peek_panel.commands.OpenPeek", "module_path": "frontend/plugin.js" }
+    ]
+  }
+}

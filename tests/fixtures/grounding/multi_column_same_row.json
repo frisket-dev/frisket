@@ -1,0 +1,68 @@
+{
+  "name": "multi_column_same_row",
+  "note": "two-column layout, two tokens per column cell, same baselines across columns -> per-COLUMN boxes; a same-baseline union across the gutter (one wide box per row) is the bug. Distinct from multi_column_per_token_fallback: cells are multi-token so per-column boxes are real unions, and no orphan fallback fires (each baseline has 4 tokens).",
+  "strategy": "align",
+  "target": {
+    "kind": "text",
+    "text": "alpha beta gamma delta epsilon zeta eta theta"
+  },
+  "source": {
+    "kind": "word",
+    "tokens": [
+      {
+        "text": "alpha",
+        "box": [0.10, 0.10, 0.20, 0.13],
+        "page": 1,
+        "source": "ocr"
+      },
+      {
+        "text": "beta",
+        "box": [0.22, 0.10, 0.32, 0.13],
+        "page": 1,
+        "source": "ocr"
+      },
+      {
+        "text": "gamma",
+        "box": [0.60, 0.10, 0.70, 0.13],
+        "page": 1,
+        "source": "ocr"
+      },
+      {
+        "text": "delta",
+        "box": [0.72, 0.10, 0.82, 0.13],
+        "page": 1,
+        "source": "ocr"
+      },
+      {
+        "text": "epsilon",
+        "box": [0.10, 0.30, 0.20, 0.33],
+        "page": 1,
+        "source": "ocr"
+      },
+      {
+        "text": "zeta",
+        "box": [0.22, 0.30, 0.32, 0.33],
+        "page": 1,
+        "source": "ocr"
+      },
+      {
+        "text": "eta",
+        "box": [0.60, 0.30, 0.70, 0.33],
+        "page": 1,
+        "source": "ocr"
+      },
+      {
+        "text": "theta",
+        "box": [0.72, 0.30, 0.82, 0.33],
+        "page": 1,
+        "source": "ocr"
+      }
+    ]
+  },
+  "expect": {
+    "matches": true,
+    "min_spans": 4,
+    "granularity": "block",
+    "max_span_width": 0.35
+  }
+}

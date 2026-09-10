@@ -1,0 +1,159 @@
+# Standalone transcription GPU host: no Ollama, app, queue, or database.
+name: frisket-models-gpu
+
+services:
+  gateway:
+    build:
+      context: ./sidecar
+      dockerfile: Dockerfile.gateway
+    image: ${FRISKET_MODELS_GATEWAY_IMAGE:-frisket-models-gateway:phase2}
+    restart: unless-stopped
+    environment:
+      # Boundary A. The gateway, not Caddy, validates this bearer.
+      - FRISKET_MODELS_TOKEN=${FRISKET_MODELS_TOKEN:?set a random Boundary-A bearer token (openssl rand -hex 32)}
+      - FRISKET_MODELS_CONCURRENCY=1
+      - FRISKET_TRANSCRIPTION_MAX_UPLOAD_BYTES=${FRISKET_TRANSCRIPTION_MAX_UPLOAD_BYTES:-262144000}
+      - FRISKET_TRANSCRIPTION_SPOOL_DIR=/var/spool/frisket-transcription
+      # Optional worker groups use pass-through entries with no `=`. Compose
+      # omits an unset variable instead of injecting an empty value, preserving
+      # config.py's all-absent-means-unregistered contract.
+      - FRISKET_TRANSCRIPTION_CONTRACT_STUB_WORKER_URL
+      - FRISKET_TRANSCRIPTION_CONTRACT_STUB_WORKER_TOKEN
+      - FRISKET_TRANSCRIPTION_CONTRACT_STUB_WORKER_TOKEN_FILE
+      - FRISKET_TRANSCRIPTION_CONTRACT_STUB_WORKER_TIMEOUT_SECONDS
+      - FRISKET_TRANSCRIPTION_CONTRACT_STUB_WORKER_PROBE_TIMEOUT_SECONDS
+      # Fixed production Whisper Turbo worker.
+      - FRISKET_TRANSCRIPTION_WHISPER_TURBO_WORKER_URL
+      - FRISKET_TRANSCRIPTION_WHISPER_TURBO_WORKER_TOKEN
+      - FRISKET_TRANSCRIPTION_WHISPER_TURBO_WORKER_TOKEN_FILE
+      - FRISKET_TRANSCRIPTION_WHISPER_TURBO_WORKER_TIMEOUT_SECONDS
+      - FRISKET_TRANSCRIPTION_WHISPER_TURBO_WORKER_PROBE_TIMEOUT_SECONDS
+      # Full VibeVoice-ASR remains opt-in through its authenticated GPU worker.
+      - FRISKET_TRANSCRIPTION_VIBEVOICE_ASR_WORKER_URL
+      - FRISKET_TRANSCRIPTION_VIBEVOICE_ASR_WORKER_TOKEN
+      - FRISKET_TRANSCRIPTION_VIBEVOICE_ASR_WORKER_TOKEN_FILE
+      - FRISKET_TRANSCRIPTION_VIBEVOICE_ASR_WORKER_TIMEOUT_SECONDS
+      - FRISKET_TRANSCRIPTION_VIBEVOICE_ASR_WORKER_PROBE_TIMEOUT_SECONDS
+      # MOSS remains unregistered without its URL and exactly one token source.
+      - FRISKET_TRANSCRIPTION_MOSS_WORKER_URL
+      - FRISKET_TRANSCRIPTION_MOSS_WORKER_TOKEN
+      - FRISKET_TRANSCRIPTION_MOSS_WORKER_TOKEN_FILE
+      - FRISKET_TRANSCRIPTION_MOSS_WORKER_TIMEOUT_SECONDS
+      - FRISKET_TRANSCRIPTION_MOSS_WORKER_PROBE_TIMEOUT_SECONDS
+    volumes:
+      - transcription-spool:/var/spool/frisket-transcription
+    expose:
+      - "8500"
+    networks:
+      - edge
+      - workers
+
+  # One parameterized worker plus a host-shared fcntl lease prevents concurrent
+  # GPU profiles across project copies.
+  gpu-lease-init:
+    profiles: ["gpu"]
+    image: ${FRISKET_GPU_WORKER_IMAGE:-frisket-models-gateway:phase2}
+    restart: "no"
+    # Named volumes start root-owned. Touch only the lease file as root, then
+    # hand it to the reviewed non-root worker UID before any model code starts.
+    user: "0:0"
+    entrypoint:
+      - python3
+      - -c
+      - "import os; fd=os.open('/run/frisket-gpu/gpu-worker.lock', os.O_CREAT | os.O_RDWR, 0o600); os.fchown(fd, 10001, -1); os.fchmod(fd, 0o600); os.close(fd)"
+    volumes:
+      - gpu-lease:/run/frisket-gpu
+
+  gpu-worker:
+    profiles: ["gpu"]
+    image: ${FRISKET_GPU_WORKER_IMAGE:-frisket-models-gateway:phase2}
+    # Lease contention exits deliberately; do not turn it into a hot restart
+    # loop that races the incumbent when the GPU is later released.
+    restart: "no"
+    init: true
+    entrypoint:
+      - python3
+      - -m
+      - frisket_models.transcription.gpu_lease
+    depends_on:
+      gpu-lease-init:
+        condition: service_completed_successfully
+    environment:
+      - FRISKET_GPU_LEASE_FILE=/run/frisket-gpu/gpu-worker.lock
+      - FRISKET_GPU_WORKER_COMMAND=${FRISKET_GPU_WORKER_COMMAND:-uvicorn --factory frisket_models.transcription.models_gpu_runtime:create_contract_stub_worker_app --host 0.0.0.0 --port 9000}
+      # Compose cannot make a variable required only when a profile is active.
+      # The import-light lease process validates this before exec instead.
+      - FRISKET_GPU_WORKER_REQUIRE_TOKEN=1
+      - FRISKET_GPU_WORKER_TOKEN=${FRISKET_GPU_WORKER_TOKEN:-}
+      # Boundary B token. Keep it distinct from FRISKET_MODELS_TOKEN.
+      - FRISKET_TRANSCRIPTION_WORKER_TOKEN=${FRISKET_GPU_WORKER_TOKEN:-}
+      - FRISKET_TRANSCRIPTION_WORKER_CONCURRENCY=1
+      - FRISKET_TRANSCRIPTION_WORKER_MAX_UPLOAD_BYTES=${FRISKET_TRANSCRIPTION_MAX_UPLOAD_BYTES:-262144000}
+      - FRISKET_TRANSCRIPTION_WORKER_IMAGE_ID
+      - FRISKET_WHISPER_TURBO_DEVICE=${FRISKET_WHISPER_TURBO_DEVICE:-cuda}
+      - FRISKET_WHISPER_TURBO_DEVICE_INDEX=${FRISKET_WHISPER_TURBO_DEVICE_INDEX:-0}
+      - FRISKET_WHISPER_TURBO_COMPUTE_TYPE
+      - FRISKET_WHISPER_TURBO_MODEL_CACHE=/models/hf
+      - FRISKET_WHISPER_TURBO_LOCAL_FILES_ONLY=${FRISKET_WHISPER_TURBO_LOCAL_FILES_ONLY:-true}
+      - FRISKET_VIBEVOICE_ASR_DEVICE_INDEX=${FRISKET_VIBEVOICE_ASR_DEVICE_INDEX:-0}
+      - FRISKET_VIBEVOICE_ASR_MODEL_CACHE=/models/hf
+      - FRISKET_VIBEVOICE_ASR_LOCAL_FILES_ONLY=${FRISKET_VIBEVOICE_ASR_LOCAL_FILES_ONLY:-true}
+      - FRISKET_VIBEVOICE_ASR_ACOUSTIC_TOKENIZER_CHUNK_SIZE
+      # Token mapping does not register the MOSS descriptor.
+      - FRISKET_MOSS_WORKER_TOKEN=${FRISKET_GPU_WORKER_TOKEN:-}
+      - FRISKET_MOSS_WORKER_CONCURRENCY=1
+      - FRISKET_MOSS_WORKER_PORT=9000
+      - FRISKET_MOSS_TIMEOUT_SECONDS=${FRISKET_MOSS_TIMEOUT_SECONDS:-3600}
+      - HF_TOKEN
+    volumes:
+      # Explicit volume name makes the lease host-shared even if an operator
+      # changes COMPOSE_PROJECT_NAME or starts a second checkout.
+      - gpu-lease:/run/frisket-gpu
+      - transcription-model-cache:/models
+    expose:
+      - "9000"
+    networks:
+      # A normal bridge (not `internal: true`) keeps permitted model/download
+      # egress while still publishing no raw worker port on the host.
+      - workers
+    shm_size: ${FRISKET_GPU_WORKER_SHM_SIZE:-8gb}
+    stop_grace_period: 2m
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  caddy:
+    image: caddy@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    environment:
+      - FRISKET_MODELS_HOST=${FRISKET_MODELS_HOST:?set the TLS hostname for this models GPU host}
+      - FRISKET_MODELS_MAX_REQUEST_BODY=${FRISKET_MODELS_MAX_REQUEST_BODY:-270MB}
+    volumes:
+      - ./deploy/Caddyfile.models-gpu:/etc/caddy/Caddyfile:ro
+      - caddy-models-data:/data
+      - caddy-models-config:/config
+    networks:
+      - edge
+    depends_on:
+      gateway:
+        condition: service_started
+
+networks:
+  edge:
+  # Deliberately egress-capable for model downloads and optional Boundary D.
+  workers:
+
+volumes:
+  transcription-spool:
+  transcription-model-cache:
+    name: frisket-transcription-model-cache
+  gpu-lease:
+    name: frisket-gpu-worker-lease
+  caddy-models-data:
+  caddy-models-config:

@@ -1,0 +1,44 @@
+{
+  "name": "repeated_quote_disambiguation",
+  "note": "same phrase twice; return both, context ranks the right one first",
+  "strategy": "align",
+  "target": {
+    "kind": "text",
+    "text": "net income",
+    "context": "quarterly"
+  },
+  "source": {
+    "kind": "word",
+    "tokens": [
+      {
+        "text": "total net income here",
+        "box": [
+          0.1,
+          0.1,
+          0.8,
+          0.15
+        ],
+        "page": 1,
+        "source": "ocr"
+      },
+      {
+        "text": "quarterly net income rose",
+        "box": [
+          0.1,
+          0.3,
+          0.8,
+          0.35
+        ],
+        "page": 1,
+        "source": "ocr"
+      }
+    ]
+  },
+  "expect": {
+    "matches": true,
+    "min_spans": 1,
+    "granularity": "block",
+    "n_matches": 2,
+    "top_page_y_at_least": 0.25
+  }
+}

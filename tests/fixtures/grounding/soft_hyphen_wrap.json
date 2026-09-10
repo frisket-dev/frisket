@@ -1,0 +1,41 @@
+{
+  "name": "soft_hyphen_wrap",
+  "note": "soft-hyphen (U+00AD) line break de-hyphenates",
+  "strategy": "align",
+  "target": {
+    "kind": "text",
+    "text": "continuation report"
+  },
+  "source": {
+    "kind": "word",
+    "tokens": [
+      {
+        "text": "the conti­",
+        "box": [
+          0.1,
+          0.1,
+          0.5,
+          0.15
+        ],
+        "page": 1,
+        "source": "ocr"
+      },
+      {
+        "text": "nuation report here",
+        "box": [
+          0.1,
+          0.2,
+          0.8,
+          0.25
+        ],
+        "page": 1,
+        "source": "ocr"
+      }
+    ]
+  },
+  "expect": {
+    "matches": true,
+    "min_spans": 2,
+    "granularity": "block"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "promise_set_hash": "37b3a84bd97dac4fb9ff4857021a78a6aadd528f804a1a60a23e449aab8f45d2",
+  "promises": [
+    {
+      "audience": "system_promise",
+      "basis": null,
+      "field": "operator",
+      "op": "eq",
+      "order_ref": null,
+      "value": "self"
+    },
+    {
+      "audience": "system_promise",
+      "basis": null,
+      "field": "egress_class",
+      "op": "satisfies_order",
+      "order_ref": "egress.v1",
+      "value": "none"
+    }
+  ],
+  "schema_gen": 1
+}

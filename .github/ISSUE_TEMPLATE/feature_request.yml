@@ -1,0 +1,21 @@
+name: Feature request
+description: Suggest an idea, an action, or an improvement for frisket.
+title: "[feature]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: textarea
+    id: request
+    attributes:
+      label: What would you like, and why?
+      description: Describe what you want to do and how this would help.
+      placeholder: I want to export several sheets as tabs in one Excel workbook so I can share a complete investigation with an editor.
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Optional — add examples, screenshots, sample data, links, or possible approaches.
+    validations:
+      required: false

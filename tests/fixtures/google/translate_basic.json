@@ -1,0 +1,13 @@
+{
+  "status": 200,
+  "body": {
+    "data": {
+      "translations": [
+        {
+          "translatedText": "Hola Mundo.",
+          "detectedSourceLanguage": "en"
+        }
+      ]
+    }
+  }
+}

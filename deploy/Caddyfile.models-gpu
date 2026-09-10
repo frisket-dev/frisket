@@ -1,0 +1,12 @@
+# Caddy 2.10 models-only edge. Preserve Authorization for gateway validation;
+# never expose worker or native model-server routes.
+#
+# Private names require `tls internal` and Caddy's root installed on clients.
+
+{$FRISKET_MODELS_HOST} {
+	# Bound multipart input before parsing; allow overhead above the 250 MiB cap.
+	request_body {
+		max_size {$FRISKET_MODELS_MAX_REQUEST_BODY:270MB}
+	}
+	reverse_proxy gateway:8500
+}

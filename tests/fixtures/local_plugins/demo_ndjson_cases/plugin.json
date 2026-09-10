@@ -1,0 +1,39 @@
+{
+  "schema_version": "frisket.plugin.v1",
+  "id": "demo.ndjson_cases",
+  "version": "0.1.0",
+  "contributes": {
+    "actions": [],
+    "importers": ["demo.ndjson_cases.importer.cases"],
+    "operators": [],
+    "projections": [],
+    "column_types": [],
+    "job_handlers": []
+  },
+  "requires": {
+    "capabilities": ["plugin:trusted_local_backend"],
+    "secrets": []
+  },
+  "runtime": {
+    "actions": [],
+    "importers": [
+      {
+        "kind": "demo.ndjson_cases.importer.cases",
+        "handler_api": "plugin_importer",
+        "module_path": "plugin.py",
+        "title": "Import case NDJSON",
+        "description": "Streams case records from newline-delimited JSON.",
+        "writes": [
+          {"name": "case_id", "type": "case_id"},
+          {"name": "title", "type": "text"},
+          {"name": "summary", "type": "text"},
+          {"name": "priority", "type": "integer"}
+        ]
+      }
+    ],
+    "operators": [],
+    "projections": [],
+    "job_handlers": [],
+    "workbench_components": []
+  }
+}

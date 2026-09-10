@@ -1,0 +1,357 @@
+{
+  "matchers": [
+    {
+      "capabilities": [
+        "external:media_download"
+      ],
+      "expansion": null,
+      "handler_action_kind": "media.ytdlp_download",
+      "kind": "media",
+      "matcher_id": "firstparty.kick.clip.path",
+      "origin_plugin_id": null,
+      "params_hints": {},
+      "path_prefix": [],
+      "path_regex": "/[\\w-]+/clips/clip_[\\w-]+/?(?:\\?.*)?",
+      "priority": 1010,
+      "provider": "kick",
+      "query_forbids": [],
+      "query_requires": [],
+      "registered_domains": [
+        "kick.com"
+      ],
+      "source": "first_party"
+    },
+    {
+      "capabilities": [
+        "external:media_download"
+      ],
+      "expansion": null,
+      "handler_action_kind": "media.ytdlp_download",
+      "kind": "media",
+      "matcher_id": "firstparty.kick.clip.query",
+      "origin_plugin_id": null,
+      "params_hints": {},
+      "path_prefix": [],
+      "path_regex": "/[\\w-]+/?\\?.*",
+      "priority": 1010,
+      "provider": "kick",
+      "query_forbids": [],
+      "query_requires": [
+        "clip"
+      ],
+      "registered_domains": [
+        "kick.com"
+      ],
+      "source": "first_party"
+    },
+    {
+      "capabilities": [
+        "external:media_download"
+      ],
+      "expansion": null,
+      "handler_action_kind": "media.ytdlp_download",
+      "kind": "media",
+      "matcher_id": "firstparty.kick.vod",
+      "origin_plugin_id": null,
+      "params_hints": {},
+      "path_prefix": [],
+      "path_regex": "/[\\w-]+/videos/[\\da-fA-F]{8}-(?:[\\da-fA-F]{4}-){3}[\\da-fA-F]{12}/?(?:\\?.*)?",
+      "priority": 1010,
+      "provider": "kick",
+      "query_forbids": [],
+      "query_requires": [],
+      "registered_domains": [
+        "kick.com"
+      ],
+      "source": "first_party"
+    },
+    {
+      "capabilities": [
+        "external:http_fetch"
+      ],
+      "expansion": null,
+      "handler_action_kind": "media.fetch_url",
+      "kind": "page",
+      "matcher_id": "firstparty.page",
+      "origin_plugin_id": null,
+      "params_hints": {},
+      "path_prefix": [],
+      "path_regex": null,
+      "priority": 500,
+      "provider": "generic",
+      "query_forbids": [],
+      "query_requires": [],
+      "registered_domains": [],
+      "source": "first_party"
+    },
+    {
+      "capabilities": [
+        "external:media_download"
+      ],
+      "expansion": null,
+      "handler_action_kind": "media.ytdlp_download",
+      "kind": "media",
+      "matcher_id": "firstparty.tiktok.video",
+      "origin_plugin_id": null,
+      "params_hints": {},
+      "path_prefix": [],
+      "path_regex": "/@[^/]+/video/\\d+/?(?:\\?.*)?",
+      "priority": 1010,
+      "provider": "tiktok",
+      "query_forbids": [],
+      "query_requires": [],
+      "registered_domains": [
+        "tiktok.com"
+      ],
+      "source": "first_party"
+    },
+    {
+      "capabilities": [
+        "external:media_download"
+      ],
+      "expansion": null,
+      "handler_action_kind": "media.ytdlp_download",
+      "kind": "media",
+      "matcher_id": "firstparty.tiktok.video.short",
+      "origin_plugin_id": null,
+      "params_hints": {},
+      "path_prefix": [],
+      "path_regex": "/[A-Za-z0-9_-]+/?(?:\\?.*)?",
+      "priority": 1000,
+      "provider": "tiktok",
+      "query_forbids": [],
+      "query_requires": [],
+      "registered_domains": [
+        "vm.tiktok.com",
+        "vt.tiktok.com"
+      ],
+      "source": "first_party"
+    },
+    {
+      "capabilities": [
+        "external:media_download"
+      ],
+      "expansion": null,
+      "handler_action_kind": "media.ytdlp_download",
+      "kind": "media",
+      "matcher_id": "firstparty.tiktok.video.short.www",
+      "origin_plugin_id": null,
+      "params_hints": {},
+      "path_prefix": [],
+      "path_regex": "/t/[A-Za-z0-9_-]+/?(?:\\?.*)?",
+      "priority": 1000,
+      "provider": "tiktok",
+      "query_forbids": [],
+      "query_requires": [],
+      "registered_domains": [
+        "www.tiktok.com"
+      ],
+      "source": "first_party"
+    },
+    {
+      "capabilities": [
+        "external:media_download"
+      ],
+      "expansion": null,
+      "handler_action_kind": "media.ytdlp_download",
+      "kind": "media",
+      "matcher_id": "firstparty.vimeo.video",
+      "origin_plugin_id": null,
+      "params_hints": {},
+      "path_prefix": [],
+      "path_regex": "/(?:video/)?\\d+/?(?:\\?.*)?",
+      "priority": 1000,
+      "provider": "vimeo",
+      "query_forbids": [],
+      "query_requires": [],
+      "registered_domains": [
+        "vimeo.com"
+      ],
+      "source": "first_party"
+    },
+    {
+      "capabilities": [
+        "external:collection_enumerate"
+      ],
+      "expansion": {
+        "default_cap": 100,
+        "enumerator": "youtube_channel",
+        "hard_cap": null,
+        "requires_preview_count": true,
+        "unit": "video"
+      },
+      "handler_action_kind": "derive.collection_expand",
+      "kind": "collection",
+      "matcher_id": "firstparty.youtube.channel",
+      "origin_plugin_id": null,
+      "params_hints": {},
+      "path_prefix": [
+        "/channel/",
+        "/@",
+        "/c/",
+        "/user/"
+      ],
+      "path_regex": null,
+      "priority": 1000,
+      "provider": "youtube",
+      "query_forbids": [
+        "list"
+      ],
+      "query_requires": [],
+      "registered_domains": [
+        "youtube.com"
+      ],
+      "source": "first_party"
+    },
+    {
+      "capabilities": [
+        "external:collection_enumerate"
+      ],
+      "expansion": {
+        "default_cap": 100,
+        "enumerator": "youtube_playlist",
+        "hard_cap": null,
+        "requires_preview_count": true,
+        "unit": "video"
+      },
+      "handler_action_kind": "derive.collection_expand",
+      "kind": "collection",
+      "matcher_id": "firstparty.youtube.playlist",
+      "origin_plugin_id": null,
+      "params_hints": {},
+      "path_prefix": [
+        "/playlist"
+      ],
+      "path_regex": null,
+      "priority": 1000,
+      "provider": "youtube",
+      "query_forbids": [],
+      "query_requires": [
+        "list"
+      ],
+      "registered_domains": [
+        "youtube.com"
+      ],
+      "source": "first_party"
+    },
+    {
+      "capabilities": [
+        "external:media_download"
+      ],
+      "expansion": null,
+      "handler_action_kind": "media.ytdlp_download",
+      "kind": "media",
+      "matcher_id": "firstparty.youtube.video.embed",
+      "origin_plugin_id": null,
+      "params_hints": {
+        "media_type": "video"
+      },
+      "path_prefix": [],
+      "path_regex": "/embed/[A-Za-z0-9_-]{4,}/?(?:\\?.*)?",
+      "priority": 1000,
+      "provider": "youtube",
+      "query_forbids": [],
+      "query_requires": [],
+      "registered_domains": [
+        "youtube.com"
+      ],
+      "source": "first_party"
+    },
+    {
+      "capabilities": [
+        "external:media_download"
+      ],
+      "expansion": null,
+      "handler_action_kind": "media.ytdlp_download",
+      "kind": "media",
+      "matcher_id": "firstparty.youtube.video.live",
+      "origin_plugin_id": null,
+      "params_hints": {
+        "media_type": "video"
+      },
+      "path_prefix": [],
+      "path_regex": "/live/[A-Za-z0-9_-]{4,}/?(?:\\?.*)?",
+      "priority": 1000,
+      "provider": "youtube",
+      "query_forbids": [],
+      "query_requires": [],
+      "registered_domains": [
+        "youtube.com"
+      ],
+      "source": "first_party"
+    },
+    {
+      "capabilities": [
+        "external:media_download"
+      ],
+      "expansion": null,
+      "handler_action_kind": "media.ytdlp_download",
+      "kind": "media",
+      "matcher_id": "firstparty.youtube.video.short",
+      "origin_plugin_id": null,
+      "params_hints": {
+        "media_type": "audio"
+      },
+      "path_prefix": [],
+      "path_regex": "/[A-Za-z0-9_-]{4,}/?(?:\\?.*)?",
+      "priority": 1000,
+      "provider": "youtube",
+      "query_forbids": [],
+      "query_requires": [],
+      "registered_domains": [
+        "youtu.be"
+      ],
+      "source": "first_party"
+    },
+    {
+      "capabilities": [
+        "external:media_download"
+      ],
+      "expansion": null,
+      "handler_action_kind": "media.ytdlp_download",
+      "kind": "media",
+      "matcher_id": "firstparty.youtube.video.shorts",
+      "origin_plugin_id": null,
+      "params_hints": {
+        "media_type": "video"
+      },
+      "path_prefix": [],
+      "path_regex": "/shorts/[A-Za-z0-9_-]+/?(?:\\?.*)?",
+      "priority": 1000,
+      "provider": "youtube",
+      "query_forbids": [],
+      "query_requires": [],
+      "registered_domains": [
+        "youtube.com"
+      ],
+      "source": "first_party"
+    },
+    {
+      "capabilities": [
+        "external:media_download"
+      ],
+      "expansion": null,
+      "handler_action_kind": "media.ytdlp_download",
+      "kind": "media",
+      "matcher_id": "firstparty.youtube.video.watch",
+      "origin_plugin_id": null,
+      "params_hints": {
+        "media_type": "audio"
+      },
+      "path_prefix": [],
+      "path_regex": "/watch/?(?:\\?.*)?",
+      "priority": 1000,
+      "provider": "youtube",
+      "query_forbids": [],
+      "query_requires": [
+        "v"
+      ],
+      "registered_domains": [
+        "youtube.com"
+      ],
+      "source": "first_party"
+    }
+  ],
+  "psl_snapshot_version": "2026-07-07-psl-full-2026-07-06",
+  "schema_version": "frisket.url_classification_matchers.v1"
+}

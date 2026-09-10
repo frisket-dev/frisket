@@ -1,0 +1,60 @@
+{
+  "descriptors": [
+    {
+      "componentKey": "frisket.geo.components.MapView",
+      "dataRequirements": [
+        {
+          "kind": "activeSheet"
+        },
+        {
+          "columnType": "geo_point",
+          "kind": "sheetHasColumnType"
+        }
+      ],
+      "icon": "MapPin",
+      "id": "frisket.geo.view.map",
+      "kind": "view",
+      "ownerPluginId": "frisket.geo",
+      "placements": [
+        {
+          "default": true,
+          "host": "mainView",
+          "mode": "pane",
+          "order": 20,
+          "placementId": "frisket-geo-map-companion",
+          "slot": "work.companion"
+        }
+      ],
+      "projectionKind": "frisket.geo.projection.map_points",
+      "requires": [
+        {
+          "id": "projection.status",
+          "kind": "hostCapability"
+        },
+        {
+          "id": "projection.data.read",
+          "kind": "hostCapability"
+        },
+        {
+          "id": "grid.filter.applyBbox",
+          "kind": "hostCapability"
+        },
+        {
+          "id": "grid.state.read",
+          "kind": "hostCapability"
+        },
+        {
+          "id": "host.navigation.openRow",
+          "kind": "hostCapability"
+        },
+        {
+          "id": "host.library.deckgl",
+          "kind": "hostCapability"
+        }
+      ],
+      "schemaVersion": "frisket.workbench.view.v1",
+      "title": "Map"
+    }
+  ],
+  "schemaVersion": "frisket.workbench_descriptor_package.v1"
+}

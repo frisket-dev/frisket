@@ -1,0 +1,38 @@
+{
+  "updated": "2026-08-29",
+  "providers": {
+    "anthropic": [
+      {"id": "claude-haiku-4-5", "label": "Claude Haiku 4.5 — fastest"},
+      {"id": "claude-sonnet-4-6", "label": "Claude Sonnet 4.6 — balanced"},
+      {"id": "claude-sonnet-5", "label": "Claude Sonnet 5 — latest balanced"},
+      {"id": "claude-opus-4-8", "label": "Claude Opus 4.8 — complex work"},
+      {"id": "claude-fable-5", "label": "Claude Fable 5 — frontier"}
+    ],
+    "openai": [
+      {"id": "gpt-5-mini", "label": "GPT-5 mini — economical"},
+      {"id": "gpt-5", "label": "GPT-5 — previous generation"},
+      {"id": "gpt-5.6-luna", "label": "GPT-5.6 Luna — fast/economical"},
+      {"id": "gpt-5.6-terra", "label": "GPT-5.6 Terra — balanced"},
+      {"id": "gpt-5.6-sol", "label": "GPT-5.6 Sol — frontier"}
+    ],
+    "gemini": [
+      {"id": "gemini-3.5-flash-lite", "label": "Gemini 3.5 Flash-Lite — fast/cheap (default)"},
+      {"id": "gemini-3.1-flash-lite", "label": "Gemini 3.1 Flash-Lite — high throughput"},
+      {"id": "gemini-3.5-flash", "label": "Gemini 3.5 Flash — balanced"},
+      {"id": "gemini-3.6-flash", "label": "Gemini 3.6 Flash — latest multimodal"},
+      {"id": "gemini-3.1-pro-preview", "label": "Gemini 3.1 Pro — complex work (preview)"}
+    ],
+    "openrouter": [
+      {"id": "qwen/qwen3-8b", "label": "Qwen 3 8B — open weights; requests go to OpenRouter"},
+      {"id": "qwen/qwen3-vl-8b-instruct", "label": "Qwen3-VL 8B — open vision"},
+      {"id": "qwen/qwen3-vl-32b-instruct", "label": "Qwen3-VL 32B — open vision"},
+      {"id": "z-ai/glm-5.3-flash", "label": "GLM 5.3 Flash — open vision"},
+      {"id": "moonshotai/kimi-k3", "label": "Kimi K3 — open vision"},
+      {"id": "xiaomi/mimo-v2.5", "label": "MiMo V2.5 — open vision"},
+      {"id": "minimax/minimax-m3", "label": "MiniMax M3 — hosted multimodal OCR via OpenRouter"}
+    ],
+    "ollama": [
+      {"id": "qwen3:8b", "label": "Qwen 3 8B — local, free"}
+    ]
+  }
+}

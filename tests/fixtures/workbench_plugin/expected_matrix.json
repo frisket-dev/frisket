@@ -1,0 +1,96 @@
+{
+  "schemaVersion": "frisket.workbench_contract_matrix.v1",
+  "requiredCases": [
+    "friendly_filters_panel_descriptor",
+    "sources_panel_and_source_kind_forms",
+    "actions_panel_and_action_forms",
+    "map_view_split_layout",
+    "evidence_view_peek_and_main_companion",
+    "row_inspector_evidence_section",
+    "ftm_entity_connections_detail_tabs",
+    "bottom_dock_jobs_errors_preview_tabs",
+    "command_palette_panel_control",
+    "missing_geo_plugin_layout",
+    "hidden_not_uninstalled_profile",
+    "three_pane_roundtrip",
+    "legacy_local_storage_migration",
+    "trusted_local_plugin_install",
+    "geo_plugin_install_trust_execution",
+    "trusted_local_runtime_activation",
+    "plugin_disable_uninstall_layout_effects",
+    "marketplace_discovery_restricted_entries",
+    "main_view_table_tabs",
+    "data_requirement_disabled_map_view",
+    "duplicate_id_alias_conflict",
+    "alias_resolution_layout_rewrite",
+    "resolved_contribution_roundtrip",
+    "trust_blocked_installed_plugin",
+    "runtime_activation_failure",
+    "malformed_persisted_layout_migration",
+    "personal_override_vs_project_default_merge_conflict",
+    "route_restore_failure"
+  ],
+  "negativeCases": [
+    "missing_geo_plugin_layout",
+    "data_requirement_disabled_map_view",
+    "duplicate_id_alias_conflict",
+    "trust_blocked_installed_plugin",
+    "runtime_activation_failure",
+    "malformed_persisted_layout_migration",
+    "route_restore_failure"
+  ],
+  "statusCodes": [
+    "enabled",
+    "disabled",
+    "hidden",
+    "missing"
+  ],
+  "disabledReasonCodes": [
+    "missing_contribution",
+    "missing_plugin",
+    "missing_host_capability",
+    "missing_permission",
+    "missing_context",
+    "data_requirement_unmet",
+    "unsupported_region",
+    "trust_not_granted",
+    "version_incompatible",
+    "hidden_by_profile",
+    "duplicate_id",
+    "duplicate_alias",
+    "runtime_activation_failed",
+    "malformed_layout",
+    "route_restore_failed"
+  ],
+  "canonicalRegions": [
+    "activityRail",
+    "leftSidebar",
+    "rightInspector",
+    "bottomDock",
+    "mainView",
+    "modalOrPeek"
+  ],
+  "forbiddenContributionKinds": [
+    "BottomTab",
+    "MainViewTab",
+    "DetailTab"
+  ],
+  "runtimeOnlyFields": [
+    "componentKey",
+    "handlerKey",
+    "lazyImport",
+    "component",
+    "callback"
+  ],
+  "expectations": [
+    {
+      "id": "resolved_contribution_roundtrip",
+      "fixtureRefs": ["descriptors.json", "layout_profile_runtime.json", "plugin_install_placeholders.json"],
+      "asserts": [
+        "raw descriptors are projected to manifests without runtime-only fields",
+        "resolved contributions preserve status/reason/activation distinctions",
+        "layout/profile state roundtrips separately from runtime state"
+      ]
+    }
+  ]
+}

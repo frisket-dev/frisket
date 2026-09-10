@@ -1,0 +1,40 @@
+{
+  "name": "below_threshold_garbage",
+  "note": "an absent phrase clears nothing -> [] -> caller keeps the chunk anchor",
+  "strategy": "align",
+  "target": {
+    "kind": "text",
+    "text": "zzzz qqqq vvvv absent phrase"
+  },
+  "source": {
+    "kind": "word",
+    "tokens": [
+      {
+        "text": "the annual report",
+        "box": [
+          0.1,
+          0.1,
+          0.6,
+          0.15
+        ],
+        "page": 1,
+        "source": "ocr"
+      },
+      {
+        "text": "of the company",
+        "box": [
+          0.1,
+          0.2,
+          0.6,
+          0.25
+        ],
+        "page": 1,
+        "source": "ocr"
+      }
+    ]
+  },
+  "expect": {
+    "matches": false,
+    "granularity": "none"
+  }
+}

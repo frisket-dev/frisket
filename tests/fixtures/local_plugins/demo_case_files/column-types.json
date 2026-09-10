@@ -1,0 +1,24 @@
+{
+  "schema_version": "frisket.plugin_column_types.v1",
+  "column_types": [
+    {
+      "name": "case_id",
+      "description": "Canonical case identifier stored as CASE-0000.",
+      "presentation": {
+        "base": "text",
+        "owner": "plugin",
+        "plugin": "demo.case_files"
+      },
+      "parse_from": [
+        {
+          "source": "text",
+          "kind": "case_id"
+        }
+      ],
+      "validation": {
+        "kind": "regex",
+        "pattern": "^CASE-[0-9]{4}$"
+      }
+    }
+  ]
+}

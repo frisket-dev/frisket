@@ -1,0 +1,152 @@
+{
+  "schema_version": "frisket.plugin.v1",
+  "id": "demo.generated_map_batch",
+  "version": "0.1.0",
+  "contributes": {
+    "actions": [
+      "demo.generated_map_batch.op.clean_names",
+      "demo.generated_map_batch.op.clean_names_queued"
+    ],
+    "importers": [],
+    "operators": [],
+    "projections": [],
+    "column_types": [],
+    "job_handlers": []
+  },
+  "requires": {
+    "capabilities": ["plugin:trusted_local_backend"],
+    "secrets": []
+  },
+  "runtime": {
+    "actions": [
+      {
+        "kind": "demo.generated_map_batch.op.clean_names",
+        "handler_key": "demo.generated_map_batch:clean_names",
+        "handler_api": "plugin_action",
+        "title": "Clean names through generated-map batch",
+        "description": "Fixture action for rows-scoped plugin generated-map materialization; generated columns come from the plugin-owned output schema.",
+        "scope": "rows",
+        "module_path": "plugin.py",
+        "materialization": {
+          "mode": "generated_map_results",
+          "schema_version": "frisket.plugin_generated_result_schema.v1",
+          "output_schema": {
+            "columns": [
+              {
+                "key": "value",
+                "type": "text",
+                "name_param": "output_name",
+                "primary": true
+              },
+              {
+                "key": "confidence",
+                "type": "number",
+                "name_template": "{output_name}_confidence"
+              },
+              {
+                "key": "justification",
+                "type": "text",
+                "name_template": "{output_name}_justification"
+              }
+            ]
+          }
+        },
+        "params": [
+          {
+            "name": "output_name",
+            "type": "text",
+            "required": false,
+            "default": "name_clean"
+          },
+          {
+            "name": "case",
+            "type": "text",
+            "required": false,
+            "default": "smart_title"
+          },
+          {
+            "name": "null_tokens",
+            "type": "text",
+            "required": false,
+            "default": "n/a,na,null,none,unknown"
+          }
+        ],
+        "inputs": [
+          {
+            "name": "input_column",
+            "label": "Input column",
+            "column_types": ["text", "category", "link"]
+          }
+        ]
+      },
+      {
+        "kind": "demo.generated_map_batch.op.clean_names_queued",
+        "handler_key": "demo.generated_map_batch:clean_names_queued",
+        "handler_api": "plugin_action",
+        "title": "Clean names through queued generated-map batch",
+        "description": "Fixture action for rows-scoped queued project-run plugin generated-map materialization.",
+        "scope": "rows",
+        "module_path": "plugin.py",
+        "execution": {
+          "mode": "queued_project_run"
+        },
+        "materialization": {
+          "mode": "generated_map_results",
+          "schema_version": "frisket.plugin_generated_result_schema.v1",
+          "output_schema": {
+            "columns": [
+              {
+                "key": "value",
+                "type": "text",
+                "name_param": "output_name",
+                "primary": true
+              },
+              {
+                "key": "confidence",
+                "type": "number",
+                "name_template": "{output_name}_confidence"
+              },
+              {
+                "key": "justification",
+                "type": "text",
+                "name_template": "{output_name}_justification"
+              }
+            ]
+          }
+        },
+        "params": [
+          {
+            "name": "output_name",
+            "type": "text",
+            "required": false,
+            "default": "name_clean"
+          },
+          {
+            "name": "case",
+            "type": "text",
+            "required": false,
+            "default": "smart_title"
+          },
+          {
+            "name": "null_tokens",
+            "type": "text",
+            "required": false,
+            "default": "n/a,na,null,none,unknown"
+          }
+        ],
+        "inputs": [
+          {
+            "name": "input_column",
+            "label": "Input column",
+            "column_types": ["text", "category", "link"]
+          }
+        ]
+      }
+    ],
+    "importers": [],
+    "operators": [],
+    "projections": [],
+    "job_handlers": [],
+    "workbench_components": []
+  }
+}

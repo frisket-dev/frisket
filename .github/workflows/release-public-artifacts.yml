@@ -1,0 +1,1038 @@
+name: release-public-artifacts
+# Build/publish split for the immutable public Release. This workflow is the
+# sole producer of the public wheel, `team` frontend payload, and open-server
+# installer bundle. Downstream deployments pin these assets by repository,
+# release id, asset id, API URL, and SHA-256; the checksums published here are
+# the digest authority every downloader must verify before use.
+# `frisket-release.json` records those resolved payload and image facts. It is
+# generated and uploaded last, and its own SHA-256 is recorded outside the
+# manifest in the workflow summary to avoid a recursive identity.
+#
+# Build (job `build`) and publish (job `publish`) are split so the job that
+# runs this repo's own source build scripts (`uv build`, `npx vite build`)
+# never holds a write-scoped token, and the job that holds `contents: write`
+# never runs a source build script -- it only downloads artifacts the build
+# job already produced and hashed, re-verifies them, and calls `gh`.
+#
+# Supply-chain rule: before a release, every `uses:` reference must be pinned
+# to a full commit SHA; a moving tag can otherwise change third-party code
+# inside a credential-bearing job. GitHub immutable releases must also be
+# enabled on this repository so published assets cannot be swapped after the
+# fact; this workflow assumes that one-time repository setting is active.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Commit SHA or tag to build the release from"
+        required: true
+        type: string
+      smoke_multi_service:
+        description: "Also run the slower installed Multi-service Docker smoke"
+        required: false
+        default: false
+        type: boolean
+      emergency_ci_bypass:
+        description: "Publish despite a non-green full CI run (maintainer-authorized emergencies only)"
+        required: false
+        default: false
+        type: boolean
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+# Tags and manual dispatches share immutable version/tag names. Serialize the
+# release transaction so two candidates cannot race through draft discovery or
+# a shared self-hosted Docker daemon.
+concurrency:
+  group: frisket-public-release
+  cancel-in-progress: false
+
+env:
+  # Third-party images are resolved to immutable manifests in the public
+  # bundle. These exact pins are already exercised by this repository's
+  # self-hosting contracts; changing either is an explicit release edit.
+  POSTGRES_IMAGE: docker.io/library/postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+  CADDY_IMAGE: docker.io/library/caddy@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+
+jobs:
+  build:
+    name: build (no write token)
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      commit_sha: ${{ steps.commit.outputs.sha }}
+      full_ci_url: ${{ steps.full_ci.outputs.url }}
+    steps:
+      - name: Checkout ref to build
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - name: Record resolved commit SHA
+        id: commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Require successful full CI for resolved commit
+        id: full_ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET: ${{ steps.commit.outputs.sha }}
+          EMERGENCY_CI_BYPASS: ${{ inputs.emergency_ci_bypass || false }}
+        run: |
+          set -euo pipefail
+          RUNS="$RUNNER_TEMP/frisket-full-ci-runs.json"
+          WORKFLOW_URL="https://github.com/${GITHUB_REPOSITORY}/actions/workflows/ci.yml"
+          if [ "$EMERGENCY_CI_BYPASS" = true ]; then
+            echo "::warning::maintainer-authorized emergency release bypasses full CI for ${TARGET}"
+            echo "url=$WORKFLOW_URL" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          gh api --method GET \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
+            -f head_sha="$TARGET" \
+            -f event=workflow_dispatch \
+            -F per_page=100 > "$RUNS"
+          LATEST=$(jq -c \
+            '[.workflow_runs[]] | max_by(.run_number) // empty' "$RUNS")
+          if [ -z "$LATEST" ]; then
+            echo "::error::no manually dispatched full CI run exists for ${TARGET}; ${WORKFLOW_URL}"
+            exit 1
+          fi
+          URL=$(printf '%s' "$LATEST" | jq -r '.html_url')
+          STATUS=$(printf '%s' "$LATEST" | jq -r '.status')
+          CONCLUSION=$(printf '%s' "$LATEST" | jq -r '.conclusion // ""')
+          RUN_NUMBER=$(printf '%s' "$LATEST" | jq -r '.run_number')
+          RUN_ATTEMPT=$(printf '%s' "$LATEST" | jq -r '.run_attempt')
+          echo "full CI evidence: run=${RUN_NUMBER} attempt=${RUN_ATTEMPT} status=${STATUS} conclusion=${CONCLUSION} url=${URL}"
+          if [ "$STATUS" != completed ] || [ "$CONCLUSION" != success ]; then
+            echo "::error::latest full CI for ${TARGET} is ${STATUS}/${CONCLUSION}; evidence: ${URL}"
+            exit 1
+          fi
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Read package version
+        id: version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION=$(grep -m1 '^version = ' pyproject.toml | sed -E 's/version = "(.*)"/\1/')
+          if [ -z "$VERSION" ]; then
+            echo "::error::could not read version from pyproject.toml"
+            exit 1
+          fi
+          if [ "$REF_TYPE" = "tag" ] && [ "$REF_NAME" != "v${VERSION}" ]; then
+            echo "::error::release tag must equal v${VERSION} from pyproject.toml"
+            exit 1
+          fi
+          PRERELEASE=false
+          case "$VERSION" in
+            *a[0-9]*|*b[0-9]*|*rc[0-9]*|*.dev[0-9]*) PRERELEASE=true ;;
+          esac
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+
+      - name: Verify Python dependency lock and yt-dlp artifact hashes
+        run: |
+          set -euo pipefail
+          uv lock --check
+          python3 - <<'PY'
+          import re
+          import tomllib
+          from pathlib import Path
+
+          lock = tomllib.loads(Path("uv.lock").read_text())
+          matches = [package for package in lock["package"] if package["name"] == "yt-dlp"]
+          assert len(matches) == 1, "uv.lock must contain exactly one yt-dlp package"
+          package = matches[0]
+          assert package.get("source") == {"registry": "https://pypi.org/simple"}, (
+              "yt-dlp must resolve from the expected package registry"
+          )
+          artifacts = [package.get("sdist"), *package.get("wheels", [])]
+          assert artifacts and all(
+              artifact
+              and re.fullmatch(r"sha256:[0-9a-f]{64}", str(artifact.get("hash", "")))
+              for artifact in artifacts
+          ), "every locked yt-dlp artifact must carry a SHA-256 hash"
+          PY
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            sdk/package-lock.json
+
+      - run: npm ci
+        working-directory: web
+
+      - run: npm ci
+        working-directory: sdk
+
+      - name: Verify vendored plugin SDK freshness
+        run: |
+          set -euo pipefail
+          sdk_vendor="src/frisket/data/plugin_sdk.mjs"
+          sdk_geo_vendor="src/frisket/authoring/bundled_plugins/frisket.geo/.frisket-sdk/index.mjs"
+          sdk_vendor_snapshot="$(mktemp)"
+          restore_sdk_vendor() {
+            cp "$sdk_vendor_snapshot" "$sdk_vendor"
+          }
+          cp "$sdk_vendor" "$sdk_vendor_snapshot"
+          trap restore_sdk_vendor EXIT
+          npm --prefix sdk run build
+          cp "$sdk_vendor_snapshot" "$sdk_vendor"
+          cmp sdk/dist/index.mjs "$sdk_vendor"
+          cmp "$sdk_vendor" "$sdk_geo_vendor"
+
+      - name: Build all frontend editions
+        working-directory: web
+        run: |
+          set -euo pipefail
+          npm run build
+
+      - name: Stage local frontend into Python package
+        run: python3 scripts/release/build_frontend.py --skip-npm-build
+
+      - name: Build public wheel (uv_build backend)
+        run: uv build --wheel --out-dir release-assets
+
+      - name: Verify public-to-private import boundaries
+        run: python3 scripts/ci/check_import_boundaries.py --source-root src --config scripts/ci/import_boundaries.json
+
+      - name: Verify public wheel boundary and packaged SPA
+        run: python3 scripts/release/verify_release_artifact.py release-assets/*.whl
+
+      - name: Install and probe public wheel in clean Python 3.12 environment
+        run: |
+          set -euo pipefail
+          PROBE_ROOT="$(mktemp -d)"
+          trap 'rm -rf "$PROBE_ROOT"' EXIT
+          uv venv --python 3.12 "$PROBE_ROOT/venv"
+          uv pip install --python "$PROBE_ROOT/venv/bin/python" release-assets/*.whl
+          (
+            cd "$PROBE_ROOT"
+            unset PYTHONPATH
+            unset FRISKET_STATIC_DIR
+            export PYTHONNOUSERSITE=1
+            "$PROBE_ROOT/venv/bin/python" -c 'import sys; assert sys.version_info[:2] == (3, 12), sys.version'
+            "$PROBE_ROOT/venv/bin/frisket" --help
+            "$PROBE_ROOT/venv/bin/frisket-control" --help
+            "$PROBE_ROOT/venv/bin/frisket" doctor
+            "$PROBE_ROOT/venv/bin/python" \
+              "$GITHUB_WORKSPACE/scripts/release/probe_installed_release.py" \
+              --checkout-root "$GITHUB_WORKSPACE" \
+              --workspace "$PROBE_ROOT/workspace"
+          )
+
+      - name: Package team frontend payload deterministically
+        working-directory: web
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          mkdir -p "${GITHUB_WORKSPACE}/release-assets"
+          OUT="${GITHUB_WORKSPACE}/release-assets/frisket-web-team-${VERSION}.tar.gz"
+          # Byte-reproducible archive: sorted entries, zeroed timestamp/owner/
+          # group, gzip with no embedded name/mtime (-n). Verified locally to
+          # produce an identical sha256 across repeated runs of this exact
+          # command over the same build output.
+          (
+            cd dist/team
+            find . -type f -print | LC_ALL=C sort | \
+              tar --no-recursion --sort=name --mtime='UTC 1970-01-01' \
+                  --owner=0 --group=0 --numeric-owner -cf - -T - | \
+              gzip -n -9 > "$OUT"
+          )
+
+      - name: Hash artifacts and write manifest
+        working-directory: release-assets
+        run: |
+          set -euo pipefail
+          sha256sum -- *.whl *.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Stage provider-neutral server release template
+        run: |
+          set -euo pipefail
+          ROOT="release-assets/server-template"
+          mkdir -p "$ROOT/deploy/release"
+          cp scripts/release/frisket-install "$ROOT/frisket-install"
+          cp scripts/release/frisket-deployment-diagnostics "$ROOT/frisket-deployment-diagnostics"
+          cp scripts/smoke/deployment_http_smoke.py "$ROOT/frisket-smoke"
+          cp scripts/smoke/smoke_release_bundle.sh release-assets/smoke_release_bundle.sh
+          cp deploy/release/compose.*.yaml deploy/release/Caddyfile "$ROOT/deploy/release/"
+          chmod 0755 \
+            "$ROOT/frisket-install" \
+            "$ROOT/frisket-deployment-diagnostics" \
+            "$ROOT/frisket-smoke"
+          (
+            cd release-assets
+            find server-template -type f -print0 | LC_ALL=C sort -z | \
+              xargs -0 sha256sum > SERVER_TEMPLATE_SHA256SUMS
+          )
+
+      - name: Upload build outputs (wheel + team tarball + checksums)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-assets
+          path: release-assets
+          retention-days: 1
+          if-no-files-found: error
+
+  container-arch:
+    name: build and smoke release image (${{ matrix.platform }})
+    needs: build
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            tag_suffix: amd64
+            runs_on: ubuntu-latest
+          - platform: linux/arm64
+            tag_suffix: arm64
+            runs_on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout resolved release commit
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.build.outputs.commit_sha }}
+          persist-credentials: false
+
+      - name: Build and push native OCI image by digest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMIT_SHA: ${{ needs.build.outputs.commit_sha }}
+          PLATFORM: ${{ matrix.platform }}
+          TAG_SUFFIX: ${{ matrix.tag_suffix }}
+        run: |
+          set -euo pipefail
+          IMAGE=$(printf '%s' "ghcr.io/${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')
+          # Authenticate as the Actions identity, NOT $GITHUB_ACTOR: the
+          # credential is the repository installation token, so a human
+          # actor name makes GHCR resolve the write target in a namespace
+          # that token does not own — 403 on a package it must create.
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u x-access-token --password-stdin
+          docker buildx create --use --name frisket-release-builder
+          docker buildx inspect --bootstrap
+          NATIVE_ARCH=$(docker version --format '{{.Server.Arch}}')
+          test "$PLATFORM" = "linux/$NATIVE_ARCH"
+          docker buildx build . \
+            --file Dockerfile \
+            --platform "$PLATFORM" \
+            --build-arg "FRISKET_BUILD_SHA=$COMMIT_SHA" \
+            --provenance=mode=max \
+            --sbom=true \
+            --cache-from "type=gha,scope=frisket-release-$TAG_SUFFIX" \
+            --cache-to "type=gha,mode=max,scope=frisket-release-$TAG_SUFFIX" \
+            --output "type=image,name=$IMAGE,push-by-digest=true,name-canonical=true,push=true" \
+            --metadata-file image-metadata.json
+          DIGEST=$(jq -r '."containerimage.digest" // empty' image-metadata.json)
+          if ! printf '%s' "$DIGEST" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
+            echo "::error::buildx did not report an immutable image digest"
+            exit 1
+          fi
+          docker pull --platform "$PLATFORM" "$IMAGE@$DIGEST"
+          test "$(docker run --rm --platform "$PLATFORM" --entrypoint exiftool "$IMAGE@$DIGEST" -ver)" = "13.59"
+          docker run --rm --platform "$PLATFORM" \
+            --entrypoint uv \
+            --volume "$PWD/scripts/smoke/smoke_media_metadata_runtime.py:/tmp/smoke_media_metadata_runtime.py:ro" \
+            "$IMAGE@$DIGEST" \
+            run --no-sync python /tmp/smoke_media_metadata_runtime.py
+          mkdir -p image-digest
+          touch "image-digest/${DIGEST#sha256:}"
+
+      - name: Upload native image digest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-image-digest-${{ matrix.tag_suffix }}
+          path: image-digest/*
+          retention-days: 1
+          if-no-files-found: error
+
+  container:
+    name: publish immutable two-platform server image
+    needs: [build, container-arch]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.publish.outputs.image }}
+      digest: ${{ steps.publish.outputs.digest }}
+    steps:
+      - name: Download native image digests
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: release-image-digest-*
+          path: image-digests
+          merge-multiple: true
+
+      - name: Assemble and validate immutable image manifest
+        id: publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMIT_SHA: ${{ needs.build.outputs.commit_sha }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          IMAGE=$(printf '%s' "ghcr.io/${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u x-access-token --password-stdin
+          mapfile -t DIGESTS < <(find image-digests -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort)
+          if [ "${#DIGESTS[@]}" -ne 2 ]; then
+            echo "::error::expected exactly two native image digests, found ${#DIGESTS[@]}"
+            exit 1
+          fi
+          SOURCES=()
+          for digest in "${DIGESTS[@]}"; do
+            printf '%s' "$digest" | grep -Eq '^[0-9a-f]{64}$'
+            SOURCES+=("$IMAGE@sha256:$digest")
+          done
+          docker buildx imagetools create \
+            --tag "$IMAGE:sha-$COMMIT_SHA" \
+            --tag "$IMAGE:v$VERSION" \
+            --metadata-file image-manifest-metadata.json \
+            "${SOURCES[@]}"
+          SHA_DIGEST=$(jq -r '."containerimage.descriptor".digest // empty' image-manifest-metadata.json)
+          VERSION_DIGEST=$(docker buildx imagetools inspect "$IMAGE:v$VERSION" --format '{{json .Manifest}}' | jq -r '.digest // empty')
+          if ! printf '%s' "$SHA_DIGEST" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
+            echo "::error::assembled image tag has no immutable digest"
+            exit 1
+          fi
+          if [ "$VERSION_DIGEST" != "$SHA_DIGEST" ]; then
+            echo "::error::version and source-SHA tags do not resolve to the same image"
+            exit 1
+          fi
+          docker buildx imagetools inspect --raw "$IMAGE@$SHA_DIGEST" | jq -e '
+            (.manifests | type) == "array" and
+            ([.manifests[] | select(.platform.os == "linux") | .platform.architecture] | sort) == ["amd64", "arm64"] and
+            all(
+              .manifests[];
+              (.platform.os == "linux" and (.platform.architecture == "amd64" or .platform.architecture == "arm64")) or
+              (.platform.os == "unknown" and .platform.architecture == "unknown" and .annotations["vnd.docker.reference.type"] == "attestation-manifest")
+            )
+          ' >/dev/null
+          for image in "$POSTGRES_IMAGE" "$CADDY_IMAGE"; do
+            # Both arches are asserted registry-side against the manifest list;
+            # a local `docker pull` per arch would refuse the second one
+            # ("cannot overwrite digest") because pulling one digest twice under
+            # different --platform values rewrites the same local store entry.
+            for arch in amd64 arm64; do
+              docker buildx imagetools inspect --raw "$image" | jq -e --arg arch "$arch" '
+                (.manifests | type) == "array" and
+                any(
+                  .manifests[];
+                  .platform.os == "linux" and .platform.architecture == $arch
+                )
+              ' >/dev/null
+            done
+            # One real pull still proves the digest is pullable with these
+            # credentials and that its layers exist, not just its manifest.
+            docker pull --platform linux/amd64 "$image"
+          done
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "digest=$SHA_DIGEST" >> "$GITHUB_OUTPUT"
+
+  server-smoke:
+    name: render and smoke server bundle (no write token)
+    needs: [build, container]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Download build outputs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-assets
+          path: release-assets
+
+      - name: Re-verify build-job hashes before any upload
+        working-directory: release-assets
+        run: |
+          sha256sum -c SHA256SUMS
+          sha256sum -c SERVER_TEMPLATE_SHA256SUMS
+
+      - name: Render immutable server bundle
+        env:
+          FRISKET_IMAGE_REPOSITORY: ${{ needs.container.outputs.image }}
+          FRISKET_IMAGE_DIGEST: ${{ needs.container.outputs.digest }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          ROOT="release-assets/server-template"
+          for ref in \
+            "${FRISKET_IMAGE_REPOSITORY}@${FRISKET_IMAGE_DIGEST}" \
+            "$POSTGRES_IMAGE" \
+            "$CADDY_IMAGE"; do
+            printf '%s' "$ref" | grep -Eq '^[^[:space:]]+@sha256:[0-9a-f]{64}$'
+          done
+          # upload-artifact/download-artifact does not preserve Unix mode
+          # bits. Restore the executable contract before creating the tarball.
+          chmod 0755 \
+            "$ROOT/frisket-install" \
+            "$ROOT/frisket-deployment-diagnostics" \
+            "$ROOT/frisket-smoke"
+          cat > "$ROOT/deploy/release/release.env" <<EOF
+          FRISKET_IMAGE=${FRISKET_IMAGE_REPOSITORY}@${FRISKET_IMAGE_DIGEST}
+          POSTGRES_IMAGE=${POSTGRES_IMAGE}
+          CADDY_IMAGE=${CADDY_IMAGE}
+          EOF
+          # Standalone re-pin asset: a byte-identical copy of the pin file
+          # above, published as its own release asset (see publish job) so a
+          # downstream overlay can re-pin by fetching one small file instead
+          # of the whole bundle. `cp`, never a second render, so the two
+          # copies cannot diverge; smoke_release_bundle.sh asserts that below.
+          cp "$ROOT/deploy/release/release.env" release-assets/frisket-release-pins.env
+          printf '%s\n' "$VERSION" > "$ROOT/VERSION"
+          OUT="release-assets/frisket-server-${VERSION}.tar.gz"
+          (
+            cd "$ROOT"
+            find . -type f -print | LC_ALL=C sort | \
+              tar --no-recursion --sort=name --mtime='UTC 1970-01-01' \
+                  --owner=0 --group=0 --numeric-owner -cf - -T - | \
+              gzip -n -9 > "${GITHUB_WORKSPACE}/${OUT}"
+          )
+          (
+            cd release-assets
+            sha256sum "frisket-server-${VERSION}.tar.gz" frisket-release-pins.env >> SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+
+      - name: Select authenticated or anonymous image pull posture
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRERELEASE: ${{ needs.build.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          VISIBILITY=$(gh api "repos/${{ github.repository }}" --jq '.visibility')
+          if [ "$VISIBILITY" = public ]; then
+            docker logout ghcr.io >/dev/null 2>&1 || true
+            echo "public repository: rendered-bundle smoke will pull GHCR anonymously"
+          elif [ "$PRERELEASE" = true ]; then
+            # Authenticate as the Actions identity, not $GITHUB_ACTOR — the
+            # credential is the repository token and must match its namespace.
+            printf '%s' "$GH_TOKEN" | docker login ghcr.io -u x-access-token --password-stdin
+            echo "::notice::private prerelease: using the repo-scoped token for the Docker smoke; anonymous distribution is deferred"
+          else
+            echo "::error::stable public release requires a public repository and anonymously pullable GHCR package"
+            exit 1
+          fi
+
+      - name: Smoke exact rendered Standalone bundle in real Docker
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          sh release-assets/smoke_release_bundle.sh \
+            "release-assets/frisket-server-${VERSION}.tar.gz" standalone
+
+      - name: Smoke exact rendered Multi-service bundle on tag or request
+        if: github.ref_type == 'tag' || inputs.smoke_multi_service == true
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          sh release-assets/smoke_release_bundle.sh \
+            "release-assets/frisket-server-${VERSION}.tar.gz" multi-service
+
+      - name: Upload smoke-approved release candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: smoke-approved-release-assets
+          path: release-assets
+          retention-days: 1
+          if-no-files-found: error
+
+  publish:
+    name: publish (repo-local write token, no source execution)
+    needs: [build, container, server-smoke]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download smoke-approved release candidate
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: smoke-approved-release-assets
+          path: release-assets
+
+      - name: Re-verify candidate hashes before any upload
+        working-directory: release-assets
+        run: |
+          set -euo pipefail
+          sha256sum -c SHA256SUMS
+          sha256sum -c SERVER_TEMPLATE_SHA256SUMS
+
+      - name: Resolve release tag
+        id: tag
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            # Pushed 'v*' tag trigger: that tag already names this release.
+            TAG="${{ github.ref_name }}"
+          else
+            # workflow_dispatch: derive the tag from the built ref's own
+            # version metadata (read in the build job from the checked-out
+            # pyproject.toml), and point it at that ref's resolved commit
+            # via --target below -- the tag is derived FROM the ref/input,
+            # not required to equal it literally.
+            TAG="v${VERSION}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Create draft release
+        id: draft
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN || secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          TARGET: ${{ needs.build.outputs.commit_sha }}
+          PRERELEASE: ${{ needs.build.outputs.prerelease }}
+          FULL_CI_URL: ${{ needs.build.outputs.full_ci_url }}
+        run: |
+          set -euo pipefail
+          # A rerun of this exact Actions run may recover only its own marked
+          # draft. A new run, an unmarked draft, a different target, or an
+          # already-published release fails closed instead of clobbering assets.
+          # The initial POST still returns the numeric release id atomically.
+          MAKE_LATEST=true
+          [ "$PRERELEASE" = false ] || MAKE_LATEST=false
+          RUN_MARKER="<!-- frisket-release-run:${GITHUB_RUN_ID} -->"
+
+          # If the Git tag already exists, dereference lightweight or annotated
+          # forms and require it to name the exact commit we built. GitHub
+          # otherwise ignores target_commitish when creating a release for an
+          # existing tag.
+          TAG_REF_JSON="$RUNNER_TEMP/frisket-tag-ref.json"
+          TAG_REF_ERROR="$RUNNER_TEMP/frisket-tag-ref.error"
+          if gh api "repos/${{ github.repository }}/git/ref/tags/${TAG}" \
+            > "$TAG_REF_JSON" 2> "$TAG_REF_ERROR"; then
+            OBJECT_TYPE=$(jq -r '.object.type' "$TAG_REF_JSON")
+            OBJECT_SHA=$(jq -r '.object.sha' "$TAG_REF_JSON")
+            depth=0
+            while [ "$OBJECT_TYPE" = tag ] && [ "$depth" -lt 5 ]; do
+              TAG_OBJECT=$(gh api \
+                "repos/${{ github.repository }}/git/tags/${OBJECT_SHA}")
+              OBJECT_TYPE=$(printf '%s' "$TAG_OBJECT" | jq -r '.object.type')
+              OBJECT_SHA=$(printf '%s' "$TAG_OBJECT" | jq -r '.object.sha')
+              depth=$((depth + 1))
+            done
+            if [ "$OBJECT_TYPE" != commit ] || [ "$OBJECT_SHA" != "$TARGET" ]; then
+              echo "::error::existing Git tag ${TAG} does not resolve to built commit ${TARGET}"
+              exit 1
+            fi
+          elif ! grep -q 'HTTP 404' "$TAG_REF_ERROR"; then
+            sed 's/^/tag lookup: /' "$TAG_REF_ERROR" >&2
+            echo "::error::could not safely inspect existing Git tag ${TAG}"
+            exit 1
+          fi
+
+          RELEASE_LIST="$RUNNER_TEMP/frisket-releases.json"
+          gh api --paginate --slurp \
+            "repos/${{ github.repository }}/releases?per_page=100" > "$RELEASE_LIST"
+          MATCHES=$(jq --arg tag "$TAG" \
+            '[.[][] | select(.tag_name == $tag)]' "$RELEASE_LIST")
+          MATCH_COUNT=$(printf '%s' "$MATCHES" | jq 'length')
+          if [ "$MATCH_COUNT" -gt 1 ]; then
+            echo "::error::multiple releases unexpectedly use ${TAG}; refusing publication"
+            exit 1
+          elif [ "$MATCH_COUNT" -eq 1 ]; then
+            DRAFT=$(printf '%s' "$MATCHES" | jq -r '.[0].draft')
+            EXISTING_PRERELEASE=$(printf '%s' "$MATCHES" | jq -r '.[0].prerelease')
+            EXISTING_TARGET=$(printf '%s' "$MATCHES" | jq -r '.[0].target_commitish')
+            EXISTING_BODY=$(printf '%s' "$MATCHES" | jq -r '.[0].body // ""')
+            RELEASE_ID=$(printf '%s' "$MATCHES" | jq -r '.[0].id')
+            if [ "$DRAFT" != true ]; then
+              echo "::error::${TAG} is already published; release versions are immutable, so choose a new version/tag"
+              exit 1
+            fi
+            if [ "$EXISTING_PRERELEASE" != "$PRERELEASE" ] || \
+               [ "$EXISTING_TARGET" != "$TARGET" ] || \
+               ! printf '%s' "$EXISTING_BODY" | grep -Fq "$RUN_MARKER"; then
+              echo "::error::${TAG} already has a draft not owned by this workflow run; audit/delete draft id ${RELEASE_ID} or choose a new version"
+              exit 1
+            fi
+            echo "recovering draft id ${RELEASE_ID} created by this Actions run"
+          else
+            BODY=$(printf '%s\n\n%s\n\n%s' \
+              "Wheel, team frontend, and server installer bundle, built from ${TARGET}." \
+              "Full CI: ${FULL_CI_URL}" \
+              "$RUN_MARKER")
+            RELEASE_ID=$(gh api -X POST "repos/${{ github.repository }}/releases" \
+              -f tag_name="$TAG" \
+              -f target_commitish="$TARGET" \
+              -f name="$TAG" \
+              -f body="$BODY" \
+              -F draft=true \
+              -F prerelease="$PRERELEASE" \
+              -f make_latest="$MAKE_LATEST" \
+              --jq '.id')
+          fi
+          if [ -z "$RELEASE_ID" ]; then
+            echo "::error::could not resolve draft release id for ${TAG}"
+            exit 1
+          fi
+          echo "release_id=$RELEASE_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Upload or recover payload assets
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN || secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          RELEASE_ID: ${{ steps.draft.outputs.release_id }}
+        working-directory: release-assets
+        run: |
+          set -euo pipefail
+          REPO="${{ github.repository }}"
+          set -- *.whl *.tar.gz frisket-release-pins.env SHA256SUMS
+          RELEASE_JSON="$RUNNER_TEMP/frisket-release-${RELEASE_ID}.json"
+          gh api "repos/${REPO}/releases/${RELEASE_ID}" > "$RELEASE_JSON"
+
+          # A same-run retry may retain only byte-identical expected assets.
+          # Any foreign name or mismatched byte stream requires human review.
+          jq -r '.assets[].name' "$RELEASE_JSON" > "$RUNNER_TEMP/frisket-asset-names.txt"
+          while IFS= read -r remote_name; do
+            # The manifest is uploaded only after every payload is verified.
+            # A same-run recovery may therefore see it here, but this step
+            # never creates or modifies it.
+            [ "$remote_name" != frisket-release.json ] || continue
+            expected=false
+            for local_file in "$@"; do
+              [ "$remote_name" != "$(basename "$local_file")" ] || expected=true
+            done
+            if [ "$expected" != true ]; then
+              echo "::error::draft contains unexpected asset ${remote_name}; refusing to publish"
+              exit 1
+            fi
+          done < "$RUNNER_TEMP/frisket-asset-names.txt"
+
+          for local_file in "$@"; do
+            name=$(basename "$local_file")
+            count=$(jq --arg name "$name" \
+              '[.assets[] | select(.name == $name)] | length' "$RELEASE_JSON")
+            if [ "$count" -gt 1 ]; then
+              echo "::error::draft contains duplicate assets named ${name}"
+              exit 1
+            elif [ "$count" -eq 1 ]; then
+              asset_id=$(jq -r --arg name "$name" \
+                '.assets[] | select(.name == $name) | .id' "$RELEASE_JSON")
+              recovered="$RUNNER_TEMP/recovered-${asset_id}"
+              gh api "repos/${REPO}/releases/assets/${asset_id}" \
+                -H "Accept: application/octet-stream" > "$recovered"
+              if ! cmp -s "$local_file" "$recovered"; then
+                echo "::error::existing draft asset ${name} differs from this candidate; refusing to clobber"
+                exit 1
+              fi
+              echo "retaining byte-identical draft asset ${name}"
+            else
+              gh release upload "$TAG" "$local_file" --repo "$REPO"
+            fi
+          done
+
+      - name: Re-verify uploaded asset sha256 via the release-assets API
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN || secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ steps.draft.outputs.release_id }}
+        working-directory: release-assets
+        run: |
+          set -euo pipefail
+          REPO="${{ github.repository }}"
+          for f in *.whl *.tar.gz frisket-release-pins.env SHA256SUMS; do
+            EXPECTED=$(sha256sum "$f" | cut -d' ' -f1)
+            ASSET_ID=$(gh api "repos/${REPO}/releases/${RELEASE_ID}" \
+              | jq -r --arg name "$f" '.assets[] | select(.name == $name) | .id')
+            if [ -z "$ASSET_ID" ]; then
+              echo "::error::no uploaded asset found named $f"
+              exit 1
+            fi
+            # Authenticated octet-stream download by asset id -- required
+            # while frisket is private; browser_download_url needs no auth
+            # but 404s without a session, so this is also what a private
+            # frisket must use post-flip (design doc, "Private-repo download
+            # mechanics").
+            gh api "repos/${REPO}/releases/assets/${ASSET_ID}" \
+              -H "Accept: application/octet-stream" > "downloaded-${f}"
+            ACTUAL=$(sha256sum "downloaded-${f}" | cut -d' ' -f1)
+            if [ "$EXPECTED" != "$ACTUAL" ]; then
+              echo "::error::sha256 mismatch for ${f} after upload (expected ${EXPECTED}, got ${ACTUAL})"
+              exit 1
+            fi
+            echo "verified ${f} sha256=${ACTUAL}"
+            rm -f "downloaded-${f}"
+          done
+
+      - name: Generate resolved release manifest
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN || secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ steps.draft.outputs.release_id }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          VERSION: ${{ needs.build.outputs.version }}
+          TARGET: ${{ needs.build.outputs.commit_sha }}
+          PRERELEASE: ${{ needs.build.outputs.prerelease }}
+          IMAGE_REPOSITORY: ${{ needs.container.outputs.image }}
+          IMAGE_DIGEST: ${{ needs.container.outputs.digest }}
+        working-directory: release-assets
+        run: |
+          set -euo pipefail
+          REPO="${{ github.repository }}"
+          RELEASE_JSON="$RUNNER_TEMP/frisket-release-${RELEASE_ID}-resolved.json"
+          gh api "repos/${REPO}/releases/${RELEASE_ID}" > "$RELEASE_JSON"
+          jq -e \
+            --argjson id "$RELEASE_ID" \
+            --arg tag "$TAG" \
+            --arg target "$TARGET" \
+            --argjson prerelease "$PRERELEASE" '
+              .id == $id and
+              .tag_name == $tag and
+              .target_commitish == $target and
+              .draft == true and
+              .prerelease == $prerelease
+            ' "$RELEASE_JSON" >/dev/null || {
+              echo "::error::draft release identity changed before manifest generation"
+              exit 1
+            }
+
+          PAYLOADS='[]'
+          set -- *.whl *.tar.gz frisket-release-pins.env SHA256SUMS
+          for f in "$@"; do
+            count=$(jq --arg name "$f" \
+              '[.assets[] | select(.name == $name)] | length' "$RELEASE_JSON")
+            [ "$count" -eq 1 ] || {
+              echo "::error::manifest requires exactly one uploaded payload named ${f}"
+              exit 1
+            }
+            ASSET=$(jq -c --arg name "$f" \
+              '.assets[] | select(.name == $name)' "$RELEASE_JSON")
+            ASSET_ID=$(printf '%s' "$ASSET" | jq -r '.id')
+            REMOTE_SIZE=$(printf '%s' "$ASSET" | jq -r '.size')
+            LOCAL_SIZE=$(stat -c '%s' "$f")
+            [ "$REMOTE_SIZE" = "$LOCAL_SIZE" ] || {
+              echo "::error::uploaded payload size differs for ${f}"
+              exit 1
+            }
+            SHA256=$(sha256sum "$f" | cut -d' ' -f1)
+            API_PATH="/repos/${REPO}/releases/assets/${ASSET_ID}"
+            BROWSER_URL="https://github.com/${REPO}/releases/download/${TAG}/${f}"
+            PAYLOADS=$(printf '%s' "$PAYLOADS" | jq -c \
+              --arg name "$f" \
+              --argjson id "$ASSET_ID" \
+              --arg path "$API_PATH" \
+              --arg browser_download_url "$BROWSER_URL" \
+              --argjson size "$LOCAL_SIZE" \
+              --arg sha256 "$SHA256" \
+              '. + [{
+                name: $name,
+                id: $id,
+                path: $path,
+                browser_download_url: $browser_download_url,
+                size: $size,
+                sha256: $sha256
+              }]')
+          done
+
+          jq -nS \
+            --arg schema_version 'frisket.release.v1' \
+            --arg source_sha "$TARGET" \
+            --arg repository "$REPO" \
+            --argjson release_id "$RELEASE_ID" \
+            --arg release_path "/repos/${REPO}/releases/${RELEASE_ID}" \
+            --arg tag "$TAG" \
+            --arg version "$VERSION" \
+            --argjson prerelease "$PRERELEASE" \
+            --argjson payloads "$PAYLOADS" \
+            --arg image_repository "$IMAGE_REPOSITORY" \
+            --arg image_digest "$IMAGE_DIGEST" \
+            --arg image_reference "${IMAGE_REPOSITORY}@${IMAGE_DIGEST}" '
+              {
+                schema_version: $schema_version,
+                source: {sha: $source_sha},
+                release: {
+                  repository: $repository,
+                  id: $release_id,
+                  path: $release_path,
+                  tag: $tag,
+                  version: $version,
+                  prerelease: $prerelease
+                },
+                payloads: ($payloads | sort_by(.name)),
+                server_image: {
+                  repository: $image_repository,
+                  digest: $image_digest,
+                  reference: $image_reference
+                }
+              }
+            ' > frisket-release.json
+
+          jq -e '
+            . as $manifest |
+            .schema_version == "frisket.release.v1" and
+            (.source.sha | test("^[0-9a-f]{40}$")) and
+            (.release.id | type) == "number" and
+            (.release.path | test("^/repos/[^/]+/[^/]+/releases/[0-9]+$")) and
+            (.release.tag == ("v" + .release.version)) and
+            (.payloads | length) >= 5 and
+            all(.payloads[];
+              (.id | type) == "number" and
+              (.size | type) == "number" and .size > 0 and
+              (.sha256 | test("^[0-9a-f]{64}$")) and
+              (.path | test("^/repos/[^/]+/[^/]+/releases/assets/[0-9]+$")) and
+              .browser_download_url == (
+                "https://github.com/" + $manifest.release.repository +
+                "/releases/download/" + $manifest.release.tag + "/" + .name
+              ) and
+              (.browser_download_url | contains("/untagged-") | not) and
+              .name != "frisket-release.json"
+            ) and
+            (.server_image.digest | test("^sha256:[0-9a-f]{64}$")) and
+            .server_image.reference == (.server_image.repository + "@" + .server_image.digest)
+          ' frisket-release.json >/dev/null
+
+      - name: Upload or recover release manifest last
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN || secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          RELEASE_ID: ${{ steps.draft.outputs.release_id }}
+        working-directory: release-assets
+        run: |
+          set -euo pipefail
+          REPO="${{ github.repository }}"
+          RELEASE_JSON="$RUNNER_TEMP/frisket-release-${RELEASE_ID}-manifest.json"
+          gh api "repos/${REPO}/releases/${RELEASE_ID}" > "$RELEASE_JSON"
+          count=$(jq '[.assets[] | select(.name == "frisket-release.json")] | length' \
+            "$RELEASE_JSON")
+          if [ "$count" -gt 1 ]; then
+            echo "::error::draft contains duplicate frisket-release.json assets"
+            exit 1
+          elif [ "$count" -eq 1 ]; then
+            ASSET_ID=$(jq -r \
+              '.assets[] | select(.name == "frisket-release.json") | .id' \
+              "$RELEASE_JSON")
+            RECOVERED="$RUNNER_TEMP/recovered-frisket-release-${ASSET_ID}.json"
+            gh api "repos/${REPO}/releases/assets/${ASSET_ID}" \
+              -H "Accept: application/octet-stream" > "$RECOVERED"
+            cmp -s frisket-release.json "$RECOVERED" || {
+              echo "::error::existing draft manifest differs from resolved release facts; refusing to clobber"
+              exit 1
+            }
+            echo "retaining byte-identical draft manifest"
+          else
+            gh release upload "$TAG" frisket-release.json --repo "$REPO"
+          fi
+
+      - name: Verify uploaded release manifest and record external digest
+        id: release_manifest
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN || secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ steps.draft.outputs.release_id }}
+        working-directory: release-assets
+        run: |
+          set -euo pipefail
+          REPO="${{ github.repository }}"
+          RELEASE_JSON="$RUNNER_TEMP/frisket-release-${RELEASE_ID}-verify.json"
+          gh api "repos/${REPO}/releases/${RELEASE_ID}" > "$RELEASE_JSON"
+          count=$(jq '[.assets[] | select(.name == "frisket-release.json")] | length' \
+            "$RELEASE_JSON")
+          [ "$count" -eq 1 ] || {
+            echo "::error::release has ${count} manifest assets, expected exactly one"
+            exit 1
+          }
+          ASSET_ID=$(jq -r \
+            '.assets[] | select(.name == "frisket-release.json") | .id' \
+            "$RELEASE_JSON")
+          REMOTE_SIZE=$(jq -r \
+            '.assets[] | select(.name == "frisket-release.json") | .size' \
+            "$RELEASE_JSON")
+          LOCAL_SIZE=$(stat -c '%s' frisket-release.json)
+          [ "$REMOTE_SIZE" = "$LOCAL_SIZE" ] || {
+            echo "::error::uploaded manifest size differs from generated manifest"
+            exit 1
+          }
+          DOWNLOADED="$RUNNER_TEMP/downloaded-frisket-release-${ASSET_ID}.json"
+          gh api "repos/${REPO}/releases/assets/${ASSET_ID}" \
+            -H "Accept: application/octet-stream" > "$DOWNLOADED"
+          cmp -s frisket-release.json "$DOWNLOADED" || {
+            echo "::error::uploaded manifest bytes differ from generated manifest"
+            exit 1
+          }
+          SHA256=$(sha256sum "$DOWNLOADED" | cut -d' ' -f1)
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+          printf 'frisket-release.json sha256: `%s`\n' "$SHA256" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish release (assets become immutable)
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN || secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          gh release edit "$TAG" --repo "${{ github.repository }}" --draft=false
+
+      - name: Verify published assets are anonymously downloadable when public
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN || secrets.GITHUB_TOKEN }}
+          PRERELEASE: ${{ needs.build.outputs.prerelease }}
+          RELEASE_ID: ${{ steps.draft.outputs.release_id }}
+        working-directory: release-assets
+        run: |
+          set -euo pipefail
+          REPO="${{ github.repository }}"
+          VISIBILITY=$(gh api "repos/${REPO}" --jq '.visibility')
+          if [ "$VISIBILITY" != public ]; then
+            if [ "$PRERELEASE" = true ]; then
+              echo "::notice::private prerelease: anonymous release-asset verification is deferred"
+              exit 0
+            fi
+            echo "::error::stable public release cannot use a private repository"
+            exit 1
+          fi
+
+          RELEASE_JSON="$RUNNER_TEMP/published-release-${RELEASE_ID}.json"
+          gh api "repos/${REPO}/releases/${RELEASE_ID}" > "$RELEASE_JSON"
+          for f in *.whl *.tar.gz frisket-release-pins.env SHA256SUMS frisket-release.json; do
+            URL=$(jq -r --arg name "$f" \
+              '.assets[] | select(.name == $name) | .browser_download_url' \
+              "$RELEASE_JSON")
+            [ -n "$URL" ] && [ "$URL" != null ] || {
+              echo "::error::published release has no browser URL for ${f}"
+              exit 1
+            }
+            DEST="$RUNNER_TEMP/anonymous-${f}"
+            downloaded=false
+            for attempt in 1 2 3 4 5 6 7 8 9 10; do
+              if env -u GH_TOKEN curl --disable \
+                --fail --silent --show-error --location \
+                --proto '=https' --proto-redir '=https' --max-redirs 5 \
+                --connect-timeout 10 --max-time 120 \
+                "$URL" -o "$DEST"; then
+                downloaded=true
+                break
+              fi
+              echo "anonymous download attempt ${attempt} failed for ${f}; retrying" >&2
+              sleep 3
+            done
+            [ "$downloaded" = true ] || {
+              echo "::error::${f} was not anonymously downloadable after publication"
+              exit 1
+            }
+            cmp -s "$f" "$DEST" || {
+              echo "::error::anonymous bytes for ${f} differ from the smoke-approved candidate"
+              exit 1
+            }
+            echo "verified anonymous bytes for ${f}"
+          done

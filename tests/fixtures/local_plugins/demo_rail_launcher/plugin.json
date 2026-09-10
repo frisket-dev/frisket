@@ -1,0 +1,26 @@
+{
+  "schema_version": "frisket.plugin.v1",
+  "id": "demo.rail_launcher",
+  "version": "0.1.0",
+  "contributes": {
+    "workbench_views": [],
+    "workbench_panels": ["demo.rail_launcher.panel.dock"],
+    "actions": [],
+    "importers": [],
+    "operators": [],
+    "projections": [],
+    "column_types": [],
+    "job_handlers": []
+  },
+  "requires": { "capabilities": [], "secrets": [] },
+  "runtime": {
+    "actions": [],
+    "importers": [],
+    "operators": [],
+    "projections": [],
+    "job_handlers": [],
+    "workbench_components": [
+      { "contribution_id": "demo.rail_launcher.panel.dock", "module_key": "demo.rail_launcher.ui", "component_key": "demo.rail_launcher.components.DockTab", "module_path": "frontend/plugin.js" }
+    ]
+  }
+}

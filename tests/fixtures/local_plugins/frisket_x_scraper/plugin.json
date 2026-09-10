@@ -1,0 +1,71 @@
+{
+  "schema_version": "frisket.plugin.v1",
+  "id": "frisket.x",
+  "version": "0.1.0",
+  "contributes": {
+    "actions": ["x.scrape_post"],
+    "matchers": ["x.post", "x.profile"]
+  },
+  "requires": {
+    "capabilities": ["plugin:trusted_local_backend"],
+    "secrets": []
+  },
+  "runtime": {
+    "actions": [
+      {
+        "kind": "x.scrape_post",
+        "handler_key": "frisket.x:scrape_post",
+        "handler_api": "plugin_action",
+        "title": "Scrape X post",
+        "description": "Scrape a single x.com/twitter.com post into a json cell.",
+        "scope": "row",
+        "module_path": "plugin.py",
+        "params": [],
+        "inputs": [
+          {
+            "name": "url",
+            "label": "Post URL",
+            "column_types": ["text", "link"]
+          }
+        ],
+        "writes": [
+          {
+            "name": "post",
+            "type": "json",
+            "description": "The scraped post payload."
+          }
+        ]
+      }
+    ],
+    "importers": [],
+    "operators": [],
+    "projections": [],
+    "job_handlers": [],
+    "matchers": [
+      {
+        "matcher_id": "x.post",
+        "provider": "x",
+        "domains": ["x.com", "twitter.com"],
+        "kind": "scraper",
+        "path_regex": "/[A-Za-z0-9_]{1,15}/status/\\d+",
+        "handler_action_kind": "x.scrape_post",
+        "params_hints": {"include_replies": false}
+      },
+      {
+        "matcher_id": "x.profile",
+        "provider": "x",
+        "domains": ["x.com", "twitter.com"],
+        "kind": "collection",
+        "path_regex": "/(?!home|explore|search)[A-Za-z0-9_]{1,15}",
+        "handler_action_kind": "derive.collection_expand",
+        "expansion": {
+          "unit": "post",
+          "enumerator": "x.list_profile_posts",
+          "default_cap": 100,
+          "hard_cap": 1000
+        }
+      }
+    ],
+    "workbench_components": []
+  }
+}

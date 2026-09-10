@@ -1,0 +1,36 @@
+{
+  "status": "complete",
+  "result_url": null,
+  "expires_in": null,
+  "output_format": "markdown",
+  "chunks": null,
+  "json": null,
+  "markdown": "\n\n| vendor | amount |\n|--------|--------|\n| Acme   | 10     |\n| Beta   | 12     |\n| Gamma  | 14     |",
+  "html": null,
+  "extraction_schema_json": null,
+  "extraction_score_average": null,
+  "extraction_mode": null,
+  "segmentation_results": null,
+  "segmentation_schema": null,
+  "images": {},
+  "metadata": {
+    "page_stats": [
+      {
+        "page_id": 0,
+        "num_blocks": 1
+      }
+    ]
+  },
+  "success": true,
+  "error": "",
+  "parse_quality_score": 5.0,
+  "page_count": 1,
+  "total_cost": 1,
+  "cost_breakdown": {
+    "final_cost_cents": 1.0
+  },
+  "runtime": 0.6416640281677246,
+  "checkpoint_id": null,
+  "versions": null,
+  "evaluation": null
+}

@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "frisket.workbench_descriptor_package.v1",
+  "descriptors": [
+    {
+      "schemaVersion": "frisket.workbench.panel.v1",
+      "id": "demo.peek_panel.panel.peek",
+      "kind": "panel",
+      "title": "Demo Peek",
+      "ownerPluginId": "demo.peek_panel",
+      "componentKey": "demo.peek_panel.components.PeekPanel",
+      "placements": [{ "host": "modalOrPeek", "mode": "peek", "slot": "interruption", "placementId": "demo-peek", "order": 100 }],
+      "requires": [{ "kind": "hostCapability", "id": "sheet.active" }],
+      "dataRequirements": [{ "kind": "activeSheet" }]
+    },
+    {
+      "schemaVersion": "frisket.command.v1",
+      "id": "demo.peek_panel.command.open_peek",
+      "kind": "command",
+      "title": "Open Demo Peek",
+      "ownerPluginId": "demo.peek_panel",
+      "componentKey": "demo.peek_panel.commands.OpenPeek",
+      "commandId": "demo.peek_panel.command.open_peek",
+      "handlerKey": "demo.peek_panel.commands.OpenPeek",
+      "placements": [{ "host": "commandPalette", "mode": "command", "slot": "launcher", "placementId": "demo-open-peek", "order": 100 }],
+      "requires": [],
+      "dataRequirements": []
+    }
+  ]
+}

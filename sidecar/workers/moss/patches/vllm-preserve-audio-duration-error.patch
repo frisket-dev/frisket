@@ -1,0 +1,21 @@
+diff --git a/vllm/multimodal/media/audio.py b/vllm/multimodal/media/audio.py
+--- a/vllm/multimodal/media/audio.py
++++ b/vllm/multimodal/media/audio.py
+@@ -209,10 +209,17 @@ def load_audio(
+     # soundfile may have advanced the BytesIO seek position before failing;
+     # reset it so PyAV can read from the beginning.
+     if isinstance(path, BytesIO):
+         path.seek(0)
+     try:
+         return load_audio_pyav(path, sr=sr, mono=mono, max_duration_s=max_duration_s)
+     except ImportError:
+         raise  # Let PlaceholderModule's message ("install vllm[audio]") propagate.
+     except Exception as pyav_exc:
++        message = str(pyav_exc)
++        if (
++            isinstance(pyav_exc, ValueError)
++            and message.startswith("Audio exceeds maximum allowed duration of ")
++            and "VLLM_MAX_AUDIO_DECODE_DURATION_S" in message
++        ):
++            raise
+         raise ValueError("Invalid or unsupported audio file.") from pyav_exc

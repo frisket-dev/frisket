@@ -1,0 +1,314 @@
+{
+  "schemaVersion": "frisket.workbench_contract_fixtures.v1",
+  "cases": [
+    {
+      "id": "trusted_local_plugin_install",
+      "indexEntry": {
+        "schemaVersion": "frisket.plugin_index_entry.v1",
+        "pluginId": "local.geo-tools",
+        "title": "Local geo tools",
+        "version": "1.4.0",
+        "source": {"kind": "localPath", "value": "/opt/frisket/plugins/geo-tools"},
+        "trustTier": "trustedLocal",
+        "compatibleFrisketVersions": ">=1.0.0 <2.0.0",
+        "contributionSummary": [{"kind": "view", "count": 1}, {"kind": "command", "count": 2}],
+        "checksum": {"algorithm": "sha256", "value": "fixture-local-geo-tools"}
+      },
+      "installPlan": {
+        "schemaVersion": "frisket.plugin_install_plan.v1",
+        "pluginId": "local.geo-tools",
+        "version": "1.4.0",
+        "source": {"kind": "localPath", "value": "/opt/frisket/plugins/geo-tools"},
+        "trustTier": "trustedLocal",
+        "permissions": [{"kind": "permission", "id": "project.read"}, {"kind": "permission", "id": "local.external.activate"}],
+        "contributions": ["local.geo-tools.view.geo_projection_debug"],
+        "conflicts": [],
+        "permissionPrompt": {
+          "title": "Trust local geo tools",
+          "summary": "This local plugin can activate trusted local UI/runtime code.",
+          "risks": ["Local code can read project data through granted host capabilities."]
+        },
+        "actions": ["install", "trust", "enable"]
+      },
+      "expectedState": {"installState": "installed", "activation": "loadAllowed", "trustPromptRequired": true}
+    },
+    {
+      "id": "trust_blocked_installed_plugin",
+      "installedPlugin": {"pluginId": "community.ocr", "trustTier": "isolated", "trusted": false},
+      "contributionId": "community.ocr.view.layout_compare",
+      "expectedResolved": {"status": "disabled", "activation": "blocked", "reason": "trust_not_granted"}
+    },
+    {
+      "id": "missing_geo_plugin_layout",
+      "layoutRef": {"contributionId": "frisket.geo.view.map", "host": "mainView", "mode": "pane", "paneId": "pane-map"},
+      "installedPlugins": ["frisket.core"],
+      "expectedResolved": {
+        "status": "missing",
+        "activation": "blocked",
+        "reason": "missing_plugin",
+        "placeholder": {
+          "schemaVersion": "frisket.missing_contribution_placeholder.v1",
+          "contributionId": "frisket.geo.view.map",
+          "layoutRef": {"host": "mainView", "paneId": "pane-map"},
+          "actions": ["install_plugin", "remove_from_layout", "replace_with_grid"]
+        }
+      }
+    },
+    {
+      "id": "geo_plugin_install_trust_execution",
+      "layoutRef": {"contributionId": "frisket.geo.view.map", "host": "mainView", "mode": "pane", "paneId": "pane-map"},
+      "startingState": {"installState": "available", "resolvedStatus": "missing", "reason": "missing_plugin"},
+      "indexEntry": {
+        "schemaVersion": "frisket.plugin_index_entry.v1",
+        "pluginId": "frisket.geo",
+        "title": "Frisket geo",
+        "version": "1.0.0",
+        "source": {"kind": "localPath", "value": "/opt/frisket/plugins/frisket-geo"},
+        "trustTier": "trustedLocal",
+        "compatibleFrisketVersions": ">=1.0.0 <2.0.0",
+        "contributionSummary": [{"kind": "view", "count": 1}, {"kind": "panel", "count": 1}],
+        "checksum": {"algorithm": "sha256", "value": "fixture-frisket-geo"}
+      },
+      "installPlan": {
+        "schemaVersion": "frisket.plugin_install_plan.v1",
+        "pluginId": "frisket.geo",
+        "version": "1.0.0",
+        "source": {"kind": "localPath", "value": "/opt/frisket/plugins/frisket-geo"},
+        "trustTier": "trustedLocal",
+        "permissions": [{"kind": "permission", "id": "project.read"}, {"kind": "permission", "id": "local.external.activate"}],
+        "contributions": ["frisket.geo.view.map", "frisket.core.panel.projection_status"],
+        "conflicts": [],
+        "permissionPrompt": {
+          "title": "Trust local geo plugin",
+          "summary": "This local plugin can activate trusted local UI/runtime code.",
+          "risks": ["Local code can read project data through granted host capabilities."]
+        },
+        "actions": ["install", "trust", "enable"]
+      },
+      "expectedState": {
+        "previousStatus": "missing",
+        "installState": "enabled",
+        "activation": "loadAllowed",
+        "trustPromptRequired": true,
+        "layoutMutated": false,
+        "resolvedStatus": "enabled"
+      }
+    },
+    {
+      "id": "trusted_local_runtime_activation",
+      "startingState": {"installState": "enabled", "trusted": true, "activation": "loadAllowed"},
+      "runtimeActivation": {
+        "schemaVersion": "frisket.plugin_runtime_activation.v1",
+        "pluginId": "frisket.geo",
+        "source": {"kind": "localPath", "value": "/opt/frisket/plugins/frisket-geo"},
+        "trustTier": "trustedLocal",
+        "permissions": [{"kind": "permission", "id": "project.read"}, {"kind": "permission", "id": "local.external.activate"}],
+        "moduleKey": "trustedLocal.frisketGeo",
+        "activatedContributions": ["frisket.geo.view.map", "frisket.core.panel.projection_status"],
+        "componentBindings": [{"contributionId": "frisket.geo.view.map", "componentKey": "trustedLocal.frisketGeo.views.MapView"}]
+      },
+      "expectedState": {
+        "activation": "loadAllowed",
+        "runtimeSource": "trustedLocal",
+        "arbitraryPackageLoadAllowed": false,
+        "layoutMutated": false
+      }
+    },
+    {
+      "id": "plugin_disable_uninstall_layout_effects",
+      "layoutRef": {"contributionId": "frisket.geo.view.map", "host": "mainView", "mode": "pane", "paneId": "pane-map"},
+      "startingState": {"installState": "enabled", "trusted": true, "activation": "loadAllowed", "layoutRefPresent": true},
+      "expectedState": {
+        "disablePreservesLayoutRef": true,
+        "disableReason": "plugin_disabled",
+        "uninstallRemovesLayoutRef": true,
+        "runtimeActivationCleared": true,
+        "arbitraryPackageLoadAllowed": false
+      },
+      "disableAction": {
+        "schemaVersion": "frisket.plugin_install_plan.v1",
+        "pluginId": "frisket.geo",
+        "action": "disable",
+        "expectedState": {
+          "installState": "disabled",
+          "resolvedStatus": "disabled",
+          "reason": "plugin_disabled",
+          "activation": "blocked",
+          "layoutRefPresent": true,
+          "placeholderVisible": true
+        }
+      },
+      "uninstallAction": {
+        "schemaVersion": "frisket.plugin_install_plan.v1",
+        "pluginId": "frisket.geo",
+        "action": "uninstall",
+        "expectedState": {
+          "installState": "available",
+          "resolvedStatus": "missing",
+          "activation": "blocked",
+          "layoutRefPresent": false,
+          "placeholderVisible": false,
+          "runtimeActivationCleared": true
+        }
+      }
+    },
+    {
+      "id": "plugin_install_failure_handling",
+      "installAttempt": {"pluginId": "community.graph", "version": "0.9.0", "source": {"kind": "marketplace", "value": "community.graph"}},
+      "failure": {"code": "checksum_mismatch", "message": "Downloaded plugin checksum did not match index entry.", "retryable": false},
+      "expectedState": {"installState": "failed", "layoutMutated": false, "failureVisible": true}
+    },
+    {
+      "id": "incompatible_version",
+      "indexEntry": {
+        "schemaVersion": "frisket.plugin_index_entry.v1",
+        "pluginId": "community.bottom-dock-network",
+        "title": "Network dock",
+        "version": "2.0.0",
+        "source": {"kind": "marketplace", "value": "community.bottom-dock-network"},
+        "trustTier": "declarativeOnly",
+        "compatibleFrisketVersions": ">=2.0.0",
+        "contributionSummary": [{"kind": "panel", "count": 1}]
+      },
+      "expectedResolved": {"status": "disabled", "reason": "version_incompatible", "activation": "blocked"}
+    },
+    {
+      "id": "marketplace_discovery_restricted_entries",
+      "query": {
+        "schemaVersion": "frisket.plugin_marketplace_query.v1",
+        "contributionId": "frisket.geo.view.map",
+        "text": "geo",
+        "allowedActions": ["view_index_entry", "request_review"],
+        "disabledActions": ["install", "enable", "trust", "load_package"]
+      },
+      "indexEntries": [
+        {
+          "schemaVersion": "frisket.plugin_index_entry.v1",
+          "pluginId": "community.geo-map",
+          "title": "Community geo map",
+          "version": "0.8.1",
+          "source": {"kind": "marketplace", "value": "community.geo-map"},
+          "trustTier": "isolated",
+          "compatibleFrisketVersions": ">=1.0.0 <2.0.0",
+          "contributionSummary": [{"kind": "view", "count": 1}, {"kind": "command", "count": 1}],
+          "reviewStatus": "requires_review"
+        },
+        {
+          "schemaVersion": "frisket.plugin_index_entry.v1",
+          "pluginId": "community.bottom-dock-network",
+          "title": "Network dock",
+          "version": "2.0.0",
+          "source": {"kind": "marketplace", "value": "community.bottom-dock-network"},
+          "trustTier": "declarativeOnly",
+          "compatibleFrisketVersions": ">=2.0.0",
+          "contributionSummary": [{"kind": "panel", "count": 1}],
+          "reviewStatus": "blocked_by_version"
+        }
+      ],
+      "expectedState": {
+        "resultCount": 2,
+        "sourceKind": "marketplace",
+        "installActionsDisabled": true,
+        "arbitraryPackageLoadAllowed": false,
+        "compatibleEntryDisabledReason": "marketplace_review_required",
+        "incompatibleEntryDisabledReason": "version_incompatible"
+      }
+    },
+    {
+      "id": "runtime_activation_failure",
+      "contributionId": "frisket.core.panel.sources",
+      "activationError": {"code": "component_import_failed", "message": "Unable to import core.panels.SourcesPanel"},
+      "expectedResolved": {"status": "enabled", "activation": "failed", "reason": "runtime_activation_failed", "placeholderVisible": true}
+    },
+    {
+      "id": "duplicate_id_alias_conflict",
+      "descriptors": [
+        {"id": "frisket.core.panel.sources", "kind": "panel", "placements": [{"host": "leftSidebar", "mode": "panel"}], "aliases": ["frisket.sources.panel"]},
+        {"id": "frisket.core.panel.sources", "kind": "panel", "placements": [{"host": "leftSidebar", "mode": "panel"}], "aliases": []},
+        {"id": "frisket.media.panel.sources", "kind": "panel", "placements": [{"host": "leftSidebar", "mode": "panel"}], "aliases": ["frisket.sources.panel"]}
+      ],
+      "expectedErrors": ["duplicate_id", "duplicate_alias"]
+    },
+    {
+      "id": "resolved_contribution_roundtrip",
+      "rawDescriptor": {
+        "schemaVersion": "frisket.workbench.panel.v1",
+        "id": "frisket.core.panel.history",
+        "kind": "panel",
+        "ownerPluginId": "frisket.core",
+        "title": "History",
+        "componentKey": "core.panels.HistoryPanel",
+        "placements": [
+          {"host": "leftSidebar", "mode": "panel", "default": true, "order": 70},
+          {"host": "bottomDock", "mode": "tab", "placementId": "history-dock", "order": 40, "tabChrome": {"closeable": true, "singleton": true}}
+        ],
+        "requires": [{"kind": "hostCapability", "id": "history.list"}]
+      },
+      "generatedManifest": {
+        "schemaVersion": "frisket.workbench.panel.v1",
+        "id": "frisket.core.panel.history",
+        "kind": "panel",
+        "ownerPluginId": "frisket.core",
+        "title": "History",
+        "placements": [
+          {"host": "leftSidebar", "mode": "panel", "default": true, "order": 70},
+          {"host": "bottomDock", "mode": "tab", "placementId": "history-dock", "order": 40, "tabChrome": {"closeable": true, "singleton": true}}
+        ],
+        "requires": [{"kind": "hostCapability", "id": "history.list"}]
+      },
+      "expectedManifest": {"forbiddenRuntimeKeys": ["componentKey"]},
+      "expectedResolved": {
+        "id": "frisket.core.panel.history",
+        "status": "enabled",
+        "activation": "loadAllowed",
+        "activePlacement": {"host": "leftSidebar", "mode": "panel"}
+      },
+      "expected": {"roundtrips": true, "manifestHasRuntimeOnlyFields": false}
+    },
+    {
+      "id": "missing_host_capability_resolution",
+      "rawDescriptor": {
+        "schemaVersion": "frisket.workbench.panel.v1",
+        "id": "frisket.core.panel.history",
+        "kind": "panel",
+        "ownerPluginId": "frisket.core",
+        "title": "History",
+        "componentKey": "core.panels.HistoryPanel",
+        "placements": [{"host": "leftSidebar", "mode": "panel", "default": true}],
+        "requires": [{"kind": "hostCapability", "id": "history.list"}]
+      },
+      "hostContext": {"hostCapabilities": []},
+      "expectedResolved": {"status": "disabled", "activation": "blocked", "reason": "missing_host_capability"}
+    },
+    {
+      "id": "missing_permission_resolution",
+      "rawDescriptor": {
+        "schemaVersion": "frisket.action.form.v1",
+        "id": "frisket.core.action_form.map_classify",
+        "kind": "actionForm",
+        "ownerPluginId": "frisket.core",
+        "title": "Classify rows",
+        "componentKey": "core.actions.MapClassifyForm",
+        "placements": [{"host": "rightInspector", "mode": "section", "default": true}],
+        "requires": [{"kind": "permission", "id": "project.write"}]
+      },
+      "hostContext": {"grantedPermissions": []},
+      "expectedResolved": {"status": "disabled", "activation": "blocked", "reason": "missing_permission"}
+    },
+    {
+      "id": "missing_context_resolution",
+      "rawDescriptor": {
+        "schemaVersion": "frisket.workbench.view.v1",
+        "id": "frisket.core.view.evidence",
+        "kind": "view",
+        "ownerPluginId": "frisket.core",
+        "title": "Evidence",
+        "componentKey": "core.views.EvidenceViewer",
+        "placements": [{"host": "mainView", "mode": "pane", "default": true}],
+        "dataRequirements": [{"kind": "activeEvidence"}]
+      },
+      "hostContext": {"activeEvidence": false},
+      "expectedResolved": {"status": "disabled", "activation": "blocked", "reason": "missing_context"}
+    }
+  ]
+}

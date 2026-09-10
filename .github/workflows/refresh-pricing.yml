@@ -1,0 +1,106 @@
+name: refresh-pricing
+# Nightly refresh of the BYOK price table from LiteLLM's community
+# registry. These numbers feed cost estimates and consent bounds, so the
+# refresh NEVER commits directly: it opens a PR showing exactly which
+# models moved, and any single price swinging more than 50% is called
+# out in the PR body — that's either real news or upstream breakage,
+# and both deserve eyes before merge.
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: true
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      - name: Refresh price table
+        id: refresh
+        run: |
+          cp src/frisket/ai/llm/pricing_data.json /tmp/pricing_before.json
+          uv run --no-project python scripts/dev/update_pricing.py
+          pricing_changed="$(
+            python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          before = json.loads(Path("/tmp/pricing_before.json").read_text(encoding="utf-8"))
+          after = json.loads(Path("src/frisket/ai/llm/pricing_data.json").read_text(encoding="utf-8"))
+          if not isinstance(before, dict) or not isinstance(after, dict):
+              raise TypeError("pricing data must be a JSON object")
+          before_without_updated = dict(before)
+          after_without_updated = dict(after)
+          before_without_updated.pop("updated", None)
+          after_without_updated.pop("updated", None)
+          print("true" if before_without_updated != after_without_updated else "false")
+          PY
+          )"
+          if [ "$pricing_changed" = "false" ]; then
+            cp /tmp/pricing_before.json src/frisket/ai/llm/pricing_data.json
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            uv run --no-project python scripts/dev/pricing_delta_report.py \
+              /tmp/pricing_before.json src/frisket/ai/llm/pricing_data.json \
+              > /tmp/pricing_delta.md
+          fi
+      - name: Open PR
+        if: steps.refresh.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pricing_path="src/frisket/ai/llm/pricing_data.json"
+          today="$(date -u +%Y-%m-%d)"
+          branch="pricing-refresh-${today//-/}"
+
+          if ! pr_number_output="$(
+            gh pr list --state open --base main --head "$branch" \
+              --json number --jq '.[].number'
+          )"; then
+            echo "Could not enumerate existing PRs for $branch" >&2
+            exit 1
+          fi
+          mapfile -t pr_numbers < <(printf '%s' "$pr_number_output")
+          if [ "${#pr_numbers[@]}" -gt 1 ]; then
+            echo "Refusing ambiguous PR set for $branch" >&2
+            exit 1
+          fi
+
+          remote_tip="$(git ls-remote --heads origin "refs/heads/$branch" | awk '{print $1}')"
+          if [ -n "$remote_tip" ]; then
+            if [ "${#pr_numbers[@]}" -eq 0 ]; then
+              gh pr create --title "Pricing refresh $today" \
+                --body-file /tmp/pricing_delta.md --base main --head "$branch"
+            else
+              echo "Pricing refresh PR #${pr_numbers[0]} already exists; leaving it unchanged."
+            fi
+            exit 0
+          fi
+          if [ "${#pr_numbers[@]}" -eq 1 ]; then
+            echo "Refusing open PR #${pr_numbers[0]} without its remote branch" >&2
+            exit 1
+          fi
+
+          cp "$pricing_path" /tmp/pricing_after.json
+          git config user.name "pricing-refresh[bot]"
+          git config user.email "actions@users.noreply.github.com"
+          git fetch --no-tags origin \
+            "refs/heads/main:refs/remotes/origin/main"
+          git switch --detach origin/main
+          git switch -c "$branch"
+          cp /tmp/pricing_after.json "$pricing_path"
+          git add "$pricing_path"
+          git commit -m "chore(pricing): nightly refresh from the LiteLLM registry"
+          git push --set-upstream \
+            --force-with-lease="refs/heads/$branch:" \
+            origin "HEAD:refs/heads/$branch"
+          gh pr create --title "Pricing refresh $today" \
+            --body-file /tmp/pricing_delta.md --base main --head "$branch"

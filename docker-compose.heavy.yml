@@ -1,0 +1,113 @@
+# Split-host GPU bundle. Caddy fronts Ollama and frisket-models; Caddy
+# enforces the Ollama allowlist, while frisket-models validates its own bearer.
+# The separate web box needs two URLs and three tokens.
+#
+# Run: docker compose -f docker-compose.heavy.yml up -d
+#
+# DNS / hosts: Caddy serves two hostnames derived from FRISKET_HEAVY_HOST —
+# llm.<FRISKET_HEAVY_HOST> (Ollama's chat/embeddings/tags/pull, exact
+# allowlist, everything else 403) and models.<FRISKET_HEAVY_HOST> (the
+# frisket-models sidecar, plain passthrough — it enforces its own bearer).
+# Point real DNS at this box's public IP for a public deployment, or add both
+# names to /etc/hosts on the web box for a LAN/private deployment. Pair that
+# with `tls internal` in deploy/Caddyfile.heavy and trust its CA on the web box.
+#
+# Only Caddy publishes a port. Ollama's unauthenticated API and the sidecar's
+# bearer-protected API remain internal to this box.
+services:
+  ollama:
+    # A cross-host Ollama endpoint requires an immutable supply-chain pin.
+    # To update: `docker pull ollama/ollama:latest` (or a specific release
+    # tag), then `docker inspect --format '{{index .RepoDigests 0}}'
+    # ollama/ollama:latest` and paste the multi-arch manifest digest below.
+    image: ollama/ollama@sha256:6345fbc18bd73a1e16404be681dbc6fd291a027cab43ed541abe78c4c81051b0
+    restart: unless-stopped
+    volumes:
+      # Same dedicated-weights-volume idiom as the base compose's `ollama`
+      # profile: model weights are large (multi-GB per model); give this
+      # volume's disk headroom the same attention as any other data volume.
+      - frisket-ollama:/root/.ollama
+    expose:
+      - "11434"
+  frisket-models:
+    # Same build/image reference as docker-compose.yml's `models` profile
+    # (sidecar/ — PaddleOCR-VL, Docling, Faster Whisper, GLiNER, rerank,
+    # embeddings). There is no published registry image for this sidecar
+    # yet, so it is always built from source on the GPU box.
+    build: ./sidecar
+    image: frisket-models:latest
+    restart: unless-stopped
+    environment:
+      # Refuse an unset or empty bearer; the web box must use the same value.
+      FRISKET_MODELS_TOKEN: ${FRISKET_MODELS_TOKEN:?set a random bearer token (openssl rand -hex 32) shared with the caddy service and the web box}
+      FRISKET_MODELS_CONCURRENCY: ${FRISKET_MODELS_CONCURRENCY:-2}
+    volumes:
+      - frisket-models-cache:/models
+    expose:
+      - "8500"
+
+  # Token-guard: refuses to let the stack come up at all when the inference
+  # and provisioning bearers are the SAME value. The whole point of two
+  # tokens is that a caller
+  # who only has the inference bearer can never issue POST /api/pull; a
+  # single shared token silently erases that boundary. Runs once, exits 0
+  # only when the tokens differ; `caddy` refuses to start unless this
+  # completes successfully.
+  # This container sees both bearer tokens, so its image must be digest-pinned.
+  #
+  # To update: `docker pull alpine:3.20`, then `docker inspect --format
+  # '{{index .RepoDigests 0}}' alpine:3.20` and paste the resulting digest
+  # below.
+  token-guard:
+    image: alpine@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    environment:
+      FRISKET_LLM_TOKEN: ${FRISKET_LLM_TOKEN:?set a random inference bearer token (openssl rand -hex 32)}
+      FRISKET_LLM_PROVISIONING_TOKEN: ${FRISKET_LLM_PROVISIONING_TOKEN:?set a random provisioning bearer token (openssl rand -hex 32), distinct from FRISKET_LLM_TOKEN}
+    command:
+      - sh
+      - -c
+      - '[ "$FRISKET_LLM_TOKEN" != "$FRISKET_LLM_PROVISIONING_TOKEN" ] || { echo "FRISKET_LLM_TOKEN and FRISKET_LLM_PROVISIONING_TOKEN must differ -- a shared token collapses the inference/provisioning capability boundary" >&2; exit 1; }'
+    restart: "no"
+
+  caddy:
+    # Pinned by digest.
+    # To update: `docker pull caddy:<tag>`, then `docker inspect --format
+    # '{{index .RepoDigests 0}}' caddy:<tag>` and paste the resulting digest
+    # below. Keep deploy/Caddyfile.heavy's version header in sync.
+    image: caddy@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+    restart: unless-stopped
+    # The ONLY service in this bundle with published ports. 443 only: remote
+    # token-bearing origins MUST use HTTPS, and TLS-ALPN-01 (443-only ACME
+    # challenge) or a private/LAN CA (`tls internal`, see
+    # deploy/Caddyfile.heavy) both work without port 80. If your public
+    # domain needs HTTP-01 ACME instead, add `- "80:80"` here — Caddy will
+    # also redirect bare HTTP to HTTPS once 80 is available.
+    ports:
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile.heavy:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    environment:
+      # Base hostname this box is reached at, e.g. heavy.example.com (public)
+      # or heavy.internal (LAN/private, paired with `tls internal`). Caddy
+      # serves llm.<this> and models.<this> — see deploy/Caddyfile.heavy.
+      FRISKET_HEAVY_HOST: ${FRISKET_HEAVY_HOST:?set the base hostname/domain this box is reached at, e.g. heavy.example.com or heavy.internal}
+      # Caddy's LLM matchers require non-empty random tokens; generate each
+      # with `openssl rand -hex 32`.
+      FRISKET_LLM_TOKEN: ${FRISKET_LLM_TOKEN:?set a random inference bearer token (openssl rand -hex 32)}
+      FRISKET_LLM_PROVISIONING_TOKEN: ${FRISKET_LLM_PROVISIONING_TOKEN:?set a random provisioning bearer token (openssl rand -hex 32), distinct from FRISKET_LLM_TOKEN}
+      FRISKET_MODELS_TOKEN: ${FRISKET_MODELS_TOKEN:?set the same token given to the frisket-models service above}
+    depends_on:
+      ollama:
+        condition: service_started
+      frisket-models:
+        condition: service_started
+      token-guard:
+        condition: service_completed_successfully
+
+volumes:
+  frisket-ollama:
+  frisket-models-cache:
+  caddy-data:
+  caddy-config:

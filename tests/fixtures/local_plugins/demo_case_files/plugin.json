@@ -1,0 +1,24 @@
+{
+  "schema_version": "frisket.plugin.v1",
+  "id": "demo.case_files",
+  "version": "0.1.0",
+  "contributes": {
+    "actions": [],
+    "importers": [],
+    "operators": [],
+    "projections": [],
+    "column_types": ["case_id"],
+    "job_handlers": []
+  },
+  "requires": {
+    "capabilities": ["plugin:trusted_local_backend"]
+  },
+  "runtime": {
+    "actions": [],
+    "importers": [],
+    "operators": [],
+    "projections": [],
+    "job_handlers": [],
+    "workbench_components": []
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "schema_version": "frisket.plugin_column_types.v1",
+  "column_types": [
+    {
+      "name": "stars",
+      "description": "Numeric rating from 0 to 5 displayed as stars.",
+      "presentation": {
+        "renderer": "stars",
+        "base": "number",
+        "owner": "plugin",
+        "plugin": "demo.stars"
+      },
+      "validation": {
+        "kind": "number_range",
+        "min": 0,
+        "max": 5
+      }
+    }
+  ]
+}

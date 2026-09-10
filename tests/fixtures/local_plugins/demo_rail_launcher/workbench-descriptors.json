@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "frisket.workbench_descriptor_package.v1",
+  "descriptors": [
+    {
+      "schemaVersion": "frisket.workbench.panel.v1",
+      "id": "demo.rail_launcher.panel.dock",
+      "kind": "panel",
+      "title": "Demo Rail Launcher",
+      "shortTitle": "Rail Demo",
+      "ownerPluginId": "demo.rail_launcher",
+      "componentKey": "demo.rail_launcher.components.DockTab",
+      "placements": [
+        { "host": "bottomDock", "mode": "tab", "slot": "companion.output", "placementId": "demo-rail-dock", "order": 105 },
+        { "host": "activityRail", "mode": "command", "slot": "launcher", "placementId": "demo-rail-launcher", "order": 105 }
+      ],
+      "requires": [{ "kind": "hostCapability", "id": "sheet.active" }],
+      "dataRequirements": [{ "kind": "activeSheet" }]
+    }
+  ]
+}

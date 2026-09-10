@@ -1,0 +1,92 @@
+# Images come from release.env digest pins or explicit operator values.
+services:
+  run-queue-provision:
+    image: "${FRISKET_IMAGE:?Set FRISKET_IMAGE to the published Frisket image digest}"
+    command: ["frisket", "queue", "provision"]
+    restart: "no"
+    healthcheck:
+      disable: true
+    environment:
+      FRISKET_DATABASE_ADMIN_URL: "${FRISKET_DATABASE_ADMIN_URL:?Set FRISKET_DATABASE_ADMIN_URL}"
+      FRISKET_RUN_QUEUE_DATABASE_URL: "${FRISKET_RUN_QUEUE_DATABASE_URL:?Set FRISKET_RUN_QUEUE_DATABASE_URL}"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  run-queue-migrate:
+    image: "${FRISKET_IMAGE:?Set FRISKET_IMAGE to the published Frisket image digest}"
+    command: ["frisket", "queue", "migrate"]
+    restart: "no"
+    healthcheck:
+      disable: true
+    environment:
+      FRISKET_DATABASE_ADMIN_URL: "${FRISKET_DATABASE_ADMIN_URL:?Set FRISKET_DATABASE_ADMIN_URL}"
+      FRISKET_RUN_QUEUE_DATABASE_URL: "${FRISKET_RUN_QUEUE_DATABASE_URL:?Set FRISKET_RUN_QUEUE_DATABASE_URL}"
+    depends_on:
+      run-queue-provision:
+        condition: service_completed_successfully
+
+  app:
+    image: "${FRISKET_IMAGE:?Set FRISKET_IMAGE to the published Frisket image digest}"
+    command: ["uvicorn", "frisket.team.asgi:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers"]
+    restart: unless-stopped
+    environment:
+      FRISKET_BASE_URL: "${FRISKET_BASE_URL:?Set FRISKET_BASE_URL}"
+      FRISKET_DATA_DIR: /data
+      FRISKET_PROJECTS_ROOT: /data
+      FRISKET_TRUSTED_PROXY_CIDRS: "${FRISKET_TRUSTED_PROXY_CIDRS:-}"
+      FRISKET_TEAM_DATABASE_URL: "${FRISKET_TEAM_DATABASE_URL:?Set FRISKET_TEAM_DATABASE_URL}"
+      FRISKET_DATABASE_URL: "${FRISKET_TEAM_DATABASE_URL:?Set FRISKET_TEAM_DATABASE_URL}"
+      FRISKET_RUN_QUEUE_DATABASE_URL: "${FRISKET_RUN_QUEUE_DATABASE_URL:?Set FRISKET_RUN_QUEUE_DATABASE_URL}"
+      FRISKET_RUN_QUEUE_SCHEMA_MODE: strict
+      FRISKET_SECRETS_KEY_FILE: /data/secrets/master.key
+      FRISKET_SECRETS_MASTER_KEY: "${FRISKET_SECRETS_MASTER_KEY:-}"
+      FRISKET_MODELS_URL: "${FRISKET_MODELS_URL:-}"
+      FRISKET_MODELS_TOKEN: "${FRISKET_MODELS_TOKEN:-}"
+    volumes:
+      - ./data:/data
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      run-queue-migrate:
+        condition: service_completed_successfully
+
+  worker:
+    image: "${FRISKET_IMAGE:?Set FRISKET_IMAGE to the published Frisket image digest}"
+    command: ["frisket", "worker"]
+    restart: unless-stopped
+    healthcheck:
+      disable: true
+    environment:
+      FRISKET_DATA_DIR: /data
+      FRISKET_PROJECTS_ROOT: /data
+      FRISKET_TEAM_DATABASE_URL: "${FRISKET_TEAM_DATABASE_URL:?Set FRISKET_TEAM_DATABASE_URL}"
+      FRISKET_DATABASE_URL: "${FRISKET_TEAM_DATABASE_URL:?Set FRISKET_TEAM_DATABASE_URL}"
+      FRISKET_RUN_QUEUE_DATABASE_URL: "${FRISKET_RUN_QUEUE_DATABASE_URL:?Set FRISKET_RUN_QUEUE_DATABASE_URL}"
+      FRISKET_RUN_QUEUE_SCHEMA_MODE: strict
+      FRISKET_SECRETS_KEY_FILE: /data/secrets/master.key
+      FRISKET_SECRETS_MASTER_KEY: "${FRISKET_SECRETS_MASTER_KEY:-}"
+      FRISKET_MODELS_URL: "${FRISKET_MODELS_URL:-}"
+      FRISKET_MODELS_TOKEN: "${FRISKET_MODELS_TOKEN:-}"
+    volumes:
+      - ./data:/data
+    depends_on:
+      run-queue-migrate:
+        condition: service_completed_successfully
+
+  db:
+    image: "${POSTGRES_IMAGE:?Set POSTGRES_IMAGE to the published Postgres image digest}"
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: frisket
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}"
+      POSTGRES_DB: frisket
+    volumes:
+      - ./postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U frisket -d frisket"]
+      interval: 5s
+      timeout: 5s
+      retries: 20

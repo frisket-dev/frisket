@@ -1,0 +1,543 @@
+{
+  "auto_enable": false,
+  "contributes": {
+    "actions": [
+      "frisket.ftm.ftm_import",
+      "frisket.ftm.ftm_export"
+    ],
+    "column_types": [],
+    "importers": [],
+    "job_handlers": [],
+    "operators": [],
+    "projections": [],
+    "workbench_commands": [],
+    "workbench_panels": [],
+    "workbench_views": []
+  },
+  "id": "frisket.ftm",
+  "requires": {
+    "capabilities": [
+      "plugin:trusted_local_backend",
+      "plugin:project_writes",
+      "plugin:project_reads",
+      "project:read"
+    ],
+    "secrets": []
+  },
+  "runtime": {
+    "actions": [
+      {
+        "catalog_entry": {
+          "async_mode": "sync",
+          "cost_policy": {
+            "kind": "none",
+            "requires_confirmation": false
+          },
+          "description": "Import entity, relationship, and unsupported-schema sheets atomically, retaining original entities and dataset metadata. Existing sheet names are refused; this does not merge or deduplicate existing data.",
+          "errors": [
+            {
+              "code": "invalid_action_request",
+              "message": "The typed action request is malformed."
+            },
+            {
+              "code": "followthemoney_unavailable",
+              "message": "Install the entities extra to use FollowTheMoney."
+            },
+            {
+              "code": "invalid_file_source",
+              "message": "The admitted local source could not be read."
+            },
+            {
+              "code": "invalid_ftm_import",
+              "message": "The entity dataset cannot be imported."
+            },
+            {
+              "code": "stale_replay",
+              "message": "The imported entity sheets are no longer active."
+            },
+            {
+              "code": "idempotency_conflict",
+              "message": "The idempotency key was used for different work."
+            },
+            {
+              "code": "project_write_failed",
+              "message": "The entity dataset and receipt could not be published."
+            },
+            {
+              "code": "idempotency_in_progress",
+              "message": "The callable may have effected and cannot be repeated."
+            },
+            {
+              "code": "invalid_action_result",
+              "message": "The callable must return its declared finite JSON value."
+            },
+            {
+              "code": "action_failed",
+              "message": "The callable could not complete."
+            },
+            {
+              "code": "action_cancelled",
+              "message": "The callable was cancelled."
+            }
+          ],
+          "examples": [
+            {
+              "action_id": "frisket.ftm.ftm_import",
+              "idempotency_key": "example:frisket.ftm.ftm_import:1",
+              "output_names": {},
+              "params": {
+                "source_path": "examples/entities.ftm.jsonl"
+              },
+              "replace_existing": false,
+              "scope": {
+                "kind": "project"
+              }
+            }
+          ],
+          "execution_mode": "whole_project",
+          "idempotency": {
+            "behavior": "Same request keys replay committed results.",
+            "key_field": "idempotency_key",
+            "scope": "project",
+            "supported": true
+          },
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "dataset_name": {
+                "anyOf": [
+                  {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Dataset label retained in the imported technical metadata.",
+                "title": "Dataset Name"
+              },
+              "source_path": {
+                "description": "Path to the admitted local FtM JSON or JSONL file.",
+                "minLength": 1,
+                "title": "FollowTheMoney file",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source_path"
+            ],
+            "title": "FtmImportParams",
+            "type": "object"
+          },
+          "kind": "frisket.ftm.ftm_import",
+          "output_schema": {
+            "$defs": {
+              "ImportedEntitySheet": {
+                "properties": {
+                  "column_ids": {
+                    "additionalProperties": {
+                      "type": "integer"
+                    },
+                    "title": "Column Ids",
+                    "type": "object"
+                  },
+                  "kind": {
+                    "enum": [
+                      "entity",
+                      "relationship",
+                      "unsupported"
+                    ],
+                    "title": "Kind",
+                    "type": "string"
+                  },
+                  "name": {
+                    "title": "Name",
+                    "type": "string"
+                  },
+                  "row_ids": {
+                    "items": {
+                      "type": "integer"
+                    },
+                    "title": "Row Ids",
+                    "type": "array"
+                  },
+                  "schema_name": {
+                    "title": "Schema Name",
+                    "type": "string"
+                  },
+                  "sheet_id": {
+                    "title": "Sheet Id",
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "schema_name",
+                  "kind",
+                  "sheet_id",
+                  "column_ids",
+                  "row_ids"
+                ],
+                "title": "ImportedEntitySheet",
+                "type": "object"
+              }
+            },
+            "properties": {
+              "dataset_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Dataset Name"
+              },
+              "diagnostics": {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "title": "Diagnostics",
+                "type": "array"
+              },
+              "op_id": {
+                "title": "Op Id",
+                "type": "integer"
+              },
+              "sheets": {
+                "items": {
+                  "$ref": "#/$defs/ImportedEntitySheet"
+                },
+                "title": "Sheets",
+                "type": "array"
+              }
+            },
+            "required": [
+              "dataset_name",
+              "sheets",
+              "op_id",
+              "diagnostics"
+            ],
+            "title": "ImportedEntityDataset",
+            "type": "object"
+          },
+          "receipt_policy": "writes_receipt",
+          "required_capabilities": [
+            "project:read",
+            "project:write"
+          ],
+          "required_credentials": [],
+          "retry_policy": {
+            "strategy": "idempotency_replay",
+            "supported": true
+          },
+          "row_scope_policy": {
+            "kind": "project",
+            "selectors": []
+          },
+          "side_effects": [
+            "read_local_file",
+            "create_sheets",
+            "append_rows",
+            "write_receipt"
+          ],
+          "title": "Import FollowTheMoney",
+          "ui_hints": {
+            "category": "convert",
+            "form": "generated",
+            "logical_outputs": [],
+            "semantic_controls": {},
+            "source_requirements": []
+          },
+          "writes_project": true
+        },
+        "handler_api": "typed_action",
+        "handler_key": "frisket.ftm:ftm_import",
+        "kind": "frisket.ftm.ftm_import",
+        "module_path": "plugin.py"
+      },
+      {
+        "catalog_entry": {
+          "async_mode": "sync",
+          "cost_policy": {
+            "kind": "none",
+            "requires_confirmation": false
+          },
+          "description": "Export selected investigative rowsets using their FtM mappings to a downloadable ZIP, including entity JSONL, validation, mappings, and source-reference evidence.",
+          "errors": [
+            {
+              "code": "invalid_action_request",
+              "message": "The typed action request is malformed."
+            },
+            {
+              "code": "followthemoney_unavailable",
+              "message": "Install the entities extra to use FollowTheMoney."
+            },
+            {
+              "code": "invalid_ftm_export",
+              "message": "The entity package arguments are invalid."
+            },
+            {
+              "code": "invalid_rowset_spec",
+              "message": "The selected rowset is invalid."
+            },
+            {
+              "code": "invalid_sheet_ref",
+              "message": "The selected sheet must be visible."
+            },
+            {
+              "code": "invalid_materialized_sheet",
+              "message": "The selected sheet is not materialized."
+            },
+            {
+              "code": "export_artifact_missing",
+              "message": "The exported package is unavailable."
+            },
+            {
+              "code": "export_artifact_mismatch",
+              "message": "The exported package bytes changed."
+            },
+            {
+              "code": "idempotency_conflict",
+              "message": "The idempotency key was used for different work."
+            },
+            {
+              "code": "project_write_failed",
+              "message": "The entity package and receipt could not be published."
+            },
+            {
+              "code": "idempotency_in_progress",
+              "message": "The callable may have effected and cannot be repeated."
+            },
+            {
+              "code": "invalid_action_result",
+              "message": "The callable must return its declared finite JSON value."
+            },
+            {
+              "code": "action_failed",
+              "message": "The callable could not complete."
+            },
+            {
+              "code": "action_cancelled",
+              "message": "The callable was cancelled."
+            }
+          ],
+          "examples": [
+            {
+              "action_id": "frisket.ftm.ftm_export",
+              "idempotency_key": "example:frisket.ftm.ftm_export:1",
+              "output_names": {},
+              "params": {
+                "mappings": [
+                  {
+                    "id_policy": {
+                      "kind": "row_ref"
+                    },
+                    "properties": {
+                      "name": {
+                        "column": "name"
+                      }
+                    },
+                    "rowset": {
+                      "kind": "sheet",
+                      "sheet_id": 1
+                    },
+                    "schema": "Person"
+                  }
+                ],
+                "rowsets": [
+                  {
+                    "sheet_id": 1
+                  }
+                ]
+              },
+              "replace_existing": false,
+              "scope": {
+                "kind": "project"
+              }
+            }
+          ],
+          "execution_mode": "whole_project",
+          "idempotency": {
+            "behavior": "Same request keys replay committed results.",
+            "key_field": "idempotency_key",
+            "scope": "project",
+            "supported": true
+          },
+          "input_schema": {
+            "$defs": {
+              "EntityRowset": {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "default": "sheet",
+                    "enum": [
+                      "sheet",
+                      "materialized_sheet"
+                    ],
+                    "title": "Kind",
+                    "type": "string"
+                  },
+                  "sheet_id": {
+                    "exclusiveMinimum": 0,
+                    "title": "Sheet Id",
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "sheet_id"
+                ],
+                "title": "EntityRowset",
+                "type": "object"
+              }
+            },
+            "additionalProperties": false,
+            "properties": {
+              "filename": {
+                "default": "entities.ftm.zip",
+                "minLength": 1,
+                "title": "Filename",
+                "type": "string"
+              },
+              "mappings": {
+                "description": "FtM schema, identity policy, and property mappings for each rowset.",
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "minItems": 1,
+                "title": "Mappings",
+                "type": "array"
+              },
+              "rowsets": {
+                "description": "Investigative sheets or materialized sheets to export.",
+                "items": {
+                  "$ref": "#/$defs/EntityRowset"
+                },
+                "minItems": 1,
+                "title": "Rowsets",
+                "type": "array"
+              },
+              "validate_entities": {
+                "default": true,
+                "title": "Validate entities",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "rowsets",
+              "mappings"
+            ],
+            "title": "FtmExportParams",
+            "type": "object"
+          },
+          "kind": "frisket.ftm.ftm_export",
+          "output_schema": {
+            "properties": {
+              "blob_hash": {
+                "title": "Blob Hash",
+                "type": "string"
+              },
+              "byte_count": {
+                "title": "Byte Count",
+                "type": "integer"
+              },
+              "content_type": {
+                "const": "application/zip",
+                "default": "application/zip",
+                "title": "Content Type",
+                "type": "string"
+              },
+              "entity_count": {
+                "title": "Entity Count",
+                "type": "integer"
+              },
+              "export_kind": {
+                "const": "followthemoney",
+                "default": "followthemoney",
+                "title": "Export Kind",
+                "type": "string"
+              },
+              "filename": {
+                "title": "Filename",
+                "type": "string"
+              },
+              "format": {
+                "const": "zip",
+                "default": "zip",
+                "title": "Format",
+                "type": "string"
+              },
+              "kind": {
+                "const": "export_project_file",
+                "default": "export_project_file",
+                "title": "Kind",
+                "type": "string"
+              },
+              "sha256": {
+                "title": "Sha256",
+                "type": "string"
+              },
+              "skipped_count": {
+                "title": "Skipped Count",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "filename",
+              "blob_hash",
+              "byte_count",
+              "sha256",
+              "entity_count",
+              "skipped_count"
+            ],
+            "title": "ExportedEntityPackage",
+            "type": "object"
+          },
+          "receipt_policy": "writes_receipt",
+          "required_capabilities": [
+            "project:read",
+            "project:write"
+          ],
+          "required_credentials": [],
+          "retry_policy": {
+            "strategy": "idempotency_replay",
+            "supported": true
+          },
+          "row_scope_policy": {
+            "kind": "project",
+            "selectors": []
+          },
+          "side_effects": [
+            "read_investigative_rowsets",
+            "write_blob_store",
+            "write_receipt"
+          ],
+          "title": "Export FollowTheMoney",
+          "ui_hints": {
+            "category": "convert",
+            "form": "generated",
+            "logical_outputs": [],
+            "semantic_controls": {},
+            "source_requirements": []
+          },
+          "writes_project": true
+        },
+        "handler_api": "typed_action",
+        "handler_key": "frisket.ftm:ftm_export",
+        "kind": "frisket.ftm.ftm_export",
+        "module_path": "plugin.py"
+      }
+    ],
+    "importers": [],
+    "job_handlers": [],
+    "operators": [],
+    "projections": []
+  },
+  "schema_version": "frisket.plugin.v1",
+  "version": "1.0.0"
+}

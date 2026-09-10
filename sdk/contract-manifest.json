@@ -1,0 +1,146 @@
+{
+  "capabilityDeclaredOnly": {
+    "projectionView": [
+      "host.library.deckgl"
+    ],
+    "view": [
+      "host.library.deckgl"
+    ]
+  },
+  "capabilityDefaults": {
+    "panel": [
+      "sheet.active",
+      "selection.rows",
+      "host.navigation.openRow",
+      "grid.state.read",
+      "action.run"
+    ],
+    "projectionView": [
+      "projection.status",
+      "projection.build",
+      "projection.artifact.read",
+      "projection.data.read",
+      "host.navigation.openRow",
+      "grid.state.read",
+      "grid.filter.applyBbox",
+      "action.run"
+    ],
+    "view": [
+      "sheet.rows.read",
+      "media.blob.resolve",
+      "host.navigation.openRow",
+      "grid.state.read",
+      "grid.filter.applyBbox",
+      "action.run"
+    ]
+  },
+  "contextSchemaVersions": [
+    "frisket.plugin_view_context.v1",
+    "frisket.plugin_panel_context.v1",
+    "frisket.plugin_dock_tab_context.v1",
+    "frisket.plugin_detail_context.v1",
+    "frisket.plugin_peek_context.v1",
+    "frisket.plugin_command_context.v1",
+    "frisket.plugin_projection_view_context.v1"
+  ],
+  "dataRequirementKinds": [
+    "activeProject",
+    "activeSheet",
+    "activeRow",
+    "activeColumn",
+    "activeCell",
+    "activeEvidence",
+    "activeSource",
+    "activeEntity",
+    "activeProjection",
+    "selectedRows",
+    "sheetHasColumnType"
+  ],
+  "descriptorSchemaVersions": {
+    "command": "frisket.command.v1",
+    "descriptorPackage": "frisket.workbench_descriptor_package.v1",
+    "panel": "frisket.workbench.panel.v1",
+    "plugin": "frisket.plugin.v1",
+    "view": "frisket.workbench.view.v1"
+  },
+  "generatedBy": "scripts/ci/gen_contract_manifest.py — do not hand-edit",
+  "placements": {
+    "command": [
+      {
+        "host": "commandPalette",
+        "mode": "command"
+      }
+    ],
+    "panel": [
+      {
+        "host": "rightInspector",
+        "mode": "panel"
+      },
+      {
+        "host": "bottomDock",
+        "mode": "tab"
+      },
+      {
+        "host": "leftSidebar",
+        "mode": "panel"
+      },
+      {
+        "host": "rowDetail",
+        "mode": "tab"
+      },
+      {
+        "host": "columnDetail",
+        "mode": "tab"
+      },
+      {
+        "host": "columnInspector",
+        "mode": "section"
+      },
+      {
+        "host": "entityDetail",
+        "mode": "tab"
+      },
+      {
+        "host": "sourceDetail",
+        "mode": "tab"
+      },
+      {
+        "host": "modalOrPeek",
+        "mode": "peek"
+      },
+      {
+        "host": "activityRail",
+        "mode": "command"
+      }
+    ],
+    "view": [
+      {
+        "host": "mainView",
+        "mode": "pane"
+      },
+      {
+        "host": "activityRail",
+        "mode": "command"
+      }
+    ]
+  },
+  "reservedPluginIds": [
+    "frisket",
+    "frisket.core"
+  ],
+  "slotByHost": {
+    "activityRail": "launcher",
+    "bottomDock": "companion.output",
+    "columnDetail": "detail",
+    "columnInspector": "detail",
+    "commandPalette": "launcher",
+    "entityDetail": "detail",
+    "leftSidebar": "scope",
+    "mainView": "work.primary",
+    "modalOrPeek": "interruption",
+    "rightInspector": "inspection",
+    "rowDetail": "detail",
+    "rowInspector": "detail",
+    "sourceDetail": "detail"
+  }
+}

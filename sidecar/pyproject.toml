@@ -1,0 +1,134 @@
+[project]
+name = "frisket-models"
+version = "0.1.0"
+description = "frisket-models sidecar: stateless model server for frisket's torch-class engines"
+readme = "README.md"
+authors = [
+    { name = "Jonathan Soma", email = "jonathan.soma@gmail.com" }
+]
+requires-python = ">=3.12"
+# Base deps stay LIGHT on purpose: the default `uv sync` must be able to run
+# the contract tests (engines mocked). Torch-class engines are extras; heavy
+# installs belong HERE, never in the main frisket package.
+dependencies = [
+    "fastapi>=0.136.3",
+    # Boundary-A gateway client for isolated transcription workers. This is
+    # light transport infrastructure, not a model dependency.
+    "httpx>=0.28.1",
+    "pydantic>=2.13.4",
+    "python-multipart>=0.0.32",
+    "uvicorn[standard]>=0.49.0",
+]
+
+[project.optional-dependencies]
+# One extra per engine so a partial install still serves what it has
+# (/capabilities reflects only what imports cleanly).
+#
+# Surya 2 is a 650M document VLM served through an OpenAI-compatible inference
+# backend. ``SuryaInferenceManager`` auto-selects vLLM on NVIDIA or llama.cpp
+# elsewhere; operators may instead point ``SURYA_INFERENCE_URL`` at an existing
+# backend. Keep this local/team extra out of the hosted Modal export below.
+ocr = [
+    "surya-ocr==0.22.1",
+]
+# PaddleOCR-VL document VLM and PP-OCRv6 text OCR. Verified install
+# (paddleocr 3.7.0 / paddlex 3.7.2 / paddlepaddle 3.3.1):
+# the `paddleocr` dist alone is NOT enough — PaddleOCR-VL is a paddlex
+# pipeline whose recognition + layout stages need (a) paddlex's `ocr` extra
+# deps and (b) the `paddlepaddle` compute framework, neither of which
+# `paddleocr` pulls transitively. Both are pinned here so the extra is
+# self-sufficient. (The offline "skip paddlepaddle" assumption was wrong —
+# the PP-DocLayoutV3 layout stage runs on the paddle_static engine.)
+ocr-paddle = [
+    "paddleocr>=3.7",
+    # The accelerated hosted path uses Paddle's official OpenAI-compatible
+    # client plugin; native local/team inference is unchanged.
+    "paddlex[genai-client,ocr]>=3.7",
+    "paddlepaddle>=3.0",  # the paddle compute framework (layout/rec stages)
+]
+convert = [
+    "docling>=2.97.0",
+]
+# Chandra 2 (Datalab, github.com/datalab-to/chandra) is a Qwen-VL-derived
+# document VLM joining docling on /to-markdown as a second experimental
+# engine. Its OWN extra, engine-
+# qualified like `ocr-paddle` (two engines sharing one route, each needing
+# its own truthful missing-extra hint) rather than folded into `convert`.
+# HF backend only (chandra-ocr[hf]: torch + transformers + accelerate) — the
+# sidecar's lazy-load/resident convention loads a real local model, unlike
+# the chandra-ocr package's vLLM-server default (a separate always-on
+# service this sidecar does not manage). GPU strongly recommended: a
+# Qwen-VL-class model is impractically slow on CPU (see load_chandra's
+# docstring in engines.py).
+#
+# LICENSE NOTE: chandra-ocr's code is Apache-2.0, but the chandra-ocr-2
+# model WEIGHTS ship under a modified OpenRAIL-M license — free for
+# research/personal use and orgs under $2M revenue/funding, with a
+# "must not compete with Datalab's own service" use restriction. That is a
+# product/legal call, not an engineering one — see this task's QUESTIONS
+# before installing this extra anywhere real weights would be pulled.
+convert-chandra = [
+    "chandra-ocr[hf]>=0.2.0",
+]
+ner = [
+    "gliner>=0.2.13",
+]
+transcribe = [
+    "faster-whisper>=1.2.1",
+]
+rerank = [
+    "sentence-transformers>=3.0",
+]
+embed = [
+    "fastembed>=0.4",
+]
+# `all` deliberately excludes ocr, ocr-paddle, and convert-chandra. Surya 2's
+# huggingface-hub>=1.5 and pillow<11 requirements cannot resolve with fastembed;
+# the other two engines remain large or coexistence-sensitive as noted above.
+all = ["frisket-models[convert,ner,transcribe,rerank,embed]"]
+
+[build-system]
+requires = ["uv_build>=0.11.17,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+# This project is built from `sidecar/` as an isolated Docker context. Repeat
+# the repository policy here so its lock remains valid when the parent
+# pyproject.toml is intentionally absent from the image build.
+exclude-newer = "1 week"
+# Surya 2 and Chandra can coexist, but neither resolves with FastEmbed's
+# dependency bounds. ``all`` includes FastEmbed, so keep those combinations
+# explicitly separate while allowing operators to install both OCR engines.
+conflicts = [
+    [
+        { extra = "ocr" },
+        { extra = "all" },
+    ],
+    [
+        { extra = "ocr" },
+        { extra = "embed" },
+    ],
+    [
+        { extra = "convert-chandra" },
+        { extra = "all" },
+    ],
+    [
+        { extra = "convert-chandra" },
+        { extra = "embed" },
+    ],
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "ruff>=0.15.16",
+]
+
+[tool.pytest.ini_options]
+# `real` marks tests that load the actual torch-class engines (importorskip'd;
+# they download models on first run). The default sync installs no extras, so
+# they skip — run them in an `--extra all` env with `-m real`.
+markers = [
+    "real: loads a real engine (heavy extras + model download required)",
+    "realtime: sanctioned real-clock tier — positive latency/bound assertions only; never use for negative assertions",
+]

@@ -1,0 +1,267 @@
+/* Shared styles for the "resolve" action primitives (Substitute / Replace /
+   Combine / Fill missing drawer bodies): ValueList, SelectionBar, GroupCard,
+   One stylesheet, every class prefixed `resolve-`; visual
+   tokens come from styles.css custom properties (--bg, --border, --accent,
+   --mono, --radius-*) so the components inherit the app skin. This file is
+   the ONLY stylesheet these components add — styles.css is not edited. */
+
+/* ── ValueList ─────────────────────────────────────────────────────────── */
+
+.resolve-value-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-8);
+  overflow: hidden;
+}
+.resolve-value-search-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-light);
+  flex-shrink: 0;
+}
+/* The search input sits inside the list frame, so it drops the form-input
+   chrome (the row provides the border) but keeps its font/color/reset. */
+.resolve-value-search-row .form-input.resolve-value-search {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 3px 2px;
+}
+.resolve-value-search-row .form-input.resolve-value-search:focus {
+  outline: none;
+  border-color: transparent;
+}
+.resolve-value-viewport {
+  position: relative;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  /* Default cap so a long column stays a windowed pane inside the drawer;
+     hosts that own their height can override on `.resolve-value-viewport`. */
+  max-height: 320px;
+}
+.resolve-value-viewport:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--accent-bg);
+}
+.resolve-value-spacer {
+  position: relative;
+  width: 100%;
+}
+.resolve-value-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  color: var(--text);
+}
+.resolve-value-row:hover { background: var(--bg-hover); }
+.resolve-value-row.is-selected { background: var(--accent-bg); }
+.resolve-value-row.is-selected:hover { background: var(--accent-bg); }
+.resolve-value-row.is-active { box-shadow: inset 2px 0 0 var(--accent); }
+.resolve-value-text {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+/* Leading/trailing whitespace made visible (matching is exact): the padded
+   region keeps its real characters (white-space: pre) under a subtle dotted
+   underline. */
+.resolve-value-ws {
+  white-space: pre;
+  border-bottom: 1px dotted var(--text-light);
+  background: var(--bg-hover);
+  border-radius: 2px;
+}
+.resolve-value-count {
+  flex-shrink: 0;
+  color: var(--text-light);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+/* Proportional frequency bar along the row's bottom edge. */
+.resolve-value-bar {
+  position: absolute;
+  left: 0;
+  bottom: 1px;
+  height: 2px;
+  background: var(--border-strong);
+  pointer-events: none;
+}
+.resolve-value-row.is-selected .resolve-value-bar {
+  background: var(--accent);
+  opacity: 0.55;
+}
+.resolve-value-trailing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.resolve-value-empty { margin: 2px 4px; }
+
+/* ── SelectionBar ──────────────────────────────────────────────────────── */
+
+.resolve-selection-bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px 5px 10px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-7);
+  background: var(--accent-bg);
+  color: var(--accent-strong);
+  font-size: 12px;
+}
+.resolve-selection-count {
+  flex-shrink: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.resolve-selection-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+.resolve-selection-clear {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--accent-strong);
+}
+
+/* ── GroupCard ─────────────────────────────────────────────────────────── */
+
+.resolve-group-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-8);
+}
+.resolve-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+}
+.resolve-group-collapse {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--text-light);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: var(--radius-4);
+  flex-shrink: 0;
+}
+.resolve-group-collapse:hover { background: var(--bg-hover); color: var(--text); }
+.resolve-group-diamond { color: var(--accent); flex-shrink: 0; }
+.resolve-group-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+}
+.resolve-group-total {
+  flex-shrink: 0;
+  color: var(--text-light);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+.resolve-group-delete { flex-shrink: 0; }
+.resolve-group-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+}
+.resolve-group-summary-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.resolve-group-summary-meta {
+  color: var(--text-light);
+  font-size: 11.5px;
+  flex-shrink: 0;
+}
+.resolve-group-members {
+  border-top: 1px solid var(--border);
+  padding: 4px 0 6px;
+  display: flex;
+  flex-direction: column;
+}
+.resolve-group-member {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+.resolve-member-promote {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--text-light);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: var(--radius-4);
+  flex-shrink: 0;
+}
+.resolve-member-promote:hover:not(:disabled) {
+  color: var(--accent);
+  background: var(--bg-hover);
+}
+.resolve-member-promote:disabled {
+  color: var(--accent);
+  cursor: default;
+}
+.resolve-member-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+.resolve-member-count {
+  flex-shrink: 0;
+  color: var(--text-light);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+.resolve-member-remove { flex-shrink: 0; }
+
+/* Preserve each rich editor's existing flex/layout tree while using native
+   fieldset disabling to lock its controls during host-owned preflight/run. */
+.resolve-drawer-body-fields {
+  display: contents;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}

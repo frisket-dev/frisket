@@ -1,0 +1,27 @@
+name: Bug report
+description: Something in frisket isn't working the way it should.
+title: "[bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting this. Please report security vulnerabilities
+        privately through the Security vulnerability link instead.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Tell us what you did, what you expected, and what happened instead.
+      placeholder: I clicked Export and expected a CSV download, but nothing happened.
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment / extra detail
+      description: Optional — add screenshots, logs, version, install method, or OS. `frisket doctor` output is especially helpful for setup or model problems.
+    validations:
+      required: false

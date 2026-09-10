@@ -1,0 +1,191 @@
+{
+  "auto_enable": true,
+  "contributes": {
+    "actions": [
+      "frisket.transliterate.transliterate"
+    ],
+    "column_types": [],
+    "importers": [],
+    "job_handlers": [],
+    "operators": [],
+    "projections": [],
+    "workbench_commands": [],
+    "workbench_panels": [],
+    "workbench_views": []
+  },
+  "id": "frisket.transliterate",
+  "requires": {
+    "capabilities": [
+      "plugin:trusted_local_backend"
+    ],
+    "secrets": []
+  },
+  "runtime": {
+    "actions": [
+      {
+        "catalog_entry": {
+          "async_mode": "sync",
+          "cost_policy": {
+            "kind": "none",
+            "requires_confirmation": false
+          },
+          "description": "Convert text from other writing systems to Latin script.",
+          "errors": [
+            {
+              "code": "invalid_action_request",
+              "message": "The typed action request is malformed."
+            },
+            {
+              "code": "invalid_params",
+              "message": "The transform parameters or result are invalid."
+            },
+            {
+              "code": "invalid_input_ref",
+              "message": "The source sheet or column is invalid."
+            },
+            {
+              "code": "output_column_exists",
+              "message": "The requested output column already exists."
+            },
+            {
+              "code": "output_column_busy",
+              "message": "The requested output column is claimed by another run."
+            },
+            {
+              "code": "project_write_failed",
+              "message": "The atomic transform failed without changing the project."
+            },
+            {
+              "code": "idempotency_conflict",
+              "message": "The idempotency key was used for different work."
+            },
+            {
+              "code": "stale_replay",
+              "message": "The source snapshot or committed output is no longer current."
+            }
+          ],
+          "examples": [
+            {
+              "action_id": "frisket.transliterate.transliterate",
+              "idempotency_key": "example:frisket.transliterate.transliterate:1",
+              "output_names": {},
+              "params": {
+                "text": "text"
+              },
+              "replace_existing": false,
+              "scope": {
+                "kind": "sheet_rows",
+                "sheet_id": 1
+              }
+            }
+          ],
+          "execution_mode": "atomic_column_transform",
+          "idempotency": {
+            "behavior": "Same request keys replay committed results.",
+            "key_field": "idempotency_key",
+            "scope": "project",
+            "supported": true
+          },
+          "input_schema": {
+            "$defs": {
+              "ColumnRef_str_": {
+                "title": "ColumnRef[str]",
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "properties": {
+              "text": {
+                "$ref": "#/$defs/ColumnRef_str_"
+              }
+            },
+            "required": [
+              "text"
+            ],
+            "title": "TransliterateParams",
+            "type": "object"
+          },
+          "kind": "frisket.transliterate.transliterate",
+          "output_schema": {
+            "properties": {
+              "latin_text": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Latin Text"
+              }
+            },
+            "required": [
+              "latin_text"
+            ],
+            "title": "TransliterateOutput",
+            "type": "object"
+          },
+          "receipt_policy": "writes_receipt",
+          "required_capabilities": [
+            "project:write"
+          ],
+          "required_credentials": [],
+          "retry_policy": {
+            "strategy": "idempotency_replay",
+            "supported": true
+          },
+          "row_scope_policy": {
+            "kind": "sheet_rows",
+            "selectors": [
+              "all_rows"
+            ]
+          },
+          "side_effects": [
+            "read_source_column",
+            "create_generated_column",
+            "write_column_transform_op",
+            "write_receipt"
+          ],
+          "title": "Transliterate to Latin script",
+          "ui_hints": {
+            "category": "text",
+            "form": "generated",
+            "logical_outputs": [
+              {
+                "column_type": "text",
+                "key": "latin_text"
+              }
+            ],
+            "semantic_controls": {
+              "text": "column"
+            },
+            "source_requirements": [
+              {
+                "accepted_column_types": [
+                  "text"
+                ],
+                "id": "text",
+                "label": "Text",
+                "min": 1,
+                "mode": "column",
+                "param": "text"
+              }
+            ]
+          },
+          "writes_project": true
+        },
+        "handler_api": "typed_action",
+        "handler_key": "frisket.transliterate:transliterate",
+        "kind": "frisket.transliterate.transliterate",
+        "module_path": "plugin.py"
+      }
+    ],
+    "importers": [],
+    "job_handlers": [],
+    "operators": [],
+    "projections": []
+  },
+  "schema_version": "frisket.plugin.v1",
+  "version": "1.0.0"
+}

@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "frisket.workbench_portability_contract_matrix.v1",
+  "contractSketch": "tests/fixtures/workbench_portability/README.md",
+  "requiredCases": [
+    "friendly_filters_portable_panel",
+    "sources_scope_panel_with_disabled_secondary",
+    "actions_discovery_and_configuration_split",
+    "map_main_view_with_geo_requirement",
+    "source_health_main_view",
+    "evidence_peek_and_main_companion",
+    "row_evidence_inspector_section",
+    "bottom_dock_companion_output_tabs",
+    "command_palette_contribution_launcher",
+    "trusted_local_install_placeholder",
+    "malformed_layout_recovery",
+    "route_restore_failure",
+    "legacy_local_storage_migration",
+    "split_pane_interaction",
+    "static_vs_runtime_projection",
+    "old_path_removal_expectations",
+    "unknown_slot_negative_case"
+  ],
+  "requiredDescriptorKinds": [
+    "panel",
+    "view",
+    "inspectorSection",
+    "actionForm",
+    "sourceForm",
+    "command"
+  ],
+  "requiredPlacementKeys": [
+    "host",
+    "mode",
+    "slot",
+    "placementId"
+  ],
+  "requiredHostCapabilities": [
+    "host.navigation.openRow",
+    "host.navigation.openEvidence",
+    "source.list",
+    "source.poll",
+    "action.run",
+    "action.preview",
+    "grid.filter.applyBbox",
+    "projection.status",
+    "layout.profile.persist"
+  ],
+  "disabledReasonCodes": [
+    "missing_plugin",
+    "missing_host_capability",
+    "missing_permission",
+    "missing_context",
+    "data_requirement_unmet",
+    "unknown_slot",
+    "hidden_by_profile",
+    "runtime_activation_failed",
+    "route_restore_failed",
+    "malformed_layout"
+  ],
+  "runtimeOnlyFields": [
+    "componentKey",
+    "handlerKey",
+    "lazyImport",
+    "component",
+    "callback"
+  ],
+  "oldPathExpectations": [
+    "web/src/components/Sidebar.tsx direct FriendlyFiltersPanel mount removed",
+    "web/src/App.tsx migrated surface branches disabled by default",
+    "Move Map prototype chrome removed after renderer support",
+    "Map target mainView prototype chrome removed after renderer support"
+  ]
+}
