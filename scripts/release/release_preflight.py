@@ -39,8 +39,8 @@ def package_metadata_findings(root: Path = ROOT) -> tuple[list[str], list[str]]:
     warnings: list[str] = []
     project = load_pyproject(root).get("project", {})
 
-    if project.get("name") != "frisket":
-        errors.append("pyproject.toml [project].name must be 'frisket'")
+    if project.get("name") != "frisket-data":
+        errors.append("pyproject.toml [project].name must be 'frisket-data'")
     if project.get("description") in {None, "", "Add your description here"}:
         errors.append("pyproject.toml [project].description is still a placeholder")
     if project.get("license") != "Apache-2.0":
