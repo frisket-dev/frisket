@@ -492,33 +492,32 @@ export function AdminPage() {
 
   useEffect(() => {
     getAdminOverview()
-      .then((loaded) => dispatch({ type: 'overviewLoaded', data: loaded }))
+      .then((loaded) => {
+        dispatch({ type: 'overviewLoaded', data: loaded });
+        if (section === 'audit') void loadAudit();
+        if (section === 'jobs') void loadJobs();
+        if (section === 'users') void loadUsers();
+        if (section === 'errors') void loadErrors();
+        if (section === 'diagnostics') void loadAdminHealth();
+      })
       .catch((e: unknown) => {
         if (e instanceof ApiError && (e.status === 403 || e.status === 404)) {
           dispatch({ type: 'overviewDenied' });
+          // Only a denied overview needs the public instance posture to
+          // distinguish an unconfigured server from a non-admin account.
+          void getHealth()
+            .then((health) =>
+              dispatch({
+                type: 'healthLoaded',
+                adminConfigured: health.posture?.admin_configured ?? null,
+              }),
+            )
+            .catch(() => dispatch({ type: 'healthLoaded', adminConfigured: null }));
         } else {
           dispatch({ type: 'overviewFailed', message: e instanceof Error ? e.message : String(e) });
         }
       });
-    // Distinguishes "nobody is an admin yet" (no owner membership)
-    // from "you're signed in but not an
-    // admin" on the denied screen below. Unauthenticated, so it works even
-    // for a signed-out visitor; missing `posture` (local tier, or an older
-    // backend) falls back to the generic denied copy.
-    getHealth()
-      .then((health) =>
-        dispatch({
-          type: 'healthLoaded',
-          adminConfigured: health.posture?.admin_configured ?? null,
-        }),
-      )
-      .catch(() => dispatch({ type: 'healthLoaded', adminConfigured: null }));
-    void loadAudit();
-    void loadJobs();
-    void loadUsers();
-    void loadErrors();
-    void loadAdminHealth();
-  }, [loadAdminHealth, loadAudit, loadErrors, loadJobs, loadUsers]);
+  }, [loadAdminHealth, loadAudit, loadErrors, loadJobs, loadUsers, section]);
 
   return (
     <AdminShell>
