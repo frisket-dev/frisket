@@ -22,7 +22,8 @@ HASHED_ASSET = re.compile(r".+-[A-Za-z0-9_-]{8,}\.[A-Za-z0-9]+$")
 # The public wheel ships exactly one top-level package (``frisket``) plus its
 # own dist-info/data directories. Anything else at the top level is an
 # unexpected package that should never have been bundled into this artifact.
-EXPECTED_TOP_LEVEL_ROOTS = ("frisket",)
+IMPORT_PACKAGE_ROOT = "frisket"
+DISTRIBUTION_METADATA_PREFIX = "frisket_data-"
 
 
 class _IndexParser(HTMLParser):
@@ -108,9 +109,12 @@ def _unexpected_package_path(path: str) -> bool:
     if not parts:
         return False
     root = parts[0].lower()
-    return not any(
-        root == expected or root.startswith(f"{expected}-")
-        for expected in EXPECTED_TOP_LEVEL_ROOTS
+    return not (
+        root == IMPORT_PACKAGE_ROOT
+        or (
+            root.startswith(DISTRIBUTION_METADATA_PREFIX)
+            and root.endswith((".dist-info", ".data"))
+        )
     )
 
 

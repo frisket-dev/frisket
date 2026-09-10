@@ -129,6 +129,7 @@ def test_verify_release_wheel_rejects_unexpected_distribution_metadata(tmp_path)
 def test_verify_release_wheel_accepts_public_staged_shape(tmp_path):
     files = _valid_files()
     files["frisket/integrations/hosted_error.py"] = b"public adapter"
+    files["frisket_data-0.1.1a68.dist-info/METADATA"] = b"Name: frisket-data"
     wheel = _wheel(tmp_path / "frisket.whl", files)
 
     assert verify_wheel(str(wheel)) == []
