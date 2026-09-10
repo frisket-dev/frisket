@@ -13,6 +13,8 @@ pip install 'frisket-data[standard]'
 frisket ./my-workspace
 ```
 
+> Note that is NOT installed with `frisket`, it's `frisket-data`. I got package-name-sniped!
+
 ## What Frisket can do
 
 Frisket can analyze spreadsheets, PDFs, images, videos, probably a hundred other things. You drop content in, then run AI against it in a structured way. It's a new way to do projects like:
