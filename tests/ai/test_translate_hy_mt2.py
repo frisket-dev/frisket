@@ -205,7 +205,7 @@ async def test_recipe_hy_mt2_runtime_absent_reports_remediation(monkeypatch):
             ctx,
         )
     assert ei.value.code == "unavailable"
-    assert "frisket[translate-gguf]" in ei.value.message
+    assert "frisket-data[translate-gguf]" in ei.value.message
 
 
 @pytest.mark.asyncio
@@ -276,7 +276,7 @@ def test_catalog_hy_mt2_available_tracks_runtime(monkeypatch):
     engines2 = action_catalog_hints._recipe_engines("map.translate", {})
     hy2 = next(e for e in engines2 if e["id"] == "hy_mt2")
     assert hy2["available"] is False
-    assert "frisket[translate-gguf]" in hy2["error"]
+    assert "frisket-data[translate-gguf]" in hy2["error"]
 
 
 @pytest.mark.asyncio

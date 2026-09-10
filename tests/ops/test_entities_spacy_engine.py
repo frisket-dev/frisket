@@ -243,7 +243,7 @@ async def test_ner_recipe_spacy_engine_calls_run_spacy_ner_default(monkeypatch):
 def test_spacy_reads_fixture_real():
     """INSTALLED-STATE (skips without spacy + en_core_web_sm): a real spaCy
     pipeline tags a well-known person entity. Un-gap by installing
-    frisket[standard] + `python -m spacy download en_core_web_sm` (a
+    frisket-data[standard] + `python -m spacy download en_core_web_sm` (a
     separate explicit action, never triggered by this test)."""
     pytest.importorskip("spacy")
     if not spacy_available()[0]:

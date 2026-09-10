@@ -150,7 +150,7 @@ def test_native_handlers_surface_real_missing_extra_refusal(
     monkeypatch.setattr(
         entity_package,
         "entities_available",
-        lambda: (False, "Install frisket[entities]."),
+        lambda: (False, "Install frisket-data[entities]."),
     )
     definition = native.FTM_IMPORT if name == "import" else native.FTM_EXPORT
     params = (

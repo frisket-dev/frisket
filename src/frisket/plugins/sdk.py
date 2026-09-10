@@ -64,7 +64,7 @@ def register_actions(
 
 class PluginDependencyMissing(RuntimeError):
     """Raise from a handler when it needs an optional Python dependency
-    (an extra, e.g. `frisket[entities]`) that is not installed.
+    (an extra, e.g. `frisket-data[entities]`) that is not installed.
 
     Every OTHER exception a handler raises is redacted by the subprocess
     boundary to a generic message (`frisket.plugins.subprocess_runner`'s

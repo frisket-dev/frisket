@@ -47,7 +47,9 @@ def _refuse(code, message):
 def _require_entities():
     available, error = entities_available()
     if not available:
-        _refuse("followthemoney_unavailable", error or "Install frisket[entities].")
+        _refuse(
+            "followthemoney_unavailable", error or "Install frisket-data[entities]."
+        )
 
 
 class FollowTheMoneyImportCapability:

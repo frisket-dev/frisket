@@ -124,7 +124,7 @@ def test_icu_engine_forced_but_unavailable_raises_with_remediation(
     monkeypatch.setattr(module, "_icu_transliterator", lambda: None)
     with pytest.raises(ValueError) as excinfo:
         module.transliterate("x", engine=module.ENGINE_ICU)
-    assert "frisket[entities]" in str(excinfo.value)
+    assert "frisket-data[entities]" in str(excinfo.value)
 
 
 def test_unknown_engine_raises() -> None:
@@ -164,7 +164,7 @@ def test_discoverable_but_unloadable_icu_falls_back_on_the_default_path(
     # An explicit force still raises clearly rather than silently downgrading.
     with pytest.raises(ValueError) as excinfo:
         module.transliterate("x", engine=module.ENGINE_ICU)
-    assert "frisket[entities]" in str(excinfo.value)
+    assert "frisket-data[entities]" in str(excinfo.value)
 
 
 # --------------------------------------------------------------------------- #
