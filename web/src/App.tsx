@@ -994,7 +994,7 @@ const WorkspaceActRegion = memo(function WorkspaceActRegion() {
     if (actRibbonTabs.length === 0 || actRibbonTabs.some((tab) => tab.id === activeRibbonTab)) {
       return;
     }
-    const fallbackTab = actRibbonTabs.find((tab) => tab.id === 'home') ?? actRibbonTabs[0];
+    const fallbackTab = actRibbonTabs.find((tab) => tab.id === 'analyze') ?? actRibbonTabs[0];
     if (fallbackTab) setActiveRibbonTab(fallbackTab.id);
   }, [catalogStatus, actRibbonTabs, activeRibbonTab, setActiveRibbonTab]);
   return (

@@ -40,15 +40,15 @@ describe('served action ribbon organization', () => {
       ]));
   });
 
-  it('keeps each stock category to five choices including workflow and compare buttons', () => {
+  it('keeps six broad tabs with focused groups of at most five choices', () => {
     expect(tabs.map((tab) => tab.label)).toEqual([
-      'Data', 'Web', 'Video', 'Transcripts', 'Documents', 'Tables', 'Analyze',
-      'Extract', 'Transform', 'Resolve', 'Language', 'Research', 'Location',
+      'Data', 'Media', 'Analyze', 'Transform', 'Tables', 'Research',
     ]);
     const items = tabs.flatMap((tab) => {
-      const choices = tab.groups.flatMap((group) => group.items);
-      expect(choices.length, tab.label).toBeLessThanOrEqual(5);
-      return choices;
+      for (const group of tab.groups) {
+        expect(group.items.length, `${tab.label}/${group.caption}`).toBeLessThanOrEqual(5);
+      }
+      return tab.groups.flatMap((group) => group.items);
     });
     // All 49 standalone actions (including Transliterate) and 9 workflow or
     // compare commands remain present, with no duplicate base-tab launchers.
@@ -59,10 +59,10 @@ describe('served action ribbon organization', () => {
 
   it('places standalone actions with related work rather than beside Template', () => {
     expect(placements).toEqual(expect.arrayContaining([
-      { kind: 'map.regex_extract', tab: 'extract', group: 'EXTRACT' },
+      { kind: 'map.regex_extract', tab: 'analyze', group: 'EXTRACT' },
       { kind: 'map.columns_from_json', tab: 'tables', group: 'TABLES' },
       { kind: 'derive.link_table', tab: 'tables', group: 'TABLES' },
-      { kind: 'media.enclosure_materialize', tab: 'web', group: 'WEB' },
+      { kind: 'media.enclosure_materialize', tab: 'data', group: 'WEB' },
     ]));
     expect(placements.filter(({ tab, group }) => tab === 'transform' && group === 'TRANSFORM')
       .map(({ kind }) => kind)).toEqual(['map.clean_column', 'map.clean_dates', 'map.template', 'map.python']);

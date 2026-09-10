@@ -220,7 +220,7 @@ async function runComparison(page: Page) {
 }
 
 async function openTranscribeCompareWithAudio(page: Page) {
-  await page.getByTestId('ribbon-tab-transcripts').click();
+  await page.getByTestId('ribbon-tab-media').click();
   await page.getByTestId('ribbon-command-transcribe-compare').click();
   await expect(page.getByTestId('transcribe-compare-tab')).toBeVisible();
   await page.getByTestId('transcribe-compare-file-input').setInputFiles({

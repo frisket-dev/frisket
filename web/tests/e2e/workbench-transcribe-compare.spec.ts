@@ -234,7 +234,7 @@ async function runComparison(page: Page, expectedColumns = 2) {
 }
 
 async function openTranscribeCompare(page: Page) {
-  await page.getByTestId('ribbon-tab-transcripts').click();
+  await page.getByTestId('ribbon-tab-media').click();
   await page.getByTestId('ribbon-command-transcribe-compare').click();
   await expect(page.getByTestId('transcribe-compare-tab')).toBeVisible();
 }

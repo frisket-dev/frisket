@@ -318,7 +318,7 @@ describe('applyRoute fixed six-class matrix', () => {
     const harness = createMatrixHarness();
     const preferences: HydratedChromePreferences = {
       ribbonMode: 'ribbon',
-      activeRibbonTab: 'home',
+      activeRibbonTab: 'analyze',
       discoverOpen: true,
       discoverTab: 'Facets',
       promotedViews: [],

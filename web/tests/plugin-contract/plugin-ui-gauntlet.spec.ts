@@ -2332,7 +2332,7 @@ test('generated plugin launcher is shared across Act densities and reveals its p
   // from it selects the primary bottomDock tab, and only THEN does the plugin
   // component mount through the integrity path.
   await page.getByTestId('ribbon-collapse').click();
-  await page.getByTestId('menubar-menu-home').click();
+  await page.getByTestId('menubar-menu-analyze').click();
   const compactLauncher = page.getByTestId(`menu-launcher-${launcherSlug}`);
   await expect(compactLauncher).toBeVisible();
   await expect(compactLauncher).toHaveAttribute('data-runtime-source', 'runtimeIndex');

@@ -206,7 +206,7 @@ test('local-model walkthrough connects a named endpoint, succeeds simply, and ex
       await expect(page.getByTestId('grid-column-expected_notice_type')).toBeVisible();
     });
     await walkthroughStep('open-local-analyze', async () => {
-      await page.getByTestId('ribbon-tab-home').click();
+      await page.getByTestId('ribbon-tab-analyze').click();
       await expect(page.getByTestId('ribbon-action-map.classify')).toBeVisible();
     });
     await walkthroughStep('open-local-classify', async () => {
@@ -283,7 +283,7 @@ test('local-model walkthrough connects a named endpoint, succeeds simply, and ex
       }
     });
     await walkthroughStep('reopen-local-analyze', async () => {
-      await page.getByTestId('ribbon-tab-home').click();
+      await page.getByTestId('ribbon-tab-analyze').click();
     });
     await walkthroughStep('reopen-local-classify', async () => {
       await page.getByTestId('ribbon-action-map.classify').click();
@@ -333,7 +333,7 @@ test('local-model walkthrough connects a named endpoint, succeeds simply, and ex
       await expect(page.getByTestId('grid-column-small_model_label')).toBeVisible();
     });
     await walkthroughStep('open-hard-analyze', async () => {
-      await page.getByTestId('ribbon-tab-home').click();
+      await page.getByTestId('ribbon-tab-analyze').click();
       await expect(page.getByTestId('ribbon-action-map.ask')).toBeVisible();
     });
     await walkthroughStep('open-hard-ask', async () => {
