@@ -46,7 +46,9 @@ def _user_agent() -> str:
     try:
         from importlib.metadata import version
 
-        v = version("frisket")
+        from frisket import DISTRIBUTION_NAME
+
+        v = version(DISTRIBUTION_NAME)
     except Exception:  # noqa: BLE001 — uninstalled dev tree
         v = "dev"
     return f"frisket/{v} (https://frisket.dev)"

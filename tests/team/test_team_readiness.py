@@ -40,7 +40,7 @@ def test_readiness_requires_fresh_matching_worker_even_when_queue_is_empty(tmp_p
     assert missing["failures"] == [NO_CURRENT_WORKER]
     assert missing["identity"] == {
         "schema_version": IDENTITY_SCHEMA_VERSION,
-        "package_version": version("frisket"),
+        "package_version": version("frisket-data"),
         "code_version": "release-a",
     }
 

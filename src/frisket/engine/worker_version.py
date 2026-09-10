@@ -26,6 +26,8 @@ from functools import lru_cache
 from importlib import metadata as importlib_metadata
 from pathlib import Path
 
+from frisket import DISTRIBUTION_NAME
+
 VERSION_FILE_NAME = "VERSION"
 UNKNOWN_CODE_VERSION = "unknown"
 _VERSION_IDENTITY_RE = re.compile(r"^[0-9a-f]{40}(?:\+[A-Za-z0-9._-]{1,87})?$")
@@ -70,7 +72,7 @@ def _version_file(root: Path) -> str | None:
 
 def _installed_package_version() -> str | None:
     try:
-        value = importlib_metadata.version("frisket-data").strip()
+        value = importlib_metadata.version(DISTRIBUTION_NAME).strip()
     except Exception:  # noqa: BLE001 — identity lookup must never break a worker
         return None
     return value or None

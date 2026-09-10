@@ -13,6 +13,7 @@ from typing import Any
 
 import sqlalchemy as sa
 
+from frisket import DISTRIBUTION_NAME
 from frisket.engine.jobs.projection import parse_status_time
 from frisket.engine.worker_version import code_version
 
@@ -34,7 +35,7 @@ def runtime_identity(*, target_code_version: str | None = None) -> dict[str, str
     """
 
     try:
-        package_version = version("frisket")
+        package_version = version(DISTRIBUTION_NAME)
     except PackageNotFoundError:
         package_version = "unknown"
     return {
