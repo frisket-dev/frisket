@@ -2,6 +2,8 @@
 
 I wanted a spreadsheet that did AI things for investigative journalism. The NYT [made one for itself](https://www.niemanlab.org/2026/02/how-the-new-york-times-uses-a-custom-ai-tool-to-track-the-manosphere/), so I made one for the rest of us. Use Frisket to analyze zillions of documents, decades of audio, centuries of video, all in a friendly (???) spreadsheet format.
 
+![A screenshot](sample.png)
+
 ## Quickstart
 
 Use the [cloud version](https://app.frisket.dev/) or run locally with Python 3.12:
