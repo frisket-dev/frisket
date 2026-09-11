@@ -25,6 +25,10 @@ from frisket.engine.store.cell_writes import (
     initialize_base_cells,
     insert_edits,
 )
+from frisket.engine.store.current_cells import (
+    decoded_cell_validity,
+    refresh_current_cells,
+)
 from frisket.engine.store.result_generations import ResultGenerationStore
 
 # Column types live in the pluggable registry (frisket.column_types) — the
@@ -250,9 +254,6 @@ def add_column(
         (sheet_id, name),
     ).fetchone()
     if existing_hidden:
-        _validate_existing_column_values_for_type(
-            project, int(existing_hidden["id"]), type
-        )
         # semantic_type converges with the rest: a revived column that keeps a
         # marker its new producer never declared would make the marker a lie
         # (a prose column advertising entity_mentions), and one that loses a
@@ -289,6 +290,7 @@ def add_column(
                 existing_hidden["id"],
             ),
         )
+        refresh_current_cells(project.db, column_ids=[int(existing_hidden["id"])])
         if commit:
             project.db.commit()
         return existing_hidden["id"]
@@ -357,36 +359,12 @@ def set_column_type(
     """Retype a column onto any REGISTERED type (core or plugin)."""
     if not column_types.is_registered(type):
         raise ValueError(f"unknown column type: {type}")
-    _validate_existing_column_values_for_type(project, column_id, type)
     cur = project.db.execute("UPDATE columns SET type=? WHERE id=?", (type, column_id))
     if cur.rowcount == 0:
         raise KeyError(f"no column {column_id}")
+    refresh_current_cells(project.db, column_ids=[column_id])
     if commit:
         project.db.commit()
-
-
-def _validate_existing_column_values_for_type(
-    project: Any, column_id: int, type: str
-) -> None:
-    """Validate retained values before any existing-column type mutation."""
-    if type != "integer":
-        return
-    column = project.db.execute(
-        "SELECT sheet_id FROM columns WHERE id=?", (column_id,)
-    ).fetchone()
-    if column is None:
-        raise KeyError(f"no column {column_id}")
-    invalid = [
-        row_id
-        for row_id, value in project.get_values(
-            int(column["sheet_id"]), column_id
-        ).items()
-        if not column_types.validate_value("integer", value)
-    ]
-    if invalid:
-        raise ValueError(
-            "existing values are invalid integer data: expected signed 64-bit integers"
-        )
 
 
 def set_column_format(
@@ -444,7 +422,6 @@ def add_rows(
     and retain transaction ownership. The standalone convenience path creates
     one undoable append operation and producer for the complete batch.
     """
-    _validate_core_integer_source_values(project, records, column_ids)
     if not records:
         return []
     db = project.db
@@ -504,7 +481,6 @@ def add_row_with_undo(
     project: Any, sheet_id: int, record: dict[str, Any], column_ids: dict[str, int]
 ) -> int:
     """Append one hand-entered row and its undo op atomically."""
-    _validate_core_integer_source_values(project, [record], column_ids)
     cur = project.db.cursor()
     try:
         cur.execute("BEGIN IMMEDIATE")
@@ -549,35 +525,6 @@ def add_row_with_undo(
     except Exception:
         project.db.rollback()
         raise
-
-
-def _validate_core_integer_source_values(
-    project: Any,
-    records: list[dict[str, Any]],
-    column_ids: dict[str, int],
-) -> None:
-    """Enforce the core signed-int64 contract at the raw storage boundary."""
-    if not records or not column_ids:
-        return
-    placeholders = ",".join("?" for _ in column_ids)
-    integer_ids = {
-        int(row["id"])
-        for row in project.db.execute(
-            f"SELECT id FROM columns WHERE id IN ({placeholders}) AND type='integer'",
-            list(column_ids.values()),
-        ).fetchall()
-    }
-    integer_names = {
-        name for name, column_id in column_ids.items() if column_id in integer_ids
-    }
-    for row_index, record in enumerate(records):
-        for name in integer_names & record.keys():
-            value = record[name]
-            if value is not None and not column_types.validate_value("integer", value):
-                raise ValueError(
-                    "invalid integer data at "
-                    f"records[{row_index}].{name}: expected a signed 64-bit integer"
-                )
 
 
 def row_count(project: Any, sheet_id: int) -> int:
@@ -632,7 +579,7 @@ def _current_cell_rows(
             for offset in range(0, len(row_ids), _SQLITE_ID_CHUNK_SIZE)
         ]
     )
-    fields = "r.id, c.value"
+    fields = "r.id, c.value, COALESCE(c.validity, 'missing') AS validity"
     if with_refs:
         fields += ", c.origin_kind, c.origin_op_id, c.origin_run_id"
     for chunk in chunks:
@@ -658,6 +605,8 @@ def get_values_with_refs(
     *,
     apply_edits: bool = True,
     tolerate_decode_errors: bool = False,
+    preserve_invalid: bool = False,
+    include_validity: bool = False,
 ) -> tuple[dict[int, Any], dict[int, dict[str, Any]]]:
     """Read current values, or the explicit generated candidate beneath edits.
 
@@ -672,6 +621,11 @@ def get_values_with_refs(
     ``tolerate_decode_errors=True`` treats malformed/non-strict source and
     edit JSON as null at its normal precedence. Ordinary callers keep the
     historical exception behavior by default.
+
+    Invalid values read as missing by default so typed consumers do not need
+    their own coercion rules. ``preserve_invalid=True`` is for data-preserving
+    surfaces such as the grid and exports; ``include_validity=True`` annotates
+    refs with the projection classification.
     """
     if apply_edits:
         values: dict[int, Any] = {}
@@ -681,7 +635,10 @@ def get_values_with_refs(
         ):
             row_id = int(row["id"])
             values[row_id] = _decode_stored_value(
-                row["value"], tolerate_errors=tolerate_decode_errors
+                None
+                if row["validity"] == "invalid" and not preserve_invalid
+                else row["value"],
+                tolerate_errors=tolerate_decode_errors,
             )
             refs[row_id] = {
                 "kind": row["origin_kind"] or "missing",
@@ -689,6 +646,7 @@ def get_values_with_refs(
                 "row_id": row_id,
                 "column_id": column_id,
                 "run_id": row["origin_run_id"],
+                **({"validity": row["validity"]} if include_validity else {}),
             }
         return values, refs
     if row_ids is not None and not row_ids:
@@ -704,11 +662,19 @@ def get_values_with_refs(
                 row_ids=row_ids[offset : offset + _SQLITE_ID_CHUNK_SIZE],
                 apply_edits=apply_edits,
                 tolerate_decode_errors=tolerate_decode_errors,
+                preserve_invalid=preserve_invalid,
+                include_validity=include_validity,
             )
             out.update(chunk_out)
             refs.update(chunk_refs)
         return out, refs
     generation_store = ResultGenerationStore(project)
+    descriptor = project.db.execute(
+        "SELECT type FROM columns WHERE id=? AND sheet_id=?", (column_id, sheet_id)
+    ).fetchone()
+    if descriptor is None:
+        return {}, {}
+    column_type = str(descriptor["type"])
     generation_managed = generation_store.is_generation_managed(column_id)
     out: dict[int, Any] = {}
     refs: dict[int, dict[str, Any]] = {}
@@ -757,6 +723,9 @@ def get_values_with_refs(
                 "run_id": head.run_id,
             }
     for rid in out:
+        validity = decoded_cell_validity(column_type, out[rid])
+        if validity == "invalid" and not preserve_invalid:
+            out[rid] = None
         refs.setdefault(
             rid,
             {
@@ -767,6 +736,8 @@ def get_values_with_refs(
                 "run_id": None,
             },
         )
+        if include_validity:
+            refs[rid]["validity"] = validity
     return out, refs
 
 
@@ -778,6 +749,7 @@ def get_values(
     *,
     apply_edits: bool = True,
     tolerate_decode_errors: bool = False,
+    preserve_invalid: bool = False,
 ) -> dict[int, Any]:
     """Read current values without building unused provenance dictionaries.
 
@@ -786,7 +758,10 @@ def get_values(
     if apply_edits:
         return {
             int(row["id"]): _decode_stored_value(
-                row["value"], tolerate_errors=tolerate_decode_errors
+                None
+                if row["validity"] == "invalid" and not preserve_invalid
+                else row["value"],
+                tolerate_errors=tolerate_decode_errors,
             )
             for row in _current_cell_rows(
                 project, sheet_id, column_id, row_ids, with_refs=False
@@ -798,6 +773,7 @@ def get_values(
         row_ids=row_ids,
         apply_edits=apply_edits,
         tolerate_decode_errors=tolerate_decode_errors,
+        preserve_invalid=preserve_invalid,
     )
     return out
 

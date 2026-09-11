@@ -76,6 +76,21 @@ describe('buildCell empty / withheld markers', () => {
     expect((cell as { displayData?: string }).displayData).not.toBe('—');
   });
 
+  it('preserves an invalid typed value as an editable red cell', () => {
+    const col = columnDef({ id: 'amount', name: 'amount', type: 'number' });
+    const cell = buildCell(
+      col,
+      row({ amount: 'N/A' }, { invalidCells: { amount: true } }),
+      { editable: true, gridCellPalette: injectedPalette },
+    );
+    expect(cell.kind).toBe(GridCellKind.Text);
+    expect((cell as { displayData?: string }).displayData).toBe('N/A');
+    expect((cell as { themeOverride?: unknown }).themeOverride).toEqual(
+      injectedPalette.error,
+    );
+    expect(cell.allowOverlay).toBe(true);
+  });
+
   it('does not em-dash a boolean cell (it has its own empty affordance)', () => {
     const col = columnDef({ id: 'flag', name: 'flag', type: 'boolean' });
     const cell = buildCell(col, row({ flag: null }));

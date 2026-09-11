@@ -130,21 +130,21 @@ def test_text_resolve_transforms_publish_one_atomic_column(
             [1, 3, "n/a", None],
             {"method": "mean"},
             "number",
-            [1, 3, "n/a", 2],
+            [1, 3, 2, 2],
         ),
         (
             "number",
             ["n/a", None],
             {"method": "down"},
-            "text",
-            ["n/a", "n/a"],
+            "number",
+            [None, None],
         ),
         (
             "number",
             ["n/a", None],
             {"method": "mode"},
-            "text",
-            ["n/a", "n/a"],
+            "number",
+            [None, None],
         ),
         ("text", [None, "a", None], {"method": "down"}, "text", [None, "a", "a"]),
     ],
@@ -184,38 +184,28 @@ def test_fill_missing_preserves_zero_and_widens_only_when_needed(
         project.close()
 
 
-def test_fill_type_ignores_unchanged_exceptional_source_values(tmp_path: Path) -> None:
+def test_fill_missing_repairs_an_invalid_typed_source_value(tmp_path: Path) -> None:
     project = Project.create(tmp_path / "exceptional-integer.frisket")
     try:
         sheet_id = project.add_sheet("data")
         column_id = project.add_column(sheet_id, "source", type="integer")
-        [row_id] = project.add_rows(
-            sheet_id,
-            [{"source": 1}],
-            {"source": column_id},
-        )
-        # Model a legacy base cell whose JSON value violates its declared
-        # integer type. Current writers correctly reject this historical
-        # corruption, so rebuild its derived projection explicitly.
-        from frisket.engine.store.current_cells import rebuild_current_cells
-
-        with project.db:
-            project.db.execute(
-                "UPDATE cells SET value=? WHERE row_id=? AND column_id=?",
-                ("1.5", row_id, column_id),
-            )
-            rebuild_current_cells(project.db)
+        [row_id] = project.add_rows(sheet_id, [{"source": 1.5}], {"source": column_id})
 
         result = run_action_spec(
             project,
-            _request("resolve.fill_missing", sheet_id, {"method": "down"}, key="fill"),
+            _request(
+                "resolve.fill_missing",
+                sheet_id,
+                {"method": "value", "fill_value": "4"},
+                key="fill",
+            ),
             project_id=PROJECT_ID,
         )
 
         assert result.status == "completed", result.errors
         assert _output_values(project, sheet_id, [row_id], "cleaned") == (
             "integer",
-            [1.5],
+            [4],
         )
     finally:
         project.close()

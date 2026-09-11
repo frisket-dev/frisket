@@ -237,7 +237,9 @@ def iter_export_row_batches(
         query=plan.query,
     ):
         values_by_col = {
-            cid: project.get_values(plan.sheet_id, cid, row_ids=batch_row_ids)
+            cid: project.get_values(
+                plan.sheet_id, cid, row_ids=batch_row_ids, preserve_invalid=True
+            )
             for cid in plan.source_column_ids
         }
         rows: list[list[Any]] = []

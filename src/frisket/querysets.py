@@ -545,7 +545,8 @@ def sheet_live_value_sql(
 ) -> tuple[str, list[Any]]:
     """Lookup the same current value used by ordinary cell readers."""
     return (
-        "(SELECT live.value FROM current_cells live "
+        "(SELECT CASE WHEN live.validity='valid' THEN live.value END "
+        "FROM current_cells live "
         f"WHERE live.column_id=? AND live.row_id={row_alias}.id)",
         [column["id"]],
     )

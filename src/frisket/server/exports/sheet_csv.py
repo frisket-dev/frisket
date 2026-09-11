@@ -288,6 +288,7 @@ def _sheet_csv_rows_for_row_ids(
             sheet_id,
             int(column["column_id"]),
             row_ids=row_ids,
+            preserve_invalid=True,
         )
         for column in columns
     }

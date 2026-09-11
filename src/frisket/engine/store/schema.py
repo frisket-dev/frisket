@@ -898,6 +898,8 @@ CREATE INDEX IF NOT EXISTS idx_edits_rowcol ON edits(column_id, row_id, op_id);
 -- encoding; null/error result heads and explicit edit clears still occupy a
 -- row so an older layer can never bleed through. Source-cell public refs keep
 -- op_id=NULL; base_producer_id is separate internal provenance enrichment.
+-- Validity is derived from the winning value and current column descriptor;
+-- the original JSON and its provenance remain untouched.
 -- CURRENT_CELLS_BEGIN
 CREATE TABLE IF NOT EXISTS current_cells (
   column_id INTEGER NOT NULL REFERENCES columns(id) ON DELETE CASCADE,
@@ -909,6 +911,7 @@ CREATE TABLE IF NOT EXISTS current_cells (
   origin_op_id INTEGER REFERENCES ops(id) ON DELETE CASCADE,
   origin_run_id INTEGER REFERENCES runs(id) ON DELETE CASCADE,
   base_producer_id INTEGER REFERENCES base_cell_producers(id) ON DELETE RESTRICT,
+  validity TEXT NOT NULL CHECK (validity IN ('valid', 'missing', 'invalid')),
   PRIMARY KEY (column_id, row_id),
   CHECK (
     (

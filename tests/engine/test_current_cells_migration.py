@@ -9,6 +9,7 @@ from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
 
 
 _PRIOR_DIGEST = "frisket.schema.v1:43e64204b7c8109bc79bfaa1dfdf8b0e"
+_CURRENT_CELLS_DIGEST = "frisket.schema.v1:eb7a1342f9f42a48ba6b1ec3863b3a5a"
 
 
 def _prior_bundle(tmp_path, *, column_count: int = 1):
@@ -145,3 +146,37 @@ def test_migration_stamp_and_backfill_roll_back_together(tmp_path) -> None:
         db.execute("DROP TRIGGER interrupt_current_cell_stamp")
 
     Project(path).close()
+
+
+def test_validity_migration_rebuilds_without_rewriting_values(tmp_path) -> None:
+    path = tmp_path / "validity-prior.frisket"
+    project = Project.create(path)
+    sheet_id = project.add_sheet("Rows")
+    column_id = project.add_column(sheet_id, "amount", type="number")
+    row_ids = project.add_rows(
+        sheet_id, [{"amount": 9}, {"amount": "unknown"}], {"amount": column_id}
+    )
+    project.close()
+
+    with sqlite3.connect(path / "project.db") as downgrade:
+        downgrade.execute("ALTER TABLE current_cells DROP COLUMN validity")
+        downgrade.execute(
+            "UPDATE meta SET value=? WHERE key=?",
+            (_CURRENT_CELLS_DIGEST, SCHEMA_DIGEST_META_KEY),
+        )
+
+    migrated = Project(path)
+    assert migrated.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
+    assert migrated.get_values(sheet_id, column_id) == {
+        row_ids[0]: 9,
+        row_ids[1]: None,
+    }
+    assert migrated.get_values(sheet_id, column_id, preserve_invalid=True) == {
+        row_ids[0]: 9,
+        row_ids[1]: "unknown",
+    }
+    assert migrated.db.execute(
+        "SELECT value,validity FROM current_cells WHERE row_id=? AND column_id=?",
+        (row_ids[1], column_id),
+    ).fetchone()[:] == ('"unknown"', "invalid")
+    migrated.close()

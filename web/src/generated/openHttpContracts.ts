@@ -2971,6 +2971,7 @@ export type HttpColumnStats = ({
   "date"?: (((HttpColumnStats_ColumnStatsDate)) | ((null)));
   "distinct"?: (number);
   "file"?: (((HttpColumnStats_ColumnStatsFile)) | ((null)));
+  "invalid"?: (number);
   "json_types"?: (Array<(HttpColumnStats_ColumnStatsJsonType)>);
   "missing"?: (number);
   "numeric"?: (((HttpColumnStats_ColumnStatsNumeric)) | ((null)));
@@ -7433,6 +7434,7 @@ type HttpSheetData_SheetDataCellMeta = ({
   "confidence"?: (((number)) | ((null)));
   "current_value_ref": (HttpSheetData_SheetDataValueRef);
   "error"?: (((string)) | ((null)));
+  "invalid"?: (boolean);
   "justification"?: (((string)) | ((null)));
   "outcome"?: (((string)) | ((null)));
   "pending_value"?: (((HttpSheetData_SheetDataPendingValue)) | ((null)));

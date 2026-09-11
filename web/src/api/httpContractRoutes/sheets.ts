@@ -169,11 +169,13 @@ function mapSheetData(wire: SheetDataWire): SheetDataPage {
       const cellStates: Record<string, string> = {};
       const cellErrors: Record<string, string> = {};
       const cellOutcomes: Record<string, string> = {};
+      const invalidCells: Record<string, true> = {};
       const replayPending: Record<string, ReplayPendingValue> = {};
       for (const [columnId, meta] of Object.entries(row.meta)) {
         if (meta.state) cellStates[columnId] = meta.state;
         if (meta.error) cellErrors[columnId] = meta.error;
         if (meta.outcome) cellOutcomes[columnId] = meta.outcome;
+        if (meta.invalid) invalidCells[columnId] = true;
         if (meta.pending_value) {
           replayPending[columnId] = {
             freshValue: toCellValue(meta.pending_value.fresh_value),
@@ -212,6 +214,7 @@ function mapSheetData(wire: SheetDataWire): SheetDataPage {
         cellStates,
         cellErrors,
         cellOutcomes,
+        invalidCells,
         parentRowId: row.parent_row_id == null ? null : String(row.parent_row_id),
         childCount: row.child_count,
         ...(Object.keys(replayPending).length > 0 ? { replayPending } : {}),
@@ -235,6 +238,7 @@ function mapColumnStats(wire: ColumnStatsWire): ColumnStats {
     computed: wire.computed,
     requiresManualAnalyze: wire.requires_manual_analyze,
     ...(wire.missing === undefined ? {} : { missing: wire.missing }),
+    ...(wire.invalid === undefined ? {} : { invalid: wire.invalid }),
     ...(wire.present === undefined ? {} : { present: wire.present }),
     ...(wire.distinct === undefined ? {} : { distinct: wire.distinct }),
     topValues: wire.top_values ?? [],

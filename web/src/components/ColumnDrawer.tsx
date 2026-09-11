@@ -407,6 +407,9 @@ function ColumnStatsResult({ stats }: { stats: ColumnStats }) {
         <StatRow label="Rows" value={stats.rowCount.toLocaleString()} testId="column-stats-rows" />
         <StatRow label="Present" value={(stats.present ?? 0).toLocaleString()} testId="column-stats-present" />
         <StatRow label="Missing" value={(stats.missing ?? 0).toLocaleString()} testId="column-stats-missing" />
+        {(stats.invalid ?? 0) > 0 && (
+          <StatRow label="Invalid" value={(stats.invalid ?? 0).toLocaleString()} testId="column-stats-invalid" />
+        )}
         {stats.distinct !== undefined && (
           <StatRow label="Distinct" value={stats.distinct.toLocaleString()} testId="column-stats-distinct" />
         )}

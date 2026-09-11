@@ -1120,6 +1120,20 @@ export function buildCell(col: ColumnDef, row: Row | undefined, opts: BuildCellO
     };
   }
   const v: CellValue = row.cells[col.id] ?? null;
+  if (row.invalidCells?.[col.id]) {
+    const text = typeof v === 'string' ? v : (JSON.stringify(v) ?? String(v));
+    return withEditableOverlay(
+      {
+        kind: GridCellKind.Text,
+        data: text,
+        displayData: text,
+        allowOverlay: false,
+        allowWrapping: opts.wrap,
+        themeOverride: palette.error,
+      },
+      opts.editable,
+    );
+  }
   if (opts.pending && (v === null || v === '')) {
     return {
       kind: GridCellKind.Custom,

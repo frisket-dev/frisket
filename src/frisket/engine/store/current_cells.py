@@ -7,10 +7,33 @@ query so incremental refresh and full repair cannot drift apart.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Collection, Iterator
 
+from frisket.authoring import column_types
+
 _SQLITE_BIND_LIMIT = 900
+
+
+def decoded_cell_validity(column_type: str, value: object) -> str:
+    """Classify one decoded value against its column descriptor."""
+
+    if value is None:
+        return "missing"
+    return "valid" if column_types.validate_value(column_type, value) else "invalid"
+
+
+def cell_validity(column_type: str, encoded_value: str | None) -> str:
+    """Classify one stored JSON value against its column descriptor."""
+
+    if encoded_value is None:
+        return "missing"
+    try:
+        value = json.loads(encoded_value)
+    except (TypeError, ValueError, RecursionError):
+        return "invalid"
+    return decoded_cell_validity(column_type, value)
 
 
 def live_edit_precedence_predicate(*, edit_alias: str, op_alias: str) -> str:
@@ -99,6 +122,18 @@ def _delete_region(
 def _insert_region(
     db: sqlite3.Connection, *, column_ids: list[int], row_ids: list[int] | None
 ) -> int:
+    has_validity = any(
+        str(row[1]) == "validity"
+        for row in db.execute("PRAGMA table_info(current_cells)")
+    )
+    if has_validity:
+        db.create_function(
+            "frisket_cell_validity", 2, cell_validity, deterministic=True
+        )
+    validity_column = ",validity" if has_validity else ""
+    validity_value = (
+        ",frisket_cell_validity(descriptor.type,value)" if has_validity else ""
+    )
     ctes = [_target_cte("target_columns", column_ids)]
     params: list[int] = list(column_ids)
     if row_ids is not None:
@@ -184,9 +219,11 @@ def _insert_region(
         ") AS rank FROM candidates) "
         "INSERT INTO current_cells "
         "(column_id,row_id,value,origin_kind,origin_op_id,origin_run_id,"
-        "base_producer_id) "
+        "base_producer_id" + validity_column + ") "
         "SELECT column_id,row_id,value,origin_kind,origin_op_id,origin_run_id,"
-        "base_producer_id FROM ranked WHERE rank=1",
+        "base_producer_id" + validity_value + " "
+        "FROM ranked JOIN columns descriptor ON descriptor.id=ranked.column_id "
+        "WHERE rank=1",
         params,
     )
     return int(db.execute("SELECT changes()").fetchone()[0])
