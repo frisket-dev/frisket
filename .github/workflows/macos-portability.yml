@@ -1,0 +1,36 @@
+name: macos-portability
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    env:
+      PYTHONUTF8: "1"
+      FRISKET_NO_WORKER: "1"
+      FRISKET_SECRETS_MASTER_KEY: "macos-portability-test-key-not-for-production"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      - run: uv sync --dev --locked
+      - name: Import package and server graph
+        run: >-
+          uv run --no-sync python -c "import frisket; import frisket.cli; import frisket.engine.jobs.queue; import frisket.engine.sandbox; import frisket.server.app; import frisket.server.services.projects; import frisket.server.workspace"
+      - name: Run deployment self-probe
+        run: uv run --no-sync frisket doctor
+      - name: Run local startup, import, blob, and locking contracts
+        run: >-
+          uv run --no-sync pytest -q tests/test_cli_main.py tests/engine/test_blob_path_ingest.py tests/engine/test_import_csv_executor.py tests/engine/test_import_csv_typed_boundaries.py tests/server/test_server_import_bulk_routes.py tests/server/test_server_import_bulk_extensionless_email.py tests/server/test_server_import_bulk_email_parity.py tests/ai/test_store.py::TestBasics::test_create_open_roundtrip tests/ai/test_store.py::TestConcurrentOpen::test_a_knob_change_mints_one_successor_not_one_per_open tests/engine/test_store_leases.py
