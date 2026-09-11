@@ -773,3 +773,22 @@ def test_verified_teardown_waits_for_reap_task_without_cancelling_it():
         assert reap_task.result() == 0
 
     asyncio.run(run())
+
+
+def test_verified_teardown_allows_pipe_eof_to_settle_without_cancellation():
+    class GoneController:
+        def signal_tree(self, signal_number):
+            return None
+
+        async def wait_tree_gone(self, timeout):
+            return True
+
+    async def run() -> None:
+        pipe_task = asyncio.create_task(asyncio.sleep(0))
+        await sandbox_shim._terminate_and_reap(
+            GoneController(), pipe_tasks=(pipe_task,)
+        )
+        assert pipe_task.done()
+        assert not pipe_task.cancelled()
+
+    asyncio.run(run())
