@@ -1101,7 +1101,6 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
         _project_errors(
             ("invalid_column_ref", "The target must identify a visible column."),
             ("invalid_column_type", "The destination type must be registered."),
-            ("column_value_validation_failed", "A current value is incompatible."),
             *_TEMPORAL_PROJECT_ERRORS,
             ("output_column_busy", "The target column is claimed by a running action."),
             write_failure="The column type and receipt could not be written.",

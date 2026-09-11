@@ -93,14 +93,6 @@ def _unknown_type_action(seeded: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def _invalid_values_action(seeded: dict[str, Any]) -> dict[str, Any]:
-    return _set_type_action(
-        column_id=seeded["columns"]["bad_date"],
-        type_="date",
-        key="column_set_type_invalid_values@sha256:v1",
-    )
-
-
 def _missing_column_action(seeded: dict[str, Any]) -> dict[str, Any]:
     del seeded
     return _set_type_action(
@@ -199,14 +191,16 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert receipt.outputs[0].name == "published"
     assert receipt.outputs[0].ref["kind"] == "column_type_update"
     evidence = {item.ref["kind"]: item.ref for item in receipt.evidence}
-    assert {"column_type_transition", "validated_column_values"} <= set(evidence)
-    assert evidence["validated_column_values"] == {
-        "kind": "validated_column_values",
+    assert {"column_type_transition", "classified_column_values"} <= set(evidence)
+    assert evidence["classified_column_values"] == {
+        "kind": "classified_column_values",
         "sheet_id": seeded["sheet_id"],
         "column_id": published,
         "type": "date",
         "row_ids": seeded["row_ids"],
         "row_count": 2,
+        "invalid_row_ids": [],
+        "invalid_count": 0,
     }
 
 
@@ -244,7 +238,6 @@ CASES = [
                     "invalid_action_request",
                     "invalid_column_ref",
                     "invalid_column_type",
-                    "column_value_validation_failed",
                     "invalid_temporal_value",
                     "timeline_not_found",
                     "timeline_stale",
@@ -281,11 +274,6 @@ CASES = [
                 "invalid_column_type",
                 _unknown_type_action,
                 "invalid_column_type",
-            ),
-            Gate(
-                "column_value_validation_failed",
-                _invalid_values_action,
-                "column_value_validation_failed",
             ),
             Gate(
                 "invalid_column_ref",
@@ -430,7 +418,7 @@ def test_set_type_validates_plugin_stars_values(tmp_path: Path) -> None:
         project = Project.create(project_path, name="Stars Column Type")
         sheet_id = project.add_sheet("Ratings")
         rating_id = project.add_column(sheet_id, "rating", type="number")
-        project.add_rows(
+        row_ids = project.add_rows(
             sheet_id,
             [{"rating": 4.5}, {"rating": 6.0}],
             {"rating": rating_id},
@@ -456,10 +444,16 @@ def test_set_type_validates_plugin_stars_values(tmp_path: Path) -> None:
             ),
             project_id="project-stars-column-type",
         )
-        assert result.status == "failed"
-        assert result.errors[0].code == "column_value_validation_failed"
-        assert result.errors[0].details["type"] == "stars"
-        assert result.errors[0].details["bad_row_count"] == 1
+        assert result.status == "completed"
+        assert _column_type(project, rating_id) == "stars"
+        assert project.get_values(sheet_id, rating_id) == {
+            row_ids[0]: 4.5,
+            row_ids[1]: None,
+        }
+        assert project.get_values(sheet_id, rating_id, preserve_invalid=True) == {
+            row_ids[0]: 4.5,
+            row_ids[1]: 6.0,
+        }
         project.close()
     finally:
         column_types.unregister_column_type("stars")
@@ -488,7 +482,7 @@ def test_set_type_validates_plugin_case_id_values(tmp_path: Path) -> None:
         project = Project.create(project_path, name="Case ID Column Type")
         sheet_id = project.add_sheet("Cases")
         case_id = project.add_column(sheet_id, "case_id", type="text")
-        project.add_rows(
+        row_ids = project.add_rows(
             sheet_id,
             [{"case_id": "CASE-0001"}, {"case_id": "case-0002"}],
             {"case_id": case_id},
@@ -514,13 +508,16 @@ def test_set_type_validates_plugin_case_id_values(tmp_path: Path) -> None:
             ),
             project_id="project-case-id-column-type",
         )
-        assert result.status == "failed"
-        assert result.errors[0].code == "column_value_validation_failed"
-        assert result.errors[0].details["type"] == "case_id"
-        assert result.errors[0].details["bad_row_count"] == 1
-        values = project.get_values(sheet_id, case_id)
-        assert values == {1: "CASE-0001", 2: "case-0002"}
-        assert _column_type(project, case_id) == "text"
+        assert result.status == "completed"
+        assert _column_type(project, case_id) == "case_id"
+        assert project.get_values(sheet_id, case_id) == {
+            row_ids[0]: "CASE-0001",
+            row_ids[1]: None,
+        }
+        assert project.get_values(sheet_id, case_id, preserve_invalid=True) == {
+            row_ids[0]: "CASE-0001",
+            row_ids[1]: "case-0002",
+        }
         project.close()
     finally:
         column_types.unregister_column_type("case_id")

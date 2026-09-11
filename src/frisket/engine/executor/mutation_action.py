@@ -79,6 +79,10 @@ from frisket.engine.store.cell_writes import (
     create_base_cell_producer,
     initialize_base_cells,
 )
+from frisket.engine.store.current_cells import (
+    decoded_cell_validity,
+    refresh_current_cells,
+)
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.artifact_timeline import TimelineError
 from frisket.features.temporal_ingress import (
@@ -968,24 +972,12 @@ class _ColumnTyper(_CallOnce):
                 },
             )
         _claimed_column(self._project, column_id, action_kind=self._action.kind)
-        values = self._project.get_values(int(column["sheet_id"]), column_id)
-        bad_rows = [
-            row_id
-            for row_id, value in values.items()
-            if not column_types.validate_value(column_type, value)
-        ]
-        if bad_rows:
-            _refuse(
-                "column_value_validation_failed",
-                "column.set_type existing values fail validation for target type",
-                action_kind=self._action.kind,
-                field="params.type",
-                details={
-                    "type": column_type,
-                    "bad_row_ids": bad_rows[:20],
-                    "bad_row_count": len(bad_rows),
-                },
-            )
+        values = self._project.get_values(
+            int(column["sheet_id"]), column_id, preserve_invalid=True
+        )
+        # Temporal values additionally carry project-bound artifact anchors.
+        # Broken references remain a referential-integrity error rather than
+        # an ordinary type mismatch that can be represented as an invalid cell.
         for row_id, value in values.items():
             _validate_temporal(
                 self._project,
@@ -1010,6 +1002,9 @@ class _ColumnTyper(_CallOnce):
                 "column_types_after": {str(column_id): column_type},
             },
         )
+        # Refresh after the descriptor op exists: its id is the precedence
+        # boundary that retires older edits while retaining source values.
+        refresh_current_cells(self._project.db, column_ids=[column_id])
         result = RetypedColumn(
             int(column["sheet_id"]),
             str(column["sheet_name"]),
@@ -1019,7 +1014,14 @@ class _ColumnTyper(_CallOnce):
             column_type,
             op_id,
         )
-        self._validated_row_ids = tuple(sorted(values))
+        self._classified_row_ids = tuple(sorted(values))
+        self._invalid_row_ids = tuple(
+            sorted(
+                row_id
+                for row_id, value in values.items()
+                if decoded_cell_validity(column_type, value) == "invalid"
+            )
+        )
         self.result = result
         return result
 
@@ -1613,12 +1615,14 @@ def _result_and_receipt(
             ),
             ReceiptEvidence(
                 ref={
-                    "kind": "validated_column_values",
+                    "kind": "classified_column_values",
                     "sheet_id": returned.sheet_id,
                     "column_id": returned.column_id,
                     "type": returned.type_after,
-                    "row_ids": list(capability._validated_row_ids),
-                    "row_count": len(capability._validated_row_ids),
+                    "row_ids": list(capability._classified_row_ids),
+                    "row_count": len(capability._classified_row_ids),
+                    "invalid_row_ids": list(capability._invalid_row_ids),
+                    "invalid_count": len(capability._invalid_row_ids),
                 },
                 retention="pinned",
             ),

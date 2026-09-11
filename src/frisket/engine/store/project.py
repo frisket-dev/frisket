@@ -153,6 +153,8 @@ class ProjectReadSnapshot:
         *,
         apply_edits: bool = True,
         tolerate_decode_errors: bool = False,
+        preserve_invalid: bool = False,
+        include_validity: bool = False,
     ) -> tuple[dict[int, Any], dict[int, dict[str, Any]]]:
         return cells.get_values_with_refs(
             self,
@@ -161,6 +163,8 @@ class ProjectReadSnapshot:
             row_ids,
             apply_edits=apply_edits,
             tolerate_decode_errors=tolerate_decode_errors,
+            preserve_invalid=preserve_invalid,
+            include_validity=include_validity,
         )
 
     def get_values(
@@ -171,6 +175,7 @@ class ProjectReadSnapshot:
         *,
         apply_edits: bool = True,
         tolerate_decode_errors: bool = False,
+        preserve_invalid: bool = False,
     ) -> dict[int, Any]:
         return cells.get_values(
             self,
@@ -179,6 +184,7 @@ class ProjectReadSnapshot:
             row_ids,
             apply_edits=apply_edits,
             tolerate_decode_errors=tolerate_decode_errors,
+            preserve_invalid=preserve_invalid,
         )
 
     def visible_row_ids(
@@ -661,6 +667,8 @@ class Project:
         *,
         apply_edits: bool = True,
         tolerate_decode_errors: bool = False,
+        preserve_invalid: bool = False,
+        include_validity: bool = False,
     ) -> tuple[dict[int, Any], dict[int, dict[str, Any]]]:
         return cells.get_values_with_refs(
             self,
@@ -669,6 +677,8 @@ class Project:
             row_ids,
             apply_edits=apply_edits,
             tolerate_decode_errors=tolerate_decode_errors,
+            preserve_invalid=preserve_invalid,
+            include_validity=include_validity,
         )
 
     def get_values(
@@ -679,6 +689,7 @@ class Project:
         *,
         apply_edits: bool = True,
         tolerate_decode_errors: bool = False,
+        preserve_invalid: bool = False,
     ) -> dict[int, Any]:
         return cells.get_values(
             self,
@@ -687,6 +698,7 @@ class Project:
             row_ids,
             apply_edits=apply_edits,
             tolerate_decode_errors=tolerate_decode_errors,
+            preserve_invalid=preserve_invalid,
         )
 
     def apply_edits(

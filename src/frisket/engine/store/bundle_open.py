@@ -35,6 +35,11 @@ _REVIEW_METADATA_TO_DIGEST = "frisket.schema.v1:43e64204b7c8109bc79bfaa1dfdf8b0e
 _CURRENT_CELLS_FROM_DIGEST = _REVIEW_METADATA_TO_DIGEST
 _CURRENT_CELLS_TO_DIGEST = "frisket.schema.v1:eb7a1342f9f42a48ba6b1ec3863b3a5a"
 
+# Current-cell validity is derived from the surviving value and current column
+# descriptor. The source/result/edit layers remain untouched.
+_CELL_VALIDITY_FROM_DIGEST = _CURRENT_CELLS_TO_DIGEST
+_CELL_VALIDITY_TO_DIGEST = "frisket.schema.v1:8120b7fe7102b3570ff0c8326bd62fa2"
+
 # The frontend fires hot read endpoints (/sheets, /review/queue) concurrently,
 # so two threads can open the same per-project DB at once. Both open-time
 # reconciliations below are read-then-write with no CAS: two threads that both
@@ -64,6 +69,7 @@ def open_bundle(project: Any) -> None:
         _migrate_cost_preapproval(project.db)
         _migrate_review_metadata(project.db)
         _migrate_current_cells(project.db)
+        _migrate_cell_validity(project.db)
         require_current_schema(project.db, bundle_path=project.path)
         _reconcile_open_time_policy(project)
 
@@ -216,6 +222,38 @@ def _migrate_current_cells(db: sqlite3.Connection) -> None:
             db.execute(
                 "UPDATE meta SET value=? WHERE key=?",
                 (_CURRENT_CELLS_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
+            )
+        db.commit()
+    except BaseException:
+        db.rollback()
+        raise
+
+
+def _migrate_cell_validity(db: sqlite3.Connection) -> None:
+    """Add and backfill derived validity without rewriting source values."""
+
+    query = "SELECT value FROM meta WHERE key=?"
+    try:
+        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
+    except sqlite3.DatabaseError:
+        return
+    if row is None or row[0] != _CELL_VALIDITY_FROM_DIGEST:
+        return
+
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
+        if row is not None and row[0] == _CELL_VALIDITY_FROM_DIGEST:
+            db.execute(
+                "ALTER TABLE current_cells ADD COLUMN validity TEXT NOT NULL "
+                "DEFAULT 'valid' CHECK (validity IN ('valid','missing','invalid'))"
+            )
+            from .current_cells import rebuild_current_cells
+
+            rebuild_current_cells(db)
+            db.execute(
+                "UPDATE meta SET value=? WHERE key=?",
+                (_CELL_VALIDITY_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
             )
         db.commit()
     except BaseException:

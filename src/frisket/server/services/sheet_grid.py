@@ -438,6 +438,7 @@ def _column_stats_payload(
         return base
 
     missing = 0
+    invalid = 0
     present_count = 0
     top_counter: Counter[str] = Counter()
     numbers: list[float] = []
@@ -461,8 +462,13 @@ def _column_stats_payload(
         row_ids = [int(r["id"]) for r in rows]
         if not row_ids:
             break
-        values = project.get_values(sheet_id, column_id, row_ids=row_ids)
+        values, refs = project.get_values_with_refs(
+            sheet_id, column_id, row_ids=row_ids, include_validity=True
+        )
         for rid in row_ids:
+            if refs[rid].get("validity") == "invalid":
+                invalid += 1
+                continue
             value = values.get(rid)
             if _column_stats_is_missing(value):
                 missing += 1
@@ -488,6 +494,7 @@ def _column_stats_payload(
             "computed": True,
             "requires_manual_analyze": False,
             "missing": missing,
+            "invalid": invalid,
             "present": present_count,
             "top_values": [],
             "numeric": None,
@@ -547,6 +554,7 @@ def _column_stats_payload(
         **base,
         "computed": True,
         "missing": missing,
+        "invalid": invalid,
         "present": present_count,
         "distinct": len(top_counter),
         "top_values": top_values,
@@ -618,10 +626,19 @@ def _sheet_data_payload(
     for c in cols:
         column_id = int(c["id"])
         generation_managed = is_generation_managed(column_id)
-        vals, refs = project.get_values_with_refs(sheet_id, column_id, row_ids=row_ids)
+        vals, refs = project.get_values_with_refs(
+            sheet_id,
+            column_id,
+            row_ids=row_ids,
+            preserve_invalid=True,
+            include_validity=True,
+        )
         for rid in row_ids:
             data[rid][str(column_id)] = vals.get(rid)
+            validity = refs[rid].pop("validity", "missing")
             meta[rid].setdefault(str(column_id), {})["current_value_ref"] = refs[rid]
+            if validity == "invalid":
+                meta[rid].setdefault(str(column_id), {})["invalid"] = True
 
         ran_rows: set[int] = set()
         if generation_managed and row_ids:

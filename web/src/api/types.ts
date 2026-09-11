@@ -543,6 +543,7 @@ export interface ColumnStats {
   computed: boolean;
   requiresManualAnalyze: boolean;
   missing?: number;
+  invalid?: number;
   present?: number;
   distinct?: number;
   topValues?: ColumnStatsTopValue[];
@@ -900,6 +901,8 @@ export interface Row {
    *  (columnId -> outcome). 'empty_output' marks the terminal-failure bucket
    *  behind the row-level "Retry anyway" affordance. */
   cellOutcomes?: Record<string, string>;
+  /** Typed-column cells whose preserved raw value does not match the type. */
+  invalidCells?: Record<string, true>;
   /** For derived sheets: the parent-sheet row this row came from (lineage). */
   parentRowId?: string | null;
   /** Rows in child sheets that derive from this row (the "3 faces" count). */

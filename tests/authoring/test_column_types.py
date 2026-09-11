@@ -3,8 +3,8 @@
 Backend contract: column types are a REGISTRY (frisket.column_types), not an
 enum. Core types live on the same seam plugins use; the registry is exposed
 over GET /api/column-types with presentation hints; a registered type is
-usable on real columns through store and the v1 column.set_type action, with
-the type's validator run over existing values; the retype op lands in history
+usable on real columns through store and the v1 column.set_type action. Retyping
+preserves incompatible values and marks them invalid; the op lands in history
 and undoes/redoes. The frontend half (renderers resolved from the registry)
 lives in web/src/grid/typeRegistry.ts + cells.tsx.
 """
@@ -144,6 +144,9 @@ class TestRegistry:
         assert not column_types.validate_value("integer", "three")
         assert not column_types.validate_value("boolean", "true")
         assert column_types.validate_value("boolean", True)
+        assert not column_types.validate_value("number", float("inf"))
+        assert not column_types.validate_value("number", float("nan"))
+        assert not column_types.validate_value("json", {"value": float("nan")})
 
     def test_range_facet_capability_is_closed_and_registry_derived(self):
         name = "plugin_number_facet"
@@ -212,26 +215,31 @@ class TestStore:
             p.set_column_type(cid, "no_such_type")
 
     @pytest.mark.parametrize("value", [-(2**63) - 1, 2**63, 1.0, True])
-    def test_integer_storage_rejects_non_int64_values_atomically(self, tmp_path, value):
+    def test_integer_storage_preserves_but_excludes_invalid_values(
+        self, tmp_path, value
+    ):
         p = Project.create(tmp_path / "integer-storage.frisket", name="t")
         sheet = p.add_sheet("data")
         cid = p.add_column(sheet, "value", type="integer")
-        with pytest.raises(ValueError, match="signed 64-bit integer"):
-            p.add_rows(sheet, [{"value": value}], {"value": cid})
-        with pytest.raises(ValueError, match="signed 64-bit integer"):
-            p.add_row_with_undo(sheet, {"value": value}, {"value": cid})
-        assert p.row_count(sheet) == 0
+        first = p.add_rows(sheet, [{"value": value}], {"value": cid})[0]
+        second = p.add_row_with_undo(sheet, {"value": value}, {"value": cid})
+        assert p.get_values(sheet, cid) == {first: None, second: None}
+        assert p.get_values(sheet, cid, preserve_invalid=True) == {
+            first: value,
+            second: value,
+        }
 
-    def test_retype_to_integer_rejects_out_of_range_existing_data(self, tmp_path):
+    def test_retype_to_integer_marks_out_of_range_existing_data_invalid(self, tmp_path):
         p = Project.create(tmp_path / "integer-retype.frisket", name="t")
         sheet = p.add_sheet("data")
         cid = p.add_column(sheet, "value", type="json")
         p.add_rows(sheet, [{"value": 2**63}], {"value": cid})
-        with pytest.raises(ValueError, match="invalid integer data"):
-            p.set_column_type(cid, "integer")
-        assert p.get_column(cid)["type"] == "json"
+        p.set_column_type(cid, "integer")
+        assert p.get_column(cid)["type"] == "integer"
+        assert p.get_values(sheet, cid) == {1: None}
+        assert p.get_values(sheet, cid, preserve_invalid=True) == {1: 2**63}
 
-    def test_hidden_column_revival_validates_retained_integer_data(self, tmp_path):
+    def test_hidden_column_revival_reclassifies_retained_data(self, tmp_path):
         p = Project.create(tmp_path / "integer-revival.frisket", name="t")
         sheet = p.add_sheet("data")
         cid = p.add_column(sheet, "value", type="json")
@@ -239,13 +247,13 @@ class TestStore:
         p.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (cid,))
         p.db.commit()
 
-        with pytest.raises(ValueError, match="invalid integer data"):
-            p.add_column(sheet, "value", type="integer")
+        assert p.add_column(sheet, "value", type="integer") == cid
 
         retained = p.get_column(cid)
-        assert retained["type"] == "json"
-        assert retained["hidden"] == 1
-        assert p.get_values(sheet, cid) == {1: 2**63}
+        assert retained["type"] == "integer"
+        assert retained["hidden"] == 0
+        assert p.get_values(sheet, cid) == {1: None}
+        assert p.get_values(sheet, cid, preserve_invalid=True) == {1: 2**63}
 
 
 # ---------------------------------------------------------------------------
@@ -358,17 +366,17 @@ class TestApi:
         assert r.status_code == 400
         assert r.json()["errors"][0]["code"] == "invalid_column_type"
 
-    def test_patch_validates_existing_values(self, client):
-        # text values cannot be retyped to boolean — the validator is real
+    def test_patch_preserves_and_marks_values_invalid_for_new_type(self, client):
         pid = client.post("/api/projects", json={"name": "T"}).json()["id"]
         sheet_id = _import(client, pid, "a\nhello\n")
         col = client.get(f"/api/projects/{pid}/sheets/{sheet_id}/data").json()[
             "columns"
         ][0]
         r = post_column_set_type_as_v1_action(client, pid, col["id"], "boolean")
-        assert r.status_code == 400
-        assert r.json()["errors"][0]["code"] == "column_value_validation_failed"
-        assert "fail validation" in r.json()["errors"][0]["message"]
+        assert r.status_code == 200, r.text
+        data = client.get(f"/api/projects/{pid}/sheets/{sheet_id}/data").json()
+        assert data["rows"][0]["cells"][str(col["id"])] == "hello"
+        assert data["rows"][0]["meta"][str(col["id"])]["invalid"] is True
 
     def test_retype_is_logged_and_undoable(self, client, plugin_type):
         pid = client.post("/api/projects", json={"name": "T"}).json()["id"]

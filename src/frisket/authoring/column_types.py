@@ -14,6 +14,7 @@ beside an enum.
 
 from __future__ import annotations
 
+import json
 import threading
 from dataclasses import dataclass, field
 from math import isfinite
@@ -46,9 +47,9 @@ class ColumnTypeSpec:
 
     validate
         Optional predicate over a single cell value. ``None`` cell values are
-        always allowed (an empty cell has no type). Used when a column is
-        switched onto this type (existing values must pass) and available to
-        recipes/plugins for their own checks.
+        always allowed (an empty cell has no type). The current-cell projection
+        uses it to mark incompatible values invalid without rewriting them;
+        recipes/plugins may also use it for their own output checks.
     parse
         Optional converter for newly-entered values. Parsers run before cell
         edit validation, but column.set_type intentionally validates existing
@@ -266,7 +267,7 @@ def _is_text(v: Any) -> bool:
 
 
 def _is_number(v: Any) -> bool:
-    return isinstance(v, (int, float)) and not isinstance(v, bool)
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and isfinite(v)
 
 
 def _is_integer(v: Any) -> bool:
@@ -279,7 +280,13 @@ def _is_boolean(v: Any) -> bool:
 
 def _is_json(v: Any) -> bool:
     # any JSON-representable shape; strings may hold serialized JSON
-    return isinstance(v, (str, int, float, bool, list, dict))
+    if not isinstance(v, (str, int, float, bool, list, dict)):
+        return False
+    try:
+        json.dumps(v, allow_nan=False)
+    except (TypeError, ValueError, OverflowError, RecursionError):
+        return False
+    return True
 
 
 def _is_media(v: Any) -> bool:

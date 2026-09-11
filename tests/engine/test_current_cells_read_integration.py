@@ -9,7 +9,10 @@ from frisket.engine.store import Project
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.querysets import resolve_sheet_filter_rows
-from frisket.server.services.sheet_grid import _sheet_data_payload
+from frisket.server.services.sheet_grid import (
+    _column_stats_payload,
+    _sheet_data_payload,
+)
 from test_result_generation_store import (
     _declare,
     _publish_initial_generation,
@@ -187,6 +190,111 @@ def test_current_cell_grid_payload_handles_a_page_larger_than_sqlite_bind_chunk(
             "row_id": row_ids[-1],
             "column_id": column_id,
             "run_id": None,
+        }
+    finally:
+        project.close()
+
+
+def test_invalid_typed_cells_are_preserved_visible_and_repairable(
+    tmp_path: Path,
+) -> None:
+    project = Project.create(tmp_path / "invalid-cells.frisket")
+    try:
+        sheet_id = project.add_sheet("Rows")
+        column_id = project.add_column(sheet_id, "amount", type="number")
+        row_ids = project.add_rows(
+            sheet_id,
+            [
+                {"amount": 42},
+                {"amount": "N/A"},
+                {"amount": None},
+                {"amount": True},
+            ],
+            {"amount": column_id},
+        )
+
+        assert project.get_values(sheet_id, column_id) == {
+            row_ids[0]: 42,
+            row_ids[1]: None,
+            row_ids[2]: None,
+            row_ids[3]: None,
+        }
+        assert project.get_values(sheet_id, column_id, preserve_invalid=True) == {
+            row_ids[0]: 42,
+            row_ids[1]: "N/A",
+            row_ids[2]: None,
+            row_ids[3]: True,
+        }
+        assert [
+            tuple(row)
+            for row in project.db.execute(
+                "SELECT row_id,validity FROM current_cells "
+                "WHERE column_id=? ORDER BY row_id",
+                (column_id,),
+            )
+        ] == [
+            (row_ids[0], "valid"),
+            (row_ids[1], "invalid"),
+            (row_ids[3], "invalid"),
+        ]
+
+        payload = _sheet_data_payload(
+            project,
+            sheet_id,
+            project.columns(sheet_id),
+            row_ids,
+            total=len(row_ids),
+        )
+        invalid_cell = payload["rows"][1]
+        assert invalid_cell["cells"][str(column_id)] == "N/A"
+        assert invalid_cell["meta"][str(column_id)]["invalid"] is True
+
+        filtered = resolve_sheet_filter_rows(
+            project,
+            sheet_id,
+            filter_=json.dumps({"amount": {"gte": "1"}}),
+        )
+        assert filtered.row_ids == [row_ids[0]]
+        stats = _column_stats_payload(project, sheet_id, column_id, force=False)
+        assert stats["present"] == 1
+        assert stats["missing"] == 1
+        assert stats["invalid"] == 2
+
+        edit = project.apply_edits(
+            [{"row_id": row_ids[1], "column_id": column_id, "value": 7}]
+        )
+        assert project.get_values(sheet_id, column_id)[row_ids[1]] == 7
+        assert project.undo() == edit
+        assert project.get_values(sheet_id, column_id)[row_ids[1]] is None
+        assert (
+            project.get_values(sheet_id, column_id, preserve_invalid=True)[row_ids[1]]
+            == "N/A"
+        )
+    finally:
+        project.close()
+
+
+def test_retyping_reclassifies_without_rewriting_source_values(tmp_path: Path) -> None:
+    project = Project.create(tmp_path / "retype-validity.frisket")
+    try:
+        sheet_id = project.add_sheet("Rows")
+        column_id = project.add_column(sheet_id, "value", type="json")
+        project.add_rows(
+            sheet_id, [{"value": 3}, {"value": "three"}], {"value": column_id}
+        )
+
+        project.set_column_type(column_id, "text")
+        assert project.get_values(sheet_id, column_id) == {1: None, 2: "three"}
+        assert project.get_values(sheet_id, column_id, preserve_invalid=True) == {
+            1: 3,
+            2: "three",
+        }
+
+        project.set_column_type(column_id, "number")
+        assert project.get_values(sheet_id, column_id) == {1: 3, 2: None}
+        assert project.get_values(sheet_id, column_id, preserve_invalid=True) == {
+            1: 3,
+            2: "three",
         }
     finally:
         project.close()

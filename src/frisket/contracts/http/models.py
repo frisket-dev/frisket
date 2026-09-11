@@ -278,6 +278,7 @@ class SheetDataCellMeta(WireModel):
     review_state: str | None = None
     state: str | None = None
     pending_value: SheetDataPendingValue | None = None
+    invalid: bool = False
 
 
 class SheetDataRow(WireModel):
@@ -359,6 +360,7 @@ class ColumnStats(WireModel):
     computed: bool
     requires_manual_analyze: bool
     missing: int = Field(default=0, ge=0)
+    invalid: int = Field(default=0, ge=0)
     present: int = Field(default=0, ge=0)
     distinct: int = Field(default=0, ge=0)
     top_values: list[ColumnStatsTopValue] = Field(default_factory=list)

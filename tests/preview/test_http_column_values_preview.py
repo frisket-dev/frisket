@@ -478,10 +478,13 @@ def test_preview_tolerant_live_resolution_preserves_edit_head_source_precedence(
         )
         rebuild_current_cells(project.db)
 
+    assert project.get_values(sheet_id, tags) == {
+        head_row: ["run-head"],
+        edit_row: ["manual-edit"],
+        malformed_edit_row: None,
+    }
     with pytest.raises(json.JSONDecodeError):
-        project.get_values(sheet_id, tags)
-    with pytest.raises(json.JSONDecodeError):
-        project.get_values(sheet_id, tags, [malformed_edit_row])
+        project.get_values(sheet_id, tags, [malformed_edit_row], preserve_invalid=True)
 
     values, refs = project.get_values_with_refs(
         sheet_id,

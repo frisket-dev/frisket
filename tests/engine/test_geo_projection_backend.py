@@ -236,9 +236,9 @@ def test_to_geo_point_conversion_feeds_the_map(tmp_path):
     rows = project.add_rows(
         sheet,
         [
-            {"name": "Tokyo", "latitude": "35.6764", "longitude": "139.65"},
-            {"name": "NYC", "latitude": "40.7128", "longitude": "-74.006"},
-            {"name": "Bad", "latitude": "91", "longitude": "0"},  # out of range
+            {"name": "Tokyo", "latitude": 35.6764, "longitude": 139.65},
+            {"name": "NYC", "latitude": 40.7128, "longitude": -74.006},
+            {"name": "Bad", "latitude": 91, "longitude": 0},  # out of range
         ],
         cols,
     )
