@@ -17,7 +17,8 @@ describe('CostPreapprovalSetupModal', () => {
       email: 'owner@example.test',
       cost_preapproval_usd: '2',
     });
-    render(<CostPreapprovalSetupModal />);
+    const onComplete = vi.fn();
+    render(<CostPreapprovalSetupModal onComplete={onComplete} />);
 
     expect(screen.getByTestId('cost-preapproval-setup-input')).toHaveValue(2);
     expect(screen.getByText(/sending their inputs to the selected provider/i)).toBeInTheDocument();
@@ -30,5 +31,6 @@ describe('CostPreapprovalSetupModal', () => {
     await waitFor(() =>
       expect(screen.queryByTestId('cost-preapproval-setup')).not.toBeInTheDocument(),
     );
+    expect(onComplete).toHaveBeenCalledOnce();
   });
 });

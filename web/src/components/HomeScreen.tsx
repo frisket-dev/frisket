@@ -545,13 +545,13 @@ export function HomeScreen({ onOpen }: HomeScreenProps) {
                   <span className="home-new-tile-hint">Import data or start empty</span>
                 </button>
               )}
-              {scoped.length === 0 && !showSampleHero && (
+              {scoped.length === 0 && !showSampleHero && !error && (
                 <div className="home-empty" data-testid="home-empty">
                   {scope === 'archive'
                     ? 'No archived projects.'
                     : scope === 'starred'
                       ? 'No starred projects yet — star one from its ⋯ menu.'
-                      : 'No projects yet — create one to get started.'}
+                      : filter.trim() ? 'No projects match your filter.' : 'No projects yet — create one to get started.'}
                 </div>
               )}
             </div>

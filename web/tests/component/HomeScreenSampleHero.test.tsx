@@ -63,7 +63,7 @@ describe('HomeScreen sample hero', () => {
     expect(screen.getByRole('button', { name: 'Open the sample project' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'See the walkthroughs' })).toBeInTheDocument();
     expect(screen.queryByTestId('home-filter')).toBeNull();
-    expect(screen.queryByTestId('try-sample-project')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Try the sample project' })).toBeNull();
     expect(screen.queryByTestId('home-empty')).toBeNull();
 
     fireEvent.click(screen.getByTestId('home-nav-starred'));

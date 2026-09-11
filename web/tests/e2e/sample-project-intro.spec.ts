@@ -1,34 +1,35 @@
 import { expect, test, type Page } from '@playwright/test';
 import { createProject, uniqueName } from './helpers';
 
-const TELEMETRY_STORAGE_KEY = 'frisket:product-telemetry:v1';
-const INTRO_SEEN_STORAGE_KEY = 'frisket.walkthrough.sample-project.intro-seen.v1';
-const GUIDE_SEEN_STORAGE_KEY = 'frisket.walkthrough.guide-seen.v1';
-const HINT_DISMISSED_STORAGE_KEY = 'frisket.walkthrough.sample-project.hint-dismissed.v1';
-
-async function resetOnboardingStorage(page: Page): Promise<void> {
-  await page.addInitScript((keys) => {
-    localStorage.setItem(keys.telemetry, JSON.stringify({ schema_version: 1, state: 'disabled' }));
-    localStorage.removeItem(keys.introSeen);
-    localStorage.removeItem(keys.guideSeen);
-    localStorage.removeItem(keys.hintDismissed);
-  }, {
-    telemetry: TELEMETRY_STORAGE_KEY,
-    introSeen: INTRO_SEEN_STORAGE_KEY,
-    guideSeen: GUIDE_SEEN_STORAGE_KEY,
-    hintDismissed: HINT_DISMISSED_STORAGE_KEY,
-  });
-}
+test.describe.configure({ mode: 'serial' });
 
 async function openSampleFromHome(page: Page): Promise<void> {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Open the sample project' }).click();
+  await page.getByTestId('try-sample-project').click();
   await expect(page).toHaveURL(/\/p\/[^/]+/, { timeout: 30_000 });
   await expect(page.getByTestId('sample-project-intro')).toBeVisible({ timeout: 30_000 });
 }
 
 test.beforeEach(async ({ page }) => {
-  await resetOnboardingStorage(page);
+  // Each test gets fresh browser storage. Do not reset intro flags on reload:
+  // persistence across that reload is part of the acceptance behavior.
+  await page.addInitScript(() => {
+    localStorage.setItem('frisket:product-telemetry:v1', JSON.stringify({ schema_version: 1, state: 'disabled' }));
+  });
+});
+
+test('guided Home entry opens the existing chooser without the introduction', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByTestId('home-sample-hero')).toBeVisible();
+  await page.getByRole('button', { name: 'See the walkthroughs' }).click();
+  await expect(page).toHaveURL(/\/p\/[^/]+/, { timeout: 30_000 });
+  const chooser = page.getByTestId('walkthrough-chooser');
+  await expect(chooser).toBeVisible();
+  await expect(chooser.getByTestId('walkthrough-choice-regex-extract')).toContainText('Regex');
+  await expect(page.getByTestId('sample-project-intro')).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByTestId('grid')).toBeVisible();
+  await expect(page.getByTestId('sample-project-intro')).toHaveCount(0);
 });
 
 test('sample setup opens the native introduction with live walkthrough badges and remembers X dismissal', async ({
@@ -37,7 +38,7 @@ test('sample setup opens the native introduction with live walkthrough badges an
   await openSampleFromHome(page);
 
   const intro = page.getByTestId('sample-project-intro');
-  await expect(intro.getByTestId('sample-walkthrough-choice-regex-extract')).toContainText('tables');
+  await expect(intro.getByTestId('sample-walkthrough-choice-regex-extract')).toContainText('Regex');
 
   await intro.getByRole('button', { name: 'Close introduction' }).click();
   await expect(intro).toHaveCount(0);
@@ -61,7 +62,7 @@ test('Escape dismisses the introduction and Guide consumes its hint into the pla
   await page.getByTestId('chrome-walkthrough').click();
   const chooser = page.getByTestId('walkthrough-chooser');
   await expect(chooser).toBeVisible();
-  await expect(chooser.getByTestId('walkthrough-choice-regex-extract')).toContainText('tables');
+  await expect(chooser.getByTestId('walkthrough-choice-regex-extract')).toContainText('Regex');
   await expect(page.getByTestId('sample-guide-hint')).toHaveCount(0);
   await expect(page.getByTestId('sample-project-intro')).toHaveCount(0);
 });
@@ -86,6 +87,7 @@ test('Poke around dismisses the introduction and an ordinary project never opens
       timeout: 20_000,
     });
     await expect(page.getByTestId('sample-project-intro')).toHaveCount(0);
+    await expect(page.getByTestId('sample-guide-hint')).toHaveCount(0);
   } finally {
     const deleted = await request.delete(`/api/projects/${projectId}`, {
       data: { confirm_name: name },

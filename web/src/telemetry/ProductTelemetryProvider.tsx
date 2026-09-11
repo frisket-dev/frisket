@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { getRuntimeConfig } from '../api/open';
+import { TelemetryDisclosureReadyContext } from './disclosureReady';
 import {
   configureProductTelemetry,
   sendAppOpened,
@@ -9,6 +10,7 @@ import {
 
 export function ProductTelemetryProvider({ children }: { children: ReactNode }) {
   const [available, setAvailable] = useState(false);
+  const [resolved, setResolved] = useState(false);
   const [choice, setChoice] = useState(telemetryPreference);
   const [checked, setChecked] = useState(true);
 
@@ -18,10 +20,13 @@ export function ProductTelemetryProvider({ children }: { children: ReactNode }) 
       if (!active) return;
       configureProductTelemetry(config.product_telemetry_available);
       setAvailable(config.product_telemetry_available);
+      setResolved(true);
       if (config.product_telemetry_available && telemetryPreference() === 'enabled') {
         sendAppOpened();
       }
-    }).catch(() => undefined);
+    }).catch(() => {
+      if (active) setResolved(true);
+    });
     return () => { active = false; };
   }, []);
 
@@ -32,7 +37,7 @@ export function ProductTelemetryProvider({ children }: { children: ReactNode }) 
   };
 
   return (
-    <>
+    <TelemetryDisclosureReadyContext.Provider value={resolved && (!available || choice !== 'unanswered')}>
       {children}
       {available && choice === 'unanswered' ? (
         <div className="modal-backdrop" data-testid="product-telemetry-disclosure">
@@ -58,6 +63,6 @@ export function ProductTelemetryProvider({ children }: { children: ReactNode }) 
           </div>
         </div>
       ) : null}
-    </>
+    </TelemetryDisclosureReadyContext.Provider>
   );
 }

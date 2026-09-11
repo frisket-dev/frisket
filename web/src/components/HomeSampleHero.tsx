@@ -23,6 +23,7 @@ export function HomeSampleHero({
           <button
             type="button"
             className="btn btn-primary"
+            data-testid="try-sample-project"
             onClick={() => onOpenSample()}
             disabled={busy}
           >

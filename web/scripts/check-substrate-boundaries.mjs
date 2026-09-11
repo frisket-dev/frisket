@@ -104,7 +104,7 @@ if (violations.length > 0) {
       // controller mounts (a project switch unmounts/remounts it); picker leaves
       // the workspace. The controller never listens to popstate, so neither can
       // double-write — even though a bare project route IS RouteState-representable.
-      "<HomeScreen onOpen={(p) => navigate({ kind: 'project', projectId: p.id })} />",
+      "navigate({ kind: 'project', projectId: p.id });",
       "onClick={() => navigate({ kind: 'picker' })}",
     ],
   };
