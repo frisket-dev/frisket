@@ -997,6 +997,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "tenant.list_walkthroughs.get",
+      "method": "GET",
+      "path": "/api/walkthroughs",
+      "request": null
+    },
+    {
       "id": "tenant.list_watch_run_events.get",
       "method": "GET",
       "path": "/api/projects/{pid}/watches/{watch_id}/runs/{run_id}/events",
@@ -8034,6 +8040,15 @@ export type HttpUpdateSheetRequest = ({
   "title_column_id"?: (((number)) | ((null)));
 });
 
+type HttpWalkthroughCatalogResponse_WalkthroughBadge = ({
+  "badges": (Array<(string)>);
+  "id": (string);
+});
+
+export type HttpWalkthroughCatalogResponse = ({
+  "walkthroughs": (Array<(HttpWalkthroughCatalogResponse_WalkthroughBadge)>);
+});
+
 type HttpWatch_JsonValue = JsonValue;
 
 type HttpWatch_WatchRun = ({
@@ -10343,6 +10358,16 @@ export type HttpContractOperationMap = {
       readonly "404": HttpError;
       readonly "409": HttpError;
       readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.list_walkthroughs.get": {
+    readonly pathParams: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpWalkthroughCatalogResponse;
+      readonly "401": HttpError;
       readonly "500": HttpError;
     };
   };

@@ -123,6 +123,7 @@ from frisket.server.routes.spend import register_spend_routes
 from frisket.server.routes.sources import register_source_routes
 from frisket.server.routes.views import register_view_lens_routes
 from frisket.server.routes.watches import register_watch_routes
+from frisket.server.routes.walkthroughs import register_walkthrough_routes
 from frisket.server.routes.workbench import register_workbench_routes
 from frisket.server.services.action_param_validation import (
     ActionParamValidationService,
@@ -504,6 +505,8 @@ def create_app(
         ),
         edition=edition,
     )
+
+    register_walkthrough_routes(app)
 
     # ---------- projects ----------
 
