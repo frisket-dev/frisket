@@ -570,8 +570,10 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
     )
     args = ap.parse_args(argv)
 
+    from frisket.ai.llm.pricing_refresh import start_pricing_refresh
     from frisket.operability.structured_logging import configure_logging
 
+    start_pricing_refresh()
     configure_logging()
 
     from frisket.engine.jobs import (
@@ -1074,10 +1076,12 @@ def server(argv: list[str]) -> int:
         StandaloneRuntimeState,
     )
     from frisket.server.workspace import DataRootUnwritable
+    from frisket.ai.llm.pricing_refresh import start_pricing_refresh
     from frisket.operability.structured_logging import configure_logging
     from frisket.team.app import create_team_app_from_env
 
     data_dir = Path(args.data_dir).expanduser().resolve()
+    start_pricing_refresh()
     database_url = _standalone_database_url(data_dir)
     state = StandaloneRuntimeState()
     try:
@@ -1241,9 +1245,11 @@ def main() -> None:
 
     from frisket.server.app import create_app
     from frisket.server.static_serving import resolve_static_dir
+    from frisket.ai.llm.pricing_refresh import start_pricing_refresh
     from frisket.operability.structured_logging import configure_logging
 
     configure_logging()
+    start_pricing_refresh()
     app = create_app(workspace)
     worker_proc = _spawn_worker(workspace)
     url = f"http://localhost:{port}"

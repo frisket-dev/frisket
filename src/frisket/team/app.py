@@ -2125,6 +2125,9 @@ def create_team_app_from_env() -> FastAPI:
     Compose already sets the variable unconditionally, so shipped
     deployments never see this.
     """
+    from frisket.ai.llm.pricing_refresh import start_pricing_refresh
+
+    start_pricing_refresh()
     return create_team_app(team_config_from_env())
 
 
