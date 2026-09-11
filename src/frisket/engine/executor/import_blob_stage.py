@@ -195,6 +195,12 @@ class AdmittedImportBlobStager:
             cells=tuple(cells),
         )
 
+    def finish_reads(self) -> None:
+        """Close scratch readers before publication may unlink their files."""
+
+        self._require_open()
+        self._readers.close()
+
     def close(self) -> None:
         if self._closed:
             return

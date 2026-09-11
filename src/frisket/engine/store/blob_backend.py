@@ -82,6 +82,21 @@ def sha256_blob_path(path: str | Path) -> tuple[str, int]:
     return digest.hexdigest(), size
 
 
+def _fsync_directory(path: Path) -> None:
+    """Persist a directory entry where the platform supports directory fsync."""
+
+    try:
+        descriptor = os.open(path, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(descriptor)
+    except OSError:
+        pass
+    finally:
+        os.close(descriptor)
+
+
 class FilesystemProjectBlobStore:
     """Portable bundle-local canonical blob storage."""
 
@@ -171,11 +186,7 @@ class FilesystemProjectBlobStore:
             os.replace(temp_path, target)
             if _sha256_path(target) != digest:
                 raise BlobIntegrityError(f"canonical blob {digest} failed verification")
-            directory_fd = os.open(target.parent, os.O_RDONLY)
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
+            _fsync_directory(target.parent)
             return digest
         finally:
             # If either context expression failed before ``sink`` took

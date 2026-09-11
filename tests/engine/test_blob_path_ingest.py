@@ -11,6 +11,7 @@ import pytest
 
 from frisket.project_identity import ProjectStorageKey
 from frisket.engine.store import Project
+from frisket.engine.store import blob_backend
 from frisket.engine.store.blob_backend import (
     BlobIntegrityError,
     FilesystemProjectBlobStore,
@@ -55,6 +56,16 @@ class _StreamingS3Client:
         while chunk := Fileobj.read(64 * 1024):
             chunks.append(chunk)
         self.objects[(Bucket, Key)] = b"".join(chunks)
+
+
+def test_directory_fsync_is_optional_on_unsupported_platforms(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def reject_directory_open(*_args: Any, **_kwargs: Any) -> int:
+        raise PermissionError("directories cannot be opened on this platform")
+
+    monkeypatch.setattr(blob_backend.os, "open", reject_directory_open)
+    blob_backend._fsync_directory(tmp_path)
 
 
 def test_project_add_blob_from_path_streams_and_records_metadata(

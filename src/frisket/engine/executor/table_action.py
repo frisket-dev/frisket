@@ -1004,6 +1004,10 @@ def run_table_source(
             list(prepared.reads),
             prepared.identity,
         )
+        if stager is not None:
+            # Publication removes invocation-owned scratch files. Windows,
+            # unlike POSIX, refuses that removal while readers remain open.
+            stager.finish_reads()
         blob_plan = stager.publication_plan(occurrences) if stager is not None else None
         if writer is None:
             list_reader = prepared.readers.get(ListTableReader)

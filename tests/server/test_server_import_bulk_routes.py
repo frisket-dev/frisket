@@ -5,6 +5,7 @@ import hashlib
 import errno
 import io
 import json
+import os
 import stat
 import struct
 import zipfile
@@ -484,6 +485,27 @@ def test_bulk_purge_does_not_follow_symlink_children(tmp_path: Path) -> None:
     )
     assert response.status_code == 200
     assert marker.read_text() == "keep"
+
+
+def test_bulk_import_works_without_dir_fd_support(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Windows verifies staged files without POSIX relative-open support."""
+
+    monkeypatch.setattr(import_bulk_sources.os, "supports_dir_fd", set())
+    client = TestClient(create_app(tmp_path / "workspace"))
+    pid = _project(client, "Portable staged source")
+    planned = _bulk_plan(
+        client,
+        pid,
+        [("rows.csv", b"name\nAda\n", "text/csv", "rows.csv")],
+        expand_archive=False,
+    )
+
+    assert planned.status_code == 200, planned.text
+    executed = _execute_bulk(client, pid, planned.json())
+    assert executed.status_code == 200, executed.text
+    assert executed.json()["failed"] == []
 
 
 def test_bulk_combined_csv_aligns_reordered_columns_and_widens_numbers(
@@ -1831,7 +1853,13 @@ def test_bulk_email_consumes_the_verified_open_inode_if_staged_path_is_replaced(
         held_sources.append(source.stream)
         swap = tmp_path / "replacement.eml"
         swap.write_bytes(replacement.as_bytes())
-        swap.replace(staged)
+        try:
+            swap.replace(staged)
+        except PermissionError:
+            # Windows pins the verified file by denying replacement while its
+            # handle is open; POSIX permits replacement but retains the inode.
+            if os.name != "nt":
+                raise
         result = real_run_action_spec(project, action, **kwargs)
         assert not source.stream.closed, "the typed reader only borrows ingress streams"
         return result

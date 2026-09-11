@@ -137,20 +137,45 @@ def open_verified_source(root: Path, item: dict[str, Any]) -> BinaryIO:
         or item.get("path") != f"files/{digest}"
     ):
         raise ImportBulkRouteError(404, "bulk import plan not found")
-    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    source_path = root / "files" / digest
     try:
-        directory = os.open(root / "files", flags)
-        try:
-            descriptor = os.open(
-                digest,
-                os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
-                dir_fd=directory,
+        expected_metadata = None
+        if os.open in os.supports_dir_fd:
+            directory = os.open(
+                root / "files",
+                os.O_RDONLY
+                | getattr(os, "O_DIRECTORY", 0)
+                | getattr(os, "O_NOFOLLOW", 0),
             )
-        finally:
-            os.close(directory)
+            try:
+                descriptor = os.open(
+                    digest,
+                    os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+                    dir_fd=directory,
+                )
+            finally:
+                os.close(directory)
+        else:
+            # Windows has no dir_fd-relative os.open. Refuse links/reparse
+            # points, then prove the inspected path and opened handle identify
+            # the same file before trusting its contents.
+            expected_metadata = os.lstat(source_path)
+            reparse_point = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+            if (
+                not stat.S_ISREG(expected_metadata.st_mode)
+                or getattr(expected_metadata, "st_file_attributes", 0) & reparse_point
+            ):
+                raise OSError("staged source is not a regular file")
+            descriptor = os.open(
+                source_path,
+                os.O_RDONLY | getattr(os, "O_BINARY", 0),
+            )
         source = os.fdopen(descriptor, "rb")
         metadata = os.fstat(source.fileno())
-        if not stat.S_ISREG(metadata.st_mode):
+        if not stat.S_ISREG(metadata.st_mode) or (
+            expected_metadata is not None
+            and not os.path.samestat(expected_metadata, metadata)
+        ):
             raise OSError("staged source is not a regular file")
         actual_digest, actual_size = hash_stream(source)
         if actual_digest != digest or actual_size != item.get("size"):

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import shutil
 import time
 from typing import Any
@@ -72,26 +71,23 @@ class ImportBulkService:
         try:
             # From the first post-claim instruction onward, cleanup owns the
             # claimed manifest, staged files, and claim lock.
-            write_lock = open_lock_file(root / ".execute.lock")
-            fcntl.flock(write_lock.fileno(), fcntl.LOCK_EX)
-            return self.executor.execute(
-                project,
-                project_id,
-                plan,
-                outputs,
-                staged,
-                decisions,
-                deps=executor_deps,
-                max_rows=max_rows,
-            )
+            with open_lock_file(root / ".execute.lock"):
+                return self.executor.execute(
+                    project,
+                    project_id,
+                    plan,
+                    outputs,
+                    staged,
+                    decisions,
+                    deps=executor_deps,
+                    max_rows=max_rows,
+                )
         finally:
-            if "write_lock" in locals():
-                fcntl.flock(write_lock.fileno(), fcntl.LOCK_UN)
-                write_lock.close()
+            # Release before removing the plan: Windows does not allow deleting
+            # a directory that contains an open lock file.
+            claim.release()
             shutil.rmtree(plan, ignore_errors=True)
             import_bulk_sources.fsync_directory(root)
-            fcntl.flock(claim.fileno(), fcntl.LOCK_UN)
-            claim.close()
 
 
 __all__ = [

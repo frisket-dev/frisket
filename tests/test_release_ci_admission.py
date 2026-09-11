@@ -12,16 +12,18 @@ import yaml
 
 
 @pytest.mark.parametrize(
-    ("bypass", "status", "conclusion", "accepted"),
+    ("bypass", "event", "status", "conclusion", "accepted"),
     [
-        (True, None, None, True),
-        (False, None, None, False),
-        (False, "completed", "success", True),
-        (False, "completed", "failure", False),
-        (False, "in_progress", None, False),
+        (True, None, None, None, True),
+        (False, None, None, None, False),
+        (False, "push", "completed", "success", True),
+        (False, "workflow_dispatch", "completed", "success", True),
+        (False, "pull_request", "completed", "success", False),
+        (False, "push", "completed", "failure", False),
+        (False, "push", "in_progress", None, False),
     ],
 )
-def test_release_ci_admission(tmp_path, bypass, status, conclusion, accepted):
+def test_release_ci_admission(tmp_path, bypass, event, status, conclusion, accepted):
     # rule19: execute the workflow's shell step with a fake GitHub transport.
     workflow = yaml.safe_load(
         (
@@ -42,6 +44,7 @@ def test_release_ci_admission(tmp_path, bypass, status, conclusion, accepted):
         if status is None
         else [
             {
+                "event": event,
                 "status": status,
                 "conclusion": conclusion,
                 "run_number": 1,

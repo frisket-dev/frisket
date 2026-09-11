@@ -2,7 +2,7 @@
 
 The hosted app mounts the built web bundle so
 a browser hitting the deployment gets the UI; the local server was API-only, so
-a packaged `pip`/`uvx` install of `frisket <workspace>` booted a headless :8000
+a packaged `pip`/`uvx` install of `frisket <workspace>` booted a headless :7331
 (onboarding research friction #1). This module is the single home for that
 primitive so both tiers mount the same behaviour:
 
@@ -12,7 +12,7 @@ primitive so both tiers mount the same behaviour:
   * `resolve_static_dir()` — the resolution order the local server uses:
     explicit `FRISKET_STATIC_DIR` -> packaged assets shipped in the wheel
     (`frisket/web_static/`) -> `None` (dev mode: vite serves the UI and proxies
-    `/api` to :8000, see `web/vite.config.ts`).
+    `/api` to :7331, see `web/vite.config.ts`).
   * `mount_spa_static()` — attach the mount at `/` after all API routes so API
     routes take precedence. Registration order alone is not a namespace
     guarantee: a plain `Mount("/")` Match.FULLs *every* path that reaches

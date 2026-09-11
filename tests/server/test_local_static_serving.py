@@ -2,7 +2,7 @@
 
 `frisket <workspace>` must be a complete experience: the local server
 (`frisket.server.app.create_app`) mounts the built SPA the same way the hosted
-app does, so a packaged pip/uvx install boots a real UI on :8000 instead of a
+app does, so a packaged pip/uvx install boots a real UI on :7331 instead of a
 headless API. This pins:
 
   * the shared static-serving primitive extracted from the hosted app

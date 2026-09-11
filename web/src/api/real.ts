@@ -1,6 +1,6 @@
 // Open HTTP adapter implementing FrisketApi against the real frisket FastAPI
 // server (src/frisket/server/app.py), reached through the vite dev proxy
-// (/api → http://127.0.0.1:8000).
+// (/api → the local Frisket server; :7331 by default).
 //
 // Interface mismatches handled here:
 // - listSheets(): the backend splits sheet list and columns; we join them
