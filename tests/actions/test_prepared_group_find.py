@@ -183,7 +183,7 @@ def test_prepared_handles_must_belong_to_the_invocation(source_project, kind):
 
 
 def test_reused_summary_runs_with_actual_action_identity_and_names(source_project):
-    from test_reduce_group_summary_executor import _summary_router
+    from tests.engine.test_reduce_group_summary_executor import _summary_router
 
     project, sheet, rows = source_project
     bound = _bound(
@@ -245,7 +245,7 @@ def test_find_queue_pins_actual_author_arguments_before_model_calls(
         run_typed_find_action_job,
     )
     from frisket.engine.store.receipts import ReceiptStore
-    from test_map_find_runtime import _FindAdapter
+    from tests.engine.test_map_find_runtime import _FindAdapter
     from frisket.ai.llm import ModelRouter
 
     project, sheet, rows = source_project

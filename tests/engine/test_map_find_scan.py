@@ -113,7 +113,7 @@ def test_markdown_formatted_text_is_planned_as_text_with_inline_detail_schema(
     tmp_path: Path,
 ) -> None:
     from frisket.actions.types import ActionRequest
-    from test_map_find_runtime import _operation_for_request
+    from tests.engine.test_map_find_runtime import _operation_for_request
     from frisket.engine.executor.map_find_planning import (
         find_response_schema,
         plan_find_scan,
@@ -184,7 +184,7 @@ def test_markdown_formatted_text_is_planned_as_text_with_inline_detail_schema(
 
 def test_find_skips_empty_cells_in_the_selected_row_scope(tmp_path: Path) -> None:
     from frisket.actions.types import ActionRequest
-    from test_map_find_runtime import _operation_for_request
+    from tests.engine.test_map_find_runtime import _operation_for_request
     from frisket.engine.executor.map_find_source import resolve_find_sources
     from frisket.engine.store import Project
 

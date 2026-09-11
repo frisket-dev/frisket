@@ -172,59 +172,20 @@ jobs:
       - run: uv run --project workers/vibevoice_asr --no-sync ruff check workers/vibevoice_asr
       - run: uv run --project workers/vibevoice_asr --no-sync ruff format --check workers/vibevoice_asr
       - run: uv run --project workers/vibevoice_asr --no-sync pytest -q workers/vibevoice_asr/tests
-  test:
+  python-quality:
     needs: changes
-    # Skipped only when a commit touches frontend SOURCE alone. This is the
-    # always-run gate: ruff, the rule-19 + deterministic-time lints, and the
-    # import-boundary check are never gated by the per-layer pytest subset.
+    # Run source-quality and architectural checks once, independently of the
+    # pytest shards below.
     if: ${{ needs.changes.outputs.backend == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           persist-credentials: false
           fetch-depth: 0
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
-      # tests/test_http_typescript_renderer_matrix.py shells out to
-      # web/node_modules/.bin/tsc to compile+run the generated TS contract
-      # module. The plugin-build tests resolve sdk/node_modules/.bin/esbuild
-      # first; without the SDK install they fall back to a fresh `npx -y`
-      # invocation for every build. Cache both lockfiles and provision both
-      # dependency trees before pytest.
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: |
-            web/package-lock.json
-            sdk/package-lock.json
-      - run: npm ci
-        working-directory: web
-      - run: npm ci
-        working-directory: sdk
-      # OCR/conversion are base engines (rapidocr, markitdown) whose tests are
-      # written to run offline; poppler backs the PDF paths;
-      # ffmpeg backs the real subprocess clip/frame-extraction tests
-      # (test_provenance_download_clip.py, test_citation_span_runs.py,
-      # test_media_video_frames_executor.py) -- they shell out for real,
-      # no importorskip; ripgrep backs the URL-classification guard in
-      # tests/features/test_url_classification_routing.py.
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils ffmpeg ripgrep
-      # entities: followthemoney/normality/pyicu -- pyicu 2.16.2 ships an
-      # sdist only (uv.lock has no wheel entry for it), so this builds from
-      # source against ubuntu-latest's toolchain; it was already a BASE
-      # dependency built the same way here before it became an optional
-      # extra, so this adds no new CI failure mode. The Windows lane
-      # deliberately omits the extra because it has no ICU build toolchain.
-      # Keeps the FollowTheMoney test suite exercised for real here alongside
-      # the base OCR and conversion runtimes.
       - run: uv sync --dev --extra entities
-      # Real RapidOCR tests skip when the model files are absent. Do not hydrate
-      # them here: a cold third-party model host must not turn the product-test
-      # signal red before repository-owned checks execute.
-      # --no-sync: these run after the explicit uv sync above; prevent an
-      # implicit resync from drifting the provisioned environment.
       - run: uv run --no-sync ruff check src tests
       - run: uv run --no-sync ruff format --check src tests
       # Tests never read repository source as text.
@@ -245,23 +206,65 @@ jobs:
       - run: uv run --no-sync python scripts/ci/lint_precheck_container_guards.py
       # Import-boundary gate: the declarative rules in
       # scripts/ci/import_boundaries.json checked against the real source tree
-      # (the single boundary system). Never narrowed by the per-layer pytest
-      # subset below.
+      # (the single boundary system).
       - run: uv run --no-sync python scripts/ci/check_import_boundaries.py --source-root src --config scripts/ci/import_boundaries.json
+
+  test-engine:
+    name: Python tests (execution core)
+    needs: changes
+    # Engine changes already select the full suite. Leaf-only PRs keep their
+    # cheaper path-scoped test job below and do not start this shard.
+    if: ${{ needs.changes.outputs.backend == 'true' && needs.changes.outputs.pytest_target == 'tests' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils ffmpeg ripgrep
+      - run: uv sync --dev --extra entities
+      # Real RapidOCR tests skip when model files are absent; CI does not
+      # hydrate third-party weights.
       # keyless by design: replay_strict against the committed response cache.
       # No -m override here: pyproject.toml's addopts ("not gap and not
       # network and not plugin_contract") is the real default subset --
       # respecifying "-m not network" on the command line replaces rather
       # than composes with addopts, silently letting the 18 plugin_contract
       # gauntlet tests (deliberately isolated from the default suite) back in.
-      # Keep loadfile until a representative post-esbuild worksteal benchmark
-      # proves it improves the tail. The duration report keeps that decision
-      # evidence visible on every run without changing test semantics.
-      # pytest_target is `tests` (full suite) for every engine/shared/root/
-      # multi-layer commit, or `tests/<layer> tests/*.py` for a single
-      # non-engine-leaf commit. The root tests/*.py always ride along, so the
-      # boundary + cross-cutting suites run under either target.
-      - run: FRISKET_CHECKLOG_DISABLE=1 uv run --no-sync pytest ${{ needs.changes.outputs.pytest_target }} -q -n auto --dist loadfile --durations=50 --durations-min=0.5 -o faulthandler_timeout=120
+      - run: FRISKET_CHECKLOG_DISABLE=1 uv run --no-sync pytest tests/engine -q -n auto --dist loadfile --durations=50 --durations-min=0.5 -o faulthandler_timeout=120
+
+  test:
+    name: Python tests (product surfaces)
+    needs: changes
+    if: ${{ needs.changes.outputs.backend == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PYTEST_TARGET: ${{ needs.changes.outputs.pytest_target == 'tests' && 'tests --ignore=tests/engine' || needs.changes.outputs.pytest_target }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      # Root contract-renderer and plugin-build tests need both checked-in
+      # JavaScript toolchains.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            sdk/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - run: npm ci
+        working-directory: sdk
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils ffmpeg ripgrep
+      - run: uv sync --dev --extra entities
+      - run: FRISKET_CHECKLOG_DISABLE=1 uv run --no-sync pytest $PYTEST_TARGET -q -n auto --dist loadfile --durations=50 --durations-min=0.5 -o faulthandler_timeout=120
       # The keyless gap subset runs with the manually dispatched hosted gate,
       # not nightly. It must also stay green in focused local testing. gap_env
       # is the disjoint designated-environment-proof subset
