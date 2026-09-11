@@ -32,7 +32,10 @@ from frisket.engine.store.lineage import build_lineage_dag
 from frisket.engine.store.text_annotations import annotated_text_column_ids
 from frisket.engine.store.staleness import compute_sync_states
 from frisket.server.workspace import Workspace
-from frisket.server.services.sheet_grid import require_visible_sheet
+from frisket.server.services.sheet_grid import (
+    require_visible_sheet,
+    sheet_columns_payload,
+)
 from frisket.authoring.workbench.plugin_runtime_status import (
     workbench_plugin_runtime_index,
 )
@@ -915,6 +918,7 @@ class ProjectLifecycleService:
             entry["dependent_sheet_ids"] = [
                 item["id"] for item in project.dependent_sheets(sheet_id)
             ]
+            entry["columns"] = sheet_columns_payload(project, sheet_id)
             state = sync_states.get(sheet_id)
             if state is not None:
                 entry["syncState"] = state["sync_state"]

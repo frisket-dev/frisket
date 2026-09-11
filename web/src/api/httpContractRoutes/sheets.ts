@@ -18,6 +18,7 @@ type SheetWire = HttpContractSuccessResponse<'tenant.update_sheet.patch'>;
 type SheetDeleteWire = HttpContractSuccessResponse<'tenant.delete_sheet.delete'>;
 type SheetDataWire = HttpContractSuccessResponse<'tenant.sheet_data.get'>;
 type SheetListWire = HttpContractSuccessResponse<'tenant.list_sheets.get'>;
+type SheetColumnWire = SheetDataWire['columns'][number];
 type SheetRowLocationWire = HttpContractSuccessResponse<'tenant.locate_sheet_row.get'>;
 
 type ContractErrorFactory = (status: number, payload: unknown) => Error;
@@ -51,7 +52,7 @@ function mapSheetList(wire: SheetListWire): SheetMeta[] {
       id: String(sheet.id),
       name: sheet.name,
       rowCount: sheet.rows,
-      columns: [],
+      columns: sheet.columns.map(mapSheetColumn),
       titleColumnId: sheet.title_column_id == null ? null : String(sheet.title_column_id),
       citedColumnIds: sheet.cited_column_ids.map(String),
       annotatedTextColumnIds: sheet.annotated_text_column_ids.map(String),
@@ -76,6 +77,34 @@ function mapSheetList(wire: SheetListWire): SheetMeta[] {
     }
     return meta;
   });
+}
+
+function mapSheetColumn(column: SheetColumnWire): SheetMeta['columns'][number] {
+  return {
+    id: String(column.id),
+    name: column.name,
+    type: column.type,
+    width: column.type === 'text' ? 240 : undefined,
+    format: column.format,
+    semanticType: column.semantic_type ?? null,
+    defaultHidden: column.default_hidden,
+    currentRunId: column.current_run_id == null ? null : String(column.current_run_id),
+    latestRunId: column.latest_run_id == null ? null : String(column.latest_run_id),
+    generationManaged: column.generation_managed,
+    mixedOrigins: column.mixed_origins,
+    transcriptStatus: column.transcript_status,
+    mediaDownloadCandidate: column.media_download_candidate,
+    replayPendingCount: column.replay_pending_count ?? 0,
+    ...(column.ai_generated ? {
+      ai: {
+        actionName: 'AI run',
+        prompt: '',
+        model: '',
+        costSoFar: 0,
+        versions: [],
+      },
+    } : {}),
+  };
 }
 
 function mapUpdatedSheet(wire: SheetWire): void {
@@ -126,31 +155,7 @@ function mapCellValueRef(
 }
 
 function mapSheetData(wire: SheetDataWire): SheetDataPage {
-  const columns = wire.columns.map((column) => ({
-    id: String(column.id),
-    name: column.name,
-    type: column.type,
-    width: column.type === 'text' ? 240 : undefined,
-    format: column.format,
-    semanticType: column.semantic_type ?? null,
-    defaultHidden: column.default_hidden,
-    currentRunId: column.current_run_id == null ? null : String(column.current_run_id),
-    latestRunId: column.latest_run_id == null ? null : String(column.latest_run_id),
-    generationManaged: column.generation_managed,
-    mixedOrigins: column.mixed_origins,
-    transcriptStatus: column.transcript_status,
-    mediaDownloadCandidate: column.media_download_candidate,
-    replayPendingCount: column.replay_pending_count ?? 0,
-    ...(column.ai_generated ? {
-      ai: {
-        actionName: 'AI run',
-        prompt: '',
-        model: '',
-        costSoFar: 0,
-        versions: [],
-      },
-    } : {}),
-  }));
+  const columns = wire.columns.map(mapSheetColumn);
   const columnById = new Map(wire.columns.map((column) => [String(column.id), column]));
   return {
     total: wire.total,
@@ -365,22 +370,4 @@ export function locateSheetRowContract(
     headers: options.headers,
     errorFactory,
   }, mapSheetRowLocation);
-}
-
-export async function listSheetsWithColumnsContract(
-  projectId: string,
-  errorFactory: ContractErrorFactory,
-  options: SheetGridContractOptions = {},
-): Promise<SheetMeta[]> {
-  const sheets = await listSheetsContract(projectId, errorFactory, options);
-  return Promise.all(sheets.map(async (sheet) => {
-    const data = await getSheetDataContract(
-      projectId,
-      Number(sheet.id),
-      { offset: 0, limit: 0 },
-      errorFactory,
-      options,
-    );
-    return { ...sheet, columns: data.columns };
-  }));
 }

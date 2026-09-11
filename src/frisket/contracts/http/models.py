@@ -205,6 +205,7 @@ class SheetListItem(WireModel):
     # on every sheet that has any evidence at all.
     annotated_text_column_ids: list[int]
     dependent_sheet_ids: list[int]
+    columns: list[SheetDataColumn]
     sync_state: str | None = Field(default=None, alias="syncState")
     stale_reason: str | None = None
 

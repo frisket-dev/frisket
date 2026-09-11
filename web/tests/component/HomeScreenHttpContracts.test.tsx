@@ -23,6 +23,7 @@ const SHEETS = [
     syncState: null,
     stale_reason: null,
     materialized_kind: null,
+    columns: [],
   },
   {
     id: 2,
@@ -37,6 +38,7 @@ const SHEETS = [
     syncState: null,
     stale_reason: null,
     materialized_kind: null,
+    columns: [],
   },
 ];
 
