@@ -244,7 +244,8 @@ def load_or_create_secret_key(path: str | Path) -> bytes:
         if path.exists():
             return _read_persisted_key(path)
         key = token_bytes(32)
-        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        tmp_path = path.with_name(f"{path.name}.tmp-{os.getpid()}-{token_hex(4)}")
+        fd = os.open(tmp_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         try:
             written = os.write(fd, key)
             if written != len(key):
@@ -255,6 +256,7 @@ def load_or_create_secret_key(path: str | Path) -> bytes:
             os.fsync(fd)
         finally:
             os.close(fd)
+        tmp_path.replace(path)
         if os.name != "nt":
             # Extra POSIX directory-entry durability; opening a directory
             # this way is not a portable Windows operation.
