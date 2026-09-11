@@ -265,6 +265,47 @@ def test_port_available_detects_free_and_busy_port():
     assert cli._port_available("127.0.0.1", port) is True
 
 
+def test_implicit_port_increments_from_memorable_default(monkeypatch):
+    import frisket.cli as cli
+
+    monkeypatch.setattr(
+        cli,
+        "_port_available",
+        lambda _host, port: port == cli.DEFAULT_LOCAL_PORT + 2,
+    )
+
+    assert cli.DEFAULT_LOCAL_PORT == 7331
+    assert cli._available_default_port("127.0.0.1") == 7333
+
+
+def test_browser_opens_after_local_server_is_reachable(monkeypatch):
+    import frisket.cli as cli
+
+    opened: list[str] = []
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+    class ImmediateThread:
+        def __init__(self, *, target, **_kwargs):
+            self.target = target
+
+        def start(self):
+            self.target()
+
+    monkeypatch.setattr(cli.socket, "create_connection", lambda *_a, **_k: Connection())
+    monkeypatch.setattr(cli.webbrowser, "open", opened.append)
+    monkeypatch.setattr(cli.threading, "Thread", ImmediateThread)
+
+    cli._open_browser_when_ready("127.0.0.1", 7331, "http://localhost:7331")
+
+    assert opened == ["http://localhost:7331"]
+
+
 def test_busy_port_errors_before_banner_and_creates_no_workspace(
     tmp_path, monkeypatch, capsys
 ):

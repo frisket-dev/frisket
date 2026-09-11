@@ -1,6 +1,9 @@
 name: windows-portability
 
 on:
+  pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -25,15 +28,18 @@ jobs:
       - run: uv sync --dev --locked --extra asr
       - name: Import Windows-sensitive package graph
         run: >-
-          uv run --no-sync python -c "import av; import cv2; import huggingface_hub; import onnx_asr; import onnxruntime; import rapidocr; import frisket; import frisket.cli; import frisket.operability.doctor.embeddings; import frisket.engine.jobs.queue; import frisket.engine.jobs.worker; import frisket.sdk.ops.transcribe; import frisket.project_identity; import frisket.authoring.recipe_registry; import frisket.engine.sandbox; import frisket.engine.sandbox.broker; import frisket.engine.sandbox.shim; import frisket.team.security.secrets; import frisket.server.app; import frisket.server.services.projects; import frisket.server.workspace; import frisket.team.app; import frisket.team.team_bootstrap; import frisket.ops.ytdlp"
+          uv run --no-sync python -c "import av; import cv2; import huggingface_hub; import onnx_asr; import onnxruntime; import rapidocr; import frisket; import frisket.cli; import frisket.operability.doctor.embeddings; import frisket.engine.jobs.queue; import frisket.engine.jobs.worker; import frisket.sdk.ops.transcribe_engines; import frisket.project_identity; import frisket.authoring.recipe_registry; import frisket.engine.sandbox; import frisket.engine.sandbox.broker; import frisket.engine.sandbox.shim; import frisket.team.security.secrets; import frisket.server.app; import frisket.server.services.projects; import frisket.server.workspace; import frisket.team.app; import frisket.team.team_bootstrap; import frisket.ops.ytdlp"
       - name: Run RapidOCR portable worker and session contracts
         run: >-
           uv run --no-sync pytest -q tests/engine/test_rapidocr_worker.py tests/engine/test_rapidocr_session.py
       - name: Run deployment self-probe
         run: uv run --no-sync frisket doctor
+      - name: Run CSV and bulk-import portability contracts
+        run: >-
+          uv run --no-sync pytest -q tests/test_cli_main.py tests/engine/test_blob_path_ingest.py tests/engine/test_import_csv_executor.py tests/engine/test_import_csv_typed_boundaries.py tests/server/test_server_import_bulk_routes.py tests/server/test_server_import_bulk_extensionless_email.py tests/server/test_server_import_bulk_email_parity.py
       - name: Run core store, queue, and locking subset
         run: >-
-          uv run --no-sync pytest -q tests/ai/test_store.py::TestBasics::test_create_open_roundtrip tests/ai/test_store.py::TestConcurrentOpenMigration::test_concurrent_open_does_not_raise_duplicate_column tests/engine/test_store_leases.py tests/engine/test_job_queue.py tests/engine/test_queue_memory_engines.py tests/team/test_byo_keys.py tests/engine/test_server.py::TestProjects::test_saved_recipe_concurrent_writes_keep_all_entries tests/server/test_recipe_registry.py tests/team/test_team_entrypoint_hardening.py::test_independent_process_boots_converge_to_one_org tests/server/test_server_project_lifecycle_routes.py tests/engine/test_sandbox.py::TestBroker::test_sandboxed_op_completes_via_broker_without_keys
+          uv run --no-sync pytest -q tests/ai/test_store.py::TestBasics::test_create_open_roundtrip tests/ai/test_store.py::TestConcurrentOpen::test_a_knob_change_mints_one_successor_not_one_per_open tests/engine/test_store_leases.py tests/engine/test_job_queue.py tests/engine/test_queue_memory_engines.py tests/team/test_byo_keys.py tests/engine/test_server.py::TestProjects::test_saved_recipe_concurrent_writes_keep_all_entries tests/server/test_recipe_registry.py tests/team/test_team_entrypoint_hardening.py::test_independent_process_boots_converge_to_one_org tests/server/test_server_project_lifecycle_routes.py tests/engine/test_sandbox.py::TestBroker::test_sandboxed_op_completes_via_broker_without_keys
       - name: Run sandbox process-tree cancellation proof (native Windows Job Object teardown)
         # The descendant-marker proof for the cancellation contract: a sandboxed
         # parent spawns a grandchild (sometimes orphaned or TERM-ignoring);

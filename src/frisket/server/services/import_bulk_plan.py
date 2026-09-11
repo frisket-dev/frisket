@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import os
@@ -11,7 +10,9 @@ import shutil
 import stat
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
-from typing import Any, BinaryIO
+from typing import Any
+
+from filelock import BaseFileLock, FileLock, Timeout
 
 from frisket.server.route_errors import RouteError
 from frisket.server.services import import_bulk_sources
@@ -99,7 +100,7 @@ class BulkPlanLifecycle:
 
     def claim_plan(
         self, project: Any, project_id: str, plan_id: str, decisions: dict[str, str]
-    ) -> tuple[Path, Path, BinaryIO, list[dict[str, Any]], list[dict[str, Any]]]:
+    ) -> tuple[Path, Path, BaseFileLock, list[dict[str, Any]], list[dict[str, Any]]]:
         root = project.path / ".bulk_import_staging"
         if not safe_plan_id(plan_id):
             raise ImportBulkRouteError(404, "bulk import plan not found")
@@ -123,11 +124,11 @@ class BulkPlanLifecycle:
                 raise ImportBulkRouteError(404, "bulk import plan not found")
             self.validate_decisions(questions, decisions)
             claim = open_lock_file(plan / ".claim.lock")
-            fcntl.flock(claim.fileno(), fcntl.LOCK_EX)
+            claim.acquire()
             try:
                 os.replace(plan / "manifest.json", plan / "claimed.json")
             except FileNotFoundError as exc:
-                claim.close()
+                claim.release()
                 raise ImportBulkRouteError(404, "bulk import plan not found") from exc
             # The rename is the ownership handoff. If acknowledging it fails,
             # clean it here; every later failure is covered by the facade's
@@ -137,8 +138,7 @@ class BulkPlanLifecycle:
             except Exception:
                 shutil.rmtree(plan, ignore_errors=True)
                 import_bulk_sources.fsync_directory(root)
-                fcntl.flock(claim.fileno(), fcntl.LOCK_UN)
-                claim.close()
+                claim.release()
                 raise
         return root, plan, claim, outputs, staged
 
@@ -189,15 +189,12 @@ class BulkPlanLifecycle:
                     shutil.rmtree(child, ignore_errors=True)
                 continue
             claim = child / ".claim.lock"
+            lock_file = open_lock_file(claim)
             try:
-                lock_file = open_lock_file(claim)
-            except OSError:
+                lock_file.acquire(timeout=0)
+            except Timeout:
                 continue
-            with lock_file as lock:
-                try:
-                    fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except BlockingIOError:
-                    continue
+            try:
                 manifest = child / (
                     "manifest.json"
                     if (child / "manifest.json").exists()
@@ -209,8 +206,11 @@ class BulkPlanLifecycle:
                     )
                 except (OSError, ValueError, KeyError, TypeError):
                     expired = True
-                if expired:
-                    shutil.rmtree(child, ignore_errors=True)
+            finally:
+                # Windows cannot remove a directory containing an open lock file.
+                lock_file.release()
+            if expired:
+                shutil.rmtree(child, ignore_errors=True)
 
 
 def build_plan(staged, root):
@@ -315,21 +315,12 @@ def atomic_json(path, value):
 
 @contextmanager
 def lock(path):
-    with open_lock_file(path) as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+    with open_lock_file(path):
+        yield
 
 
-def open_lock_file(path: Path) -> BinaryIO:
-    descriptor = os.open(
-        path,
-        os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0),
-        0o600,
-    )
-    return os.fdopen(descriptor, "a+b")
+def open_lock_file(path: Path) -> BaseFileLock:
+    return FileLock(str(path))
 
 
 def safe_plan_id(value):

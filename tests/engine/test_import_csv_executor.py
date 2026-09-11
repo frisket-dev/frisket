@@ -345,11 +345,29 @@ def test_csv_field_policy_is_configured_at_package_startup() -> None:
             # subprocess-boundary: CSV startup policy needs a fresh interpreter
             sys.executable,
             "-c",
-            "import csv, sys; import frisket; "
-            "assert csv.field_size_limit() == sys.maxsize",
+            "import csv; import frisket; "
+            "assert csv.field_size_limit() == frisket.CSV_FIELD_SIZE_LIMIT",
         ],
         check=True,
     )
+
+
+def test_csv_field_policy_falls_back_when_c_long_is_32_bit(monkeypatch: Any) -> None:
+    """Windows accepts its C-long maximum rather than crashing at import."""
+    import frisket
+
+    requested: list[int] = []
+
+    def windows_sized_limit(value: int) -> int:
+        requested.append(value)
+        if value > (1 << 31) - 1:
+            raise OverflowError
+        return value
+
+    monkeypatch.setattr(frisket._csv, "field_size_limit", windows_sized_limit)
+
+    assert frisket._configure_csv_field_size_limit() == (1 << 31) - 1
+    assert requested == [sys.maxsize, (1 << 31) - 1]
 
 
 def test_csv_field_policy_is_stable_across_concurrent_imports(

@@ -40,7 +40,7 @@ def plugin(argv: list[str]) -> int:
     dev_parser = subcommands.add_parser("dev")
     dev_parser.add_argument("path")
     dev_parser.add_argument("--project", required=True, dest="project_id")
-    dev_parser.add_argument("--server", default="http://127.0.0.1:8000")
+    dev_parser.add_argument("--server", default="http://127.0.0.1:7331")
     dev_parser.add_argument("--once", action="store_true")
     args = parser.parse_args(argv)
     if args.command == "init":
@@ -376,7 +376,7 @@ frisket plugin dev . --project <project-id> --once   # one cycle
 frisket plugin dev . --project <project-id>           # watch and re-run
 ```
 
-`--server` defaults to `http://127.0.0.1:8000`, matching the default port of
+`--server` defaults to `http://127.0.0.1:7331`, matching the default port of
 `frisket <workspace>` with no PORT argument; pass `--server http://host:port`
 if you're serving elsewhere.
 

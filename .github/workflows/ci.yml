@@ -3,10 +3,12 @@ name: ci
 permissions:
   contents: read
 on:
+  pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
 
-# A superseding manual run obsoletes the in-flight run — cancel it rather than
-# pay for two full pipelines when only the newest result matters.
+# A superseding run on the same ref obsoletes the in-flight run.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -14,8 +16,8 @@ concurrency:
 jobs:
   # Coarse path classification for per-layer test selection. Diff-based and
   # dependency-free; it FAILS OPEN (runs everything) whenever the base commit
-  # cannot be resolved. A manual dispatch has no comparison event, so the
-  # explicit hosted gate intentionally runs every layer. Two independent
+  # cannot be resolved. Manual dispatches and pushes to main intentionally run
+  # every layer; pull requests retain path-aware selection. Two independent
   # outputs:
   #   * job gates (backend/frontend/infra) skip a whole job a commit
   #     provably cannot affect -- e.g. a frontend-only commit skips the Python
@@ -49,12 +51,17 @@ jobs:
           PUSH_BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
+          allchanged=0
           if [ "$EVENT_NAME" = "pull_request" ]; then
             base="$PR_BASE_SHA"
+          elif [ "$EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            # Every releasable main commit gets the complete suite. PRs retain
+            # the cheaper path-aware selection for fast feedback.
+            allchanged=1
+            base=""
           else
             base="$PUSH_BEFORE"
           fi
-          allchanged=0
           if [ -z "$base" ] \
             || [ "$base" = "0000000000000000000000000000000000000000" ] \
             || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then

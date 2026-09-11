@@ -99,12 +99,11 @@ jobs:
           gh api --method GET \
             "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
             -f head_sha="$TARGET" \
-            -f event=workflow_dispatch \
             -F per_page=100 > "$RUNS"
           LATEST=$(jq -c \
-            '[.workflow_runs[]] | max_by(.run_number) // empty' "$RUNS")
+            '[.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch")] | max_by(.run_number) // empty' "$RUNS")
           if [ -z "$LATEST" ]; then
-            echo "::error::no manually dispatched full CI run exists for ${TARGET}; ${WORKFLOW_URL}"
+            echo "::error::no automatic-main or manually dispatched CI run exists for ${TARGET}; ${WORKFLOW_URL}"
             exit 1
           fi
           URL=$(printf '%s' "$LATEST" | jq -r '.html_url')

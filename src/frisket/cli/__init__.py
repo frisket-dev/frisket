@@ -13,6 +13,9 @@ import os
 import socket
 import subprocess
 import sys
+import threading
+import time
+import webbrowser
 from pathlib import Path
 
 from frisket.project_opener import ProjectOpener
@@ -75,6 +78,7 @@ def reset_drain_cmd(argv: list[str]) -> int:
 # basename (e.g. FRISKET_DATA_DIR=/mnt/7) can never be mistaken for hosted
 # per-org storage.
 SchedulerRoot = tuple[Path, int | None]
+DEFAULT_LOCAL_PORT = 7331
 
 
 def _hosted_project_roots() -> list[SchedulerRoot]:
@@ -878,7 +882,7 @@ def _usage() -> str:
     commands = [
         (
             "[WORKSPACE] [PORT]",
-            "serve the local tier (default ./frisket-projects on :8000)",
+            f"serve the local tier (default ./frisket-projects on :{DEFAULT_LOCAL_PORT})",
         ),
         *((f"{name} ...", desc) for name, (_h, desc) in _subcommands().items()),
     ]
@@ -886,6 +890,7 @@ def _usage() -> str:
         ("-h, --help", "show this help and exit"),
         ("-V, --version", "show the installed frisket version and exit"),
         ("-y, --yes", "create a missing workspace without confirmation"),
+        ("--no-open", "do not open the local app in a browser"),
     ]
     width = max(len(label) for label, _ in commands + options)
     cmd_lines = "\n".join(
@@ -973,12 +978,40 @@ def _port_available(host: str, port: int) -> bool:
     return True
 
 
+def _available_default_port(host: str, start: int = DEFAULT_LOCAL_PORT) -> int:
+    """Find the first free local port at or above Frisket's default."""
+
+    for port in range(start, 65536):
+        if _port_available(host, port):
+            return port
+    raise RuntimeError(f"no available TCP port at or above {start}")
+
+
+def _open_browser_when_ready(host: str, port: int, url: str) -> None:
+    """Open the packaged local UI after Uvicorn has bound its socket."""
+
+    def open_when_ready() -> None:
+        for _ in range(100):
+            try:
+                with socket.create_connection((host, port), timeout=0.1):
+                    webbrowser.open(url)
+                    return
+            except OSError:
+                time.sleep(0.05)
+
+    threading.Thread(
+        target=open_when_ready,
+        name="frisket-browser-launch",
+        daemon=True,
+    ).start()
+
+
 def _print_startup_banner(url: str, *, serves_ui: bool) -> None:
     """Tell the operator exactly what to open. When the built UI is served
     (packaged install or FRISKET_STATIC_DIR), point straight at the URL. In a
     dev/source checkout the backend is API-only and vite serves the UI, so
     print the real two-step: start vite, open its URL — vite proxies /api here
-    (web/vite.config.ts targets :8000)."""
+    (web/vite.config.ts targets Frisket's local default port)."""
     print(f"\n  frisket is serving the API at {url}", flush=True)
     if serves_ui:
         print(f"  Open {url} in your browser to get started.\n", flush=True)
@@ -1148,10 +1181,13 @@ def main() -> None:
     # Default: serve. Args are [WORKSPACE] [PORT] plus -y/--yes. Reject stray
     # options and surplus args here instead of turning them into a workspace dir.
     assume_yes = bool(os.environ.get("FRISKET_YES"))
+    no_open = False
     positionals: list[str] = []
     for arg in argv:
         if arg in ("-y", "--yes"):
             assume_yes = True
+        elif arg == "--no-open":
+            no_open = True
         elif arg.startswith("-"):
             raise _usage_error(f"unknown option '{arg}'")
         else:
@@ -1160,7 +1196,8 @@ def main() -> None:
         raise _usage_error("too many arguments (expected at most WORKSPACE and PORT)")
 
     workspace = Path(positionals[0]) if positionals else Path.cwd() / "frisket-projects"
-    if len(positionals) > 1:
+    explicit_port = len(positionals) > 1
+    if explicit_port:
         try:
             port = int(positionals[1])
         except ValueError:
@@ -1168,7 +1205,7 @@ def main() -> None:
                 f"PORT must be an integer, got '{positionals[1]}'"
             ) from None
     else:
-        port = 8000
+        port = DEFAULT_LOCAL_PORT
     if not 0 < port < 65536:
         raise _usage_error(f"PORT must be between 1 and 65535, got {port}")
 
@@ -1176,7 +1213,19 @@ def main() -> None:
     # here, not after the banner has already claimed success and a fresh
     # workspace directory has been left behind.
     host = "127.0.0.1"
-    if not _port_available(host, port):
+    if not explicit_port:
+        try:
+            selected_port = _available_default_port(host, port)
+        except RuntimeError as exc:
+            print(f"frisket: {exc}", file=sys.stderr)
+            raise SystemExit(2) from None
+        if selected_port != port:
+            print(
+                f"frisket: port {port} is in use; using {selected_port} instead",
+                file=sys.stderr,
+            )
+        port = selected_port
+    elif not _port_available(host, port):
         print(f"frisket: port {port} is already in use", file=sys.stderr)
         print(
             f"frisket: try a different port, e.g. frisket {workspace} {port + 1}",
@@ -1206,7 +1255,10 @@ def main() -> None:
             "url": url,
         },
     )
-    _print_startup_banner(url, serves_ui=resolve_static_dir() is not None)
+    serves_ui = resolve_static_dir() is not None
+    _print_startup_banner(url, serves_ui=serves_ui)
+    if serves_ui and not no_open and sys.stdout.isatty():
+        _open_browser_when_ready(host, port, url)
     try:
         uvicorn.run(app, host=host, port=port, log_config=None)
     finally:
