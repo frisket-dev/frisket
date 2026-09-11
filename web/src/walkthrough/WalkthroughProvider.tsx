@@ -581,6 +581,16 @@ function SampleProjectIntro({
     };
   }, []);
 
+  // Close the native modal before the next surface resolves its portal root.
+  const pokeAround = () => {
+    dialogRef.current?.close();
+    onPokeAround();
+  };
+  const start = (id: string) => {
+    dialogRef.current?.close();
+    onStart(id);
+  };
+
   return createPortal(
     <dialog
       ref={dialogRef}
@@ -591,10 +601,10 @@ function SampleProjectIntro({
       aria-labelledby="sample-project-intro-title"
       onCancel={(event) => {
         event.preventDefault();
-        onPokeAround();
+        pokeAround();
       }}
       onClick={(event) => {
-        if (event.target === event.currentTarget) onPokeAround();
+        if (event.target === event.currentTarget) pokeAround();
       }}
     >
       {guideRect && (
@@ -617,7 +627,7 @@ function SampleProjectIntro({
             type="button"
             className={styles.startOption}
             aria-label="Poke around first"
-            onClick={onPokeAround}
+            onClick={pokeAround}
           >
             <strong>Poke around first</strong>
             <span>Come back any time via Guide ↗</span>
@@ -628,7 +638,7 @@ function SampleProjectIntro({
             type="button"
             className={styles.introClose}
             aria-label="Close introduction"
-            onClick={onPokeAround}
+            onClick={pokeAround}
           >
             <X size={15} />
           </button>
@@ -636,14 +646,14 @@ function SampleProjectIntro({
           <WalkthroughRows
             walkthroughs={walkthroughs}
             walkthroughBadges={walkthroughBadges}
-            onStart={onStart}
+            onStart={start}
             testIdPrefix="sample-walkthrough-choice-"
             autoFocus
           />
         </div>
       </section>
     </dialog>,
-    topLayerPortalRoot(),
+    document.body,
   );
 }
 
