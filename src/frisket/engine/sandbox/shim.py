@@ -593,12 +593,21 @@ async def _terminate_and_reap(
             controller.signal_tree(_KILL_SIGNAL)
             tree_gone = await controller.wait_tree_gone(_KILL_GRACE_SECONDS)
     finally:
-        # Settle pipe I/O even when signalling/probing fails. The retained
-        # proc.wait() task is deliberately separate: cancelling it would lose
-        # the direct-child reap proof that interactive sessions require.
-        for task in dict.fromkeys(pipe_tasks):
+        # Once the tree is gone, give EOF a bounded chance to propagate through
+        # the pipe readers.  Cancelling them immediately leaves Proactor pipe
+        # transports alive until __del__ on Windows, after the event loop has
+        # already closed.  A failed tree proof cannot promise EOF, so it keeps
+        # the immediate-cancel path.
+        tasks = tuple(dict.fromkeys(pipe_tasks))
+        pending = set(tasks)
+        if tree_gone and pending:
+            _, pending = await asyncio.wait(pending, timeout=_KILL_GRACE_SECONDS)
+        for task in pending:
             if not task.done():
                 task.cancel()
+        # Retrieve every result/exception and let cancelled tasks run their
+        # cleanup before the caller is allowed to close the event loop.
+        for task in tasks:
             with contextlib.suppress(BaseException):
                 await task
     if not tree_gone:
