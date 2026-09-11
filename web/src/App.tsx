@@ -4780,6 +4780,10 @@ const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
           onBackfillComplete={afterBackfill}
           onColumnUpdated={afterColumnUpdated}
           onReviewRun={openReview}
+          onReviseRun={(draft) => {
+            closeRoutePanel();
+            runActionFromSurface(draft.action_id, undefined, { actionDraft: draft });
+          }}
           requestCostConfirmation={requestCostConfirmation}
           detailContributions={[
             ...resolvedRegion('columnDetail').contributions,

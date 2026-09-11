@@ -253,6 +253,34 @@ afterEach(() => {
 });
 
 describe('history and review generated HTTP reads', () => {
+  it('loads a reviewed-run draft without execution authorization', async () => {
+    const requests: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      requests.push(String(input));
+      return jsonResponse({
+        schema_version: 'frisket.reviewed_run_revision.v1',
+        source_run_id: 9,
+        reviewed_rows: 2,
+        draft: {
+          action_id: 'map.classify',
+          scope: { kind: 'sheet_rows', sheet_id: 4, row_ids: [2, 7] },
+          params: { labels: ['yes', 'no'] },
+          output_names: { label: 'risk' },
+          sheet_name: null,
+        },
+      });
+    }));
+
+    await expect(historyReviewDomain('reviewed').getReviewedRunRevision('5', '9'))
+      .resolves.toEqual({
+        action_id: 'map.classify',
+        scope: { kind: 'sheet_rows', sheet_id: 4, row_ids: [2, 7] },
+        params: { labels: ['yes', 'no'] },
+        output_names: { label: 'risk' },
+      });
+    expect(requests).toEqual(['/api/projects/reviewed/columns/5/runs/9/revision']);
+  });
+
   it('preserves paths, query omission, encoding, headers, abort, and raw responses', async () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     const responses = [columnRunsFixture, historyFixture, reviewBundlesFixture, { count: 4 }];

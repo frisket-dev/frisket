@@ -1216,6 +1216,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "tenant.reviewed_run_revision.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/columns/{column_id}/runs/{run_id}/revision",
+      "request": null
+    },
+    {
       "id": "tenant.run_rows.get",
       "method": "GET",
       "path": "/api/projects/{pid}/actions/runs/{run_id}/rows",
@@ -5193,6 +5199,12 @@ export type HttpInline_b4103d934a90c0d4 = ({
   "pid": (string);
 });
 
+export type HttpInline_bba1a4e3df1f7401 = ({
+  "column_id": (number);
+  "pid": (string);
+  "run_id": (number);
+});
+
 export type HttpInline_bbf568d7195f5e35 = ({
   "name": (string);
 });
@@ -7102,6 +7114,33 @@ export type HttpReviewBundlesPage = ({
 
 export type HttpReviewCount = ({
   "count": (number);
+});
+
+type HttpReviewedRunRevision_JsonValue = JsonValue;
+
+type HttpReviewedRunRevision_ReviewedRunDraft = ({
+  "action_id": (string);
+  "output_names": ({
+  [key: string]: (string);
+});
+  "params": ({
+  [key: string]: (HttpReviewedRunRevision_JsonValue);
+});
+  "scope": (HttpReviewedRunRevision_ReviewedRunScope);
+  "sheet_name"?: (((string)) | ((null)));
+});
+
+type HttpReviewedRunRevision_ReviewedRunScope = ({
+  "kind": ("sheet_rows") & (string);
+  "row_ids": (Array<(number)>);
+  "sheet_id": (number);
+});
+
+export type HttpReviewedRunRevision = ({
+  "draft": (HttpReviewedRunRevision_ReviewedRunDraft);
+  "reviewed_rows": (number);
+  "schema_version": ("frisket.reviewed_run_revision.v1") & (string);
+  "source_run_id": (number);
 });
 
 type HttpRunTraceRowEvidence_JsonValue = JsonValue;
@@ -10753,6 +10792,20 @@ export type HttpContractOperationMap = {
       readonly "401": HttpError;
       readonly "403": HttpError;
       readonly "404": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.reviewed_run_revision.get": {
+    readonly pathParams: HttpInline_bba1a4e3df1f7401;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpReviewedRunRevision;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
     };

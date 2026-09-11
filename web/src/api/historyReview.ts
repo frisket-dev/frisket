@@ -11,6 +11,7 @@ import type {
   ColumnRun,
   ColumnRunsInfo,
   ColumnType,
+  GeneratedActionDraft,
   HistoryOp,
   HistoryOpRun,
   HistoryState,
@@ -28,6 +29,8 @@ export interface HistoryReviewOptions {
 
 export type ColumnRunsWire =
   HttpContractSuccessResponse<'tenant.column_runs.get'>;
+export type ReviewedRunRevisionWire =
+  HttpContractSuccessResponse<'tenant.reviewed_run_revision.get'>;
 export type HistoryWire = HttpContractSuccessResponse<'tenant.history.get'>;
 export type ReviewBundlesWire =
   HttpContractSuccessResponse<'tenant.review_bundles_ep.get'>;
@@ -41,6 +44,11 @@ export interface HistoryReviewApi {
     limit?: number,
     options?: HistoryReviewOptions,
   ): Promise<ColumnRunsWire>;
+  getReviewedRunRevision(
+    columnId: string,
+    runId: string,
+    options?: HistoryReviewOptions,
+  ): Promise<ReviewedRunRevisionWire>;
   getHistory(
     offset?: number | null,
     limit?: number,
@@ -65,6 +73,7 @@ export interface HistoryReviewDomainApi {
     offset?: number,
     limit?: number,
   ): Promise<ColumnRunsInfo>;
+  getReviewedRunRevision(columnId: string, runId: string): Promise<GeneratedActionDraft>;
   getHistory(
     offset?: number | null,
     limit?: number,
@@ -122,6 +131,23 @@ export function createHistoryReviewApi(
             column_id: columnId as unknown as number,
           },
           query: { offset, limit },
+          signal: options.signal,
+          headers: options.headers,
+          errorFactory,
+        },
+      );
+    },
+
+    getReviewedRunRevision(columnId, runId, options = {}) {
+      return httpContract(
+        'tenant.reviewed_run_revision.get',
+        {
+          pathParams: {
+            pid: projectId,
+            column_id: columnId as unknown as number,
+            run_id: Number(runId),
+          },
+          query: {},
           signal: options.signal,
           headers: options.headers,
           errorFactory,
@@ -526,6 +552,17 @@ export function createHistoryReviewDomainApi(
   return {
     async getColumnRuns(columnId, offset = 0, limit = 20) {
       return mapColumnRuns(await transport.getColumnRuns(columnId, offset, limit));
+    },
+
+    async getReviewedRunRevision(columnId, runId) {
+      const { draft } = await transport.getReviewedRunRevision(columnId, runId);
+      return {
+        action_id: draft.action_id,
+        scope: draft.scope,
+        params: draft.params,
+        output_names: draft.output_names,
+        ...(draft.sheet_name == null ? {} : { sheet_name: draft.sheet_name }),
+      };
     },
 
     async getHistory(offset, limit = 50, options) {
