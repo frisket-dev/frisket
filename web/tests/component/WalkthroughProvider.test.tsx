@@ -95,6 +95,50 @@ function StopControl() {
   return <button type="button" onClick={walkthrough.stopWalkthrough}>Stop test run</button>;
 }
 
+function SampleOnboardingControls() {
+  const walkthrough = useWalkthrough();
+  return (
+    <>
+      <button
+        type="button"
+        data-testid="sample-enter"
+        onClick={() => walkthrough.enterSampleProject()}
+      >
+        Enter sample
+      </button>
+      <button
+        type="button"
+        data-testid="sample-enter-guide"
+        onClick={() => walkthrough.enterSampleProject({ openGuide: true })}
+      >
+        Enter sample with guide
+      </button>
+      <button
+        type="button"
+        data-testid="guide-launch"
+        onClick={walkthrough.openWalkthroughChooser}
+      >
+        Guide
+      </button>
+      <button
+        type="button"
+        data-testid="guide-hint-dismiss"
+        onClick={walkthrough.dismissGuideHint}
+      >
+        Dismiss hint
+      </button>
+      <output data-testid="sample-onboarding-state">
+        {JSON.stringify({
+          introOpen: walkthrough.introOpen,
+          guideHintVisible: walkthrough.guideHintVisible,
+          guideEmphasized: walkthrough.guideEmphasized,
+          guideSeen: walkthrough.guideSeen,
+        })}
+      </output>
+    </>
+  );
+}
+
 const recoveryKey = (projectId: string) => (
   `frisket.walkthrough.active-run.v1:${projectId}`
 );
@@ -694,5 +738,85 @@ describe('Regex walkthrough', () => {
     fireEvent.click(screen.getByTestId('walkthrough-choice-council-audio'));
     expect(screen.getByRole('heading', { name: 'Open the meeting audio' })).toBeInTheDocument();
     expect(screen.getByText('1 of 21')).toBeInTheDocument();
+  });
+});
+
+describe('sample project onboarding', () => {
+  it('shows the first-open choice, then keeps the sample Guide cue after poking around', () => {
+    render(
+      <WalkthroughProvider projectId="sample-project">
+        <SampleOnboardingControls />
+        <button type="button" data-testid="chrome-walkthrough">Guide</button>
+      </WalkthroughProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId('sample-enter'));
+
+    expect(screen.getByRole('dialog', { name: 'How do you want to start?' })).toBeInTheDocument();
+    expect(screen.getByText('Guide me')).toBeInTheDocument();
+    expect(screen.getByText('Poke around first')).toBeInTheDocument();
+    expect(screen.getByTestId('sample-onboarding-state')).toHaveTextContent('"introOpen":true');
+    expect(screen.getByTestId('sample-onboarding-state')).toHaveTextContent('"guideEmphasized":true');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Poke around first' }));
+
+    expect(screen.queryByRole('dialog', { name: 'How do you want to start?' })).not.toBeInTheDocument();
+    expect(window.localStorage.getItem('frisket.walkthrough.sample-project.intro-seen.v1')).toBe('true');
+    expect(screen.getByTestId('sample-onboarding-state')).toHaveTextContent('"guideHintVisible":true');
+    expect(screen.getByTestId('sample-onboarding-state')).toHaveTextContent('"guideEmphasized":true');
+
+    fireEvent.click(screen.getByTestId('guide-hint-dismiss'));
+
+    expect(window.localStorage.getItem('frisket.walkthrough.sample-project.hint-dismissed.v1')).toBe('true');
+    expect(screen.getByTestId('sample-onboarding-state')).toHaveTextContent('"guideHintVisible":false');
+    expect(screen.getByTestId('sample-onboarding-state')).toHaveTextContent('"guideEmphasized":true');
+  });
+
+  it('opens the normal chooser directly for a guided sample entry and records Guide as opened', () => {
+    render(
+      <WalkthroughProvider projectId="sample-project">
+        <SampleOnboardingControls />
+      </WalkthroughProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId('sample-enter-guide'));
+
+    expect(screen.queryByRole('dialog', { name: 'How do you want to start?' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('walkthrough-chooser')).toBeInTheDocument();
+    expect(window.localStorage.getItem('frisket.walkthrough.guide-seen.v1')).toBe('true');
+    expect(screen.getByTestId('sample-onboarding-state')).toHaveTextContent('"guideSeen":true');
+    expect(screen.getByTestId('sample-onboarding-state')).toHaveTextContent('"guideEmphasized":false');
+  });
+
+  it('uses only backend-supplied badges in the shared chooser rows', () => {
+    render(
+      <WalkthroughProvider
+        projectId="sample-project"
+        walkthroughBadges={[{ id: 'regex-extract', badges: ['tables'] }]}
+      >
+        <SampleOnboardingControls />
+      </WalkthroughProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId('guide-launch'));
+
+    expect(screen.getByTestId('walkthrough-choice-regex-extract')).toHaveTextContent('tables');
+    expect(screen.getByTestId('walkthrough-choice-local-model-lab')).not.toHaveTextContent(
+      LOCAL_MODEL_LAB_WALKTHROUGH.requirements ?? '',
+    );
+  });
+
+  it('treats close, Escape, and scrim dismissal as poking around', () => {
+    render(
+      <WalkthroughProvider projectId="sample-project">
+        <SampleOnboardingControls />
+      </WalkthroughProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId('sample-enter'));
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(screen.queryByRole('dialog', { name: 'How do you want to start?' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('sample-onboarding-state')).toHaveTextContent('"guideHintVisible":true');
   });
 });

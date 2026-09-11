@@ -4,7 +4,15 @@ export interface WalkthroughContextValue {
   active: boolean;
   canResume: boolean;
   guideSeen: boolean;
+  /** Whether the sample project's first-open choice is currently displayed. */
+  introOpen: boolean;
+  /** Whether the one-time sample Guide nudge should be rendered by Chrome. */
+  guideHintVisible: boolean;
+  /** Whether Chrome should draw attention to Guide for the active sample project. */
+  guideEmphasized: boolean;
   openWalkthroughChooser(): void;
+  enterSampleProject(options?: { openGuide?: boolean }): void;
+  dismissGuideHint(): void;
   resumeWalkthrough(): void;
   startWalkthrough(id: string): void;
   stopWalkthrough(): void;

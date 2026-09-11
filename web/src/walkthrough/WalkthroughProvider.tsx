@@ -15,6 +15,7 @@ import { topLayerPortalRoot } from '../topLayerPortal';
 import { WalkthroughContext, type WalkthroughContextValue } from './context';
 import { resolveWalkthroughTarget } from './targets';
 import { useEditionModule } from '../editions/module';
+import styles from './WalkthroughProvider.module.css';
 import {
   type WalkthroughDefinition,
   type WalkthroughInstruction,
@@ -42,6 +43,8 @@ const TARGET_BOX_GAP = 3;
 const TARGET_POLL_INTERVAL_MS = 500;
 const CLICK_ADVANCE_DELAY_MS = 100;
 const GUIDE_SEEN_STORAGE_KEY = 'frisket.walkthrough.guide-seen.v1';
+const SAMPLE_INTRO_SEEN_STORAGE_KEY = 'frisket.walkthrough.sample-project.intro-seen.v1';
+const SAMPLE_HINT_DISMISSED_STORAGE_KEY = 'frisket.walkthrough.sample-project.hint-dismissed.v1';
 const ACTIVE_RUN_STORAGE_PREFIX = 'frisket.walkthrough.active-run.v1:';
 const ACTIVE_RUN_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -83,6 +86,24 @@ function storeGuideSeen(): void {
   if (typeof window === 'undefined') return;
   try {
     window.localStorage.setItem(GUIDE_SEEN_STORAGE_KEY, 'true');
+  } catch {
+    // Storage can be unavailable in privacy modes; session state still works.
+  }
+}
+
+function storedFlag(key: string): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(key) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function storeFlag(key: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(key, 'true');
   } catch {
     // Storage can be unavailable in privacy modes; session state still works.
   }
@@ -429,12 +450,53 @@ function WalkthroughInstructionCopy({
   );
 }
 
+function WalkthroughRows({
+  walkthroughs,
+  walkthroughBadges,
+  onStart,
+  testIdPrefix,
+  autoFocus = false,
+}: {
+  walkthroughs: readonly WalkthroughDefinition[];
+  walkthroughBadges: readonly { id: string; badges: readonly string[] }[];
+  onStart(id: string): void;
+  testIdPrefix: string;
+  autoFocus?: boolean;
+}) {
+  return (
+    <div className={styles.compactChoices}>
+      {walkthroughs.map((candidate, index) => (
+        <button
+          key={candidate.id}
+          type="button"
+          className={styles.compactChoice}
+          data-testid={`${testIdPrefix}${candidate.id}`}
+          autoFocus={autoFocus && index === 0}
+          onClick={() => onStart(candidate.id)}
+        >
+          <span>
+            <strong>{candidate.title}</strong>
+            <small>{candidate.description}</small>
+          </span>
+          <span className={styles.badgeList}>
+            {walkthroughBadges.find((item) => item.id === candidate.id)?.badges.map((badge) => (
+              <small key={badge} className={styles.walkthroughBadge}>{badge}</small>
+            ))}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function WalkthroughChooser({
   walkthroughs,
+  walkthroughBadges,
   onStart,
   onClose,
 }: {
   walkthroughs: readonly WalkthroughDefinition[];
+  walkthroughBadges: readonly { id: string; badges: readonly string[] }[];
   onStart(id: string): void;
   onClose(): void;
 }) {
@@ -470,23 +532,133 @@ function WalkthroughChooser({
         </button>
       </div>
       <h2 id="walkthrough-chooser-title">What would you like to try?</h2>
-      <div className="walkthrough-choices">
-        {walkthroughs.map((candidate, index) => (
-          <button
-            key={candidate.id}
-            type="button"
-            className="walkthrough-choice"
-            data-testid={`walkthrough-choice-${candidate.id}`}
-            autoFocus={index === 0}
-            onClick={() => onStart(candidate.id)}
-          >
-            <strong>{candidate.title}</strong>
-            <span>{candidate.description}</span>
-            {candidate.requirements && <small>{candidate.requirements}</small>}
-          </button>
-        ))}
-      </div>
+      <WalkthroughRows
+        walkthroughs={walkthroughs}
+        walkthroughBadges={walkthroughBadges}
+        onStart={onStart}
+        testIdPrefix="walkthrough-choice-"
+        autoFocus
+      />
     </aside>,
+    topLayerPortalRoot(),
+  );
+}
+
+function SampleProjectIntro({
+  walkthroughs,
+  walkthroughBadges,
+  onStart,
+  onPokeAround,
+}: {
+  walkthroughs: readonly WalkthroughDefinition[];
+  walkthroughBadges: readonly { id: string; badges: readonly string[] }[];
+  onStart(id: string): void;
+  onPokeAround(): void;
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [guideRect, setGuideRect] = useState<TargetBox | null>(null);
+
+  useLayoutEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog || typeof dialog.showModal !== 'function') return;
+    if (!dialog.open) dialog.showModal();
+    return () => {
+      if (dialog.open) dialog.close();
+    };
+  }, []);
+
+  useEffect(() => {
+    // Browsers dispatch the native dialog `cancel` event. JSDOM does not
+    // implement showModal/cancel, so keep this small fallback for the focused
+    // component contract without handling Escape twice in the app.
+    if (typeof HTMLDialogElement !== 'undefined'
+      && typeof HTMLDialogElement.prototype.showModal === 'function') return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      onPokeAround();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onPokeAround]);
+
+  useLayoutEffect(() => {
+    const measure = () => {
+      const guide = document.querySelector<HTMLElement>('[data-testid="chrome-walkthrough"]');
+      setGuideRect(guide ? targetBoxFor(guide) : null);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    window.addEventListener('scroll', measure, true);
+    return () => {
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure, true);
+    };
+  }, []);
+
+  return createPortal(
+    <dialog
+      ref={dialogRef}
+      className={styles.sampleIntro}
+      data-testid="sample-project-intro"
+      open={typeof HTMLDialogElement === 'undefined'
+        || typeof HTMLDialogElement.prototype.showModal !== 'function'}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="sample-project-intro-title"
+      onCancel={(event) => {
+        event.preventDefault();
+        onPokeAround();
+      }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onPokeAround();
+      }}
+    >
+      {guideRect && (
+        <div
+          aria-hidden="true"
+          className={styles.guideSpotlight}
+          data-testid="sample-guide-spotlight"
+          style={guideRect}
+        />
+      )}
+      <section className={styles.sampleIntroPanel}>
+        <div className={styles.sampleIntroChoices}>
+          <p className={styles.sampleIntroEyebrow}>SAMPLE PROJECT</p>
+          <h2 id="sample-project-intro-title">How do you want to start?</h2>
+          <div className={`${styles.startOption} ${styles.startOptionSelected}`}>
+            <strong>Guide me</strong>
+            <span>Choose a walkthrough on the right.</span>
+          </div>
+          <button
+            type="button"
+            className={styles.startOption}
+            aria-label="Poke around first"
+            onClick={onPokeAround}
+          >
+            <strong>Poke around first</strong>
+            <span>Come back any time via Guide ↗</span>
+          </button>
+        </div>
+        <div className={styles.sampleIntroList}>
+          <button
+            type="button"
+            className={styles.introClose}
+            aria-label="Close introduction"
+            onClick={onPokeAround}
+          >
+            <X size={15} />
+          </button>
+          <h3>Walkthroughs</h3>
+          <WalkthroughRows
+            walkthroughs={walkthroughs}
+            walkthroughBadges={walkthroughBadges}
+            onStart={onStart}
+            testIdPrefix="sample-walkthrough-choice-"
+          />
+        </div>
+      </section>
+    </dialog>,
     topLayerPortalRoot(),
   );
 }
@@ -585,9 +757,11 @@ function restoreStoredRun(
 export function WalkthroughProvider({
   children,
   projectId,
+  walkthroughBadges = [],
 }: {
   children: ReactNode;
   projectId?: string;
+  walkthroughBadges?: readonly { id: string; badges: readonly string[] }[];
 }) {
   const { walkthroughs } = useEditionModule();
   const [run, setRun] = useState<WalkthroughRun | null>(() => {
@@ -595,8 +769,14 @@ export function WalkthroughProvider({
     return stored ? { id: 0, ...stored } : null;
   });
   const [walkthroughVisible, setWalkthroughVisible] = useState(false);
-  const [chooserOpen, setChooserOpen] = useState(false);
+  // The chooser belongs to the project that opened it. Keeping that key in
+  // state lets a child workspace bridge request the sample chooser during the
+  // same commit as a project change without the recovery reset closing it.
+  const [chooser, setChooser] = useState<{ projectId?: string } | null>(null);
   const [guideSeen, setGuideSeen] = useState(storedGuideSeen);
+  const [sampleProjectId, setSampleProjectId] = useState<string | undefined>();
+  const [introOpen, setIntroOpen] = useState(false);
+  const [guideHintVisible, setGuideHintVisible] = useState(false);
   const nextRunId = useRef(1);
   const restoredProjectId = useRef(projectId);
   const visibleRun = run
@@ -604,12 +784,13 @@ export function WalkthroughProvider({
     && walkthroughs.some(
     (walkthrough) => walkthrough.id === run.walkthrough.id,
   ) ? run : null;
+  const chooserOpen = chooser !== null && chooser.projectId === projectId;
 
   useEffect(() => {
     if (restoredProjectId.current === projectId) return;
     restoredProjectId.current = projectId;
     const stored = restoreStoredRun(projectId, walkthroughs);
-    setChooserOpen(false);
+    setChooser((current) => current?.projectId === projectId ? current : null);
     setWalkthroughVisible(false);
     setRun(stored ? { id: nextRunId.current++, ...stored } : null);
   }, [projectId, walkthroughs]);
@@ -630,19 +811,23 @@ export function WalkthroughProvider({
   const resumeWalkthrough = useCallback(() => {
     if (!visibleRun) return;
     setRun({ ...visibleRun, updatedAt: Date.now() });
-    setChooserOpen(false);
+    setChooser(null);
     setWalkthroughVisible(true);
   }, [visibleRun]);
   const openWalkthroughChooser = useCallback(() => {
     setGuideSeen(true);
     storeGuideSeen();
+    setGuideHintVisible(false);
     setWalkthroughVisible(false);
-    setChooserOpen(true);
-  }, []);
+    setChooser({ projectId });
+  }, [projectId]);
   const startWalkthrough = useCallback((id: string) => {
     const next = walkthroughs.find((candidate) => candidate.id === id);
     if (!next) return;
-    setChooserOpen(false);
+    setGuideSeen(true);
+    storeGuideSeen();
+    setGuideHintVisible(false);
+    setChooser(null);
     setRun({
       id: nextRunId.current++,
       walkthrough: next,
@@ -652,28 +837,69 @@ export function WalkthroughProvider({
     });
     setWalkthroughVisible(true);
   }, [projectId, walkthroughs]);
+  const enterSampleProject = useCallback((options: { openGuide?: boolean } = {}) => {
+    setSampleProjectId(projectId);
+    setWalkthroughVisible(false);
+    if (options.openGuide) {
+      storeFlag(SAMPLE_INTRO_SEEN_STORAGE_KEY);
+      setIntroOpen(false);
+      setGuideHintVisible(false);
+      setGuideSeen(true);
+      storeGuideSeen();
+      setChooser({ projectId });
+      return;
+    }
+    setChooser(null);
+    if (storedFlag(SAMPLE_INTRO_SEEN_STORAGE_KEY)) {
+      setIntroOpen(false);
+      setGuideHintVisible(!guideSeen && !storedFlag(SAMPLE_HINT_DISMISSED_STORAGE_KEY));
+      return;
+    }
+    setIntroOpen(true);
+    setGuideHintVisible(false);
+  }, [guideSeen, projectId]);
+  const pokeAround = useCallback(() => {
+    storeFlag(SAMPLE_INTRO_SEEN_STORAGE_KEY);
+    setIntroOpen(false);
+    setGuideHintVisible(!guideSeen && !storedFlag(SAMPLE_HINT_DISMISSED_STORAGE_KEY));
+  }, [guideSeen]);
+  const dismissGuideHint = useCallback(() => {
+    storeFlag(SAMPLE_HINT_DISMISSED_STORAGE_KEY);
+    setGuideHintVisible(false);
+  }, []);
   const setStepIndex = useCallback((runId: number, stepIndex: number) => {
     setRun((current) => current?.id === runId
       ? { ...current, stepIndex, updatedAt: Date.now() }
       : current);
   }, []);
   const value = useMemo<WalkthroughContextValue>(() => ({
-    active: chooserOpen || (visibleRun !== null && walkthroughVisible),
+    active: introOpen || chooserOpen || (visibleRun !== null && walkthroughVisible),
     canResume: visibleRun !== null && !walkthroughVisible,
     guideSeen,
+    introOpen,
+    guideHintVisible,
+    guideEmphasized: sampleProjectId === projectId && !guideSeen,
     openWalkthroughChooser,
+    enterSampleProject,
+    dismissGuideHint,
     resumeWalkthrough,
     startWalkthrough,
     stopWalkthrough,
   }), [
     chooserOpen,
+    dismissGuideHint,
+    enterSampleProject,
     guideSeen,
+    guideHintVisible,
+    introOpen,
     openWalkthroughChooser,
     resumeWalkthrough,
     visibleRun,
     startWalkthrough,
     stopWalkthrough,
     walkthroughVisible,
+    sampleProjectId,
+    projectId,
   ]);
 
   return (
@@ -682,8 +908,21 @@ export function WalkthroughProvider({
       {chooserOpen && (
         <WalkthroughChooser
           walkthroughs={walkthroughs}
+          walkthroughBadges={walkthroughBadges}
           onStart={startWalkthrough}
-          onClose={() => setChooserOpen(false)}
+          onClose={() => setChooser(null)}
+        />
+      )}
+      {introOpen && (
+        <SampleProjectIntro
+          walkthroughs={walkthroughs}
+          walkthroughBadges={walkthroughBadges}
+          onStart={(id) => {
+            storeFlag(SAMPLE_INTRO_SEEN_STORAGE_KEY);
+            setIntroOpen(false);
+            startWalkthrough(id);
+          }}
+          onPokeAround={pokeAround}
         />
       )}
       {visibleRun && walkthroughVisible && (
