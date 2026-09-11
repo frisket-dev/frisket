@@ -560,7 +560,12 @@ def create_app(
 
     register_action_run_routes(
         app,
-        service=ActionRunService(ws),
+        service=ActionRunService(
+            ws,
+            stale_run_grace_seconds=stale_run_grace_seconds,
+            worker_liveness_window_seconds=liveness_window_seconds,
+            queue_timeout_seconds=queue_timeout,
+        ),
         import_admission=import_admission,
     )
 

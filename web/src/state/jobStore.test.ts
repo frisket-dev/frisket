@@ -421,69 +421,30 @@ describe('createJobStore — complete WEB-03-4B scheduler/resource red contract'
     expect(listActionJobs).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps terminal progress caches project-local, evicts on reactivation, and clears on dispose', async () => {
+  it('uses progress from the jobs snapshot and never fans out per run', async () => {
     vi.useFakeTimers();
     setDocumentHidden(false);
-    const terminal = actionJob({ jobId: 1, runId: 'same-run', status: 'completed' });
-    const active = actionJob({ jobId: 1, runId: 'same-run', status: 'running' });
-    const listA = vi.fn()
-      .mockResolvedValueOnce({ jobs: [] })
-      .mockResolvedValueOnce({ jobs: [terminal] })
-      .mockResolvedValueOnce({ jobs: [terminal] })
-      .mockResolvedValueOnce({ jobs: [active] })
-      .mockResolvedValue({ jobs: [terminal] });
-    const listB = vi.fn()
-      .mockResolvedValueOnce({ jobs: [] })
-      .mockResolvedValue({ jobs: [terminal] });
-    const progressA = vi.fn().mockResolvedValue(runProgress({ runId: 'same-run', status: 'complete' }));
-    const progressB = vi.fn().mockResolvedValue(runProgress({ runId: 'same-run', status: 'complete' }));
-    const a = createJobStore('project-a', projectPort({ listActionJobs: listA, getRunProgress: progressA }));
-    const b = createJobStore('project-b', projectPort({ listActionJobs: listB, getRunProgress: progressB }));
-    a.start(noopDeps());
-    await vi.advanceTimersByTimeAsync(0);
-    a.liveActionJobs.start();
-    await flushMicrotasks();
-    expect(progressA).toHaveBeenCalledTimes(1);
-
-    // Project B begins only after A has cached the same run id; a module-global
-    // cache would incorrectly suppress B's own immutable-project request.
-    b.start(noopDeps());
-    await vi.advanceTimersByTimeAsync(0);
-    b.liveActionJobs.start();
-    await flushMicrotasks();
-    expect(progressB).toHaveBeenCalledTimes(1);
-
-    await vi.advanceTimersByTimeAsync(2_000);
-    expect(progressA).toHaveBeenCalledTimes(1);
-    expect(progressB).toHaveBeenCalledTimes(1);
-
-    await vi.advanceTimersByTimeAsync(2_000);
-    expect(progressA).toHaveBeenCalledTimes(2);
-    a.dispose();
-    a.start(noopDeps());
-    await vi.advanceTimersByTimeAsync(0);
-    a.liveActionJobs.start();
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(progressA).toHaveBeenCalledTimes(3);
-  });
-
-  it('caches a terminal progress failure as null instead of refetching it', async () => {
-    vi.useFakeTimers();
-    const terminal = actionJob({ jobId: 1, runId: 'failed-progress', status: 'completed' });
-    const getRunProgress = vi.fn().mockRejectedValue(new Error('progress unavailable'));
+    const terminal = actionJob({
+      jobId: 1,
+      runId: 'terminal-run',
+      status: 'completed',
+      progress: runProgress({ runId: 'terminal-run', actionName: 'From snapshot', status: 'complete' }),
+    });
+    const listActionJobs = vi.fn().mockResolvedValue({ jobs: [terminal] });
+    const getRunProgress = vi.fn();
     const jobs = createJobStore('project-a', projectPort({
-      listActionJobs: vi.fn().mockResolvedValue({ jobs: [terminal] }),
+      listActionJobs,
       getRunProgress,
     }));
     jobs.start(noopDeps());
     await vi.advanceTimersByTimeAsync(0);
-    expect(jobs.store.get().actionJobs.jobs[0]?.progress).toBeNull();
-
-    await jobs.refresh();
-
-    expect(getRunProgress).toHaveBeenCalledTimes(1);
-    expect(jobs.store.get().actionJobs.jobs[0]?.progress).toBeNull();
+    jobs.liveActionJobs.start();
+    await flushMicrotasks();
+    expect(jobs.store.get().actionJobs.jobs[0]?.progress?.actionName).toBe('From snapshot');
+    expect(getRunProgress).not.toHaveBeenCalled();
+    const settledCalls = listActionJobs.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(listActionJobs).toHaveBeenCalledTimes(settledCalls);
   });
 
   it('fences stale ordinary-list settlement across dispose/restart without clearing successor loading', async () => {
@@ -598,7 +559,7 @@ describe('createJobStore — complete WEB-03-4B scheduler/resource red contract'
 });
 
 describe('createJobStore — complete 4B cadence, fencing, and transport pins', () => {
-  it('arms the dock lane 2s after settlement, never on a fixed request phase', async () => {
+  it('polls two seconds after an active snapshot settles', async () => {
     vi.useFakeTimers();
     setDocumentHidden(false);
     const firstDock = deferred<{ jobs: ActionJob[] }>();
@@ -615,11 +576,15 @@ describe('createJobStore — complete 4B cadence, fencing, and transport pins', 
     await vi.advanceTimersByTimeAsync(10_000);
     expect(listActionJobs).toHaveBeenCalledTimes(2);
 
-    firstDock.resolve({ jobs: [] });
+    firstDock.resolve({ jobs: [actionJob({
+      progress: runProgress({ status: 'running' }),
+    })] });
     await flushMicrotasks();
     await vi.advanceTimersByTimeAsync(1_999);
     expect(listActionJobs).toHaveBeenCalledTimes(2);
     await vi.advanceTimersByTimeAsync(1);
+    expect(listActionJobs).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(10_000);
     expect(listActionJobs).toHaveBeenCalledTimes(3);
   });
 
@@ -979,13 +944,14 @@ describe('createJobStore — complete 4B cadence, fencing, and transport pins', 
     await flushMicrotasks();
   });
 
-  it('shares one concurrent terminal progress fetch, sorts base-only rows, and caches the result', async () => {
+  it('sorts complete snapshot rows without per-run progress requests', async () => {
     vi.useFakeTimers();
     const progressResult = deferred<RunProgress>();
     const older = actionJob({
       jobId: 1,
       runId: 'terminal-run',
       status: 'completed',
+      progress: runProgress({ runId: 'terminal-run', status: 'complete' }),
       timing: { createdAt: '2026-08-08T00:00:00Z', startedAt: null, finishedAt: null },
     });
     const newer = actionJob({
@@ -1004,21 +970,26 @@ describe('createJobStore — complete 4B cadence, fencing, and transport pins', 
     const first = jobs.refresh();
     const second = jobs.refresh();
     await flushMicrotasks();
-    expect(getRunProgress).toHaveBeenCalledTimes(1);
+    expect(getRunProgress).not.toHaveBeenCalled();
     progressResult.resolve(runProgress({ runId: 'terminal-run', status: 'complete' }));
     await Promise.all([first, second]);
     expect(jobs.store.get().actionJobs.jobs.map((job) => job.jobId)).toEqual([2, 1]);
 
     await jobs.refresh();
-    expect(getRunProgress).toHaveBeenCalledTimes(1);
+    expect(getRunProgress).not.toHaveBeenCalled();
   });
 
-  it('dock-only dispose clears its snapshot but preserves base state and terminal cache', async () => {
+  it('dock-only dispose clears its snapshot but preserves base state', async () => {
     vi.useFakeTimers();
     setDocumentHidden(false);
     const base = actionJob({ jobId: 1, actionName: 'base' });
     const dock = actionJob({ jobId: 1, actionName: 'dock-winner' });
-    const terminal = actionJob({ jobId: 2, runId: 'terminal-run', status: 'completed' });
+    const terminal = actionJob({
+      jobId: 2,
+      runId: 'terminal-run',
+      status: 'completed',
+      progress: runProgress({ runId: 'terminal-run', status: 'complete' }),
+    });
     const listActionJobs = vi.fn()
       .mockResolvedValueOnce({ jobs: [base] })
       .mockResolvedValueOnce({ jobs: [dock, terminal] })
@@ -1037,131 +1008,7 @@ describe('createJobStore — complete 4B cadence, fencing, and transport pins', 
     jobs.liveActionJobs.dispose();
     expect(jobs.store.get().actionJobs).toEqual({ error: null, jobs: [base], loading: false });
     await jobs.refresh();
-    expect(getRunProgress).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not let a restarted dock join or publish retired terminal progress', async () => {
-    vi.useFakeTimers();
-    setDocumentHidden(false);
-    const retiredProgress = deferred<RunProgress>();
-    const terminal = actionJob({ jobId: 9, runId: 'terminal-run', status: 'completed' });
-    const listActionJobs = vi.fn()
-      .mockResolvedValueOnce({ jobs: [] })
-      .mockResolvedValue({ jobs: [terminal] });
-    const getRunProgress = vi.fn()
-      .mockReturnValueOnce(retiredProgress.promise)
-      .mockResolvedValueOnce(runProgress({
-        runId: 'terminal-run', actionName: 'successor', status: 'complete',
-      }));
-    const jobs = createJobStore('project-a', projectPort({ listActionJobs, getRunProgress }));
-    jobs.start(noopDeps());
-    await vi.advanceTimersByTimeAsync(0);
-    jobs.liveActionJobs.start();
-    await flushMicrotasks();
-    expect(getRunProgress).toHaveBeenCalledTimes(1);
-
-    jobs.liveActionJobs.dispose();
-    jobs.liveActionJobs.start();
-    await flushMicrotasks();
-    expect(getRunProgress).toHaveBeenCalledTimes(2);
-    expect(jobs.store.get().actionJobs.jobs[0]?.progress?.actionName).toBe('successor');
-
-    retiredProgress.resolve(runProgress({
-      runId: 'terminal-run', actionName: 'retired', status: 'complete',
-    }));
-    await flushMicrotasks();
-    expect(jobs.store.get().actionJobs.jobs[0]?.progress?.actionName).toBe('successor');
-  });
-
-  it('retries a base terminal join when its dock-owned progress is retired', async () => {
-    vi.useFakeTimers();
-    setDocumentHidden(false);
-    const retiredDockProgress = deferred<RunProgress>();
-    const terminal = actionJob({ jobId: 9, runId: 'terminal-run', status: 'completed' });
-    const listActionJobs = vi.fn()
-      .mockResolvedValueOnce({ jobs: [] })
-      .mockResolvedValue({ jobs: [terminal] });
-    const progressSignals: AbortSignal[] = [];
-    const getRunProgress = vi.fn().mockImplementation(((_runId, options) => {
-      progressSignals.push(options!.signal!);
-      return progressSignals.length === 1
-        ? retiredDockProgress.promise
-        : Promise.resolve(runProgress({
-            runId: 'terminal-run', actionName: 'base-retry', status: 'complete',
-          }));
-    }) as ProjectApiPort['getRunProgress']);
-    const jobs = createJobStore('project-a', projectPort({ listActionJobs, getRunProgress }));
-    jobs.start(noopDeps());
-    await vi.advanceTimersByTimeAsync(0);
-    jobs.liveActionJobs.start();
-    await flushMicrotasks();
-    expect(getRunProgress).toHaveBeenCalledTimes(1);
-
-    const baseRefresh = jobs.refresh();
-    await flushMicrotasks();
-    expect(getRunProgress).toHaveBeenCalledTimes(1);
-    jobs.liveActionJobs.dispose();
-    expect(progressSignals[0].aborted).toBe(true);
-
-    retiredDockProgress.resolve(runProgress({
-      runId: 'terminal-run', actionName: 'retired-dock', status: 'complete',
-    }));
-    await baseRefresh;
-
-    expect(getRunProgress).toHaveBeenCalledTimes(2);
-    expect(progressSignals[1]).not.toBe(progressSignals[0]);
-    expect(progressSignals[1].aborted).toBe(false);
-    expect(jobs.store.get().actionJobs.jobs).toHaveLength(1);
-    expect(jobs.store.get().actionJobs.jobs[0]?.progress?.actionName).toBe('base-retry');
-  });
-
-  it('joins a replacement dock terminal fetch instead of overwriting it during retry', async () => {
-    vi.useFakeTimers();
-    setDocumentHidden(false);
-    const retiredDockProgress = deferred<RunProgress>();
-    const successorDockProgress = deferred<RunProgress>();
-    const terminal = actionJob({ jobId: 9, runId: 'terminal-run', status: 'completed' });
-    const listActionJobs = vi.fn()
-      .mockResolvedValueOnce({ jobs: [] })
-      .mockResolvedValue({ jobs: [terminal] });
-    const getRunProgress = vi.fn().mockImplementation((() => {
-      if (getRunProgress.mock.calls.length === 1) return retiredDockProgress.promise;
-      if (getRunProgress.mock.calls.length === 2) return successorDockProgress.promise;
-      return Promise.resolve(runProgress({
-        runId: 'terminal-run', actionName: 'unexpected-base-fetch', status: 'complete',
-      }));
-    }) as ProjectApiPort['getRunProgress']);
-    const jobs = createJobStore('project-a', projectPort({ listActionJobs, getRunProgress }));
-    jobs.start(noopDeps());
-    await vi.advanceTimersByTimeAsync(0);
-    jobs.liveActionJobs.start();
-    await flushMicrotasks();
-    expect(getRunProgress).toHaveBeenCalledTimes(1);
-
-    const baseRefresh = jobs.refresh();
-    await flushMicrotasks();
-    expect(getRunProgress).toHaveBeenCalledTimes(1);
-
-    jobs.liveActionJobs.dispose();
-    jobs.liveActionJobs.start();
-    await flushMicrotasks();
-    expect(getRunProgress).toHaveBeenCalledTimes(2);
-
-    retiredDockProgress.resolve(runProgress({
-      runId: 'terminal-run', actionName: 'retired-dock', status: 'complete',
-    }));
-    await flushMicrotasks();
-    expect(getRunProgress).toHaveBeenCalledTimes(2);
-
-    successorDockProgress.resolve(runProgress({
-      runId: 'terminal-run', actionName: 'successor-dock', status: 'complete',
-    }));
-    await baseRefresh;
-    jobs.liveActionJobs.dispose();
-
-    expect(getRunProgress).toHaveBeenCalledTimes(2);
-    expect(jobs.store.get().actionJobs.jobs).toHaveLength(1);
-    expect(jobs.store.get().actionJobs.jobs[0]?.progress?.actionName).toBe('successor-dock');
+    expect(getRunProgress).not.toHaveBeenCalled();
   });
 
   it('does not reinstall targets when replacement abort listeners dispose the resource', async () => {
@@ -1418,9 +1265,8 @@ describe('createJobStore — complete 4B cadence, fencing, and transport pins', 
     await vi.advanceTimersByTimeAsync(0);
 
     const baseOptions = listActionJobs.mock.calls[0]?.[2];
-    const baseProgressOptions = getRunProgress.mock.calls.find(([id]) => id === 'base-run')?.[1];
     expect(baseOptions).toEqual({ projectId: 'project-a', signal: expect.any(AbortSignal) });
-    expect(baseProgressOptions?.signal).toBe(baseOptions?.signal);
+    expect(getRunProgress).not.toHaveBeenCalled();
 
     jobs.startRun(runRequest(), { id: 'sheet-1', rowCount: 1 } as never);
     await flushMicrotasks();

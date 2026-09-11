@@ -185,12 +185,6 @@ export function createJobStore(
   let dockJobs: DockActionJob[] | null = null;
   let dockInterested = false;
   let disposingDock = false;
-  const terminalRunProgressCache = new Map<string, RunProgress | null>();
-  const terminalRunProgressInFlight = new Map<
-    string,
-    { owner: object; promise: Promise<RunProgress | null> }
-  >();
-  const terminalRunProgressEpoch = new Map<string, number>();
   const baseRequestControllers = new Set<AbortController>();
   let disposingResource = false;
   let observedTelemetry: {
@@ -377,6 +371,11 @@ export function createJobStore(
     }));
   }
 
+  function actionJobIsActive(job: DockActionJob): boolean {
+    const status = job.progress?.status;
+    return status ? isActiveRunStatus(status) : !isTerminalActionJobStatus(job.status);
+  }
+
   function setCostGate(
     next: CostGateState | null | ((prev: CostGateState | null) => CostGateState | null),
   ): void {
@@ -479,90 +478,15 @@ export function createJobStore(
     }
   }
 
-  async function loadActionJobsWithProgress(
+  async function loadActionJobs(
     limit: number,
     generation: number,
     stillCurrent: () => boolean,
     signal: AbortSignal,
-    requestOwner: object,
   ): Promise<DockActionJob[]> {
     const page = await projectApi.listActionJobs(null, limit, { projectId, signal });
     if (!isResourceCurrent(generation) || !stillCurrent()) return [];
-    return Promise.all(
-      page.jobs.map(async (job): Promise<DockActionJob> => {
-        if (!job.runId) return job;
-        const terminal = isTerminalActionJobStatus(job.status);
-        if (terminal) {
-          const observedTerminalEpoch = terminalRunProgressEpoch.get(job.runId) ?? 0;
-          while (true) {
-            if (terminalRunProgressCache.has(job.runId)) {
-              return { ...job, progress: terminalRunProgressCache.get(job.runId) ?? null };
-            }
-            const sharedEntry = terminalRunProgressInFlight.get(job.runId);
-            if (!sharedEntry) break;
-            const sharedProgress = await sharedEntry.promise;
-            if (!isResourceCurrent(generation) || !stillCurrent()) {
-              return { ...job, progress: null };
-            }
-            if (terminalRunProgressCache.has(job.runId)) {
-              return { ...job, progress: terminalRunProgressCache.get(job.runId) ?? null };
-            }
-            if (sharedProgress !== null) return { ...job, progress: sharedProgress };
-            if ((terminalRunProgressEpoch.get(job.runId) ?? 0) !== observedTerminalEpoch) {
-              return { ...job, progress: null };
-            }
-            const replacementEntry = terminalRunProgressInFlight.get(job.runId);
-            if (replacementEntry && replacementEntry !== sharedEntry) continue;
-            break;
-          }
-        } else {
-          terminalRunProgressCache.delete(job.runId);
-          terminalRunProgressInFlight.delete(job.runId);
-          terminalRunProgressEpoch.set(
-            job.runId,
-            (terminalRunProgressEpoch.get(job.runId) ?? 0) + 1,
-          );
-        }
-        const cacheEpoch = terminalRunProgressEpoch.get(job.runId) ?? 0;
-        const fetchProgress = async (): Promise<RunProgress | null> => {
-          try {
-            const progress = await projectApi.getRunProgress(job.runId!, {
-              projectId,
-              signal,
-            });
-            if (!isResourceCurrent(generation) || !stillCurrent()) return null;
-            if (
-              terminal
-              && (terminalRunProgressEpoch.get(job.runId!) ?? 0) === cacheEpoch
-              && !isActiveRunStatus(progress.status)
-            ) {
-              terminalRunProgressCache.set(job.runId!, progress);
-            }
-            return progress;
-          } catch {
-            if (
-              terminal
-              && isResourceCurrent(generation)
-              && stillCurrent()
-              && (terminalRunProgressEpoch.get(job.runId!) ?? 0) === cacheEpoch
-            ) {
-              terminalRunProgressCache.set(job.runId!, null);
-            }
-            return null;
-          }
-        };
-        if (!terminal) return { ...job, progress: await fetchProgress() };
-        const pending = fetchProgress();
-        const entry = { owner: requestOwner, promise: pending };
-        terminalRunProgressInFlight.set(job.runId, entry);
-        void pending.finally(() => {
-          if (terminalRunProgressInFlight.get(job.runId!) === entry) {
-            terminalRunProgressInFlight.delete(job.runId!);
-          }
-        });
-        return { ...job, progress: await pending };
-      }),
-    );
+    return page.jobs;
   }
 
   async function refresh(): Promise<void> {
@@ -573,15 +497,21 @@ export function createJobStore(
     actionJobsLoadStart();
     try {
       if (!isResourceCurrent(generation) || !baseRequestControllers.has(controller)) return;
-      const jobs = await loadActionJobsWithProgress(
+      const jobs = await loadActionJobs(
         25,
         generation,
         () => baseRequestControllers.has(controller),
         controller.signal,
-        controller,
       );
       if (!isResourceCurrent(generation) || !baseRequestControllers.has(controller)) return;
       actionJobsLoadSuccess(jobs);
+      if (
+        dockInterested
+        && dockTimer === null
+        && dockSlot === null
+        && !documentIsHidden()
+        && jobs.some(actionJobIsActive)
+      ) void dockPollTick();
     } catch (error) {
       if (!isResourceCurrent(generation) || !baseRequestControllers.has(controller)) return;
       actionJobsLoadError(error instanceof Error ? error.message : String(error));
@@ -634,7 +564,6 @@ export function createJobStore(
     const wasDisposingDock = disposingDock;
     disposingDock = true;
     try {
-      const retiredSlot = dockSlot;
       dockInterested = false;
       dockJob = null;
       dockSlot = null;
@@ -643,11 +572,6 @@ export function createJobStore(
         dockTimer = null;
       }
       dockLane.cancel();
-      if (retiredSlot !== null) {
-        for (const [runId, entry] of terminalRunProgressInFlight) {
-          if (entry.owner === retiredSlot) terminalRunProgressInFlight.delete(runId);
-        }
-      }
       dockJobs = null;
       if (active) {
         store.set((s) => ({
@@ -1301,21 +1225,27 @@ export function createJobStore(
       && dockSlot === slot
       && dockLane.isCurrent(job)
     );
+    let hasActiveJobs = false;
     try {
-      const jobs = await loadActionJobsWithProgress(
+      const jobs = await loadActionJobs(
         25,
         generation,
         isCurrent,
         job.signal,
-        slot,
       );
       if (!isCurrent()) return;
       publishDockJobs(jobs);
+      hasActiveJobs = jobs.some(actionJobIsActive);
     } catch {
       // Dock failures are silent; retain its last-known-good snapshot.
     } finally {
       if (dockSlot === slot) dockSlot = null;
-      if (isResourceCurrent(generation) && dockInterested && dockLane.isCurrent(job)) {
+      if (
+        hasActiveJobs
+        && isResourceCurrent(generation)
+        && dockInterested
+        && dockLane.isCurrent(job)
+      ) {
         if (dockTimer !== null) clearTimeout(dockTimer);
         dockTimer = setTimeout(() => {
           dockTimer = null;
@@ -1376,9 +1306,6 @@ export function createJobStore(
       currentDeps = null;
       baseJobs = [];
       dockJobs = null;
-      terminalRunProgressCache.clear();
-      terminalRunProgressInFlight.clear();
-      terminalRunProgressEpoch.clear();
 
       const pendingGate = store.get().costGate;
       const resolvePendingGate = takeCostGateCancel(pendingGate);

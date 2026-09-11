@@ -1707,13 +1707,88 @@ type HttpActionJob_ActionJobLease = ({
   "locked_by": (((string)) | ((null)));
 });
 
+type HttpActionJob_ActionJobProgress = ({
+  "action_kind": (string);
+  "action_name": (string);
+  "completed": (number);
+  "cost": (((number)) | ((null)));
+  "error"?: (((string)) | ((null)));
+  "failed": (number);
+  "halted_code"?: (((string)) | ((null)));
+  "halted_reason"?: (((string)) | ((null)));
+  "live": (boolean);
+  "queue"?: (((HttpActionJob_ActionRunQueue)) | ((HttpActionJob_ActionRunMissingQueue)) | ((null)));
+  "row_errors"?: (((HttpActionJob_RunRowErrorSummary)) | ((null)));
+  "run_id": (number);
+  "sheet_id": (number);
+  "stalled_reason"?: (((string)) | ((null)));
+  "status": (string);
+  "timing": (HttpActionJob_ActionRunTiming);
+  "total": (number);
+});
+
 type HttpActionJob_ActionJobTiming = ({
   "created_at": (((string)) | ((null)));
   "finished_at": (((string)) | ((null)));
   "started_at": (((string)) | ((null)));
 });
 
+type HttpActionJob_ActionRunMissingQueue = ({
+  "job_id": (((number)) | ((null)));
+  "status": ("missing") & (string);
+});
+
+type HttpActionJob_ActionRunQueue = ({
+  "action_kind": (((string)) | ((null)));
+  "action_name": (((string)) | ((null)));
+  "attempts": (number);
+  "created_at": (((string)) | ((null)));
+  "error": (((string)) | ((null)));
+  "finished_at": (((string)) | ((null)));
+  "job_id": (number);
+  "lease_expired": (boolean);
+  "lease_expires_at": (((string)) | ((null)));
+  "live_workers"?: (((number)) | ((null)));
+  "locked_at": (((string)) | ((null)));
+  "locked_by": (((string)) | ((null)));
+  "max_attempts": (number);
+  "no_live_worker"?: (((boolean)) | ((null)));
+  "queued_seconds"?: (((number)) | ((null)));
+  "started_at": (((string)) | ((null)));
+  "status": (string);
+});
+
+type HttpActionJob_ActionRunTiming = ({
+  "elapsed_seconds": (((number)) | ((null)));
+  "estimated_finish_at": (((string)) | ((null)));
+  "eta_seconds": (((number)) | ((null)));
+  "finished_at": (((string)) | ((null)));
+  "job_elapsed_seconds": (((number)) | ((null)));
+  "processed_rows": (number);
+  "processed_rows_per_second": (((number)) | ((null)));
+  "queue_wait_seconds": (((number)) | ((null)));
+  "remaining_rows": (number);
+  "started_at": (((string)) | ((null)));
+});
+
 type HttpActionJob_JsonValue = JsonValue;
+
+type HttpActionJob_RunRowErrorGroup = ({
+  "code": (((string)) | ((null)));
+  "count": (number);
+  "details"?: ((({
+  [key: string]: (boolean);
+})) | ((null)));
+  "message": (string);
+  "outcome"?: (((string)) | ((null)));
+  "row_ids": (Array<(number)>);
+  "terminal"?: (boolean);
+});
+
+type HttpActionJob_RunRowErrorSummary = ({
+  "groups": (Array<(HttpActionJob_RunRowErrorGroup)>);
+  "total_failed_rows": (number);
+});
 
 export type HttpActionJob = ({
   "action_kind"?: (((string)) | ((null)));
@@ -1727,6 +1802,7 @@ export type HttpActionJob = ({
   "payload_ref": ({
   [key: string]: (HttpActionJob_JsonValue);
 });
+  "progress"?: (((HttpActionJob_ActionJobProgress)) | ((null)));
   "project_id": (string);
   "receipt_id"?: (((string)) | ((null)));
   "result_summary"?: ((({
@@ -1750,6 +1826,7 @@ type HttpActionJobsPage_ActionJob = ({
   "payload_ref": ({
   [key: string]: (HttpActionJobsPage_JsonValue);
 });
+  "progress"?: (((HttpActionJobsPage_ActionJobProgress)) | ((null)));
   "project_id": (string);
   "receipt_id"?: (((string)) | ((null)));
   "result_summary"?: ((({
@@ -1768,13 +1845,88 @@ type HttpActionJobsPage_ActionJobLease = ({
   "locked_by": (((string)) | ((null)));
 });
 
+type HttpActionJobsPage_ActionJobProgress = ({
+  "action_kind": (string);
+  "action_name": (string);
+  "completed": (number);
+  "cost": (((number)) | ((null)));
+  "error"?: (((string)) | ((null)));
+  "failed": (number);
+  "halted_code"?: (((string)) | ((null)));
+  "halted_reason"?: (((string)) | ((null)));
+  "live": (boolean);
+  "queue"?: (((HttpActionJobsPage_ActionRunQueue)) | ((HttpActionJobsPage_ActionRunMissingQueue)) | ((null)));
+  "row_errors"?: (((HttpActionJobsPage_RunRowErrorSummary)) | ((null)));
+  "run_id": (number);
+  "sheet_id": (number);
+  "stalled_reason"?: (((string)) | ((null)));
+  "status": (string);
+  "timing": (HttpActionJobsPage_ActionRunTiming);
+  "total": (number);
+});
+
 type HttpActionJobsPage_ActionJobTiming = ({
   "created_at": (((string)) | ((null)));
   "finished_at": (((string)) | ((null)));
   "started_at": (((string)) | ((null)));
 });
 
+type HttpActionJobsPage_ActionRunMissingQueue = ({
+  "job_id": (((number)) | ((null)));
+  "status": ("missing") & (string);
+});
+
+type HttpActionJobsPage_ActionRunQueue = ({
+  "action_kind": (((string)) | ((null)));
+  "action_name": (((string)) | ((null)));
+  "attempts": (number);
+  "created_at": (((string)) | ((null)));
+  "error": (((string)) | ((null)));
+  "finished_at": (((string)) | ((null)));
+  "job_id": (number);
+  "lease_expired": (boolean);
+  "lease_expires_at": (((string)) | ((null)));
+  "live_workers"?: (((number)) | ((null)));
+  "locked_at": (((string)) | ((null)));
+  "locked_by": (((string)) | ((null)));
+  "max_attempts": (number);
+  "no_live_worker"?: (((boolean)) | ((null)));
+  "queued_seconds"?: (((number)) | ((null)));
+  "started_at": (((string)) | ((null)));
+  "status": (string);
+});
+
+type HttpActionJobsPage_ActionRunTiming = ({
+  "elapsed_seconds": (((number)) | ((null)));
+  "estimated_finish_at": (((string)) | ((null)));
+  "eta_seconds": (((number)) | ((null)));
+  "finished_at": (((string)) | ((null)));
+  "job_elapsed_seconds": (((number)) | ((null)));
+  "processed_rows": (number);
+  "processed_rows_per_second": (((number)) | ((null)));
+  "queue_wait_seconds": (((number)) | ((null)));
+  "remaining_rows": (number);
+  "started_at": (((string)) | ((null)));
+});
+
 type HttpActionJobsPage_JsonValue = JsonValue;
+
+type HttpActionJobsPage_RunRowErrorGroup = ({
+  "code": (((string)) | ((null)));
+  "count": (number);
+  "details"?: ((({
+  [key: string]: (boolean);
+})) | ((null)));
+  "message": (string);
+  "outcome"?: (((string)) | ((null)));
+  "row_ids": (Array<(number)>);
+  "terminal"?: (boolean);
+});
+
+type HttpActionJobsPage_RunRowErrorSummary = ({
+  "groups": (Array<(HttpActionJobsPage_RunRowErrorGroup)>);
+  "total_failed_rows": (number);
+});
 
 export type HttpActionJobsPage = ({
   "jobs": (Array<(HttpActionJobsPage_ActionJob)>);

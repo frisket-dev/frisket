@@ -461,6 +461,10 @@ class ActionRunPublicStatus(WireModel):
     row_errors: RunRowErrorSummary | None = None
 
 
+class ActionJobProgress(ActionRunPublicStatus):
+    sheet_id: int
+
+
 class ActionRunStatusRun(WireModel):
     id: int
     sheet_id: int
@@ -563,6 +567,7 @@ class ActionJob(WireModel):
     action_kind: str | None = None
     action_name: str | None = None
     result_summary: dict[str, JsonValue] | None = None
+    progress: ActionJobProgress | None = None
     attempts: int
     max_attempts: int
     lease: ActionJobLease
