@@ -9,7 +9,7 @@ from fastapi.responses import Response
 
 from frisket.contracts.http.column_types import ColumnTypeList
 from frisket.contracts.http.graph_lineage import SheetGraphResponse
-from frisket.contracts.http.history_review import ColumnRunsPage
+from frisket.contracts.http.history_review import ColumnRunsPage, ReviewedRunRevision
 from frisket.server.paging import PageLimit100, PageOffset
 from frisket.server.route_errors import http_error_responses
 from frisket.server.services.column_runs import (
@@ -165,4 +165,18 @@ def register_column_run_history_routes(
                 offset=offset,
                 limit=limit,
             )
+        )
+
+    @app.get(
+        "/api/projects/{pid}/columns/{column_id}/runs/{run_id}/revision",
+        response_model=ReviewedRunRevision,
+        responses=http_error_responses(401, 403, 404, 409, 422, 500),
+    )
+    def reviewed_run_revision(
+        pid: str,
+        column_id: int,
+        run_id: int,
+    ) -> ReviewedRunRevision:
+        return ReviewedRunRevision.model_validate(
+            service.reviewed_run_revision(pid, column_id, run_id)
         )

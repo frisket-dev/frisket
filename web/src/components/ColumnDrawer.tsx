@@ -7,6 +7,7 @@ import {
   type ColumnDisplayFormat,
   type ColumnRun,
   type ColumnRunsInfo,
+  type GeneratedActionDraft,
   type ColumnStats,
   type ColumnType,
   type ColumnTypeInfo,
@@ -99,6 +100,8 @@ export interface ColumnDrawerProps {
   onColumnUpdated(column: ColumnDef): void;
   /** Opens the existing review queue scoped to one persisted action run. */
   onReviewRun(runId: string): void;
+  /** Opens the ordinary generated form with a reviewed run's saved intent. */
+  onReviseRun(draft: GeneratedActionDraft): void;
   /** An over-gate run.backfill 402s; the drawer routes
    *  it through the SAME priced cost-confirmation surface a fresh run uses
    *  (the run controller's requestCostConfirmation → shared CostGateModal). */
@@ -195,6 +198,7 @@ export function ColumnDrawer({
   onBackfillComplete,
   onColumnUpdated,
   onReviewRun,
+  onReviseRun,
   requestCostConfirmation,
   detailContributions = EMPTY_CONTRIBUTIONS,
   renderDetailContribution,
@@ -238,6 +242,7 @@ export function ColumnDrawer({
             onBackfillComplete={onBackfillComplete}
             requestCostConfirmation={requestCostConfirmation}
             onReviewRun={onReviewRun}
+            onReviseRun={onReviseRun}
           />
         </ColumnInspectorRunsSectionFrame>
       )}
@@ -732,12 +737,14 @@ function AiColumnDetails({
   onBackfillComplete,
   requestCostConfirmation,
   onReviewRun,
+  onReviseRun,
 }: {
   column: ColumnDef;
   sheetId: string;
   onBackfillComplete(runId: string, filled: number): void;
   requestCostConfirmation(estimate: RunEstimate, message: string): Promise<boolean>;
   onReviewRun(runId: string): void;
+  onReviseRun(draft: GeneratedActionDraft): void;
 }) {
   const { projectApi } = useWorkspaceStores();
   const ai = column.ai;
@@ -750,6 +757,10 @@ function AiColumnDetails({
     message: string | null;
     error: string | null;
   }>({ busy: false, message: null, error: null });
+  const [revision, setRevision] = useState<{ runId: string | null; error: string | null }>({
+    runId: null,
+    error: null,
+  });
 
   useEffect(() => {
     mountedRef.current = true;
@@ -826,6 +837,18 @@ function AiColumnDetails({
         busy: false,
         message: null,
         error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  };
+
+  const reviseRun = async (runId: string) => {
+    setRevision({ runId, error: null });
+    try {
+      onReviseRun(await projectApi.getReviewedRunRevision(column.id, runId));
+    } catch (error: unknown) {
+      setRevision({
+        runId: null,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   };
@@ -973,6 +996,8 @@ function AiColumnDetails({
                   key={r.runId}
                   run={r}
                   version={(info?.totalRuns ?? runs.length) - (info?.offset ?? 0) - i}
+                  revising={revision.runId === r.runId}
+                  onRevise={() => { void reviseRun(r.runId); }}
                 />
               ))}
             </ol>
@@ -1015,6 +1040,11 @@ function AiColumnDetails({
                 Older versions are not loaded.
               </div>
             )}
+            {revision.error && (
+              <div className="col-backfill-note col-backfill-error" role="alert">
+                {revision.error}
+              </div>
+            )}
           </>
         )}
       </section>
@@ -1022,7 +1052,17 @@ function AiColumnDetails({
   );
 }
 
-function VersionItem({ run, version }: { run: ColumnRun; version: number }) {
+function VersionItem({
+  run,
+  version,
+  revising,
+  onRevise,
+}: {
+  run: ColumnRun;
+  version: number;
+  revising: boolean;
+  onRevise(): void;
+}) {
   const when = run.startedAt
     ? new Date(run.startedAt).toLocaleString(undefined, {
         month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
@@ -1043,6 +1083,16 @@ function VersionItem({ run, version }: { run: ColumnRun; version: number }) {
         )}
         {run.durationMs != null && ` · ${formatDuration(run.durationMs)}`} · {when}
       </div>
+      {run.humanScore.graded > 0 && (
+        <button
+          type="button"
+          className="mini-btn"
+          disabled={revising}
+          onClick={onRevise}
+        >
+          {revising ? 'Opening…' : `Revise ${run.humanScore.graded.toLocaleString()} reviewed`}
+        </button>
+      )}
     </li>
   );
 }

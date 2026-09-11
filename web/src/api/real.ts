@@ -199,6 +199,7 @@ import type {
   EmbeddingIndexAnalysisResult,
   EmbeddingIndexSummary,
   EvidenceViewerPayload,
+  GeneratedActionDraft,
   UpdateEmbeddingIndexPolicyInput,
   EmbeddingProvider,
   EmbeddingComposedQuery,
@@ -1759,6 +1760,10 @@ class RealApi implements FrisketApi {
       });
     }
     return result;
+  }
+
+  getReviewedRunRevision(columnId: string, runId: string): Promise<GeneratedActionDraft> {
+    return this.historyReview.getReviewedRunRevision(columnId, runId);
   }
 
   async getRunTraceRow(

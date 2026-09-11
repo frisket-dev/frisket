@@ -13,6 +13,7 @@ export interface GridApiPort {
   dismissReplayPending: FrisketApi['dismissReplayPending'];
   updateColumn: FrisketApi['updateColumn'];
   getColumnRuns: FrisketApi['getColumnRuns'];
+  getReviewedRunRevision: FrisketApi['getReviewedRunRevision'];
 }
 
 export interface WorkbenchApiPort {

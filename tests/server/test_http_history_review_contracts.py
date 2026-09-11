@@ -94,6 +94,25 @@ class _ColumnRunsService:
             "runs": [run, older],
         }
 
+    def reviewed_run_revision(
+        self, project_id: str, column_id: int, run_id: int
+    ) -> dict[str, Any]:
+        return {
+            "schema_version": "frisket.reviewed_run_revision.v1",
+            "source_run_id": run_id,
+            "reviewed_rows": 2,
+            "draft": {
+                "action_id": "map.classify",
+                "scope": {
+                    "kind": "sheet_rows",
+                    "sheet_id": 8,
+                    "row_ids": [3, 5],
+                },
+                "params": {"labels": ["yes", "no"]},
+                "output_names": {"label": "risk"},
+            },
+        }
+
 
 class _ReviewService:
     def review_bundles(
@@ -220,6 +239,11 @@ def test_history_review_contracts_preserve_bytes_omissions_and_open_json() -> No
     }
     assert run_body["runs"][0]["human_score"] == {"passed": 1, "graded": 2}
 
+    revision = client.get("/api/projects/p/columns/12/runs/9/revision")
+    assert revision.status_code == 200, revision.text
+    assert revision.json()["draft"]["scope"]["row_ids"] == [3, 5]
+    assert "idempotency_key" not in revision.json()["draft"]
+
     bundles = client.get(
         "/api/projects/p/review/bundles", params={"sheet_id": 8, "limit": 1}
     )
@@ -257,6 +281,7 @@ def test_history_review_contracts_retain_query_bounds_error_envelopes_and_openap
     for path, operation in (
         ("/api/projects/{pid}/history", "get"),
         ("/api/projects/{pid}/columns/{column_id}/runs", "get"),
+        ("/api/projects/{pid}/columns/{column_id}/runs/{run_id}/revision", "get"),
         ("/api/projects/{pid}/review/bundles", "get"),
         ("/api/projects/{pid}/review/count", "get"),
     ):

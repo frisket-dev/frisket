@@ -4721,6 +4721,8 @@ export interface FrisketApi {
   getRunRows(runId: string, offset?: number, limit?: number, status?: 'error'): Promise<RunRowsPage>;
   /** Provenance for an AI column: a bounded newest-first run history page. */
   getColumnRuns(columnId: string, offset?: number, limit?: number): Promise<ColumnRunsInfo>;
+  /** Reopen a persisted run on exactly the rows graded by a human. */
+  getReviewedRunRevision(columnId: string, runId: string): Promise<GeneratedActionDraft>;
   /** Row-scoped trace evidence for "Explain this cell". Keeps large/debug
    *  runs bounded and returns typed absence states instead of a full row list. */
   getRunTraceRow(
