@@ -4,7 +4,7 @@
 // longer renders it.
 
 import { BookOpen, Bot, ChevronRight, Search } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
 import type {
   ProjectInfo,
   SheetViewExportOptions,
@@ -16,6 +16,8 @@ import { AccountMenu } from '../components/AccountMenu';
 import { BrandLink } from '../components/BrandLink';
 import { ProjectMenu } from '../components/TopNav';
 import { useShellIdentity } from '../shellIdentity';
+import { GuideHint } from './GuideHint';
+import styles from './GuideHint.module.css';
 
 /** The shared chrome-bar FRAME (one height, one background, one brand-tile
  *  treatment) — both the workspace chrome and the Home screen's top bar render
@@ -54,6 +56,9 @@ export function ChromeBar({
   walkthroughActive,
   walkthroughCanResume,
   walkthroughGuideSeen,
+  walkthroughGuideEmphasized = false,
+  walkthroughGuideHintVisible = false,
+  onDismissGuideHint,
   onOpenWalkthrough,
   onResumeWalkthrough,
 }: {
@@ -69,9 +74,13 @@ export function ChromeBar({
   walkthroughActive: boolean;
   walkthroughCanResume: boolean;
   walkthroughGuideSeen: boolean;
+  walkthroughGuideEmphasized?: boolean;
+  walkthroughGuideHintVisible?: boolean;
+  onDismissGuideHint?(): void;
   onOpenWalkthrough(): void;
   onResumeWalkthrough(): void;
 }) {
+  const guideRef = useRef<HTMLButtonElement>(null);
   const isMac =
     typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
   const { identityMode, me } = useShellIdentity();
@@ -90,7 +99,9 @@ export function ChromeBar({
     >
       <button
         type="button"
-        className={`chrome-guide-btn${walkthroughActive ? ' open' : ''}${walkthroughGuideSeen ? '' : ' new'}`}
+        ref={guideRef}
+        aria-describedby={walkthroughGuideHintVisible ? 'sample-guide-hint-text' : undefined}
+        className={`chrome-guide-btn${walkthroughActive ? ' open' : ''}${!walkthroughGuideSeen || walkthroughGuideEmphasized ? ' new' : ''}`}
         data-testid="chrome-walkthrough"
         aria-pressed={walkthroughActive}
         title="Guided walkthrough"
@@ -98,7 +109,11 @@ export function ChromeBar({
       >
         <BookOpen size={14} />
         <span>Guide</span>
+        {walkthroughGuideEmphasized && <span className={styles.dot} aria-hidden="true" />}
       </button>
+      {walkthroughGuideHintVisible && onDismissGuideHint && (
+        <GuideHint anchorRef={guideRef} onOpenGuide={onOpenWalkthrough} onDismiss={onDismissGuideHint} />
+      )}
       {walkthroughCanResume && (
         <button
           type="button"

@@ -79,9 +79,10 @@ import { HomeScreen } from './components/HomeScreen';
 import { ReplayModeBanner } from './components/ReplayModeBanner';
 import { ImportDropzone, ImportWorkspaceDialog } from './components/ImportCsv';
 import { CostGateModal } from './components/CostGateModal';
-import { CostPreapprovalSetupModal } from './components/CostPreapprovalSetupModal';
+import { ApplicationGuidance } from './components/ApplicationGuidance';
+import { SampleProjectOnboarding } from './workbench/SampleProjectOnboarding';
+import { setSampleGuideArrival } from './workbench/sampleGuideArrival';
 import { ChromeBar } from './workbench/ChromeBar';
-import { WalkthroughProvider } from './walkthrough/WalkthroughProvider';
 import { useWalkthrough } from './walkthrough/context';
 import { readSettingsProjectContext } from './settings/settingsProjectContext';
 import { ProductTelemetryProvider } from './telemetry/ProductTelemetryProvider';
@@ -267,7 +268,10 @@ function lazyPage(node: ReactNode) {
 }
 
 const openHome = () => (
-  <HomeScreen onOpen={(p) => navigate({ kind: 'project', projectId: p.id })} />
+  <HomeScreen onOpen={(p, options) => {
+    setSampleGuideArrival(options?.openGuide ? p.id : null);
+    navigate({ kind: 'project', projectId: p.id });
+  }} />
 );
 
 const openAdminUnavailable = () => (
@@ -372,10 +376,9 @@ export default function App() {
       ? route.projectId ?? readSettingsProjectContext()?.id
       : undefined;
   return withProductTelemetry(
-    <WalkthroughProvider projectId={walkthroughProjectId}>
+    <ApplicationGuidance projectId={walkthroughProjectId}>
       {content}
-      {identityMode && me?.cost_preapproval_usd === null && <CostPreapprovalSetupModal />}
-    </WalkthroughProvider>,
+    </ApplicationGuidance>,
   );
 }
 
@@ -926,6 +929,7 @@ const WorkspaceChromeBarRegion = memo(function WorkspaceChromeBarRegion() {
   const walkthrough = useWalkthrough();
   return (
     <>
+      <SampleProjectOnboarding project={project} />
       <ChromeBar
         project={project}
         projectApi={projectApi}
@@ -939,6 +943,9 @@ const WorkspaceChromeBarRegion = memo(function WorkspaceChromeBarRegion() {
         walkthroughActive={walkthrough.active}
         walkthroughCanResume={walkthrough.canResume}
         walkthroughGuideSeen={walkthrough.guideSeen}
+        walkthroughGuideEmphasized={walkthrough.guideEmphasized}
+        walkthroughGuideHintVisible={walkthrough.guideHintVisible}
+        onDismissGuideHint={walkthrough.dismissGuideHint}
         onOpenWalkthrough={walkthrough.openWalkthroughChooser}
         onResumeWalkthrough={walkthrough.resumeWalkthrough}
       />

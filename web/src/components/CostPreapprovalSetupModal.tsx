@@ -4,7 +4,7 @@ import { updateProfile } from '../api/open';
 
 /** First signed-in use records a person's standing amount. The server keeps
  * the null marker until this form succeeds, so a reload cannot skip it. */
-export function CostPreapprovalSetupModal() {
+export function CostPreapprovalSetupModal({ onComplete }: { onComplete?: () => void }) {
   const [amount, setAmount] = useState('2');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -18,6 +18,7 @@ export function CostPreapprovalSetupModal() {
     try {
       await updateProfile({ cost_preapproval_usd: amount });
       setComplete(true);
+      onComplete?.();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {

@@ -1,0 +1,17 @@
+.hint {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-8);
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: var(--shadow-menu);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.hint p { margin: 0 0 12px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }

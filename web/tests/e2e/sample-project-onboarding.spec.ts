@@ -14,6 +14,15 @@ import { listSheets, sheetColumns, sheetData } from './helpers';
 
 test.describe.configure({ mode: 'serial' });
 
+// This spec verifies sample content and reuse; intro interactions have their
+// own browser coverage in sample-project-intro.spec.ts.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('frisket.walkthrough.sample-project.intro-seen.v1', 'true');
+    localStorage.setItem('frisket.walkthrough.sample-project.hint-dismissed.v1', 'true');
+  });
+});
+
 test('sample-project button seeds raw Dispatches and Contracts sheets', async ({
   page,
   request,

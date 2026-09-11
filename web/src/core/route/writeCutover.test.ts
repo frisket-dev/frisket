@@ -48,7 +48,7 @@ const ALLOW: Record<string, string[]> = {
     "navigate({ kind: 'settings', projectId: project.id, scope: 'project', section: 'notifications' });",
   ],
   'App.tsx': [
-    "<HomeScreen onOpen={(p) => navigate({ kind: 'project', projectId: p.id })} />",
+    "navigate({ kind: 'project', projectId: p.id });",
     "onClick={() => navigate({ kind: 'picker' })}",
   ],
 };

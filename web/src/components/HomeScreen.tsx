@@ -53,6 +53,7 @@ import { MenuPop } from './MenuPop';
 import { ChromeBarShell } from '../workbench/ChromeBar';
 import { AccountMenu } from './AccountMenu';
 import { SupportContactNote } from './SupportContactNote';
+import { HomeSampleHero } from './HomeSampleHero';
 import { useInstanceIdentity } from '../instanceIdentity';
 import { SegmentedToggle } from './PanelPrimitives';
 import { fetchProjectSheetCounts } from '../api/homeSheetCounts';
@@ -62,8 +63,12 @@ import {
   sendProductTelemetry,
 } from '../telemetry/productTelemetry';
 
+export interface HomeOpenOptions {
+  openGuide?: boolean;
+}
+
 export interface HomeScreenProps {
-  onOpen(project: ProjectInfo): void;
+  onOpen(project: ProjectInfo, options?: HomeOpenOptions): void;
 }
 
 type NavScope = 'home' | 'recent' | 'starred' | 'archive';
@@ -120,7 +125,7 @@ interface HomeProjectsController {
   setError(message: string | null): void;
   dismissWelcome(): void;
   createAndOpen(name: string): void;
-  trySampleAndOpen(): void;
+  trySampleAndOpen(options?: HomeOpenOptions): void;
   setFlag(project: ProjectInfo, patch: { starred?: boolean; archived?: boolean }): void;
   renameProject(project: ProjectInfo, nextName: string): void;
   removeProject(project: ProjectInfo): void;
@@ -131,7 +136,7 @@ interface HomeProjectsController {
 // (create / sample-seed / star-archive flag / rename / delete). Extracted from
 // HomeScreen so that component owns only view/filter/inline-edit UI state.
 function useHomeProjects(
-  onOpen: (project: ProjectInfo) => void,
+  onOpen: (project: ProjectInfo, options?: HomeOpenOptions) => void,
   me: MeInfo | null,
 ): HomeProjectsController {
   const [projects, setProjects] = useState<ProjectInfo[] | null>(null);
@@ -142,6 +147,7 @@ function useHomeProjects(
   const [counts, setCounts] = useState<Record<string, CardCounts>>({});
   const [dismissedWelcomeKey, setDismissedWelcomeKey] = useState<string | null>(null);
   const countsRequested = useRef<Set<string> | null>(null);
+  const sampleRequestActive = useRef(false);
   countsRequested.current ??= new Set();
 
   const reload = useCallback(() => {
@@ -225,8 +231,9 @@ function useHomeProjects(
   // Idempotent sample-project onboarding: reuse an existing "Sample
   // project" or create+seed one, cleaning up only a project THIS click created
   // if seeding fails.
-  const trySampleAndOpen = () => {
-    if (busy || sampleBusy) return;
+  const trySampleAndOpen = (options?: HomeOpenOptions) => {
+    if (busy || sampleRequestActive.current) return;
+    sampleRequestActive.current = true;
     setSampleBusy(true);
     setError(null);
     const startedAt = performance.now();
@@ -258,7 +265,7 @@ function useHomeProjects(
             properties: { creationKind: 'sample', requestDuration: durationBucket(performance.now() - startedAt) },
           }, project.id);
         }
-        onOpen(project);
+        onOpen(project, options);
       })
       .catch((e: Error) => {
         sendProductTelemetry({
@@ -271,7 +278,10 @@ function useHomeProjects(
         });
         setError(e.message);
       })
-      .finally(() => setSampleBusy(false));
+      .finally(() => {
+        sampleRequestActive.current = false;
+        setSampleBusy(false);
+      });
   };
 
   const setFlag = (project: ProjectInfo, patch: { starred?: boolean; archived?: boolean }) => {
@@ -408,6 +418,10 @@ export function HomeScreen({ onOpen }: HomeScreenProps) {
   };
 
   const count = scoped.length;
+  const showSampleHero = projects !== null
+    && error === null
+    && projects.length === 0
+    && scope === 'home';
   const scopeLabel =
     scope === 'archive' ? 'Archived' : scope === 'starred' ? 'Starred' : 'Your projects';
 
@@ -469,7 +483,16 @@ export function HomeScreen({ onOpen }: HomeScreenProps) {
               setCreating(false);
               setName('');
             }}
+            showSampleHero={showSampleHero}
           />
+
+          {showSampleHero && (
+            <HomeSampleHero
+              busy={busy || sampleBusy}
+              onOpenSample={trySampleAndOpen}
+              onNewProject={startCreate}
+            />
+          )}
 
           {error && (
             <div className="picker-error" data-testid="picker-error">
@@ -510,7 +533,7 @@ export function HomeScreen({ onOpen }: HomeScreenProps) {
                   onRenameCancel={cancelRename}
                 />
               ))}
-              {scope !== 'archive' && (
+              {scope !== 'archive' && !showSampleHero && (
                 <button
                   type="button"
                   className="home-new-tile"
@@ -522,13 +545,13 @@ export function HomeScreen({ onOpen }: HomeScreenProps) {
                   <span className="home-new-tile-hint">Import data or start empty</span>
                 </button>
               )}
-              {scoped.length === 0 && (
+              {scoped.length === 0 && !showSampleHero && !error && (
                 <div className="home-empty" data-testid="home-empty">
                   {scope === 'archive'
                     ? 'No archived projects.'
                     : scope === 'starred'
                       ? 'No starred projects yet — star one from its ⋯ menu.'
-                      : 'No projects yet — create one to get started.'}
+                      : filter.trim() ? 'No projects match your filter.' : 'No projects yet — create one to get started.'}
                 </div>
               )}
             </div>
@@ -635,6 +658,7 @@ function HomeToolbar({
   onNameChange,
   onCreateSubmit,
   onCreateCancel,
+  showSampleHero,
 }: {
   scopeLabel: string;
   count: number;
@@ -652,6 +676,7 @@ function HomeToolbar({
   onNameChange(value: string): void;
   onCreateSubmit(): void;
   onCreateCancel(): void;
+  showSampleHero: boolean;
 }) {
   return (
     <>
@@ -689,7 +714,7 @@ function HomeToolbar({
         </div>
       </div>
 
-      <div className="home-filter-row">
+      {!showSampleHero && <div className="home-filter-row">
         <div className="home-filter-input">
           <Search size={13} />
           <input
@@ -712,7 +737,7 @@ function HomeToolbar({
           <FlaskConical size={13} />{' '}
           {sampleBusy ? 'Setting up the sample…' : 'Try the sample project'}
         </button>
-      </div>
+      </div>}
 
       {creating && (
         <form

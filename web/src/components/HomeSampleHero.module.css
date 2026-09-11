@@ -1,0 +1,91 @@
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 240px);
+  gap: 16px;
+  margin: 16px 0 14px;
+}
+
+.hero {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 20px;
+  border: 1px solid var(--accent);
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--accent-bg), var(--bg));
+}
+
+.eyebrow {
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.heading {
+  margin: 0;
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.copy {
+  max-width: 470px;
+  margin: 0;
+  color: var(--text-mid);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.newProject {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 168px;
+  border: 1.5px dashed var(--border-strong);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text-mid);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 550;
+}
+
+.newProject:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.newProjectHint {
+  color: var(--text-light);
+  font-size: 11px;
+  font-weight: 450;
+}
+
+@media (max-width: 680px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .newProject {
+    min-height: 116px;
+  }
+}
