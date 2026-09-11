@@ -16,9 +16,10 @@ concern, not a provider-pricing guess.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from frisket.local_model_ids import bare_model_name, parse_local_model_id
 
@@ -32,6 +33,43 @@ PRICES: dict[str, tuple[float, float]] = {
 # speech models (the bespoke /audio/transcriptions call bypasses the router):
 # {"per_second": x} or {"input_per_token": x, "output_per_token": y}
 AUDIO_PRICES: dict[str, dict] = _data["audio"]
+
+
+def install_pricing_data(data: dict[str, Any]) -> None:
+    """Atomically replace the process's normalized text and audio catalogs."""
+    text = data.get("text")
+    audio = data.get("audio")
+    if not isinstance(text, dict) or not isinstance(audio, dict):
+        raise ValueError("pricing data must contain text and audio objects")
+    parsed_text: dict[str, tuple[float, float]] = {}
+    for model, rates in text.items():
+        if not isinstance(model, str) or not isinstance(rates, list) or len(rates) != 2:
+            raise ValueError("invalid text pricing entry")
+        parsed = (float(rates[0]), float(rates[1]))
+        if any(not math.isfinite(rate) or rate < 0 for rate in parsed):
+            raise ValueError("pricing rates must be non-negative and finite")
+        parsed_text[model] = parsed
+    parsed_audio: dict[str, dict] = {}
+    for model, rates in audio.items():
+        if not isinstance(model, str) or not isinstance(rates, dict):
+            raise ValueError("invalid audio pricing entry")
+        keys = set(rates)
+        if keys == {"per_second"}:
+            parsed = {"per_second": float(rates["per_second"])}
+        elif keys == {"input_per_token", "output_per_token"}:
+            parsed = {
+                "input_per_token": float(rates["input_per_token"]),
+                "output_per_token": float(rates["output_per_token"]),
+            }
+        else:
+            raise ValueError("invalid audio pricing entry")
+        if any(not math.isfinite(rate) or rate < 0 for rate in parsed.values()):
+            raise ValueError("pricing rates must be non-negative and finite")
+        parsed_audio[model] = parsed
+    global PRICES, AUDIO_PRICES
+    PRICES = parsed_text
+    AUDIO_PRICES = parsed_audio
+
 
 ModelCostSource = Literal["free_local", "pricing_data", "unknown"]
 
