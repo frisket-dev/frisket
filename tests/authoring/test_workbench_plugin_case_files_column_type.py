@@ -312,20 +312,18 @@ def test_case_id_set_type_and_cell_edit_use_parser_without_retyping_rewrites(
             {"case_id": dirty_case_id},
         )
         project.db.commit()
-        rejected = post_column_set_type_as_v1_action(
+        retyped = post_column_set_type_as_v1_action(
             client, project_id, dirty_case_id, "case_id"
         )
-        assert rejected.status_code == 400, rejected.text
-        error = rejected.json()["errors"][0]
-        assert error["code"] == "column_value_validation_failed"
-        assert error["details"]["bad_row_count"] == 1
+        assert retyped.status_code == 200, retyped.text
         dirty_data = client.get(
             f"/api/projects/{project_id}/sheets/{dirty_sheet_id}/data?offset=0&limit=2"
         ).json()
         dirty_column = next(
             column for column in dirty_data["columns"] if column["name"] == "case_id"
         )
-        assert dirty_column["type"] == "text"
+        assert dirty_column["type"] == "case_id"
         assert dirty_data["rows"][0]["cells"][str(dirty_case_id)] == "case-0003"
+        assert dirty_data["rows"][0]["meta"][str(dirty_case_id)]["invalid"] is True
     finally:
         _reset_default_registry_for_tests()

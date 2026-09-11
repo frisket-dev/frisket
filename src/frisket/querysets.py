@@ -235,7 +235,9 @@ def sheet_row_scope_query(
                 continue
             where.append("0=1")
             continue
-        value_sql, value_params = sheet_live_value_sql("r", column)
+        value_sql, value_params = sheet_live_value_sql(
+            "r", column, preserve_invalid=operator == "date_invalid"
+        )
         if operator == "entity_eq":
             # Rows carrying at least one matching entity in a marked
             # entity_mentions JSON column. The guarded json_each above means a
@@ -542,10 +544,17 @@ def validate_sheet_filter_sort(
 def sheet_live_value_sql(
     row_alias: str,
     column: Any,
+    *,
+    preserve_invalid: bool = False,
 ) -> tuple[str, list[Any]]:
     """Lookup the same current value used by ordinary cell readers."""
+    value = (
+        "live.value"
+        if preserve_invalid
+        else ("CASE WHEN live.validity='valid' THEN live.value END")
+    )
     return (
-        "(SELECT CASE WHEN live.validity='valid' THEN live.value END "
+        f"(SELECT {value} "
         "FROM current_cells live "
         f"WHERE live.column_id=? AND live.row_id={row_alias}.id)",
         [column["id"]],

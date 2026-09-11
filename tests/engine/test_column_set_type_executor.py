@@ -93,14 +93,6 @@ def _unknown_type_action(seeded: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def _invalid_values_action(seeded: dict[str, Any]) -> dict[str, Any]:
-    return _set_type_action(
-        column_id=seeded["columns"]["bad_date"],
-        type_="date",
-        key="column_set_type_invalid_values@sha256:v1",
-    )
-
-
 def _missing_column_action(seeded: dict[str, Any]) -> dict[str, Any]:
     del seeded
     return _set_type_action(
@@ -246,7 +238,6 @@ CASES = [
                     "invalid_action_request",
                     "invalid_column_ref",
                     "invalid_column_type",
-                    "column_value_validation_failed",
                     "invalid_temporal_value",
                     "timeline_not_found",
                     "timeline_stale",
@@ -283,11 +274,6 @@ CASES = [
                 "invalid_column_type",
                 _unknown_type_action,
                 "invalid_column_type",
-            ),
-            Gate(
-                "column_value_validation_failed",
-                _invalid_values_action,
-                "column_value_validation_failed",
             ),
             Gate(
                 "invalid_column_ref",

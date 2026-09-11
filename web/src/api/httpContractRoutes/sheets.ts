@@ -214,7 +214,7 @@ function mapSheetData(wire: SheetDataWire): SheetDataPage {
         cellStates,
         cellErrors,
         cellOutcomes,
-        invalidCells,
+        ...(Object.keys(invalidCells).length > 0 ? { invalidCells } : {}),
         parentRowId: row.parent_row_id == null ? null : String(row.parent_row_id),
         childCount: row.child_count,
         ...(Object.keys(replayPending).length > 0 ? { replayPending } : {}),

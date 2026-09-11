@@ -975,6 +975,19 @@ class _ColumnTyper(_CallOnce):
         values = self._project.get_values(
             int(column["sheet_id"]), column_id, preserve_invalid=True
         )
+        # Temporal values additionally carry project-bound artifact anchors.
+        # Broken references remain a referential-integrity error rather than
+        # an ordinary type mismatch that can be represented as an invalid cell.
+        for row_id, value in values.items():
+            _validate_temporal(
+                self._project,
+                type_name=column_type,
+                value=value,
+                action_kind=self._action.kind,
+                field="params.type",
+                column_id=column_id,
+                row_id=row_id,
+            )
         type_before = str(column["type_before"])
         self._cur.execute(
             "UPDATE columns SET type=? WHERE id=?", (column_type, column_id)
