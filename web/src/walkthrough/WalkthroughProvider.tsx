@@ -567,21 +567,6 @@ function SampleProjectIntro({
     };
   }, []);
 
-  useEffect(() => {
-    // Browsers dispatch the native dialog `cancel` event. JSDOM does not
-    // implement showModal/cancel, so keep this small fallback for the focused
-    // component contract without handling Escape twice in the app.
-    if (typeof HTMLDialogElement !== 'undefined'
-      && typeof HTMLDialogElement.prototype.showModal === 'function') return undefined;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      onPokeAround();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onPokeAround]);
-
   useLayoutEffect(() => {
     const measure = () => {
       const guide = document.querySelector<HTMLElement>('[data-testid="chrome-walkthrough"]');
@@ -601,8 +586,6 @@ function SampleProjectIntro({
       ref={dialogRef}
       className={styles.sampleIntro}
       data-testid="sample-project-intro"
-      open={typeof HTMLDialogElement === 'undefined'
-        || typeof HTMLDialogElement.prototype.showModal !== 'function'}
       role="dialog"
       aria-modal="true"
       aria-labelledby="sample-project-intro-title"
@@ -655,6 +638,7 @@ function SampleProjectIntro({
             walkthroughBadges={walkthroughBadges}
             onStart={onStart}
             testIdPrefix="sample-walkthrough-choice-"
+            autoFocus
           />
         </div>
       </section>
@@ -785,6 +769,9 @@ export function WalkthroughProvider({
     (walkthrough) => walkthrough.id === run.walkthrough.id,
   ) ? run : null;
   const chooserOpen = chooser !== null && chooser.projectId === projectId;
+  const sampleProjectActive = sampleProjectId !== undefined && sampleProjectId === projectId;
+  const sampleIntroOpen = sampleProjectActive && introOpen;
+  const sampleGuideHintVisible = sampleProjectActive && guideHintVisible;
 
   useEffect(() => {
     if (restoredProjectId.current === projectId) return;
@@ -873,12 +860,12 @@ export function WalkthroughProvider({
       : current);
   }, []);
   const value = useMemo<WalkthroughContextValue>(() => ({
-    active: introOpen || chooserOpen || (visibleRun !== null && walkthroughVisible),
+    active: sampleIntroOpen || chooserOpen || (visibleRun !== null && walkthroughVisible),
     canResume: visibleRun !== null && !walkthroughVisible,
     guideSeen,
-    introOpen,
-    guideHintVisible,
-    guideEmphasized: sampleProjectId === projectId && !guideSeen,
+    introOpen: sampleIntroOpen,
+    guideHintVisible: sampleGuideHintVisible,
+    guideEmphasized: sampleProjectActive && !guideSeen,
     openWalkthroughChooser,
     enterSampleProject,
     dismissGuideHint,
@@ -890,16 +877,15 @@ export function WalkthroughProvider({
     dismissGuideHint,
     enterSampleProject,
     guideSeen,
-    guideHintVisible,
-    introOpen,
+    sampleGuideHintVisible,
+    sampleIntroOpen,
     openWalkthroughChooser,
     resumeWalkthrough,
     visibleRun,
     startWalkthrough,
     stopWalkthrough,
     walkthroughVisible,
-    sampleProjectId,
-    projectId,
+    sampleProjectActive,
   ]);
 
   return (
@@ -913,7 +899,7 @@ export function WalkthroughProvider({
           onClose={() => setChooser(null)}
         />
       )}
-      {introOpen && (
+      {sampleIntroOpen && (
         <SampleProjectIntro
           walkthroughs={walkthroughs}
           walkthroughBadges={walkthroughBadges}

@@ -30,6 +30,7 @@ import {
   type EditionModule,
 } from '../../src/editions/module';
 import { LOCAL_EDITION_MODULE } from '../../src/editions/openModules';
+import { installDialogPolyfill } from '../support/domPolyfills';
 
 const OPERATOR_EDITION_MODULE = defineEditionModule({
   descriptor: {
@@ -173,6 +174,7 @@ function ReplacingSheetTarget() {
 }
 
 beforeEach(() => {
+  installDialogPolyfill();
   HTMLElement.prototype.scrollIntoView = vi.fn();
   window.localStorage.clear();
 });
@@ -806,7 +808,7 @@ describe('sample project onboarding', () => {
     );
   });
 
-  it('treats close, Escape, and scrim dismissal as poking around', () => {
+  it('treats native dialog cancellation as poking around', () => {
     render(
       <WalkthroughProvider projectId="sample-project">
         <SampleOnboardingControls />
@@ -814,9 +816,36 @@ describe('sample project onboarding', () => {
     );
 
     fireEvent.click(screen.getByTestId('sample-enter'));
-    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent(
+      screen.getByTestId('sample-project-intro'),
+      new Event('cancel', { cancelable: true }),
+    );
 
     expect(screen.queryByRole('dialog', { name: 'How do you want to start?' })).not.toBeInTheDocument();
     expect(screen.getByTestId('sample-onboarding-state')).toHaveTextContent('"guideHintVisible":true');
+  });
+
+  it('does not expose a sample intro or Guide hint after navigating away', () => {
+    const view = render(
+      <WalkthroughProvider projectId="sample-project">
+        <SampleOnboardingControls />
+      </WalkthroughProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId('sample-enter'));
+    expect(screen.getByRole('dialog', { name: 'How do you want to start?' })).toBeInTheDocument();
+
+    view.rerender(
+      <EditionModuleProvider edition={LOCAL_EDITION_MODULE}>
+        <WalkthroughProvider projectId="ordinary-project">
+          <SampleOnboardingControls />
+        </WalkthroughProvider>
+      </EditionModuleProvider>,
+    );
+
+    expect(screen.queryByRole('dialog', { name: 'How do you want to start?' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('sample-onboarding-state')).toHaveTextContent('"introOpen":false');
+    expect(screen.getByTestId('sample-onboarding-state')).toHaveTextContent('"guideHintVisible":false');
+    expect(screen.getByTestId('sample-onboarding-state')).toHaveTextContent('"guideEmphasized":false');
   });
 });
