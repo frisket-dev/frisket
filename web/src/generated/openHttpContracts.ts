@@ -7552,9 +7552,27 @@ export type HttpSheetGraphResponse = ({
   [key: string]: (HttpSheetGraphResponse_JsonValue) | (Array<(HttpSheetGraphResponse_SheetGraphDiagnostic)>) | ("directed" | "undirected") & (string) | (Array<(HttpSheetGraphResponse_SheetGraphEdge)>) | (HttpSheetGraphResponse_SheetGraphLimits) | ((("edge" | "join") & (string)) | ((null))) | (Array<(HttpSheetGraphResponse_SheetGraphNode)>) | ("frisket.sheet_graph.v1") & (string) | (number) | (boolean);
 });
 
+type HttpSheetList_SheetDataColumn = ({
+  "ai_generated": (boolean);
+  "current_run_id": (((number)) | ((null)));
+  "default_hidden"?: (boolean);
+  "format": (((string)) | ((null)));
+  "generation_managed": (boolean);
+  "id": (number);
+  "latest_run_id": (((number)) | ((null)));
+  "media_download_candidate": ((("media.ytdlp_download" | "media.fetch_url") & (string)) | ((null)));
+  "mixed_origins": (boolean);
+  "name": (string);
+  "replay_pending_count"?: (number);
+  "semantic_type"?: (((string)) | ((null)));
+  "transcript_status": ((("missing" | "partial" | "complete_visible" | "complete_hidden") & (string)) | ((null)));
+  "type": (string);
+});
+
 type HttpSheetList_SheetListItem = ({
   "annotated_text_column_ids": (Array<(number)>);
   "cited_column_ids": (Array<(number)>);
+  "columns": (Array<(HttpSheetList_SheetDataColumn)>);
   "dependent_sheet_ids": (Array<(number)>);
   "id": (number);
   "materialized_kind"?: (((string)) | ((null)));

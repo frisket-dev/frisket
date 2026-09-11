@@ -37,6 +37,7 @@ def test_project_lifecycle_routes_preserve_http_contract(tmp_path) -> None:
 
     project = client.app.state.workspace.get(pid)
     sheet_id = project.add_sheet("Facts")
+    column_id = project.add_column(sheet_id, "Title", type="text")
     sheets = client.get(f"/api/projects/{pid}/sheets")
     assert sheets.status_code == 200, sheets.text
     # Workbench IA inc 7: the sheets payload gained parent_op_id (op kind/label +
@@ -61,6 +62,24 @@ def test_project_lifecycle_routes_preserve_http_contract(tmp_path) -> None:
             "cited_column_ids": [],
             "annotated_text_column_ids": [],
             "dependent_sheet_ids": [],
+            "columns": [
+                {
+                    "id": column_id,
+                    "name": "Title",
+                    "type": "text",
+                    "ai_generated": False,
+                    "format": None,
+                    "semantic_type": None,
+                    "current_run_id": None,
+                    "latest_run_id": None,
+                    "generation_managed": False,
+                    "mixed_origins": False,
+                    "transcript_status": None,
+                    "media_download_candidate": None,
+                    "replay_pending_count": 0,
+                    "default_hidden": False,
+                }
+            ],
         }
     ]
 

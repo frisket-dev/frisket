@@ -34,6 +34,17 @@ class SheetGridRouteError(RouteError):
     pass
 
 
+def sheet_columns_payload(project: Project, sheet_id: int) -> list[dict[str, Any]]:
+    """Return the grid's canonical column projection without loading rows."""
+    return _sheet_data_payload(
+        project,
+        sheet_id,
+        _visible_sheet_columns(project, sheet_id),
+        [],
+        total=0,
+    )["columns"]
+
+
 class SheetGridService:
     def __init__(self, workspace: Workspace):
         self._workspace = workspace

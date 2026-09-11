@@ -266,11 +266,7 @@ export function createSheetGridDomainApi(
   }
 
   async function listSheetsForProject(project: ProjectIdentity): Promise<SheetMeta[]> {
-    const sheets = await listSheetsContract(project.pathId, errorFactory);
-    return Promise.all(sheets.map(async (sheet) => {
-      const data = await getSheetDataForProject(project, sheet.id, 0, 0, {});
-      return { ...sheet, columns: data.columns };
-    }));
+    return listSheetsContract(project.pathId, errorFactory);
   }
 
   async function getColumnByIdForProject(

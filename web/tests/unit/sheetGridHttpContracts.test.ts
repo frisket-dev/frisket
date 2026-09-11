@@ -4,7 +4,6 @@ import {
   getColumnStatsContract,
   getSheetDataContract,
   listSheetsContract,
-  listSheetsWithColumnsContract,
   locateSheetRowContract,
   updateSheetContract,
 } from '../../src/api/httpContractRoutes';
@@ -13,6 +12,23 @@ import { createSheetGridDomainApi } from '../../src/api/sheetGrid';
 import { createV1ActionSession } from '../../src/api/v1ActionSession';
 
 let realApi = createProjectApi('test-project');
+
+const sheetColumnWire = {
+  id: 9,
+  name: 'Title',
+  type: 'text',
+  ai_generated: false,
+  format: null,
+  semantic_type: null,
+  current_run_id: null,
+  latest_run_id: null,
+  generation_managed: false,
+  mixed_origins: false,
+  transcript_status: null,
+  media_download_candidate: null,
+  replay_pending_count: 0,
+  default_hidden: false,
+};
 
 const sheetListWire = [{
   id: 7,
@@ -23,6 +39,8 @@ const sheetListWire = [{
   title_column_id: null,
   cited_column_ids: [],
   annotated_text_column_ids: [],
+  dependent_sheet_ids: [],
+  columns: [sheetColumnWire],
 }];
 
 const sheetDataWire = {
@@ -508,30 +526,6 @@ describe('sheet and grid HTTP contracts', () => {
     expect(new Headers(forwardedInit?.headers).get('x-trace-id')).toBe('trace-list');
   });
 
-  it('forwards transport options through the composite sheets-with-columns helper', async () => {
-    const controller = new AbortController();
-    const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      requests.push({ input, init });
-      return jsonResponse(String(input).endsWith('/sheets') ? sheetListWire : sheetDataWire);
-    }));
-
-    await expect(listSheetsWithColumnsContract(
-      'project-1',
-      contractError,
-      {
-        signal: controller.signal,
-        headers: { 'X-Trace-Id': 'trace-columns' },
-      },
-    )).resolves.toHaveLength(1);
-
-    expect(requests).toHaveLength(2);
-    for (const request of requests) {
-      expect(request.init?.signal).toBe(controller.signal);
-      expect(new Headers(request.init?.headers).get('x-trace-id')).toBe('trace-columns');
-    }
-  });
-
   it('keeps a composite sheet list on the project captured before its first await', async () => {
     let resolveList!: (response: Response) => void;
     const deferredList = new Promise<Response>((resolve) => {
@@ -551,7 +545,6 @@ describe('sheet and grid HTTP contracts', () => {
     await expect(pending).resolves.toHaveLength(1);
     expect(requests).toEqual([
       '/api/projects/project-a/sheets',
-      '/api/projects/project-a/sheets/7/data?offset=0&limit=0',
     ]);
     expect(requests.some((request) => request.includes('/project-b/'))).toBe(false);
   });
@@ -596,22 +589,10 @@ describe('sheet and grid HTTP contracts', () => {
       if (path.endsWith('/actions/v1/run') && kind === 'column.patch') {
         return jsonResponse(actionResult(kind));
       }
-      if (path.endsWith('/sheets')) return jsonResponse(sheetListWire);
-      if (path.endsWith('/sheets/7/data?offset=0&limit=0')) {
-        return jsonResponse({
-          ...sheetDataWire,
-          columns: [{
-            id: 9,
-            name: 'Updated',
-            type: 'number',
-            format: null,
-            current_run_id: null,
-            transcript_status: null,
-            media_download_candidate: null,
-            ai_generated: false,
-          }],
-        });
-      }
+      if (path.endsWith('/sheets')) return jsonResponse([{
+        ...sheetListWire[0],
+        columns: [{ ...sheetColumnWire, name: 'Updated', type: 'number' }],
+      }]);
       throw new Error(`Unexpected update-column request: ${path}`);
     }));
     realApi = createProjectApi(projectA);
@@ -626,10 +607,8 @@ describe('sheet and grid HTTP contracts', () => {
     expect(requests).toEqual([
       `POST /api/projects/${projectA}/actions/v1/run column.set_type`,
       `GET /api/projects/${projectA}/sheets`,
-      `GET /api/projects/${projectA}/sheets/7/data?offset=0&limit=0`,
       `POST /api/projects/${projectA}/actions/v1/run column.patch`,
       `GET /api/projects/${projectA}/sheets`,
-      `GET /api/projects/${projectA}/sheets/7/data?offset=0&limit=0`,
     ]);
     expect(actionParams).toEqual([
       {
@@ -1051,20 +1030,7 @@ describe('sheet and grid HTTP contracts', () => {
   });
 
   it('resolves a column through the domain composite and preserves the local 404', async () => {
-    const columnWire = {
-      ...sheetDataWire,
-      columns: [{
-        id: 9,
-        name: 'Title',
-        type: 'text',
-        format: null,
-        current_run_id: null,
-        transcript_status: null,
-        media_download_candidate: null,
-        ai_generated: false,
-      }],
-    };
-    const responses = [sheetListWire, columnWire, sheetListWire, sheetDataWire];
+    const responses = [sheetListWire, sheetListWire];
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(responses.shift())));
     const api = createSheetGridDomainApi(contractError, {
       columnRunInfo: () => undefined,

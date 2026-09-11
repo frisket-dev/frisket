@@ -3,8 +3,6 @@
 // (/api → the local Frisket server; :7331 by default).
 //
 // Interface mismatches handled here:
-// - listSheets(): the backend splits sheet list and columns; we join them
-//   (GET /sheets + GET /sheets/{id}/data?limit=0 per sheet).
 // - getRunProgress(): GET /actions/runs/{id}/status, supplemented with run
 //   context remembered from the runAction() call that started it.
 // - stepTo(globalIndex): the backend has single-step operation controls, so the

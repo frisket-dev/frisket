@@ -21,7 +21,6 @@ export {
   deleteSheetContract,
   getSheetDataContract,
   listSheetsContract,
-  listSheetsWithColumnsContract,
   locateSheetRowContract,
   updateSheetContract,
 } from './httpContractRoutes/sheets';
