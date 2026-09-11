@@ -2955,6 +2955,7 @@ export interface ActionJob {
   };
   error: string | null;
   resultSummary?: Record<string, unknown>;
+  progress?: RunProgress | null;
 }
 
 export interface ActionJobsPage {

@@ -77,8 +77,14 @@ def test_inline_run_surfaces_in_the_jobs_listing_with_progress_and_terminal_stat
     assert job["payload_ref"] == {"kind": "run", "run_id": run_id}
     assert job["status"] == "done"
     assert job["action_kind"] == "map.template"
-    assert job["action_kind"] == "map.template"
-    # terminal state carries progress (not the queued/running dashes).
+    # One jobs response carries the same renderable run progress that formerly
+    # required a follow-up request for every run.
+    assert job["progress"]["run_id"] == run_id
+    assert job["progress"]["sheet_id"] == sheet_id
+    assert job["progress"]["status"] == "completed"
+    assert job["progress"]["total"] == 2
+    assert job["progress"]["completed"] == 2
+    assert job["progress"]["failed"] == 0
     assert job["result_summary"]["total"] == 2
     assert job["result_summary"]["completed"] == 2
     assert job["result_summary"]["failed"] == 0

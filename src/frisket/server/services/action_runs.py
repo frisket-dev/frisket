@@ -47,6 +47,7 @@ from frisket.server.action_enqueue import (
     network_disabled_error,
     queue_v1_action_run,
 )
+from frisket.server.run_status import action_run_status_payload
 from frisket.server.workspace import Workspace
 from frisket.execution.provider import ExecutionCompositionContext
 from frisket.engine.store import Project
@@ -136,8 +137,51 @@ class ActionRunRouteError(RouteError):
 
 
 class ActionRunService:
-    def __init__(self, workspace: Workspace):
+    def __init__(
+        self,
+        workspace: Workspace,
+        *,
+        stale_run_grace_seconds: float = 5.0,
+        worker_liveness_window_seconds: float = 90.0,
+        queue_timeout_seconds: float | None = None,
+    ):
         self._workspace = workspace
+        self._stale_run_grace_seconds = stale_run_grace_seconds
+        self._worker_liveness_window_seconds = worker_liveness_window_seconds
+        self._queue_timeout_seconds = queue_timeout_seconds
+
+    def _attach_run_progress(
+        self,
+        payload: dict[str, Any],
+        *,
+        project_id: str,
+        project: Project,
+        now: datetime,
+    ) -> dict[str, Any]:
+        run_id = payload.get("run_id")
+        if run_id is None:
+            return payload
+        try:
+            status = action_run_status_payload(
+                project_id=project_id,
+                project=project,
+                queue=self._workspace.queue,
+                active_runs=self._workspace.active_runs,
+                run_jobs=self._workspace.run_jobs,
+                run_id=int(run_id),
+                now=now,
+                stale_run_grace_seconds=self._stale_run_grace_seconds,
+                worker_liveness_window_seconds=self._worker_liveness_window_seconds,
+                queue_timeout_seconds=self._queue_timeout_seconds,
+                storage_org_id=self._storage_org_id(),
+            )
+        except KeyError:
+            return payload
+        payload["progress"] = {
+            **status["run"]["public_status"],
+            "sheet_id": status["run"]["sheet_id"],
+        }
+        return payload
 
     def _storage_org_id(self) -> int | None:
         return self._workspace.queue_storage_org_id
@@ -622,10 +666,19 @@ class ActionRunService:
             )
         )
         payloads.sort(key=_job_payload_sort_key, reverse=True)
+        payloads = [
+            self._attach_run_progress(
+                payload,
+                project_id=project_id,
+                project=project,
+                now=now,
+            )
+            for payload in payloads[:limit]
+        ]
         return {
             "schema_version": "frisket.job_list.v1",
             "project_id": project_id,
-            "jobs": payloads[:limit],
+            "jobs": payloads,
         }
 
     def job_detail(self, project_id: str, job_id: int) -> dict[str, Any]:
@@ -637,8 +690,12 @@ class ActionRunService:
             ).fetchone()
             if row is None:
                 raise ActionRunRouteError(404, "no such action job")
-            return run_inline_job_payload(
-                row, project_id=project_id, now=datetime.now(UTC)
+            now = datetime.now(UTC)
+            return self._attach_run_progress(
+                run_inline_job_payload(row, project_id=project_id, now=now),
+                project_id=project_id,
+                project=project,
+                now=now,
             )
         job = self._workspace.queue.get(job_id)
         if (
@@ -651,10 +708,12 @@ class ActionRunService:
             )
         ):
             raise ActionRunRouteError(404, "no such action job")
-        return project_action_job_payload(
-            job,
+        now = datetime.now(UTC)
+        return self._attach_run_progress(
+            project_action_job_payload(job, project_id=project_id, now=now),
             project_id=project_id,
-            now=datetime.now(UTC),
+            project=project,
+            now=now,
         )
 
     def cancel_job(self, project_id: str, job_id: int) -> dict[str, Any]:

@@ -16,16 +16,18 @@ type ActionJobsWire = HttpContractSuccessResponse<'tenant.action_jobs.get'>;
 type ActionRunCancelWire = HttpContractSuccessResponse<'tenant.cancel_run.post'>;
 type ActionRunRowsWire = HttpContractSuccessResponse<'tenant.run_rows.get'>;
 type ActionRunStatusWire = HttpContractSuccessResponse<'tenant.action_run_status.get'>;
+type ActionRunPublicStatusWire = ActionRunStatusWire['run']['public_status'];
 type ReceiptWire = HttpContractSuccessResponse<'tenant.v1_receipt_lookup.get'>;
 
-function mapRunProgress(wire: ActionRunStatusWire): RunProgress {
-  const run = wire.run;
-  const status = run.public_status;
+function mapPublicRunProgress(
+  status: ActionRunPublicStatusWire,
+  sheetId: number,
+): RunProgress {
   return {
     runId: String(status.run_id),
-    actionKind: run.action_kind || status.action_kind || 'unknown',
-    actionName: run.action_name || status.action_name,
-    sheetId: String(run.sheet_id),
+    actionKind: status.action_kind || 'unknown',
+    actionName: status.action_name,
+    sheetId: String(sheetId),
     targetColumnId: '',
     targetRowIds: null,
     status: toRunProgressStatus(status),
@@ -52,6 +54,10 @@ function mapRunProgress(wire: ActionRunStatusWire): RunProgress {
       })),
     } : undefined,
   };
+}
+
+function mapRunProgress(wire: ActionRunStatusWire): RunProgress {
+  return mapPublicRunProgress(wire.run.public_status, wire.run.sheet_id);
 }
 
 function mapRunRows(wire: ActionRunRowsWire): RunRowsPage {
@@ -163,6 +169,7 @@ function mapActionJob(wire: ActionJobWire): ActionJob {
     },
     error: wire.error,
     resultSummary: wire.result_summary ?? {},
+    progress: wire.progress ? mapPublicRunProgress(wire.progress, wire.progress.sheet_id) : null,
   };
 }
 
