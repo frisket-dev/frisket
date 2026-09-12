@@ -111,6 +111,7 @@ async function launch() {
     resourcesPath: resourcesPath(), dataPath, signal: provisioningController.signal, onProgress: setStartupStatus,
   });
   if (quitting) return;
+  setStartupStatus('Opening your workspace…');
   backend = await startBackend({
     runtime, resourcesPath: resourcesPath(), workspace,
     onFailure: (error) => void recover(error),

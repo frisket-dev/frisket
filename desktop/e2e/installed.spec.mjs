@@ -26,7 +26,7 @@ async function launch(testInfo) {
     dialog.showMessageBox = async (...args) => {
       const options = args.at(-1);
       if (options.type !== 'error') return showMessageBox(...args);
-      process.stderr.write(`Desktop startup error: ${options.message} ${options.detail}\\n`);
+      process.stderr.write(`Desktop startup error: ${options.message} ${options.detail}\n`);
       return { response: options.buttons.indexOf('Quit'), checkboxChecked: false };
     };
   });
@@ -63,9 +63,8 @@ async function descendants(pid) {
 
 async function quit(electron) {
   const pids = await descendants(electron.process().pid);
-  const closed = electron.waitForEvent('close');
-  await electron.evaluate(({ app }) => app.quit()).catch(() => {});
-  await closed;
+  // Playwright invokes app.quit and detaches its Node debugger before awaiting exit.
+  await electron.close();
   await expect.poll(() => pids.filter((pid) => {
     try { process.kill(pid, 0); return true; } catch { return false; }
   }), { timeout: 20_000 }).toEqual([]);

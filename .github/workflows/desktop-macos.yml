@@ -76,7 +76,7 @@ jobs:
         run: node desktop/scripts/prewarm.mjs
       - name: Installed app and native engines (no new external connections)
         run: python3 desktop/scripts/test-installed.py
-      - name: Upload beta and evidence
+      - name: Upload beta
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -88,5 +88,13 @@ jobs:
             desktop/dist/*.zip
             desktop/resources/build.json
             desktop/resources/runtime.json
+      - name: Upload installed-app evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Frisket-desktop-evidence-${{ github.event.pull_request.head.sha || github.sha }}
+          if-no-files-found: ignore
+          retention-days: 14
+          path: |
             desktop/playwright-report/
             desktop/test-results/
