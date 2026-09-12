@@ -1,4 +1,4 @@
-import { useEffect, useMemo, type Ref } from 'react';
+import { useEffect, useMemo, type ReactNode, type Ref } from 'react';
 
 import {
   EngineSelector,
@@ -22,6 +22,11 @@ export interface SelectorFieldProps {
   /** Host-specific policy may further narrow offered choices, never broaden them. */
   allowChoice?(choice: SelectorChoice): boolean;
   onCurrentChoiceChange?(choice: SelectorChoice | null): void;
+  renderDetailExtra?(context: {
+    choice: SelectorChoice;
+    onEditingChange(editing: boolean): void;
+    close(): void;
+  }): ReactNode;
 }
 
 function displayFact(choice: SelectorChoice): EngineSelectorChoice['facts'] {
@@ -35,6 +40,15 @@ function displayFact(choice: SelectorChoice): EngineSelectorChoice['facts'] {
 }
 
 function displayChoice(choice: SelectorChoice): EngineSelectorChoice {
+  const setup = choice.setup;
+  const blocked = setup && 'blocked_by_operation' in setup ? setup.blocked_by_operation : null;
+  const operation = choice.active_operation ?? blocked;
+  const active = operation?.status === 'pending' || operation?.status === 'running';
+  const total = operation?.total_bytes;
+  const completed = operation?.completed_bytes;
+  const percent = total != null && Number.isFinite(total) && total > 0
+    && completed != null && Number.isFinite(completed)
+    ? Math.max(0, Math.min(100, Math.round(completed / total * 100))) : null;
   return {
     id: choice.choice_id,
     label: choice.label,
@@ -47,6 +61,11 @@ function displayChoice(choice: SelectorChoice): EngineSelectorChoice {
     canAuthor: choice.can_author,
     canRun: choice.can_run,
     blocker: choice.blocker?.message,
+    activity: active ? {
+      label: choice.active_operation ? operation.display_name
+        : choice.blocker?.message ?? `Waiting for ${operation.display_name}`,
+      percent,
+    } : undefined,
     isDefault: choice.is_default,
   };
 }
@@ -97,6 +116,7 @@ export function SelectorField({
   triggerRef,
   allowChoice = () => true,
   onCurrentChoiceChange,
+  renderDetailExtra,
 }: SelectorFieldProps) {
   const state = useSelectorChoices({
     projectId,
@@ -113,7 +133,7 @@ export function SelectorField({
       ?? [],
   ), [state.response]);
   const currentChoiceId = state.response?.current_choice_id ?? state.response?.default_choice_id ?? null;
-  const currentChoice = state.stale || !currentChoiceId
+  const currentChoice = state.stale || state.error || !currentChoiceId
     ? null
     : choicesById.get(currentChoiceId)
       ?? (state.response?.orphaned_current?.choice_id === currentChoiceId
@@ -153,15 +173,18 @@ export function SelectorField({
           ?? (state.response?.orphaned_current?.choice_id === choice.id ? state.response.orphaned_current : undefined);
         if (raw) onSelect(raw);
       }}
-      renderDetailFooter={({ choice, onEditingChange }) => {
+      renderDetailFooter={({ choice, onEditingChange, close }) => {
         const raw = choicesById.get(choice.id)
           ?? (state.response?.orphaned_current?.choice_id === choice.id ? state.response.orphaned_current : undefined);
-        return raw && projectId ? <SelectorSetup
-          projectId={projectId}
-          choice={raw}
-          onChanged={state.refresh}
-          onEditingChange={onEditingChange}
-        /> : null;
+        return raw && projectId ? <>
+          <SelectorSetup
+            projectId={projectId}
+            choice={raw}
+            onChanged={state.refresh}
+            onEditingChange={onEditingChange}
+          />
+          {renderDetailExtra?.({ choice: raw, onEditingChange, close })}
+        </> : null;
       }}
     />
   </div>;

@@ -25,7 +25,7 @@ export interface SelectorChoicesState {
   response: HttpSelectorChoicesResponse | null;
   loading: boolean;
   refreshing: boolean;
-  /** The displayed projection belongs to an earlier draft while a new one loads. */
+  /** The displayed projection has not been verified for the current request scope. */
   stale: boolean;
   error: Error | null;
   refresh(): void;
@@ -71,7 +71,18 @@ function reducer(state: State, action: Action): State {
       refreshing: false,
     };
   }
-  return { ...state, loading: false, refreshing: false, error: action.error };
+  return { ...state, responseScopeKey: null, loading: false, refreshing: false, error: action.error };
+}
+
+function hasActiveOperation(response: HttpSelectorChoicesResponse): boolean {
+  const choices = response.groups.flatMap((group) => group.choices);
+  if (response.orphaned_current) choices.push(response.orphaned_current);
+  return choices.some((choice) => {
+    const setup = choice.setup;
+    const blocked = setup && 'blocked_by_operation' in setup ? setup.blocked_by_operation : null;
+    return [choice.active_operation, blocked].some((operation) =>
+      operation?.status === 'pending' || operation?.status === 'running');
+  });
 }
 
 function defaultLoad(
@@ -133,6 +144,7 @@ export function useSelectorChoices({
   useEffect(() => {
     if (!enabled || !projectId) return undefined;
     const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const revision = requestRevision.current + 1;
     requestRevision.current = revision;
     dispatch({
@@ -145,13 +157,18 @@ export function useSelectorChoices({
     });
     void load(projectId, queryRef.current, { signal: controller.signal })
       .then((response) => {
-        if (!controller.signal.aborted) dispatch({
+        if (controller.signal.aborted) return;
+        dispatch({
           type: 'success',
           revision,
           scopeKey,
           presentationKey,
           response,
         });
+        // Read the authoritative catalog while a durable setup operation is
+        // active, even after its detail panel closes. Schedule only after the
+        // previous request settles; terminal snapshots and errors stop here.
+        if (hasActiveOperation(response)) timer = setTimeout(refresh, 1000);
       })
       .catch((error: unknown) => {
         if (!controller.signal.aborted && !isAbort(error)) {
@@ -162,7 +179,10 @@ export function useSelectorChoices({
           });
         }
       });
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
   }, [enabled, load, presentationKey, projectId, refreshRevision, scopeKey]);
 
   const refreshChoices = useCallback(() => refresh(), []);
