@@ -23,6 +23,7 @@ TARGETS = {
     "markitdown": ("frisket.engine._workers.markitdown_worker", "main"),
     "faces": ("frisket.engine._workers.faces_worker", "main"),
     "pypdf": ("frisket.engine._workers.pypdf_worker", "main"),
+    "pdf-render": ("frisket.engine._workers.pdf_render_worker", "main"),
     "plugin": ("frisket.plugins.subprocess_runner", "main"),
     "recipe": ("frisket.engine.sandbox._recipe_worker", "main"),
     "cli-worker": ("frisket.cli", "worker"),

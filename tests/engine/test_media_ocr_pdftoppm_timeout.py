@@ -5,7 +5,7 @@ import asyncio
 import pytest
 
 from frisket.ops import ocr_engines
-from frisket.engine.sandbox.shim import SandboxResult
+from frisket.engine.pdf_render import PdfRenderCancelled, PdfRenderError
 
 
 @pytest.mark.parametrize("cancelled", [False, True])
@@ -16,22 +16,15 @@ def test_pdf_rasterization_does_not_continue_after_timeout_or_cancel(
     source.write_bytes(b"%PDF-1.4\n")
     calls = []
 
-    async def bounded_run(argv, *, policy, should_cancel):
-        assert policy.wall_seconds == 600
-        assert policy.cpu_seconds == 600
-        assert policy.allow_network is False
+    async def bounded_render(*_args, timeout_seconds, should_cancel, **_kwargs):
+        assert timeout_seconds == 600
         assert should_cancel() is cancelled
-        calls.append(argv)
-        return SandboxResult(
-            returncode=-9,
-            timed_out=not cancelled,
-            cancelled=cancelled,
-            stdout="",
-            stderr="render stopped",
-        )
+        calls.append(True)
+        if cancelled:
+            raise PdfRenderCancelled("cancelled")
+        raise PdfRenderError("render stopped")
 
-    monkeypatch.setattr(ocr_engines.shutil, "which", lambda name: "/usr/bin/pdftoppm")
-    monkeypatch.setattr(ocr_engines, "run_sandboxed", bounded_run)
+    monkeypatch.setattr(ocr_engines, "render_pdf_pages", bounded_render)
     engine = ocr_engines.OcrEngines(cancelled=lambda: cancelled)
     expected = ocr_engines.OcrCancelled if cancelled else RuntimeError
     with pytest.raises(expected):

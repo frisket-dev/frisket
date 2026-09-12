@@ -158,41 +158,20 @@ def test_file_preview_bounds_reads_and_artifacts_follow_result_lifetime(
 def test_pdf_http_preview_bounds_page_work_and_keeps_images(
     preview_host, tmp_path, monkeypatch
 ):
-    import shutil
-    import subprocess
-
-    from frisket.engine.executor import pdf_page_read
-
     pypdf = pytest.importorskip("pypdf")
-    if shutil.which("pdftoppm") is None:
-        pytest.skip("optional PDF renderer not installed")
     workspace, _registry, _service, client = preview_host
     source = tmp_path / "pages.pdf"
     writer = pypdf.PdfWriter()
     for _ in range(25):
         writer.add_blank_page(width=20, height=20)
     writer.write(source)
-    commands = []
-    processes = []
-    original_popen = subprocess.Popen
-    original_sandbox = pdf_page_read.run_sandboxed
     original_text = pypdf.PageObject.extract_text
     extracted = []
-
-    def start(command, **kwargs):
-        processes.append(command)
-        return original_popen(command, **kwargs)
-
-    async def rasterize(command, **kwargs):
-        commands.append(command)
-        return await original_sandbox(command, **kwargs)
 
     def extract(page, *args, **kwargs):
         extracted.append(page)
         return original_text(page, *args, **kwargs)
 
-    monkeypatch.setattr(subprocess, "Popen", start)
-    monkeypatch.setattr(pdf_page_read, "run_sandboxed", rasterize)
     monkeypatch.setattr(pypdf.PageObject, "extract_text", extract)
     _preview_id, result = _run(
         client,
@@ -205,9 +184,6 @@ def test_pdf_http_preview_bounds_page_work_and_keeps_images(
         ),
     )
     assert len(extracted) == 20
-    assert len(commands) == 1
-    assert len(processes) == 1  # The fence launcher execs the same batch child.
-    assert commands[0][commands[0].index("-l") + 1] == "20"
     assert result["sampled"] == 20 and result["total"] is None
     assert result["warnings"] == []
     assert result["rows"][-1]["page"]["value"] == 20

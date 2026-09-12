@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import io
-import shutil
 import json
 import threading
 from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
 
 import pytest
 from PIL import Image, PngImagePlugin
@@ -26,7 +24,7 @@ from frisket.execution.provider import (
 from frisket.execution.resolve_for_action import consented_set_hash
 from frisket.ops.base import OpContext
 from frisket.ops.ocr_engines import OcrEngines
-from frisket.engine.sandbox.shim import SandboxResult
+from frisket.engine.pdf_render import PdfRenderResult
 import frisket.ops.ocr_engines as ocr_engines_module
 from frisket.preview.ocr import OcrComparePreviewError
 from frisket.server.services.scratch_ocr import paid_ocr_scratch_plan
@@ -400,21 +398,20 @@ def test_pdf_renderer_rasterizes_only_selected_pages_in_original_order(
     source.write_bytes(b"%PDF-1.4\n")
     scratch = tmp_path / "scratch"
     scratch.mkdir()
-    commands: list[list[str]] = []
+    selections: list[list[int] | None] = []
 
-    async def run_sandboxed(
-        argv: list[str], *, policy: Any, should_cancel=None
-    ) -> SandboxResult:
-        del policy, should_cancel
-        commands.append(argv)
-        Path(f"{argv[-1]}.png").write_bytes(_png())
-        return SandboxResult(returncode=0, stdout="", stderr="")
+    async def render_pdf_pages(_source, output, *, pages, **_kwargs) -> PdfRenderResult:
+        selections.append(pages)
+        assert pages is not None
+        for page in pages:
+            (output / f"page-{page}.png").write_bytes(_png())
+        return PdfRenderResult(
+            page_count=1000,
+            pages=tuple((page, output / f"page-{page}.png") for page in pages),
+        )
 
     monkeypatch.setattr(OcrEngines, "_is_pdf", staticmethod(lambda path, media: True))
-    monkeypatch.setattr(
-        ocr_engines_module.shutil, "which", lambda _executable: "/bin/pdftoppm"
-    )
-    monkeypatch.setattr(ocr_engines_module, "run_sandboxed", run_sandboxed)
+    monkeypatch.setattr(ocr_engines_module, "render_pdf_pages", render_pdf_pages)
 
     paths = asyncio.run(
         OcrEngines()._page_images(
@@ -426,18 +423,9 @@ def test_pdf_renderer_rasterizes_only_selected_pages_in_original_order(
     )
 
     assert [path.name for path in paths] == ["page-1000.png", "page-1.png"]
-    assert len(commands) == 2
-    assert [
-        (command[command.index("-f") + 1], command[command.index("-l") + 1])
-        for command in commands
-    ] == [
-        ("1000", "1000"),
-        ("1", "1"),
-    ]
-    assert all("-singlefile" in command for command in commands)
+    assert selections == [[1000, 1]]
 
 
-@pytest.mark.skipif(shutil.which("pdftoppm") is None, reason="Poppler is optional")
 def test_selected_page_render_uses_real_pdf_page(tmp_path: Path) -> None:
     source = tmp_path / "colors.pdf"
     Image.new("RGB", (32, 32), "red").save(

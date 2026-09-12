@@ -477,24 +477,24 @@ def test_pdf_rasterization_log_is_content_free(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    from frisket.engine.sandbox.shim import SandboxResult
+    from frisket.engine.pdf_render import PdfRenderResult
 
     source = tmp_path / "private-customer-invoice.pdf"
     source.write_bytes(b"%PDF-1.4\n")
     scratch = tmp_path / "render"
     scratch.mkdir()
 
-    async def fake_run_sandboxed(
-        argv: list[str], *, policy: Any, should_cancel=None
-    ) -> SandboxResult:
-        assert argv[2:5] == ["-r", "144", str(source)]
-        assert policy.memory_mb == 2048
+    async def fake_render(_source, output, *, dpi, pages, **_kwargs) -> PdfRenderResult:
+        assert dpi == 144
+        assert pages is None
         (scratch / "page-1.png").write_bytes(b"a" * 7)
         (scratch / "page-2.png").write_bytes(b"b" * 11)
-        return SandboxResult(returncode=0, stdout="", stderr="")
+        return PdfRenderResult(
+            page_count=2,
+            pages=((1, output / "page-1.png"), (2, output / "page-2.png")),
+        )
 
-    monkeypatch.setattr(ocr_mod.shutil, "which", lambda _executable: "/bin/pdftoppm")
-    monkeypatch.setattr(ocr_mod, "run_sandboxed", fake_run_sandboxed)
+    monkeypatch.setattr(ocr_mod, "render_pdf_pages", fake_render)
     caplog.set_level(logging.INFO, logger="frisket.executor")
 
     pages = asyncio.run(
