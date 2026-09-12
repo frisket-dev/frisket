@@ -81,7 +81,8 @@ test('Markdown uses an anchored native selector that restores trigger focus afte
   expect(footerBox).not.toBeNull();
   expect(Math.round(groupsBox!.width)).toBe(160);
   expect(Math.round(choicesBox!.width)).toBe(230);
-  expect(Math.abs(detailBox!.x + detailBox!.width - (dialogBox!.x + dialogBox!.width))).toBeLessThanOrEqual(2);
+  // The body has a deliberate 10px dialog gutter; the footer stays aligned to the detail column.
+  expect(Math.abs(detailBox!.x + detailBox!.width - (dialogBox!.x + dialogBox!.width - 10))).toBeLessThanOrEqual(2);
   expect(footerBox!.x).toBeGreaterThanOrEqual(detailBox!.x);
   expect(Math.abs(footerBox!.x + footerBox!.width - (detailBox!.x + detailBox!.width))).toBeLessThanOrEqual(2);
   await expect(body).not.toHaveClass(/engine-selector__body--flat/);
@@ -101,7 +102,7 @@ test('Markdown uses an anchored native selector that restores trigger focus afte
   expect(flatChoicesBox).not.toBeNull();
   expect(flatDetailBox).not.toBeNull();
   expect(Math.round(flatChoicesBox!.width)).toBe(230);
-  expect(Math.abs(flatDetailBox!.x + flatDetailBox!.width - (dialogBox!.x + dialogBox!.width))).toBeLessThanOrEqual(2);
+  expect(Math.abs(flatDetailBox!.x + flatDetailBox!.width - (dialogBox!.x + dialogBox!.width - 10))).toBeLessThanOrEqual(2);
   await page.screenshot({ path: testInfo.outputPath('selector-desktop-search.png') });
   const docling = page.locator('[data-engine-selector-choice="docling"]');
   await docling.focus();
