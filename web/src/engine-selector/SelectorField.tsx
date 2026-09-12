@@ -102,7 +102,9 @@ export function SelectorField({
     projectId,
     query,
     queryKey: selectorQueryKey,
-    enabled: !disabled,
+    // A running host disables authoring, not the authoritative readiness
+    // projection it needs to offer Queue for the next run.
+    enabled: Boolean(projectId),
     load,
   });
   const groups = useMemo(() => selectorGroups(state.response, allowChoice), [allowChoice, state.response]);

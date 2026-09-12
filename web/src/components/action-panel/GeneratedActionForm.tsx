@@ -420,6 +420,7 @@ function GeneratedActionFormContents({
     .find(([, control]) => control === 'engine')?.[0];
   const modelSelectorParam = Object.entries(catalogEntry.ui_hints.semantic_controls)
     .find(([, control]) => control === 'model')?.[0];
+  const required = new Set(catalogEntry.input_schema.required ?? []);
   const renderedParams = useMemo(() => {
     const params = (actionTemplate.params ?? []).filter((param) => (
       param.name !== modelSelectorParam || engineSelectorParam === undefined
@@ -684,7 +685,11 @@ function GeneratedActionFormContents({
     // a combined engine/model choice is one atomic selection owner.
     if (!choice?.is_default) return;
     const updates = selectorUpdates(field, choice);
-    if (!updates || !Object.keys(updates).every((name) => (
+    // A saved optional selector default is display/readiness metadata, not an
+    // authored request value. Required selector leaves still need the served
+    // default, including fresh derived forms that provide an initial draft.
+    if (!updates || !Object.keys(updates).some((name) => required.has(name))) return;
+    if (!Object.keys(updates).every((name) => (
       draft[name] === undefined || draft[name] === ''
     ))) return;
     setResolved((current) => ({
@@ -829,7 +834,6 @@ function GeneratedActionFormContents({
     : selectorCurrentChoice && !selectorCurrentChoice.can_run
       ? selectorCurrentChoice.blocker?.message ?? `${selectorCurrentChoice.label} is unavailable.`
       : null;
-  const required = new Set(catalogEntry.input_schema.required ?? []);
   const validParams = (actionTemplate.params ?? []).every((param) => {
     const value = draft[param.name];
     if (value === undefined) return !required.has(param.name);

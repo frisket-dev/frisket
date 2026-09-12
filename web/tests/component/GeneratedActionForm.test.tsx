@@ -18,21 +18,26 @@ import { completeCatalogPayload } from '../support/actionFormFixtures';
 import { syntheticActionCatalogEntry } from '../support/actionCatalogFixtures';
 import { aiMeta, columnDef } from '../support/domainFixtures';
 
+type SelectorFixtureChoice = {
+  authored_selection:
+    | { kind: 'model'; model: string }
+    | { kind: 'engine'; engine: string }
+    | { kind: 'engine_model'; engine: string; model: string };
+  can_run: boolean;
+  is_default?: boolean;
+  label: string;
+  blocker: null;
+};
+
 const selectorHarness = vi.hoisted(() => ({
-  emitCurrent: null as ((choice: {
-    authored_selection: { kind: 'model'; model: string };
-    can_run: boolean;
-    is_default?: boolean;
-    label: string;
-    blocker: null;
-  } | null) => void) | null,
+  emitCurrent: null as ((choice: SelectorFixtureChoice | null) => void) | null,
 }));
 
 vi.mock('../../src/engine-selector/SelectorField', () => ({
   SelectorField: ({ testId, onSelect, onCurrentChoiceChange }: {
     testId?: string;
-    onSelect(choice: { authored_selection: { kind: 'model'; model: string } }): void;
-    onCurrentChoiceChange?(choice: { can_run: boolean; label: string; blocker: null } | null): void;
+    onSelect(choice: SelectorFixtureChoice): void;
+    onCurrentChoiceChange?(choice: SelectorFixtureChoice | null): void;
   }) => {
     selectorHarness.emitCurrent = onCurrentChoiceChange ?? null;
     return <button
@@ -410,6 +415,42 @@ describe('GeneratedActionForm', () => {
     fireEvent.click(screen.getByTestId('generated-action-run'));
     expect(onExecute).toHaveBeenCalledWith(expect.objectContaining({
       params: expect.objectContaining({ model: 'served-default' }),
+    }), 'run');
+  });
+
+  it('keeps an omitted saved optional engine out of the submitted request', async () => {
+    const entry = syntheticActionCatalogEntry('media.to_markdown') as GeneratedActionCatalogEntry;
+    const onExecute = vi.fn();
+    render(
+      <GeneratedActionForm
+        catalogEntry={entry}
+        actionTemplate={generatedTemplate(entry)}
+        sheet={SHEET}
+        initialDraft={{
+          action_id: entry.kind,
+          scope: { kind: 'sheet_rows', sheet_id: 7 },
+          params: { source: 'raw' },
+          output_names: {},
+        }}
+        running={false}
+        resolveParams={resolveStaticParams}
+        onExecute={onExecute}
+        onClose={vi.fn()}
+      />,
+    );
+
+    act(() => selectorHarness.emitCurrent?.({
+      authored_selection: { kind: 'engine', engine: 'markitdown' },
+      can_run: true,
+      is_default: true,
+      label: 'MarkItDown',
+      blocker: null,
+    }));
+
+    await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
+    fireEvent.click(screen.getByTestId('generated-action-run'));
+    expect(onExecute).toHaveBeenCalledWith(expect.objectContaining({
+      params: { source: 'raw' },
     }), 'run');
   });
 
