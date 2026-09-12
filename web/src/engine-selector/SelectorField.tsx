@@ -136,6 +136,10 @@ export function SelectorField({
     return <p data-testid={testId} className="form-hint">No choices are available for this field.</p>;
   }
   return <div data-testid={testId}>
+    {state.error && <div className="engine-selector-field-error" role="alert">
+      <p>Could not refresh choices. {state.error.message}</p>
+      <button type="button" className="btn" onClick={state.refresh}>Retry</button>
+    </div>}
     <EngineSelector
       label={label}
       groups={groups}
