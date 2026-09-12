@@ -39,6 +39,11 @@ async function launch(testInfo) {
     if (['error', 'warning'].includes(message.type())) record(message.text());
   });
   page.on('requestfailed', (request) => record(`${request.url()}: ${request.failure()?.errorText}`));
+  page.on('response', (response) => {
+    if (['document', 'script', 'stylesheet'].includes(response.request().resourceType())) {
+      record(`${response.status()} ${response.headers()['content-type']} ${response.url()}`);
+    }
+  });
   try {
     await page.waitForURL('frisket://app/**', { timeout: 300_000 });
     await expect(page.getByTestId('home-screen')).toBeVisible();

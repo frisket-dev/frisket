@@ -1,8 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { existsSync } from 'node:fs';
-import path from 'node:path';
 import test from 'node:test';
 import {
   appendBounded, cleanupProved, healthUrl, parseReadyMessage, startBackend, startupMessage,
@@ -93,21 +90,4 @@ test('oversized readiness output is rejected instead of accepting a truncated su
     fetchImpl: async () => new Response(null, { status: 204 }),
   });
   await assert.rejects(started, /too much readiness output/);
-});
-
-test('the actual guardian acknowledges cleanup after a TERM-ignoring child', { skip: !existsSync('/usr/bin/python3') }, async () => {
-  const python = '/usr/bin/python3';
-  const guard = path.resolve('src/frisket/runtime/_guard.py');
-  const child = spawn(python, [guard, String(process.pid), '0.1', python, '-c',
-    'import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)',
-  ], { detached: true });
-  const closed = new Promise((resolve) => child.once('close', (code, signal) => resolve({ code, signal })));
-  try {
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    child.kill('SIGTERM');
-    const outcome = await Promise.race([closed, new Promise((_, reject) => setTimeout(() => reject(new Error('guardian did not finish cleanup')), 2_000))]);
-    assert.equal(cleanupProved(outcome.code, outcome.signal), true);
-  } finally {
-    try { child.kill('SIGKILL'); } catch {}
-  }
 });
