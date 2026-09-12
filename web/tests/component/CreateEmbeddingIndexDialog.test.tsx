@@ -14,7 +14,7 @@ vi.mock('../../src/api/httpContract', () => ({ httpContract: request }));
 beforeAll(installDialogPolyfill);
 afterEach(() => { cleanup(); vi.resetAllMocks(); localStorage.clear(); });
 
-function serveChoices() {
+function serveChoices(otherProviders = false) {
   request.mockImplementation((id: string, options: { body: HttpSelectorChoicesQuery }) => {
     if (id !== 'tenant.selector_choices.post' || options.body.subject.kind !== 'embedding') {
       throw new Error(`Unexpected HTTP operation: ${id}`);
@@ -35,6 +35,15 @@ function serveChoices() {
         active_operation: null, is_current: true, is_default: false,
       }] }],
     };
+    if (otherProviders) {
+      const current = response.groups[0].choices[0];
+      response.groups.push(...['openai', 'cohere'].map((other) => ({
+        group_id: other, kind: 'provider' as const, label: other, status: 'ready' as const,
+        choices: [{ ...current, choice_id: `${other}:default`, label: `${other} embedding`,
+          authored_selection: { kind: 'embedding' as const, provider: other, model: 'default' },
+          is_current: false }],
+      })));
+    }
     return Promise.resolve(response);
   });
 }
@@ -90,15 +99,61 @@ describe('CreateEmbeddingIndexDialog custom model', () => {
     const input = within(dialog).getByRole('textbox', { name: 'Custom model ID' });
     expect(input).toHaveValue('custom');
     await act(async () => { fireEvent.change(input, { target: { value: 'publisher/nested/embedding-a' } }); });
-    expect(onModelSelect).toHaveBeenLastCalledWith('fastembed', 'publisher/nested/embedding-a');
+    expect(onModelSelect).not.toHaveBeenCalled();
     expect(within(dialog).getByRole('textbox', { name: 'Custom model ID' })).toHaveValue('publisher/nested/embedding-a');
     await act(async () => { fireEvent.change(within(dialog).getByRole('textbox', { name: 'Custom model ID' }), {
       target: { value: 'publisher/nested/embedding-ab' },
     }); });
-    expect(onModelSelect).toHaveBeenLastCalledWith('fastembed', 'publisher/nested/embedding-ab');
+    expect(onModelSelect).not.toHaveBeenCalled();
     expect(within(dialog).getByRole('textbox', { name: 'Custom model ID' })).toHaveValue('publisher/nested/embedding-ab');
-    await act(async () => { fireEvent(dialog, new Event('cancel', { cancelable: true })); });
+    await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Use model' })); });
+    expect(onModelSelect).toHaveBeenLastCalledWith('fastembed', 'publisher/nested/embedding-ab');
+    expect(screen.queryByTestId('engine-selector-dialog')).not.toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: 'Custom model ID' })).not.toBeInTheDocument();
+  });
+
+
+  async function openProviderDetails() {
+    serveChoices(true);
+    const select = vi.fn();
+    await act(async () => { render(<CreateEmbeddingIndexDialog projectId="embedding-project"
+      apiPort={{ getSheetData: vi.fn() }} sheet={sheet}
+      form={{ provider: 'fastembed', model: 'custom', sourceColumns: ['bio'], allowRemote: false,
+        allowRemoteAutomaticRefresh: false, maxCost: '', confirmRemote: false }}
+      selectedCard={null} providerCard={providerCard} remoteSelected={false} autoRefreshOn={false}
+      createReady={false} creating={false} onClose={vi.fn()} onSubmit={vi.fn()}
+      onModelSelect={select} onSourceColumnToggle={vi.fn()} onAllowRemoteChange={vi.fn()}
+      onAllowAutoRefreshChange={vi.fn()} onMaxCostChange={vi.fn()} onConfirmRemoteChange={vi.fn()} />); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Embedding model/ })); });
+    const dialog = screen.getByTestId('engine-selector-dialog');
+    await act(async () => { fireEvent.change(within(dialog).getByRole('searchbox'), { target: { value: 'embedding' } }); });
+    await act(async () => { fireEvent.focus(within(dialog).getByRole('button', { name: /openai embedding/ })); });
+    return { dialog, select };
+  }
+
+  it('clears an uncommitted custom ID when explicit navigation changes its provider', async () => {
+    const { dialog, select } = await openProviderDetails();
+    const input = within(dialog).getByRole('textbox', { name: 'Custom model ID' });
+    expect(input).toHaveValue('');
+    fireEvent.change(input, { target: { value: 'publisher/private/embedding' } });
+    expect(input).toHaveValue('publisher/private/embedding');
+    await act(async () => { fireEvent.focus(within(dialog).getByRole('button', { name: /cohere embedding/ })); });
+    expect(within(dialog).getByRole('heading', { name: 'cohere embedding' })).toBeVisible();
+    expect(within(dialog).getByRole('textbox', { name: 'Custom model ID' })).toHaveValue('');
+    expect(select).not.toHaveBeenCalled();
+  });
+
+  it('keeps an edited custom-ID detail pinned through blur and incidental hover', async () => {
+    const { dialog, select } = await openProviderDetails();
+    const input = within(dialog).getByRole('textbox', { name: 'Custom model ID' });
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: 'publisher/private/embedding' } });
+    fireEvent.blur(input);
+    fireEvent.mouseEnter(within(dialog).getByRole('button', { name: /cohere embedding/ }));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 150)); });
+    expect(within(dialog).getByRole('heading', { name: 'openai embedding' })).toBeVisible();
+    expect(within(dialog).getByRole('textbox', { name: 'Custom model ID' })).toHaveValue('publisher/private/embedding');
+    expect(select).not.toHaveBeenCalled();
   });
 
   it('keeps text and Markdown source columns ready for an authoritative text model', async () => {
