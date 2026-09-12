@@ -38,6 +38,18 @@ describe('useMediaCompareSession paid batches', () => {
     expect(result.current.runnableColumns[0]?.engineId).toBe('paid');
   });
 
+  it('does not arm a diff for a plain-output compare screen', async () => {
+    const { result } = renderHook(() => useMediaCompareSession(config({
+      defaultEngineIds: ['local', 'local'],
+      fallbackCatalog: [local],
+      enginesFromCatalog: () => [local],
+      enableDiff: false,
+    }), vi.fn()));
+    await waitFor(() => expect(result.current.runnableColumns).toHaveLength(2));
+    expect(result.current.effectiveMode).toBe('survey');
+    expect(result.current.diffArmed).toBe(false);
+  });
+
   it('prepares the exact batch once and starts nothing when consent is declined', async () => {
     const prepareRun = vi.fn().mockResolvedValue(false);
     const runColumn = vi.fn();
