@@ -779,9 +779,7 @@ def _drive_run_backfill(
     monkeypatch.setattr(transcribe_engines, "run_transcription_engine", fake_run_engine)
     client = mod._client(tmp_path)
     pid, project, sheet_id = mod._seed_audio_project(client)
-    mod._run_original_to_completion(
-        client, pid, project, mod._parakeet_gateway_spec(sheet_id)
-    )
+    mod._run_original_to_completion(client, pid, project, mod._gateway_spec(sheet_id))
     mod._add_audio_row(project, sheet_id, duration_seconds=40.0)
     action = {
         "action_id": "run.backfill",

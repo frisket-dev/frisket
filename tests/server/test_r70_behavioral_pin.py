@@ -138,8 +138,7 @@ def _transcribe_action(sheet_id: int, *, key: str) -> dict:
         "output_names": {"text": "transcript", "segments": "transcript_segments"},
         "params": {
             "source": "media",
-            "engine": "parakeet-tdt",
-            "diarize": True,
+            "engine": "moss",
         },
         "idempotency_key": key,
     }
@@ -238,7 +237,7 @@ def test_scenario1_consented_routed_run_completes_with_receipt_and_ledger(
     # The run reached its terminal green state and dispatched exactly its rows.
     assert _run_row(project, run_id)["status"] == "completed"
     assert _halt_marker(project, run_id) is None
-    assert run_engine_stub == ["parakeet-tdt"]
+    assert run_engine_stub == ["moss"]
 
     # The receipt is readable over the real receipt route, and it is terminal.
     receipt = client.get(f"/api/projects/{pid}/actions/v1/receipts/{receipt_id}")
