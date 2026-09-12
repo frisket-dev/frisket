@@ -58,6 +58,18 @@ def main() -> int:
         spec.loader.exec_module(installer)
         installer.install(policy)
     sys.argv = [kind, *args]
+    if kind == "recipe":
+        # The recipe runner is stdlib-only. Importing sandbox's package facade
+        # would initialize the host broker and its dependencies after fencing.
+        spec = importlib.util.spec_from_file_location(
+            "_frisket_recipe_worker",
+            app_root / "frisket/engine/sandbox/_recipe_worker.py",
+        )
+        if spec is None or spec.loader is None:
+            raise RuntimeError("recipe worker unavailable")
+        runner = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(runner)
+        return runner.main()
     if kind == "runtime-info":
         print(
             json.dumps(
