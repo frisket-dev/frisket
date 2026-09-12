@@ -71,21 +71,20 @@ describe('typed Markdown form', () => {
       idempotency_key: expect.any(String) });
   });
 
-  it('keeps the engine picker stable when the schema default is absent from the served roster', async () => {
+  it('preserves an absent schema default as an unavailable saved selector choice', async () => {
     const raw = catalog.actions.find((entry) => entry.kind === 'media.to_markdown');
     if (!raw || !isGeneratedActionCatalogEntry(raw)) throw new Error('Missing typed Markdown catalog');
     const docling = raw.ui_hints.engines?.find((engine) => engine.id === 'docling');
     if (!docling) throw new Error('Missing Docling engine');
-    const markitdown = raw.ui_hints.engines?.find((engine) => engine.id === 'markitdown');
-    if (!markitdown) throw new Error('Missing MarkItDown engine');
-    form(undefined, true, [{ ...markitdown, available: false,
-      error: 'This engine is unavailable for this action.' }, docling]);
+    form(undefined, true, [{ ...docling, available: true, error: undefined }]);
 
     await waitFor(() => expect(selectorTrigger()).toHaveTextContent('markitdown'));
     const dialog = await openActionSelector();
-    expect(dialog).toHaveTextContent('This engine is unavailable for this action.');
+    expect(dialog).toHaveTextContent('Saved choice is not offered');
+    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
     await choose('docling');
-    expect(selectorTrigger()).toHaveTextContent('Docling');
+    await waitFor(() => expect(selectorTrigger()).toHaveTextContent('Docling'));
+    await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
   });
 
   it('retains local, sidecar and hosted engines plus experimental/license details', async () => {
@@ -95,6 +94,7 @@ describe('typed Markdown form', () => {
     expect(dialog).toHaveTextContent(/Docling/i);
     expect(dialog).toHaveTextContent(/Chandra/i);
     await choose('chandra');
+    expect(screen.getByText(/has a restrictive license/)).toBeInTheDocument();
     expect((await openActionSelector())).toHaveTextContent(/Datalab/i);
   });
 
