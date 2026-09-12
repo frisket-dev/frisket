@@ -91,7 +91,7 @@ def _spec(sheet_id: int, **extras: Any) -> dict[str, Any]:
     ("params", "expected"),
     [
         ({"engine": "parakeet-tdt"}, 1),
-        ({}, None),
+        ({}, 1),
         ({"engine": "faster_whisper"}, None),
         ({"engine": "moss"}, None),
         ({"engine": "parakeet-tdt", "diarize": True}, None),

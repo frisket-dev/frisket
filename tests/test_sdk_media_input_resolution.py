@@ -48,7 +48,14 @@ def test_typed_media_input_admission_precedes_execution(
                     "sheet_id": 999_999 if failure == "sheet" else sheet,
                     "row_ids": [*rows, 999_999] if failure == "rows" else None,
                 },
-                "params": {"source": name},
+                "params": {
+                    "source": name,
+                    **(
+                        {"engine": "faster_whisper"}
+                        if action_id == "media.transcribe"
+                        else {}
+                    ),
+                },
                 "idempotency_key": f"input-{failure}",
             },
             project_id="p",
