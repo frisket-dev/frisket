@@ -33,7 +33,7 @@ import {
   type SourceInputMode,
 } from './SourceInputControl';
 import { OutputNameCombobox } from './TargetSaveToControl';
-import { dedupeDefaultColumnName } from './formControlHelpers';
+import { dedupeDefaultColumnName, existingColumnByName } from './formControlHelpers';
 import { generatedActionCustomizationFor } from './generatedActionCustomizations';
 import pickerStyles from './EngineModelChoice.module.css';
 import { ModelPicker } from '../ModelPicker';
@@ -268,11 +268,34 @@ function initialOutputNames(entry: GeneratedActionCatalogEntry, columns: SheetMe
   if (entry.ui_hints.typed_action?.creates_sheet === true) return { ...saved?.output_names };
   if (entry.ui_hints.dynamic_outputs === true) return { ...saved?.output_names };
   const customization = generatedActionCustomizationFor(entry.kind);
+  const prefix = customization?.outputPrefix;
+  const linkedPrefix = prefix?.keys?.length ? prefix : undefined;
+  const defaultPrefix = linkedPrefix
+    ? dedupeOutputPrefix(linkedPrefix, columns, entry.ui_hints.logical_outputs) : undefined;
   return Object.fromEntries(entry.ui_hints.logical_outputs.map(({ key }) => [key,
-    saved ? saved.output_names[key] ?? key : dedupeDefaultColumnName(
-      customization?.defaultOutputName?.(key, draft) ?? key,
-      columns,
-    )]));
+    saved ? saved.output_names[key] ?? key
+      : defaultPrefix && linkedPrefix?.keys?.includes(key)
+        ? linkedPrefix.outputName(key, defaultPrefix, entry.ui_hints.logical_outputs)
+        : dedupeDefaultColumnName(customization?.defaultOutputName?.(key, draft) ?? key, columns),
+  ]));
+}
+
+function dedupeOutputPrefix(
+  prefix: NonNullable<GeneratedActionCustomization['outputPrefix']>,
+  columns: SheetMeta['columns'],
+  outputs: readonly { key: string }[],
+): string {
+  const keys = prefix.keys!;
+  const base = prefix.initialValue();
+  const collides = (candidate: string) => keys.some((key) => Boolean(
+    existingColumnByName(columns, prefix.outputName(key, candidate, outputs)),
+  ));
+  if (!collides(base)) return base;
+  for (let suffix = 2; suffix <= columns.length + 1; suffix += 1) {
+    const candidate = `${base}_${suffix}`;
+    if (!collides(candidate)) return candidate;
+  }
+  return `${base}_${columns.length + 2}`;
 }
 
 function automaticOutputNameCollision(
@@ -473,8 +496,15 @@ function GeneratedActionFormContents({
   ));
   const [outputNames, setOutputNames] = useState<Record<string, string>>(() =>
     initialOutputNames(catalogEntry, columns, draft, initialDraft));
-  const [outputPrefix, setOutputPrefix] = useState(() =>
-    customization?.outputPrefix?.initialValue(initialDraft?.output_names) ?? '');
+  const [outputPrefix, setOutputPrefix] = useState(() => {
+    const prefix = customization?.outputPrefix;
+    const initial = prefix?.keys?.[0]
+      ? outputNames[prefix.keys[0]] ?? prefix.initialValue(initialDraft?.output_names)
+      : prefix?.initialValue(initialDraft?.output_names) ?? '';
+    return prefix?.keys?.length && !initialDraft
+      ? dedupeOutputPrefix(prefix, columns, catalogEntry.ui_hints.logical_outputs)
+      : initial;
+  });
   const editedOutputNames = useRef(new Set(Object.keys(initialDraft?.output_names ?? {})));
   const [editedOutputNameKeys, setEditedOutputNameKeys] = useState(() => new Set(
     Object.keys(initialDraft?.output_names ?? {}),
@@ -599,7 +629,10 @@ function GeneratedActionFormContents({
                 key,
                 sameKeys ? names[key]
                   : !paramsEdited && initialDraft ? initialDraft.output_names[key] ?? key
-                  : customization?.outputPrefix
+                  : customization?.outputPrefix && (
+                    customization.outputPrefix.keys === undefined
+                    || customization.outputPrefix.keys.includes(key)
+                  )
                     ? customization.outputPrefix.outputName(key, outputPrefix.trim(), nextOutputs)
                     : names[key] ?? dedupeDefaultColumnName(
                         customization?.defaultOutputName?.(key, draft) ?? key, columns,
@@ -1063,16 +1096,21 @@ function GeneratedActionFormContents({
           data-testid="field-output-prefix" value={outputPrefix} disabled={running}
           onChange={(event) => {
             const prefix = event.target.value;
+            const keys = customization.outputPrefix!.keys ?? outputs.map(({ key }) => key);
             setOutputPrefix(prefix);
-            markOutputNamesEdited(outputs.map(({ key }) => key));
-            setOutputNames(Object.fromEntries(outputs.map(({ key }) => [key,
-              customization.outputPrefix!.outputName(key, prefix.trim(), outputs),
+            markOutputNamesEdited(keys);
+            setOutputNames((current) => Object.fromEntries(outputs.map(({ key }) => [key,
+              keys.includes(key)
+                ? customization.outputPrefix!.outputName(key, prefix.trim(), outputs)
+                : current[key] ?? dedupeDefaultColumnName(
+                    customization.defaultOutputName?.(key, draft) ?? key, columns,
+                  ),
             ])));
           }} />
-        <p className="form-hint">
-          Names {outputs.length} output {outputs.length === 1 ? 'column' : 'columns'}.
-          Individual names can be adjusted below.
-        </p>
+        {customization.outputPrefix.hint !== null && <p className="form-hint">
+          {customization.outputPrefix.hint === undefined ? <>Names {outputs.length} output {outputs.length === 1 ? 'column' : 'columns'}.
+            Individual names can be adjusted below.</> : customization.outputPrefix.hint}
+        </p>}
       </div>}
 
       {catalogEntry.kind === 'derive.join' && outputs.length > 0 && <JoinOutputNames
@@ -1082,7 +1120,9 @@ function GeneratedActionFormContents({
           setOutputNames(names);
         }} />}
 
-      {!customization?.outputNamesReadOnly && outputs.map(({
+      {!customization?.outputNamesReadOnly && outputs.filter(({ key }) => (
+        !customization?.hiddenOutputNameKeys?.includes(key)
+      )).map(({
         key, column_type: columnType, existing_column_policy: existingColumnPolicy,
       }) => {
         const defaultNameCollision = !initialDraft && !editedOutputNameKeys.has(key)

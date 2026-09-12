@@ -5,9 +5,13 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import json
+import logging
+import os
 import shutil
+import tempfile
 from contextlib import asynccontextmanager
 from functools import lru_cache
+from hashlib import sha256
 from importlib import metadata
 from pathlib import Path
 from typing import Any
@@ -18,7 +22,11 @@ from frisket.engine._workers.local_engine_lease import (
     acquire_local_engine_lease,
 )
 from frisket.engine._workers.rapidocr_models import (
+    RAPIDOCR_DEFAULT_RECOGNIZER_FILENAME,
+    RAPIDOCR_DEFAULT_RECOGNIZER_SHA256,
+    RAPIDOCR_DEFAULT_RECOGNIZER_URL,
     RapidOCRInvalidLanguage,
+    rapidocr_bundled_model_aliases,
     rapidocr_default_model_requirements,
     rapidocr_model_requirements,
     rapidocr_model_root_complete,
@@ -40,6 +48,7 @@ from frisket.ops.base import RecipeInvocationHalt
 
 LIGHT_ENGINE = "rapidocr"
 TESSERACT_LANGUAGE_CODES = {"en": "eng"}
+_LOG = logging.getLogger(__name__)
 
 
 class OcrCancelled(RuntimeError):
@@ -168,12 +177,124 @@ def _rapidocr_model_root_dir(language: str | None = None) -> str | None:
     if rapidocr_model_root_complete(package_root, filenames):
         return None
     shared_dir = rapidocr_shared_model_cache_dir()
+    _copy_bundled_rapidocr_aliases(package_root, filenames, shared_dir)
+    if language is None:
+        _provision_default_rapidocr_recognizer(shared_dir, filenames)
     if rapidocr_model_root_complete(shared_dir, filenames):
         return str(shared_dir)
     raise RecipeInvocationHalt(
         "local_artifact_unavailable",
         _RAPIDOCR_ARTIFACT_DETAIL,
     )
+
+
+def _copy_bundled_rapidocr_aliases(
+    package_root: Path, filenames: tuple[str, ...], shared_dir: Path
+) -> None:
+    """Seed verified bundled detector/classifier aliases into the cache."""
+
+    aliases = rapidocr_bundled_model_aliases(package_root, filenames)
+    if aliases is None:
+        return
+    try:
+        for source, _target, expected_hash in aliases:
+            if not source.is_file() or _sha256_file(source) != expected_hash:
+                return
+        shared_dir.mkdir(parents=True, exist_ok=True)
+        for source, target, expected_hash in aliases:
+            destination = shared_dir / target
+            if destination.is_file() and _sha256_file(destination) == expected_hash:
+                continue
+            _copy_verified_model(source, destination, expected_hash)
+    except OSError:
+        return
+
+
+def _provision_default_rapidocr_recognizer(
+    shared_dir: Path, filenames: tuple[str, ...]
+) -> None:
+    """Fetch and atomically publish the one default v5 recognizer artifact."""
+
+    if RAPIDOCR_DEFAULT_RECOGNIZER_FILENAME not in filenames:
+        return
+    if any(
+        not (shared_dir / filename).is_file()
+        for filename in filenames
+        if filename != RAPIDOCR_DEFAULT_RECOGNIZER_FILENAME
+    ):
+        return
+    target = shared_dir / RAPIDOCR_DEFAULT_RECOGNIZER_FILENAME
+    try:
+        if (
+            target.is_file()
+            and _sha256_file(target) == RAPIDOCR_DEFAULT_RECOGNIZER_SHA256
+        ):
+            return
+        shared_dir.mkdir(parents=True, exist_ok=True)
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{target.name}.", dir=shared_dir
+        )
+        os.close(descriptor)
+        temporary = Path(temporary_name)
+        try:
+            from rapidocr.utils.download_file import (
+                DownloadFile,
+                DownloadFileException,
+                DownloadFileInput,
+            )
+
+            try:
+                DownloadFile.run(
+                    DownloadFileInput(
+                        file_url=RAPIDOCR_DEFAULT_RECOGNIZER_URL,
+                        save_path=temporary,
+                        logger=_LOG,
+                        sha256=RAPIDOCR_DEFAULT_RECOGNIZER_SHA256,
+                        verbose=False,
+                    )
+                )
+            except DownloadFileException:
+                return
+            if not DownloadFile.check_file_sha256(
+                temporary, RAPIDOCR_DEFAULT_RECOGNIZER_SHA256
+            ):
+                return
+            os.replace(temporary, target)
+        finally:
+            temporary.unlink(missing_ok=True)
+    except (OSError, ImportError):
+        return
+
+
+def _copy_verified_model(source: Path, destination: Path, expected_hash: str) -> None:
+    """Atomically publish one checked cache file without touching ``source``."""
+
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.", dir=destination.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with (
+            os.fdopen(descriptor, "wb") as output_file,
+            source.open("rb") as input_file,
+        ):
+            digest = sha256()
+            while chunk := input_file.read(1024 * 1024):
+                digest.update(chunk)
+                output_file.write(chunk)
+        if digest.hexdigest() != expected_hash:
+            return
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _sha256_file(filename: Path) -> str:
+    digest = sha256()
+    with filename.open("rb") as input_file:
+        while chunk := input_file.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _rapidocr_pool_kwargs(
@@ -205,13 +326,15 @@ async def rapidocr_execution_scope(*, expected_rows, language, cancelled=None):
     """One invocation-owned pool, with its lease held until all children stop."""
     if cancelled is not None and cancelled():
         raise OcrCancelled("OCR cancelled")
-    model_root = _rapidocr_model_root_dir(language)
     topology = rapidocr_topology(expected_rows)
     try:
         lease = acquire_local_engine_lease(LIGHT_ENGINE)
     except LocalEngineLeaseBusy as exc:
         raise RecipeInvocationHalt("local_engine_busy", _RAPIDOCR_BUSY_DETAIL) from exc
     try:
+        if cancelled is not None and cancelled():
+            raise OcrCancelled("OCR cancelled")
+        model_root = _rapidocr_model_root_dir(language)
         pool = RapidOCRProcessPool(
             **_rapidocr_pool_kwargs(
                 topology=topology,
