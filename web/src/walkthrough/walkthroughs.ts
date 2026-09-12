@@ -262,7 +262,7 @@ export const LAWSUIT_DOCUMENT_WALKTHROUGH: WalkthroughDefinition = {
       id: 'choose-converter',
       title: 'Choose an available converter',
       instruction: 'Choose an available conversion engine. Searchable PDFs do not need OCR.',
-      target: { kind: 'field', id: 'engine-picker-button' },
+      target: { kind: 'field', id: 'field-engine' },
       advance: 'next-button',
     },
     {
@@ -473,7 +473,7 @@ export const COUNCIL_AUDIO_WALKTHROUGH: WalkthroughDefinition = {
       id: 'choose-transcription-engine',
       title: 'Choose a transcription engine',
       instruction: 'Open the engine picker and choose an available local, sidecar, or hosted speech-to-text engine.',
-      target: { kind: 'field', id: 'engine-picker-button' },
+      target: { kind: 'field', id: 'field-engine' },
       advance: 'next-button',
     },
     {
@@ -623,7 +623,7 @@ export const CIVIC_AI_TRIAGE_WALKTHROUGH: WalkthroughDefinition = {
       id: 'choose-ner-engine',
       title: 'Choose an entity engine',
       instruction: 'Choose an available engine. The local spaCy option is a good fit for this walkthrough.',
-      target: { kind: 'field', id: 'engine-picker-button' },
+      target: { kind: 'field', id: 'field-engine' },
       advance: 'next-button',
     },
     {

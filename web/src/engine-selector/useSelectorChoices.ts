@@ -25,12 +25,16 @@ export interface SelectorChoicesState {
   response: HttpSelectorChoicesResponse | null;
   loading: boolean;
   refreshing: boolean;
+  /** The displayed projection belongs to an earlier draft while a new one loads. */
+  stale: boolean;
   error: Error | null;
   refresh(): void;
 }
 
 interface State {
   response: HttpSelectorChoicesResponse | null;
+  responseScopeKey: string | null;
+  presentationKey: string | null;
   loading: boolean;
   refreshing: boolean;
   error: Error | null;
@@ -39,14 +43,16 @@ interface State {
 }
 
 type Action =
-  | { type: 'load'; revision: number; scopeKey: string; preserveResponse: boolean }
-  | { type: 'success'; revision: number; response: HttpSelectorChoicesResponse }
+  | { type: 'load'; revision: number; scopeKey: string; presentationKey: string; preserveResponse: boolean }
+  | { type: 'success'; revision: number; scopeKey: string; presentationKey: string; response: HttpSelectorChoicesResponse }
   | { type: 'failure'; revision: number; error: Error };
 
 function reducer(state: State, action: Action): State {
   if (action.type === 'load') {
     return {
       response: action.preserveResponse ? state.response : null,
+      responseScopeKey: action.preserveResponse ? state.responseScopeKey : null,
+      presentationKey: action.presentationKey,
       loading: !action.preserveResponse,
       refreshing: action.preserveResponse,
       error: null,
@@ -56,7 +62,14 @@ function reducer(state: State, action: Action): State {
   }
   if (action.revision !== state.revision) return state;
   if (action.type === 'success') {
-    return { ...state, response: action.response, loading: false, refreshing: false };
+    return {
+      ...state,
+      response: action.response,
+      responseScopeKey: action.scopeKey,
+      presentationKey: action.presentationKey,
+      loading: false,
+      refreshing: false,
+    };
   }
   return { ...state, loading: false, refreshing: false, error: action.error };
 }
@@ -73,6 +86,17 @@ function isAbort(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError';
 }
 
+function presentationKeyFor(
+  projectId: string | null | undefined,
+  query: HttpSelectorChoicesQuery,
+): string {
+  const subject = query.subject;
+  if (subject.kind === 'action') {
+    return JSON.stringify([projectId ?? '', subject.kind, subject.action_id, subject.field]);
+  }
+  return JSON.stringify([projectId ?? '', subject.kind]);
+}
+
 /**
  * Loads only the server's authoritative selector projection. Each project,
  * subject, or capability draft change owns a request scope, so an older
@@ -87,6 +111,8 @@ export function useSelectorChoices({
 }: UseSelectorChoicesOptions): SelectorChoicesState {
   const [state, dispatch] = useReducer(reducer, {
     response: null,
+    responseScopeKey: null,
+    presentationKey: null,
     loading: false,
     refreshing: false,
     error: null,
@@ -99,6 +125,7 @@ export function useSelectorChoices({
   queryRef.current = query;
   const effectiveQueryKey = typeof queryKey === 'function' ? queryKey(query, state.response) : queryKey;
   const scopeKey = `${projectId ?? ''}\u0000${effectiveQueryKey}`;
+  const presentationKey = presentationKeyFor(projectId, query);
 
   useEffect(() => {
     if (!enabled || !projectId) return undefined;
@@ -109,11 +136,19 @@ export function useSelectorChoices({
       type: 'load',
       revision,
       scopeKey,
-      preserveResponse: refreshRevision > 0 && state.scopeKey === scopeKey && state.response !== null,
+      presentationKey,
+      preserveResponse: state.response !== null
+        && state.presentationKey === presentationKey,
     });
     void load(projectId, queryRef.current, { signal: controller.signal })
       .then((response) => {
-        if (!controller.signal.aborted) dispatch({ type: 'success', revision, response });
+        if (!controller.signal.aborted) dispatch({
+          type: 'success',
+          revision,
+          scopeKey,
+          presentationKey,
+          response,
+        });
       })
       .catch((error: unknown) => {
         if (!controller.signal.aborted && !isAbort(error)) {
@@ -125,22 +160,25 @@ export function useSelectorChoices({
         }
       });
     return () => controller.abort();
-  }, [enabled, load, projectId, refreshRevision, scopeKey]);
+  }, [enabled, load, presentationKey, projectId, refreshRevision, scopeKey]);
 
   const refreshChoices = useCallback(() => refresh(), []);
   if (!enabled || !projectId) {
-    return { response: null, loading: false, refreshing: false, error: null, refresh: refreshChoices };
+    return {
+      response: null,
+      loading: false,
+      refreshing: false,
+      stale: false,
+      error: null,
+      refresh: refreshChoices,
+    };
   }
-  const active = state.scopeKey === scopeKey ? state : {
-    response: null,
-    loading: true,
-    refreshing: false,
-    error: null,
-  };
+  const active = state;
   return {
     response: active.response,
     loading: active.loading,
     refreshing: active.refreshing,
+    stale: active.response !== null && active.responseScopeKey !== scopeKey,
     error: active.error,
     refresh: refreshChoices,
   };

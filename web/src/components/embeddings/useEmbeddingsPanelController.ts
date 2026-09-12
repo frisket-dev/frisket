@@ -230,12 +230,14 @@ export function useEmbeddingsPanelController({
         (provider) =>
           provider.providerId === state.form.provider &&
           provider.modelId === state.form.model,
-      ) ??
-      state.providers?.find((provider) => provider.providerId === state.form.provider) ??
-      null,
+      ) ?? null,
     [state.providers, state.form.provider, state.form.model],
   );
-  const remoteSelected = Boolean(selectedCard && !selectedCard.local);
+  const providerCard = useMemo(
+    () => state.providers?.find((provider) => provider.providerId === state.form.provider) ?? null,
+    [state.providers, state.form.provider],
+  );
+  const remoteSelected = Boolean(providerCard && !providerCard.local);
   const autoRefreshOn =
     remoteSelected &&
     state.form.allowRemote &&
@@ -243,8 +245,7 @@ export function useEmbeddingsPanelController({
   const maxCostValue = Number(state.form.maxCost);
   const modelOk =
     state.form.model.trim().length > 0 &&
-    (selectedCard == null ||
-      selectedCard.modalityCompatible);
+    (selectedCard?.modalityCompatible ?? providerCard?.modalityCompatible ?? true);
   const createReady =
     state.form.sourceColumns.length > 0 &&
     Boolean(state.form.provider) &&
@@ -384,6 +385,7 @@ export function useEmbeddingsPanelController({
     load,
     openCreate,
     providers: state.providers,
+    providerCard,
     refresh,
     remoteSelected,
     selectedCard,

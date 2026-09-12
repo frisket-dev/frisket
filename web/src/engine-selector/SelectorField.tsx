@@ -112,11 +112,11 @@ export function SelectorField({
       ?? [],
   ), [state.response]);
   const currentChoiceId = state.response?.current_choice_id ?? state.response?.default_choice_id ?? null;
-  const currentChoice = currentChoiceId
-    ? choicesById.get(currentChoiceId)
+  const currentChoice = state.stale || !currentChoiceId
+    ? null
+    : choicesById.get(currentChoiceId)
       ?? (state.response?.orphaned_current?.choice_id === currentChoiceId
-        ? state.response.orphaned_current : null)
-    : null;
+        ? state.response.orphaned_current : null);
   useEffect(() => {
     onCurrentChoiceChange?.(currentChoice);
   }, [currentChoice, onCurrentChoiceChange]);

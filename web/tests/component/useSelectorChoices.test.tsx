@@ -95,4 +95,28 @@ describe('useSelectorChoices', () => {
     await act(async () => refreshed.resolve(response('after-refresh')));
     await waitFor(() => expect(result.current.response?.current_choice_id).toBe('after-refresh'));
   });
+
+  it('retains a same-subject projection while an authored draft changes, but marks it stale', async () => {
+    const changed = deferred<HttpSelectorChoicesResponse>();
+    const load = vi.fn<SelectorChoicesLoader>()
+      .mockResolvedValueOnce(response('before-selection'))
+      .mockReturnValueOnce(changed.promise);
+    const { result, rerender } = renderHook(
+      ({ queryKey, request }) => useSelectorChoices({
+        projectId: 'project-a', query: request, queryKey, load,
+      }),
+      { initialProps: { queryKey: 'before', request: query('before') } },
+    );
+
+    await waitFor(() => expect(result.current.response?.current_choice_id).toBe('before-selection'));
+    rerender({ queryKey: 'after', request: query('after') });
+    await waitFor(() => expect(result.current.stale).toBe(true));
+    expect(result.current.response?.current_choice_id).toBe('before-selection');
+    expect(result.current.loading).toBe(false);
+    expect(result.current.refreshing).toBe(true);
+
+    await act(async () => changed.resolve(response('after-selection')));
+    await waitFor(() => expect(result.current.stale).toBe(false));
+    expect(result.current.response?.current_choice_id).toBe('after-selection');
+  });
 });

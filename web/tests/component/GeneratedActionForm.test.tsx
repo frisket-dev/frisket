@@ -4,7 +4,7 @@ import '@testing-library/jest-dom/vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ActionParamResolution, ActionTemplate, GeneratedActionCatalogEntry } from '../../src/api/types';
+import type { ActionParamResolution, ActionTemplate, GeneratedActionCatalogEntry, RunEstimate } from '../../src/api/types';
 import { isGeneratedActionCatalogEntry } from '../../src/api/types';
 import { GeneratedActionForm } from '../../src/components/action-panel/GeneratedActionForm';
 import { ActionPanel } from '../../src/components/ActionPanel';
@@ -207,6 +207,33 @@ function generatedTemplate(entry: GeneratedActionCatalogEntry): ActionTemplate {
   return template;
 }
 
+function meteredEntry(): GeneratedActionCatalogEntry {
+  return syntheticActionCatalogEntry('map.metered_test', {
+    input_schema: {
+      type: 'object',
+      required: ['source', 'model'],
+      properties: {
+        source: { type: 'string', title: 'Source' },
+        model: { type: 'string', title: 'Model' },
+      },
+    },
+    cost_policy: { kind: 'model_metered', requires_confirmation: true },
+    row_scope_policy: { kind: 'sheet_rows', selectors: ['all_rows', 'exact_membership'] },
+    ui_hints: {
+      form: 'generated',
+      category: 'text',
+      semantic_controls: { source: 'column', model: 'model' },
+      logical_outputs: [],
+    },
+  }) as GeneratedActionCatalogEntry;
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
 beforeEach(() => {
   requestSequence = 0;
   vi.stubGlobal('crypto', { randomUUID: () => `generated-request-${++requestSequence}` });
@@ -220,6 +247,87 @@ afterEach(() => {
 });
 
 describe('GeneratedActionForm', () => {
+  it('keeps the newest metered quote when an older request settles late', async () => {
+    const older = deferred<RunEstimate>();
+    const newer = deferred<RunEstimate>();
+    const estimateAction = vi.fn()
+      .mockImplementationOnce(() => older.promise)
+      .mockImplementationOnce(() => newer.promise);
+    const entry = meteredEntry();
+    render(
+      <GeneratedActionForm
+        catalogEntry={entry}
+        actionTemplate={generatedTemplate(entry)}
+        sheet={SHEET}
+        initialDraft={{ action_id: entry.kind, scope: { kind: 'sheet_rows', sheet_id: 7 },
+          params: { source: 'raw', model: 'ready-model' }, output_names: {} }}
+        running={false}
+        resolveParams={resolveStaticParams}
+        estimateAction={estimateAction}
+        onExecute={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('field-model'));
+    await waitFor(() => expect(estimateAction).toHaveBeenCalledTimes(1));
+    fireEvent.change(screen.getByTestId('field-source'), { target: { value: 'name' } });
+    await waitFor(() => expect(estimateAction).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      newer.resolve({ cost: 2, rows: 2, billed_cost: 2_000_000, policy_id: 'new' });
+      await newer.promise;
+    });
+    expect(screen.getByTestId('cost-estimate')).toHaveTextContent('$2.00');
+    await act(async () => {
+      older.resolve({ cost: 9, rows: 2, billed_cost: 9_000_000, policy_id: 'old' });
+      await older.promise;
+    });
+    expect(screen.getByTestId('cost-estimate')).toHaveTextContent('$2.00');
+  });
+
+  it('re-estimates a priced action for the newly selected row scope before running it', async () => {
+    const entry = meteredEntry();
+    const estimateAction = vi.fn(async () => ({
+      cost: 0.01,
+      rows: 2,
+      billed_cost: 12_000,
+      policy_id: 'metered',
+    }));
+    const onExecute = vi.fn();
+    render(
+      <GeneratedActionForm
+        catalogEntry={entry}
+        actionTemplate={generatedTemplate(entry)}
+        sheet={SHEET}
+        selectedRowIds={['2']}
+        initialDraft={{ action_id: entry.kind,
+          scope: { kind: 'sheet_rows', sheet_id: 7, row_ids: [2] },
+          params: { source: 'raw', model: 'ready-model' }, output_names: {} }}
+        running={false}
+        resolveParams={resolveStaticParams}
+        estimateAction={estimateAction}
+        onExecute={onExecute}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('field-model'));
+    await waitFor(() => expect(estimateAction).toHaveBeenLastCalledWith(expect.objectContaining({
+      scope: { kind: 'sheet_rows', sheet_id: 7, row_ids: [2] },
+    })));
+    fireEvent.click(screen.getByTestId('generated-action-run-scope-menu-button'));
+    fireEvent.click(screen.getByTestId('generated-action-row-scope-all'));
+    expect(onExecute).not.toHaveBeenCalled();
+    await waitFor(() => expect(estimateAction).toHaveBeenLastCalledWith(expect.objectContaining({
+      scope: { kind: 'sheet_rows', sheet_id: 7 },
+    })));
+    fireEvent.click(screen.getByTestId('generated-action-run'));
+    expect(onExecute).toHaveBeenCalledWith(expect.objectContaining({
+      scope: { kind: 'sheet_rows', sheet_id: 7 },
+    }), 'run');
+  });
+
   it('keeps a model-only action disabled until the authoritative selector reports it runnable', async () => {
     const entry = syntheticActionCatalogEntry('map.model_only', {
       input_schema: {

@@ -18,6 +18,7 @@ interface CreateEmbeddingIndexDialogProps {
   sheet: SheetMeta;
   form: CreateEmbeddingIndexForm;
   selectedCard: EmbeddingProvider | null;
+  providerCard: EmbeddingProvider | null;
   remoteSelected: boolean;
   autoRefreshOn: boolean;
   createReady: boolean;
@@ -102,6 +103,7 @@ export function CreateEmbeddingIndexDialog({
   sheet,
   form,
   selectedCard,
+  providerCard,
   remoteSelected,
   autoRefreshOn,
   createReady,
@@ -145,8 +147,7 @@ export function CreateEmbeddingIndexDialog({
     Boolean(form.provider) &&
     form.model.trim().length > 0 &&
     Boolean(selectedChoiceCanRun) &&
-    (selectedCard == null ||
-      selectedCard.modalityCompatible);
+    (selectedCard?.modalityCompatible ?? providerCard?.modalityCompatible ?? true);
   const egressReady = !remoteSelected || form.allowRemote;
   const costReady =
     !remoteSelected ||
@@ -327,7 +328,7 @@ export function CreateEmbeddingIndexDialog({
             data-testid="embedding-remote-controls"
           >
             <p className="form-hint embeddings-egress-warning">
-              {selectedCard?.label} is a remote provider. Your source text leaves this machine.
+              {selectedCard?.label ?? providerCard?.label ?? form.provider} is a remote provider. Your source text leaves this machine.
             </p>
             <label className="embeddings-col-check">
               <input
@@ -336,7 +337,7 @@ export function CreateEmbeddingIndexDialog({
                 checked={form.allowRemote}
                 onChange={(e) => onAllowRemoteChange(e.target.checked)}
               />
-              Allow sending data to {selectedCard?.label}
+              Allow sending data to {selectedCard?.label ?? providerCard?.label ?? form.provider}
             </label>
           </div>
         )}

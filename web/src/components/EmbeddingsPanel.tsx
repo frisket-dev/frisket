@@ -73,6 +73,7 @@ export function EmbeddingsPanel({
             sheet={sheet}
             form={panel.form}
             selectedCard={panel.selectedCard}
+            providerCard={panel.providerCard}
             remoteSelected={panel.remoteSelected}
             autoRefreshOn={panel.autoRefreshOn}
             createReady={panel.createReady}
