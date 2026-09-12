@@ -77,6 +77,7 @@ export function EngineSelector({
   renderDetailFooter,
   disabled = false,
   searchPlaceholder = 'Search all engines…',
+  triggerRef: externalTriggerRef,
 }: EngineSelectorProps) {
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const dialogRef = useRef<HTMLDialogElement | null>(null);
@@ -331,7 +332,13 @@ export function EngineSelector({
   return (
     <div className="engine-selector" data-testid="engine-selector">
       <button
-        ref={triggerRef}
+        ref={(node) => {
+          triggerRef.current = node;
+          if (typeof externalTriggerRef === 'function') externalTriggerRef(node);
+          else if (externalTriggerRef) {
+            (externalTriggerRef as { current: HTMLButtonElement | null }).current = node;
+          }
+        }}
         type="button"
         className="engine-selector__trigger form-input"
         aria-haspopup="dialog"

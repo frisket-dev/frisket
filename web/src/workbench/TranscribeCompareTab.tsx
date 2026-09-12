@@ -182,7 +182,7 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
     setConfigureVariantId,
     popoverShift,
     configureAnchorRef,
-    engineSelectRef,
+    engineSelectorRef,
     configurePopoverRef,
     openConfigure,
     onConfigureChooseEngine,
@@ -332,7 +332,7 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
                       style={popoverShift ? { transform: `translateX(${popoverShift}px)` } : undefined}
                       column={column}
                       catalog={catalog}
-                      engineSelectRef={engineSelectRef}
+                      engineSelectorRef={engineSelectorRef}
                       errorMessage={
                         activeDoc?.runs[column.id]?.status === 'error'
                           ? (activeDoc.runs[column.id] as { message: string }).message

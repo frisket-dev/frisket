@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, type Ref } from 'react';
 
 import {
   EngineSelector,
@@ -20,6 +20,7 @@ export interface SelectorFieldProps {
   disabled?: boolean;
   testId?: string;
   load?: SelectorChoicesLoader;
+  triggerRef?: Ref<HTMLButtonElement>;
 }
 
 function displayFact(choice: SelectorChoice): EngineSelectorChoice['facts'] {
@@ -77,6 +78,7 @@ export function SelectorField({
   disabled = false,
   testId,
   load,
+  triggerRef,
 }: SelectorFieldProps) {
   const state = useSelectorChoices({ projectId, query, queryKey, enabled: !disabled, load });
   const groups = useMemo(() => selectorGroups(state.response), [state.response]);
@@ -105,6 +107,7 @@ export function SelectorField({
       value={state.response.current_choice_id}
       recentNamespace={recentNamespace}
       disabled={disabled}
+      triggerRef={triggerRef}
       onSelect={(choice) => {
         const raw = choicesById.get(choice.id)
           ?? (state.response?.orphaned_current?.choice_id === choice.id ? state.response.orphaned_current : undefined);

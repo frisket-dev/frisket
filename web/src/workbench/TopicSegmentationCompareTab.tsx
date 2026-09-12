@@ -191,7 +191,7 @@ export function TopicSegmentationCompareTab({
   const [addingColumnId, setAddingColumnId] = useState<string | null>(null);
   const configureAnchorRef = useRef<HTMLDivElement>(null);
   const configurePopoverRef = useRef<HTMLDivElement>(null);
-  const engineSelectRef = useRef<HTMLSelectElement>(null);
+  const engineSelectorRef = useRef<HTMLButtonElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const moreInputRef = useRef<HTMLInputElement>(null);
   const sourceUnitsRef = useRef<HTMLDivElement>(null);
@@ -444,7 +444,7 @@ export function TopicSegmentationCompareTab({
                       popoverRef={configurePopoverRef}
                       column={column}
                       catalog={catalog}
-                      engineSelectRef={engineSelectRef}
+                      engineSelectorRef={engineSelectorRef}
                       errorMessage={run?.status === 'error' ? run.message : null}
                       onChooseEngine={(engineId) => {
                         chooseEngine(column.id, engineId);

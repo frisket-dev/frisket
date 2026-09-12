@@ -1,4 +1,4 @@
-import type { ReactNode, RefObject } from 'react';
+import type { ReactNode, Ref, RefObject } from 'react';
 
 /** Presentation state projected by the selector catalog. It deliberately does
  * not encode how a caller authors an engine/model value. */
@@ -54,4 +54,6 @@ export interface EngineSelectorProps {
   renderDetailFooter?(context: EngineSelectorDetailFooterContext): ReactNode;
   disabled?: boolean;
   searchPlaceholder?: string;
+  /** Optional focus target for host validation flows. */
+  triggerRef?: Ref<HTMLButtonElement>;
 }

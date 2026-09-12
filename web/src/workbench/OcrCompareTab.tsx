@@ -259,7 +259,7 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
     configureVariantId,
     popoverShift,
     configureAnchorRef,
-    engineSelectRef,
+    engineSelectorRef,
     configurePopoverRef,
     openConfigure,
     addEngineFlow,
@@ -454,7 +454,7 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
                       style={popoverShift ? { transform: `translateX(${popoverShift}px)` } : undefined}
                       column={column}
                       catalog={catalog}
-                      engineSelectRef={engineSelectRef}
+                      engineSelectorRef={engineSelectorRef}
                       errorMessage={
                         activeDoc?.runs[column.id]?.status === 'error'
                           ? (activeDoc.runs[column.id] as { message: string }).message

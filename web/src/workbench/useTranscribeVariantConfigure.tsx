@@ -47,7 +47,7 @@ export function useTranscribeVariantConfigure(
   // flow; the gear only EDITS an already-committed chip's engine/options.
   const [configureVariantId, setConfigureVariantId] = useState<string | null>(null);
   const configureAnchorRef = useRef<HTMLDivElement>(null);
-  const engineSelectRef = useRef<HTMLSelectElement>(null);
+  const engineSelectorRef = useRef<HTMLButtonElement>(null);
   const configurePopoverRef = useRef<HTMLDivElement>(null);
 
   // Active engine ids (chips) and the engines still available to add (menu).
@@ -119,7 +119,7 @@ export function useTranscribeVariantConfigure(
 
   useEffect(() => {
     if (!configureVariantId) return;
-    engineSelectRef.current?.focus();
+    engineSelectorRef.current?.focus();
   }, [configureVariantId]);
 
   // Viewport clamp — same horizontalViewportShift primitive OcrCompareTab
@@ -216,7 +216,7 @@ export function useTranscribeVariantConfigure(
     setConfigureVariantId,
     popoverShift,
     configureAnchorRef,
-    engineSelectRef,
+    engineSelectorRef,
     configurePopoverRef,
     openConfigure,
     onConfigureChooseEngine,

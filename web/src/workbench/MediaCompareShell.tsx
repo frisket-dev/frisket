@@ -54,7 +54,7 @@ export interface ConfigureVariantPopoverProps {
   style?: React.CSSProperties;
   column: CompareColumn;
   catalog: EngineOption[];
-  engineSelectRef: React.RefObject<HTMLSelectElement>;
+  engineSelectorRef: React.Ref<HTMLButtonElement>;
   errorMessage: string | null;
   onChooseEngine(engineId: string): void;
   onDuplicate(): void;
@@ -71,6 +71,7 @@ export interface ConfigureVariantPopoverProps {
 export function ConfigureVariantPopover({
   testidPrefix,
   actionId,
+  engineSelectorRef,
   popoverRef,
   style,
   column,
@@ -136,6 +137,7 @@ export function ConfigureVariantPopover({
             if (choice.authored_selection.kind === 'engine_model') onChooseEngine(choice.authored_selection.engine);
           }}
           testId={t('configure-engine')}
+          triggerRef={engineSelectorRef}
         />
       </label>
 
