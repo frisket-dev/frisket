@@ -43,8 +43,6 @@ from __future__ import annotations
 import base64
 import json
 import os
-import time
-from collections.abc import Callable
 from pathlib import Path
 from secrets import token_bytes, token_hex
 
@@ -194,44 +192,10 @@ def key_hint(plaintext: str) -> str:
     return f"...{tail}" if tail else "..."
 
 
-# Windows-only cross-process read-after-write visibility lag: root-caused
-# via a native windows-latest CI failure where the losing (reading) process
-# entered this function's FileLock-guarded section strictly AFTER the
-# winning (writing) process had returned from its own os.write + os.fsync +
-# os.close + FileLock release, yet path.read_bytes() still observed fewer
-# than 32 bytes. Both processes are correctly serialized by FileLock (the
-# reader cannot even evaluate path.exists() until the writer's critical
-# section, including the lock release, has fully completed) -- this is not
-# a same-process or double-creation race, and the writer's own returncode
-# was 0 (it wrote and read back 32 bytes successfully in-process). The most
-# plausible explanation is a Windows filesystem/AV-interposition visibility
-# gap (e.g. Windows Defender's on-access scanner interposing on the
-# freshly created file) between another process's completed, fsynced write
-# and this process's subsequent read seeing it -- NTFS's cache manager is
-# normally unified across handles/processes on one machine, so this should
-# be rare, and empirically it is (intermittent, not reproduced on most
-# runs). _read_persisted_key retries a short, bounded number of times on
-# Windows before failing loud, which is safe here: this call always runs
-# already holding the exclusive FileLock, so a short-lived visibility gap
-# is the only thing a retry can paper over -- a genuinely corrupt/truncated
-# file still raises after the retry budget is exhausted.
-_WINDOWS_KEY_READ_RETRY_ATTEMPTS = 5
-_WINDOWS_KEY_READ_RETRY_BASE_SECONDS = 0.05
-
-
-def _read_persisted_key(
-    path: Path,
-    *,
-    sleep: Callable[[float], None] = time.sleep,
-) -> bytes:
-    attempts = _WINDOWS_KEY_READ_RETRY_ATTEMPTS if os.name == "nt" else 1
-    key = b""
-    for attempt in range(attempts):
-        key = path.read_bytes()
-        if len(key) == 32:
-            return key
-        if attempt + 1 < attempts:
-            sleep(_WINDOWS_KEY_READ_RETRY_BASE_SECONDS * (attempt + 1))
+def _read_persisted_key(path: Path) -> bytes:
+    key = path.read_bytes()
+    if len(key) == 32:
+        return key
     raise ValueError(f"invalid secret key file {path}: expected 32 bytes")
 
 
@@ -245,7 +209,10 @@ def load_or_create_secret_key(path: str | Path) -> bytes:
             return _read_persisted_key(path)
         key = token_bytes(32)
         tmp_path = path.with_name(f"{path.name}.tmp-{os.getpid()}-{token_hex(4)}")
-        fd = os.open(tmp_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        # CRT text mode expands random LF bytes on Windows. Secret bytes must
+        # round-trip unchanged, while POSIX has no O_BINARY flag.
+        flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_BINARY", 0)
+        fd = os.open(tmp_path, flags, 0o600)
         try:
             written = os.write(fd, key)
             if written != len(key):

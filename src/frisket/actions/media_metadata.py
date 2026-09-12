@@ -36,9 +36,9 @@ class MediaColumn(ColumnRef[Any]):
 class MetadataParams(ActionParams):
     source: MediaColumn
     output_mode: Literal["object", "columns"] = Field(
-        default="object",
+        default="columns",
         title="Output shape",
-        description="Write one metadata object or useful typed fields plus details.",
+        description="Write useful typed fields plus details, or one metadata object.",
     )
     refresh: StrictBool = Field(
         default=False,
@@ -94,7 +94,7 @@ async def extract_metadata(
 EXTRACT_METADATA = action(
     examples=(
         MetadataParams(source="media_source"),
-        MetadataParams(source="media_source", output_mode="columns"),
+        MetadataParams(source="media_source", output_mode="object"),
     ),
     name="extract_metadata",
     title="Extract media metadata",

@@ -20,7 +20,7 @@ def _request(**params):
     return {
         "action_id": "media.extract_metadata",
         "scope": {"kind": "sheet_rows", "sheet_id": 7, "row_ids": [2, 3]},
-        "params": {"source": "asset", **params},
+        "params": {"source": "asset", "output_mode": "object", **params},
         "output_names": {"details": "Meta"},
         "idempotency_key": "metadata-canonical",
     }
@@ -30,7 +30,7 @@ def test_media_extract_metadata_params_are_strict_and_canonical() -> None:
     params = MetadataParams.model_validate({"source": "asset"})
     assert params.model_dump(mode="json") == {
         "source": "asset",
-        "output_mode": "object",
+        "output_mode": "columns",
         "refresh": False,
     }
     for payload in (
@@ -68,7 +68,7 @@ def test_media_extract_metadata_validation_canonicalizes_hash_fields() -> None:
     validation = validate_root_action(_request())
     assert validation.ok is True
     assert validation.action.action_id == "media.extract_metadata"
-    assert validation.params == {"source": "asset"}
+    assert validation.params == {"source": "asset", "output_mode": "object"}
     assert validation.action.output_names == {"details": "Meta"}
 
 
@@ -119,13 +119,13 @@ def test_media_extract_metadata_runner_spec_has_canonical_action_and_inputs(
 def test_media_extract_metadata_declares_stable_typed_output_families() -> None:
     registered = ACTION_REGISTRY.get("media.extract_metadata")
     object_fields = registered.definition.run.resolve_output_fields(
-        MetadataParams(source="asset")
+        MetadataParams(source="asset", output_mode="object")
     )
     assert [(field.key, field.column_type) for field in object_fields] == [
         ("details", "json")
     ]
     column_fields = registered.definition.run.resolve_output_fields(
-        MetadataParams(source="asset", output_mode="columns")
+        MetadataParams(source="asset")
     )
     assert [(field.key, field.column_type) for field in column_fields] == [
         ("kind", "category"),
@@ -188,7 +188,7 @@ def test_completed_key_uses_standard_idempotency_replay_without_reprobe(
         action = {
             "action_id": "media.extract_metadata",
             "scope": {"kind": "sheet_rows", "sheet_id": sheet_id, "row_ids": [row_id]},
-            "params": {"source": "asset"},
+            "params": {"source": "asset", "output_mode": "object"},
             "output_names": {"details": "meta"},
             "idempotency_key": "metadata-standard-replay",
         }

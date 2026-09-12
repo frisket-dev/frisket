@@ -841,9 +841,8 @@ def _recipe_engines(
                 "Install Frisket's standard tier in the environment that runs "
                 "the app (pip install 'frisket-data[standard]'), then restart Frisket."
                 if not parakeet_runtime_ok
-                else "Download the pinned Parakeet + Silero models "
-                "(Settings → Local models, or POST /api/providers/models/pull) "
-                "to enable local Parakeet transcription."
+                else "Download the pinned Parakeet + Silero models before "
+                "running local Parakeet transcription."
             )
         )
         parakeet_engine = _declared_engine(
