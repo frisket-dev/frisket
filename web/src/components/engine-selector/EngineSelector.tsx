@@ -91,6 +91,7 @@ export function EngineSelector({
   const pinnedIdRef = useRef<string | null>(null);
   const editingSetupRef = useRef(false);
   const [open, setOpen] = useState(false);
+  const [recentIds, setRecentIds] = useState<readonly string[]>([]);
   const [query, setQuery] = useState('');
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const [previewedId, setPreviewedId] = useState<string | null>(null);
@@ -124,7 +125,7 @@ export function EngineSelector({
         const term = providerFilter.trim().toLowerCase();
         return !term || `${choice.label} ${choice.summary ?? ''}`.toLowerCase().includes(term);
       }));
-  const recents = open ? readRecents(recentNamespace, authoritativeIds) : [];
+  const recents = recentIds.filter((id) => authoritativeIds.has(id));
   const orderedChoices = hasSearch
     ? currentChoices
     : [...currentChoices].sort((left, right) => {
@@ -186,6 +187,7 @@ export function EngineSelector({
     setMobileOriginId(null);
     setProviderFilter('');
     setQuery('');
+    setRecentIds(readRecents(recentNamespace, authoritativeIds));
     setOpen(true);
   };
 
@@ -268,10 +270,15 @@ export function EngineSelector({
     });
   };
 
+  const activateChoice = (choice: EngineSelectorChoice) => {
+    if (window.innerWidth < 600) explicitPreview(choice, true);
+    else choose(choice);
+  };
+
   const onChoiceKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
-      choose(event.currentTarget.dataset.choiceId ? orderedChoices[index] : previewedChoice!);
+      activateChoice(orderedChoices[index]);
       return;
     }
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -367,7 +374,8 @@ export function EngineSelector({
           <header className="engine-selector__header">
             <input
               ref={searchRef}
-              type="search"
+              type="text"
+              role="searchbox"
               className="form-input engine-selector__search"
               aria-label={`Search ${label}`}
               placeholder={searchPlaceholder}
@@ -421,7 +429,8 @@ export function EngineSelector({
             <section className="engine-selector__choices" aria-label={`${label} choices`}>
               {showProviderFilter && (
                 <input
-                  type="search"
+                  type="text"
+                  role="searchbox"
                   className="form-input engine-selector__provider-filter"
                   aria-label={`Filter ${currentGroup?.label ?? 'provider'} choices`}
                   placeholder={`Filter ${currentGroup?.label ?? 'choices'}…`}
@@ -445,7 +454,7 @@ export function EngineSelector({
                     onMouseEnter={() => previewAfterIntent(choice)}
                     onMouseLeave={cancelHoverIntent}
                     onFocus={() => explicitPreview(choice)}
-                    onClick={() => window.innerWidth < 600 ? explicitPreview(choice, true) : choose(choice)}
+                    onClick={() => activateChoice(choice)}
                     onKeyDown={(event) => onChoiceKeyDown(event, index)}
                   >
                     <span className={`engine-selector__status engine-selector__status--${choice.status}`} aria-hidden />

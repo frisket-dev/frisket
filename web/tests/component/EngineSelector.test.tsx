@@ -158,6 +158,55 @@ describe('EngineSelector', () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: oldWidth });
   });
 
+  it.each(['{Enter}', ' '])('opens mobile details before selecting with %s', async (key) => {
+    const oldWidth = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 500 });
+    try {
+      const onSelect = renderSelector();
+      await userEvent.click(screen.getByRole('button', { name: /parakeet/i }));
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      screen.getByRole('button', { name: /whisper/i }).focus();
+      await userEvent.keyboard(key);
+      expect(screen.getByTestId('engine-selector-dialog')).toHaveClass('engine-selector__dialog--mobile-detail');
+      expect(onSelect).not.toHaveBeenCalled();
+      await userEvent.click(screen.getByRole('button', { name: /select and set up/i }));
+      expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 'whisper' }));
+      expect(screen.getByTestId('setup-footer')).toHaveTextContent('whisper:true');
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: oldWidth });
+    }
+  });
+
+  it('keeps recent ordering stable while open and refreshes it on the next opening', async () => {
+    renderSelector();
+    const trigger = screen.getByRole('button', { name: /parakeet/i });
+    await userEvent.click(trigger);
+    const choiceIds = () => Array.from(screen.getByTestId('engine-selector-dialog').querySelectorAll<HTMLElement>('[data-engine-selector-choice]'))
+      .map((choice) => choice.dataset.engineSelectorChoice);
+    expect(choiceIds()).toEqual(['parakeet', 'whisper', 'legacy']);
+    await userEvent.click(screen.getByRole('button', { name: /whisper/i }));
+    expect(JSON.parse(localStorage.getItem('frisket:engine-selector:recent:component-test') ?? '[]')).toEqual(['whisper']);
+    expect(choiceIds()).toEqual(['parakeet', 'whisper', 'legacy']);
+    fireEvent(screen.getByTestId('engine-selector-dialog'), new Event('cancel', { cancelable: true }));
+    await userEvent.click(trigger);
+    expect(choiceIds()).toEqual(['whisper', 'parakeet', 'legacy']);
+  });
+
+  it('uses searchboxes without native search Escape consumption and cancels with a populated query', async () => {
+    const longGroup = { ...groups[1], choices: Array.from({ length: 13 }, (_, index) => ({ ...groups[1].choices[0], id: `hosted-${index}`, label: `Hosted ${index}` })) };
+    render(<EngineSelector label="Engine" groups={[longGroup]} value="hosted-0" recentNamespace="escape-search" onSelect={vi.fn()} />);
+    const trigger = screen.getByRole('button', { name: /hosted 0/i });
+    await userEvent.click(trigger);
+    const search = screen.getByRole('searchbox', { name: 'Search Engine' });
+    const filter = screen.getByRole('searchbox', { name: 'Filter OpenAI choices' });
+    expect(search).toHaveAttribute('type', 'text');
+    expect(filter).toHaveAttribute('type', 'text');
+    await userEvent.type(search, 'Hosted');
+    fireEvent(screen.getByTestId('engine-selector-dialog'), new Event('cancel', { cancelable: true }));
+    expect(screen.queryByTestId('engine-selector-dialog')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
   it('keeps mobile provider tabs and returns focus to the tapped choice from detail', async () => {
     const oldWidth = window.innerWidth;
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 500 });
