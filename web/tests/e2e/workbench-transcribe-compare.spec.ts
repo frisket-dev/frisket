@@ -23,15 +23,16 @@ import {
 // catalog is offered, so a billable engine is reachable here and consent — not
 // omission — is what guards it.
 //
-// Every leg is intercepted, so nothing reaches a provider. The seeded
-// per-engine disagreement drives the symmetric amber word/char diff; the
-// stubbed timestamped segments drive the diff-token → player SEEK.
+// Every leg is intercepted, so nothing reaches a provider. The stubbed
+// timestamped segments make the independently rendered transcript output
+// deterministic.
 
 const MEDIA_DIR = path.resolve(process.cwd(), 'tests', 'fixtures', 'media');
 const AUDIO_FIXTURE = readFileSync(path.join(MEDIA_DIR, 'tiny-audio.wav'));
 const VIDEO_FIXTURE = readFileSync(path.join(MEDIA_DIR, 'tiny-video.mp4'));
 
-// Three LOCAL engines so the Survey (n≥3) flip has a third non-remote engine,
+// Three LOCAL engines so adding a third result exercises the same plain-output
+// path,
 // plus a remote engine that exercises the cost gate ONLY (every scratch call is
 // intercepted, so nothing ever reaches a provider).
 async function patchTranscribeCatalog(page: Page) {
@@ -64,9 +65,8 @@ async function patchTranscribeCatalog(page: Page) {
   });
 }
 
-// The seeded disagreement lives in segment index 1 (start 1.0s): whisper reads
-// MERIDIAN, parakeet-tdt reads MERLDIAN — exactly one token differs, at the
-// character level. vosk agrees with whisper. Segment 0 is identical.
+// The second segment intentionally differs by engine. Transcribe Compare must
+// still show each engine's original text without marking a difference.
 const ENGINE_SEGMENTS: Record<string, Array<{ start: number; end: number; text: string }>> = {
   faster_whisper: [
     { start: 0.0, end: 0.9, text: 'PANEL DISCUSSION OPENING' },
@@ -80,6 +80,19 @@ const ENGINE_SEGMENTS: Record<string, Array<{ start: number; end: number; text: 
     { start: 0.0, end: 0.9, text: 'PANEL DISCUSSION OPENING' },
     { start: 1.0, end: 1.9, text: 'THE MERIDIAN REPORT' },
   ],
+};
+
+const LONG_ENGINE_SEGMENTS: Record<string, Array<{ start: number; end: number; text: string }>> = {
+  faster_whisper: Array.from({ length: 80 }, (_, index) => ({
+    start: index,
+    end: index + 0.9,
+    text: `WHISPER TRANSCRIPT LINE ${index + 1}`,
+  })),
+  'parakeet-tdt': Array.from({ length: 80 }, (_, index) => ({
+    start: index,
+    end: index + 0.9,
+    text: `PARAKEET TRANSCRIPT LINE ${index + 1}`,
+  })),
 };
 
 // The uploaded clip is now a QUOTED preview job, not an immediate call: the UI
@@ -161,12 +174,16 @@ async function routeCompareStart(
   });
 }
 
-async function routePreviewPolling(page: Page, previewEngines: Map<string, string>) {
+async function routePreviewPolling(
+  page: Page,
+  previewEngines: Map<string, string>,
+  segmentsByEngine = ENGINE_SEGMENTS,
+) {
   await page.route('**/actions/v1/preview/*', async (route) => {
     const previewId = route.request().url().split('/').pop() ?? '';
     const engine = previewEngines.get(previewId) ?? '';
     const segments = (
-      ENGINE_SEGMENTS[engine] ?? [{ start: 0, end: 1, text: `${engine} text` }]
+      segmentsByEngine[engine] ?? [{ start: 0, end: 1, text: `${engine} text` }]
     ).map((seg, index) => ({ ...seg, segment_index: index }));
     await route.fulfill({
       status: 200,
@@ -203,13 +220,13 @@ async function routePreviewPolling(page: Page, previewEngines: Map<string, strin
 }
 
 /** Wire all three legs of the quoted flow at once. */
-async function routeComparison(page: Page) {
+async function routeComparison(page: Page, segmentsByEngine = ENGINE_SEGMENTS) {
   const estimates: Array<Record<string, unknown>> = [];
   const starts: Array<Record<string, unknown>> = [];
   const previewEngines = new Map<string, string>();
   await routeCompareEstimate(page, estimates);
   await routeCompareStart(page, starts, previewEngines);
-  await routePreviewPolling(page, previewEngines);
+  await routePreviewPolling(page, previewEngines, segmentsByEngine);
   return { estimates, starts };
 }
 
@@ -320,34 +337,48 @@ test('ribbon opens the scratch Transcribe Compare tab; audio AND video docs rend
   expect(rowsAfter).toBe(rowsBefore);
 });
 
-test('symmetric amber diff marks BOTH sides on a seeded segment disagreement', async ({ page }) => {
-  const pid = await createProject(page.request, uniqueName('tc-diff'));
+test('renders long transcripts without diff highlighting and lets each result scroll independently', async ({ page }) => {
+  const pid = await createProject(page.request, uniqueName('tc-scroll'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
   await patchTranscribeCatalog(page);
-  await routeComparison(page);
+  await routeComparison(page, LONG_ENGINE_SEGMENTS);
   await openProject(page, pid, sheetId);
   await openTranscribeCompare(page);
   await dropMedia(page, 'transcribe-compare-file-input', 'audio');
   await runComparison(page);
 
-  const columns = page.getByTestId('transcribe-compare-engine-column');
-  await expect(columns).toHaveCount(2);
+  await expect(page.getByTestId('transcribe-compare-mode-switch')).toHaveCount(0);
+  await expect(page.getByTestId('transcribe-compare-diff-token')).toHaveCount(0);
 
-  // The one disagreeing token is marked on BOTH sides — never a right/wrong color.
-  const tokens = page.getByTestId('transcribe-compare-diff-token');
-  await expect(tokens).toHaveCount(2);
-  await expect(columns.nth(0).getByTestId('transcribe-compare-diff-token')).toHaveText(/MER.?DIAN/);
-  await expect(columns.nth(1).getByTestId('transcribe-compare-diff-token')).toHaveText(/MER.?DIAN/);
+  const panes = page.locator('.ocr-compare-engine-text');
+  await expect(panes).toHaveCount(2);
+  await expect(panes.nth(0)).toContainText('WHISPER TRANSCRIPT LINE 80');
+  await expect(panes.nth(1)).toContainText('PARAKEET TRANSCRIPT LINE 80');
 
-  // Footer token nav: one token differs, character-level.
-  await expect(page.getByTestId('transcribe-compare-token-nav')).toContainText('1 token');
-  await expect(page.getByTestId('transcribe-compare-token-nav')).toContainText('character');
+  const firstScroll = await panes.nth(0).evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+    return {
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+      scrollTop: element.scrollTop,
+    };
+  });
+  expect(firstScroll.scrollHeight).toBeGreaterThan(firstScroll.clientHeight);
+  expect(firstScroll.scrollTop).toBeGreaterThan(0);
+  expect(await panes.nth(1).evaluate((element) => element.scrollTop)).toBe(0);
+
+  const secondScroll = await panes.nth(1).evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+    return element.scrollTop;
+  });
+  expect(secondScroll).toBeGreaterThan(0);
+  expect(await panes.nth(0).evaluate((element) => element.scrollTop)).toBe(firstScroll.scrollTop);
 });
 
-test('clicking a diff token SEEKS the player to that segment start (timestamp alignment)', async ({
+test('plain transcript results leave source playback under the operator’s control', async ({
   page,
 }) => {
-  const pid = await createProject(page.request, uniqueName('tc-seek'));
+  const pid = await createProject(page.request, uniqueName('tc-source'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
   await patchTranscribeCatalog(page);
   await routeComparison(page);
@@ -357,22 +388,17 @@ test('clicking a diff token SEEKS the player to that segment start (timestamp al
   await runComparison(page);
   await expect(page.getByTestId('transcribe-compare-engine-column')).toHaveCount(2);
 
-  // The disagreement is in segment index 1, whose start is 1.0s. Clicking the
-  // diff token opens the peek and seeks the player to that segment's start.
-  await page.getByTestId('transcribe-compare-diff-token').first().click();
+  await expect(page.getByTestId('transcribe-compare-player')).toHaveCount(0);
   const player = page.getByTestId('transcribe-compare-player');
+  await page.getByTestId('transcribe-compare-source-toggle').click();
   await expect(player).toBeVisible();
-  await expect(player).toHaveAttribute('data-seek-seconds', '1');
-  // The real seek ran: the media element's currentTime advanced off zero.
-  await expect
-    .poll(() => player.evaluate((el) => (el as HTMLMediaElement).currentTime))
-    .toBeGreaterThan(0);
+  await expect(player).not.toHaveAttribute('data-seek-seconds');
 });
 
-test('third engine flips diff → survey (no color); narrowing back to two re-arms the diff', async ({
+test('adding or removing engines keeps every transcript as plain output', async ({
   page,
 }) => {
-  const pid = await createProject(page.request, uniqueName('tc-survey'));
+  const pid = await createProject(page.request, uniqueName('tc-plain'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
   await patchTranscribeCatalog(page);
   await routeComparison(page);
@@ -381,21 +407,21 @@ test('third engine flips diff → survey (no color); narrowing back to two re-ar
   await dropMedia(page, 'transcribe-compare-file-input', 'audio');
   await runComparison(page);
 
-  await expect(page.getByTestId('transcribe-compare-mode-diff')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByTestId('transcribe-compare-diff-token').first()).toBeVisible();
+  await expect(page.getByTestId('transcribe-compare-mode-switch')).toHaveCount(0);
+  await expect(page.getByTestId('transcribe-compare-diff-token')).toHaveCount(0);
 
   await page.getByTestId('transcribe-compare-add-engine').click();
   await page.getByTestId('transcribe-compare-add-engine-option-vosk').click();
   await expect(page.getByTestId('transcribe-compare-engine-column')).toHaveCount(3);
   // The third candidate is configured but unrun until asked for.
   await runComparison(page, 3);
-  await expect(page.getByTestId('transcribe-compare-mode-survey')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.ocr-compare-plain-text')).toHaveCount(6);
   await expect(page.getByTestId('transcribe-compare-diff-token')).toHaveCount(0);
 
   await page.getByTestId('transcribe-compare-engine-chip-remove-vosk').click();
   await expect(page.getByTestId('transcribe-compare-engine-column')).toHaveCount(2);
-  await expect(page.getByTestId('transcribe-compare-mode-diff')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByTestId('transcribe-compare-diff-token').first()).toBeVisible();
+  await expect(page.locator('.ocr-compare-plain-text')).toHaveCount(4);
+  await expect(page.getByTestId('transcribe-compare-diff-token')).toHaveCount(0);
 });
 
 test('votes cycle per document; doc list marks + footer tally update', async ({ page }) => {

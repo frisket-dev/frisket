@@ -77,6 +77,8 @@ export interface MediaCompareConfig<R> {
   ): Promise<RunOutcome<R>>;
   unitsForDoc(doc: ScratchDoc<R>, columns: CompareColumn[]): AlignedUnit[];
   autoRun: boolean;
+  /** Set false when a comparison should show each engine's plain output only. */
+  enableDiff?: boolean;
   noDiffUnitLabel: string;
   defaultColumnOptions?: Record<string, unknown>;
 }
@@ -570,12 +572,14 @@ export function useMediaCompareSession<R>(
   const [prevRunnableCount, setPrevRunnableCount] = useState(runnableColumns.length);
   if (runnableColumns.length !== prevRunnableCount) {
     setPrevRunnableCount(runnableColumns.length);
-    if (runnableColumns.length === 2) setMode('diff');
+    if (config.enableDiff !== false && runnableColumns.length === 2) setMode('diff');
   }
 
   const effectiveMode: 'diff' | 'survey' =
-    runnableColumns.length >= 3 ? 'survey' : runnableColumns.length <= 1 ? 'survey' : mode;
-  const diffArmed = effectiveMode === 'diff' && runnableColumns.length === 2;
+    config.enableDiff === false || runnableColumns.length >= 3 || runnableColumns.length <= 1
+      ? 'survey'
+      : mode;
+  const diffArmed = config.enableDiff !== false && effectiveMode === 'diff' && runnableColumns.length === 2;
   const bothColumnsDone =
     diffArmed &&
     activeDoc !== null &&
