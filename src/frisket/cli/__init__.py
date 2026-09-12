@@ -614,6 +614,14 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
     register_handlers = (
         register_hosted_handlers if hosted else register_production_handlers
     )
+    control_database_url = os.environ.get("FRISKET_DATABASE_URL")
+    registration_options = {}
+    team_database_url = os.environ.get("FRISKET_TEAM_DATABASE_URL")
+    if not hosted and database_url and team_database_url:
+        from frisket.team.worker_ports import team_worker_ports_from_env
+
+        registration_options["worker_ports"] = team_worker_ports_from_env()
+        control_database_url = team_database_url
     # The composition's own project-open seam (None for the open worker).
     # Reused for the scheduler scans below so that EVERY project this process
     # opens — claimed job handlers and background scans alike — goes through
@@ -622,7 +630,8 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
         registry,
         workspace_root=handler_root,
         queue=queue,
-        control_database_url=os.environ.get("FRISKET_DATABASE_URL"),
+        control_database_url=control_database_url,
+        **registration_options,
     )
     if not hosted:
         if database_url:
@@ -636,7 +645,7 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
                 registry,
                 workspace_root=handler_root,
                 queue=queue,
-                control_database_url=os.environ.get("FRISKET_DATABASE_URL"),
+                control_database_url=control_database_url,
             )
         else:
             # The plain local worker command path, unconditional (the

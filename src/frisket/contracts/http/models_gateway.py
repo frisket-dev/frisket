@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import ConfigDict, field_validator, model_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from frisket.contracts.http.models import WireModel
 
@@ -15,7 +15,7 @@ class ModelsGatewayCandidateRequest(WireModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     origin: str | None = None
-    token: str | None = None
+    token: str | None = Field(default=None, repr=False)
 
     @field_validator("origin", "token")
     @classmethod
@@ -33,8 +33,8 @@ class ModelsGatewayCandidateRequest(WireModel):
 
 class ModelsGatewaySaveRequest(WireModel):
     origin: str
-    token: str
-    validation_token: str
+    token: str = Field(repr=False)
+    validation_token: str = Field(repr=False)
 
     @field_validator("origin", "token", "validation_token")
     @classmethod
