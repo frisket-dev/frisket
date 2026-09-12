@@ -297,7 +297,9 @@ def _transcribe(runtime: _Runtime, path: str) -> dict[str, Any]:
     return {
         "text": text,
         "segments": segments,
-        "language": "en" if text else None,
+        # v3 recognizes its supported languages automatically but does not
+        # report a detected language on this API. Do not fabricate one.
+        "language": None,
     }
 
 

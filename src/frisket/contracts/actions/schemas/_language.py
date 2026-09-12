@@ -43,8 +43,8 @@ class LanguageDeclaration(ContractModel):
 
     - ``auto_only``  — the engine ignores any language hint (renders no
       control). Distinct from ``fixed``: auto_only genuinely auto-detects.
-    - ``fixed``      — the engine only ever does ``fixed_language`` (e.g.
-      English-only Parakeet). UI can say "English only" honestly; no control.
+    - ``fixed``      — the engine only ever does ``fixed_language``. UI can
+      name that language honestly; no control.
     - ``single``     — one language OR Auto. UI renders one Auto-first picker.
     - ``multi``      — a SET of expected languages. UI renders a multi-select.
 

@@ -57,6 +57,20 @@ describe('transcription engine option declarations', () => {
     });
   });
 
+  it('keeps the Parakeet fallback auto-only without a language override', () => {
+    const parakeet = TRANSCRIBE_ENGINE_FALLBACK.find(
+      (engine) => engine.id === 'parakeet-tdt',
+    );
+    expect(parakeet).toMatchObject({
+      label: 'Parakeet (fast multilingual transcription)',
+      language: {
+        mode: 'auto_only', default: 'auto', detects: false, allows_auto: true,
+      },
+      transcription_options: { language: false },
+    });
+    expect(parakeet?.language?.fixed_language).toBeUndefined();
+  });
+
   it('fails closed for an undeclared unknown engine', () => {
     const undeclared: EngineOption = {
       id: 'unknown_fixture',

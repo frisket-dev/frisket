@@ -1,7 +1,7 @@
 """Parakeet loads with an explicit ONNX provider.
 
 ONNX Runtime's CoreMLExecutionProvider fails to even initialize on
-nemo-parakeet-tdt-0.6b-v2
+nemo-parakeet-tdt-0.6b-v3
 ("model_path must not be empty", initializer.cc:45 -- the known CoreML-EP
 bytes-loaded-model bug). A direct probe confirmed
 ``onnx_asr.load_model(PARAKEET_MODEL, providers=["CPUExecutionProvider"])``
@@ -349,7 +349,7 @@ def _parakeet_cached() -> bool:
             / "hub",
         )
     )
-    return any(hub.glob("models--*parakeet-tdt-0.6b-v2*"))
+    return any(hub.glob("models--*parakeet-tdt-0.6b-v3*"))
 
 
 @pytest.mark.skipif(
@@ -368,7 +368,7 @@ def test_real_onnx_asr_load_model_accepts_explicit_cpu_provider() -> None:
     )
     snapshots = list(
         hub.glob(
-            "models--istupakov--parakeet-tdt-0.6b-v2-onnx/snapshots/"
+            "models--istupakov--parakeet-tdt-0.6b-v3-onnx/snapshots/"
             f"{PARAKEET_MODEL_REVISION}"
         )
     )

@@ -47,7 +47,7 @@ from frisket.sdk.ops.transcription.hosted import OpenAITranscriptionAdapter
 from frisket.sdk.ops.transcription.parakeet import ParakeetAdapter, execution_scope
 from frisket.sdk.ops.transcription.sidecar import TranscriptionV1Adapter
 
-DEFAULT_ENGINE = "faster_whisper"
+DEFAULT_ENGINE = "parakeet-tdt"
 LOCAL_ENGINES = engine_ids(TRANSCRIBE_ENGINE_TABLE, tier="local")
 ENGINE_CHOICES = list(engine_ids(TRANSCRIBE_ENGINE_TABLE))
 ENGINE_ALIASES = execution_alias_map(TRANSCRIBE_ENGINE_TABLE)
@@ -191,7 +191,7 @@ async def run_transcription_engine(
         out = await adapter.transcribe(path, spec, should_cancel=should_cancel)
     elif isinstance(adapter, TranscriptionV1Adapter):
         out = await adapter.transcribe(
-            canonical, path, spec, ctx, light_engine=DEFAULT_ENGINE
+            canonical, path, spec, ctx, light_engine="faster_whisper"
         )
     else:
         out = await adapter.transcribe(canonical, path, spec, ctx, media)

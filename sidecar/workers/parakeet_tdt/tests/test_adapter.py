@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
@@ -13,6 +14,7 @@ from frisket_parakeet_tdt.adapter import (
     ENGINE,
     ParakeetConfig,
     ParakeetRuntime,
+    _default_runtime_factory,
     _merge_speaker_turns,
     _sortformer_turns,
     _word_segments,
@@ -98,6 +100,42 @@ def test_leaf_uses_exact_code_owned_descriptor() -> None:
     assert DESCRIPTOR is PARAKEET_DESCRIPTOR
 
 
+def test_default_runtime_uses_pinned_v3_int8_cpu_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: dict[str, tuple[tuple[Any, ...], dict[str, Any]]] = {}
+    fake_onnx_asr = ModuleType("onnx_asr")
+
+    def load_model(*args: Any, **kwargs: Any) -> object:
+        calls["model"] = (args, kwargs)
+        return object()
+
+    def load_vad(*args: Any, **kwargs: Any) -> object:
+        calls["vad"] = (args, kwargs)
+        return object()
+
+    fake_onnx_asr.load_model = load_model  # type: ignore[attr-defined]
+    fake_onnx_asr.load_vad = load_vad  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "onnx_asr", fake_onnx_asr)
+
+    config = ParakeetConfig(Path("/fixed/models"))
+    runtime = _default_runtime_factory(config)
+
+    assert runtime.model is not None and runtime.vad is not None
+    assert calls["model"] == (
+        ("nemo-parakeet-tdt-0.6b-v3",),
+        {
+            "path": config.asr_path,
+            "quantization": "int8",
+            "providers": ["CPUExecutionProvider"],
+        },
+    )
+    assert calls["vad"] == (
+        ("silero",),
+        {"path": config.vad_path, "providers": ["CPUExecutionProvider"]},
+    )
+
+
 def test_probe_does_not_construct_runtime_or_diarizer() -> None:
     calls: list[str] = []
     registration = build_registration(
@@ -115,7 +153,7 @@ def test_probe_does_not_construct_runtime_or_diarizer() -> None:
     assert calls == []
 
 
-def test_default_vad_path_returns_fixed_provenance(tmp_path: Path) -> None:
+def test_default_vad_path_returns_pinned_provenance(tmp_path: Path) -> None:
     model = FakeModel()
     registration = _registration(model, clock=FakeClock(10.0, 10.25))
 
@@ -124,7 +162,7 @@ def test_default_vad_path_returns_fixed_provenance(tmp_path: Path) -> None:
     assert model.vad_calls == [("vad", 1)]
     assert result.engine == ENGINE
     assert result.text == "hello world"
-    assert result.language == "en"
+    assert result.language is None
     assert result.duration == 1.4
     assert result.model_ids == DESCRIPTOR.model_ids
     assert result.revision == DESCRIPTOR.revision

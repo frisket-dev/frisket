@@ -83,7 +83,7 @@ FRISKET_HF_ORG = "frisket-models"
 # repo-id constants of its own, so this manifest is their one home --
 # `_workers/parakeet_artifacts.py` imports these two names from here rather
 # than re-declaring the strings.
-PARAKEET_MODEL_HF_REPO = "istupakov/parakeet-tdt-0.6b-v2-onnx"
+PARAKEET_MODEL_HF_REPO = "istupakov/parakeet-tdt-0.6b-v3-onnx"
 PARAKEET_VAD_HF_REPO = "istupakov/silero-vad-onnx"
 
 # faster-whisper's default 'base' size, revision-pinned the same way (kind
@@ -528,8 +528,8 @@ _MANIFEST: dict[str, PinnedArtifact] = {
     f"hf-snapshot:{PARAKEET_MODEL_HF_REPO}@{_PARAKEET_MODEL_REVISION}": PinnedArtifact(
         ref=f"hf-snapshot:{PARAKEET_MODEL_HF_REPO}@{_PARAKEET_MODEL_REVISION}",
         kind="hf_snapshot",
-        display_name="Parakeet TDT 0.6B v2 (ONNX, int8)",
-        manifest_version="2026.07.2",
+        display_name="Parakeet TDT 0.6B v3 (ONNX, int8)",
+        manifest_version="2026.09.1",
         license="CC-BY-4.0",
         license_url="https://creativecommons.org/licenses/by/4.0/",
         source_url=f"https://huggingface.co/{PARAKEET_MODEL_HF_REPO}/tree/{_PARAKEET_MODEL_REVISION}",
@@ -539,9 +539,9 @@ _MANIFEST: dict[str, PinnedArtifact] = {
             revision=_PARAKEET_MODEL_REVISION,
             files=_PARAKEET_MODEL_FILES,
         ),
-        # Observed hub cache for model+VAD together is ~663 MB; the VAD is
-        # ~2 MB of that.
-        approx_size_bytes=660_000_000,
+        # The selected four-file int8 ASR snapshot is ~670 MB. VAD is
+        # catalogued as a separate artifact below.
+        approx_size_bytes=670_480_039,
     ),
     # Silero VAD, the optional voice-activity companion for Parakeet. Same
     # revision-pinned guarantee as the model entry above. License: MIT,

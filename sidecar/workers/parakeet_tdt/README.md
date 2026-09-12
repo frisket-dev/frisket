@@ -3,7 +3,7 @@
 This isolated production worker serves one fixed transcription-v1 engine:
 
 - engine: `parakeet-tdt`
-- ASR: `istupakov/parakeet-tdt-0.6b-v2-onnx`
+- ASR: `istupakov/parakeet-tdt-0.6b-v3-onnx`
 - VAD: `istupakov/silero-vad-onnx`
 - diarizer: `nvidia/diar_streaming_sortformer_4spk-v2.1`
 

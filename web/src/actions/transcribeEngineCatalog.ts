@@ -55,12 +55,12 @@ const WHISPER_SINGLE: LanguageDeclaration = {
   choices: WHISPER_FALLBACK_CHOICES,
   detects: true,
 };
-const PARAKEET_FIXED_EN: LanguageDeclaration = {
-  mode: 'fixed',
-  default: 'en',
-  fixed_language: 'en',
+const PARAKEET_AUTO_ONLY: LanguageDeclaration = {
+  mode: 'auto_only',
+  default: 'auto',
   choices: null,
   detects: false,
+  allows_auto: true,
 };
 
 const NO_TRANSCRIPTION_OPTIONS: TranscriptionOptionDeclaration = {
@@ -110,14 +110,14 @@ export const TRANSCRIBE_ENGINE_FALLBACK: EngineOption[] = [
   },
   {
     id: 'parakeet-tdt',
-    label: 'Parakeet (fast English transcription)',
+    label: 'Parakeet (fast multilingual transcription)',
     tier: 'local',
     // Unavailable pre-catalog (the moss precedent): the local build needs
     // downloaded artifacts and the catalog's probe is the only honest
     // availability source — the fallback never pretends readiness.
     available: false,
     error: 'Action catalog unavailable',
-    language: PARAKEET_FIXED_EN,
+    language: PARAKEET_AUTO_ONLY,
     // Engine-level union: the Modal-served build diarizes (Sortformer,
     // cap 4); per-target enforcement happens at resolution, and the local
     // build's inability surfaces as an honest refusal, never a silent drop.

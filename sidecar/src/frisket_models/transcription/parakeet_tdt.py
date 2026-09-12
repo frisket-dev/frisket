@@ -11,8 +11,8 @@ from frisket_models.transcription.contract import (
 
 PARAKEET_ENGINE = "parakeet-tdt"
 PARAKEET_ENV_PREFIX = "FRISKET_TRANSCRIPTION_PARAKEET_TDT_WORKER"
-PARAKEET_MODEL_ID = "istupakov/parakeet-tdt-0.6b-v2-onnx"
-PARAKEET_MODEL_REVISION = "0bbb45a3365852604aef28b538a8f066f4ccaa85"
+PARAKEET_MODEL_ID = "istupakov/parakeet-tdt-0.6b-v3-onnx"
+PARAKEET_MODEL_REVISION = "8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce"
 PARAKEET_VAD_ID = "istupakov/silero-vad-onnx"
 PARAKEET_VAD_REVISION = "b3e3ee3cce4c11ceb63b1a0b229d916069c1ddf6"
 DIARIZER_MODEL_ID = "nvidia/diar_streaming_sortformer_4spk-v2.1"
