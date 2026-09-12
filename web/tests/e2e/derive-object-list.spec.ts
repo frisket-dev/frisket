@@ -358,9 +358,10 @@ test('derive "From existing list column" materializes a JSON list column with no
   // Switch to the new "From existing list column" mode.
   await page.getByTestId('derive-source-mode-column').click();
   await page.getByTestId('derive-source-column-select').selectOption('pdf_tables');
-  // No prompt / model / fields in this mode; footer advertises a local run.
+  // No prompt, engine, or model fields in this mode; footer advertises a local run.
   await expect(page.getByTestId('action-prompt')).toHaveCount(0);
-  await expect(page.getByTestId('model-picker-button')).toHaveCount(0);
+  await expect(page.getByTestId('field-engine')).toHaveCount(0);
+  await expect(page.getByTestId('field-model')).toHaveCount(0);
   await expect(page.getByTestId('cost-estimate')).toContainText('No execution charge: $0.00');
 
   await page.getByTestId('field-sheet_name').fill('PDF Rows');
