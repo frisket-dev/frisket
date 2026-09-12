@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { ActionCatalogPayload, EngineOption } from '../api/open';
 import type { PreviewSampleResult } from '../api/types';
@@ -281,7 +281,9 @@ export function useMediaCompareSession<R>(
     [catalog, columns, isRunnable],
   );
   const currentRunnable = useRef({ projectId, columns: runnableColumns });
-  currentRunnable.current = { projectId, columns: runnableColumns };
+  useLayoutEffect(() => {
+    currentRunnable.current = { projectId, columns: runnableColumns };
+  }, [projectId, runnableColumns]);
   const isCurrentlyRunnable = useCallback((column: CompareColumn, scope: typeof projectId) => {
     if (currentRunnable.current.projectId !== scope) return false;
     const current = currentRunnable.current.columns.find((item) => item.id === column.id);

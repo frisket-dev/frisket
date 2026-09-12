@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { selectorChoicesApi, type SelectorChoice } from '../api/selectorChoices';
 import { mediaSelectorQuery, type MediaSelectorAction } from './mediaCompareSelector';
 import type { CompareColumn } from './mediaCompareSession';
@@ -10,7 +10,9 @@ export function useCompareSelectorReadiness(
   const [readiness, setReadiness] = useState<Record<string, { key: string; canRun: boolean }>>({});
   const readinessVersions = useRef(new Map<string, number>());
   const currentColumns = useRef(columns);
-  currentColumns.current = columns;
+  useLayoutEffect(() => {
+    currentColumns.current = columns;
+  }, [columns]);
   const readinessKey = useCallback((column: CompareColumn) =>
     JSON.stringify([projectId, mediaSelectorQuery(actionId, column)]),
   [actionId, projectId]);
