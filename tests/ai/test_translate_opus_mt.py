@@ -518,42 +518,36 @@ def test_waiting_pair_download_bounds_cancel_polling_and_still_cancels(
         normalize_artifact_ref("opus-mt:en-es"), root=tmp_path
     )
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    first_poll = threading.Event()
-    repeated_poll = threading.Event()
-    cancel = threading.Event()
-    cancelled = threading.Event()
-    errors: list[BaseException] = []
+    import time
+
+    polls: list[float] = []
 
     def should_cancel() -> bool:
-        if first_poll.is_set():
-            repeated_poll.set()
-        first_poll.set()
-        return cancel.is_set()
+        # realtime: observe the positive interval between actual file-lock polls.
+        polls.append(time.monotonic())
+        return len(polls) == 2
 
-    def contender() -> None:
-        try:
-            opus_mt.ensure_pair_installed(
-                "en", "es", cache_root=tmp_path, should_cancel=should_cancel
-            )
-        except artifact_pull.ProvisionCancelled:
-            cancelled.set()
-        except BaseException as exc:
-            errors.append(exc)
+    with FileLock(lock_path), pytest.raises(artifact_pull.ProvisionCancelled):
+        opus_mt.ensure_pair_installed(
+            "en", "es", cache_root=tmp_path, should_cancel=should_cancel
+        )
+    assert len(polls) == 2
+    assert polls[1] - polls[0] >= 1.5
 
-    with FileLock(lock_path):
-        thread = threading.Thread(target=contender)
-        thread.start()
-        try:
-            assert first_poll.wait(timeout=5)
-            # Cancellation can query durable state: don't hammer the database
-            # while another process owns a minutes-long model download.
-            assert not repeated_poll.wait(timeout=0.3)
-        finally:
-            cancel.set()
-            thread.join(timeout=5)
-        assert not thread.is_alive()
-    assert errors == []
-    assert cancelled.is_set()
+
+def _observe_artifact_lock_attempt(monkeypatch) -> threading.Event:
+    """Rendezvous with an actual lock attempt, without racing a wait window."""
+    from frisket.engine.jobs import artifact_pull
+
+    attempted = threading.Event()
+
+    class ObservedLock(artifact_pull.FileLock):
+        def acquire(self, *args, **kwargs):
+            attempted.set()
+            return super().acquire(*args, **kwargs)
+
+    monkeypatch.setattr(artifact_pull, "FileLock", ObservedLock)
+    return attempted
 
 
 def test_ensure_pair_installed_rechecks_after_another_process_provisions_pair(
@@ -580,7 +574,7 @@ def test_ensure_pair_installed_rechecks_after_another_process_provisions_pair(
     holder.start()
     try:
         assert acquired.wait(timeout=5), "lock holder did not start"
-        finished = threading.Event()
+        attempted = _observe_artifact_lock_attempt(monkeypatch)
         errors: list[BaseException] = []
 
         def contender() -> None:
@@ -590,12 +584,11 @@ def test_ensure_pair_installed_rechecks_after_another_process_provisions_pair(
                 )
             except BaseException as exc:  # test reports the worker exception below
                 errors.append(exc)
-            finally:
-                finished.set()
 
+        # realtime: event rendezvous proves entry into a real cross-process file lock.
         contender_thread = threading.Thread(target=contender)
         contender_thread.start()
-        assert not finished.wait(timeout=0.2), "contender did not wait on file lock"
+        assert attempted.wait(timeout=5), "contender did not attempt the file lock"
         pair_dir = opus_mt._pair_dir("en", "es", tmp_path)
         pair_dir.mkdir(parents=True)
         for name, content in files.items():
@@ -639,7 +632,7 @@ def test_ensure_pair_installed_rechecks_after_a_durable_pull_in_another_process(
     holder.start()
     try:
         assert acquired.wait(timeout=5), "durable pull did not begin downloading"
-        finished = threading.Event()
+        attempted = _observe_artifact_lock_attempt(monkeypatch)
         errors: list[BaseException] = []
 
         def contender() -> None:
@@ -649,12 +642,11 @@ def test_ensure_pair_installed_rechecks_after_a_durable_pull_in_another_process(
                 )
             except BaseException as exc:  # test reports the worker exception below
                 errors.append(exc)
-            finally:
-                finished.set()
 
+        # realtime: event rendezvous proves entry into a real cross-process file lock.
         contender_thread = threading.Thread(target=contender)
         contender_thread.start()
-        assert not finished.wait(timeout=0.2), "first-use worker did not wait"
+        assert attempted.wait(timeout=5), "first-use worker did not attempt the file lock"
         release.set()
         contender_thread.join(timeout=5)
         assert not contender_thread.is_alive()
@@ -701,6 +693,7 @@ def test_ensure_pair_installed_cancels_while_same_process_provisioning_waits(
         except BaseException as exc:  # test reports the primary error below
             primary_errors.append(exc)
 
+    # realtime: the primary download and cancellation rendezvous through events.
     primary_thread = threading.Thread(target=primary)
     primary_thread.start()
     try:
@@ -722,6 +715,7 @@ def test_ensure_pair_installed_cancels_while_same_process_provisioning_waits(
                 cancellation_errors.append(exc)
                 cancelled.set()
 
+        # realtime: positively observe cancellation while the primary is event-blocked.
         contender_thread = threading.Thread(target=cancelled_contender)
         contender_thread.start()
         assert cancelled.wait(timeout=1), "cancelled contender waited behind a mutex"
