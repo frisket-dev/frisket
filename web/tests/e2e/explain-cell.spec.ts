@@ -196,7 +196,7 @@ test('Explain this cell shows the exact prompt + raw output, rendered XSS-safe',
   const trigger = engineField.locator('.engine-selector__trigger');
   await trigger.click();
   const dialog = page.getByTestId('engine-selector-dialog');
-  await dialog.getByRole('searchbox', { name: 'Search Engine' }).fill(MODEL);
+  await dialog.getByRole('searchbox', { name: 'Search Engine' }).fill('Gemini 3.5 Flash-Lite');
   await dialog.locator('[data-engine-selector-choice="gemini-gemini-3-5-flash-lite"]').click();
   await expect(trigger).toContainText('Gemini 3.5 Flash-Lite');
   await page.getByTestId('field-context').fill(PROMPT);
