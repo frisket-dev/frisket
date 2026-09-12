@@ -94,8 +94,13 @@ Missing-key providers remain visible when policy permits setup. Authoritative
 empty results stay empty; errors show Retry, never static fallback choices.
 Saved unknown IDs remain visible and blocked without silent replacement.
 
-Reads perform no probes, inference, estimates, downloads or runtime startup.
-Reuse passive/cached facts. Descriptions stay with the backend model catalog,
+Reads perform no inference, estimates, downloads or runtime startup. Reuse
+passive/cached facts except for configured local-LLM endpoint model discovery:
+the existing bounded, credential-safe `/api/tags` then `/v1/models` probe is
+permitted on catalog load and explicit Recheck, never hover. Its existing owner
+supplies the endpoint-qualified model roster and readiness; no new discovery
+cache or probe framework is needed. No paid-provider or gateway probe is triggered
+by catalog loading. Descriptions stay with the backend model catalog,
 prices with pricing, download bytes with the artifact manifest, target features
 with execution definitions. Omit unverified speed, quality, size or language data.
 When a complete action draft exists, the controller may debounce the existing
@@ -294,7 +299,8 @@ a focused failing test, then implementation and bounded validation.
 Required proof:
 
 - Choice route: incomplete draft, active-target options, unknown saved choice,
-  authoritative empty list, usage router, no network effects, first-use eligibility.
+  authoritative empty list, usage router, no inference/download/startup effects,
+  bounded configured-endpoint discovery only, first-use eligibility.
 - Authority: viewer read without mutation; project-owner/org-member and
   project-viewer/org-owner cases; real mutation enforcement. Bounded Cloud
   companion injects its own predicates and inherits the public route.
