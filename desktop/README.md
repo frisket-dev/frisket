@@ -55,9 +55,9 @@ this build does not claim to test them.
 `npm --prefix desktop test` exercises the token/proxy boundary and real process
 cancellation. Python tests cover the service authentication/readiness boundary.
 The macOS job mounts the actual DMG, copies the app out, warms download caches,
-then removes the dependency environment. It runs the installed application under
-an OS network policy allowing only localhost, so the UI smoke uses no providers
-or live datasets. The real application rebuilds its private environment from the
+then removes the dependency environment. A temporary macOS PF rule blocks new external connections while preserving the
+runner’s existing control connection. This avoids nesting Seatbelt around
+Chromium’s own sandbox. The UI smoke uses no providers or live datasets. The real application rebuilds its private environment from the
 cache, imports CSV, runs a local action through its queue, exports, quits and
 reopens persisted work. Browser and subprocess cleanup are checked.
 
