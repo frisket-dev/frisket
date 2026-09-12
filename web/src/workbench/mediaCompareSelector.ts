@@ -1,7 +1,7 @@
 import type { HttpSelectorChoicesQuery } from '../generated/openHttpContracts';
 import type { CompareColumn } from './mediaCompareSession';
 
-export type MediaSelectorAction = 'media.ocr' | 'media.transcribe' | 'map.find_topic_sections';
+export type MediaSelectorAction = 'media.ocr' | 'media.transcribe' | 'map.find_topic_sections' | 'map.translate';
 
 /** Translate the comparison's existing option names to canonical action Params. */
 export function mediaSelectorQuery(actionId: MediaSelectorAction, column: CompareColumn): HttpSelectorChoicesQuery {

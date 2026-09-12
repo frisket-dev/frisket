@@ -8,6 +8,8 @@ import { engineIsRemote, tierForEngine } from '../actions/engineCatalog';
 import { EngineTierBadge } from '../components/EngineTierBadge';
 import { CompareBillableEnginesNote } from './MediaCompareShell';
 import { PanelSelect } from '../components/PanelSelect';
+import { mediaSelectorQuery } from './mediaCompareSelector';
+import { useCompareSelectorReadiness } from './useCompareSelectorReadiness';
 import { SelectorField } from '../engine-selector/SelectorField';
 
 // TranslateCompareTab — the TEXT-source sibling of the OCR/Transcribe
@@ -53,6 +55,7 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
   const { projectApi: api, chromePreferences: { projectId } } = useWorkspaceStores();
   const [engines, setEngines] = useState<EngineOption[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [selectorEngineId, setSelectorEngineId] = useState<string | null>(null);
   const [text, setText] = useState('');
   const [targetLanguage, setTargetLanguage] = useState(DEFAULT_TARGET);
   const [sourceLanguage, setSourceLanguage] = useState('');
@@ -103,14 +106,25 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
     });
   }, [hasData, selectedIds.length, onSessionChange]);
 
-  const canRun =
-    Boolean(text.trim()) && selectedIds.length > 0 && !running;
+  const selectedColumns = useMemo(() => selectedIds.map((id) => ({
+    id, engineId: id, options: { language: sourceLanguage, target_language: targetLanguage },
+  })), [selectedIds, sourceLanguage, targetLanguage]);
+  const { isRunnable, reportColumnChoice } = useCompareSelectorReadiness(projectId, 'map.translate', selectedColumns);
+  const selectorColumn = { id: selectorEngineId ?? 'add', engineId: selectorEngineId,
+    options: { language: sourceLanguage, target_language: targetLanguage } };
 
-  const removeEngine = (id: string) =>
+  const canRun =
+    Boolean(text.trim()) && selectedIds.length > 0 && !running
+    && selectedColumns.every((column) => engineById.has(column.id) && isRunnable(column));
+
+  const removeEngine = (id: string) => {
     setSelectedIds((ids) => ids.filter((candidate) => candidate !== id));
+    setSelectorEngineId((current) => current === id ? null : current);
+  };
 
   const addEngine = (id: string) => {
     setSelectedIds((ids) => (ids.includes(id) ? ids : [...ids, id]));
+    setSelectorEngineId(id);
   };
 
   async function run() {
@@ -190,19 +204,8 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
               <SelectorField
                 projectId={projectId}
                 label="Add engine"
-                query={{
-                  schema_version: 'frisket.selector_choices_query.v1',
-                  subject: {
-                    kind: 'action',
-                    action_id: 'map.translate',
-                    field: 'engine',
-                    params: {
-                      engine: '',
-                      language: sourceLanguage,
-                      target_language: targetLanguage,
-                    },
-                  },
-                }}
+                query={mediaSelectorQuery('map.translate', selectorColumn)}
+                onCurrentChoiceChange={(choice) => reportColumnChoice(selectorColumn, choice)}
                 recentNamespace={`${projectId}:translate-compare`}
                 allowChoice={(choice) => {
                   const authored = choice.authored_selection;

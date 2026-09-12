@@ -13,6 +13,8 @@ import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const selectorDraft = vi.hoisted(() => ({ engine: 'hy_mt2' }));
+
 vi.mock('../../src/engine-selector/SelectorField', () => ({
   SelectorField: ({ onSelect, query, allowChoice }: {
     onSelect(choice: { authored_selection: { kind: 'engine'; engine: string } }): void;
@@ -22,11 +24,13 @@ vi.mock('../../src/engine-selector/SelectorField', () => ({
     data-language={String(query.subject.params.language ?? '')}
     data-target={String(query.subject.params.target_language ?? '')}
     onClick={() => {
-      const local = { authored_selection: { kind: 'engine' as const, engine: 'hy_mt2' } };
+      const local = { authored_selection: { kind: 'engine' as const, engine: selectorDraft.engine } };
       if (allowChoice(local)) onSelect(local);
     }}>Add engine</button>,
 }));
 
+import { selectorChoicesApi } from '../../src/api/selectorChoices';
+import { mediaChoices } from '../support/mediaSelectorFixtures';
 import { TranslateCompareTab } from '../../src/workbench/TranslateCompareTab';
 
 import type { ActionCatalogPayload, TranslateCompareScratchResult } from '../../src/api/types';
@@ -77,6 +81,8 @@ afterEach(() => {
 
 describe('TranslateCompareTab', () => {
   beforeEach(() => {
+    selectorDraft.engine = 'hy_mt2';
+    vi.spyOn(selectorChoicesApi, 'getSelectorChoices').mockImplementation(async (_pid, query) => mediaChoices(query, ['hy_mt2', 'opus_mt']));
     vi.spyOn(api, 'listActionCatalog').mockResolvedValue(catalog());
   });
 
@@ -159,7 +165,7 @@ describe('TranslateCompareTab', () => {
     // Free engines only: no consent affordance exists, and Run is live at once.
     expect(screen.queryByTestId('translate-compare-remote-consent')).not.toBeInTheDocument();
     expect(screen.queryByTestId('translate-compare-allow-remote')).not.toBeInTheDocument();
-    expect(screen.getByTestId('translate-compare-run')).toBeEnabled();
+    await waitFor(() => expect(screen.getByTestId('translate-compare-run')).toBeEnabled());
 
     await user.click(screen.getByTestId('translate-compare-run'));
     await waitFor(() => screen.getByTestId('translate-compare-results'));
@@ -181,6 +187,38 @@ describe('TranslateCompareTab', () => {
     expect(
       screen.queryByTestId('translate-compare-result-text-hy_mt2'),
     ).not.toBeInTheDocument();
+  });
+
+  it('blocks an already selected Opus variant when its language pair becomes unsupported', async () => {
+    selectorDraft.engine = 'opus_mt';
+    vi.mocked(selectorChoicesApi.getSelectorChoices).mockImplementation(async (_pid, query) => {
+      const params = query.subject.kind === 'action' ? query.subject.params : {};
+      return mediaChoices(query, ['hy_mt2', 'opus_mt'], params?.target_language !== 'Japanese');
+    });
+    const scratch = vi.spyOn(api, 'compareTranslateScratch').mockResolvedValue({
+      schema_version: 'frisket.translate_compare_preview.v1', source: { scratch: true, text_length: 5 },
+      target_language: 'Spanish', engines: ['opus_mt'], results: [], warnings: [], errors: [],
+    });
+    const user = userEvent.setup();
+    render(<TranslateCompareTab onSessionChange={() => undefined} />);
+    await user.type(screen.getByTestId('translate-compare-text'), 'Hello');
+    await user.click(screen.getByTestId('translate-compare-source-language'));
+    await user.click(within(screen.getByTestId('translate-compare-source-language-menu')).getByRole('option', { name: 'English' }));
+    await user.click(screen.getByTestId('translate-compare-selector'));
+    const run = screen.getByTestId('translate-compare-run');
+    await waitFor(() => expect(run).toBeEnabled());
+    await user.click(run);
+    await waitFor(() => expect(scratch).toHaveBeenCalledTimes(1));
+    expect(scratch).toHaveBeenCalledWith(expect.objectContaining({ engines: ['opus_mt'], language: 'en', targetLanguage: 'Spanish' }));
+    const target = screen.getByTestId('translate-compare-target-language');
+    await user.clear(target);
+    await user.type(target, 'Japanese');
+    await waitFor(() => expect(selectorChoicesApi.getSelectorChoices).toHaveBeenLastCalledWith('test-project',
+      expect.objectContaining({ subject: expect.objectContaining({ params: { engine: 'opus_mt', language: 'en', target_language: 'Japanese' } }) }), expect.anything()));
+    expect(screen.getByTestId('translate-compare-engine-chip')).toHaveAttribute('data-engine-id', 'opus_mt');
+    expect(run).toBeDisabled();
+    await user.click(run);
+    expect(scratch).toHaveBeenCalledTimes(1);
   });
 
   it('removing an engine chip drops it from the run set', async () => {
