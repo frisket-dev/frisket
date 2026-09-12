@@ -453,7 +453,7 @@ CREATE TABLE IF NOT EXISTS workbench_plugin_installs (
 -- Project-scoped workbench plugin env vars. Values are write-only through
 -- HTTP routes: encrypted stores the envelope ciphertext, hint is redacted.
 -- The (plugin_id, name) primary key scopes every secret to one plugin: the
--- execution read path (_project_plugin_env) resolves a plugin's declared env
+-- execution read path (_project_plugin_secrets) resolves a plugin's declared env
 -- from THIS table alone, never the global project_secrets namespace, so two
 -- plugins declaring the same name get isolated values and a plugin cannot
 -- read or overwrite a core-owned credential.

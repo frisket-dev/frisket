@@ -311,3 +311,20 @@ def test_stream_contracts_are_incremental_iterators_not_frame_lists() -> None:
         assert get_origin(value) is Iterator
         assert get_args(value)
         assert get_origin(value) is not list
+
+
+def test_malformed_secret_snapshot_is_not_in_validation_error():
+    secret = "invocation-secret-must-not-be-in-diagnostics"
+    with pytest.raises(ValidationError) as caught:
+        rpc.PluginImporterCapabilityContext.model_validate(
+            {
+                "projectId": "p",
+                "pluginId": "p",
+                "handlerKey": "h",
+                "importerKind": "csv",
+                "capabilities": ["project:write"],
+                "secretValues": {"TOKEN": {"wrong-type": secret}},
+            }
+        )
+    assert secret not in str(caught.value)
+    assert secret not in repr(caught.value)

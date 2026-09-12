@@ -12,7 +12,7 @@ from frisket.plugins.process_client import (
 
 from frisket.authoring.workbench.plugin_subprocess import (
     _plugin_process_client,
-    _project_plugin_env,
+    _project_plugin_secrets,
 )
 
 
@@ -28,7 +28,7 @@ def run_plugin_operator_subprocess(
     if not module_path or not plugin_root:
         raise RuntimeError("plugin operator binding is missing subprocess metadata")
 
-    secret_values = _project_plugin_env(
+    secret_values = _project_plugin_secrets(
         project, plugin_id=binding.plugin, metadata=metadata
     )
     if isinstance(secret_values, dict) and "_error" in secret_values:

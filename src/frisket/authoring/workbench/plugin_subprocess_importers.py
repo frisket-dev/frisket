@@ -24,7 +24,7 @@ from frisket.plugins.process_client import (
 from frisket.authoring.workbench.plugin_subprocess import (
     _failed,
     _plugin_process_client,
-    _project_plugin_env,
+    _project_plugin_secrets,
     _required_plugin_env_names,
 )
 
@@ -48,7 +48,7 @@ def run_plugin_importer_subprocess(
     secret_values = (
         {}
         if row_limit is not None
-        else _project_plugin_env(project, plugin_id=binding.plugin, metadata=metadata)
+        else _project_plugin_secrets(project, plugin_id=binding.plugin, metadata=metadata)
     )
     if isinstance(secret_values, dict) and "_error" in secret_values:
         return secret_values["_error"]

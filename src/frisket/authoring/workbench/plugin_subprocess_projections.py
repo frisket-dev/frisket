@@ -17,7 +17,7 @@ from frisket.plugins.process_client import (
 
 from frisket.authoring.workbench.plugin_subprocess import (
     _plugin_process_client,
-    _project_plugin_env,
+    _project_plugin_secrets,
 )
 
 TIMELINE_PROJECTION_ARTIFACT_SCHEMA_VERSION = "frisket.timeline_projection_artifact.v1"
@@ -155,7 +155,7 @@ def run_plugin_projection_build_subprocess(
             projection_kind=projection_kind,
         )
 
-    secret_values = _project_plugin_env(
+    secret_values = _project_plugin_secrets(
         project, plugin_id=binding.plugin, metadata=metadata
     )
     if isinstance(secret_values, dict) and "_error" in secret_values:
@@ -285,7 +285,7 @@ def _run_plugin_projection_plan_subprocess(
             "Plugin projection binding is missing subprocess entrypoint metadata",
             projection_kind=projection_kind,
         )
-    secret_values = _project_plugin_env(
+    secret_values = _project_plugin_secrets(
         project, plugin_id=binding.plugin, metadata=metadata
     )
     if isinstance(secret_values, dict) and "_error" in secret_values:

@@ -41,7 +41,9 @@ PLUGIN_INVOCATION_SEMANTICS: Final = PluginInvocationSemantics()
 
 
 class PluginRpcModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    model_config = ConfigDict(
+        extra="forbid", populate_by_name=True, hide_input_in_errors=True
+    )
 
 
 class PluginErrorDetails(PluginRpcModel):
