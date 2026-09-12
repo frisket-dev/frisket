@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
@@ -44,6 +45,13 @@ function statusLabel(status: EngineSelectorStatus): string {
     working: 'Working',
     unavailable: 'Unavailable',
   }[status];
+}
+
+function groupStatus(group: EngineSelectorGroup): EngineSelectorStatus {
+  if (group.choices.some((choice) => choice.status === 'ready')) return 'ready';
+  if (group.choices.some((choice) => choice.status === 'needs_setup')) return 'needs_setup';
+  if (group.choices.some((choice) => choice.status === 'working')) return 'working';
+  return 'unavailable';
 }
 
 function recentStorageKey(namespace: string): string {
@@ -139,6 +147,8 @@ export function EngineSelector({
         if (rightRecent < 0) return -1;
         return leftRecent - rightRecent;
       });
+  const hasRecentChoices = !hasSearch && orderedChoices.some((choice) => recents.includes(choice.id));
+  const hasNonRecentChoices = !hasSearch && orderedChoices.some((choice) => !recents.includes(choice.id));
   const showProviderFilter = !hasSearch && (currentGroup?.choices.length ?? 0) > 12;
   const positioning = useAnchoredPosition(triggerRef, {
     enabled: open,
@@ -421,7 +431,7 @@ export function EngineSelector({
                   type="button"
                   aria-pressed={currentGroup?.id === group.id}
                   onClick={() => navigateToProvider(group)}
-                >{group.label}</button>
+                ><span className={`engine-selector__status engine-selector__status--${groupStatus(group)}`} aria-hidden />{group.label}</button>
               ))}
             </nav>
           )}
@@ -449,7 +459,7 @@ export function EngineSelector({
                     onMouseLeave={cancelHoverIntent}
                     onClick={() => navigateToProvider(group)}
                     onKeyDown={(event) => onGroupKeyDown(event, index)}
-                  >{group.label}</button>
+                  ><span className={`engine-selector__status engine-selector__status--${groupStatus(group)}`} aria-hidden /><span>{group.label}</span></button>
                 ))}
               </aside>
             )}
@@ -471,7 +481,10 @@ export function EngineSelector({
               ) : orderedChoices.map((choice, index) => {
                 const group = groupForChoice(groups, choice.id);
                 const isRecent = !hasSearch && recents.includes(choice.id);
-                return (
+                const isFirstNonRecent = hasRecentChoices && hasNonRecentChoices && !isRecent
+                  && !orderedChoices.slice(0, index).some((candidate) => !recents.includes(candidate.id));
+                return <Fragment key={choice.id}>
+                  {isFirstNonRecent && <div className="engine-selector__recent-divider" data-engine-selector-recent-divider aria-hidden />}
                   <button
                     key={choice.id}
                     type="button"
@@ -495,7 +508,7 @@ export function EngineSelector({
                     {isRecent && <span className="engine-selector__recent">Recent</span>}
                     {value === choice.id && <span aria-label="Selected">✓</span>}
                   </button>
-                );
+                </Fragment>;
               })}
             </section>
 

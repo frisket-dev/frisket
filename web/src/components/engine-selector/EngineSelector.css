@@ -116,6 +116,9 @@
 
 .engine-selector__tabs button,
 .engine-selector__groups button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   padding: 5px 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-999);
@@ -169,6 +172,8 @@
   text-align: left;
 }
 
+.engine-selector__tabs .engine-selector__status { width: 7px; height: 7px; }
+
 .engine-selector__groups button::after {
   margin-left: auto;
   color: var(--text-light);
@@ -209,6 +214,12 @@
 }
 
 .engine-selector__choice.is-selected strong { color: var(--accent-strong); }
+
+.engine-selector__recent-divider {
+  height: 1px;
+  margin: 5px 10px;
+  background: var(--border);
+}
 
 .engine-selector__status {
   width: 8px;
