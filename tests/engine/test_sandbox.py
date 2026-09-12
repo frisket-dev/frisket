@@ -36,6 +36,7 @@ from frisket.engine.sandbox.shim import (
     run_sandboxed,
     run_sandboxed_stdout_lines,
 )
+from frisket.runtime.launch import worker_argv
 
 
 @pytest.fixture
@@ -105,6 +106,10 @@ broker.sendall(b"broker-ok")
 broker.close()
 print(json.dumps({"denied": denied, "broker_connected": True}, sort_keys=True))
 """
+
+
+def _managed_recipe(source: str) -> tuple[list[str], bytes]:
+    return worker_argv("recipe"), json.dumps({"source": source, "payload": {}}).encode()
 
 
 def _force_trusted_linux_path(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -212,10 +217,12 @@ class TestEnvScrubbing:
         _force_trusted_linux_path(monkeypatch)
         listener = _broker_listener(sock_dir / "buffered.sock")
         with listener:
+            argv, request = _managed_recipe(_TRUSTED_NETWALL_PROBE)
             result = asyncio.run(
                 run_sandboxed(
-                    [sys.executable, "-c", _TRUSTED_NETWALL_PROBE],
+                    argv,
                     policy=SandboxPolicy(trusted_python_netwall=True),
+                    stdin_data=request,
                     extra_env={
                         "FRISKET_BROKER_ENDPOINT": "unix://"
                         + quote(str(sock_dir / "buffered.sock"), safe="/")
@@ -234,11 +241,13 @@ class TestEnvScrubbing:
         listener = _broker_listener(sock_dir / "streaming.sock")
         lines: list[str] = []
         with listener:
+            argv, request = _managed_recipe(_TRUSTED_NETWALL_PROBE)
             result = asyncio.run(
                 run_sandboxed_stdout_lines(
-                    [sys.executable, "-c", _TRUSTED_NETWALL_PROBE],
+                    argv,
                     on_stdout_line=lines.append,
                     policy=SandboxPolicy(trusted_python_netwall=True),
+                    stdin_data=request,
                     extra_env={
                         "FRISKET_BROKER_ENDPOINT": "unix://"
                         + quote(str(sock_dir / "streaming.sock"), safe="/")
@@ -273,10 +282,12 @@ class TestEnvScrubbing:
             "    out['error'] = str(e)\n"
             "print(json.dumps(out))\n"
         )
+        argv, request = _managed_recipe(probe)
         result = asyncio.run(
             run_sandboxed(
-                [sys.executable, "-c", probe],
+                argv,
                 policy=SandboxPolicy(trusted_python_netwall=True),
+                stdin_data=request,
                 extra_env={"FRISKET_BROKER_ENDPOINT": "tcp://1.1.1.1:443?token=x"},
             )
         )
@@ -376,14 +387,14 @@ class TestEnvScrubbing:
         }
 
     def test_trusted_python_netwall_rejects_other_commands(self, monkeypatch):
-        with pytest.raises(ValueError, match="current interpreter"):
+        with pytest.raises(ValueError, match="managed Python entrypoint"):
             asyncio.run(
                 run_sandboxed(
                     [sys.executable, "-V"],
                     policy=SandboxPolicy(trusted_python_netwall=True),
                 )
             )
-        with pytest.raises(ValueError, match="current interpreter"):
+        with pytest.raises(ValueError, match="managed Python entrypoint"):
             asyncio.run(
                 run_sandboxed_stdout_lines(
                     [sys.executable, "-V"],

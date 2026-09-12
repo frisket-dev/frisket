@@ -62,9 +62,9 @@ class TestRuntimeConfigReportsTheFencePosture:
 
 class TestThePostureIsDerivedFromTheFence:
     def test_enforced_means_exactly_what_the_fence_calls_enforced(self, monkeypatch):
-        """Not a platform list of its own: enforced == the fence sends a prelude."""
+        """Not a platform list of its own: enforced == a kernel policy exists."""
         assert (recipe_fence_posture() == "enforced") == bool(
-            fence.recipe_prelude(allow_unix_sockets=False)
+            fence.bootstrap_policy(audit_netwall=True, recipe=True)["fence"]
         )
         for platform in fence._UNENFORCED_PLATFORM_NOTES:
             monkeypatch.setattr(sys, "platform", platform)

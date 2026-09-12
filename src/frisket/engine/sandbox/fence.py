@@ -1,9 +1,8 @@
 """The kernel fence: what a sandboxed child is actually confined by.
 
-This is the parent half. It assembles the child prelude (`_child_fence.py`,
-read as source and prepended to the child's body), names the platforms, and
-turns a child that could not fence itself into one named exception instead of
-a silent no-op run.
+This is the parent half. It serializes a narrow data-only policy for the fixed
+runtime bootstrap, names the platforms, and turns a child that could not fence
+itself into one named exception instead of a silent no-op run.
 
 Two lanes use it, with one mechanism and two profiles:
 
@@ -91,34 +90,30 @@ class SandboxEnforcementUnavailable(RuntimeError):
     """
 
 
-@functools.lru_cache(maxsize=1)
-def _child_fence_source() -> str:
-    """The text of `_child_fence.py`, which is prepended to the recipe body.
+def bootstrap_policy(
+    *,
+    audit_netwall: bool,
+    allow_unix_sockets: bool = False,
+    confinement: Confinement | None = None,
+    recipe: bool = False,
+) -> dict[str, object]:
+    """Return the only policy shape accepted by the managed bootstrap.
 
-    Read as source rather than imported because the child is
-    `python -I -c <body>` and the fence has to be up before anything else runs
-    -- including before the child would be allowed to read Frisket's own
-    package directory.
+    ``recipe`` requests the built-in Python roots on Linux even without a
+    caller-supplied converter profile. Other platforms preserve the historical
+    audit-only/degraded posture by carrying no kernel-fence object.
     """
-    from importlib.resources import files
 
-    return files(__package__).joinpath("_child_fence.py").read_text(encoding="utf-8")
-
-
-def linux_recipe_prelude(*, allow_unix_sockets: bool) -> str:
-    """Source to run in the recipe child before any recipe code.
-
-    Installs the fence and converts a failure into the stderr marker plus a
-    non-zero exit, so the parent can refuse with a named error.
-    """
-    return _install_or_refuse(f"_frisket_fence_install({allow_unix_sockets!r})")
-
-
-def recipe_prelude(*, allow_unix_sockets: bool) -> str:
-    """The fence prelude for this platform, or empty where there is none."""
-    if sys.platform == "linux":
-        return linux_recipe_prelude(allow_unix_sockets=allow_unix_sockets)
-    return ""
+    profile: dict[str, object] | None = None
+    if sys.platform == "linux" and (recipe or confinement is not None):
+        profile = {
+            "allow_unix_sockets": allow_unix_sockets,
+            "read": list(confinement.read_paths() if confinement else ()),
+            "write": list(confinement.write if confinement else ()),
+            "allow_exec": bool(confinement and confinement.allow_exec),
+            "python_roots": True if confinement is None else confinement.python_roots,
+        }
+    return {"version": 1, "audit_netwall": audit_netwall, "fence": profile}
 
 
 # --- converter profiles ----------------------------------------------------
@@ -176,54 +171,6 @@ class Confinement:
         if self.exec_binary is None:
             return tuple(self.read)
         return (*self.read, self.exec_binary)
-
-
-def linux_confined_prelude(profile: Confinement) -> str:
-    """Source that installs `profile`'s fence before the child's real work."""
-    return _install_or_refuse(
-        "_frisket_fence_install(False, {!r}, {!r}, {!r}, {!r})".format(
-            tuple(profile.read_paths()),
-            tuple(profile.write),
-            profile.allow_exec,
-            profile.python_roots,
-        )
-    )
-
-
-def native_launcher_body(profile: Confinement, argv: list[str]) -> str:
-    """A whole `python -c` body: put the fence up, then become the converter.
-
-    `execv` replaces the launcher, so the converter keeps the pid the process
-    supervisor already owns -- no extra process, no second thing to reap. What
-    it costs is one interpreter start-up per invocation, which is measured in
-    tests/engine/test_sandbox_media_fence.py.
-    """
-    if profile.exec_binary is None:
-        raise ValueError("native_launcher_body needs a profile with an exec_binary")
-    return (
-        f"{linux_confined_prelude(profile)}"
-        f"_frisket_fence_os.execv({profile.exec_binary!r}, {list(argv)!r})\n"
-    )
-
-
-def _install_or_refuse(call: str) -> str:
-    """Wrap one installer call so a failure becomes the stderr marker.
-
-    `os._exit` is deliberate: a normal exception would be catchable by a
-    wrapper, and this path must not be recoverable inside the child.
-    """
-    return (
-        f"{_child_fence_source()}\n"
-        "import os as _frisket_fence_os, sys as _frisket_fence_sys\n"
-        "try:\n"
-        f"    {call}\n"
-        "except BaseException as _frisket_fence_exc:\n"
-        f"    _frisket_fence_sys.stderr.write({FENCE_UNAVAILABLE_MARKER!r} + ' '\n"
-        "        + type(_frisket_fence_exc).__name__ + ': '\n"
-        "        + str(_frisket_fence_exc) + '\\n')\n"
-        "    _frisket_fence_sys.stderr.flush()\n"
-        "    _frisket_fence_os._exit(126)\n"
-    )
 
 
 # --- can this kernel confine anything at all? ------------------------------
@@ -358,7 +305,7 @@ BROKER_ISOLATION_IS_UNENFORCED = (
     "Landlock ABI 4 does not govern unix-socket connects, so a ctypes call "
     "reaches any unix socket this user can. Pinned by "
     "tests/engine/test_sandbox_recipe_fence.py; the kernel-level answer is "
-    "Landlock ABI 6 scoping or a socket the prelude connects before the fence "
+    "Landlock ABI 6 scoping or a socket the bootstrap connects before the fence "
     "closes."
 )
 

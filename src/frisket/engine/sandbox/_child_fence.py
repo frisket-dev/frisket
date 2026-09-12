@@ -1,8 +1,8 @@
 """Linux kernel fence, installed INSIDE the child it confines.
 
-This module's source is read as text and prepended to the `python -c` body of
-the child (see `fence.py`), so it must stay stdlib-only, import nothing from
-`frisket`, and do nothing at import time.
+The fixed runtime bootstrap loads this module by its exact absolute path before
+domain code. It must stay stdlib-only, import nothing from `frisket`, and do
+nothing at import time.
 
 Two shapes call `_frisket_fence_install`. A `map.python` recipe calls it with
 one argument and gets the generic profile below. A converter -- markitdown,
@@ -19,9 +19,8 @@ recipe. The recipe already runs in its own forked+exec'd child
 (`run_sandboxed` -> `asyncio.create_subprocess_exec`), so the fence goes up
 there, in the window between interpreter start-up and the first line of recipe
 code. Nothing attacker-controlled runs in that window: `-I` disables
-PYTHONSTARTUP, PYTHONPATH and the user site directory, and the recipe body is
-concatenated after this source, so it is compiled but not executed until the
-fence is up.
+PYTHONSTARTUP, PYTHONPATH and the user site directory, and recipe source stays
+in the stdin request until the policy installer returns.
 
 What goes up, in order:
 
@@ -46,6 +45,9 @@ What goes up, in order:
      flags check applies.
    - flat refusals: `execve`/`execveat` (no new programs), `ptrace` and
      `process_vm_readv/writev` (same-uid memory reads of the server process),
+     `kill`/`tkill`/`rt_sigqueueinfo`/`rt_tgsigqueueinfo`/
+     `pidfd_send_signal` (signals to the guardian or another same-uid process;
+     `tgkill` is limited to this process's own thread group),
      `io_uring_*` (its submission queue can issue file and socket operations
      that never appear as syscalls, which would bypass this filter),
      `open_by_handle_at` (resolves files without a path, which would bypass
@@ -77,7 +79,7 @@ Known limits, on purpose:
   passes a broker to a code recipe (a closure test in
   tests/engine/test_sandbox_recipe_fence.py keeps it that way), and without one
   no socket of any domain can be created. The kernel-level answers are Landlock
-  ABI 6 (`LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET`, 6.12+) or a socket the prelude
+  ABI 6 (`LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET`, 6.12+) or a socket the bootstrap
   connects before it closes the fence.
 - Everything importable is readable. `sys.path` is granted read+execute
   because that is what "can import" means, so on an editable install the
@@ -116,6 +118,12 @@ _FRISKET_FENCE_ARCH_TABLES = {
             "ptrace": 101,
             "process_vm_readv": 310,
             "process_vm_writev": 311,
+            "kill": 62,
+            "tkill": 200,
+            "tgkill": 234,
+            "rt_sigqueueinfo": 129,
+            "rt_tgsigqueueinfo": 297,
+            "pidfd_send_signal": 424,
             "unshare": 272,
             "setns": 308,
             "mount": 165,
@@ -155,6 +163,12 @@ _FRISKET_FENCE_ARCH_TABLES = {
             "ptrace": 117,
             "process_vm_readv": 270,
             "process_vm_writev": 271,
+            "kill": 129,
+            "tkill": 130,
+            "tgkill": 131,
+            "rt_sigqueueinfo": 138,
+            "rt_tgsigqueueinfo": 240,
+            "pidfd_send_signal": 424,
             "unshare": 97,
             "setns": 268,
             "mount": 40,
@@ -303,7 +317,7 @@ class _FrisketFenceUnavailable(Exception):
 
 
 def _frisket_fence_build_filter(
-    audit_arch, table, allow_unix_sockets, allow_exec=False
+    audit_arch, table, allow_unix_sockets, allow_exec=False, self_pid=None
 ):
     """Assemble the classic-BPF program seccomp evaluates per syscall.
 
@@ -377,8 +391,19 @@ def _frisket_fence_build_filter(
     # applies. EPERM would instead surface as a hard pthread_create failure.
     prog.append(jump(jeq, table["clone3"], 0, 1))
     prog.append(stmt(ret, 0x00050000 | _FRISKET_FENCE_ENOSYS))
+    # A recipe otherwise has the same-uid authority to kill its guardian or
+    # application host. Deny every process-directed signal API. Native thread
+    # libraries legitimately use tgkill for pthread signals, so allow only a
+    # tgkill whose tgid (arg0) is this process; the kernel itself then requires
+    # the named tid to belong to that thread group.
+    if self_pid is not None:
+        prog.append(jump(jeq, table["tgkill"], 0, 4))
+        prog.append(stmt(ld_abs, 16))
+        prog.append(jump(jeq, self_pid, 1, 0))
+        prog.append(stmt(ret, ret_eperm))
+        prog.append(stmt(ld_abs, 0))
     for name in sorted(table):
-        if name in ("socket", "socketpair", "clone", "clone3"):
+        if name in ("socket", "socketpair", "clone", "clone3", "tgkill"):
             continue
         if allow_exec and name in ("execve", "execveat"):
             continue
@@ -572,7 +597,7 @@ def _frisket_fence_install_seccomp(allow_unix_sockets, allow_exec=False):
         )
     audit_arch, nr_seccomp, table = entry
     blob = _frisket_fence_build_filter(
-        audit_arch, table, allow_unix_sockets, allow_exec
+        audit_arch, table, allow_unix_sockets, allow_exec, os.getpid()
     )
     count = len(blob) // 8
 
