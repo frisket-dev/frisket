@@ -111,7 +111,7 @@ estimator or per-choice LLM call; retain existing consent/billed-price controls.
 ### Setup authority
 
 Inject one immutable request/project capability value through a `create_app`
-callback: `can_author`, `can_run`, `configure_workspace_credentials`,
+callback: `may_author_actions`, `may_run_actions`, `configure_workspace_credentials`,
 `configure_project_credentials`, `configure_organization_credentials`,
 `manage_model_downloads`, `configure_models_gateway`. The facade receives
 booleans, not roles or access services. Missing hosted/Team injection fails closed;
@@ -146,7 +146,8 @@ Refresh facts on success without selecting/closing. Clear inputs on scope change
 
 Reuse durable `model_pulls` and workspace activity. Extend its wire projection to
 v4 with `operation_kind: artifact|local_model|engine_setup`, `display_name` and
-status-aware `capabilities {cancel,retry,remove}`. No remove for HF snapshots,
+status-aware `capabilities {cancel,retry,remove}`. Update both local and Team wire
+mirrors and the existing progress UI together. No remove for HF snapshots,
 Ollama or Parakeet where no owned uninstall exists. Unknown byte totals remain
 indeterminate; cancellation becomes terminal only after acknowledgement.
 
@@ -181,16 +182,17 @@ Store workspace pair atomically in the existing private provider-key map; Team
 uses its encrypted org environment store, reserving the two names against generic
 writes. One connection resolver feeds actual execution and capability probing.
 Cached probes key on origin/token fingerprint; Recheck bypasses cache. Queued
-workers resolve through trusted org context at the existing runtime credential/
-composition boundary (a narrow connection port if needed), never job payloads.
+workers resolve through trusted org context through a runtime connection port
+at the existing credential/composition boundary, never job payloads. Prove saved
+configuration reaches queued execution with gateway environment variables unset.
 No second secret store or migration. Owned Start/Stop and autostart remain #46.
 
 ### Opus automatic preparation
 
 Existing worker-side provisioning owns transfers and retries. Eligibility uses
 supported pairs/runtime; web-host cache presence cannot prove worker readiness.
-Add an indeterminate first-use hint derived from active run params while
-completed=0, and in existing preview-job progress. Honest copy: “Preparing the
+Add an indeterminate first-use hint derived from run params only while status is
+`running` and completed=0, and in existing running preview-job progress. Honest copy: “Preparing the
 language model if this worker needs it, then translating…” Normal row progress
 replaces it when progress starts. No percentage, new run state/column, duplicate
 pull job or generic progress-event subsystem. Reuse cancellation/pair errors.
