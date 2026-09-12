@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
@@ -13,9 +15,11 @@ from fastapi.testclient import TestClient
 from frisket.ai.llm import LLMError, ModelRouter
 from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 from frisket.engine.jobs import model_pull_store
+from frisket.engine.store import Project
 from frisket.server.route_errors import register_route_error_handler
 from frisket.server.routes.selector_choices import register_selector_choices_routes
 from frisket.server.services.selector_choices import SelectorCapabilities
+from frisket.server.services.selector_choices_setup import SelectorSetupService
 from frisket.server.workspace import Workspace
 
 
@@ -803,3 +807,108 @@ def test_ocr_geometry_knob_is_reported_as_selector_dependency(tmp_path: Path) ->
     )
     assert response.status_code == 200, response.text
     assert "searchable_pdf" in response.json()["depends_on"]
+
+
+def test_source_only_opus_draft_defers_language_pair_eligibility(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "frisket.ops.integrations.opus_mt.runtime_available", lambda: True
+    )
+    client, _workspace, project_id = _app(
+        tmp_path / "source-only",
+        capabilities_for=lambda _request, _pid: SelectorCapabilities(
+            may_author_actions=True, may_run_actions=True
+        ),
+    )
+    response = client.post(
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query(
+            {
+                "kind": "action",
+                "action_id": "map.translate",
+                "field": "engine",
+                "params": {"engine": "opus_mt", "language": ["en"]},
+            }
+        ),
+    )
+    assert response.status_code == 200, response.text
+    current = next(row for row in _choices(response.json()) if row["is_current"])
+    assert current["status"] == "ready"
+    assert current["can_author"] is True
+    assert current["blocker"] is None
+    assert current["setup"] is None
+
+
+def test_model_choices_reuse_provider_setup_credential_and_spend_facts_within_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    setup_reads: Counter[str] = Counter()
+    source_reads: Counter[str] = Counter()
+    spend_reads: Counter[str] = Counter()
+    original_setup = SelectorSetupService.api_key
+    original_source = ModelRouter.credential_source_for
+
+    def setup(self: SelectorSetupService, **kwargs: Any) -> dict[str, Any]:
+        setup_reads[kwargs["provider"]] += 1
+        return original_setup(self, **kwargs)
+
+    def source(self: ModelRouter, provider: str) -> str:
+        source_reads[provider] += 1
+        return original_source(self, provider)
+
+    def spend(_project: Project, provider: str) -> Any:
+        spend_reads[provider] += 1
+        return SimpleNamespace(over_cap=spend_reads[provider] > 1, cap_enforceable=True)
+
+    monkeypatch.setattr(SelectorSetupService, "api_key", setup)
+    monkeypatch.setattr(ModelRouter, "credential_source_for", source)
+    monkeypatch.setattr(Project, "provider_spend_state", spend)
+    router = ModelRouter(
+        keys={"openai": "selected-project-key"},
+        key_sources={"openai": "project_key"},
+        use_env_keys=False,
+    )
+    client, _workspace, project_id = _app(
+        tmp_path / "provider-facts",
+        router=router,
+        capabilities_for=lambda _request, _pid: SelectorCapabilities(
+            may_run_actions=True
+        ),
+    )
+    response = client.post(
+        f"/api/projects/{project_id}/selector-choices", json=_query({"kind": "copilot"})
+    )
+    assert response.status_code == 200, response.text
+    models = _choices(response.json())
+    openai = [
+        row
+        for row in models
+        if row["authored_selection"]["model"].startswith("openai/")
+    ]
+    assert len(openai) > 1
+    assert all(row["can_run"] for row in openai)
+    assert setup_reads == Counter({"anthropic": 1, "gemini": 1, "openrouter": 1})
+    assert source_reads == Counter(
+        {"anthropic": 1, "openai": 1, "gemini": 1, "openrouter": 1}
+    )
+    assert spend_reads == Counter({"openai": 1})
+    refreshed = client.post(
+        f"/api/projects/{project_id}/selector-choices", json=_query({"kind": "copilot"})
+    )
+    assert refreshed.status_code == 200
+    refreshed_openai = [
+        row
+        for row in _choices(refreshed.json())
+        if row["authored_selection"]["model"].startswith("openai/")
+    ]
+    assert all(not row["can_run"] for row in refreshed_openai)
+    assert all(
+        row["blocker"]["code"] == "provider_spend_cap_exceeded"
+        for row in refreshed_openai
+    )
+    assert setup_reads == Counter({"anthropic": 2, "gemini": 2, "openrouter": 2})
+    assert source_reads == Counter(
+        {"anthropic": 2, "openai": 2, "gemini": 2, "openrouter": 2}
+    )
+    assert spend_reads == Counter({"openai": 2})

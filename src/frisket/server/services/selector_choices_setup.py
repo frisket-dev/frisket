@@ -41,13 +41,14 @@ class SelectorSetupService:
         provider: str,
         router: Any,
         capabilities: SelectorCapabilities,
+        credential_source: str | None = None,
     ) -> dict[str, Any]:
         status_rows = {
             row["id"]: row for row in provider_key_status(self._workspace.root)
         }
         workspace_status = status_rows.get(provider, {})
         project_row = project.provider_key_catalog_rows().get(provider)
-        source = _credential_source(router, provider)
+        source = _credential_source(router, provider, raw_source=credential_source)
         org_configured = source == "organization"
         platform_configured = source == "platform"
         env_name = ENV_VAR[provider]

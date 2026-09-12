@@ -44,8 +44,10 @@ def _provider_from_qualified(value: str) -> str | None:
     return provider if separator else None
 
 
-def _credential_source(router: Any, provider: str) -> str:
-    raw = router.credential_source_for(provider)
+def _credential_source(
+    router: Any, provider: str, *, raw_source: str | None = None
+) -> str:
+    raw = router.credential_source_for(provider) if raw_source is None else raw_source
     if raw == "project_key":
         return "project"
     if raw in {"org_byok", "org_key"}:
@@ -515,7 +517,7 @@ def _opus_pair_key(params: Mapping[str, Any]) -> str | None:
 def _opus_pair_supported(
     engine: Mapping[str, Any], params: Mapping[str, Any]
 ) -> bool | None:
-    if not params.get("language"):
+    if not params.get("language") or not params.get("target_language"):
         return None
     pair = _opus_pair_key(params)
     return any(

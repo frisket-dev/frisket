@@ -467,6 +467,22 @@ class SelectorChoiceService:
                 if local_http
                 else bool(provider.get("configured"))
             )
+            provider_setup = (
+                self._setup.api_key(
+                    router=router,
+                    project=project,
+                    provider=provider_id,
+                    capabilities=capabilities,
+                    credential_source=_optional_str(provider.get("credential_source")),
+                )
+                if not configured and not local_http and provider_id in ENV_VAR
+                else None
+            )
+            spend = (
+                project.provider_spend_state(provider_id)
+                if configured and provider.get("credential_source") == "project_key"
+                else None
+            )
             for model in provider.get("models", []):
                 if not isinstance(model, dict) or not isinstance(model.get("id"), str):
                     continue
@@ -498,12 +514,7 @@ class SelectorChoiceService:
                     }
                     if not local_http and provider_id in ENV_VAR:
                         status = "needs_setup"
-                        setup = self._setup.api_key(
-                            router=router,
-                            project=project,
-                            provider=provider_id,
-                            capabilities=capabilities,
-                        )
+                        setup = provider_setup
                     else:
                         status = "unavailable"
                         setup = {
@@ -519,7 +530,6 @@ class SelectorChoiceService:
                     status == "ready"
                     and provider.get("credential_source") == "project_key"
                 ):
-                    spend = project.provider_spend_state(provider_id)
                     if spend is not None and (
                         spend.over_cap or not spend.cap_enforceable
                     ):
