@@ -9,6 +9,7 @@ import {
   WorkbenchBottomDock,
   WorkbenchJobSplitPanel,
 } from '../../src/workbench/WorkbenchBottomDock';
+import type { DockActionJob } from '../../src/workbench/WorkbenchBottomDock';
 import type {
   WorkbenchResolvedLayoutContribution,
   WorkbenchResolvedLayoutRegion,
@@ -171,4 +172,35 @@ describe('WorkbenchBottomDock — live Jobs/Errors resource interest', () => {
     expect(liveActionJobs.start).not.toHaveBeenCalled();
     expect(liveActionJobs.dispose).not.toHaveBeenCalled();
   });
+});
+
+it('shows the preparation hint in a zero-row running job detail', () => {
+  const job: DockActionJob = {
+    schemaVersion: 'frisket.action_job.v1', projectId: 'project-a', jobId: 1,
+    kind: 'action', runId: null, receiptId: null, status: 'running',
+    actionKind: 'map.translate', actionName: 'Translate', attempts: 1, maxAttempts: 3,
+    lease: { lockedBy: null, lockedAt: null, leaseExpiresAt: null, leaseExpired: false },
+    timing: { createdAt: '2026-09-12T00:00:00Z', startedAt: '2026-09-12T00:00:01Z', finishedAt: null },
+    error: null,
+    progress: {
+      runId: 'run-1', actionName: 'Translate', actionKind: 'map.translate', sheetId: '1',
+      targetColumnId: 'result', status: 'running', completedRows: 0, totalRows: 10,
+      failedRows: 0, costSoFar: 0,
+      preparation: {
+        message: 'Preparing the language model if this worker needs it, then translating…',
+      },
+    },
+  };
+  render(
+    <WorkbenchJobSplitPanel
+      jobs={[job]}
+      loading={false}
+      error={null}
+      liveActionJobs={{ start: vi.fn(), dispose: vi.fn() }}
+      mode="jobs"
+    />,
+  );
+
+  expect(screen.getByText('Preparing')).toBeTruthy();
+  expect(screen.getByText('Preparing the language model if this worker needs it, then translating…')).toBeTruthy();
 });

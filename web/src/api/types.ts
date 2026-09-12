@@ -1898,7 +1898,12 @@ interface PreviewSampleCommon {
   accounting?: HttpActionPreviewStatusResponse['accounting'];
   previewId: string;
   status: PreviewStatus;
-  progress: { done: number; total: number | null };
+  progress: {
+    done: number;
+    total: number | null;
+    /** Server-provided first-use preparation copy, when applicable. */
+    preparation?: { message: string } | null;
+  };
   columns: PreviewOverlayColumn[];
   sampled: number;
   total: number | null;
@@ -2881,6 +2886,9 @@ export interface RunProgress {
   totalRows: number;
   failedRows: number;
   costSoFar: number; // USD
+  /** Present only while a zero-row run is preparing an automatically
+   * provisioned local artifact. The server owns the preparation decision. */
+  preparation?: { message: string } | null;
   /** Reconciler's reason a run is stalled/orphaned (e.g. 'no_live_worker'). */
   staleReason?: string | null;
   /** A typed recipe/session halt behind a resumable 'cancelled' (e.g.
