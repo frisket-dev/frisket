@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -177,6 +178,23 @@ def prepare(*, skip_web_build: bool = False) -> None:
     shutil.copy2(DESKTOP / "native-assets.json", RESOURCES / "native-assets.json")
     shutil.copy2(DESKTOP / "THIRD_PARTY.md", RESOURCES / "THIRD_PARTY.md")
     shutil.copytree(DESKTOP / "licenses", RESOURCES / "licenses")
+
+    # Use the ordinary private runtime and its model resolvers while the build
+    # still has network access. The resulting cache layout is shipped as a
+    # resource and copied into a user's persistent cache at first launch.
+    with tempfile.TemporaryDirectory(prefix="frisket-desktop-model-stage-") as stage:
+        stage_env = {
+            **os.environ,
+            "FRISKET_DESKTOP_RESOURCES": str(RESOURCES),
+            "FRISKET_DESKTOP_PROFILE": stage,
+        }
+        stage_env.pop("FRISKET_DESKTOP_APP", None)
+        subprocess.run(
+            ["node", str(DESKTOP / "scripts" / "prewarm.mjs"), "--stage-models"],
+            cwd=ROOT,
+            env=stage_env,
+            check=True,
+        )
     print(f"Desktop resources ready: {RESOURCES}")
 
 

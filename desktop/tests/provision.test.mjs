@@ -16,6 +16,10 @@ async function fixture({ corruptRequirements = false, pythonVersion = '3.12.13',
   const runtime = path.join(resources, 'python', 'frisket', 'runtime');
   await fs.mkdir(bin, { recursive: true });
   await fs.mkdir(runtime, { recursive: true });
+  await fs.mkdir(path.join(resources, 'model-cache', 'huggingface'), { recursive: true });
+  await fs.mkdir(path.join(resources, 'model-cache', 'models', 'rapidocr'), { recursive: true });
+  await fs.writeFile(path.join(resources, 'model-cache', 'huggingface', 'whisper-base'), 'bundled-whisper');
+  await fs.writeFile(path.join(resources, 'model-cache', 'models', 'rapidocr', 'default-v5.onnx'), 'bundled-rapidocr');
   const requirements = 'demo==1.0 --hash=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n';
   await fs.writeFile(path.join(resources, 'requirements.txt'), corruptRequirements ? `${requirements}changed` : requirements);
   const digest = createHash('sha256').update(requirements).digest('hex');
@@ -154,6 +158,23 @@ test('repairs an incomplete environment and records completion only after every 
     else process.env.PYTHONPATH = oldPythonPath;
     if (oldNodeOptions === undefined) delete process.env.NODE_OPTIONS;
     else process.env.NODE_OPTIONS = oldNodeOptions;
+    await subject.cleanup();
+  }
+});
+
+test('seeds bundled local model caches without replacing an existing user cache file', async () => {
+  const subject = await fixture();
+  try {
+    await prepareRuntime({ resourcesPath: subject.resources, dataPath: subject.data });
+    const whisper = path.join(subject.data, 'cache', 'huggingface', 'whisper-base');
+    const rapidocr = path.join(subject.data, 'cache', 'models', 'rapidocr', 'default-v5.onnx');
+    assert.equal(await fs.readFile(whisper, 'utf8'), 'bundled-whisper');
+    assert.equal(await fs.readFile(rapidocr, 'utf8'), 'bundled-rapidocr');
+
+    await fs.writeFile(rapidocr, 'user-cache');
+    await prepareRuntime({ resourcesPath: subject.resources, dataPath: subject.data });
+    assert.equal(await fs.readFile(rapidocr, 'utf8'), 'user-cache');
+  } finally {
     await subject.cleanup();
   }
 });

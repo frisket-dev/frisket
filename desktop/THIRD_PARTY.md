@@ -21,6 +21,10 @@ The native archive versions, download URLs and SHA-256 digests are recorded in
   Source: https://github.com/electron/electron/tree/v44.3.0
 
 Private Python and Python packages are downloaded on first launch. Their licenses
-and package metadata remain with that managed runtime. Model weights retain their
-own licenses and live in the existing model cache. This beta does not bundle GPU
-model weights or a GPU runtime.
+and package metadata remain with that managed runtime. The bundled default local
+model cache contains the revision-pinned Whisper Base (MIT), Parakeet TDT
+(CC-BY-4.0), and Silero VAD (MIT) snapshots named in Frisket's artifact manifest,
+plus RapidOCR's default PP-OCRv5 recognizer and its packaged detector/classifier
+aliases under their upstream terms. The persistent cache may hold additional
+user-provisioned models. This beta does not bundle GPU model weights or a GPU
+runtime.

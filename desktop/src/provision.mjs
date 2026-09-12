@@ -36,7 +36,9 @@ export async function prepareRuntime({ resourcesPath, dataPath, onProgress = () 
   const markerPath = path.join(environmentPath, MARKER);
 
   const ready = await readReadyMarker(markerPath, manifest, environmentId);
+  await fs.mkdir(path.join(data, 'cache'), { recursive: true });
   if (ready) {
+    await seedBundledModelCaches(resources, data);
     await assertFile(python, 'private Python');
     onProgress({ phase: 'workspace', message: 'Opening your workspace…' });
     return { python, env };
@@ -66,6 +68,8 @@ export async function prepareRuntime({ resourcesPath, dataPath, onProgress = () 
   const guarded = (command, args, label) => run(python, ['-I', guard, String(process.pid), GUARD_GRACE_SECONDS, command, ...args], {
     label, env, signal,
   });
+  onProgress({ phase: 'dependencies', message: 'Setting up included local models…' });
+  await seedBundledModelCaches(resources, data);
   onProgress({ phase: 'dependencies', message: 'Installing app components…' });
   await guarded(uv, ['pip', 'sync', '--python', python, '--require-hashes', requirements, '--no-config'], 'installing private Python dependencies');
 
@@ -146,6 +150,23 @@ async function assertFile(filename, description) {
     await fs.access(filename, fsConstants.R_OK);
   } catch {
     throw new Error(`${description} is missing.`);
+  }
+}
+
+async function seedBundledModelCaches(resources, data) {
+  const bundled = path.join(resources, 'model-cache');
+  if (!await exists(bundled)) return;
+  for (const [source, destination] of [
+    [path.join(bundled, 'huggingface'), path.join(data, 'cache', 'huggingface')],
+    [path.join(bundled, 'models', 'rapidocr'), path.join(data, 'cache', 'models', 'rapidocr')],
+  ]) {
+    if (!await exists(source)) {
+      throw new Error('Bundled local model cache is incomplete.');
+    }
+    await fs.cp(source, destination, {
+      recursive: true, force: false, errorOnExist: false,
+      preserveTimestamps: true, verbatimSymlinks: true,
+    });
   }
 }
 

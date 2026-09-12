@@ -3,7 +3,9 @@
 macOS 14 or newer, Apple Silicon. Electron displays the ordinary local Frisket UI.
 First launch downloads a private Python interpreter, the locked standard Python
 dependencies, and Chromium for browser actions. It needs an internet connection.
-There is no system Python, Homebrew, Node, or terminal setup for an app user.
+The default local Whisper, Parakeet and RapidOCR model cache is included with the
+app and copied into the preserved cache during setup. There is no system Python,
+Homebrew, Node, or terminal setup for an app user.
 
 ## Install or update the beta
 
