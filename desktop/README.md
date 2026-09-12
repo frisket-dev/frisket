@@ -5,6 +5,25 @@ First launch downloads a private Python interpreter, the locked standard Python
 dependencies, and Chromium for browser actions. It needs an internet connection.
 There is no system Python, Homebrew, Node, or terminal setup for an app user.
 
+## Install or update the beta
+
+1. Open the successful desktop workflow run linked from the desktop pull request.
+   Download its `Frisket-macos-arm64-<sha>` artifact from **Artifacts** (GitHub
+   sign-in required), then unzip the download.
+2. Open the included DMG, drag **Frisket** into **Applications**, and eject the DMG.
+3. Open Frisket from Applications. If macOS blocks it, open **System Settings →
+   Privacy & Security → Open Anyway**, authenticate, and choose **Open**.
+4. Leave Frisket open and connected to the internet while **Preparing Frisket**
+   installs its runtime. Optional models download when you first use them.
+
+To update, quit Frisket with **Cmd-Q**, open the new DMG, drag Frisket into
+Applications, choose **Replace**, and reopen it. Your workspace and caches survive
+replacement; a dependency change may require another download.
+
+The current beta is ad-hoc signed and not notarized. Developer ID signing,
+notarization and a signed update feed remain release work; this build does not
+claim to test them. Updates are installed manually using the steps above.
+
 ## Build
 
 On an Apple Silicon Mac, install Node 22, Python 3.12+, and uv 0.11.29 as build tools:
@@ -22,13 +41,6 @@ npm --prefix desktop run package:mac
 Frisket wheel, checks executable package resources, exports the exact standard
 lock with hashes, and verifies every pinned native archive. See `THIRD_PARTY.md`.
 The CI desktop workflow builds and tests these same artifacts.
-
-The current beta is ad-hoc signed and not notarized. It is a test distribution,
-not an automatic update release. Gatekeeper may require an explicit Open Anyway
-in macOS Privacy & Security. Replace the app while it is closed to upgrade this
-beta. The workspace and caches are outside the app and survive replacement.
-Developer ID signing, notarization and a signed update feed remain release work;
-this build does not claim to test them.
 
 ## Ownership and storage
 
@@ -55,11 +67,12 @@ this build does not claim to test them.
 `npm --prefix desktop test` exercises the token/proxy boundary and real process
 cancellation. Python tests cover the service authentication/readiness boundary.
 The macOS job mounts the actual DMG, copies the app out, warms download caches,
-then removes the dependency environment. A temporary macOS PF rule blocks new external connections while preserving the
-runner’s existing control connection. This avoids nesting Seatbelt around
-Chromium’s own sandbox. The UI smoke uses no providers or live datasets. The real application rebuilds its private environment from the
-cache, imports CSV, runs a local action through its queue, exports, quits and
-reopens persisted work. Browser and subprocess cleanup are checked.
+then removes the dependency environment. A temporary macOS PF rule blocks new
+external connections while preserving the runner’s existing control connection.
+This avoids nesting Seatbelt around Chromium’s own sandbox. The UI smoke uses no
+providers or live datasets. The real application rebuilds its private environment
+from the cache, imports CSV, runs a local action through its queue, exports, quits
+and reopens persisted work. Browser and subprocess cleanup are checked.
 
 Download-cache preparation is a networked build/setup step, separate from tests.
 It is not evidence of offline first launch. The automated journey proves the
