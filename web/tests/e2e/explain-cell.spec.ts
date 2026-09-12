@@ -21,6 +21,11 @@ import {
   sheetColumns,
   uniqueName,
 } from './helpers';
+import {
+  actionSelectorResponse,
+  stubActionSelectorChoices,
+  type SelectorGroupFixture,
+} from './selectorChoicesFixture';
 
 // A 3-row CSV. Row 0 carries an XSS probe so we can assert the raw model
 // output (which echoes/quotes nothing dangerous, but the PROMPT does contain
@@ -41,43 +46,42 @@ const REPO_ROOT =
     : process.cwd();
 const PYTHON = process.env.FRISKET_E2E_PYTHON ?? path.join(REPO_ROOT, '.venv/bin/python');
 
-async function exposeReplayBackedClassifyEngine(page: Page): Promise<void> {
+async function exposeReplayBackedClassifyEngine(page: Page, projectId: string): Promise<void> {
   // This spec runs in replay_strict with a cache it primes itself, so the
-  // hosted classify path is available without a live provider credential.
-  // Reflect that test-only runtime fact in the launcher catalog; production
-  // catalogs correctly keep the hosted engine unavailable without a key.
-  await page.route('**/actions/v1/catalog', async (route) => {
-    const response = await route.fetch();
-    const catalog = await response.json();
-    const classify = (catalog.actions ?? []).find(
-      (action: { kind?: string }) => action.kind === 'map.classify',
-    );
-    const modelEngine = classify?.ui_hints?.engines?.find(
-      (engine: { id?: string }) => engine.id === 'llm',
-    );
-    if (modelEngine) {
-      modelEngine.available = true;
-      delete modelEngine.error;
-    }
-    await route.fulfill({
-      status: response.status(),
-      contentType: 'application/json',
-      body: JSON.stringify(catalog),
+  // hosted classify path is available without a live provider credential. Stub
+  // only the read-only selector projection; the action catalog, run route, and
+  // replay-backed execution remain the live local application.
+  const groups: SelectorGroupFixture[] = [{
+    id: 'local',
+    label: 'Local',
+    choices: [{
+      choiceId: 'local-semantic',
+      label: 'Local semantic',
+      summary: 'Runs on this computer',
+      authoredSelection: { kind: 'engine', engine: 'local_semantic' },
+    }],
+  }, {
+    id: 'gemini',
+    label: 'Gemini',
+    choices: [{
+      choiceId: 'gemini-gemini-3-5-flash-lite',
+      label: 'Gemini 3.5 Flash-Lite',
+      summary: 'Replay-backed hosted model',
+      authoredSelection: { kind: 'engine_model', engine: 'llm', model: MODEL },
+    }],
+  }];
+  await stubActionSelectorChoices(page, projectId, ({ actionId, field, params }) => {
+    expect(actionId).toBe('map.classify');
+    expect(field).toBe('engine');
+    return actionSelectorResponse({
+      projectId,
+      actionId,
+      field,
+      groups,
+      currentChoiceId: params.engine === 'llm' && params.model === MODEL
+        ? 'gemini-gemini-3-5-flash-lite' : 'local-semantic',
     });
   });
-  await page.route('**/api/providers', (route) => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({
-      schemaVersion: 'frisket.providers.v1',
-      tier: 'local',
-      providers: [{
-        id: 'gemini', label: 'Gemini', kind: 'platform_api', configured: true,
-        source: 'env', hint: null,
-        models: [{ id: MODEL, label: 'Gemini 3.5 Flash-Lite', price: null }],
-      }],
-    }),
-  }));
 }
 
 function primeExplainCache(pid: string, sheetId: number): void {
@@ -174,7 +178,7 @@ test('Explain this cell shows the exact prompt + raw output, rendered XSS-safe',
   const pid = await createProject(page.request, uniqueName('e2e-explain-cache'));
   const sheetId = await importCsv(page.request, pid, `snippets-${Date.now()}.csv`, CSV);
   primeExplainCache(pid, sheetId);
-  await exposeReplayBackedClassifyEngine(page);
+  await exposeReplayBackedClassifyEngine(page, pid);
 
   await page.goto(`/p/${pid}/s/${sheetId}`);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 10_000 });
@@ -186,12 +190,15 @@ test('Explain this cell shows the exact prompt + raw output, rendered XSS-safe',
   await openAction(page, 'map.classify');
   await expect(page.getByTestId('generated-action-form')).toBeVisible();
   // Classify defaults to the provider-free local semantic engine. This
-  // cassette exercises the hosted prompt/raw-output trace, so opt into the
-  // model engine explicitly before asserting its picker.
-  await page.getByTestId('model-picker-button').click();
-  await page.getByTestId('model-picker-search').fill(MODEL);
-  await page.getByTestId('model-option-gemini-gemini-3-5-flash-lite').click();
-  await expect(page.getByTestId('model-picker-button')).toContainText('Gemini 3.5 Flash-Lite');
+  // cassette exercises the hosted prompt/raw-output trace, so choose the
+  // replay-backed model through the authoritative selector.
+  const engineField = page.getByTestId('field-engine');
+  const trigger = engineField.locator('.engine-selector__trigger');
+  await trigger.click();
+  const dialog = page.getByTestId('engine-selector-dialog');
+  await dialog.getByRole('searchbox', { name: 'Search Engine' }).fill(MODEL);
+  await dialog.locator('[data-engine-selector-choice="gemini-gemini-3-5-flash-lite"]').click();
+  await expect(trigger).toContainText('Gemini 3.5 Flash-Lite');
   await page.getByTestId('field-context').fill(PROMPT);
   await page.getByTestId('output-field-name').fill('topic');
   await page.getByLabel('Field 1 labels').fill('transit, money, other');
