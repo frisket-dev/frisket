@@ -4,11 +4,10 @@ import { Eye } from 'lucide-react';
 import { PluginActionUIBoundary } from './PluginActionUIBoundary';
 import type { GeneratedActionCustomization } from './generatedActionCustomizations';
 
-import { compatibleSourceColumns, defaultActionModel, formatUsd, isProjectScopedAction } from '../../actions/model';
+import { compatibleSourceColumns, formatUsd, isProjectScopedAction } from '../../actions/model';
 import { quotedUsd } from '../../actions/quotedCost';
 import { formatDuration } from '../../format';
 import { parseStrictJson } from '../../actions/strictJson';
-import { listProviders } from '../../api/open';
 import type { ActionParamResolution, ActionTemplate, GeneratedActionCatalogEntry,
   GeneratedActionDraft, GeneratedActionRequest, PreviewSampleResult, SheetMeta } from '../../api/types';
 import type { RunEstimate } from '../../api/types';
@@ -35,9 +34,9 @@ import {
 import { OutputNameCombobox } from './TargetSaveToControl';
 import { dedupeDefaultColumnName, existingColumnByName } from './formControlHelpers';
 import { generatedActionCustomizationFor } from './generatedActionCustomizations';
-import pickerStyles from './EngineModelChoice.module.css';
-import { ModelPicker } from '../ModelPicker';
-import { EnginePicker } from '../EnginePicker';
+import { SelectorField } from '../../engine-selector/SelectorField';
+import type { SelectorChoice } from '../../api/selectorChoices';
+import type { HttpSelectorChoicesQuery } from '../../generated/openHttpContracts';
 import { JoinOutputNames } from './JoinOutputNames';
 import { PdfTablesReview, type PdfTablesMaterializeIntent, type PdfTablesExportIntent } from './PdfTablesReview';
 import type { OcrCompareTarget } from '../../actions/ocrCompare';
@@ -52,6 +51,24 @@ function templateText(value: CanonicalFieldValue | undefined): string {
     && typeof value.text === 'string' ? value.text : '';
 }
 const EMPTY_ROW_IDS: string[] = [];
+const SELECTOR_DEPENDENCY_FIELDS = new Set([
+  'engine', 'model', 'language', 'target_language', 'model_size', 'vad', 'context', 'clean',
+  'diarize', 'num_speakers', 'min_speakers', 'max_speakers',
+]);
+
+function actionSelectorQuery(
+  actionId: string,
+  field: string,
+  draft: CanonicalDraft,
+): HttpSelectorChoicesQuery {
+  const params = Object.fromEntries(Object.entries(draft).filter(([name]) => (
+    SELECTOR_DEPENDENCY_FIELDS.has(name)
+  )));
+  return {
+    schema_version: 'frisket.selector_choices_query.v1',
+    subject: { kind: 'action', action_id: actionId, field, params },
+  } as HttpSelectorChoicesQuery;
+}
 
 function jsonFieldText(value: CanonicalFieldValue | undefined): string {
   return typeof value === 'string' ? value
@@ -369,6 +386,7 @@ export function GeneratedActionForm(props: GeneratedActionFormProps) {
 }
 
 function GeneratedActionFormContents({
+  projectId,
   pluginUI,
   catalogEntry,
   actionTemplate,
@@ -386,7 +404,6 @@ function GeneratedActionFormContents({
   onSwitchAction,
   onNavigateToAction,
   sampleColumnValues,
-  onOpenDiagnose,
   onBackfill,
   onMaterializePdfTables,
   onExportPdfTables,
@@ -467,11 +484,6 @@ function GeneratedActionFormContents({
     }
     return displayed;
   }, [catalogEntry.input_schema.properties, draft, renderedParams]);
-  const modelTouched = useRef(new Set(
-    Object.keys(initialDraft?.params ?? {}).filter(
-      (name) => catalogEntry.ui_hints.semantic_controls[name] === 'model',
-    ),
-  ));
   const [paramsEdited, setParamsEdited] = useState(false);
   const [richSourceEditors, setRichSourceEditors] = useState<
   Record<string, RichSourceEditorState>>(() => (
@@ -549,42 +561,6 @@ function GeneratedActionFormContents({
   const resolving = resolutionProblem === 'Resolving outputs…'
     || resolutionProblem === 'Validating fields…';
   useEffect(() => {
-    const modelParams = Object.entries(catalogEntry.ui_hints.semantic_controls)
-      .flatMap(([name, control]) => control === 'model' ? [name] : []);
-    if (!modelParams.length) return undefined;
-    let current = true;
-    listProviders()
-      .then((catalog) => {
-        if (!current) return;
-        const preferred = defaultActionModel(catalog);
-        if (!preferred) return;
-        setDraft((before) => {
-          let after = before;
-          for (const name of modelParams) {
-            const existing = before[name];
-            const pairedChoice = customization?.engineModelChoice;
-            // A fixed-engine leaf deliberately clears its paired model. The
-            // provider-catalog default must not race that atomic selection
-            // and silently turn a fixed run back into an LLM run.
-            if (pairedChoice?.modelParam === name
-              && before[pairedChoice.engineParam] !== pairedChoice.providerEngineId) continue;
-            if (modelTouched.current.has(name)
-              || (typeof existing === 'string' && existing.trim())) continue;
-            after = setCanonicalDraftField(actionTemplate, after, name, preferred);
-          }
-          return after;
-        });
-      })
-      .catch(() => {
-        // ModelPicker owns the provider-configuration state. A failed lookup
-        // leaves the required field empty rather than implying a usable model.
-      });
-    return () => {
-      current = false;
-    };
-  }, [actionTemplate, catalogEntry.ui_hints.semantic_controls, customization?.engineModelChoice]);
-
-  useEffect(() => {
     let current = true;
     const timer = window.setTimeout(() => {
       resolveParams({
@@ -660,9 +636,6 @@ function GeneratedActionFormContents({
     columns, sheetId]);
 
   const updateField = (name: string, value: CanonicalFieldValue) => {
-    if (catalogEntry.ui_hints.semantic_controls[name] === 'model') {
-      modelTouched.current.add(name);
-    }
     setParamsEdited(true);
     setResolved((current) => ({
       ...current,
@@ -681,6 +654,27 @@ function GeneratedActionFormContents({
         ? numeric : value;
     setDraft((current) => setCanonicalDraftField(actionTemplate, current, name, normalized));
   };
+  const updateSelectorSelection = (field: string, choice: SelectorChoice) => {
+    const authored = choice.authored_selection;
+    const updates = authored.kind === 'engine'
+      ? { [field]: authored.engine }
+      : authored.kind === 'model'
+        ? { [field]: authored.model }
+        : authored.kind === 'engine_model'
+          ? { engine: authored.engine, model: authored.model }
+          : null;
+    if (!updates) return;
+    setParamsEdited(true);
+    setResolved((current) => ({
+      ...current,
+      diagnostics: {},
+      problem: dynamicOutputs ? 'Resolving outputs…' : 'Validating fields…',
+    }));
+    setDraft((current) => Object.entries(updates).reduce(
+      (next, [name, value]) => setCanonicalDraftField(actionTemplate, next, name, value),
+      current,
+    ));
+  };
   const updateBodyParams = useCallback((params: CanonicalDraft) => {
     setParamsEdited(true);
     setResolved((current) => ({
@@ -698,44 +692,12 @@ function GeneratedActionFormContents({
         error={diagnostics[field.name]} onChange={(value) => updateField(field.name, value)} />;
     }
     const semanticControl = catalogEntry.ui_hints.semantic_controls[field.name];
-    if (semanticControl === 'engine') {
-      const engines = actionTemplate.engines ?? [];
-      const raw = displayDraft[field.name];
-      const defaultEngine = catalogEntry.input_schema.properties?.[field.name]?.default;
-      const selected = typeof raw === 'string' ? raw : '';
-      const ordinaryChoices = [];
-      if (defaultEngine === 'auto' && !engines.some((engine) => engine.id === 'auto')) {
-        ordinaryChoices.push({ id: 'auto', label: 'Auto',
-          available: engines.some((engine) => engine.available !== false),
-          unavailableReason: 'No execution engines are available.' });
-      }
-      if (selected && !engines.some((engine) => engine.id === selected)
-        && !ordinaryChoices.some((choice) => choice.id === selected)) {
-        ordinaryChoices.push({ id: selected, label: `${selected} (unavailable)`, available: false,
-          unavailableReason: 'This engine is unavailable for this action.' });
-      }
-      return <div className={pickerStyles.choice} data-testid={field.testid}>
-        <span className={`form-label ${pickerStyles.label}`} id={field.id}>{field.label}</span>
-        <div className={pickerStyles.picker}>
-          <EnginePicker engines={engines} ordinaryChoices={ordinaryChoices} value={selected}
-            onChange={(value) => updateField(field.name, value)} ariaLabelledBy={field.id} />
-        </div>
-        {engines.some((engine) => engine.available === false) && (
-          <details className="action-advanced" data-testid="engine-availability-disclosure">
-            <summary>Engine availability</summary>
-            {engines.filter((engine) => engine.available === false).map((engine) => (
-              <p className="form-hint" key={engine.id}
-                data-testid={`engine-availability-line-${engine.id}`}>
-                {engine.label}: unavailable{engine.error && ` — ${engine.error}`}
-              </p>
-            ))}
-            {onOpenDiagnose && <button type="button" className="btn btn-secondary"
-              data-testid="engine-availability-open-diagnose" onClick={onOpenDiagnose}>
-              Open Diagnose
-            </button>}
-          </details>
-        )}
-      </div>;
+    if (semanticControl === 'engine' || semanticControl === 'model') {
+      const query = actionSelectorQuery(catalogEntry.kind, field.name, draft);
+      return <SelectorField projectId={projectId} label={field.label} query={query}
+        queryKey={JSON.stringify(query)} recentNamespace={`${projectId ?? 'none'}:action:${catalogEntry.kind}:${field.name}`}
+        testId={field.testid} disabled={running || !projectId}
+        onSelect={(choice) => updateSelectorSelection(field.name, choice)} />;
     }
     if (semanticControl === 'rich_source' || semanticControl === 'column_or_template') {
       const singleColumn = semanticControl === 'column_or_template';
@@ -807,18 +769,6 @@ function GeneratedActionFormContents({
           />
           {typeof sourceHint === 'string' && <p className="form-hint">{sourceHint}</p>}
         </>
-      );
-    }
-    if (semanticControl === 'model') {
-      return (
-        <div className={pickerStyles.choice} data-testid={field.testid}>
-          <span className={`form-label ${pickerStyles.label}`} id={field.id}>{field.label}</span>
-          <div className={pickerStyles.picker}>
-          <ModelPicker value={field.value}
-            onChange={(value) => updateField(field.name, value)}
-            ariaLabelledBy={field.id} />
-          </div>
-        </div>
       );
     }
     if (semanticControl === 'template') {
@@ -1055,8 +1005,6 @@ function GeneratedActionFormContents({
             <ParamsBody sheet={sheet} params={draft} setParams={updateBodyParams}
               setEditorProblem={setEditorProblem}
               engine={selectedEngineInfo}
-              engines={actionTemplate.engines}
-              engineModelChoice={customization?.engineModelChoice}
               request={{ scope: requestScope, sheet_name: estimateDraft.sheet_name,
                 output_names: estimateDraft.output_names }}
               errors={diagnostics} Field={GeneratedField} onNavigateToAction={onNavigateToAction}

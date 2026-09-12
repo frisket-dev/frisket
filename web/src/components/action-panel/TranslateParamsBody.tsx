@@ -4,9 +4,8 @@ import type { GeneratedActionParams } from '../../generated/actionTypes';
 import { TranslatePairPicker } from '../TranslatePairPicker';
 import { EngineLanguageControl } from './EngineLanguageControl';
 import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
-import { EngineModelChoice } from './EngineModelChoice';
 
-export function TranslateParamsBody({ params, setParams, engine, errors, Field, engines, engineModelChoice }:
+export function TranslateParamsBody({ params, setParams, engine, errors, Field }:
   GeneratedActionParamsBodyProps<'map.translate'>) {
   const selectedEngine = params.engine ?? 'llm';
   const previousEngine = useRef(selectedEngine);
@@ -39,9 +38,7 @@ export function TranslateParamsBody({ params, setParams, engine, errors, Field, 
 
   return <>
     <Field name="source" label="Content to translate" />
-    {engineModelChoice && <EngineModelChoice presentation={engineModelChoice} engines={engines ?? []}
-      engine={selectedEngine} model={params.model}
-      onSelect={({ engine: nextEngine, model }) => setParams({ ...params, engine: nextEngine, model })} />}
+    <Field name="engine" />
     {selectedEngine === 'opus_mt' ? <TranslatePairPicker
       installedPairs={engine?.models ?? []}
       downloadablePairs={engine?.downloadable_pairs ?? []}

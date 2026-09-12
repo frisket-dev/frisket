@@ -4,10 +4,9 @@ import { invalidateActionCatalog } from '../../api/open';
 import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
 import { NerEngineFields } from './NerEngineFields';
 import { nerLabelsOk, normalizeSpacyLabels } from './nerLabelModel';
-import { EngineModelChoice } from './EngineModelChoice';
 
 export function NerParamsBody({
-  params, setParams, setEditorProblem, errors, Field, engine: engineInfo, engines, engineModelChoice,
+  params, setParams, setEditorProblem, errors, Field, engine: engineInfo,
 }: GeneratedActionParamsBodyProps<'map.ner'>) {
   const engine = params.engine ?? 'spacy';
   const [spacyInstalled, setSpacyInstalled] = useState(false);
@@ -32,7 +31,6 @@ export function NerParamsBody({
       }
     } else {
       delete next.extra_instructions;
-      delete next.model;
     }
     if (JSON.stringify(next) !== JSON.stringify(params)) setParams(next);
   }, [engine, params, setParams]);
@@ -47,9 +45,7 @@ export function NerParamsBody({
 
   return <>
     <Field name="source" />
-    {engineModelChoice && <EngineModelChoice presentation={engineModelChoice} engines={engines ?? []}
-      engine={engine} model={params.model}
-      onSelect={({ engine: selectedEngine, model }) => setParams({ ...params, engine: selectedEngine, model })} />}
+    <Field name="engine" />
     <NerEngineFields
       engine={engine}
       labels={params.labels ?? []}
