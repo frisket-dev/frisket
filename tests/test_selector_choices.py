@@ -745,8 +745,9 @@ def test_ambient_embedding_key_does_not_unlock_an_unconfigured_effective_router(
     assert current["blocker"]["code"] == "provider_key_required"
 
 
+@pytest.mark.parametrize("provider", ["fastembed", "local"])
 def test_supported_custom_fastembed_current_uses_owner_registry_dimensions(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, provider: str
 ) -> None:
     monkeypatch.setattr(
         "frisket.ai.embeddings.capabilities._detect_local_text", lambda _env: True
@@ -767,7 +768,7 @@ def test_supported_custom_fastembed_current_uses_owner_registry_dimensions(
         json=_query(
             {
                 "kind": "embedding",
-                "provider": "fastembed",
+                "provider": provider,
                 "model": "owner/custom-local",
                 "modality": "text",
             }
@@ -778,7 +779,7 @@ def test_supported_custom_fastembed_current_uses_owner_registry_dimensions(
     current = next(row for row in _choices(response.json()) if row["is_current"])
     assert current["authored_selection"] == {
         "kind": "embedding",
-        "provider": "fastembed",
+        "provider": provider,
         "model": "owner/custom-local",
     }
     assert current["can_run"] is True

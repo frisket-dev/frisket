@@ -400,14 +400,18 @@ class SelectorChoiceService:
                 env=environment,
             )
             if custom is not None and custom.get("available"):
-                choices.append(
-                    self._embedding_choice(
-                        router=router,
-                        project=project,
-                        capabilities=capabilities,
-                        row={**custom, "modality_compatible": True},
-                    )
+                custom_choice = self._embedding_choice(
+                    router=router,
+                    project=project,
+                    capabilities=capabilities,
+                    row={**custom, "modality_compatible": True},
                 )
+                custom_choice["authored_selection"] = {
+                    "kind": "embedding",
+                    "provider": current_pair[0],
+                    "model": current_pair[1],
+                }
+                choices.append(custom_choice)
         default = next(
             (selection for selection in recommended_selections),
             None,
