@@ -150,7 +150,6 @@ describe('engine-aware cost gating', () => {
   });
 
   it('shows the SERVER price for the LLM engine and launches unconfirmed', async () => {
-    const user = userEvent.setup();
     const { onExecute, estimateAction } = mountNer({
       estimateAction: async (request) => (
         request.params.engine === 'llm'

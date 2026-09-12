@@ -646,7 +646,9 @@ def test_ensure_pair_installed_rechecks_after_a_durable_pull_in_another_process(
         # realtime: event rendezvous proves entry into a real cross-process file lock.
         contender_thread = threading.Thread(target=contender)
         contender_thread.start()
-        assert attempted.wait(timeout=5), "first-use worker did not attempt the file lock"
+        assert attempted.wait(timeout=5), (
+            "first-use worker did not attempt the file lock"
+        )
         release.set()
         contender_thread.join(timeout=5)
         assert not contender_thread.is_alive()

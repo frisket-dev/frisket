@@ -49,7 +49,7 @@ async function run() {
   await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
   fireEvent.click(screen.getByTestId('generated-action-run'));
 }
-async function choose(engine: string, tier?: string) {
+async function choose(engine: string) {
   await chooseActionSelector(engine);
 }
 
@@ -114,12 +114,12 @@ describe('typed Markdown form', () => {
 
   it('names sidecar OCR-use output and drops it when switching to a local engine', async () => {
     const { onExecute } = form();
-    await choose('docling', 'sidecar');
+    await choose('docling');
     await screen.findByTestId('field-output-ocr_used');
     fireEvent.change(screen.getByTestId('field-output-ocr_used'), { target: { value: 'Page OCR' } });
     await run();
     expect(onExecute.mock.calls[0][0].output_names.ocr_used).toBe('Page OCR');
-    await choose('trafilatura_html', 'local');
+    await choose('trafilatura_html');
     await waitFor(() => expect(screen.queryByTestId('field-output-ocr_used')).not.toBeInTheDocument());
     await run();
     expect(onExecute.mock.calls[1][0].params.engine).toBe('trafilatura_html');
