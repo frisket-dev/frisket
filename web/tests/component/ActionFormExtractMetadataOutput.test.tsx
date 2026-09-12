@@ -134,6 +134,9 @@ describe('typed metadata output naming', () => {
       columnDef({ id: '3', name: 'details', type: 'json' }),
     ], { id: '7', name: 'Media', rowCount: 2 }) });
     await screen.findByTestId('field-output-details');
+    // This assertion exercises the one-column name, whose default changed to columns.
+    fireEvent.change(screen.getByTestId('field-output_mode'), { target: { value: 'object' } });
+    await waitFor(() => expect(screen.queryByTestId('field-output-future_role')).not.toBeInTheDocument());
     fireEvent.change(screen.getByTestId('field-output-prefix'), { target: { value: 'details_2' } });
     expect(screen.getByTestId('field-output-details')).toHaveValue('details_2');
     expect(screen.queryByTestId('default-output-name-collision-details')).not.toBeInTheDocument();
