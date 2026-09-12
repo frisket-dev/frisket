@@ -12,6 +12,7 @@ from typing import Annotated, Literal
 
 from pydantic import Field, JsonValue
 
+from frisket.contracts.http.local_providers import ModelPull
 from frisket.contracts.http.models import WireModel
 
 
@@ -153,27 +154,17 @@ class SelectorSetupScope(WireModel):
     scope: Literal["workspace", "project", "organization", "environment"]
     configured: bool
     can_mutate: bool
-    source: Literal["missing", "environment", "workspace", "project", "organization"]
-
-
-class SelectorOperationCapabilities(WireModel):
-    cancel: bool
-    retry: bool
-    remove: bool
-
-
-class SelectorActiveOperation(WireModel):
-    operation_id: int
-    operation_kind: Literal["artifact", "local_model", "engine_setup"]
-    display_name: str
-    status: Literal[
-        "queued", "running", "completed", "failed", "cancel_requested", "cancelled"
+    source: Literal[
+        "missing",
+        "environment",
+        "workspace",
+        "project",
+        "organization",
+        "platform",
     ]
-    phase: str | None
-    completed_bytes: int | None = Field(default=None, ge=0)
-    total_bytes: int | None = Field(default=None, ge=0)
-    error: SelectorBlocker | None
-    capabilities: SelectorOperationCapabilities
+    environment_names: list[str]
+    settings_location: str | None
+    hint: str | None
 
 
 class ApiKeySetup(WireModel):
@@ -193,7 +184,7 @@ class ArtifactDownloadSetup(WireModel):
     scope: Literal["workspace", "organization"]
     can_mutate: bool
     can_start: bool
-    blocked_by_operation: int | None
+    blocked_by_operation: ModelPull | None
 
 
 class EngineSetup(WireModel):
@@ -202,7 +193,7 @@ class EngineSetup(WireModel):
     scope: Literal["workspace", "organization"]
     can_mutate: bool
     can_start: bool
-    blocked_by_operation: int | None
+    blocked_by_operation: ModelPull | None
 
 
 class FirstUseDownloadSetup(WireModel):
@@ -243,7 +234,7 @@ class SelectorChoice(WireModel):
     can_run: bool
     blocker: SelectorBlocker | None
     setup: SelectorSetup | None
-    active_operation: SelectorActiveOperation | None
+    active_operation: ModelPull | None
     is_default: bool
     is_current: bool
 
@@ -285,14 +276,12 @@ __all__ = [
     "ModelSelection",
     "ModelsGatewaySetup",
     "NormalizedSelectorSubject",
-    "SelectorActiveOperation",
     "SelectorBlocker",
     "SelectorChoice",
     "SelectorChoiceGroup",
     "SelectorChoicesQuery",
     "SelectorChoicesResponse",
     "SelectorFact",
-    "SelectorOperationCapabilities",
     "SelectorProcessingDestination",
     "SelectorResolvedTarget",
     "SelectorSetup",
