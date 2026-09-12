@@ -49,6 +49,11 @@ from frisket.engine.executor import ExecutorDeps
 from frisket.engine.jobs import WorkerPorts, open_queue
 from frisket.server.app import create_app
 from frisket.server.services.selector_choices import SelectorCapabilities
+from frisket.team.gateway_routes import (
+    TeamOrgModelsGatewayPort,
+    register_team_models_gateway_routes,
+    team_models_gateway_service,
+)
 from frisket.server.route_errors import http_error_responses
 from frisket.server.static_serving import mount_spa_static, resolve_static_dir
 from frisket.team.auth_runtime import (
@@ -985,6 +990,12 @@ def create_team_app(
             configure_models_gateway=org_owner,
         )
 
+    gateway_service = team_models_gateway_service(
+        engine,
+        org_id=org_id,
+        encrypt=secret_box.encrypt,
+        decrypt=secret_box.decrypt,
+    )
     core = create_app(
         config.data_dir,
         queue=open_queue(database_url=config.run_queue_database_url, hosted=False),
@@ -995,12 +1006,17 @@ def create_team_app(
             engine, org_id=org_id, decryptor=secret_box.decrypt
         ),
         worker_ports=WorkerPorts(
-            credential_port=TeamOrgKeyCredentialPort(secret_box.decrypt)
+            credential_port=TeamOrgKeyCredentialPort(secret_box.decrypt),
+            models_gateway_port=TeamOrgModelsGatewayPort(secret_box.decrypt),
         ),
         require_explicit_provider_keys=True,
         serve_spa=False,
         enable_provider_config=False,
         selector_capabilities_for=selector_capabilities_for,
+        models_gateway_connection_resolver=gateway_service.resolve_connection,
+        models_gateway_status_for=lambda can_mutate: gateway_service.passive_status(
+            can_mutate=can_mutate
+        ),
         product_telemetry_destination=product_telemetry_destination,
         edition="team",
         # Team's own capability fact is env-only (never the local tier's
@@ -1937,6 +1953,15 @@ def create_team_app(
         workspace=core.state.workspace,
     )
 
+    register_team_models_gateway_routes(
+        app,
+        service=gateway_service,
+        require_member=lambda request: require_org_member(request, browser=True),
+        require_owner=lambda request: require_user(request, browser=True, admin=True),
+        member_can_mutate=lambda actor: (
+            _membership_role(engine, int(actor["id"]), org_id) == "owner"
+        ),
+    )
     register_operational_routes(
         app,
         engine=engine,
@@ -2043,6 +2068,9 @@ _TEAM_LOCAL_MODEL_DECLARATIONS = tuple(
             ("list_org_local_endpoints", "GET"),
             ("post_org_models_pull", "POST"),
             ("setup_org_model_engine", "POST"),
+            ("get_org_models_gateway", "GET"),
+            ("validate_org_models_gateway", "POST"),
+            ("set_org_models_gateway", "PUT"),
             ("list_org_model_pulls", "GET"),
             ("get_org_model_pull", "GET"),
             ("cancel_org_model_pull", "POST"),
