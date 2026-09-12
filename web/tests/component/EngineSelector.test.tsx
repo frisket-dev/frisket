@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
+import { createRef } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -64,6 +65,36 @@ describe('EngineSelector', () => {
     expect(screen.queryByTestId('engine-selector-dialog')).not.toBeInTheDocument();
     expect(JSON.parse(localStorage.getItem('frisket:engine-selector:recent:component-test') ?? '[]')).toEqual(['openai-0']);
     expect(trigger).toHaveFocus();
+  });
+
+  it.each(['object', 'callback'] as const)('forwards a %s trigger ref, restores focus, and clears it on unmount', async (kind) => {
+    const objectRef = createRef<HTMLButtonElement>();
+    const callbackRef = vi.fn<(node: HTMLButtonElement | null) => void>();
+    expect(objectRef.current).toBeNull();
+    const view = render(<EngineSelector label="Engine" groups={groups} value="parakeet"
+      recentNamespace="forwarded-trigger" onSelect={vi.fn()}
+      triggerRef={kind === 'object' ? objectRef : callbackRef} />);
+    const trigger = screen.getByRole('button', { name: /parakeet/i });
+    if (kind === 'object') expect(objectRef.current).toBe(trigger);
+    else expect(callbackRef).toHaveBeenLastCalledWith(trigger);
+    await userEvent.click(trigger);
+    fireEvent(screen.getByTestId('engine-selector-dialog'), new Event('cancel', { cancelable: true }));
+    expect(trigger).toHaveFocus();
+    view.unmount();
+    if (kind === 'object') expect(objectRef.current).toBeNull();
+    else expect(callbackRef).toHaveBeenLastCalledWith(null);
+  });
+
+  it('resets the search and previews the latest committed selection on reopening', async () => {
+    const props = { label: 'Engine', groups, recentNamespace: 'reopening', onSelect: vi.fn() };
+    const view = render(<EngineSelector {...props} value="parakeet" />);
+    await userEvent.click(screen.getByRole('button', { name: /parakeet/i }));
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search Engine' }), 'Whisper');
+    fireEvent(screen.getByTestId('engine-selector-dialog'), new Event('cancel', { cancelable: true }));
+    view.rerender(<EngineSelector {...props} value="openai-1" />);
+    await userEvent.click(screen.getByRole('button', { name: /openai 1/i }));
+    expect(screen.getByRole('searchbox', { name: 'Search Engine' })).toHaveValue('');
+    expect(screen.getByRole('heading', { name: 'OpenAI 1' })).toBeVisible();
   });
 
   it('pins setup-needed details after selecting but keeps the dialog open', async () => {

@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -80,6 +81,7 @@ export function EngineSelector({
   triggerRef: externalTriggerRef,
 }: EngineSelectorProps) {
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  useImperativeHandle(externalTriggerRef, () => triggerRef.current!, []);
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const detailFooterRef = useRef<HTMLDivElement | null>(null);
@@ -153,7 +155,7 @@ export function EngineSelector({
     pinnedIdRef.current = pinnedId;
   }, [pinnedId]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     editingSetupRef.current = editingSetup;
   }, [editingSetup]);
 
@@ -170,20 +172,22 @@ export function EngineSelector({
     }
   }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-    const first = selectedChoice ?? allChoices[0] ?? null;
-    setPreviewedId(first?.id ?? null);
-    setActiveGroupId(groupForChoice(groups, first?.id ?? null)?.id ?? groups[0]?.id ?? null);
+  const openSelector = () => {
+    cancelHoverIntent();
+    // Each opening starts from the latest committed selection, using the
+    // existing preview/group fallbacks instead of a second effect render.
+    setPreviewedId(null);
+    setActiveGroupId(null);
+    pinnedIdRef.current = null;
+    editingSetupRef.current = false;
     setPinnedId(null);
     setEditingSetup(false);
     setMobileDetail(false);
     setMobileOriginId(null);
     setProviderFilter('');
     setQuery('');
-  // Opening is the boundary where committed selection becomes the preview.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+    setOpen(true);
+  };
 
   useLayoutEffect(() => {
     if (!open) return undefined;
@@ -317,11 +321,7 @@ export function EngineSelector({
     ? {
         choice: previewedChoice,
         pinned: pinnedId === previewedChoice.id,
-        regionRef: detailFooterRef,
-        onEditingChange: (editing) => {
-          editingSetupRef.current = editing;
-          setEditingSetup(editing);
-        },
+        onEditingChange: setEditingSetup,
       }
     : null;
   const triggerCopy = selectedChoice ?? previewedChoice;
@@ -332,19 +332,13 @@ export function EngineSelector({
   return (
     <div className="engine-selector" data-testid="engine-selector">
       <button
-        ref={(node) => {
-          triggerRef.current = node;
-          if (typeof externalTriggerRef === 'function') externalTriggerRef(node);
-          else if (externalTriggerRef) {
-            (externalTriggerRef as { current: HTMLButtonElement | null }).current = node;
-          }
-        }}
+        ref={triggerRef}
         type="button"
         className="engine-selector__trigger form-input"
         aria-haspopup="dialog"
         aria-expanded={open}
         disabled={disabled}
-        onClick={() => setOpen(true)}
+        onClick={openSelector}
       >
         <span className={`engine-selector__status engine-selector__status--${triggerCopy?.status ?? 'unavailable'}`} aria-hidden />
         <span className="engine-selector__trigger-copy">

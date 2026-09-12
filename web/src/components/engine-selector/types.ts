@@ -1,4 +1,4 @@
-import type { ReactNode, Ref, RefObject } from 'react';
+import type { ReactNode, Ref } from 'react';
 
 /** Presentation state projected by the selector catalog. It deliberately does
  * not encode how a caller authors an engine/model value. */
@@ -37,8 +37,6 @@ export interface EngineSelectorDetailFooterContext {
   choice: EngineSelectorChoice;
   /** A setup-needed selection remains pinned until explicit navigation. */
   pinned: boolean;
-  /** The supplied form may focus this region after it mounts. */
-  regionRef: RefObject<HTMLDivElement | null>;
   /** Call when an embedded form starts/stops editing. */
   onEditingChange(editing: boolean): void;
 }
