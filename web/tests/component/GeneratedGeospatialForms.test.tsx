@@ -44,7 +44,9 @@ describe.skipIf(!hasServedActionCatalogPython() && !process.env.CI)('typed geosp
       } } } : {}),
       ui_hints: { ...raw.ui_hints, ...runtimeHints, engines, missing_credentials: missingCredentials } };
     const template = generatedActionTemplateFromCatalogEntry(entry)!;
-    installActionSelectorFixture(entry);
+    // This request fixture has no scoped OpenCage key, so the runtime resolver
+    // selects Nominatim for authored auto regardless of other catalog rows.
+    installActionSelectorFixture(entry, undefined, kind === 'enrich.geocode' ? { geocodeAutoEngine: 'nominatim' } : {});
     const resolveParams = vi.fn(async ({ params }: Parameters<ComponentProps<typeof GeneratedActionForm>['resolveParams']>[0]) => ({
       diagnostics: {}, logical_outputs: entry.ui_hints.logical_outputs.filter(({ key }) => (
         kind === 'enrich.geocode'
@@ -205,7 +207,10 @@ describe.skipIf(!hasServedActionCatalogPython() && !process.env.CI)('typed geosp
     const { execute } = renderForm('enrich.geocode', { initialDraft: {
       action_id: 'enrich.geocode', scope: { kind: 'sheet_rows', sheet_id: 7 },
       params: { source: 'address' }, output_names: { geo_point: 'Saved point', formatted_address: 'Saved address' },
-    } }, [], { engines: [{ id: 'nominatim', label: 'Nominatim', tier: 'hosted', available: false }] });
+    } }, [], { engines: [
+      { id: 'nominatim', label: 'Nominatim', tier: 'hosted', available: false },
+      { id: 'opencage', label: 'OpenCage', tier: 'hosted', available: true },
+    ] });
     await screen.findByTestId('field-output-geo_point');
     expect(selectorTrigger()).toHaveTextContent('Auto');
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('No execution engines are available.'));

@@ -8,6 +8,7 @@ import type { HttpSelectorChoicesQuery, HttpSelectorChoicesResponse } from '../.
 import { installDialogPolyfill } from './domPolyfills';
 
 type Selection = Extract<SelectorChoice['authored_selection'], { kind: 'engine' | 'engine_model' | 'model' }>;
+type SelectorFixtureFacts = { geocodeAutoEngine?: 'opencage' | 'nominatim' };
 
 /** An explicitly admitted synthetic provider roster for form-only tests. */
 export function selectorProviderCatalog(modelIds: string[]): LocalProviderCatalog {
@@ -36,6 +37,7 @@ function choice(selection: Selection, label: string, available: boolean, reason?
 export function installActionSelectorFixture(
   entry: GeneratedActionCatalogEntry,
   providers: () => Promise<LocalProviderCatalog> = () => listProviders(),
+  facts: SelectorFixtureFacts = {},
 ) {
   installDialogPolyfill();
   return vi.spyOn(selectorChoicesApi, 'getSelectorChoices').mockImplementation(async (projectId, query) => {
@@ -44,13 +46,14 @@ export function installActionSelectorFixture(
     }
     let catalog: LocalProviderCatalog;
     try { catalog = await providers(); } catch { catalog = { schemaVersion: 'frisket.providers.v1', tier: 'local', providers: [] }; }
-    return actionSelectorResponse(projectId, query, entry, catalog);
+    return actionSelectorResponse(projectId, query, entry, catalog, facts);
   });
 }
 
 export function actionSelectorResponse(
   projectId: string, query: HttpSelectorChoicesQuery, entry: GeneratedActionCatalogEntry,
   catalog: LocalProviderCatalog,
+  facts: SelectorFixtureFacts = {},
 ): HttpSelectorChoicesResponse {
   if (query.subject.kind !== 'action') throw new Error('An action selector subject is required');
   const subject = query.subject;
@@ -60,10 +63,23 @@ export function actionSelectorResponse(
   const engines = entry.ui_hints.engines ?? [];
   const llm = engines.find((engine) => engine.id === 'llm');
   const groups: HttpSelectorChoicesResponse['groups'] = [];
-  const fixed = engines.filter((engine) => engine.id !== 'llm').map((engine) => choice(
-    mixed ? { kind: 'engine_model', engine: engine.id, model: null } : { kind: 'engine', engine: engine.id },
-    engine.label, engine.available, engine.error,
-  ));
+  const fixed = engines.filter((engine) => engine.id !== 'llm').map((engine) => {
+    const item = choice(
+      mixed ? { kind: 'engine_model', engine: engine.id, model: null } : { kind: 'engine', engine: engine.id },
+      engine.label, engine.available, engine.error,
+    );
+    const licenseParts = [engine.license?.name, engine.license?.note].filter((value): value is string => Boolean(value));
+    if (licenseParts.length) item.facts.push({ kind: 'text',
+      label: engine.license?.restricted ? 'Restrictive license' : 'License', value: licenseParts.join(': ') });
+    return item;
+  });
+  // The caller supplies the runtime route selected by its scoped credential
+  // fixture. Automatic selection never borrows readiness from another engine.
+  if (entry.kind === 'enrich.geocode' && facts.geocodeAutoEngine) {
+    const concrete = engines.find((engine) => engine.id === facts.geocodeAutoEngine);
+    fixed.unshift(choice({ kind: 'engine', engine: 'auto' }, 'Auto', concrete?.available === true,
+      concrete?.error ?? 'No execution engines are available.'));
+  }
   if (fixed.length) groups.push({ group_id: 'local', kind: 'local', label: 'Local', status: 'ready', choices: fixed });
   for (const provider of catalog.providers) {
     if (!hasModel) break;
@@ -87,7 +103,7 @@ export function actionSelectorResponse(
   const key = current ? JSON.stringify(current) : null;
   const selected = choices.find((candidate) => candidate.choice_id === key);
   const defaultEngine = entry.input_schema.properties?.engine?.default;
-  const preferred = choices.find((candidate) => candidate.can_run && (candidate.authored_selection.kind === 'engine'
+  const preferred = choices.find((candidate) => (candidate.authored_selection.kind === 'engine'
     || candidate.authored_selection.kind === 'engine_model')
     && candidate.authored_selection.engine === defaultEngine) ?? choices.find((candidate) => candidate.can_run);
   if (selected) selected.is_current = true;
