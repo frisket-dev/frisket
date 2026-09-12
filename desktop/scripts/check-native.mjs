@@ -38,7 +38,7 @@ async function hasCompletedRuntime(dataPath) {
 
 async function run(label, command, args, options) {
   try {
-    return await execFile(command, args, { ...options, maxBuffer: 1024 * 1024, timeout: 120_000 });
+    return await execFile(command, args, { maxBuffer: 1024 * 1024, timeout: 120_000, ...options });
   } catch (error) {
     const code = error.code ? ` (${error.code})` : '';
     throw new Error(`${label} failed${code}. ${String(error.stderr || error.message).slice(-4096)}`);
@@ -143,6 +143,96 @@ asyncio.run(main())
   }
 }
 
+async function checkAsr(resourcesPath, python, env, workspace) {
+  const speech = path.join(workspace, 'native-check.wav');
+  await run('macOS speech synthesis', '/usr/bin/say', [
+    '-o', speech, '--data-format=LEI16@16000',
+    'the quick brown fox jumps over the lazy dog',
+  ], { env });
+  const script = path.join(workspace, 'native-asr-check.py');
+  await fs.writeFile(script, `
+import asyncio
+import json
+import math
+import sys
+
+sys.path.insert(0, sys.argv[1])
+speech = sys.argv[2]
+
+from frisket.ai.models import artifact_manifest
+from frisket.engine._workers.parakeet_artifacts import PARAKEET_MODEL
+from frisket.sdk.ops.transcription.faster_whisper import FasterWhisperAdapter
+from frisket.sdk.ops.transcription.parakeet import (
+    ParakeetAdapter,
+    execution_scope as parakeet_execution_scope,
+)
+
+def checked_transcript(engine, result):
+    text = result.get("text")
+    normalized = "".join(character for character in str(text).lower() if character.isalnum())
+    if "quickbrownfox" not in normalized:
+        raise RuntimeError(f"{engine} did not recognize the speech sentinel")
+    segments = result.get("segments")
+    if not isinstance(segments, list) or not segments:
+        raise RuntimeError(f"{engine} returned no timestamped segments")
+    for segment in segments:
+        start = segment.get("start")
+        end = segment.get("end")
+        if (
+            isinstance(start, bool)
+            or isinstance(end, bool)
+            or not isinstance(start, (int, float))
+            or not isinstance(end, (int, float))
+            or not math.isfinite(start)
+            or not math.isfinite(end)
+            or start < 0
+            or end < start
+        ):
+            raise RuntimeError(f"{engine} returned invalid timestamps")
+    if max(segment["end"] for segment in segments) <= min(
+        segment["start"] for segment in segments
+    ):
+        raise RuntimeError(f"{engine} returned no positive timestamp span")
+    return {"text": text, "segments": len(segments)}
+
+async def main():
+    whisper = await FasterWhisperAdapter().transcribe(
+        speech, {"language": "en", "model_size": "base", "vad": True}
+    )
+    pinned_whisper = artifact_manifest.whisper_base_artifact()
+    if (
+        pinned_whisper is None
+        or pinned_whisper.hf_snapshot is None
+        or whisper.get("revision") != pinned_whisper.hf_snapshot.revision
+        or whisper.get("model_ids") != [pinned_whisper.hf_snapshot.repo_id]
+    ):
+        raise RuntimeError("Faster Whisper did not use the pinned cached snapshot")
+    whisper_result = checked_transcript("Faster Whisper", whisper)
+
+    parakeet_spec = {"vad": True}
+    async with parakeet_execution_scope(
+        enabled=True, spec=parakeet_spec, expected_rows=1, should_cancel=None
+    ):
+        parakeet = await ParakeetAdapter().transcribe(speech, parakeet_spec)
+    parakeet_result = checked_transcript("Parakeet", parakeet)
+    print(json.dumps({
+        "faster_whisper": whisper_result,
+        "parakeet": {**parakeet_result, "model": PARAKEET_MODEL},
+    }))
+
+asyncio.run(main())
+`, { mode: 0o600 });
+  const resourcesPython = path.join(resourcesPath, 'python');
+  const guard = path.join(resourcesPython, 'frisket', 'runtime', '_guard.py');
+  const proof = await run('Private Python ASR workers', python, [
+    '-I', guard, String(process.pid), '2', python, '-I', script, resourcesPython, speech,
+  ], { env, timeout: 15 * 60 * 1000 });
+  const result = parseJson('Private Python ASR workers', proof.stdout);
+  if (!result.faster_whisper?.segments || !result.parakeet?.segments) {
+    throw new Error('Private Python ASR engines returned an invalid result.');
+  }
+}
+
 async function main() {
   if (process.platform !== 'darwin' || process.arch !== 'arm64') {
     throw new Error('Native runtime proof requires macOS Apple Silicon.');
@@ -158,7 +248,8 @@ async function main() {
   try {
     await checkMedia(resourcesPath, runtime.env, workspace);
     await checkPython(resourcesPath, runtime.python, runtime.env, workspace);
-    console.log('Native checks passed: FFmpeg, ffprobe, Deno, PDFium, RapidOCR and PDF parsing.');
+    await checkAsr(resourcesPath, runtime.python, runtime.env, workspace);
+    console.log('Native checks passed: FFmpeg, ffprobe, Deno, PDFium, RapidOCR, PDF parsing, Faster Whisper and Parakeet.');
   } finally {
     await fs.rm(workspace, { recursive: true, force: true });
   }
