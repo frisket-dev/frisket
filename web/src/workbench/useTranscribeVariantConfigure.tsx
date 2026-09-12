@@ -1,20 +1,16 @@
-// The Transcribe Compare variant-configure + add-engine state machine. Owns the
-// add-engine menu (immediate-add flow with its inline remote-gate), the per-chip
-// Configure-variant popover (edit-only — the gear never seeds a blank column,
-// unlike OCR), the viewport-shift clamp, dismissal, focus, and the native player
-// source peek.
+// The Transcribe Compare variant-configure state machine owns the shared
+// selector-backed add/configure flow, its dismissal and focus, and the native
+// player source peek.
 import {
   useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
   type ReactNode,
 } from 'react';
 import type { TranscribeCompareEngineResult } from '../api/open';
-import { horizontalViewportShift, useAnchoredPosition, type AnchoredPosition } from '../hooks/useAnchoredPosition';
-import { useNativePopover } from '../hooks/useNativePopover';
+import { horizontalViewportShift } from '../hooks/useAnchoredPosition';
 import { MediaPlayerPeek } from './MediaPlayerPeek';
 import type {
   MediaCompareSession,
@@ -26,72 +22,30 @@ export function useTranscribeVariantConfigure(
   session: MediaCompareSession<TranscribeCompareEngineResult>,
 ) {
   const {
-    catalog,
     columns,
-    addEngineColumn,
+    addBlankColumn,
+    removeColumn,
     updateColumnOptions,
     chooseEngine,
     duplicateColumn,
   } = session;
 
-  const [addMenuOpen, setAddMenuOpen] = useState(false);
-  // addMenuRef: the wrapper (trigger + popover); addMenuTriggerRef: the
-  // trigger button alone, for top-layer placement; addMenuPopRef: the
-  // popover element itself, for the native popover lifecycle.
-  const addMenuRef = useRef<HTMLDivElement>(null);
-  const addMenuTriggerRef = useRef<HTMLButtonElement>(null);
-  const addMenuPopRef = useRef<HTMLDivElement>(null);
-
-  // Configure-variant popover: which chip's ⚙ is open. Unlike OCR this never
-  // seeds a blank "adding" column — the add-menu (below) stays the add
-  // flow; the gear only EDITS an already-committed chip's engine/options.
+  // Configure-variant popover: which chip's selector is open.
   const [configureVariantId, setConfigureVariantId] = useState<string | null>(null);
+  const [addingVariantId, setAddingVariantId] = useState<string | null>(null);
   const configureAnchorRef = useRef<HTMLDivElement>(null);
   const engineSelectorRef = useRef<HTMLButtonElement>(null);
   const configurePopoverRef = useRef<HTMLDivElement>(null);
 
-  // Active engine ids (chips) and the engines still available to add (menu).
-  const activeEngineIds = useMemo(
-    () => new Set(columns.map((column) => column.engineId).filter((id): id is string => !!id)),
-    [columns],
-  );
-  const addableEngines = useMemo(
-    () => catalog.filter((engine) => !activeEngineIds.has(engine.id)),
-    [catalog, activeEngineIds],
-  );
-
-  // Add-menu dismissal: a native top-layer popover, `escape:false` is
-  // deliberate — outside pointerdown only, no Escape (the menu is a plain
-  // add-engine list, not a form worth a keyboard-cancel affordance). The
-  // trigger testid is the ignoreSelector so its own click keeps sole
-  // ownership of the toggle.
-  const dismissAddMenu = useCallback(() => {
-    setAddMenuOpen(false);
-  }, []);
-  useNativePopover(addMenuPopRef, dismissAddMenu, {
-    enabled: addMenuOpen,
-    escape: false,
-    ignoreSelector: '[data-testid="transcribe-compare-add-engine"]',
-  });
-  // Fixed-position anchor now that the menu is a top-layer element — it no
-  // longer inherits placement from `.ocr-compare-add-wrap`'s CSS positioned
-  // ancestor (the shared `.menu-pop`, right-aligned under the trigger).
-  const addMenuPos: AnchoredPosition | null = useAnchoredPosition(addMenuTriggerRef, {
-    enabled: addMenuOpen,
-    align: 'right',
-    width: 224,
-    gap: 4,
-  });
-
-  // Configure popover dismissal — Escape or an outside pointerdown closes it
-  // (parity with OcrCompareTab's dismissConfigure; no "incomplete add" case
-  // here since the gear never seeds a blank column). Nothing to cancel on
-  // dismiss any more: every engine the picker offers is free, so a swap is
-  // always immediately runnable and can never be stranded mid-consent.
   const dismissConfigure = useCallback(() => {
     if (!configureVariantId) return;
+    const variant = columns.find((column) => column.id === configureVariantId);
+    if (addingVariantId === configureVariantId && !variant?.engineId) {
+      removeColumn(configureVariantId);
+      setAddingVariantId(null);
+    }
     setConfigureVariantId(null);
-  }, [configureVariantId]);
+  }, [addingVariantId, columns, configureVariantId, removeColumn]);
   // Inline Escape + outside-pointerdown: excluded from the top-layer
   // conversion, same lighter genus as the OCR configure popover —
   // inline-absolute, positioned via the horizontalViewportShift JS clamp
@@ -101,11 +55,13 @@ export function useTranscribeVariantConfigure(
   useEffect(() => {
     if (!configureVariantId) return undefined;
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.target instanceof Element && event.target.closest('.engine-selector__dialog')) return;
       if (event.key === 'Escape') dismissConfigure();
     };
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
+      if (target instanceof Element && target.closest('.engine-selector__dialog')) return;
       if (configureAnchorRef.current?.contains(target)) return;
       dismissConfigure();
     };
@@ -173,6 +129,7 @@ export function useTranscribeVariantConfigure(
     (variantId: string, engineId: string) => {
       chooseEngine(variantId, engineId);
       clearEngineOptions(variantId);
+      setAddingVariantId((current) => current === variantId ? null : current);
     },
     [chooseEngine, clearEngineOptions],
   );
@@ -186,15 +143,11 @@ export function useTranscribeVariantConfigure(
     [duplicateColumn],
   );
 
-  const onSelectEngine = useCallback(
-    (engineId: string) => {
-      // No billable confirm interposed in the menu: the menu only ever lists
-      // free engines, so picking one adds it straight away.
-      addEngineColumn(engineId);
-      setAddMenuOpen(false);
-    },
-    [addEngineColumn],
-  );
+  const addVariant = useCallback(() => {
+    const variantId = addBlankColumn();
+    setAddingVariantId(variantId);
+    setConfigureVariantId(variantId);
+  }, [addBlankColumn]);
 
   const renderSourcePeek = useCallback(
     (doc: ScratchDoc<TranscribeCompareEngineResult>, nav: MediaNavTarget | null): ReactNode => {
@@ -221,14 +174,7 @@ export function useTranscribeVariantConfigure(
     openConfigure,
     onConfigureChooseEngine,
     onConfigureDuplicate,
-    addMenuOpen,
-    setAddMenuOpen,
-    addMenuRef,
-    addMenuTriggerRef,
-    addMenuPopRef,
-    addMenuPos,
-    addableEngines,
-    onSelectEngine,
+    addVariant,
     renderSourcePeek,
   };
 }

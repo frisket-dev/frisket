@@ -138,6 +138,7 @@ function createOcrConfig(
   defaultColumnOptions: Record<string, unknown>,
 ): MediaCompareConfig<OcrComparePreviewPageResult[]> {
   return {
+  selectorActionId: 'media.ocr',
   testidPrefix: 'ocr-compare',
   accept: 'application/pdf,image/*,.pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,.bmp',
   classifyFile: (file) => {
@@ -448,6 +449,7 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
                   </div>
                   {configureVariantId === column.id ? (
                     <ConfigureVariantPopover
+                      onCurrentChoiceChange={session.reportColumnChoice}
                       testidPrefix="ocr-compare"
                       actionId="media.ocr"
                       popoverRef={configurePopoverRef}

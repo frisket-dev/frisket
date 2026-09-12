@@ -11,6 +11,8 @@ import { ChevronLeft, ChevronRight, Copy, Loader2, RotateCw, X } from 'lucide-re
 import type { EngineOption } from '../api/open';
 import type { PreviewSampleResult } from '../api/types';
 import { SelectorField } from '../engine-selector/SelectorField';
+import type { SelectorChoice } from '../api/selectorChoices';
+import { mediaSelectorQuery } from './mediaCompareSelector';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { formatDuration, formatUsd } from '../format';
 import { tierForEngine } from '../actions/engineCatalog';
@@ -57,6 +59,7 @@ export interface ConfigureVariantPopoverProps {
   engineSelectorRef: React.Ref<HTMLButtonElement>;
   errorMessage: string | null;
   onChooseEngine(engineId: string): void;
+  onCurrentChoiceChange?(column: CompareColumn, choice: SelectorChoice | null): void;
   onDuplicate(): void;
   /** The domain option fields once an engine is chosen (OCR: DPI + language;
    *  transcribe: language/model-size/VAD, per-engine declared). */
@@ -78,6 +81,7 @@ export function ConfigureVariantPopover({
   catalog,
   errorMessage,
   onChooseEngine,
+  onCurrentChoiceChange,
   onDuplicate,
   renderOptionFields,
   laterHint,
@@ -114,22 +118,8 @@ export function ConfigureVariantPopover({
         <SelectorField
           projectId={projectId}
           label="Engine"
-          query={{
-            schema_version: 'frisket.selector_choices_query.v1',
-            subject: {
-              kind: 'action',
-              action_id: actionId,
-              field: 'engine',
-              params: {
-                engine: column.engineId ?? '',
-                ...(typeof column.options.language === 'string' ? { language: column.options.language } : {}),
-                ...(typeof column.options.modelSize === 'string' ? { model_size: column.options.modelSize } : {}),
-                ...(typeof column.options.vad === 'boolean' ? { vad: column.options.vad } : {}),
-                ...(typeof column.options.clean === 'boolean' ? { clean: column.options.clean } : {}),
-                ...(typeof column.options.diarize === 'boolean' ? { diarize: column.options.diarize } : {}),
-              },
-            },
-          }}
+          query={mediaSelectorQuery(actionId, column)}
+          onCurrentChoiceChange={(choice) => onCurrentChoiceChange?.(column, choice)}
           recentNamespace={`${projectId}:compare:${actionId}`}
           allowChoice={(choice) => {
             const authored = choice.authored_selection;

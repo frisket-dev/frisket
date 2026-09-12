@@ -1,15 +1,21 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { cleanup, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../src/media/pdfjsSetup', () => ({ pdfjsLib: { getDocument: vi.fn() } }));
 
+import { selectorChoicesApi } from '../../src/api/selectorChoices';
+import { mediaChoices } from '../support/mediaSelectorFixtures';
 import type { PreviewSampleResult } from '../../src/api/types';
 import { createProjectApi } from '../../src/api/real';
+import { installDialogPolyfill } from '../support/domPolyfills';
+import { TranscribeCompareTab } from '../../src/workbench/TranscribeCompareTab';
 import { OcrCompareTab } from '../../src/workbench/OcrCompareTab';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
+
+beforeAll(installDialogPolyfill);
 
 const api = createProjectApi('test-project');
 const { render } = createWorkspaceTestHarness({ projectId: 'test-project', api: { projectApi: api } });
@@ -23,6 +29,7 @@ function completed(previewId: string): PreviewSampleResult {
 }
 
 beforeEach(() => {
+    vi.spyOn(selectorChoicesApi, 'getSelectorChoices').mockImplementation(async (_pid, query) => mediaChoices(query, ['rapidocr', 'dots.mocr']));
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:ocr-upload');
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
   vi.spyOn(api, 'listActionCatalog').mockResolvedValue({ actions: [{ kind: 'media.ocr', ui_hints: {
@@ -119,5 +126,53 @@ describe('OcrCompareTab upload comparison', () => {
 
     await waitFor(() => expect(estimates).toHaveBeenCalled());
     expect(estimates.mock.calls.map(([, input]) => input.engine)).toEqual(['dots.mocr']);
+  });
+});
+
+
+describe('comparison selector ownership', () => {
+  it('keeps OCR Configure mounted through portaled choice clicks and child Escape', async () => {
+    const user = userEvent.setup();
+    render(<OcrCompareTab onSessionChange={() => undefined} />);
+    await user.click(screen.getAllByTestId('ocr-compare-variant-gear')[0]);
+    await user.click(within(await screen.findByTestId('ocr-compare-configure-engine')).getByRole('button'));
+    await user.click(within(await screen.findByTestId('engine-selector-dialog')).getByRole('button', { name: /dots[.]mocr/ }));
+    expect(screen.getByTestId('ocr-compare-configure')).toBeVisible();
+    await user.click(within(screen.getByTestId('ocr-compare-configure-engine')).getByRole('button'));
+    await user.click(screen.getByRole('searchbox', { name: 'Search Engine' }));
+    await user.keyboard('{Escape}');
+    expect(screen.getByTestId('engine-selector-dialog')).toBeVisible();
+    fireEvent(screen.getByTestId('engine-selector-dialog'), new Event('cancel', { cancelable: true }));
+    expect(screen.queryByTestId('engine-selector-dialog')).not.toBeInTheDocument();
+    expect(screen.getByTestId('ocr-compare-configure')).toBeVisible();
+  });
+
+  it('adds an authorable ASR variant needing setup through the shared selector', async () => {
+    vi.mocked(api.listActionCatalog).mockResolvedValue({ actions: [{ kind: 'media.transcribe', ui_hints: {
+      engines: [{ id: 'faster_whisper', label: 'Whisper', tier: 'local', available: true },
+        { id: 'parakeet-tdt', label: 'Parakeet', tier: 'local', available: false }],
+    } }] } as never);
+    vi.mocked(selectorChoicesApi.getSelectorChoices).mockImplementation(async (_pid, query) => {
+      const response = mediaChoices(query, ['faster_whisper', 'parakeet-tdt']);
+      response.groups[0].choices[1] = { ...response.groups[0].choices[1], status: 'needs_setup',
+        can_run: false, setup: { kind: 'instructions', title: 'Prepare Parakeet', steps: ['Install its runtime.'], url: null } };
+      return response;
+    });
+    const user = userEvent.setup();
+    render(<TranscribeCompareTab onSessionChange={() => undefined} />);
+    await waitFor(() => expect(screen.getAllByTestId('transcribe-compare-engine-chip')).toHaveLength(1));
+    await user.click(screen.getByTestId('transcribe-compare-add-engine'));
+    await user.click(within(await screen.findByTestId('transcribe-compare-configure-engine')).getByRole('button'));
+    await user.click(within(await screen.findByTestId('engine-selector-dialog')).getByRole('button', { name: /parakeet-tdt/ }));
+    expect(screen.getByText('Prepare Parakeet')).toBeVisible();
+    expect(screen.getByTestId('transcribe-compare-configure')).toBeVisible();
+    expect(screen.getAllByTestId('transcribe-compare-engine-chip')).toHaveLength(2);
+    await user.click(screen.getByRole('searchbox', { name: 'Search Engine' }));
+    await user.keyboard('{Escape}');
+    expect(screen.getByTestId('engine-selector-dialog')).toBeVisible();
+    fireEvent(screen.getByTestId('engine-selector-dialog'), new Event('cancel', { cancelable: true }));
+    expect(screen.queryByTestId('engine-selector-dialog')).not.toBeInTheDocument();
+    expect(screen.getByTestId('transcribe-compare-configure')).toBeVisible();
+    expect(screen.queryByTestId('transcribe-compare-add-menu')).not.toBeInTheDocument();
   });
 });

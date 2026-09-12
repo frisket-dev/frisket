@@ -148,11 +148,13 @@ export function useOcrVariantConfigure(
   useEffect(() => {
     if (!configureVariantId) return undefined;
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.target instanceof Element && event.target.closest('.engine-selector__dialog')) return;
       if (event.key === 'Escape') dismissConfigure();
     };
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
+      if (target instanceof Element && target.closest('.engine-selector__dialog')) return;
       if (configureAnchorRef.current?.contains(target)) return;
       dismissConfigure();
     };

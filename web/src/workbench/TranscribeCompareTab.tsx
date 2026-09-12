@@ -6,7 +6,6 @@ import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import type { EngineOption, TranscribeCompareEngineResult } from '../api/open';
 import {
   TRANSCRIBE_ENGINE_FALLBACK,
-  engineIsRemote,
   tierForEngine,
   transcribeActiveTarget,
   transcribeActiveTargetOptionReason,
@@ -14,9 +13,7 @@ import {
   transcribeDiarizationForEngine,
   transcribeEnginesFromCatalog,
 } from '../actions/transcribeEngineCatalog';
-import { engineUnavailableReason } from '../actions/engineCatalog';
 import { EngineTierBadge } from '../components/EngineTierBadge';
-import { MenuPop } from '../components/MenuPop';
 import { SegmentedToggle } from '../components/PanelPrimitives';
 import { PanelSelect } from '../components/PanelSelect';
 import { alignTranscriptSegments } from './transcriptAlign';
@@ -77,6 +74,7 @@ function createTranscribeConfig(
   prepareRun: MediaCompareConfig<TranscribeCompareEngineResult>['prepareRun'],
 ): MediaCompareConfig<TranscribeCompareEngineResult> {
   return {
+  selectorActionId: 'media.transcribe',
   testidPrefix: 'transcribe-compare',
   accept: 'audio/*,video/*',
   classifyFile: (file) => {
@@ -187,14 +185,7 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
     openConfigure,
     onConfigureChooseEngine,
     onConfigureDuplicate,
-    addMenuOpen,
-    setAddMenuOpen,
-    addMenuRef,
-    addMenuTriggerRef,
-    addMenuPopRef,
-    addMenuPos,
-    addableEngines,
-    onSelectEngine,
+    addVariant,
     renderSourcePeek,
   } = useTranscribeVariantConfigure(session);
 
@@ -326,12 +317,13 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
                   </div>
                   {configureVariantId === column.id ? (
                     <ConfigureVariantPopover
+                      onCurrentChoiceChange={session.reportColumnChoice}
                       testidPrefix="transcribe-compare"
                       actionId="media.transcribe"
                       popoverRef={configurePopoverRef}
                       style={popoverShift ? { transform: `translateX(${popoverShift}px)` } : undefined}
                       column={column}
-                      catalog={catalog}
+                      catalog={column.engineId ? catalog : catalog.filter((engine) => !columns.some((variant) => variant.engineId === engine.id))}
                       engineSelectorRef={engineSelectorRef}
                       errorMessage={
                         activeDoc?.runs[column.id]?.status === 'error'
@@ -356,67 +348,15 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
                 </div>
               );
             })}
-            <div className="ocr-compare-add-wrap" ref={addMenuRef}>
-              <button
-                type="button"
-                ref={addMenuTriggerRef}
-                className="ocr-compare-add-engine engine-tier-chip"
-                data-testid="transcribe-compare-add-engine"
-                aria-expanded={addMenuOpen}
-                onClick={() => setAddMenuOpen((open) => !open)}
-              >
-                <Plus size={12} /> engine
-              </button>
-              {addMenuOpen ? (
-                <MenuPop
-                  ref={addMenuPopRef}
-                  className="ocr-compare-add-menu"
-                  data-testid="transcribe-compare-add-menu"
-                  style={
-                    addMenuPos
-                      ? { position: 'fixed', inset: 'auto', top: addMenuPos.top, bottom: addMenuPos.bottom, left: addMenuPos.left, right: 'auto', width: addMenuPos.width, margin: 0 }
-                      : { position: 'fixed', visibility: 'hidden' }
-                  }
-                >
-                  {addableEngines.length === 0 ? (
-                    <div className="ocr-compare-configure-hint muted">All engines added.</div>
-                  ) : (
-                    addableEngines.map((engine) => {
-                      const reason = engineUnavailableReason(engine);
-                      return (
-                        <button
-                          type="button"
-                          key={engine.id}
-                          className="ocr-compare-add-menu-option"
-                          data-testid={`transcribe-compare-add-engine-option-${engine.id}`}
-                          data-engine-id={engine.id}
-                          role="menuitem"
-                          disabled={engine.available === false}
-                          onClick={() => onSelectEngine(engine.id)}
-                        >
-                          {engine.label}
-                          <EngineTierBadge
-                            tier={tierForEngine(engine)}
-                            testId={`transcribe-compare-add-engine-tier-${engine.id}`}
-                          />
-                          {engineIsRemote(engine) ? ' · billable' : ''}
-                          {/* The catalog's own reason (policy or config),
-                              never a bare disabled row. */}
-                          {reason ? (
-                            <span
-                              className="engine-tier-unavailable"
-                              data-testid={`transcribe-compare-add-engine-reason-${engine.id}`}
-                            >
-                              {' '}· unavailable — {reason}
-                            </span>
-                          ) : null}
-                        </button>
-                      );
-                    })
-                  )}
-                </MenuPop>
-              ) : null}
-            </div>
+            <button
+              type="button"
+              className="ocr-compare-add-engine engine-tier-chip"
+              data-testid="transcribe-compare-add-engine"
+              disabled={busy}
+              onClick={addVariant}
+            >
+              <Plus size={12} /> engine
+            </button>
           </div>
         </fieldset>
       </div>

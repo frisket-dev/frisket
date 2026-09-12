@@ -3,6 +3,8 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { selectorChoicesApi } from '../../src/api/selectorChoices';
+import { mediaChoices } from '../support/mediaSelectorFixtures';
 import type { EngineOption } from '../../src/api/open';
 import { useMediaCompareSession, type MediaCompareConfig } from '../../src/workbench/mediaCompareSession';
 
@@ -19,7 +21,7 @@ const paid = { id: 'paid', label: 'Paid', tier: 'hosted', billable: true } as En
 
 function config(overrides: Partial<MediaCompareConfig<string>> = {}): MediaCompareConfig<string> {
   return {
-    testidPrefix: 'test', accept: '*', acceptHint: 'media',
+    selectorActionId: 'media.transcribe', testidPrefix: 'test', accept: '*', acceptHint: 'media',
     classifyFile: () => 'audio', defaultEngineIds: ['paid'], fallbackCatalog: [local, paid],
     enginesFromCatalog: () => [local, paid], docSecondary: () => '',
     runColumn: vi.fn().mockResolvedValue({ ok: true, results: 'text', confidence: null }),
@@ -29,13 +31,60 @@ function config(overrides: Partial<MediaCompareConfig<string>> = {}): MediaCompa
 
 describe('useMediaCompareSession paid batches', () => {
   beforeEach(() => {
+    vi.spyOn(selectorChoicesApi, 'getSelectorChoices').mockImplementation(async (_pid, query) => mediaChoices(query, ['local', 'paid']));
     vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:test'), revokeObjectURL: vi.fn() });
+  });
+
+  it('uses fresh selector readiness after setup despite an unavailable catalog row', async () => {
+    vi.mocked(selectorChoicesApi.getSelectorChoices).mockImplementation(async (_pid, query) => mediaChoices(query, ['local'], false));
+    const stale = { ...local, available: false };
+    const { result } = renderHook(() => useMediaCompareSession(config({
+      defaultEngineIds: ['local'], fallbackCatalog: [stale], enginesFromCatalog: () => [stale],
+    }), vi.fn()));
+    await waitFor(() => expect(selectorChoicesApi.getSelectorChoices).toHaveBeenCalled());
+    expect(result.current.runnableColumns).toHaveLength(0);
+    const column = result.current.columns[0];
+    const fresh = mediaChoices({ schema_version: 'frisket.selector_choices_query.v1',
+      subject: { kind: 'action', action_id: 'media.transcribe', field: 'engine', params: { engine: 'local' } },
+    }, ['local']).groups[0].choices[0];
+    act(() => result.current.reportColumnChoice(column, fresh));
+    await waitFor(() => expect(result.current.runnableColumns).toEqual([column]));
+  });
+
+  it('rejects readiness for old options and a late aborted projection', async () => {
+    let finishOld!: () => void;
+    vi.mocked(selectorChoicesApi.getSelectorChoices)
+      .mockImplementationOnce((_pid, query) => new Promise((resolve) => { finishOld = () => resolve(mediaChoices(query, ['local'])); }))
+      .mockImplementation(async (_pid, query) => mediaChoices(query, ['local'], false));
+    const { result } = renderHook(() => useMediaCompareSession(config({
+      defaultEngineIds: ['local'], fallbackCatalog: [local], enginesFromCatalog: () => [local],
+    }), vi.fn()));
+    await waitFor(() => expect(finishOld).toBeTypeOf('function'));
+    const old = result.current.columns[0];
+    act(() => result.current.updateColumnOptions(old.id, { vad: true, modelSize: 'large-v3' }));
+    await waitFor(() => expect(selectorChoicesApi.getSelectorChoices).toHaveBeenLastCalledWith('test',
+      expect.objectContaining({ subject: expect.objectContaining({ params: expect.objectContaining({ vad: true, model_size: 'large-v3' }) }) }), expect.anything()));
+    const choice = mediaChoices({ schema_version: 'frisket.selector_choices_query.v1',
+      subject: { kind: 'action', action_id: 'media.transcribe', field: 'engine', params: { engine: 'local' } },
+    }, ['local']).groups[0].choices[0];
+    act(() => { result.current.reportColumnChoice(old, choice); finishOld(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(result.current.runnableColumns).toHaveLength(0);
   });
 
   it('includes billable engines only when explicitly enabled', async () => {
     const { result } = renderHook(() => useMediaCompareSession(config({ includeBillableEngines: true }), vi.fn()));
     await waitFor(() => expect(result.current.catalog.map((engine) => engine.id)).toEqual(['local', 'paid']));
-    expect(result.current.runnableColumns[0]?.engineId).toBe('paid');
+    await waitFor(() => expect(result.current.runnableColumns[0]?.engineId).toBe('paid'));
+  });
+
+  it('keeps the free comparison policy even when the selector reports a billed choice runnable', async () => {
+    const { result } = renderHook(() => useMediaCompareSession(config({ defaultEngineIds: ['local'] }), vi.fn()));
+    await waitFor(() => expect(result.current.runnableColumns).toHaveLength(1));
+    act(() => result.current.chooseEngine(result.current.columns[0].id, 'paid'));
+    await waitFor(() => expect(selectorChoicesApi.getSelectorChoices).toHaveBeenLastCalledWith('test',
+      expect.objectContaining({ subject: expect.objectContaining({ params: { engine: 'paid' } }) }), expect.anything()));
+    expect(result.current.runnableColumns).toHaveLength(0);
   });
 
   it('does not arm a diff for a plain-output compare screen', async () => {

@@ -8,6 +8,8 @@ import type { ResolvedMediaValue } from '../media/resolveMediaValue';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { useResizable } from '../components/useResizable';
 import { diffWords, type DiffToken } from './ocrDiff';
+import { selectorChoicesApi, type SelectorChoice } from '../api/selectorChoices';
+import { mediaSelectorQuery, type MediaSelectorAction } from './mediaCompareSelector';
 
 export type MediaKind = 'pdf' | 'image' | 'audio' | 'video' | 'text';
 export type Vote = 'neutral' | 'keep' | 'reject';
@@ -54,6 +56,7 @@ export interface ScratchDoc<R> {
 }
 
 export interface MediaCompareConfig<R> {
+  selectorActionId: MediaSelectorAction;
   testidPrefix: string;
   accept: string;
   classifyFile(file: File): MediaKind | null;
@@ -108,6 +111,7 @@ export interface DiffModel {
 }
 
 export interface MediaCompareSession<R> {
+  reportColumnChoice(column: CompareColumn, choice: SelectorChoice | null): void;
   catalog: EngineOption[];
   engineLabel(id: string | null): string;
   columns: CompareColumn[];
@@ -183,6 +187,50 @@ export function useMediaCompareSession<R>(
   const [columns, setColumns] = useState<CompareColumn[]>(() =>
     config.defaultEngineIds.map((id) => makeCompareColumn(id, config.defaultColumnOptions)),
   );
+  const [readiness, setReadiness] = useState<Record<string, { key: string; canRun: boolean }>>({});
+  const readinessVersions = useRef(new Map<string, number>());
+  const currentColumns = useRef(columns);
+  currentColumns.current = columns;
+  const readinessKey = useCallback((column: CompareColumn) =>
+    JSON.stringify([projectId, mediaSelectorQuery(config.selectorActionId, column)]),
+  [config.selectorActionId, projectId]);
+  const reportColumnChoice = useCallback((column: CompareColumn, choice: SelectorChoice | null) => {
+    const current = currentColumns.current.find((item) => item.id === column.id);
+    if (!current || readinessKey(current) !== readinessKey(column)) return;
+    // A fresh selector projection supersedes any earlier background read.
+    readinessVersions.current.set(column.id, (readinessVersions.current.get(column.id) ?? 0) + 1);
+    const key = readinessKey(column);
+    const selection = choice?.authored_selection;
+    const matches = selection?.kind === 'engine' || selection?.kind === 'engine_model'
+      ? selection.engine === column.engineId : false;
+    const canRun = matches && Boolean(choice?.can_run);
+    setReadiness((previous) => previous[column.id]?.key === key && previous[column.id].canRun === canRun
+      ? previous : { ...previous, [column.id]: { key, canRun } });
+  }, [readinessKey]);
+
+  useEffect(() => {
+    if (!projectId) return undefined;
+    const controller = new AbortController();
+    for (const column of columns) {
+      if (!column.engineId) continue;
+      const version = (readinessVersions.current.get(column.id) ?? 0) + 1;
+      readinessVersions.current.set(column.id, version);
+      const key = readinessKey(column);
+      void selectorChoicesApi.getSelectorChoices(projectId,
+        mediaSelectorQuery(config.selectorActionId, column), { signal: controller.signal })
+        .then((response) => {
+          if (controller.signal.aborted || readinessVersions.current.get(column.id) !== version) return;
+          const choice = response.groups.flatMap((group) => group.choices)
+            .find((item) => item.choice_id === response.current_choice_id);
+          setReadiness((previous) => ({ ...previous, [column.id]: { key, canRun: Boolean(choice?.can_run) } }));
+        })
+        .catch(() => {
+          if (controller.signal.aborted || readinessVersions.current.get(column.id) !== version) return;
+          setReadiness((previous) => ({ ...previous, [column.id]: { key, canRun: false } }));
+        });
+    }
+    return () => controller.abort();
+  }, [columns, config.selectorActionId, projectId, readinessKey]);
   const [docs, setDocs] = useState<ScratchDoc<R>[]>([]);
   const [activeDocId, setActiveDocId] = useState<string | null>(null);
   const [mode, setMode] = useState<'diff' | 'survey'>('diff');
@@ -265,14 +313,14 @@ export function useMediaCompareSession<R>(
     () => {
       const runnableEngineIds = new Set(
         catalog
-          .filter((engine) => engine.available !== false)
           .map((engine) => engine.id),
       );
       return columns.filter(
-        (column) => column.engineId && runnableEngineIds.has(column.engineId),
+        (column) => column.engineId && runnableEngineIds.has(column.engineId)
+          && readiness[column.id]?.key === readinessKey(column) && readiness[column.id].canRun,
       );
     },
-    [catalog, columns],
+    [catalog, columns, readiness, readinessKey],
   );
 
   const activeDoc = useMemo(
@@ -746,6 +794,7 @@ export function useMediaCompareSession<R>(
   );
 
   return {
+    reportColumnChoice,
     catalog,
     engineLabel,
     columns,

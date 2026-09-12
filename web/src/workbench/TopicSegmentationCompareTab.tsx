@@ -84,6 +84,7 @@ function firstDoneResult(
 
 function createTopicConfig(api: ProjectApiPort): MediaCompareConfig<TopicCompareColumnResult> {
   return {
+  selectorActionId: 'map.find_topic_sections',
   testidPrefix: TESTID,
   accept: TOPIC_COMPARE_ACCEPT,
   classifyFile: (file) => (/\.(txt|srt|vtt)$/i.test(file.name) ? 'text' : null),
@@ -208,6 +209,7 @@ export function TopicSegmentationCompareTab({
     if (!configureColumnId) return undefined;
     const dismiss = (event: PointerEvent | KeyboardEvent) => {
       if (event instanceof KeyboardEvent && event.key !== 'Escape') return;
+      if (event.target instanceof Element && event.target.closest('.engine-selector__dialog')) return;
       if (
         event instanceof PointerEvent &&
         (configurePopoverRef.current?.contains(event.target as Node) ||
@@ -287,7 +289,7 @@ export function TopicSegmentationCompareTab({
       : runState === 'fresh'
         ? 'Re-run'
         : 'Run';
-  const noAvailableEngines = catalog.length > 0 && catalog.every((engine) => engine.available === false);
+  const noAvailableEngines = runnableColumns.length === 0 && catalog.length > 0 && catalog.every((engine) => engine.available === false);
 
   return (
     <section className="ocr-compare-tab topic-compare-tab" data-testid="topic-compare-tab">
@@ -439,6 +441,7 @@ export function TopicSegmentationCompareTab({
                   </div>
                   {configureColumnId === column.id ? (
                     <ConfigureVariantPopover
+                      onCurrentChoiceChange={session.reportColumnChoice}
                       testidPrefix="topic-compare"
                       actionId="map.find_topic_sections"
                       popoverRef={configurePopoverRef}
