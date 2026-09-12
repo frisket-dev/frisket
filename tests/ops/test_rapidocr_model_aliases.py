@@ -35,7 +35,9 @@ def test_default_requirements_use_pinned_v5_but_explicit_language_stays_v4() -> 
     assert explicit[1][2] == "ch_PP-OCRv4_rec_mobile.onnx"
 
 
-def test_bundled_alias_plan_seeds_only_v4_detector_and_classifier(tmp_path: Path) -> None:
+def test_bundled_alias_plan_seeds_only_v4_detector_and_classifier(
+    tmp_path: Path,
+) -> None:
     aliases = rapidocr_bundled_model_aliases(tmp_path, _V5_REQUESTED)
 
     assert aliases == (

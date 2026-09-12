@@ -280,7 +280,9 @@ def test_rapidocr_default_bootstrap_needs_verified_det_cls_or_shared_pair(
 ):
     """Only the default v5 recognizer downloads; det/cls must already exist."""
     from frisket.ai.models import model_cache
-    from frisket.engine._workers.rapidocr_models import RAPIDOCR_DEFAULT_RECOGNIZER_FILENAME
+    from frisket.engine._workers.rapidocr_models import (
+        RAPIDOCR_DEFAULT_RECOGNIZER_FILENAME,
+    )
 
     package_root = tmp_path / "package"
     cache_root = tmp_path / "cache"
@@ -295,8 +297,14 @@ def test_rapidocr_default_bootstrap_needs_verified_det_cls_or_shared_pair(
         (source, target, sha256(content).hexdigest())
         for (source, content), target in zip(source_files, files[:2], strict=True)
     )
-    monkeypatch.setattr(diagnostics, "rapidocr_default_model_requirements", lambda: (package_root, files))
-    monkeypatch.setattr(diagnostics, "rapidocr_bundled_model_aliases", lambda *_: aliases)
+    monkeypatch.setattr(
+        diagnostics,
+        "rapidocr_default_model_requirements",
+        lambda: (package_root, files),
+    )
+    monkeypatch.setattr(
+        diagnostics, "rapidocr_bundled_model_aliases", lambda *_: aliases
+    )
     monkeypatch.setattr(model_cache, "default_cache_root", lambda: cache_root)
 
     assert diagnostics._rapidocr_default_bootstrap_ready() is True
@@ -502,11 +510,11 @@ def test_engines_report_summary_reflects_provisioned_state(monkeypatch):
     report = diagnostics.engines_report()
     if report["installed"]:
         assert report["provisioned"] == []
-        expected_offline = [name for name in report["installed"] if name == "faster_whisper"]
+        expected_offline = [
+            name for name in report["installed"] if name == "faster_whisper"
+        ]
         expected_fetches = [
-            name
-            for name in report["installed"]
-            if name != "faster_whisper"
+            name for name in report["installed"] if name != "faster_whisper"
         ]
         assert report["offline_unavailable"] == expected_offline
         assert report["fetches_on_first_use"] == expected_fetches
@@ -517,7 +525,8 @@ def test_engines_report_summary_reflects_provisioned_state(monkeypatch):
                 if name == "spacy"
                 else (
                     "ocr (default models fetch on first use; explicit languages need cached models)"
-                    in report["summary"] if name == "ocr"
+                    in report["summary"]
+                    if name == "ocr"
                     else f"{name} (fetches on first use)" in report["summary"]
                 )
             )
@@ -538,8 +547,14 @@ def test_engines_report_summary_reflects_provisioned_state(monkeypatch):
             assert "no-network worker sandbox" in report["remediation"]
         if "ocr" in report["installed"]:
             assert "$FRISKET_MODEL_CACHE_DIR/rapidocr" in report["remediation"]
-            assert "default recognizer downloads before its worker starts" in report["remediation"]
-            assert "Explicit-language OCR requires its own complete cached" in report["remediation"]
+            assert (
+                "default recognizer downloads before its worker starts"
+                in report["remediation"]
+            )
+            assert (
+                "Explicit-language OCR requires its own complete cached"
+                in report["remediation"]
+            )
         if "embeddings" in report["installed"]:
             assert "FASTEMBED_CACHE_PATH" in report["remediation"]
 
@@ -602,14 +617,22 @@ def test_engines_report_rapidocr_default_bootstraps_before_its_worker(monkeypatc
 
     assert report["fetches_on_first_use"] == ["ocr"]
     assert report["offline_unavailable"] == []
-    assert "ocr (default models fetch on first use; explicit languages need cached models)" in report["summary"]
+    assert (
+        "ocr (default models fetch on first use; explicit languages need cached models)"
+        in report["summary"]
+    )
     assert "$FRISKET_MODEL_CACHE_DIR/rapidocr" in report["remediation"]
-    assert "Explicit-language OCR requires its own complete cached" in report["remediation"]
+    assert (
+        "Explicit-language OCR requires its own complete cached"
+        in report["remediation"]
+    )
     assert "HF_HUB_CACHE" not in report["remediation"]
     assert "/api/providers/models/pull" not in report["remediation"]
 
 
-def test_engines_report_rapidocr_requires_a_complete_cache_without_bundled_aliases(monkeypatch):
+def test_engines_report_rapidocr_requires_a_complete_cache_without_bundled_aliases(
+    monkeypatch,
+):
     pytest.importorskip("rapidocr")
     monkeypatch.setattr(diagnostics, "_engine_provisioned", lambda name: name != "ocr")
     monkeypatch.setattr(diagnostics, "_rapidocr_default_bootstrap_ready", lambda: False)

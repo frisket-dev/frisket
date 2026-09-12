@@ -225,7 +225,10 @@ def _provision_default_rapidocr_recognizer(
         return
     target = shared_dir / RAPIDOCR_DEFAULT_RECOGNIZER_FILENAME
     try:
-        if target.is_file() and _sha256_file(target) == RAPIDOCR_DEFAULT_RECOGNIZER_SHA256:
+        if (
+            target.is_file()
+            and _sha256_file(target) == RAPIDOCR_DEFAULT_RECOGNIZER_SHA256
+        ):
             return
         shared_dir.mkdir(parents=True, exist_ok=True)
         descriptor, temporary_name = tempfile.mkstemp(

@@ -97,10 +97,14 @@ def rapidocr_model_requirements(
             filename = Path(model_url).name
             if not filename:
                 return None
-            if section == "Rec" and language is None and (
-                filename != RAPIDOCR_DEFAULT_RECOGNIZER_FILENAME
-                or model_url != RAPIDOCR_DEFAULT_RECOGNIZER_URL
-                or model_dict.get("SHA256") != RAPIDOCR_DEFAULT_RECOGNIZER_SHA256
+            if (
+                section == "Rec"
+                and language is None
+                and (
+                    filename != RAPIDOCR_DEFAULT_RECOGNIZER_FILENAME
+                    or model_url != RAPIDOCR_DEFAULT_RECOGNIZER_URL
+                    or model_dict.get("SHA256") != RAPIDOCR_DEFAULT_RECOGNIZER_SHA256
+                )
             ):
                 return None
             filenames.append(filename)
