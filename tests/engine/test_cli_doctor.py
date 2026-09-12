@@ -71,10 +71,11 @@ def test_doctor_function_reports_failures(monkeypatch):
 
 _ENGINE_LABEL = (
     r"\w+ \((provisioned"
-    r"|provisioned: default det/cls/rec"
+    r"|provisioned: default det/cls/rec; explicit languages need cached models"
     r"|provisioned: base pinned & pullable; other sizes require pre-populated HF cache"
     r"|fetches on first use"
-    r"|not provisioned; offline worker"
+    r"|default models fetch on first use; explicit languages need cached models"
+    r"|not provisioned; default bootstrap unavailable"
     r"|not provisioned; pre-populated HF cache required"
     r"|model not yet downloaded"
     r"|model hash mismatch)\)"
@@ -274,6 +275,41 @@ def test_rapidocr_models_accept_complete_shared_set_but_not_split_set(
     assert diagnostics._rapidocr_models_present() is True
 
 
+def test_rapidocr_default_bootstrap_needs_verified_det_cls_or_shared_pair(
+    monkeypatch, tmp_path
+):
+    """Only the default v5 recognizer downloads; det/cls must already exist."""
+    from frisket.ai.models import model_cache
+    from frisket.engine._workers.rapidocr_models import RAPIDOCR_DEFAULT_RECOGNIZER_FILENAME
+
+    package_root = tmp_path / "package"
+    cache_root = tmp_path / "cache"
+    package_root.mkdir()
+    files = ("det.onnx", "cls.onnx", RAPIDOCR_DEFAULT_RECOGNIZER_FILENAME)
+    source_files = []
+    for name, content in (("bundled-det.onnx", b"det"), ("bundled-cls.onnx", b"cls")):
+        source = package_root / name
+        source.write_bytes(content)
+        source_files.append((source, content))
+    aliases = tuple(
+        (source, target, sha256(content).hexdigest())
+        for (source, content), target in zip(source_files, files[:2], strict=True)
+    )
+    monkeypatch.setattr(diagnostics, "rapidocr_default_model_requirements", lambda: (package_root, files))
+    monkeypatch.setattr(diagnostics, "rapidocr_bundled_model_aliases", lambda *_: aliases)
+    monkeypatch.setattr(model_cache, "default_cache_root", lambda: cache_root)
+
+    assert diagnostics._rapidocr_default_bootstrap_ready() is True
+    source_files[0][0].write_bytes(b"corrupt")
+    assert diagnostics._rapidocr_default_bootstrap_ready() is False
+
+    shared = cache_root / "rapidocr"
+    shared.mkdir(parents=True)
+    for name in files[:2]:
+        (shared / name).write_bytes(b"cached")
+    assert diagnostics._rapidocr_default_bootstrap_ready() is True
+
+
 def test_rapidocr_runtime_report_is_content_free_and_labels_overrides(monkeypatch):
     from frisket.engine._workers import rapidocr_session
 
@@ -462,16 +498,15 @@ def test_engines_report_summary_reflects_provisioned_state(monkeypatch):
         },
     )
     monkeypatch.setattr(diagnostics, "_engine_provisioned", lambda name: False)
+    monkeypatch.setattr(diagnostics, "_rapidocr_default_bootstrap_ready", lambda: True)
     report = diagnostics.engines_report()
     if report["installed"]:
         assert report["provisioned"] == []
-        expected_offline = [
-            name for name in report["installed"] if name in ("ocr", "faster_whisper")
-        ]
+        expected_offline = [name for name in report["installed"] if name == "faster_whisper"]
         expected_fetches = [
             name
             for name in report["installed"]
-            if name not in ("ocr", "faster_whisper")
+            if name != "faster_whisper"
         ]
         assert report["offline_unavailable"] == expected_offline
         assert report["fetches_on_first_use"] == expected_fetches
@@ -480,13 +515,15 @@ def test_engines_report_summary_reflects_provisioned_state(monkeypatch):
             (
                 "spacy (model not yet downloaded)" in report["summary"]
                 if name == "spacy"
-                else f"{name} (fetches on first use)" in report["summary"]
+                else (
+                    "ocr (default models fetch on first use; explicit languages need cached models)"
+                    in report["summary"] if name == "ocr"
+                    else f"{name} (fetches on first use)" in report["summary"]
+                )
             )
             for name in expected_fetches
         )
         if expected_offline:
-            if "ocr" in expected_offline:
-                assert "ocr (not provisioned; offline worker)" in report["summary"]
             if "faster_whisper" in expected_offline:
                 assert (
                     "faster_whisper (not provisioned; pre-populated HF cache required)"
@@ -501,7 +538,8 @@ def test_engines_report_summary_reflects_provisioned_state(monkeypatch):
             assert "no-network worker sandbox" in report["remediation"]
         if "ocr" in report["installed"]:
             assert "$FRISKET_MODEL_CACHE_DIR/rapidocr" in report["remediation"]
-            assert "all three default RapidOCR models" in report["remediation"]
+            assert "default recognizer downloads before its worker starts" in report["remediation"]
+            assert "Explicit-language OCR requires its own complete cached" in report["remediation"]
         if "embeddings" in report["installed"]:
             assert "FASTEMBED_CACHE_PATH" in report["remediation"]
 
@@ -544,7 +582,10 @@ def test_engines_report_uses_product_engine_ids_and_caveats_whisper_probe(
     assert "asr" not in report["installed"]
     assert "whisper" not in report["installed"]
     if "ocr" in report["installed"]:
-        assert "ocr (provisioned: default det/cls/rec)" in report["summary"]
+        assert (
+            "ocr (provisioned: default det/cls/rec; explicit languages need cached models)"
+            in report["summary"]
+        )
     if "faster_whisper" in report["installed"]:
         assert (
             "faster_whisper (provisioned: base pinned & pullable; "
@@ -552,18 +593,33 @@ def test_engines_report_uses_product_engine_ids_and_caveats_whisper_probe(
         )
 
 
-def test_engines_report_rapidocr_only_uses_rapidocr_cache_guidance(monkeypatch):
+def test_engines_report_rapidocr_default_bootstraps_before_its_worker(monkeypatch):
     pytest.importorskip("rapidocr")
     monkeypatch.setattr(diagnostics, "_engine_provisioned", lambda name: name != "ocr")
+    monkeypatch.setattr(diagnostics, "_rapidocr_default_bootstrap_ready", lambda: True)
+
+    report = diagnostics.engines_report()
+
+    assert report["fetches_on_first_use"] == ["ocr"]
+    assert report["offline_unavailable"] == []
+    assert "ocr (default models fetch on first use; explicit languages need cached models)" in report["summary"]
+    assert "$FRISKET_MODEL_CACHE_DIR/rapidocr" in report["remediation"]
+    assert "Explicit-language OCR requires its own complete cached" in report["remediation"]
+    assert "HF_HUB_CACHE" not in report["remediation"]
+    assert "/api/providers/models/pull" not in report["remediation"]
+
+
+def test_engines_report_rapidocr_requires_a_complete_cache_without_bundled_aliases(monkeypatch):
+    pytest.importorskip("rapidocr")
+    monkeypatch.setattr(diagnostics, "_engine_provisioned", lambda name: name != "ocr")
+    monkeypatch.setattr(diagnostics, "_rapidocr_default_bootstrap_ready", lambda: False)
 
     report = diagnostics.engines_report()
 
     assert report["fetches_on_first_use"] == []
     assert report["offline_unavailable"] == ["ocr"]
-    assert "ocr (not provisioned; offline worker)" in report["summary"]
-    assert "$FRISKET_MODEL_CACHE_DIR/rapidocr" in report["remediation"]
-    assert "HF_HUB_CACHE" not in report["remediation"]
-    assert "/api/providers/models/pull" not in report["remediation"]
+    assert "ocr (not provisioned; default bootstrap unavailable)" in report["summary"]
+    assert "bundled detector/classifier files" in report["remediation"]
 
 
 def test_engines_report_never_raises_when_provisioned_probe_breaks(monkeypatch):
@@ -575,13 +631,14 @@ def test_engines_report_never_raises_when_provisioned_probe_breaks(monkeypatch):
         raise RuntimeError("simulated presence-probe crash")
 
     monkeypatch.setattr(diagnostics, "_engine_provisioned", _boom)
+    monkeypatch.setattr(diagnostics, "_rapidocr_default_bootstrap_ready", lambda: True)
     report = diagnostics.engines_report()
     assert report["provisioned"] == []
-    assert report["offline_unavailable"] == (
-        [name for name in report["installed"] if name in ("ocr", "faster_whisper")]
-    )
+    assert report["offline_unavailable"] == [
+        name for name in report["installed"] if name == "faster_whisper"
+    ]
     assert set(report["fetches_on_first_use"]) == {
-        name for name in report["installed"] if name not in ("ocr", "faster_whisper")
+        name for name in report["installed"] if name != "faster_whisper"
     }
 
     full = diagnostics.run_diagnostics()
