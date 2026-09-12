@@ -15,20 +15,15 @@ validate have no pins:
 
 - ``whisper`` (the advertised convenience alias) -> local, always
 
-VENUE NEVER DEPENDS ON LIVENESS: a fresh canonical
-name picks the FIRST ABLE candidate in static declaration (local-first)
-order — ability-driven only, fully deterministic — and liveness is checked
-ONLY for that chosen target (the static choice needs
-no probes). A chosen-but-dead target is a ``no_live_target`` refusal with
-its remedy; resolution never walks past a dead candidate to a different
-venue. This keeps the preference function pure/static, so network policy,
-estimates, concurrency scoping, previews, and the catalog all classify
-from ONE deterministic answer. Ability is the ONE declaration-driven
-checker ``support_inability`` — an authored option no declaring target can
-honor refuses (never gets ignored), including model sizes. A chosen target
-that is unavailable is a ``no_live_target`` refusal with its configuration
-remedy — a venue flip is a claims change and must pass the gate as a fresh
-consent, never a silent substitution.
+VENUE NEVER DEPENDS ON LIVENESS OR OPTIONAL CONTROLS: a fresh canonical
+name picks the first declaration-order target (local-first), then validates
+authored options against that target. Liveness is checked ONLY for that
+chosen target (the static choice needs no probes). A chosen-but-dead target
+is a ``no_live_target`` refusal with its remedy; an option that target cannot
+honor is a ``no_capable_target`` refusal. Resolution never walks to another
+venue because a toggle was enabled. This keeps network policy, estimates,
+concurrency scoping, previews, and the catalog on one deterministic target;
+a venue flip remains an explicit, separately bound choice.
 
 The choice/binding split: ``resolve`` runs once server-side per action
 invocation and produces the choice; the worker never re-resolves — it calls
@@ -519,16 +514,15 @@ def preferred_static_choice(
     capability: str = CAPABILITY_TRANSCRIBE,
 ) -> tuple[ExecutionTarget, TargetEngineSupport] | Refusal | None:
     """The preference WITHOUT liveness — the deterministic static choice
-    every surface classifies from: the first able candidate in
-    static declaration (local-first) order. Ability only
-    (``support_inability``), never liveness, so the answer is pure and
-    probe-free — dispatch-side consumers (concurrency scope, estimate
-    fallbacks, previews, egress policy) key on the same venue the resolver
-    binds.
+    every surface classifies from: the first declaration-order candidate.
+    Options are then checked against that chosen target, never used to select
+    a different venue. The answer is pure and probe-free, so dispatch-side
+    consumers (concurrency scope, estimates, previews, and egress policy)
+    key on the same target the resolver binds.
 
     Returns the chosen ``(target, support)`` pair; a ``no_capable_target``
-    ``Refusal`` when candidates exist but NONE can honor the authored options
-    (options are refused, never silently ignored); or ``None``
+    ``Refusal`` when its target cannot honor the authored options (options
+    are refused, never silently ignored or used to retarget); or ``None``
     for unknown symbols, free-form ``provider/model`` ids (their remote-api
     target is keyed by provider, not preference), and symbols the static
     targets simply do not declare (callers keep their own fallbacks/
@@ -544,20 +538,19 @@ def preferred_static_choice(
     ]
     if not candidates:
         return None
-    inabilities: list[str] = []
-    for target, support in candidates:
-        inability = support_inability(support, options)
-        if inability is None:
-            return target, support
-        inabilities.append(f"'{target.id}' does not support {inability}")
-    return Refusal(
-        family="no_capable_target",
-        remedy=(
-            f"no declared target can honor these options for "
-            f"engine {engine_id!r}: " + "; ".join(inabilities)
-        ),
-        engine=engine_id,
-    )
+    target, support = candidates[0]
+    inability = support_inability(support, options)
+    if inability is not None:
+        return Refusal(
+            family="no_capable_target",
+            remedy=(
+                f"target '{target.id}' for engine {engine_id!r} does not "
+                f"support {inability}"
+            ),
+            engine=engine_id,
+            target_id=target.id,
+        )
+    return target, support
 
 
 def _canonical_engine(raw: str, capability: str = CAPABILITY_TRANSCRIBE) -> str | None:
@@ -819,11 +812,11 @@ def resolve(
                 remedy=(f"no execution target declares engine {engine_id!r}"),
                 engine=engine_id,
             )
-        # One deterministic choice: the first able candidate in
-        # static declaration (local-first) order — ability-driven only, never
-        # liveness-driven. The same probe-free function backs every
-        # dispatch-side consumer, so the venue the resolver binds is the venue
-        # policy/estimate/preview classified.
+        # One deterministic choice: the first declaration-order candidate.
+        # Optional controls are validated on it and cannot retarget a run.
+        # The same probe-free function backs every dispatch-side consumer, so
+        # the venue the resolver binds is the venue policy/estimate/preview
+        # classified.
         choice = preferred_static_choice(
             request.engine, request.options, targets, capability=capability
         )

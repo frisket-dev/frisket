@@ -31,6 +31,7 @@ from frisket.execution.commercial import CommercialOffering
 from frisket.execution.price_book import PlatformMetered
 from frisket.execution.provider import ExecutionComposition
 from frisket.execution.targets import ExecutionTarget, TargetEngineSupport
+from frisket.contracts.transcription_sidecar import TranscriptionOptionSupport
 
 
 ACTION_PROVIDER_DEFAULT_OUTPUT = {
@@ -213,6 +214,18 @@ def _support_matches_engine(support: TargetEngineSupport, engine: str) -> bool:
     )
 
 
+def _target_support_for_engine(
+    target: ExecutionTarget, *, capability: str, engine: str
+) -> TargetEngineSupport | None:
+    """Resolve one target row with the runtime's exact-before-wildcard rule."""
+
+    rows = [row for row in target.engines if row.capability == capability]
+    return next(
+        (row for row in rows if row.engine == engine),
+        next((row for row in rows if _support_matches_engine(row, engine)), None),
+    )
+
+
 def _composition_targets_for_engine(
     composition: ExecutionComposition,
     *,
@@ -230,13 +243,8 @@ def _composition_targets_for_engine(
 
     candidates: list[tuple[ExecutionTarget, TargetEngineSupport]] = []
     for target in composition.resolution_targets():
-        support = next(
-            (
-                row
-                for row in target.engines
-                if row.capability == capability and _support_matches_engine(row, engine)
-            ),
-            None,
+        support = _target_support_for_engine(
+            target, capability=capability, engine=engine
         )
         if support is None:
             continue
@@ -282,6 +290,143 @@ def _composition_target_liveness(
         if remedy:
             return False, str(remedy)
     return False, f"Execution target '{target_id}' is not currently available."
+
+
+def _transcription_target_options_hint(
+    support: TargetEngineSupport,
+) -> dict[str, bool]:
+    """Publish one target row's existing transcription option declaration.
+
+    The engine-level declaration is a semantic union for validation. Forms
+    need this narrower row after the catalog selects a target, so a control
+    cannot silently choose another venue.
+    """
+
+    options = support.options
+    if not isinstance(options, TranscriptionOptionSupport):  # pragma: no cover
+        raise ValueError(
+            f"transcription support row for {support.engine!r} carries "
+            f"{type(options).__name__} options"
+        )
+    return {
+        "language": options.language,
+        "vad": options.vad,
+        "model_size": options.model_size,
+        "context": options.context,
+        "clean": options.clean,
+    }
+
+
+def _transcription_target_diarization_hint(
+    support: TargetEngineSupport,
+    semantic_hint: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Project diarization from the target row while retaining declared caps.
+
+    ``TranscriptionOptionSupport`` owns whether the wire accepts diarization
+    and speaker hints. The semantic engine declaration owns checkpoint facts
+    such as its fixed speaker cap/default, so retain those only when this
+    target has the same diarization mode.
+    """
+
+    options = support.options
+    if not isinstance(options, TranscriptionOptionSupport):  # pragma: no cover
+        raise ValueError(
+            f"transcription support row for {support.engine!r} carries "
+            f"{type(options).__name__} options"
+        )
+    hint: dict[str, Any] = {
+        "supported": options.diarization_mode != "none",
+        "mode": options.diarization_mode,
+    }
+    if options.diarization_mode != "none":
+        hint["speaker_hint"] = options.speaker_hint
+        if semantic_hint and semantic_hint.get("mode") == options.diarization_mode:
+            for key in ("default", "max_speakers"):
+                if key in semantic_hint:
+                    hint[key] = semantic_hint[key]
+    return hint
+
+
+def _transcription_target_hint(
+    support: TargetEngineSupport,
+    *,
+    target_id: str,
+    semantic_hint: Mapping[str, Any] | None,
+    existing: Mapping[str, Any] | None = None,
+    available: bool | None = None,
+    error: str | None = None,
+) -> dict[str, Any]:
+    """Project one transcription target from its authoritative support row."""
+
+    row = dict(existing or {})
+    row.setdefault("target", _catalog_target_family(target_id))
+    row["target_id"] = target_id
+    row["transcription_options"] = _transcription_target_options_hint(support)
+    row["diarization"] = _transcription_target_diarization_hint(support, semantic_hint)
+    if available is not None:
+        row["available"] = available
+        if error:
+            row["error"] = error
+        else:
+            row.pop("error", None)
+    return row
+
+
+def _bind_static_transcription_targets(
+    engine: dict[str, Any],
+    *,
+    per_target: Mapping[str, Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Bind a standalone transcription engine to static target support rows.
+
+    The recipe owns engine-specific liveness (for example, a gateway's
+    advertised models); static targets own target order and option support.
+    """
+
+    from frisket.execution.definitions import build_static_targets
+
+    engine_id = engine.get("id")
+    available = engine.get("available")
+    if not isinstance(engine_id, str) or not isinstance(available, bool):
+        raise ValueError(
+            "transcription engine catalog entry requires id and availability"
+        )
+    error = engine.get("error")
+    rows: list[dict[str, Any]] = []
+    for target in build_static_targets():
+        support = _target_support_for_engine(
+            target, capability="transcribe", engine=engine_id
+        )
+        if support is None:
+            continue
+        override = (per_target or {}).get(target.id, {})
+        row_available = override.get("available", available)
+        row_error = override.get("error", error)
+        row = _transcription_target_hint(
+            support,
+            target_id=target.id,
+            semantic_hint=engine.get("diarization"),
+            available=row_available if isinstance(row_available, bool) else available,
+            error=row_error if isinstance(row_error, str) else None,
+        )
+        if support.sizes:
+            row["sizes"] = list(support.sizes)
+        if len(rows) == 0 and isinstance(engine.get("models"), list):
+            row["models"] = engine["models"]
+        if isinstance(override.get("models"), list):
+            row["models"] = override["models"]
+        rows.append(row)
+    if not rows:
+        raise ValueError(f"no static transcription support for {engine_id!r}")
+    engine["target_id"] = rows[0]["target_id"]
+    engine["targets"] = rows
+    engine["available"] = rows[0]["available"]
+    if rows[0].get("error"):
+        engine["error"] = rows[0]["error"]
+    else:
+        engine.pop("error", None)
+    return engine
 
 
 def _commercial_pricing_hint(
@@ -368,11 +513,22 @@ def _project_execution_composition_engines(
             return available, error
 
         target_hints: list[dict[str, Any]] = []
-        for target, _support in candidates:
+        for target, support in candidates:
             existing = _matching_existing_target_hint(existing_targets, target.id)
-            target_hint = dict(existing or {})
-            target_hint.setdefault("target", _catalog_target_family(target.id))
-            target_hint["target_id"] = target.id
+            if capability == "transcribe":
+                semantic_diarization = existing.get("diarization") if existing else None
+                if not isinstance(semantic_diarization, Mapping):
+                    semantic_diarization = original.get("diarization")
+                target_hint = _transcription_target_hint(
+                    support,
+                    target_id=target.id,
+                    semantic_hint=semantic_diarization,
+                    existing=existing,
+                )
+            else:
+                target_hint = dict(existing or {})
+                target_hint.setdefault("target", _catalog_target_family(target.id))
+                target_hint["target_id"] = target.id
 
             offering = composition.offering_for(
                 target_id=target.id,
@@ -382,7 +538,11 @@ def _project_execution_composition_engines(
             use_gateway_declaration = (
                 declared_gateway_fallback and target.id == "models-gateway"
             )
-            if offering is not None or use_gateway_declaration:
+            if (
+                offering is not None
+                or use_gateway_declaration
+                or capability == "transcribe"
+            ):
                 available, error = projected_liveness(target.id)
                 target_hint["available"] = available
                 if error:
@@ -397,12 +557,17 @@ def _project_execution_composition_engines(
                 )
             target_hints.append(target_hint)
 
-        if existing_targets or platform_metered:
+        if existing_targets or platform_metered or capability == "transcribe":
             engine["targets"] = target_hints
 
         # Match the resolver's declaration-order choice.
         if candidates:
             preferred_target, _preferred_support = candidates[0]
+            # The active target is a catalog fact even when it is currently
+            # unavailable or lacks a commercial offer. The form must not
+            # reconstruct declaration order and accidentally unlock a later
+            # target's controls.
+            engine["target_id"] = preferred_target.id
             preferred_offer = composition.offering_for(
                 target_id=preferred_target.id,
                 capability=capability,
@@ -411,12 +576,13 @@ def _project_execution_composition_engines(
             use_gateway_declaration = (
                 declared_gateway_fallback and preferred_target.id == "models-gateway"
             )
-            if preferred_offer is not None or use_gateway_declaration:
+            if (
+                capability == "transcribe"
+                or preferred_offer is not None
+                or use_gateway_declaration
+            ):
                 available, error = projected_liveness(preferred_target.id)
-                engine_update = {
-                    "available": available,
-                    "target_id": preferred_target.id,
-                }
+                engine_update = {"available": available}
                 if preferred_offer is not None:
                     engine_update.update(
                         {
@@ -801,7 +967,8 @@ def _recipe_engines(
         ]
     if action_kind == "media.transcribe":
         from frisket.execution.definitions import (
-            LOCAL_WHISPER_SIZES,
+            LOCAL_ONNX_TARGET_ID,
+            MODELS_GATEWAY_TARGET_ID,
             faster_whisper_runtime_present,
             parakeet_artifacts_present,
             parakeet_runtime_present,
@@ -847,31 +1014,30 @@ def _recipe_engines(
         )
         parakeet_engine = _declared_engine(
             decl["parakeet-tdt"],
-            available=parakeet_local_ok or parakeet_gateway_ok,
-            error=(
-                None
-                if parakeet_local_ok or parakeet_gateway_ok
-                else parakeet_local_err or parakeet_gateway_err
-            ),
+            # Top-level availability follows the same local preferred target
+            # advertised below. The gateway row remains an explicit target
+            # fact; its liveness cannot make a local-selected request appear
+            # runnable.
+            available=parakeet_local_ok,
+            error=parakeet_local_err,
             language=_transcribe_language_hint("parakeet-tdt"),
             diarization=_transcribe_diarization_hint("parakeet-tdt"),
             transcription_options=_transcribe_options_hint("parakeet-tdt"),
         )
-        parakeet_engine["targets"] = [
-            {
-                "target": "local-onnx",
-                "available": parakeet_local_ok,
-                "error": parakeet_local_err,
-                "diarization": {"supported": False, "mode": "none"},
+        _bind_static_transcription_targets(
+            parakeet_engine,
+            per_target={
+                LOCAL_ONNX_TARGET_ID: {
+                    "available": parakeet_local_ok,
+                    "error": parakeet_local_err,
+                },
+                MODELS_GATEWAY_TARGET_ID: {
+                    "available": parakeet_gateway_ok,
+                    "error": parakeet_gateway_err,
+                    "models": parakeet_gateway_models,
+                },
             },
-            {
-                "target": "models-gateway",
-                "available": parakeet_gateway_ok,
-                "error": parakeet_gateway_err,
-                "models": parakeet_gateway_models,
-                "diarization": _transcribe_diarization_hint("parakeet-tdt"),
-            },
-        ]
+        )
         faster_whisper_ok = faster_whisper_runtime_present()
         faster_whisper_err = (
             None
@@ -889,14 +1055,7 @@ def _recipe_engines(
             diarization=_transcribe_diarization_hint("faster_whisper"),
             transcription_options=_transcribe_options_hint("faster_whisper"),
         )
-        faster_whisper_engine["targets"] = [
-            {
-                "target": "local",
-                "available": faster_whisper_ok,
-                "error": faster_whisper_err,
-                "sizes": list(LOCAL_WHISPER_SIZES),
-            }
-        ]
+        _bind_static_transcription_targets(faster_whisper_engine)
         whisper_turbo_engine = _declared_engine(
             decl["whisper-turbo"],
             available=turbo_ok,
@@ -906,14 +1065,10 @@ def _recipe_engines(
             diarization=_transcribe_diarization_hint("whisper-turbo"),
             transcription_options=_transcribe_options_hint("whisper-turbo"),
         )
-        whisper_turbo_engine["targets"] = [
-            {
-                "target": "models-gateway",
-                "available": turbo_ok,
-                "error": turbo_err,
-                "models": turbo_models,
-            }
-        ]
+        _bind_static_transcription_targets(
+            whisper_turbo_engine,
+            per_target={MODELS_GATEWAY_TARGET_ID: {"models": turbo_models}},
+        )
         from frisket.ai.models import artifact_manifest as _artifact_manifest
 
         parakeet_downloadable = [
@@ -961,55 +1116,59 @@ def _recipe_engines(
             name="vibevoice-asr",
             contract_version="frisket.transcription.v1",
         )
+        moss_engine = _declared_engine(
+            decl["moss"],
+            available=moss_ok,
+            error=moss_err,
+            models=moss_models,
+            language=_transcribe_language_hint("moss"),
+            diarization=_transcribe_diarization_hint("moss"),
+            transcription_options=_transcribe_options_hint("moss"),
+        )
+        _bind_static_transcription_targets(moss_engine)
+        vibevoice_engine = _declared_engine(
+            decl["vibevoice-asr"],
+            available=vibevoice_ok,
+            error=vibevoice_err,
+            models=vibevoice_models,
+            language=_transcribe_language_hint("vibevoice-asr"),
+            diarization=_transcribe_diarization_hint("vibevoice-asr"),
+            transcription_options=_transcribe_options_hint("vibevoice-asr"),
+        )
+        _bind_static_transcription_targets(vibevoice_engine)
+        openai_engine = _engine(
+            "openai/whisper-1",
+            "OpenAI Whisper (remote provider API)",
+            tier="hosted",
+            billable=True,
+            available=openai_available,
+            error=None
+            if openai_available
+            else "Configure an OpenAI API key to enable OpenAI Whisper.",
+            language=_transcribe_language_hint("openai/whisper-1"),
+            diarization=_transcribe_diarization_hint("openai/whisper-1"),
+            transcription_options=_transcribe_options_hint("openai/whisper-1"),
+        )
+        _bind_static_transcription_targets(openai_engine)
+        mai_engine = _declared_engine(
+            mai,
+            available=openrouter_available,
+            error=None
+            if openrouter_available
+            else "Configure an OpenRouter API key to enable Microsoft MAI-Transcribe 2.",
+            language=_transcribe_language_hint(mai.id),
+            diarization=_transcribe_diarization_hint(mai.id),
+            transcription_options=_transcribe_options_hint(mai.id),
+        )
+        _bind_static_transcription_targets(mai_engine)
         return [
             faster_whisper_engine,
             whisper_turbo_engine,
             parakeet_engine,
-            _declared_engine(
-                decl["moss"],
-                available=moss_ok,
-                error=moss_err,
-                models=moss_models,
-                language=_transcribe_language_hint("moss"),
-                diarization=_transcribe_diarization_hint("moss"),
-                transcription_options=_transcribe_options_hint("moss"),
-            ),
-            _declared_engine(
-                decl["vibevoice-asr"],
-                available=vibevoice_ok,
-                error=vibevoice_err,
-                models=vibevoice_models,
-                language=_transcribe_language_hint("vibevoice-asr"),
-                diarization=_transcribe_diarization_hint("vibevoice-asr"),
-                transcription_options=_transcribe_options_hint("vibevoice-asr"),
-            ),
-            _engine(
-                "openai/whisper-1",
-                "OpenAI Whisper (remote provider API)",
-                tier="hosted",
-                billable=True,
-                available=openai_available,
-                error=(
-                    None
-                    if openai_available
-                    else "Configure an OpenAI API key to enable OpenAI Whisper."
-                ),
-                language=_transcribe_language_hint("openai/whisper-1"),
-                diarization=_transcribe_diarization_hint("openai/whisper-1"),
-                transcription_options=_transcribe_options_hint("openai/whisper-1"),
-            ),
-            _declared_engine(
-                mai,
-                available=openrouter_available,
-                error=(
-                    None
-                    if openrouter_available
-                    else "Configure an OpenRouter API key to enable Microsoft MAI-Transcribe 2."
-                ),
-                language=_transcribe_language_hint(mai.id),
-                diarization=_transcribe_diarization_hint(mai.id),
-                transcription_options=_transcribe_options_hint(mai.id),
-            ),
+            moss_engine,
+            vibevoice_engine,
+            openai_engine,
+            mai_engine,
         ]
     if action_kind == "media.ocr":
         from frisket.credentials import resolve_credential

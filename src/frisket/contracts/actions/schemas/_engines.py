@@ -294,14 +294,13 @@ TRANSCRIBE_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
         ),
     ),
     EngineDeclaration(
-        # Local ONNX and the hosted gateway are ONE engine — the same
-        # fixed parakeet-tdt model
-        # family on two execution targets. The id is the identity; the label
+        # Local ONNX and the hosted gateway are ONE Parakeet TDT model family
+        # on two execution targets. The id is the identity; the label
         # is friendly copy; ids and labels are distinct. The old spellings
         # completed their retirement window and were deleted —
         # see TRANSCRIBE_DEAD_ENGINE_REPLACEMENTS below.
         id="parakeet-tdt",
-        label="Parakeet (fast English transcription)",
+        label="Parakeet (fast multilingual transcription)",
         tier="local",
         provider="local-onnx",
         # run_scoped documents the LOCAL target's process-session behavior
@@ -317,8 +316,9 @@ TRANSCRIBE_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
         # declared target supports it (union-of-declared-support).
         transcription=TranscriptionEngineCapabilities(
             transport="local",
-            language_mode="fixed",
-            fixed_language="en",
+            # v3 chooses among its supported languages internally. It accepts
+            # no caller language override and does not report a detected code.
+            language_mode="auto_only",
             detects_language=False,
             vad=True,
             diarization_mode="optional",

@@ -173,7 +173,7 @@ def _parakeet_cached() -> bool:
     hub = (
         Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface")) / "hub"
     )
-    return any(hub.glob("models--*parakeet-tdt-0.6b-v2*"))
+    return any(hub.glob("models--*parakeet-tdt-0.6b-v3*"))
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +183,7 @@ def _parakeet_cached() -> bool:
 def test_engine_param_contract():
     """Typed params own both the engine reference and its scalar options."""
     params = TranscribeParams(source="audio")
-    assert params.engine.root == "faster_whisper"
+    assert params.engine.root == "parakeet-tdt"
     assert params.vad is True
     assert params.context is None
     assert params.clean is False
@@ -1547,7 +1547,7 @@ def test_parakeet_transcribes_speech_end_to_end(tmp_path):
     segs = col_value("transcript_segments")
     assert len(segs) >= 1 and all({"start", "end", "text"} <= set(s) for s in segs)
     assert segs[0]["start"] >= 0.0 and segs[-1]["end"] > segs[0]["start"]
-    # parakeet is English-only (LanguageDeclaration detects=False), so no
+    # Parakeet does not report a detected language on this API, so no
     # detected_language column may be created for it
     assert "detected_language" not in {c["name"] for c in p.columns(sheet)}
 

@@ -29,12 +29,17 @@ export function TranscribeDiarizationControl({
   declaration,
   params,
   onParamsChange,
+  unavailableReason = null,
 }: {
   declaration: DiarizationDeclaration | undefined;
   params: Record<string, string>;
   onParamsChange: (
     update: Record<string, string> | ((previous: Record<string, string>) => Record<string, string>),
   ) => void;
+  /** A semantic engine can offer diarization while the catalog-selected target
+   * cannot. Fresh requests keep the control disabled; a saved checked value
+   * stays repairable so users can clear it without losing the request. */
+  unavailableReason?: string | null;
 }) {
   // Exact-vs-range is a UI-only choice of WHICH pair of fields to show, not a
   // wire value itself (num/min/max_speakers are) — local state, seeded from
@@ -47,7 +52,11 @@ export function TranscribeDiarizationControl({
   ));
   if (!declaration) return null;
   const mode = resolveTranscribeDiarizationMode(declaration);
+  const unavailable = unavailableReason !== null;
   if (mode === 'none') return null;
+  if (mode === 'intrinsic' && unavailable) {
+    return <p className="form-hint" data-testid="transcribe-diarize-unavailable">{unavailableReason}</p>;
+  }
   if (mode === 'intrinsic') {
     return (
       <div className="form-hint" data-testid="transcribe-diarization-intrinsic">
@@ -77,13 +86,20 @@ export function TranscribeDiarizationControl({
           type="checkbox"
           data-testid="transcribe-diarize-toggle"
           checked={diarize}
+          disabled={unavailable && !diarize}
+          aria-describedby={unavailable ? 'transcribe-diarize-unavailable' : undefined}
           onChange={(e) => {
             const checked = e.target.checked;
+            if (unavailable && checked) return;
             onParamsChange((m) => setTranscribeDiarization(m, declaration, checked));
           }}
         />
         Identify speakers
       </label>
+      {unavailable && <p className="form-hint" id="transcribe-diarize-unavailable"
+        data-testid="transcribe-diarize-unavailable">
+        {unavailableReason}
+      </p>}
       {diarize && (
         <>
           {declaration.speaker_hint === 'count' && (

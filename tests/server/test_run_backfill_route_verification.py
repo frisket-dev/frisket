@@ -176,11 +176,10 @@ def _local_spec(sheet_id: int) -> dict:
 
 
 def _gateway_spec(sheet_id: int) -> dict:
+    # Moss has one declared execution target: the models gateway.  Its route
+    # therefore exercises the egress claim across both request and worker
+    # compositions without relying on a Parakeet option to retarget execution.
     return _transcribe_spec(sheet_id, "moss")
-
-
-def _parakeet_gateway_spec(sheet_id: int) -> dict:
-    return _transcribe_spec(sheet_id, "parakeet-tdt", diarize=True)
 
 
 def _run_original_to_completion(client: TestClient, project_id: str, project, spec):
@@ -249,7 +248,7 @@ def test_backfill_direct_path_reasks_for_changed_scope(
     client = _client(tmp_path)
     pid, project, sheet_id = _seed_audio_project(client)
 
-    spec = _parakeet_gateway_spec(sheet_id)
+    spec = _gateway_spec(sheet_id)
     run_id = _run_original_to_completion(client, pid, project, spec)
     assert len(run_engine_stub) == 1
 
@@ -416,7 +415,7 @@ def test_backfill_direct_path_claim_bearing_new_scope_reasks_then_proceeds(
 ):
     client = _client(tmp_path)
     pid, project, sheet_id = _seed_audio_project(client)
-    spec = _parakeet_gateway_spec(sheet_id)
+    spec = _gateway_spec(sheet_id)
     run_id = _run_original_to_completion(client, pid, project, spec)
     store = RouteStore.for_run(project, run_id)
     claims = [p for p in store.head()[1].promises if p.get("audience") == "user_claim"]
@@ -467,7 +466,7 @@ def test_backfill_row_scope_does_not_shift_action_identity(
 
     client = _client(tmp_path)
     _pid, _project, sheet_id = _seed_audio_project(client)
-    launch = _parakeet_gateway_spec(sheet_id)
+    launch = _gateway_spec(sheet_id)
     backfill_shaped = dict(
         launch,
         row_ids=[7, 8],
@@ -482,7 +481,11 @@ def test_backfill_row_scope_does_not_shift_action_identity(
     assert action_identity_hash(backfill_shaped) == action_identity_hash(launch)
     # ...while a genuine intent change (the engine) still shifts it.
     assert action_identity_hash(
-        dict(launch, engine="moss", params={"source": "media", "engine": "moss"})
+        dict(
+            launch,
+            engine="faster_whisper",
+            params={"source": "media", "engine": "faster_whisper"},
+        )
     ) != action_identity_hash(launch)
 
 

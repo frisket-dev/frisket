@@ -36,7 +36,6 @@ def test_media_has_one_typed_owner_and_rejects_old_request_shape(kind):
             {
                 "text": "timestamped_transcript",
                 "segments": "json",
-                "detected_language": "category",
             },
         ),
     ),

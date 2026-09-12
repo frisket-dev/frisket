@@ -222,7 +222,7 @@ def test_gateway_declares_parakeet_on_transcription_v1():
     assert parakeet.options.diarization_mode == "optional"
 
 
-def test_fresh_parakeet_tdt_with_diarize_prefers_gateway(monkeypatch, tmp_path):
+def test_fresh_parakeet_tdt_with_diarize_refuses_on_local_target(monkeypatch, tmp_path):
     _activate_everything(monkeypatch, tmp_path)
     provider = StaticExecutionTargetProvider()
     result = resolve(
@@ -230,11 +230,10 @@ def test_fresh_parakeet_tdt_with_diarize_prefers_gateway(monkeypatch, tmp_path):
         provider,
         OPEN,
     )
-    assert isinstance(result, Resolution)
-    assert result.target.id == "models-gateway"
-    assert result.support.transport == "frisket.transcription.v1"
-    assert result.support.options.diarization_mode == "optional"
-    assert result.facts.egress_class == "operator_lan"
+    assert isinstance(result, Refusal)
+    assert result.family == "no_capable_target"
+    assert result.target_id == "local-onnx"
+    assert "diarization" in result.remedy
 
 
 def test_fresh_faster_whisper_large_size_refuses_no_capable_target(
@@ -377,12 +376,12 @@ def test_whisper_alias_resolves_identically_to_faster_whisper(
         assert alias.family == canonical.family
 
 
-def test_diarize_preferred_gateway_dead_never_substitutes_local(monkeypatch, tmp_path):
-    # A diarize-driven `parakeet-tdt` request prefers the
-    # gateway build (the only diarizing candidate). With the gateway dead and the
-    # local ONNX target perfectly live, resolution refuses no_live_target —
-    # it never silently transcribes flat on the local non-diarizing build
-    # (that would be a silently dropped option AND a venue lie).
+def test_diarize_refuses_before_liveness_when_local_cannot_honor_it(
+    monkeypatch, tmp_path
+):
+    # The first declared Parakeet target is local ONNX. An optional control
+    # cannot reroute it to the gateway, even when a gateway would be the only
+    # target able to honor the option.
     _install_parakeet_artifacts(tmp_path, monkeypatch)  # local-onnx IS live
     result = resolve(
         ResolutionRequest(engine="parakeet-tdt", options={"diarize": True}),
@@ -390,9 +389,9 @@ def test_diarize_preferred_gateway_dead_never_substitutes_local(monkeypatch, tmp
         OPEN,
     )
     assert isinstance(result, Refusal)
-    assert result.family == "no_live_target"
-    assert result.target_id == "models-gateway"
-    assert "FRISKET_MODELS_URL" in result.remedy
+    assert result.family == "no_capable_target"
+    assert result.target_id == "local-onnx"
+    assert "diarization" in result.remedy
 
 
 def test_fresh_parakeet_tdt_dead_local_refuses_never_walks_to_gateway(

@@ -144,7 +144,7 @@ export function syntheticActionCatalogEntry(
     generated = {
       title: ocr ? 'OCR' : 'Transcribe',
       input_schema: { type: 'object', additionalProperties: false, required: ['source'],
-        properties: { source: { type: 'string' }, engine: { type: 'string', default: ocr ? 'rapidocr' : 'faster_whisper' },
+        properties: { source: { type: 'string' }, engine: { type: 'string', default: ocr ? 'rapidocr' : 'parakeet-tdt' },
           ...(ocr ? { language: { type: 'string', default: null }, dpi: { type: 'integer', default: 200 },
             searchable_pdf: { type: 'boolean', default: false } } : {}),
         } },

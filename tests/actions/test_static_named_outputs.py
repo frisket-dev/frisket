@@ -162,7 +162,10 @@ def test_static_named_output_reuses_visible_column_and_feeds_pinned_derivation(
         {
             "action_id": kind,
             "scope": {"kind": "sheet_rows", "sheet_id": sheet},
-            "params": {"source": "source"},
+            "params": {
+                "source": "source",
+                **({"engine": "faster_whisper"} if asr else {}),
+            },
             "output_names": {"segments" if asr else "items": "kept"},
             "idempotency_key": "produce",
         },
@@ -178,7 +181,10 @@ def test_static_named_output_reuses_visible_column_and_feeds_pinned_derivation(
         {
             "action_id": kind,
             "scope": {"kind": "sheet_rows", "sheet_id": sheet},
-            "params": {"source": "source", **({} if asr else {"prefix": "Changed "})},
+            "params": {
+                "source": "source",
+                **({"engine": "faster_whisper"} if asr else {"prefix": "Changed "}),
+            },
             "output_names": {"segments" if asr else "items": "kept"},
             "replace_existing": True,
             "idempotency_key": "replace",

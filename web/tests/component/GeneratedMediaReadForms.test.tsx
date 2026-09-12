@@ -98,12 +98,12 @@ describe('typed OCR/transcription forms', () => {
     await run();
     expect(onExecute.mock.calls[0][0]).toEqual({ action_id: 'media.transcribe',
       scope: { kind: 'sheet_rows', sheet_id: 7, row_ids: [3, 8] },
-      params: { source: 'clip', engine: 'faster_whisper' },
-      output_names: { text: 'transcript', segments: 'transcript_segments', detected_language: 'detected_language' },
+      params: { source: 'clip', engine: 'parakeet-tdt' },
+      output_names: { text: 'transcript', segments: 'transcript_segments' },
       idempotency_key: expect.any(String) });
     await waitFor(() => expect(estimateAction).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByTestId('cost-estimate')).toHaveClass('cost-local'));
-    expect(estimateAction.mock.calls[0][0]).toMatchObject({ params: { source: 'clip', engine: 'faster_whisper' } });
+    expect(estimateAction.mock.calls[0][0]).toMatchObject({ params: { source: 'clip', engine: 'parakeet-tdt' } });
   });
 
   it.each(['media.ocr', 'media.transcribe'] as const)('preserves every served engine in %s', async (kind) => {
@@ -116,8 +116,9 @@ describe('typed OCR/transcription forms', () => {
     }
   });
 
-  it('makes the engine choice before its language/options and output summary', () => {
-    form('media.transcribe');
+  it('makes the engine choice before its language/options and output summary', async () => {
+    const { entry } = form('media.transcribe');
+    await choose(entry.ui_hints.engines!.find((engine) => engine.id === 'faster_whisper')!);
     const engine = screen.getByTestId('field-engine');
     for (const later of ['transcribe-language-select', 'field-vad', 'transcribe-output-summary']) {
       expect(engine.compareDocumentPosition(screen.getByTestId(later)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -161,19 +162,74 @@ describe('typed OCR/transcription forms', () => {
     expect(screen.getByTestId('field-output-prefix')).toHaveValue('ocr_text_2');
   });
 
-  it('preserves declared language choices and clears them on a deliberate fixed-engine switch', async () => {
+  it('keeps a saved local Parakeet diarization request repairable without selecting the gateway', async () => {
+    const draft = saved('media.transcribe', { engine: 'parakeet-tdt', diarize: true },
+      { text: 'Words', segments: 'Timing' });
+    const { onExecute } = form('media.transcribe', { initialDraft: draft });
+    const toggle = await screen.findByTestId('transcribe-diarize-toggle');
+    expect(toggle).toBeChecked();
+    expect(screen.getByTestId('transcribe-diarize-unavailable')).toHaveTextContent('not available with this setup');
+    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
+    fireEvent.click(toggle);
+    await run();
+    expect(onExecute.mock.lastCall?.[0].params).toEqual({
+      source: 'clip', engine: 'parakeet-tdt',
+    });
+  });
+
+  it('clears a saved unsupported target option before running', async () => {
+    const draft = saved('media.transcribe', { engine: 'parakeet-tdt', vad: true },
+      { text: 'Words', segments: 'Timing' });
+    const { onExecute } = form('media.transcribe', {
+      initialDraft: draft,
+      enginePatch: (engine) => engine.id === 'parakeet-tdt' ? {
+        ...engine,
+        targets: engine.targets?.map((target) => target.target_id === engine.target_id ? {
+          ...target,
+          transcription_options: { ...target.transcription_options!, vad: false },
+        } : target),
+      } : engine,
+    });
+    expect(await screen.findByTestId('generated-action-run')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('transcribe-clear-unavailable-settings'));
+    await run();
+    expect(onExecute.mock.lastCall?.[0].params).toEqual({
+      source: 'clip', engine: 'parakeet-tdt',
+    });
+  });
+
+  it('keeps saved settings when a catalog omits its selected target contract', async () => {
+    const draft = saved('media.transcribe', { engine: 'parakeet-tdt', vad: true },
+      { text: 'Words', segments: 'Timing' });
+    const { resolveParams } = form('media.transcribe', {
+      initialDraft: draft,
+      enginePatch: (engine) => engine.id === 'parakeet-tdt'
+        ? { ...engine, target_id: undefined, targets: undefined }
+        : engine,
+    });
+    await waitFor(() => expect(resolveParams).toHaveBeenCalled());
+    expect(resolveParams.mock.calls[0][0].params).toHaveProperty('vad', true);
+    expect(screen.getByTestId('transcribe-option-availability')).toHaveTextContent(
+      'Option availability could not be checked',
+    );
+    expect(screen.queryByTestId('transcribe-clear-unavailable-settings')).not.toBeInTheDocument();
+    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
+  });
+
+  it('clears a language hint on an auto-only Parakeet switch', async () => {
     const { entry, onExecute } = form('media.transcribe');
+    await choose(entry.ui_hints.engines!.find((engine) => engine.id === 'faster_whisper')!);
     const picker = screen.getByTestId('transcribe-language-select');
     expect(picker).toHaveTextContent('Auto');
     await userEvent.selectOptions(picker, 'es');
-    const fixed = entry.ui_hints.engines!.find((engine) => engine.language?.mode === 'fixed')!;
-    await choose(fixed);
-    expect(screen.getByTestId('transcribe-language-fixed')).toHaveTextContent(/English only/i);
+    const parakeet = entry.ui_hints.engines!.find((engine) => engine.id === 'parakeet-tdt')!;
+    await choose(parakeet);
     expect(screen.queryByTestId('transcribe-language-select')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('transcribe-language-fixed')).not.toBeInTheDocument();
     expect(screen.getByTestId('transcribe-output-summary')).not.toHaveTextContent('detected_language');
     await waitFor(() => expect(screen.queryByTestId('field-output-detected_language')).not.toBeInTheDocument());
     await run();
-    expect(onExecute.mock.lastCall?.[0].params).toEqual({ source: 'clip', engine: fixed.id });
+    expect(onExecute.mock.lastCall?.[0].params).toEqual({ source: 'clip', engine: parakeet.id });
     expect(onExecute.mock.lastCall?.[0].output_names).toEqual({ text: 'transcript', segments: 'transcript_segments' });
   });
 
@@ -227,7 +283,6 @@ describe('typed OCR/transcription forms', () => {
     const defaultOn = entry.ui_hints.engines!.find((engine) => engine.diarization?.default === true)!;
     await choose(defaultOn);
     expect(screen.getByTestId('transcribe-diarize-toggle')).toBeChecked();
-    expect(screen.getByTestId('field-clean')).toBeInTheDocument();
     expect(screen.queryByTestId('transcribe-speaker-count-row')).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId('transcribe-diarize-toggle'));
     await run();
@@ -241,9 +296,12 @@ describe('typed OCR/transcription forms', () => {
       enginePatch: (engine) => ({ ...engine, available: true, error: undefined,
         ...(engine.id === 'faster_whisper' ? { diarization: {
           supported: true, mode: 'optional' as const, speaker_hint: 'count' as const,
-        } } : {}),
+        }, targets: engine.targets?.map((target) => ({ ...target, diarization: {
+          supported: true, mode: 'optional' as const, speaker_hint: 'count' as const,
+        } })) } : {}),
       }),
     });
+    await choose(entry.ui_hints.engines!.find((engine) => engine.id === 'faster_whisper')!);
     fireEvent.click(screen.getByTestId('transcribe-diarize-toggle'));
     expect(screen.getByTestId('transcribe-diarize-hint')).not.toHaveTextContent('up to');
     fireEvent.change(screen.getByTestId('transcribe-num-speakers'), { target: { value: '3 people' } });
@@ -266,7 +324,7 @@ describe('typed OCR/transcription forms', () => {
   });
 
   it('roundtrips saved/Copilot canonical Params and custom output names without adding defaults', async () => {
-    const draft = saved('media.transcribe', { language: ['es'], vad: false },
+    const draft = saved('media.transcribe', { engine: 'faster_whisper', language: ['es'], vad: false },
       { text: 'Interview', segments: 'Timing', detected_language: 'Language' });
     expect(encodeSavedActionSpec(decodeSavedActionSpec(catalog, draft))).toEqual(draft);
     const { onExecute } = form('media.transcribe', { initialDraft: draft });
@@ -335,7 +393,7 @@ describe('typed OCR/transcription forms', () => {
   });
 
   it.each(['media.ocr', 'media.transcribe'] as const)('keeps the declared default despite another recommendation for %s', async (kind) => {
-    const defaultId = kind === 'media.ocr' ? 'rapidocr' : 'faster_whisper';
+    const defaultId = kind === 'media.ocr' ? 'rapidocr' : 'parakeet-tdt';
     const { onExecute } = form(kind, { enginePatch: (engine) => ({
       ...engine, available: true, error: undefined, recommended: engine.id !== defaultId,
     }) });
@@ -350,9 +408,10 @@ describe('typed OCR/transcription forms', () => {
     { existing: ['transcript', 'transcript_2_segments'], text: 'transcript_2', segments: 'transcript_segments', language: 'detected_language' },
     { existing: ['transcript', 'detected_language'], text: 'transcript_2', segments: 'transcript_segments', language: 'detected_language_2' },
   ])('dedupes only the output that collides: $existing', async ({ existing, text, segments, language }) => {
-    const { onExecute } = form('media.transcribe', { columns: [...sheet.columns,
+    const { entry, onExecute } = form('media.transcribe', { columns: [...sheet.columns,
       ...existing.map((name, index) => columnDef({ id: String(10 + index), name, type: 'text' })),
     ] });
+    await choose(entry.ui_hints.engines!.find((engine) => engine.id === 'faster_whisper')!);
     await run();
     expect(onExecute.mock.lastCall?.[0].output_names).toEqual({ text, segments, detected_language: language });
   });
