@@ -96,7 +96,6 @@ export function EngineSelector({
   const detailFooterRef = useRef<HTMLDivElement | null>(null);
   const mobileBackRef = useRef<HTMLButtonElement | null>(null);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const restoreFocusRef = useRef(false);
   const pinnedIdRef = useRef<string | null>(null);
   const editingSetupRef = useRef(false);
   const [open, setOpen] = useState(false);
@@ -179,13 +178,6 @@ export function EngineSelector({
     return () => cancelAnimationFrame(focus);
   }, [mobileDetail]);
 
-  useEffect(() => {
-    if (!open && restoreFocusRef.current) {
-      restoreFocusRef.current = false;
-      triggerRef.current?.focus();
-    }
-  }, [open]);
-
   const openSelector = () => {
     cancelHoverIntent();
     // Each opening starts from the latest committed selection, using the
@@ -212,7 +204,9 @@ export function EngineSelector({
     const focus = requestAnimationFrame(() => searchRef.current?.focus());
     return () => {
       cancelAnimationFrame(focus);
+      cancelHoverIntent();
       if (dialog.open) dialog.close();
+      triggerRef.current?.focus();
     };
   }, [open]);
 
@@ -232,8 +226,6 @@ export function EngineSelector({
   }, [open]);
 
   const close = () => {
-    cancelHoverIntent();
-    restoreFocusRef.current = true;
     setOpen(false);
   };
 
