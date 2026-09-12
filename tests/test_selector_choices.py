@@ -912,3 +912,85 @@ def test_model_choices_reuse_provider_setup_credential_and_spend_facts_within_re
         {"anthropic": 2, "openai": 2, "gemini": 2, "openrouter": 2}
     )
     assert spend_reads == Counter({"openai": 2})
+
+
+@pytest.mark.parametrize("failure", ["stale_jobless", "linked_failed"])
+def test_viewer_setup_read_projects_terminal_operation_without_store_writes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    from datetime import timedelta
+
+    import sqlalchemy as sa
+
+    monkeypatch.setattr(
+        "frisket.server.services.selector_choices.parakeet_runtime_present",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "frisket.server.services.selector_choices.parakeet_setup_ready", lambda: False
+    )
+    client, workspace, project_id = _app(tmp_path / failure)
+    engine = workspace.queue.engine
+    row, _ = model_pull_store.create_or_get_active(
+        engine,
+        workspace_root=str(workspace.root),
+        model_ref="spacy:en_core_web_sm@3.8.0",
+    )
+    table = model_pull_store.model_pulls_table
+    if failure == "stale_jobless":
+        with engine.begin() as cx:
+            cx.execute(
+                table.update()
+                .where(table.c.id == row.id)
+                .values(
+                    created_at=row.created_at
+                    - timedelta(
+                        seconds=model_pull_store.JOBLESS_STALE_THRESHOLD_SECONDS + 1
+                    )
+                )
+            )
+    else:
+        job_id = workspace.queue.enqueue("model.pull", {"pull_id": row.id})
+        model_pull_store.mark_running(engine, row.id, job_id=job_id)
+        workspace.queue.claim("test-worker")
+        workspace.queue.fail(job_id, "test-worker", "no handler", retry=False)
+    with engine.connect() as cx:
+        before = cx.execute(sa.select(table)).mappings().all()
+    writes: list[str] = []
+
+    def record_writes(_cx, _cursor, statement, _parameters, _context, _many):
+        if statement.lstrip().split()[0].upper() in {"INSERT", "UPDATE", "DELETE"}:
+            writes.append(statement)
+
+    sa.event.listen(engine, "before_cursor_execute", record_writes)
+    try:
+        response = client.post(
+            f"/api/projects/{project_id}/selector-choices",
+            json=_query(
+                {
+                    "kind": "action",
+                    "action_id": "media.transcribe",
+                    "field": "engine",
+                    "params": {"engine": "parakeet-tdt"},
+                }
+            ),
+        )
+    finally:
+        sa.event.remove(engine, "before_cursor_execute", record_writes)
+    assert response.status_code == 200, response.text
+    current = next(
+        choice for choice in _choices(response.json()) if choice["is_current"]
+    )
+    assert current["active_operation"] is None
+    assert current["setup"]["blocked_by_operation"] is None
+    assert current["setup"]["can_mutate"] is False
+    assert writes == []
+    with engine.connect() as cx:
+        assert cx.execute(sa.select(table)).mappings().all() == before
+    terminal = model_pull_store.list_recent(engine, str(workspace.root), persist=False)[
+        0
+    ]
+    assert model_pull_store.to_dto(terminal)["status"] == "failed"
+    assert terminal.error_code == (
+        "enqueue_failed" if failure == "stale_jobless" else "worker_failed"
+    )

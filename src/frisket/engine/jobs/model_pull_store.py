@@ -21,7 +21,7 @@ to the same row via ``pull_id``).
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -269,96 +269,86 @@ def _write_transaction(engine: sa.engine.Engine):
             yield conn
 
 
+def _repair_values(row: ModelPullRow, job_status: str | None) -> dict[str, Any] | None:
+    """Derive the same terminal recovery facts for passive and repairing reads."""
+    if row.job_id is None:
+        if row.cancel_requested_at is not None:
+            status = STATUS_CANCELLED
+        elif _now() - row.created_at > timedelta(
+            seconds=JOBLESS_STALE_THRESHOLD_SECONDS
+        ):
+            return {
+                "status": STATUS_FAILED,
+                "error_code": "enqueue_failed",
+                "error_message": _truncate(_JOBLESS_STALE_MESSAGE),
+                "finished_at": _now(),
+            }
+        else:
+            return None
+    elif job_status == "cancelled":
+        status = STATUS_CANCELLED
+    elif job_status == "failed":
+        return {
+            "status": STATUS_FAILED,
+            "error_code": "worker_failed",
+            "error_message": _truncate(_WORKER_FAILED_MESSAGE),
+            "finished_at": _now(),
+        }
+    else:
+        return None
+    return {"status": status, "finished_at": _now()}
+
+
 def _read_repair(
-    engine: sa.engine.Engine, row: ModelPullRow | None
+    engine: sa.engine.Engine, row: ModelPullRow | None, *, persist: bool = True
 ) -> ModelPullRow | None:
     if row is None or row.status not in ACTIVE_STATUSES:
         return row
 
+    # Normal in-flight jobs only need a short read transaction. Passive reads
+    # use the effective terminal facts without acquiring a write lock or
+    # changing the durable dedupe authority.
+    job_status = (
+        _job_terminal_status(engine, row.job_id) if row.job_id is not None else None
+    )
+    values = _repair_values(row, job_status)
+    if values is None:
+        return row
+    if not persist:
+        return replace(row, **values)
+
     if row.job_id is None:
-        # item 2a: a job-less active row -- either a never-claimed-job
-        # cancel that only stamped `cancel_requested_at` (the caller has no
-        # job_id to route a queue-side cancel through) or a plain enqueue
-        # failure that never got as far as `set_job_id`. Neither will EVER
-        # be repaired by the job-status branch below, since there is no
-        # linked job to read a status from.
-        if row.cancel_requested_at is not None:
+        if values["status"] == STATUS_CANCELLED:
             mark_cancelled(engine, row.id)
-        elif _now() - row.created_at > timedelta(
-            seconds=JOBLESS_STALE_THRESHOLD_SECONDS
-        ):
+        else:
             mark_failed(
                 engine,
                 row.id,
-                error_code="enqueue_failed",
-                error_message=_JOBLESS_STALE_MESSAGE,
+                error_code=values["error_code"],
+                error_message=values["error_message"],
             )
-        else:
-            # Fresh and not cancel-requested -- the creating route may
-            # still be about to call `set_job_id`; leave it alone.
-            return row
         return _get_raw(engine, row.id) or row
 
+    # A retry can reactivate the job after the fast-path probe. Recheck and
+    # persist in one transaction, locking the jobs row on Postgres; SQLite's
+    # BEGIN IMMEDIATE serializes writers instead (FOR UPDATE is omitted there).
     job_id = row.job_id
-    # Cheap fast-path probe (its own short read-only transaction): the
-    # overwhelmingly common case is "job still active", which needs no
-    # write at all -- avoid taking a write lock on every read of a normal
-    # in-flight pull just to check.
-    if _job_terminal_status(engine, job_id) not in ("cancelled", "failed"):
-        return row
-
-    # The fast-path probe above can be stale by
-    # the time we get here -- e.g. an admin retry (`JobQueue.retry`)
-    # reactivating this exact row's job in the gap. The SELECT that makes
-    # the terminalize decision and the UPDATE that performs it must
-    # therefore be the SAME check, run inside ONE transaction, never two
-    # separate ones with a window for a retry to land in.
     c = model_pulls_table.c
     with _write_transaction(engine) as cx:
-        # This SELECT and the UPDATE below must observe the SAME locked row --
-        # under Postgres READ
-        # COMMITTED, an unlocked SELECT here can read a status that a
-        # concurrent transaction (e.g. an admin retry's own `mark_running`)
-        # changes and commits before our UPDATE lands, racing it instead of
-        # serializing against it. `with_for_update()` takes the row lock so a
-        # concurrent writer on this SAME jobs row blocks until we commit.
-        # SQLAlchemy's sqlite dialect silently omits FOR UPDATE entirely (no
-        # error, no warning -- confirmed by compiling this exact statement
-        # shape against both dialects in
-        # test_read_repair_select_for_update_renders_on_postgres_and_is_a_sqlite_no_op),
-        # which is harmless here: SQLite's own `_write_transaction` already
-        # opts into `BEGIN IMMEDIATE`, taking a whole-database write lock for
-        # this entire transaction, so no per-row lock is needed (or even
-        # expressible) on that backend.
         fresh = cx.execute(
             sa.select(jobs_table.c.status)
             .where(jobs_table.c.id == job_id)
             .with_for_update()
         ).first()
         fresh_status = str(fresh.status) if fresh is not None else None
-        if fresh_status == "cancelled":
-            cx.execute(
-                model_pulls_table.update()
-                .where(
-                    c.id == row.id, c.status.in_(ACTIVE_STATUSES), c.job_id == job_id
-                )
-                .values(status=STATUS_CANCELLED, finished_at=_now())
-            )
-        elif fresh_status == "failed":
-            cx.execute(
-                model_pulls_table.update()
-                .where(
-                    c.id == row.id, c.status.in_(ACTIVE_STATUSES), c.job_id == job_id
-                )
-                .values(
-                    status=STATUS_FAILED,
-                    error_code="worker_failed",
-                    error_message=_truncate(_WORKER_FAILED_MESSAGE),
-                    finished_at=_now(),
-                )
-            )
-        else:
+        values = _repair_values(row, fresh_status)
+        if values is None:
             return row
+        cx.execute(
+            model_pulls_table.update()
+            .where(c.id == row.id, c.status.in_(ACTIVE_STATUSES), c.job_id == job_id)
+            .values(**values)
+        )
     return _get_raw(engine, row.id) or row
 
 
@@ -400,8 +390,13 @@ def find_active_for_workspace(
 
 
 def list_recent(
-    engine: sa.engine.Engine, workspace_root: str, *, limit: int = 20
+    engine: sa.engine.Engine,
+    workspace_root: str,
+    *,
+    limit: int = 20,
+    persist: bool = True,
 ) -> list[ModelPullRow]:
+    """List effective operation status; passive callers never persist recovery."""
     c = model_pulls_table.c
     active_first = sa.case((c.status.in_(ACTIVE_STATUSES), 0), else_=1)
     with engine.connect() as cx:
@@ -411,7 +406,7 @@ def list_recent(
             .order_by(active_first, c.id.desc())
             .limit(limit)
         ).fetchall()
-    return [_read_repair(engine, _row(r)) for r in rows]
+    return [_read_repair(engine, _row(r), persist=persist) for r in rows]
 
 
 class ModelPullBusyError(RuntimeError):
@@ -916,7 +911,9 @@ def to_dto(row: ModelPullRow, *, allow_remove: bool = True) -> dict[str, Any]:
             "license": row.artifact_license,
             "manifest_version": row.artifact_manifest_version,
         }
-    if row.model_ref == "engine-setup:parakeet-tdt.local-onnx@1":
+    from frisket.engine.jobs.engine_setup import is_engine_setup_ref
+
+    if row.artifact_kind == "engine_setup" or is_engine_setup_ref(row.model_ref):
         operation_kind = "engine_setup"
         display_name = "Parakeet TDT (local ONNX)"
     elif row.endpoint_id is not None:
@@ -930,7 +927,7 @@ def to_dto(row: ModelPullRow, *, allow_remove: bool = True) -> dict[str, Any]:
     # deliberately have no owned uninstall path.
     can_remove = (
         operation_kind == "artifact"
-        and row.artifact_kind != "hf_snapshot"
+        and row.artifact_kind not in ("hf_snapshot", "engine_setup")
         and not row.model_ref.startswith("hf-snapshot:")
     )
     capabilities = {

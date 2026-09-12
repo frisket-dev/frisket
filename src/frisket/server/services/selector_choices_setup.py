@@ -160,6 +160,7 @@ class SelectorSetupService:
             self._workspace.queue.engine,
             str(self._workspace.root),
             limit=20,
+            persist=False,
         )
         active = [row for row in rows if row.is_active]
         matching = next((row for row in active if row.model_ref == setup_ref), None)
