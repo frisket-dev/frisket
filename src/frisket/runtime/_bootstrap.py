@@ -15,8 +15,8 @@ TARGETS = {
     "parakeet-session": ("frisket.engine._workers.parakeet_worker", "framed_main"),
     "rapidocr-session": ("frisket.engine._workers.rapidocr_worker", "framed_main"),
     "parakeet-artifacts": (
-        "frisket.engine._workers.parakeet_artifacts",
-        "resolver_main",
+        "frisket.engine._workers.parakeet_artifacts_worker",
+        "main",
     ),
     "faster-whisper": ("frisket.engine._workers.faster_whisper_worker", "main"),
     "tesseract": ("frisket.engine._workers.tesseract_worker", "main"),
