@@ -58,6 +58,22 @@ class _PreviewRunService:
                     },
                 },
             )
+        if preview_id == "opus-preparing":
+            return ActionPreviewRunResponse(
+                status_code=200,
+                payload={
+                    "schema_version": "frisket.action_preview.v1",
+                    "preview_id": preview_id,
+                    "status": "running",
+                    "progress": {
+                        "done": 0,
+                        "total": 1,
+                        "preparation": {
+                            "message": "Preparing the language model if this worker needs it, then translating…"
+                        },
+                    },
+                },
+            )
         if preview_id == "done":
             return ActionPreviewRunResponse(
                 status_code=200,
@@ -158,6 +174,14 @@ def test_action_preview_lifecycle_preserves_transport_shape_and_omits_unset_poll
         "preview_id": "preview-1",
         "status": "running",
         "progress": {"done": 0, "total": 3},
+    }
+
+    opus_preparing = client.get(
+        "/api/projects/project-1/actions/v1/preview/opus-preparing"
+    )
+    assert opus_preparing.status_code == 200, opus_preparing.text
+    assert opus_preparing.json()["progress"]["preparation"] == {
+        "message": "Preparing the language model if this worker needs it, then translating…"
     }
 
     done = client.get("/api/projects/project-1/actions/v1/preview/done")

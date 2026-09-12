@@ -18,10 +18,15 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from filelock import FileLock, Timeout
+
 from frisket.ops.integrations.translate_common import SUPPORTED_LANGUAGE_NAMES
 
 REMEDIATION = (
     "Install the local translation runtime: pip install 'frisket-data[standard]'"
+)
+FIRST_USE_PREPARATION_MESSAGE = (
+    "Preparing the language model if this worker needs it, then translating…"
 )
 
 # name (lowercased) -> ISO-639-1 code, inverted from the shared roster so the
@@ -201,6 +206,33 @@ def _pair_provision_lock(pair: str) -> threading.Lock:
         return lock
 
 
+def _pair_provision_lock_path(src: str, tgt: str, cache_root: Path | None) -> Path:
+    directory = _pair_dir(src, tgt, cache_root)
+    return directory.with_name(f".{directory.name}.provision.lock")
+
+
+def _acquire_pair_provision_lock(
+    src: str,
+    tgt: str,
+    cache_root: Path | None,
+    should_cancel: Any,
+) -> FileLock:
+    """Wait for the artifact-local lock without making a cancelled run wait."""
+    lock_path = _pair_provision_lock_path(src, tgt, cache_root)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock = FileLock(str(lock_path))
+    while True:
+        if should_cancel is not None and should_cancel():
+            from frisket.engine.jobs.artifact_pull import ProvisionCancelled
+
+            raise ProvisionCancelled("artifact provisioning cancelled while waiting")
+        try:
+            lock.acquire(timeout=0.1)
+            return lock
+        except Timeout:
+            continue
+
+
 def ensure_pair_installed(
     src: str,
     tgt: str,
@@ -216,8 +248,8 @@ def ensure_pair_installed(
     row can land on any worker (the run queue has no host affinity), so the
     executing worker provisions the pair the first time it needs it. The pair is
     manifest-gated (checksum + license pinned), so NO acknowledgment is needed.
-    A per-host (per-process) lock + a re-check dedupes concurrent rows so the
-    pair is pulled once, not once per row.
+    Per-host and per-artifact filesystem locks + a re-check dedupe concurrent
+    rows and workers so the pair is pulled once, not once per worker.
 
     Raises :class:`OpusPairNotInstalled` if the pair is not a pinned manifest
     entry (an unpinned pair cannot be provisioned on-use), or the underlying
@@ -235,29 +267,33 @@ def ensure_pair_installed(
         raise OpusPairNotInstalled(f"opus-mt:{pair} is not a pinned pair")
 
     with _pair_provision_lock(pair):
-        # Re-check under the lock: another row may have provisioned it while we
-        # waited (no double-pull).
-        if is_pair_installed(src, tgt, cache_root=cache_root):
-            return
-        if client is not None:
-            artifact_pull.provision_pinned(
-                art,
-                pinned,
-                cache_root=cache_root,
-                client=client,
-                should_cancel=should_cancel,
-            )
-            return
-        import httpx
+        file_lock = _acquire_pair_provision_lock(src, tgt, cache_root, should_cancel)
+        try:
+            # Re-check under both locks: another worker may have provisioned it
+            # while we waited (no double-pull or concurrent directory promotion).
+            if is_pair_installed(src, tgt, cache_root=cache_root):
+                return
+            if client is not None:
+                artifact_pull.provision_pinned(
+                    art,
+                    pinned,
+                    cache_root=cache_root,
+                    client=client,
+                    should_cancel=should_cancel,
+                )
+                return
+            import httpx
 
-        with httpx.Client() as owned_client:
-            artifact_pull.provision_pinned(
-                art,
-                pinned,
-                cache_root=cache_root,
-                client=owned_client,
-                should_cancel=should_cancel,
-            )
+            with httpx.Client() as owned_client:
+                artifact_pull.provision_pinned(
+                    art,
+                    pinned,
+                    cache_root=cache_root,
+                    client=owned_client,
+                    should_cancel=should_cancel,
+                )
+        finally:
+            file_lock.release()
 
 
 def _clear_translator_cache() -> None:
@@ -267,6 +303,7 @@ def _clear_translator_cache() -> None:
 
 
 __all__ = [
+    "FIRST_USE_PREPARATION_MESSAGE",
     "REMEDIATION",
     "OpusPairNotInstalled",
     "OpusRuntimeUnavailable",

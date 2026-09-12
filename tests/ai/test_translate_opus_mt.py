@@ -7,12 +7,23 @@ provenance are the behaviour under test."""
 
 from __future__ import annotations
 
+import multiprocessing
+import threading
+
 import pytest
 
 from frisket.ops.integrations import opus_mt
 from frisket.ops.integrations.translate_common import TranslateEngineError
 from frisket.ops.base import OpContext
 from frisket.ops.integrations.translation_engine import TranslationEngine
+
+
+def _hold_file_lock(lock_path: str, acquired, release) -> None:
+    from filelock import FileLock
+
+    with FileLock(lock_path, timeout=5):
+        acquired.set()
+        assert release.wait(timeout=5)
 
 
 def test_resolve_pair_codes_accepts_codes_and_names():
@@ -445,6 +456,67 @@ def test_ensure_pair_installed_rejects_checksum_mismatch(tmp_path, monkeypatch):
         opus_mt.ensure_pair_installed("en", "es", cache_root=tmp_path, client=client)
     assert exc.value.code == "checksum_mismatch"
     assert not opus_mt.is_pair_installed("en", "es", cache_root=tmp_path)
+
+
+def test_ensure_pair_installed_rechecks_after_another_process_provisions_pair(
+    tmp_path, monkeypatch
+):
+    """A separate worker process owns the artifact lock until it publishes bytes."""
+    from frisket.ai.models import artifact_manifest
+    from frisket.engine.jobs import artifact_pull
+
+    files = {"model.bin": b"wa", "source.spm": b"sa", "target.spm": b"ta"}
+    entry = _pinned_pair_entry(files)
+    monkeypatch.setattr(artifact_manifest, "_MANIFEST", {"opus-mt:en-es": entry})
+    provision_called = threading.Event()
+
+    def unexpected_provision(*_args, **_kwargs):
+        provision_called.set()
+        raise AssertionError("losing worker must recheck instead of provisioning")
+
+    monkeypatch.setattr(artifact_pull, "provision_pinned", unexpected_provision)
+    lock_path = opus_mt._pair_provision_lock_path("en", "es", tmp_path)
+    context = multiprocessing.get_context("spawn")
+    acquired = context.Event()
+    release = context.Event()
+    holder = context.Process(
+        target=_hold_file_lock, args=(str(lock_path), acquired, release)
+    )
+    holder.start()
+    try:
+        assert acquired.wait(timeout=5), "lock holder did not start"
+        finished = threading.Event()
+        errors: list[BaseException] = []
+
+        def contender() -> None:
+            try:
+                opus_mt.ensure_pair_installed("en", "es", cache_root=tmp_path)
+            except BaseException as exc:  # test reports the worker exception below
+                errors.append(exc)
+            finally:
+                finished.set()
+
+        contender_thread = threading.Thread(target=contender)
+        contender_thread.start()
+        assert not finished.wait(timeout=0.2), "contender did not wait on file lock"
+        assert not provision_called.is_set()
+        pair_dir = opus_mt._pair_dir("en", "es", tmp_path)
+        pair_dir.mkdir(parents=True)
+        for name, content in files.items():
+            (pair_dir / name).write_bytes(content)
+        release.set()
+        contender_thread.join(timeout=5)
+        assert not contender_thread.is_alive()
+        assert errors == []
+        assert not provision_called.is_set()
+        assert opus_mt.is_pair_installed("en", "es", cache_root=tmp_path)
+    finally:
+        release.set()
+        holder.join(timeout=5)
+        if holder.is_alive():
+            holder.terminate()
+            holder.join(timeout=5)
+    assert holder.exitcode == 0
 
 
 @pytest.mark.asyncio

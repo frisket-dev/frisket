@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -119,6 +120,75 @@ def test_typed_template_preview_uses_explicit_program_without_writes(
         "receipts": project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0],
     } == before
     assert validations == 1
+
+
+def test_opus_preview_derives_first_use_hint_until_normal_row_progress(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from frisket.ops.integrations import opus_mt
+
+    workspace, sheet_id, row_ids = _seed(tmp_path / "opus-preview")
+    service = ActionPreviewRunService(workspace)
+    translating = threading.Event()
+    release = threading.Event()
+
+    monkeypatch.setattr(opus_mt, "runtime_available", lambda: True)
+
+    def translate(
+        src: str, tgt: str, texts: list[str], *, cache_root=None
+    ) -> list[str]:
+        assert (src, tgt) == ("en", "es")
+        translating.set()
+        assert release.wait(timeout=5)
+        return ["Hola"] * len(texts)
+
+    monkeypatch.setattr(opus_mt, "translate_texts", translate)
+    started = service.start_preview(
+        "typed-preview",
+        {
+            "action_id": "map.translate",
+            "scope": {
+                "kind": "sheet_rows",
+                "sheet_id": sheet_id,
+                "row_ids": row_ids,
+            },
+            "params": {
+                "source": ["first"],
+                "engine": "opus_mt",
+                "language": ["en"],
+                "target_language": "Spanish",
+            },
+            "output_names": {"translation": "spanish"},
+            "idempotency_key": "opus-preview@1",
+        },
+    )
+    assert started.status_code == 202, started.payload
+    assert translating.wait(timeout=5), "Opus preview did not begin translating"
+
+    running = service.get_preview("typed-preview", started.payload["preview_id"])
+    assert running.payload["status"] == "running"
+    assert running.payload["progress"] == {
+        "done": 0,
+        "total": len(row_ids),
+        "preparation": {
+            "message": "Preparing the language model if this worker needs it, then translating…"
+        },
+    }
+
+    release.set()
+    result = None
+
+    def preview_finished() -> bool:
+        nonlocal result
+        result = service.get_preview("typed-preview", started.payload["preview_id"])
+        return result.payload["status"] != "running"
+
+    with controlled_time(timeout=5) as clock:
+        clock.wait_until(preview_finished, message="Opus preview did not finish")
+    assert result is not None
+    assert result.payload["status"] == "done"
+    assert "preparation" not in result.payload["progress"]
 
 
 def test_web_search_preview_refuses_before_provider_egress(
