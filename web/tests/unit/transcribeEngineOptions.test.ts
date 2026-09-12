@@ -5,6 +5,7 @@ import {
   TRANSCRIBE_ENGINE_FALLBACK,
   findTranscribeEngineDeclaration,
   transcribeDiarizationMode,
+  transcribeEnginesFromCatalog,
   transcribeOptionsForEngine,
 } from '../../src/actions/transcribeEngineCatalog';
 
@@ -79,6 +80,19 @@ describe('transcription engine option declarations', () => {
       transcription_options: { language: false },
     });
     expect(parakeet?.language?.fixed_language).toBeUndefined();
+  });
+
+  it('marks a live engine unavailable when the selected target contract is missing', () => {
+    const catalog = {
+      actions: [{ kind: 'media.transcribe', ui_hints: { engines: [{
+        id: 'faster_whisper', label: 'Whisper', tier: 'local', available: true,
+        transcription_options: { language: true, vad: true, model_size: true },
+      }] } }],
+    } as Parameters<typeof transcribeEnginesFromCatalog>[0];
+    expect(transcribeEnginesFromCatalog(catalog)[0]).toMatchObject({
+      available: false,
+      error: 'Option availability could not be checked. Refresh and try again.',
+    });
   });
 
   it('fails closed for an undeclared unknown engine', () => {

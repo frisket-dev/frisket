@@ -303,7 +303,17 @@ export function transcribeOptionsForEngine(
 
 /** Resolve the transcribe engine option set from a loaded action catalog.
  *  Returns the shared fallback when the catalog is absent or has no hints. */
-export const transcribeEnginesFromCatalog = makeEnginesFromCatalog(
+const enginesFromCatalog = makeEnginesFromCatalog(
   'media.transcribe',
   TRANSCRIBE_ENGINE_FALLBACK,
 );
+
+/** A live catalog that omits its chosen target is not safe to run: the client
+ * cannot tell which option contract or venue the server will use. */
+export function transcribeEnginesFromCatalog(...args: Parameters<typeof enginesFromCatalog>) {
+  return enginesFromCatalog(...args).map((engine) => (
+    engine.available && !transcribeActiveTarget(engine)
+      ? { ...engine, available: false, error: transcribeActiveTargetOptionReason(engine) ?? undefined }
+      : engine
+  ));
+}

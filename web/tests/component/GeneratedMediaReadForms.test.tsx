@@ -198,6 +198,24 @@ describe('typed OCR/transcription forms', () => {
     });
   });
 
+  it('keeps saved settings when a catalog omits its selected target contract', async () => {
+    const draft = saved('media.transcribe', { engine: 'parakeet-tdt', vad: true },
+      { text: 'Words', segments: 'Timing' });
+    const { resolveParams } = form('media.transcribe', {
+      initialDraft: draft,
+      enginePatch: (engine) => engine.id === 'parakeet-tdt'
+        ? { ...engine, target_id: undefined, targets: undefined }
+        : engine,
+    });
+    await waitFor(() => expect(resolveParams).toHaveBeenCalled());
+    expect(resolveParams.mock.calls[0][0].params).toHaveProperty('vad', true);
+    expect(screen.getByTestId('transcribe-option-availability')).toHaveTextContent(
+      'Option availability could not be checked',
+    );
+    expect(screen.queryByTestId('transcribe-clear-unavailable-settings')).not.toBeInTheDocument();
+    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
+  });
+
   it('clears a language hint on an auto-only Parakeet switch', async () => {
     const { entry, onExecute } = form('media.transcribe');
     await choose(entry.ui_hints.engines!.find((engine) => engine.id === 'faster_whisper')!);

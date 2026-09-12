@@ -8,6 +8,7 @@ import {
   TRANSCRIBE_ENGINE_FALLBACK,
   engineIsRemote,
   tierForEngine,
+  transcribeActiveTarget,
   transcribeActiveTargetOptionReason,
   resolveTranscribeDiarizationMode,
   transcribeDiarizationForEngine,
@@ -503,6 +504,8 @@ function TranscribeOptionFields({
 }) {
   const options = optionsOf(column);
   const fields = transcribeFieldsForEngine(engine);
+  const activeTarget = transcribeActiveTarget(engine);
+  const targetBindingMissing = Boolean(engine && !activeTarget);
   const semanticDiarization = engine?.diarization;
   const semanticDiarizationMode = resolveTranscribeDiarizationMode(semanticDiarization);
   const activeDiarization = transcribeDiarizationForEngine(engine);
@@ -523,6 +526,7 @@ function TranscribeOptionFields({
     && !fields.vad
     && fields.diarizationMode === 'none'
     && !targetDiarizationUnavailable
+    && !targetBindingMissing
   ) {
     return (
       <div className="ocr-compare-configure-hint muted">
@@ -543,7 +547,7 @@ function TranscribeOptionFields({
             onSetDiarize(event.target.checked);
           }} /> Identify speakers
       </label>}
-      {targetDiarizationUnavailable && <p className="ocr-compare-configure-hint muted"
+      {(targetDiarizationUnavailable || targetBindingMissing) && <p className="ocr-compare-configure-hint muted"
         id="transcribe-compare-diarize-unavailable"
         data-testid="transcribe-compare-diarize-unavailable">
         {targetOptionReason}
