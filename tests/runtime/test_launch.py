@@ -62,4 +62,5 @@ def test_unknown_worker_is_rejected_in_parent_and_child():
 
 
 def test_current_runtime_keeps_venv_executable():
+    # subprocess-boundary: verifies interpreter identity or real child lifetime.
     assert worker_argv("runtime-info")[0] == os.path.abspath(sys.executable)

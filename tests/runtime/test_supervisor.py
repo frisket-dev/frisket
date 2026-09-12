@@ -13,7 +13,11 @@ import pytest
 from frisket.runtime.supervisor import guarded_argv, stop_guard
 
 
-pytestmark = pytest.mark.skipif(os.name != "posix", reason="POSIX process guardian")
+# realtime: assert kernel-observed process exit; a virtual clock cannot reap OS children.
+pytestmark = [
+    pytest.mark.realtime,
+    pytest.mark.skipif(os.name != "posix", reason="POSIX process guardian"),
+]
 
 
 def _wait(predicate, seconds=8):
@@ -44,9 +48,11 @@ def test_normal_exit_cleans_descendant_without_changing_stdout(tmp_path):
     )
     parent = tmp_path / "parent.py"
     parent.write_text(
+        # subprocess-boundary: verifies interpreter identity or real child lifetime.
         "import subprocess,sys; p=subprocess.Popen([sys.executable,sys.argv[1]]); print(p.pid,flush=True)"
     )
     process = subprocess.Popen(
+        # subprocess-boundary: verifies interpreter identity or real child lifetime.
         guarded_argv([sys.executable, str(parent), str(child)]),
         stdout=subprocess.PIPE,
         text=True,
@@ -79,6 +85,7 @@ def test_parent_death_cleans_nested_separate_sessions(tmp_path):
         "import os,sys,subprocess,time,json\nfrom pathlib import Path\n"
         f"sys.path.insert(0,{str(root)!r})\n"
         "from frisket.runtime.supervisor import guarded_argv\n"
+        # subprocess-boundary: verifies interpreter identity or real child lifetime.
         "p=subprocess.Popen(guarded_argv([sys.executable,sys.argv[1],sys.argv[2]]),start_new_session=True)\n"
         "while not Path(sys.argv[2]).exists(): time.sleep(.02)\n"
         "Path(sys.argv[3]).write_text(json.dumps([os.getpid(),p.pid,int(Path(sys.argv[2]).read_text())]))\n"
@@ -89,12 +96,14 @@ def test_parent_death_cleans_nested_separate_sessions(tmp_path):
         "import os,sys,subprocess,time\nfrom pathlib import Path\n"
         f"sys.path.insert(0,{str(root)!r})\n"
         "from frisket.runtime.supervisor import guarded_argv\n"
+        # subprocess-boundary: verifies interpreter identity or real child lifetime.
         "p=subprocess.Popen(guarded_argv([sys.executable,*sys.argv[1:]]),start_new_session=True)\n"
         "while not Path(sys.argv[-1]).exists(): time.sleep(.02)\n"
         "print(p.pid,flush=True)\nos._exit(0)\n"
     )
     process = subprocess.Popen(
         [
+            # subprocess-boundary: verifies interpreter identity or real child lifetime.
             sys.executable,
             str(controller),
             str(outer),
@@ -125,6 +134,7 @@ def test_stop_guard_waits_for_term_ignoring_target(tmp_path):
         "print(os.getpid(),flush=True); time.sleep(60)"
     )
     process = subprocess.Popen(
+        # subprocess-boundary: verifies interpreter identity or real child lifetime.
         guarded_argv([sys.executable, str(target)]),
         stdout=subprocess.PIPE,
         text=True,

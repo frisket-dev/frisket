@@ -42,7 +42,6 @@ ALLOWED: dict[str, str] = {
     "tests/ops/test_ocr_runtime_availability.py": "real OCR runtime probes in fresh interpreters",
     "tests/features/test_entities_extra_gating.py": "real frisket.plugins.subprocess_runner children",
     "tests/authoring/test_authoring_cli_polish.py": "plugin dev watch loops: liveness, terminate/kill, streamed stdout",
-    "tests/engine/test_worker.py": "asserts `python -m frisket.cli worker` module runnability serve relies on",
     "tests/engine/test_transcribe_engines.py": "worker stdio protocol child with PYTHONPATH injection",
     "tests/engine/test_job_queue.py": "cross-process queue-db visibility",
     "tests/engine/test_queue_schema_migrations.py": "hosted-worker children against real postgres, env+timeout",
@@ -65,8 +64,6 @@ ALLOWED: dict[str, str] = {
     "tests/team/test_team_bootstrap_queue_table_allowlist.py": "fresh-process bootstrap allowlist probe",
     "tests/team/test_byo_keys.py": "cross-process key material handling",
     "sidecar/tests/test_gpu_lease.py": "real child processes contending a GPU lease lock file",
-    "tests/ops/test_media_proxy.py": "asserts the argv frisket builds for yt-dlp; nothing is spawned",
-    "tests/ops/test_media_ytdlp_managed_runtime_cutover.py": "asserts the argv frisket builds for yt-dlp; nothing is spawned",
 }
 
 
