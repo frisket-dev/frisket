@@ -19,7 +19,7 @@ def main() -> int:
         raise ValueError("invalid guardian configuration")
     parent_pid = int(sys.argv[1])
     grace = float(sys.argv[2])
-    if not 0 < grace <= 10 or len(sys.argv) < 4:
+    if not 0 < grace <= 10:
         raise ValueError("invalid guardian configuration")
     stopped = False
 
