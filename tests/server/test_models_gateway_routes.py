@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 import pytest
@@ -9,7 +11,10 @@ from fastapi.testclient import TestClient
 
 from frisket.server import provider_config
 from frisket.server.routes.models_gateway import register_models_gateway_routes
-from frisket.server.services.models_gateway import ModelsGatewayService
+from frisket.server.services.models_gateway import (
+    ModelsGatewayProbeCache,
+    ModelsGatewayService,
+)
 
 
 ORIGIN = "https://models.example.test"
@@ -263,6 +268,46 @@ def test_passive_status_never_probes_and_recheck_bypasses_cached_probe(
     assert calls == 1
     assert service.validate_candidate(origin=None, token=None)["probe"]["ok"] is True
     assert calls == 2
+
+
+@pytest.mark.parametrize("warm_cache", [False, True])
+def test_passive_status_returns_while_recheck_loader_is_blocked(
+    tmp_path, monkeypatch, warm_cache
+) -> None:
+    monkeypatch.delenv("FRISKET_MODELS_URL", raising=False)
+    monkeypatch.delenv("FRISKET_MODELS_TOKEN", raising=False)
+    provider_config.save_local_models_gateway(tmp_path, origin=ORIGIN, token=TOKEN)
+    entered = threading.Event()
+    release = threading.Event()
+    block_loader = False
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        if block_loader:
+            entered.set()
+            assert release.wait(10), "test did not release the probe loader"
+        return httpx.Response(200, json=_capabilities())
+
+    service = ModelsGatewayService.workspace(
+        tmp_path,
+        transport=_transport(handler),
+        cache=ModelsGatewayProbeCache(clock=lambda: 0.0),
+    )
+    previous_probe = service.status(can_mutate=True)["probe"] if warm_cache else None
+    block_loader = True
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        recheck = executor.submit(service.status, can_mutate=True, recheck=True)
+        try:
+            assert entered.wait(5), "recheck did not enter the probe loader"
+            passive = executor.submit(service.passive_status, can_mutate=True).result(
+                timeout=5
+            )
+            assert not release.is_set()
+            assert not recheck.done()
+            assert passive["configured"] is True
+            assert passive["probe"] == previous_probe
+        finally:
+            release.set()
+        assert recheck.result(timeout=5)["probe"]["ok"] is True
 
 
 def test_gateway_receipt_expires_and_rejects_another_scope_or_protocol() -> None:

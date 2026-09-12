@@ -87,9 +87,12 @@ class ModelsGatewayProbeCache:
             cached = self._values.get(fingerprint)
             if not bypass and cached is not None and cached[0] > now:
                 return cached[1]
-            value = loader()
+        # Probing can block on the network; passive readers need only this lock
+        # for a brief cache lookup. Concurrent misses may probe independently.
+        value = loader()
+        with self._lock:
             self._values[fingerprint] = (self._clock() + self._ttl_seconds, value)
-            return value
+        return value
 
 
 def _empty_probe(
