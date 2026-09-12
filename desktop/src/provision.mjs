@@ -38,6 +38,7 @@ export async function prepareRuntime({ resourcesPath, dataPath, onProgress = () 
   const ready = await readReadyMarker(markerPath, manifest, environmentId);
   await fs.mkdir(path.join(data, 'cache'), { recursive: true });
   if (ready) {
+    onProgress({ phase: 'dependencies', message: 'Preparing included local models…' });
     await seedBundledModelCaches(resources, data, signal);
     await assertFile(python, 'private Python');
     onProgress({ phase: 'workspace', message: 'Opening your workspace…' });
