@@ -5,6 +5,7 @@ import type {
   HttpCellEvidenceResponse,
   HttpEvidenceViewerResponse,
   HttpLocalEndpointDiscoveryResponse,
+  HttpModelPull,
   HttpReceipt,
 } from '../generated/openHttpContracts';
 
@@ -1706,46 +1707,8 @@ export type LocalEndpointDiscoveryResponse = HttpLocalEndpointDiscoveryResponse;
 export type LocalEndpointDiscoveryCandidate =
   LocalEndpointDiscoveryResponse['candidates'][number];
 
-/** A single in-app model pull (frisket.model_pull.v3). Field names match the
- *  wire shape as-is — no camelCase translation layer, since this DTO is
- *  only ever read back (never built client-side into a request body).
- *  Ollama reports byte progress per layer digest, so
- *  `total_bytes`/`completed_bytes` are the aggregate across known digests
- *  and stay `null` until the first layer starts streaming (render an
- *  indeterminate bar until then). */
-export interface ModelPullDto {
-  /** Wire version carrying immutable local-endpoint provenance. */
-  schemaVersion: 'frisket.model_pull.v3';
-  id: number;
-  model: string;
-  status: 'pending' | 'running' | 'done' | 'failed' | 'cancelled' | 'uninstalled';
-  phase: string | null;
-  total_bytes: number | null;
-  completed_bytes: number | null;
-  error: { code: string | null; message: string | null } | null;
-  resolved_digest: string | null;
-  resolved_size: number | null;
-  created_at: string;
-  started_at: string | null;
-  finished_at: string | null;
-  cancel_requested: boolean;
-  /** Stable endpoint identity for local pulls; null for artifact-only pulls. */
-  endpoint_id: string | null;
-  /** Credential-free origin used for an Ollama pull; null for artifact-only
-   *  pulls. */
-  endpoint_origin: string | null;
-  /** Hosted actor provenance where applicable; null for local pulls. */
-  initiated_by: string | null;
-  /** Pinned-artifact provenance for an opus-mt:/hf: pull
-   *  (frisket.model_pull.v3); `null` for a local-server pull.
-   *  `license`/`manifest_version` are null for a free-form unpinned hf pull. */
-  artifact: {
-    kind: string;
-    source_url: string | null;
-    license: string | null;
-    manifest_version: string | null;
-  } | null;
-}
+/** Durable download state, projected directly from the shared HTTP contract. */
+export type ModelPullDto = HttpModelPull;
 
 /** A downloadable Opus-MT language pair from the pinned manifest, advertised
  *  on the translate `opus_mt` engine's `downloadable_pairs` for the form's

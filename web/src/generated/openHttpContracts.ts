@@ -5824,6 +5824,12 @@ type HttpModelPull_ModelPullArtifact = ({
   "source_url": (((string)) | ((null)));
 });
 
+type HttpModelPull_ModelPullCapabilities = ({
+  "cancel": (boolean);
+  "remove": (boolean);
+  "retry": (boolean);
+});
+
 type HttpModelPull_ModelPullError = ({
   "code": (((string)) | ((null)));
   "message": (((string)) | ((null)));
@@ -5832,8 +5838,10 @@ type HttpModelPull_ModelPullError = ({
 export type HttpModelPull = ({
   "artifact": (((HttpModelPull_ModelPullArtifact)) | ((null)));
   "cancel_requested": (boolean);
+  "capabilities": (HttpModelPull_ModelPullCapabilities);
   "completed_bytes": (((number)) | ((null)));
   "created_at": (string);
+  "display_name": (string);
   "endpoint_id": (((string)) | ((null)));
   "endpoint_origin": (((string)) | ((null)));
   "error": (((HttpModelPull_ModelPullError)) | ((null)));
@@ -5841,10 +5849,11 @@ export type HttpModelPull = ({
   "id": (number);
   "initiated_by": (((string)) | ((null)));
   "model": (string);
+  "operation_kind": ("artifact" | "local_model" | "engine_setup") & (string);
   "phase": (((string)) | ((null)));
   "resolved_digest": (((string)) | ((null)));
   "resolved_size": (((number)) | ((null)));
-  "schemaVersion": ("frisket.model_pull.v3") & (string);
+  "schemaVersion": ("frisket.model_pull.v4") & (string);
   "started_at": (((string)) | ((null)));
   "status": ("pending" | "running" | "done" | "failed" | "cancelled" | "uninstalled") & (string);
   "total_bytes": (((number)) | ((null)));
@@ -5853,8 +5862,10 @@ export type HttpModelPull = ({
 type HttpModelPullListResponse_ModelPull = ({
   "artifact": (((HttpModelPullListResponse_ModelPullArtifact)) | ((null)));
   "cancel_requested": (boolean);
+  "capabilities": (HttpModelPullListResponse_ModelPullCapabilities);
   "completed_bytes": (((number)) | ((null)));
   "created_at": (string);
+  "display_name": (string);
   "endpoint_id": (((string)) | ((null)));
   "endpoint_origin": (((string)) | ((null)));
   "error": (((HttpModelPullListResponse_ModelPullError)) | ((null)));
@@ -5862,10 +5873,11 @@ type HttpModelPullListResponse_ModelPull = ({
   "id": (number);
   "initiated_by": (((string)) | ((null)));
   "model": (string);
+  "operation_kind": ("artifact" | "local_model" | "engine_setup") & (string);
   "phase": (((string)) | ((null)));
   "resolved_digest": (((string)) | ((null)));
   "resolved_size": (((number)) | ((null)));
-  "schemaVersion": ("frisket.model_pull.v3") & (string);
+  "schemaVersion": ("frisket.model_pull.v4") & (string);
   "started_at": (((string)) | ((null)));
   "status": ("pending" | "running" | "done" | "failed" | "cancelled" | "uninstalled") & (string);
   "total_bytes": (((number)) | ((null)));
@@ -5876,6 +5888,12 @@ type HttpModelPullListResponse_ModelPullArtifact = ({
   "license": (((string)) | ((null)));
   "manifest_version": (((string)) | ((null)));
   "source_url": (((string)) | ((null)));
+});
+
+type HttpModelPullListResponse_ModelPullCapabilities = ({
+  "cancel": (boolean);
+  "remove": (boolean);
+  "retry": (boolean);
 });
 
 type HttpModelPullListResponse_ModelPullError = ({
@@ -5890,8 +5908,10 @@ export type HttpModelPullListResponse = ({
 type HttpModelPullStartResponse_ModelPull = ({
   "artifact": (((HttpModelPullStartResponse_ModelPullArtifact)) | ((null)));
   "cancel_requested": (boolean);
+  "capabilities": (HttpModelPullStartResponse_ModelPullCapabilities);
   "completed_bytes": (((number)) | ((null)));
   "created_at": (string);
+  "display_name": (string);
   "endpoint_id": (((string)) | ((null)));
   "endpoint_origin": (((string)) | ((null)));
   "error": (((HttpModelPullStartResponse_ModelPullError)) | ((null)));
@@ -5899,10 +5919,11 @@ type HttpModelPullStartResponse_ModelPull = ({
   "id": (number);
   "initiated_by": (((string)) | ((null)));
   "model": (string);
+  "operation_kind": ("artifact" | "local_model" | "engine_setup") & (string);
   "phase": (((string)) | ((null)));
   "resolved_digest": (((string)) | ((null)));
   "resolved_size": (((number)) | ((null)));
-  "schemaVersion": ("frisket.model_pull.v3") & (string);
+  "schemaVersion": ("frisket.model_pull.v4") & (string);
   "started_at": (((string)) | ((null)));
   "status": ("pending" | "running" | "done" | "failed" | "cancelled" | "uninstalled") & (string);
   "total_bytes": (((number)) | ((null)));
@@ -5913,6 +5934,12 @@ type HttpModelPullStartResponse_ModelPullArtifact = ({
   "license": (((string)) | ((null)));
   "manifest_version": (((string)) | ((null)));
   "source_url": (((string)) | ((null)));
+});
+
+type HttpModelPullStartResponse_ModelPullCapabilities = ({
+  "cancel": (boolean);
+  "remove": (boolean);
+  "retry": (boolean);
 });
 
 type HttpModelPullStartResponse_ModelPullError = ({
@@ -7695,8 +7722,10 @@ type HttpTeamModelHttpError_TeamModelLocalServerUnreachableDetail = ({
 type HttpTeamModelHttpError_TeamModelPull = ({
   "artifact": (((HttpTeamModelHttpError_TeamModelPullArtifact)) | ((null)));
   "cancel_requested": (boolean);
+  "capabilities": (HttpTeamModelHttpError_TeamModelPullCapabilities);
   "completed_bytes": (((number)) | ((null)));
   "created_at": (string);
+  "display_name": (string);
   "endpoint_id": (((string)) | ((null)));
   "endpoint_origin": (((string)) | ((null)));
   "error": (((HttpTeamModelHttpError_TeamModelPullError)) | ((null)));
@@ -7704,10 +7733,11 @@ type HttpTeamModelHttpError_TeamModelPull = ({
   "id": (number);
   "initiated_by": (((string)) | ((null)));
   "model": (string);
+  "operation_kind": ("artifact" | "local_model" | "engine_setup") & (string);
   "phase": (((string)) | ((null)));
   "resolved_digest": (((string)) | ((null)));
   "resolved_size": (((number)) | ((null)));
-  "schemaVersion": ("frisket.model_pull.v3") & (string);
+  "schemaVersion": ("frisket.model_pull.v4") & (string);
   "started_at": (((string)) | ((null)));
   "status": ("pending" | "running" | "done" | "failed" | "cancelled" | "uninstalled") & (string);
   "total_bytes": (((number)) | ((null)));
@@ -7724,6 +7754,12 @@ type HttpTeamModelHttpError_TeamModelPullBusyDetail = ({
   "active"?: (((HttpTeamModelHttpError_TeamModelPull)) | ((null)));
   "code": ("pull_busy") & (string);
   "message": (string);
+});
+
+type HttpTeamModelHttpError_TeamModelPullCapabilities = ({
+  "cancel": (boolean);
+  "remove": (boolean);
+  "retry": (boolean);
 });
 
 type HttpTeamModelHttpError_TeamModelPullDisabledDetail = ({
@@ -7769,6 +7805,12 @@ type HttpTeamModelPull_TeamModelPullArtifact = ({
   "source_url": (((string)) | ((null)));
 });
 
+type HttpTeamModelPull_TeamModelPullCapabilities = ({
+  "cancel": (boolean);
+  "remove": (boolean);
+  "retry": (boolean);
+});
+
 type HttpTeamModelPull_TeamModelPullError = ({
   "code": (((string)) | ((null)));
   "message": (((string)) | ((null)));
@@ -7777,8 +7819,10 @@ type HttpTeamModelPull_TeamModelPullError = ({
 export type HttpTeamModelPull = ({
   "artifact": (((HttpTeamModelPull_TeamModelPullArtifact)) | ((null)));
   "cancel_requested": (boolean);
+  "capabilities": (HttpTeamModelPull_TeamModelPullCapabilities);
   "completed_bytes": (((number)) | ((null)));
   "created_at": (string);
+  "display_name": (string);
   "endpoint_id": (((string)) | ((null)));
   "endpoint_origin": (((string)) | ((null)));
   "error": (((HttpTeamModelPull_TeamModelPullError)) | ((null)));
@@ -7786,10 +7830,11 @@ export type HttpTeamModelPull = ({
   "id": (number);
   "initiated_by": (((string)) | ((null)));
   "model": (string);
+  "operation_kind": ("artifact" | "local_model" | "engine_setup") & (string);
   "phase": (((string)) | ((null)));
   "resolved_digest": (((string)) | ((null)));
   "resolved_size": (((number)) | ((null)));
-  "schemaVersion": ("frisket.model_pull.v3") & (string);
+  "schemaVersion": ("frisket.model_pull.v4") & (string);
   "started_at": (((string)) | ((null)));
   "status": ("pending" | "running" | "done" | "failed" | "cancelled" | "uninstalled") & (string);
   "total_bytes": (((number)) | ((null)));
@@ -7798,8 +7843,10 @@ export type HttpTeamModelPull = ({
 type HttpTeamModelPullListResponse_TeamModelPull = ({
   "artifact": (((HttpTeamModelPullListResponse_TeamModelPullArtifact)) | ((null)));
   "cancel_requested": (boolean);
+  "capabilities": (HttpTeamModelPullListResponse_TeamModelPullCapabilities);
   "completed_bytes": (((number)) | ((null)));
   "created_at": (string);
+  "display_name": (string);
   "endpoint_id": (((string)) | ((null)));
   "endpoint_origin": (((string)) | ((null)));
   "error": (((HttpTeamModelPullListResponse_TeamModelPullError)) | ((null)));
@@ -7807,10 +7854,11 @@ type HttpTeamModelPullListResponse_TeamModelPull = ({
   "id": (number);
   "initiated_by": (((string)) | ((null)));
   "model": (string);
+  "operation_kind": ("artifact" | "local_model" | "engine_setup") & (string);
   "phase": (((string)) | ((null)));
   "resolved_digest": (((string)) | ((null)));
   "resolved_size": (((number)) | ((null)));
-  "schemaVersion": ("frisket.model_pull.v3") & (string);
+  "schemaVersion": ("frisket.model_pull.v4") & (string);
   "started_at": (((string)) | ((null)));
   "status": ("pending" | "running" | "done" | "failed" | "cancelled" | "uninstalled") & (string);
   "total_bytes": (((number)) | ((null)));
@@ -7821,6 +7869,12 @@ type HttpTeamModelPullListResponse_TeamModelPullArtifact = ({
   "license": (((string)) | ((null)));
   "manifest_version": (((string)) | ((null)));
   "source_url": (((string)) | ((null)));
+});
+
+type HttpTeamModelPullListResponse_TeamModelPullCapabilities = ({
+  "cancel": (boolean);
+  "remove": (boolean);
+  "retry": (boolean);
 });
 
 type HttpTeamModelPullListResponse_TeamModelPullError = ({
@@ -7835,8 +7889,10 @@ export type HttpTeamModelPullListResponse = ({
 type HttpTeamModelPullStartResponse_TeamModelPull = ({
   "artifact": (((HttpTeamModelPullStartResponse_TeamModelPullArtifact)) | ((null)));
   "cancel_requested": (boolean);
+  "capabilities": (HttpTeamModelPullStartResponse_TeamModelPullCapabilities);
   "completed_bytes": (((number)) | ((null)));
   "created_at": (string);
+  "display_name": (string);
   "endpoint_id": (((string)) | ((null)));
   "endpoint_origin": (((string)) | ((null)));
   "error": (((HttpTeamModelPullStartResponse_TeamModelPullError)) | ((null)));
@@ -7844,10 +7900,11 @@ type HttpTeamModelPullStartResponse_TeamModelPull = ({
   "id": (number);
   "initiated_by": (((string)) | ((null)));
   "model": (string);
+  "operation_kind": ("artifact" | "local_model" | "engine_setup") & (string);
   "phase": (((string)) | ((null)));
   "resolved_digest": (((string)) | ((null)));
   "resolved_size": (((number)) | ((null)));
-  "schemaVersion": ("frisket.model_pull.v3") & (string);
+  "schemaVersion": ("frisket.model_pull.v4") & (string);
   "started_at": (((string)) | ((null)));
   "status": ("pending" | "running" | "done" | "failed" | "cancelled" | "uninstalled") & (string);
   "total_bytes": (((number)) | ((null)));
@@ -7858,6 +7915,12 @@ type HttpTeamModelPullStartResponse_TeamModelPullArtifact = ({
   "license": (((string)) | ((null)));
   "manifest_version": (((string)) | ((null)));
   "source_url": (((string)) | ((null)));
+});
+
+type HttpTeamModelPullStartResponse_TeamModelPullCapabilities = ({
+  "cancel": (boolean);
+  "remove": (boolean);
+  "retry": (boolean);
 });
 
 type HttpTeamModelPullStartResponse_TeamModelPullError = ({

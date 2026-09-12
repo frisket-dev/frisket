@@ -34,6 +34,9 @@ function pull(overrides: Partial<ModelPullDto>): ModelPullDto {
   return {
     id: 1,
     model: 'qwen3:8b',
+    display_name: 'Qwen 3',
+    operation_kind: 'local_model',
+    capabilities: { cancel: true, retry: false, remove: false },
     status: 'running',
     phase: 'downloading',
     total_bytes: null,
@@ -62,7 +65,7 @@ describe('ModelPullProgress', () => {
         pull={pull({ total_bytes: 1000, completed_bytes: 250 })}
       />,
     );
-    expect(screen.getByText('qwen3:8b')).toBeInTheDocument();
+    expect(screen.getByText('Qwen 3')).toBeInTheDocument();
     expect(screen.getByText('downloading')).toBeInTheDocument();
     const bar = screen.getByRole('progressbar');
     expect(bar).toHaveAttribute('aria-valuenow', '25');
@@ -205,4 +208,19 @@ describe('ModelPullProgress', () => {
       /The local endpoint changed mid-pull \(correlation id corr-abc123\); please retry\./,
     );
   });
+});
+
+it('does not offer removal for an artifact whose backend has no uninstall operation', () => {
+  render(<ModelPullProgress pull={pull({ status: 'done',
+    artifact: { kind: 'hf_snapshot', source_url: null, license: null, manifest_version: null },
+    capabilities: { cancel: false, retry: false, remove: false },
+  })} />);
+  expect(screen.queryByTestId('model-pull-uninstall')).not.toBeInTheDocument();
+});
+
+it('offers removal when the completed operation declares it', () => {
+  render(<ModelPullProgress pull={pull({ status: 'done',
+    capabilities: { cancel: false, retry: false, remove: true },
+  })} />);
+  expect(screen.getByTestId('model-pull-uninstall')).toBeEnabled();
 });
