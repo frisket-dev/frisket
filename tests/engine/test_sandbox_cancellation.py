@@ -44,10 +44,10 @@ pytestmark = pytest.mark.realtime
 # tests a kernel-checkable identity for the death rendezvous), optionally
 # ignores SIGTERM, naps, then writes `survived`. The parent spawns it,
 # announces a stdout line, and either stays alive or (root_exits_early) exits
-# at once — orphaning the grandchild, the exact case where the leader dies
+# after its started gate — orphaning the grandchild, the case where the leader dies
 # before its descendants.
 _TREE_PARENT = r"""
-import json, subprocess, sys, time
+import json, os, subprocess, sys, time
 
 cfg = json.load(sys.stdin)
 started = cfg["started"]
@@ -77,6 +77,14 @@ if cfg.get("root_ignore_term"):
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
 
 if cfg.get("root_exits_early"):
+    # A guardian cleans descendants as soon as this root exits. Ensure the
+    # grandchild has installed its TERM handler and published the cancel gate
+    # before leaving; otherwise cleanup can legitimately win before it starts.
+    deadline = time.monotonic() + 10
+    while not os.path.exists(started):
+        if proc.poll() is not None or time.monotonic() >= deadline:
+            raise RuntimeError("grandchild did not reach its started gate")
+        time.sleep(0.01)
     sys.exit(0)
 
 time.sleep(300)
