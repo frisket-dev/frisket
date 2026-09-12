@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { generatedActionTemplateFromCatalogEntry } from '../../src/actions/model';
 import { decodeSavedActionSpec, encodeSavedActionSpec } from '../../src/actions/savedActionSpec';
@@ -88,13 +89,26 @@ describe('typed Markdown form', () => {
   });
 
   it('retains local, sidecar and hosted engines plus experimental/license details', async () => {
-    form();
+    const { entry } = form();
+    const chandra = entry.ui_hints.engines?.find((engine) => engine.id === 'chandra');
+    const license = chandra?.license;
+    if (!chandra || !license?.note) throw new Error('Missing Chandra license declaration');
     const dialog = await openActionSelector();
     expect(dialog).toHaveTextContent(/Trafilatura/i);
     expect(dialog).toHaveTextContent(/Docling/i);
-    expect(dialog).toHaveTextContent(/Chandra/i);
-    await choose('chandra');
-    expect(screen.getByText(/has a restrictive license/)).toBeInTheDocument();
+    expect(dialog).toHaveTextContent(chandra.label);
+    fireEvent.change(within(dialog).getByRole('searchbox', { name: /^Search / }), { target: { value: chandra.label } });
+    const choice = Array.from(dialog.querySelectorAll<HTMLButtonElement>('[data-engine-selector-choice]'))
+      .find((candidate) => candidate.textContent?.includes(chandra.label));
+    if (!choice) throw new Error('Missing Chandra selector choice');
+    const user = userEvent.setup();
+    await user.hover(choice);
+    choice.focus();
+    await waitFor(() => {
+      expect(dialog).toHaveTextContent(license.name);
+      expect(dialog).toHaveTextContent(license.note!);
+    });
+    await user.click(choice);
     expect((await openActionSelector())).toHaveTextContent(/Datalab/i);
   });
 
