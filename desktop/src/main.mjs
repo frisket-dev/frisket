@@ -1,7 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { app, BrowserWindow, Menu, dialog, session, shell, protocol, net } from 'electron';
+import { app, BrowserWindow, Menu, dialog, session, shell, protocol } from 'electron';
 import { prepareRuntime } from './provision.mjs';
 import { appUrl, installProtocol, APP_ORIGIN, APP_SCHEME } from './protocol.mjs';
 import { startBackend } from './backend.mjs';
@@ -120,7 +120,7 @@ async function launch() {
     await backend.stop();
     return;
   }
-  installProtocol({ protocol, net }, backend);
+  installProtocol({ protocol }, backend);
   await mainWindow.loadURL(`${APP_ORIGIN}/`);
 }
 

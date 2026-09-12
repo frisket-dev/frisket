@@ -127,12 +127,13 @@ export function createProtocolHandler({ backend, token, netFetch }) {
   };
 }
 
-/** @param {{ protocol: { handle: Function, unhandle: Function, isProtocolHandled: Function }, net: { fetch: typeof fetch } }} electron @param {DesktopBackend & { token: string }} backend */
+/** @param {{ protocol: { handle: Function, unhandle: Function, isProtocolHandled: Function } }} electron @param {DesktopBackend & { token: string }} backend */
 export function installProtocol(electron, backend) {
   if (electron.protocol.isProtocolHandled(APP_SCHEME)) electron.protocol.unhandle(APP_SCHEME);
   return electron.protocol.handle(APP_SCHEME, createProtocolHandler({
     backend,
     token: backend.token,
-    netFetch: electron.net.fetch.bind(electron.net),
+    // This is private service traffic, independent of Chromium's renderer session.
+    netFetch: globalThis.fetch,
   }));
 }

@@ -158,6 +158,7 @@ async function main() {
   try {
     await checkMedia(resourcesPath, runtime.env, workspace);
     await checkPython(resourcesPath, runtime.python, runtime.env, workspace);
+    console.log('Native checks passed: FFmpeg, ffprobe, Deno, PDFium, RapidOCR and PDF parsing.');
   } finally {
     await fs.rm(workspace, { recursive: true, force: true });
   }
