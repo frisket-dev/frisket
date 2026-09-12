@@ -18,13 +18,14 @@ import math
 import os
 import re
 import stat
-import struct
 import sys
 import time
 from contextlib import contextmanager
 from importlib import metadata
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO, Iterator
+
+from .framing import FrameCodec
 
 SCHEMA_VERSION = "frisket.rapidocr_worker.v1"
 ENGINE = "rapidocr"
@@ -41,61 +42,15 @@ class WorkerProtocolError(RuntimeError):
     pass
 
 
+_FRAME_CODEC = FrameCodec(
+    max_request_bytes=MAX_REQUEST_FRAME_BYTES,
+    max_response_bytes=MAX_RESPONSE_FRAME_BYTES,
+    error_type=WorkerProtocolError,
+)
+
+
 class InvalidLanguageError(ValueError):
     pass
-
-
-def _reject_constant(value: str) -> None:
-    raise ValueError(f"non-finite JSON number is not allowed: {value}")
-
-
-def _decode_object(data: bytes) -> dict[str, Any]:
-    try:
-        value = json.loads(data.decode("utf-8"), parse_constant=_reject_constant)
-    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
-        raise WorkerProtocolError("frame is not valid finite UTF-8 JSON") from error
-    if not isinstance(value, dict):
-        raise WorkerProtocolError("frame must be a JSON object")
-    return value
-
-
-def _encode_object(value: dict[str, Any]) -> bytes:
-    return json.dumps(
-        value, allow_nan=False, ensure_ascii=False, separators=(",", ":")
-    ).encode("utf-8")
-
-
-def _read_exact(stream: BinaryIO, size: int) -> bytes:
-    chunks: list[bytes] = []
-    remaining = size
-    while remaining:
-        chunk = stream.read(remaining)
-        if not chunk:
-            raise WorkerProtocolError("unexpected EOF inside a frame")
-        chunks.append(chunk)
-        remaining -= len(chunk)
-    return b"".join(chunks)
-
-
-def _read_frame(stream: BinaryIO) -> dict[str, Any] | None:
-    prefix = stream.read(4)
-    if not prefix:
-        return None
-    if len(prefix) != 4:
-        raise WorkerProtocolError("unexpected EOF inside a frame prefix")
-    (size,) = struct.unpack(">I", prefix)
-    if size > MAX_REQUEST_FRAME_BYTES:
-        raise WorkerProtocolError("request frame exceeds the allowed size")
-    return _decode_object(_read_exact(stream, size))
-
-
-def _write_frame(stream: BinaryIO, value: dict[str, Any]) -> None:
-    payload = _encode_object(value)
-    if len(payload) > MAX_RESPONSE_FRAME_BYTES:
-        raise WorkerProtocolError("response frame exceeds the allowed size")
-    stream.write(struct.pack(">I", len(payload)))
-    stream.write(payload)
-    stream.flush()
 
 
 def _protocol_stdout() -> BinaryIO:
@@ -570,7 +525,7 @@ def framed_main() -> None:
     stdin = sys.stdin.buffer
     staging_root = Path.cwd().resolve()
     try:
-        init = _read_frame(stdin)
+        init = _FRAME_CODEC.read_frame(stdin)
         if init is None:
             raise WorkerProtocolError("stdin closed before init")
         try:
@@ -586,7 +541,7 @@ def framed_main() -> None:
             else:
                 code = "rapidocr_model_load_failed"
                 message = "the RapidOCR model could not be loaded"
-            _write_frame(
+            _FRAME_CODEC.write_frame(
                 protocol,
                 {
                     **_base_frame("fatal"),
@@ -594,7 +549,7 @@ def framed_main() -> None:
                 },
             )
             return
-        _write_frame(
+        _FRAME_CODEC.write_frame(
             protocol,
             {
                 **_base_frame("ready"),
@@ -603,7 +558,7 @@ def framed_main() -> None:
             },
         )
         while True:
-            frame = _read_frame(stdin)
+            frame = _FRAME_CODEC.read_frame(stdin)
             if frame is None:
                 raise WorkerProtocolError("stdin closed without a close frame")
             if (
@@ -641,10 +596,10 @@ def framed_main() -> None:
                         **_process_metrics(),
                     },
                 }
-            _write_frame(protocol, response)
+            _FRAME_CODEC.write_frame(protocol, response)
     except Exception:
         try:
-            _write_frame(
+            _FRAME_CODEC.write_frame(
                 protocol,
                 {
                     **_base_frame("fatal"),
