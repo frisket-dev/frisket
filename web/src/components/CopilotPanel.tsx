@@ -144,13 +144,14 @@ export function CopilotPanel({
   const { messages, draft, busy, error, ran } = state;
   const nextMessageId = useRef(1);
   const [model, selectModel] = useCopilotModel();
+  const [selectedChoice, setSelectedChoice] = useState<SelectorChoice | null>(null);
 
   async function send() {
     const text = draft.trim();
     // !model: sending before the default resolves would fall back to the
     // server default, which can differ from the provider selected by the
     // live catalog.
-    if (!text || busy || !model) return;
+    if (!text || busy || !model || !selectedChoice?.can_run) return;
     const userMessage: ChatMessage = {
       id: `user-${nextMessageId.current++}`,
       role: 'user',
@@ -330,6 +331,7 @@ export function CopilotPanel({
           onSelect={(choice: SelectorChoice) => {
             if (choice.authored_selection.kind === 'model') selectModel(choice.authored_selection.model);
           }}
+          onCurrentChoiceChange={setSelectedChoice}
         />
       </div>
       <div className="copilot-compose">
@@ -354,7 +356,7 @@ export function CopilotPanel({
           className="btn-primary copilot-send-button"
           data-testid="copilot-send"
           onClick={() => void send()}
-          disabled={busy || !draft.trim() || !model}
+          disabled={busy || !draft.trim() || !model || !selectedChoice?.can_run}
           aria-label="Send"
         >
           <Send size={15} />

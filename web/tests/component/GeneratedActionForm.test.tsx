@@ -18,6 +18,31 @@ import { completeCatalogPayload } from '../support/actionFormFixtures';
 import { syntheticActionCatalogEntry } from '../support/actionCatalogFixtures';
 import { aiMeta, columnDef } from '../support/domainFixtures';
 
+vi.mock('../../src/engine-selector/SelectorField', () => ({
+  SelectorField: ({ testId, onSelect, onCurrentChoiceChange }: {
+    testId?: string;
+    onSelect(choice: { authored_selection: { kind: 'model'; model: string } }): void;
+    onCurrentChoiceChange?(choice: { can_run: boolean; label: string; blocker: null } | null): void;
+  }) => (
+    <button
+      type="button"
+      data-testid={testId}
+      onClick={() => {
+        const choice = {
+          authored_selection: { kind: 'model' as const, model: 'ready-model' },
+          can_run: true,
+          label: 'Ready model',
+          blocker: null,
+        };
+        onSelect(choice);
+        onCurrentChoiceChange?.(choice);
+      }}
+    >
+      Select ready model
+    </button>
+  ),
+}));
+
 const SHEET = sheetMeta([
   columnDef({ id: '11', name: 'raw', type: 'text' }),
   columnDef({ id: '12', name: 'name', type: 'text' }),
@@ -195,6 +220,37 @@ afterEach(() => {
 });
 
 describe('GeneratedActionForm', () => {
+  it('keeps a model-only action disabled until the authoritative selector reports it runnable', async () => {
+    const entry = syntheticActionCatalogEntry('map.model_only', {
+      input_schema: {
+        type: 'object',
+        required: ['model'],
+        properties: { model: { type: 'string', title: 'Model' } },
+      },
+      ui_hints: {
+        form: 'generated',
+        category: 'text',
+        semantic_controls: { model: 'model' },
+        logical_outputs: [],
+      },
+    }) as GeneratedActionCatalogEntry;
+    render(
+      <GeneratedActionForm
+        catalogEntry={entry}
+        actionTemplate={generatedTemplate(entry)}
+        sheet={SHEET}
+        running={false}
+        resolveParams={resolveStaticParams}
+        onExecute={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('field-model'));
+    await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
+  });
+
   it('uses resolved materialization for target controls without interpreting Params names', async () => {
     const entry = syntheticActionCatalogEntry('example.capture', {
       input_schema: { type: 'object', required: ['destination'], properties: {

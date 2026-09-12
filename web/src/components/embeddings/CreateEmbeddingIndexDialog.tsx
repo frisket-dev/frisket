@@ -10,6 +10,7 @@ import {
   type EmbeddingCostEstimate,
 } from './costEstimate';
 import { SelectorField } from '../../engine-selector/SelectorField';
+import type { SelectorChoice } from '../../api/selectorChoices';
 
 interface CreateEmbeddingIndexDialogProps {
   apiPort: Pick<EmbeddingApiPort, 'getSheetData'>;
@@ -115,6 +116,7 @@ export function CreateEmbeddingIndexDialog({
   onConfirmRemoteChange,
 }: CreateEmbeddingIndexDialogProps) {
   const [step, setStep] = useState<CreateScreen>('source');
+  const [selectedChoice, setSelectedChoice] = useState<SelectorChoice | null>(null);
   const [costQuote, setCostQuote] = useState<{
     key: string;
     estimate: EmbeddingCostEstimate | null;
@@ -138,6 +140,7 @@ export function CreateEmbeddingIndexDialog({
     form.sourceColumns.length > 0 &&
     Boolean(form.provider) &&
     form.model.trim().length > 0 &&
+    Boolean(selectedChoice?.can_run) &&
     (selectedCard == null ||
       (Boolean(selectedCard.available) && selectedCard.modalityCompatible));
   const egressReady = !remoteSelected || form.allowRemote;
@@ -208,7 +211,7 @@ export function CreateEmbeddingIndexDialog({
   };
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    if (!finalStep) {
+    if (!finalStep || !selectedChoice?.can_run) {
       event.preventDefault();
       return;
     }
@@ -278,6 +281,7 @@ export function CreateEmbeddingIndexDialog({
                     onModelSelect(choice.authored_selection.provider, choice.authored_selection.model);
                   }
                 }}
+                onCurrentChoiceChange={setSelectedChoice}
               />
               {form.provider && (
                 <label className="form-label" htmlFor="embedding-model-custom-input">
@@ -473,7 +477,7 @@ export function CreateEmbeddingIndexDialog({
               type="submit"
               className="btn btn-primary"
               data-testid="embedding-create"
-              disabled={!createReady || creating}
+              disabled={!createReady || !selectedChoice?.can_run || creating}
             >
               {creating ? 'Creating...' : 'Create index'}
             </button>

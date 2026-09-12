@@ -55,9 +55,8 @@ export function CopilotDialogPopover({
     // inlined so the COLLAPSED strip is sticky): expanded → an outside click
     // light-dismisses as before; collapsed → the strip stays put so the user
     // can work in the drawer a proposal's Inspect opened and re-expand later.
-    // .model-picker-menu is portaled to <body> (top layer), so a pointerdown
-    // in the copilot's own model picker must read as "inside" — without this
-    // the panel dismissed mid-selection.
+    // EngineSelector owns its dialog in the top layer, so its interactions
+    // must read as inside the Copilot surface.
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
@@ -65,7 +64,7 @@ export function CopilotDialogPopover({
       if (popoverRef.current?.contains(target)) return;
       if (
         target instanceof Element &&
-        target.closest('.chrome-copilot-btn, .model-picker-menu')
+        target.closest('.chrome-copilot-btn, .engine-selector__dialog')
       ) {
         return;
       }

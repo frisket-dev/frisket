@@ -8827,22 +8827,13 @@ dialog.modal-card::backdrop {
   background: var(--bg-hover);
 }
 
-/* Local-server install guidance. Renders in
-   two spots -- a compact pane inside the ModelPicker popover and the full
-   settings section below the Ollama URL form -- so this stays modest: no
-   card chrome of its own, just enough structure to separate copy/command/
-   tabs/Recheck from whatever precedes it. */
+/* Local-server install guidance in Settings. */
 .local-server-guidance {
   display: grid;
   gap: 8px;
   margin-top: 8px;
   padding-top: 8px;
   border-top: 1px dashed var(--border);
-}
-.model-picker-models .local-server-guidance {
-  margin-top: 0;
-  padding: 8px;
-  border-top: none;
 }
 .local-server-guidance-copy {
   margin: 0;
@@ -9411,8 +9402,7 @@ dialog.modal-card::backdrop {
   font-size: 11px; color: var(--text-light);
   flex: 0 0 auto;
 }
-.copilot-model-row .model-picker { flex: 1; min-width: 0; }
-.copilot-model-row .model-picker-button { width: 100%; }
+.copilot-model-row > div { flex: 1; min-width: 0; }
 .copilot-compose {
   display: flex; gap: 6px;
   padding: 8px;
@@ -9998,109 +9988,6 @@ dialog.modal-card::backdrop {
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
-.embedding-model-picker {
-  position: relative;
-}
-.embedding-model-field {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  cursor: pointer;
-  text-align: left;
-}
-.embedding-model-field-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* Native `popover="manual"` element (EmbeddingModelPicker.tsx): the top-layer
-   positioning recipe — `position: fixed`, then neutralize the UA `[popover]
-   { inset: 0; margin: auto }` centering box so the JS `useAnchoredPosition`
-   top/left/width own the placement. */
-.embedding-model-popover {
-  position: fixed;
-  inset: auto;
-  margin: 0;
-  max-height: 360px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-8);
-  background: var(--bg);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16);
-}
-.embedding-model-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.embedding-model-card {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-6);
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-}
-.embedding-model-card:hover:not(.is-disabled) {
-  border-color: var(--accent);
-}
-.embedding-model-card.is-selected {
-  border-color: var(--accent);
-  background: rgba(47, 94, 209, 0.06);
-}
-.embedding-model-card.is-disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.embedding-model-card-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.embedding-model-card-label {
-  font-weight: 600;
-  font-size: 13px;
-}
-.embedding-model-card-check {
-  margin-left: auto;
-  color: var(--accent);
-}
-.embedding-model-badge {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  border-radius: var(--radius-4);
-  padding: 1px 5px;
-  background: rgba(47, 94, 209, 0.12);
-  color: var(--accent);
-}
-.embedding-model-card-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  font-size: 11px;
-  color: var(--text-light);
-}
-.embedding-model-card-reason {
-  font-size: 11px;
-  color: var(--red);
-}
-.embedding-model-custom {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
-}
 .embedding-index {
   border: 1px solid var(--border);
   border-radius: var(--radius-6);
@@ -10485,247 +10372,6 @@ dialog.modal-card::backdrop {
   }
 }
 
-/* ---- Braintrust-style model picker (ModelPicker.tsx) ---- */
-.model-picker {
-  position: relative;
-}
-.model-picker-button {
-  width: 100%;
-  text-align: left;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  min-height: 46px;
-  padding: 6px 12px;
-}
-.model-picker-button::after {
-  content: '▾';
-  opacity: 0.6;
-  margin-left: auto;
-}
-.model-avatar {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  flex-shrink: 0;
-  border-radius: var(--radius-7);
-  background: var(--bg-hover);
-  color: var(--text-mid);
-  font-size: 12px;
-  font-weight: 800;
-}
-.model-picker-selected {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.model-picker-selected-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.model-picker-selected-sub {
-  font-size: 11.5px;
-  color: var(--text-light);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* No provider configured/reachable at all (ModelPicker.tsx
-   noProviderConfigured) — same amber warning idiom as .cost-line.cost-warn,
-   so the trigger reads as needing attention rather than presenting an
-   unusable model as ready. */
-.model-picker-button.is-unconfigured .model-avatar { background: var(--amber); color: var(--bg); }
-.model-picker-button.is-unconfigured .model-picker-selected-name { color: var(--amber); }
-/* Portaled to <body> with fixed positioning (top/left/width/max-height set
-   inline from the button rect) so it escapes the action panel's overflow clip. */
-.model-picker-menu {
-  /* Native `popover="manual"` element (see ModelPicker.tsx). The top-layer
-     positioning recipe: keep `position: fixed`, then neutralize the UA
-     `[popover] { inset: 0; margin: auto }` centering box with `inset: auto`
-     and `margin: 0` so the JS `useAnchoredPosition` top/left/width own the
-     placement. No z-index — top-layer membership paints it above later
-     overlays natively. */
-  position: fixed;
-  inset: auto;
-  margin: 0;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 7px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  box-shadow: var(--shadow-menu);
-}
-.model-picker-search {
-  width: 100%;
-  flex-shrink: 0;
-}
-/* Two-pane submenu: provider list on the left, the active provider's models on
-   the right (Braintrust-style). */
-.model-picker-panes {
-  display: flex;
-  gap: 8px;
-  min-height: 0;
-  flex: 1;
-  overflow: hidden;
-}
-.model-picker-providers {
-  flex: 0 0 40%;
-  max-width: 200px;
-  min-width: 0;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding-right: 8px;
-  border-right: 1px solid var(--border);
-}
-.model-picker-models,
-.model-picker-search-results {
-  flex: 1;
-  min-width: 0;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-.model-provider-group {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 9px;
-  background: transparent;
-  border: 0;
-  border-radius: 9px;
-  cursor: pointer;
-  font-weight: 600;
-  color: var(--text);
-  text-align: left;
-}
-.model-provider-group .model-avatar {
-  width: 24px;
-  height: 24px;
-}
-.model-provider-group:hover,
-.model-provider-group.is-active {
-  background: var(--bg-hover);
-}
-.model-provider-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.model-provider-caret {
-  flex-shrink: 0;
-  opacity: 0.5;
-}
-/* .ollama-badge retired — StatusChip (ui-chips-segmented-v1) renders it now
-   (reachable -> info tone, offline -> neutral tone; the old bespoke border
-   is dropped as part of the one-shape consolidation). */
-.model-option {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 9px;
-  background: transparent;
-  border: 0;
-  border-radius: 9px;
-  cursor: pointer;
-  color: var(--text);
-  text-align: left;
-}
-.model-option:hover {
-  background: var(--bg-hover);
-}
-.model-option.is-selected {
-  background: var(--accent-bg);
-  color: var(--accent);
-}
-.model-option-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  flex: 1;
-}
-.model-option-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 600;
-  font-size: 12.5px;
-}
-.model-option-note {
-  font-size: 11.5px;
-  color: var(--text-light);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.model-option.is-selected .model-option-note { color: var(--accent); opacity: 0.75; }
-/* EnginePicker (S1): disabled/unavailable engine rows stay listed (never
-   hidden) but read as non-interactive — dimmed, no hover affordance,
-   not-allowed cursor. The full per-engine error text lives in the
-   engine-availability disclosure below the picker, not this row. */
-.model-option.is-unavailable {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-.model-option.is-unavailable:hover { background: transparent; }
-.model-option-check {
-  flex-shrink: 0;
-  font-size: 12px;
-  color: var(--accent);
-}
-.model-picker-empty {
-  padding: 8px;
-  color: var(--text-light);
-  font-size: 12px;
-}
-/* Single affordance row a section shows in place of its models when the
-   provider is unusable (no key on file / ollama unreachable-or-modelless) --
-   model-picker-provider-picker-affordance-v1. Styled as a full-width row so
-   it reads as the section's one entry, not a stray button. */
-.model-picker-provider-affordance {
-  width: 100%;
-  text-align: left;
-  padding: 7px 9px;
-  background: transparent;
-  border: 0;
-  border-radius: 9px;
-  cursor: pointer;
-  color: var(--accent);
-  font-weight: 600;
-  font-size: 12.5px;
-}
-.model-picker-provider-affordance:hover {
-  background: var(--bg-hover);
-}
-.model-picker-configure {
-  width: 100%;
-  text-align: left;
-  padding: 8px;
-  background: transparent;
-  border: 0;
-  border-top: 1px solid var(--border);
-  cursor: pointer;
-  color: var(--accent);
-  font-weight: 600;
-}
-
 /* ============================================================================
    Action-panel primitives: full-width segmented switch, engine-tier
    chips, toggle-row card, unit input, engine-select trigger note.
@@ -10855,7 +10501,6 @@ dialog.modal-card::backdrop {
   text-transform: uppercase;
   letter-spacing: 0.02em;
 }
-.model-option.is-selected .engine-license-badge { color: var(--accent); opacity: 0.75; }
 .engine-license-hint {
   display: flex;
   align-items: center;

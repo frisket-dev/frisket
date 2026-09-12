@@ -398,7 +398,7 @@ export const LAWSUIT_DOCUMENT_WALKTHROUGH: WalkthroughDefinition = {
       id: 'choose-filing-model',
       title: 'Choose a model',
       instruction: 'Choose an available model for structured extraction.',
-      target: { kind: 'field', id: 'model-picker-button' },
+      target: { kind: 'field', id: 'field-engine' },
       advance: 'next-button',
     },
     {
@@ -930,7 +930,7 @@ export const RSS_IMPORT_WALKTHROUGH: WalkthroughDefinition = {
       id: 'choose-feed-classify-model',
       title: 'Choose a model',
       instruction: 'Choose an available model for this classification run.',
-      target: { kind: 'field', id: 'model-picker-button' },
+      target: { kind: 'field', id: 'field-engine' },
       advance: 'next-button',
     },
     {
@@ -1393,7 +1393,7 @@ export const LOCAL_MODEL_LAB_WALKTHROUGH: WalkthroughDefinition = {
       id: 'choose-local-llm',
       title: 'Find the runner picker',
       instruction: 'Use Run with to choose the Ollama model for this action.',
-      target: { kind: 'field', id: 'model-picker-button' },
+      target: { kind: 'field', id: 'field-engine' },
       advance: 'next-button',
     },
     {
@@ -1418,7 +1418,7 @@ export const LOCAL_MODEL_LAB_WALKTHROUGH: WalkthroughDefinition = {
       id: 'choose-small-model',
       title: 'Choose qwen3:0.6b',
       instruction: 'Open the model picker and choose qwen3:0.6b under Local model lab server. The saved model ID includes that endpoint, so an identical tag on another server stays distinct.',
-      target: { kind: 'field', id: 'model-picker-button' },
+      target: { kind: 'field', id: 'field-engine' },
       advance: 'next-button',
     },
     {
@@ -1479,7 +1479,7 @@ export const LOCAL_MODEL_LAB_WALKTHROUGH: WalkthroughDefinition = {
       id: 'confirm-hard-model',
       title: 'Choose the same small model',
       instruction: 'Choose qwen3:0.6b under Local model lab server again. Actions keep separate drafts, so make the endpoint explicit before comparing results.',
-      target: { kind: 'field', id: 'model-picker-button' },
+      target: { kind: 'field', id: 'field-engine' },
       advance: 'next-button',
     },
     {

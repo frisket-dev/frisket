@@ -791,12 +791,16 @@ function GeneratedActionFormContents({
 
   const engineParam = Object.entries(catalogEntry.ui_hints.semantic_controls)
     .find(([, control]) => control === 'engine')?.[0];
+  const hasSelectorField = Object.values(catalogEntry.ui_hints.semantic_controls)
+    .some((control) => control === 'engine' || control === 'model');
   const selectedEngine = engineParam && typeof displayDraft[engineParam] === 'string'
     ? displayDraft[engineParam] : undefined;
   const selectedEngineInfo = actionTemplate.engines?.find((engine) => engine.id === selectedEngine);
-  const engineProblem = selectorCurrentChoice && !selectorCurrentChoice.can_run
-    ? selectorCurrentChoice.blocker?.message ?? `${selectorCurrentChoice.label} is unavailable.`
-    : selectedEngine && !selectorCurrentChoice ? 'Checking engine availability…' : null;
+  const engineProblem = hasSelectorField && !selectorCurrentChoice
+    ? 'Checking engine availability…'
+    : selectorCurrentChoice && !selectorCurrentChoice.can_run
+      ? selectorCurrentChoice.blocker?.message ?? `${selectorCurrentChoice.label} is unavailable.`
+      : null;
   const required = new Set(catalogEntry.input_schema.required ?? []);
   const validParams = (actionTemplate.params ?? []).every((param) => {
     const value = draft[param.name];
