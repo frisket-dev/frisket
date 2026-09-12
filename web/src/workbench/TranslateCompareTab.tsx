@@ -1,17 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, Play, Plus, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Loader2, Play, X } from 'lucide-react';
 
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import type { EngineOption, TranslateCompareEngineResult } from '../api/open';
-import {
-  TRANSLATE_ENGINE_FALLBACK,
-  translateEnginesFromCatalog,
-} from '../actions/translateEngineCatalog';
-import { engineIsRemote, engineUnavailableReason, tierForEngine } from '../actions/engineCatalog';
+import { translateEnginesFromCatalog } from '../actions/translateEngineCatalog';
+import { engineIsRemote, tierForEngine } from '../actions/engineCatalog';
 import { EngineTierBadge } from '../components/EngineTierBadge';
-import { MenuPop } from '../components/MenuPop';
 import { CompareBillableEnginesNote } from './MediaCompareShell';
 import { PanelSelect } from '../components/PanelSelect';
+import { SelectorField } from '../engine-selector/SelectorField';
 
 // TranslateCompareTab — the TEXT-source sibling of the OCR/Transcribe
 // compare tabs. Those are built on MediaCompareShell (file drop + media peek
@@ -32,8 +29,6 @@ import { PanelSelect } from '../components/PanelSelect';
 // Staged Run (not auto-run): unlike the media tabs a text sample has no drop
 // event to fire on, so the user edits text + engines freely, then Runs once.
 
-// The free local engines. (deepl/google_translate, the old defaults, bill.)
-const DEFAULT_ENGINE_IDS = ['opus_mt'];
 const DEFAULT_TARGET = 'Spanish';
 
 // Auto + a few common source hints (single-select; '' = auto-detect). Kept
@@ -55,9 +50,9 @@ interface TranslateCompareTabProps {
 }
 
 export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProps) {
-  const { projectApi: api } = useWorkspaceStores();
-  const [engines, setEngines] = useState<EngineOption[]>(TRANSLATE_ENGINE_FALLBACK);
-  const [selectedIds, setSelectedIds] = useState<string[]>(DEFAULT_ENGINE_IDS);
+  const { projectApi: api, chromePreferences: { projectId } } = useWorkspaceStores();
+  const [engines, setEngines] = useState<EngineOption[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [text, setText] = useState('');
   const [targetLanguage, setTargetLanguage] = useState(DEFAULT_TARGET);
   const [sourceLanguage, setSourceLanguage] = useState('');
@@ -65,11 +60,9 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
   const [results, setResults] = useState<TranslateCompareEngineResult[] | null>(null);
   const [runErrors, setRunErrors] = useState<Record<string, string>>({});
   const [runError, setRunError] = useState<string | null>(null);
-  const [addMenuOpen, setAddMenuOpen] = useState(false);
-  const addWrapRef = useRef<HTMLDivElement>(null);
 
-  // Live catalog resolves engine availability + remediation; the fallback keeps
-  // the toolbar usable before it loads (remote engines marked unavailable there).
+  // This catalog only supplies compare labels and its existing free/billed
+  // policy. The selector service owns offered choices and readiness.
   useEffect(() => {
     let cancelled = false;
     api
@@ -80,9 +73,7 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
         // forget. `billableEngines` keeps them for the explanatory note.
         if (!cancelled) setEngines(translateEnginesFromCatalog(catalog));
       })
-      .catch(() => {
-        /* keep the fallback */
-      });
+      .catch(() => { if (!cancelled) setEngines([]); });
     return () => {
       cancelled = true;
     };
@@ -103,7 +94,6 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
   const selectedEngines = selectedIds.map(
     (id) => engineById.get(id) ?? ({ id, label: id, tier: 'local' } as EngineOption),
   );
-  const addableEngines = freeEngines.filter((engine) => !selectedIds.includes(engine.id));
 
   const hasData = Boolean(text.trim()) || results !== null;
   useEffect(() => {
@@ -113,30 +103,14 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
     });
   }, [hasData, selectedIds.length, onSessionChange]);
 
-  useEffect(() => {
-    if (!addMenuOpen) return undefined;
-    const onPointerDown = (event: PointerEvent) => {
-      if (addWrapRef.current && !addWrapRef.current.contains(event.target as Node)) {
-        setAddMenuOpen(false);
-      }
-    };
-    document.addEventListener('pointerdown', onPointerDown, true);
-    return () => document.removeEventListener('pointerdown', onPointerDown, true);
-  }, [addMenuOpen]);
-
-  const selectedEnginesAvailable = selectedIds.every((id) => {
-    const engine = engineById.get(id);
-    return engine !== undefined && engine.available !== false;
-  });
   const canRun =
-    Boolean(text.trim()) && selectedIds.length > 0 && selectedEnginesAvailable && !running;
+    Boolean(text.trim()) && selectedIds.length > 0 && !running;
 
   const removeEngine = (id: string) =>
     setSelectedIds((ids) => ids.filter((candidate) => candidate !== id));
 
   const addEngine = (id: string) => {
     setSelectedIds((ids) => (ids.includes(id) ? ids : [...ids, id]));
-    setAddMenuOpen(false);
   };
 
   async function run() {
@@ -212,59 +186,37 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
                 </button>
               </div>
             ))}
-            <div className="ocr-compare-add-wrap" ref={addWrapRef}>
-              <button
-                type="button"
-                className="ocr-compare-add-engine engine-tier-chip"
-                data-testid="translate-compare-add-engine"
-                aria-expanded={addMenuOpen}
-                onClick={() => setAddMenuOpen((open) => !open)}
-              >
-                <Plus size={12} /> engine
-              </button>
-              {addMenuOpen ? (
-                <MenuPop
-                  className="ocr-compare-add-menu"
-                  data-testid="translate-compare-add-menu"
-                >
-                  {addableEngines.length === 0 ? (
-                    <div className="ocr-compare-configure-hint muted">All engines added.</div>
-                  ) : (
-                    addableEngines.map((engine) => {
-                      const reason = engineUnavailableReason(engine);
-                      return (
-                        <button
-                          type="button"
-                          key={engine.id}
-                          className="ocr-compare-add-menu-option"
-                          data-testid={`translate-compare-add-engine-option-${engine.id}`}
-                          data-engine-id={engine.id}
-                          role="menuitem"
-                          disabled={engine.available === false}
-                          title={reason ?? undefined}
-                          onClick={() => addEngine(engine.id)}
-                        >
-                          {engine.label}
-                          <EngineTierBadge
-                            tier={tierForEngine(engine)}
-                            testId={`translate-compare-add-engine-tier-${engine.id}`}
-                          />
-                          {/* The catalog's own reason (policy or config),
-                              never a bare disabled row. */}
-                          {reason ? (
-                            <span
-                              className="engine-tier-unavailable"
-                              data-testid={`translate-compare-add-engine-reason-${engine.id}`}
-                            >
-                              {' '}· unavailable — {reason}
-                            </span>
-                          ) : null}
-                        </button>
-                      );
-                    })
-                  )}
-                </MenuPop>
-              ) : null}
+            <div className="ocr-compare-add-wrap" data-testid="translate-compare-add-engine">
+              <SelectorField
+                projectId={projectId}
+                label="Add engine"
+                query={{
+                  schema_version: 'frisket.selector_choices_query.v1',
+                  subject: {
+                    kind: 'action',
+                    action_id: 'map.translate',
+                    field: 'engine',
+                    params: {
+                      engine: '',
+                      language: sourceLanguage,
+                      target_language: targetLanguage,
+                    },
+                  },
+                }}
+                recentNamespace={`${projectId}:translate-compare`}
+                allowChoice={(choice) => {
+                  const authored = choice.authored_selection;
+                  const engineId = authored.kind === 'engine' || authored.kind === 'engine_model'
+                    ? authored.engine : null;
+                  return engineId !== null
+                    && !selectedIds.includes(engineId)
+                    && freeEngines.some((engine) => engine.id === engineId);
+                }}
+                onSelect={(choice) => {
+                  const authored = choice.authored_selection;
+                  if (authored.kind === 'engine' || authored.kind === 'engine_model') addEngine(authored.engine);
+                }}
+              />
             </div>
           </div>
         </div>

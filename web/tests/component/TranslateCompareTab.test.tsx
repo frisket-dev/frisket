@@ -13,6 +13,20 @@ import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('../../src/engine-selector/SelectorField', () => ({
+  SelectorField: ({ onSelect, query, allowChoice }: {
+    onSelect(choice: { authored_selection: { kind: 'engine'; engine: string } }): void;
+    query: { subject: { params: Record<string, unknown> } };
+    allowChoice(choice: { authored_selection: { kind: 'engine'; engine: string } }): boolean;
+  }) => <button type="button" data-testid="translate-compare-selector"
+    data-language={String(query.subject.params.language ?? '')}
+    data-target={String(query.subject.params.target_language ?? '')}
+    onClick={() => {
+      const local = { authored_selection: { kind: 'engine' as const, engine: 'hy_mt2' } };
+      if (allowChoice(local)) onSelect(local);
+    }}>Add engine</button>,
+}));
+
 import { TranslateCompareTab } from '../../src/workbench/TranslateCompareTab';
 
 import type { ActionCatalogPayload, TranslateCompareScratchResult } from '../../src/api/types';
@@ -91,22 +105,13 @@ describe('TranslateCompareTab', () => {
     expect(run).toBeDisabled();
   });
 
-  it('renders engine chips from the catalog; the add-menu respects availability', async () => {
+  it('adds only a free authoritative selector choice and carries language context', async () => {
     const user = userEvent.setup();
     render(<TranslateCompareTab onSessionChange={() => {}} />);
     await waitFor(() => expect(screen.getByTestId('translate-compare-tab')).toBeInTheDocument());
 
-    // The default chip is the free local engine; the billable defaults are gone.
     const chips = screen.getByTestId('translate-compare-engine-chips');
-    const chipIds = within(chips)
-      .getAllByTestId('translate-compare-engine-chip')
-      .map((el) => el.getAttribute('data-engine-id'));
-    expect(chipIds).toEqual(['opus_mt']);
-
-    // Engine-tier-visibility lane: each chip badges where its engine runs.
-    const chipBadges = within(chips).getAllByTestId('translate-compare-engine-chip-tier');
-    expect(chipBadges).toHaveLength(1);
-    expect(chipBadges[0]).toHaveAttribute('data-tier', 'local');
+    expect(within(chips).queryAllByTestId('translate-compare-engine-chip')).toHaveLength(0);
 
     // Billable -> run. The three billable engines are NOT offered; the note
     // names them and points at the action that runs them, so the picker is
@@ -117,20 +122,11 @@ describe('TranslateCompareTab', () => {
     expect(note).toHaveTextContent('Google Cloud Translation (remote)');
     expect(note).toHaveTextContent('the Translate action');
 
-    // The add-menu lists only free engines. hy_mt2 is addable + enabled; the
-    // billable llm/deepl/google rows are absent entirely.
-    await user.click(screen.getByTestId('translate-compare-add-engine'));
-    expect(screen.getByTestId('translate-compare-add-engine-option-hy_mt2')).toBeEnabled();
-    for (const billable of ['llm', 'deepl', 'google_translate']) {
-      expect(
-        screen.queryByTestId(`translate-compare-add-engine-option-${billable}`),
-      ).not.toBeInTheDocument();
-    }
-
-    // Tier badges ride every add-menu row.
-    expect(screen.getByTestId('translate-compare-add-engine-tier-hy_mt2')).toHaveTextContent(
-      'local',
-    );
+    const selector = screen.getByTestId('translate-compare-selector');
+    expect(selector).toHaveAttribute('data-language', '');
+    expect(selector).toHaveAttribute('data-target', 'Spanish');
+    await user.click(selector);
+    expect(within(chips).getByTestId('translate-compare-engine-chip')).toHaveAttribute('data-engine-id', 'hy_mt2');
   });
 
   it('runs the free engines with no consent step and isolates a failing engine', async () => {
@@ -138,9 +134,8 @@ describe('TranslateCompareTab', () => {
       schema_version: 'frisket.translate_compare_preview.v1',
       source: { scratch: true, text_length: 5 },
       target_language: 'Spanish',
-      engines: ['opus_mt', 'hy_mt2'],
+      engines: ['hy_mt2'],
       results: [
-        { engine: 'opus_mt', translation: 'Hola', detected_language: 'en', runtime_ms: 5, errors: [] },
         {
           engine: 'hy_mt2',
           translation: '',
@@ -159,8 +154,7 @@ describe('TranslateCompareTab', () => {
     await waitFor(() => screen.getByTestId('translate-compare-tab'));
 
     await user.type(screen.getByTestId('translate-compare-text'), 'Hello');
-    await user.click(screen.getByTestId('translate-compare-add-engine'));
-    await user.click(screen.getByTestId('translate-compare-add-engine-option-hy_mt2'));
+    await user.click(screen.getByTestId('translate-compare-selector'));
 
     // Free engines only: no consent affordance exists, and Run is live at once.
     expect(screen.queryByTestId('translate-compare-remote-consent')).not.toBeInTheDocument();
@@ -172,7 +166,7 @@ describe('TranslateCompareTab', () => {
 
     // No allow_remote on the request: the field is gone from the wire.
     expect(scratch).toHaveBeenCalledWith({
-      engines: ['opus_mt', 'hy_mt2'],
+      engines: ['hy_mt2'],
       text: 'Hello',
       targetLanguage: 'Spanish',
       language: null,
@@ -181,8 +175,6 @@ describe('TranslateCompareTab', () => {
 
     // Failure isolation: opus_mt translated (+ detected language), hy_mt2 failed
     // but its card renders the error rather than aborting the compare.
-    expect(screen.getByTestId('translate-compare-result-text-opus_mt')).toHaveTextContent('Hola');
-    expect(screen.getByTestId('translate-compare-detected-opus_mt')).toHaveTextContent('en');
     expect(screen.getByTestId('translate-compare-result-error-hy_mt2')).toHaveTextContent(
       'bad key',
     );
@@ -196,13 +188,12 @@ describe('TranslateCompareTab', () => {
     render(<TranslateCompareTab onSessionChange={() => {}} />);
     await waitFor(() => screen.getByTestId('translate-compare-tab'));
 
-    await user.click(screen.getByTestId('translate-compare-add-engine'));
-    await user.click(screen.getByTestId('translate-compare-add-engine-option-hy_mt2'));
+    await user.click(screen.getByTestId('translate-compare-selector'));
     await user.click(screen.getByTestId('translate-compare-engine-chip-remove-hy_mt2'));
     const chipIds = within(screen.getByTestId('translate-compare-engine-chips'))
-      .getAllByTestId('translate-compare-engine-chip')
+      .queryAllByTestId('translate-compare-engine-chip')
       .map((el) => el.getAttribute('data-engine-id'));
-    expect(chipIds).toEqual(['opus_mt']);
+    expect(chipIds).toEqual([]);
   });
 
   // The "Translate from"
