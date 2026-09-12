@@ -9,10 +9,9 @@ from pathlib import Path
 import httpx
 import pytest
 
-from frisket.ai.llm import ModelRouter
+from frisket.ai.llm import ModelRouter, pricing
 from frisket.ai.llm.model_catalog import MODEL_CATALOG, MODEL_ENTRIES
 from frisket.ai.llm.pricing import (
-    PRICES,
     audio_price,
     cost_of_with_source,
     model_cost_source,
@@ -115,7 +114,7 @@ def test_openrouter_variant_requires_an_exact_pricing_identity(suffix: str) -> N
 def test_openrouter_exact_variant_rate_does_not_price_its_siblings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setitem(PRICES, "qwen/qwen3-8b:free", (0.01, 0.02))
+    monkeypatch.setitem(pricing.PRICES, "qwen/qwen3-8b:free", (0.01, 0.02))
 
     assert model_price("openrouter/qwen/qwen3-8b:free") == (0.01, 0.02)
     assert model_cost_source("openrouter/qwen/qwen3-8b:free") == "pricing_data"

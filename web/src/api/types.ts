@@ -1214,6 +1214,9 @@ export interface EngineTargetAvailability {
   billable?: boolean;
   pricing?: ExternalPricingEntry;
   diarization?: DiarizationDeclaration;
+  /** The request controls this exact target accepts. Present when the
+   * catalog has selected a target for a transcription engine. */
+  transcription_options?: TranscriptionOptionDeclaration;
 }
 
 export interface DiarizationDeclaration {

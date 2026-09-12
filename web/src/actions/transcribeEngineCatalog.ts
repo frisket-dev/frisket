@@ -22,6 +22,7 @@
 import type {
   DiarizationDeclaration,
   EngineOption,
+  EngineTargetAvailability,
   LanguageDeclaration,
   TranscriptionOptionDeclaration,
 } from '../api/types';
@@ -253,25 +254,63 @@ export function setTranscribeDiarization(
 export function transcribeDiarizationMode(
   engine: EngineOption | undefined,
 ): TranscriptionDiarizationMode {
-  return resolveTranscribeDiarizationMode(engine?.diarization);
+  return resolveTranscribeDiarizationMode(transcribeDiarizationForEngine(engine));
 }
 
-/** Resolve per-knob support. Live declarations win; a matching built-in uses
- * its explicit pre-catalog fallback for old cached catalogs, while an unknown
- * engine with no declaration fails closed instead of inheriting Whisper. */
+/** The catalog-selected target, if one is published. This is an exact id
+ * lookup only: the browser never recreates resolver preference/order from a
+ * union of target rows. */
+export function transcribeActiveTarget(
+  engine: EngineOption | undefined,
+): EngineTargetAvailability | undefined {
+  if (!engine?.target_id) return undefined;
+  return engine.targets?.find((target) => target.target_id === engine.target_id);
+}
+
+/** The selected target's diarization contract. Missing target selection or a
+ * missing row fails closed instead of inheriting the engine-level union. */
+export function transcribeDiarizationForEngine(
+  engine: EngineOption | undefined,
+): DiarizationDeclaration | undefined {
+  return transcribeActiveTarget(engine)?.diarization;
+}
+
+/** Short user-facing reason for a union-declared control unavailable on the
+ * target already selected for this request. */
+export function transcribeActiveTargetOptionReason(
+  engine: EngineOption | undefined,
+): string | null {
+  if (!engine?.target_id) {
+    return 'Option availability could not be checked. Refresh and try again.';
+  }
+  const target = transcribeActiveTarget(engine);
+  if (!target) return 'Option availability could not be checked. Refresh and try again.';
+  return 'This option is not available with this setup.';
+}
+
+/** Resolve per-knob support from the exact target selected in the catalog.
+ * Missing target selection or a missing target row fails closed: the browser
+ * never unlocks a later target's controls from an engine-level union. */
 export function transcribeOptionsForEngine(
   engine: EngineOption | undefined,
 ): TranscriptionOptionDeclaration {
-  if (engine?.transcription_options) return engine.transcription_options;
-  const fallback = engine
-    ? TRANSCRIBE_ENGINE_FALLBACK.find((candidate) => candidate.id === engine.id)
-    : undefined;
-  return fallback?.transcription_options ?? NO_TRANSCRIPTION_OPTIONS;
+  return transcribeActiveTarget(engine)?.transcription_options
+    ?? NO_TRANSCRIPTION_OPTIONS;
 }
 
 /** Resolve the transcribe engine option set from a loaded action catalog.
  *  Returns the shared fallback when the catalog is absent or has no hints. */
-export const transcribeEnginesFromCatalog = makeEnginesFromCatalog(
+const enginesFromCatalog = makeEnginesFromCatalog(
   'media.transcribe',
   TRANSCRIBE_ENGINE_FALLBACK,
 );
+
+/** A live catalog that omits its chosen target is not safe to run: the client
+ * cannot tell which option contract or venue the server will use. */
+export function transcribeEnginesFromCatalog(...args: Parameters<typeof enginesFromCatalog>) {
+  return enginesFromCatalog(...args).map((engine) => (
+    engine.available && !transcribeActiveTarget(engine)
+      ? { ...engine, available: false, error: transcribeActiveTargetOptionReason(engine) ?? undefined }
+      : engine
+  ));
+}

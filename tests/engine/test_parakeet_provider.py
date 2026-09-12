@@ -1,9 +1,9 @@
 """Parakeet loads with an explicit ONNX provider.
 
-ONNX Runtime's CoreMLExecutionProvider fails to even initialize on
-nemo-parakeet-tdt-0.6b-v3
-("model_path must not be empty", initializer.cc:45 -- the known CoreML-EP
-bytes-loaded-model bug). A direct probe confirmed
+A historical v2 probe found ONNX Runtime's CoreMLExecutionProvider could not
+initialize the bytes-loaded model ("model_path must not be empty",
+initializer.cc:45). That observation motivated the explicit CPU-provider
+policy retained for v3. A direct probe confirmed
 ``onnx_asr.load_model(PARAKEET_MODEL, providers=["CPUExecutionProvider"])``
 loads clean. The run-scoped worker forces that provider for both model
 and VAD initialization. These tests execute the real worker implementation

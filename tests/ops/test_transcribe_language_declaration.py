@@ -293,6 +293,27 @@ def test_recipe_engines_emit_language_and_diarization(monkeypatch):
         "speaker_hint": "none",
         "default": True,
     }
+    # Every standalone engine publishes exactly the target whose controls the
+    # form may render; the browser never infers this from a union declaration.
+    for engine in engines.values():
+        target_id = engine["target_id"]
+        [target] = [row for row in engine["targets"] if row["target_id"] == target_id]
+        assert "transcription_options" in target
+        assert "diarization" in target
+    assert engines["moss"]["target_id"] == "models-gateway"
+    assert engines["moss"]["targets"][0]["diarization"]["mode"] == "intrinsic"
+    mai = engines["openrouter/microsoft/mai-transcribe-2"]
+    assert mai["target_id"] == "remote-api:openrouter"
+    assert mai["targets"] == [
+        {
+            "target": "remote-api:openrouter",
+            "target_id": "remote-api:openrouter",
+            "available": False,
+            "error": "Configure an OpenRouter API key to enable Microsoft MAI-Transcribe 2.",
+            "diarization": mai["diarization"],
+            "transcription_options": mai["transcription_options"],
+        }
+    ]
 
 
 def test_recipe_engines_disable_parakeet_when_the_asr_extra_is_missing(monkeypatch):
