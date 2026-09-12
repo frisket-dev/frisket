@@ -127,7 +127,7 @@ async def main():
 asyncio.run(main())
 `, { mode: 0o600 });
   const resourcesPython = path.join(resourcesPath, 'python');
-  const ocr = await run('Private Python fenced RapidOCR', python, ['-I', script, resourcesPython, workspace], { env });
+  const ocr = await run('Private Python fenced RapidOCR', python, ['-I', '-B', script, resourcesPython, workspace], { env });
   const ocrResult = parseJson('Private Python fenced RapidOCR', ocr.stdout);
   if (ocrResult.pages !== 1 || typeof ocrResult.text !== 'string') {
     throw new Error('Private Python fenced RapidOCR returned an invalid result.');
@@ -222,7 +222,7 @@ asyncio.run(main())
   const resourcesPython = path.join(resourcesPath, 'python');
   const guard = path.join(resourcesPython, 'frisket', 'runtime', '_guard.py');
   const proof = await run('Private Python ASR workers', python, [
-    '-I', guard, String(process.pid), '2', python, '-I', script, resourcesPython, speech,
+    '-I', guard, String(process.pid), '2', python, '-I', '-B', script, resourcesPython, speech,
   ], { env, timeout: 15 * 60 * 1000 });
   const result = parseJson('Private Python ASR workers', proof.stdout);
   if (!result.faster_whisper?.segments || !result.parakeet?.segments) {
