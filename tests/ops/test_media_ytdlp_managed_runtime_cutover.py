@@ -12,6 +12,7 @@ import pytest
 import frisket.ops.ytdlp as ytdlp
 from frisket.ops import egress_policy
 from frisket.ops.integrations.hosted_error import HostedEngineError
+from frisket.runtime.launch import worker_argv
 
 # The acquisition-path modules whose in-process yt-dlp extraction must leave the
 # app process. The YouTube SOURCE-POLL path (frisket.sources.youtube) is a
@@ -287,7 +288,7 @@ def test_installed_ytdlp_runs_out_of_process_with_admin_config_and_one_item(
 ):
     monkeypatch.setattr(ytdlp, "_admin_ytdlp_config_paths", tuple)
     argv = _capture_extractor_argv(monkeypatch)
-    assert argv[:4] == [sys.executable, "-I", "-m", "yt_dlp"]
+    assert argv[:4] == worker_argv("yt-dlp")
     # yt-dlp's own discovery includes a CWD-relative slot, so it stays off and
     # admin config reaches the child only through paths frisket names.
     assert "--ignore-config" in argv

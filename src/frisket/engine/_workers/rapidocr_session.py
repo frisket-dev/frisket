@@ -15,7 +15,6 @@ import os
 import re
 import shutil
 import stat
-import sys
 import tempfile
 import time
 from collections.abc import Callable
@@ -26,6 +25,7 @@ from typing import Any
 from frisket.engine.sandbox import fence
 from frisket.engine.sandbox import shim as sandbox_shim
 from frisket.engine.sandbox.shim import SandboxPolicy
+from frisket.runtime.launch import worker_argv
 
 from .rapidocr_worker import SCHEMA_VERSION
 from .session_base import duration_ms as _duration_ms
@@ -36,10 +36,6 @@ from .session_base import read_linux_peak_memory as _read_linux_peak_memory
 from .session_base import reject_constant as _reject_constant
 
 logger = logging.getLogger(__name__)
-
-RAPIDOCR_SESSION_BOOTSTRAP = (
-    "from frisket.engine._workers.rapidocr_worker import framed_main\nframed_main()"
-)
 
 STARTUP_WALL_SECONDS = 300.0
 REQUEST_WALL_SECONDS = 3_600.0
@@ -738,7 +734,7 @@ class RapidOCRProcessSession:
         startup_started = time.perf_counter()
         try:
             handle = await sandbox_shim.open_sandboxed_process(
-                [sys.executable, "-c", RAPIDOCR_SESSION_BOOTSTRAP],
+                worker_argv("rapidocr-session"),
                 policy=policy,
                 scratch_dir=staging_root,
                 should_cancel=self._should_cancel or _never_cancel,

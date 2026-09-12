@@ -20,7 +20,6 @@ import os
 import re
 import signal
 import subprocess
-import sys
 import tempfile
 import time
 from collections.abc import Callable
@@ -43,6 +42,7 @@ from frisket.engine.store.media_blobs import (
     media_cell,
     owned_media_metadata_document,
 )
+from frisket.runtime.launch import worker_argv
 
 if TYPE_CHECKING:
     # Runtime imports of frisket.ops.* stay function-level: the ops package
@@ -621,11 +621,8 @@ def _installed_ytdlp_cli_extractor(
         # argument below can override. The media egress proxy travels only as
         # the explicit --proxy argument, which outranks any config-file value.
         proxy = request.get("proxy")
-        argv = [
-            sys.executable,
-            "-I",
-            "-m",
-            "yt_dlp",
+        argv = worker_argv(
+            "yt-dlp",
             "--ignore-config",
             *_admin_ytdlp_config_args(),
             "--no-plugin-dirs",
@@ -644,7 +641,7 @@ def _installed_ytdlp_cli_extractor(
             "%()j",
             str(work_dir / "info.json"),
             *request.get("extra_opts_cli_args", []),
-        ]
+        )
         process_group_kwargs: dict[str, Any]
         if os.name == "nt":
             process_group_kwargs = {

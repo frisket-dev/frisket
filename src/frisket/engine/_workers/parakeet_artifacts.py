@@ -40,6 +40,7 @@ from frisket.engine.sandbox.shim import (
     SandboxTeardownError,
     run_sandboxed,
 )
+from frisket.runtime.launch import worker_argv
 
 from .parakeet_model import (
     MODEL as PARAKEET_MODEL,  # noqa: F401 - re-exported for importers
@@ -52,11 +53,6 @@ from .parakeet_model import (
 PARAKEET_VAD_MODEL = "silero"
 
 ARTIFACT_WALL_SECONDS = 1_800
-
-# A static repo-owned body keeps the resolver launch auditable.  Network access
-# is deliberately enabled only for this short-lived child; inference uses the
-# separate offline/netwalled bootstrap in parakeet_session.py.
-PARAKEET_RESOLVER_BOOTSTRAP = "from frisket.engine._workers.parakeet_artifacts import resolver_main\nresolver_main()"
 
 
 class ParakeetArtifactUnavailable(RuntimeError):
@@ -265,7 +261,7 @@ async def resolve_parakeet_artifacts(
 
     try:
         result = await run_sandboxed(
-            [sys.executable, "-c", PARAKEET_RESOLVER_BOOTSTRAP],
+            worker_argv("parakeet-artifacts"),
             policy=SandboxPolicy(
                 cpu_seconds=ARTIFACT_WALL_SECONDS,
                 wall_seconds=ARTIFACT_WALL_SECONDS,

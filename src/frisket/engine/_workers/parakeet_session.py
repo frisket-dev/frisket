@@ -7,12 +7,12 @@ import json
 import logging
 import os
 import re
-import sys
 import time
 from typing import Any, Callable
 
 from frisket.engine.sandbox import shim as sandbox_shim
 from frisket.engine.sandbox.shim import SandboxPolicy
+from frisket.runtime.launch import worker_argv
 
 from .parakeet_artifacts import (
     PARAKEET_MODEL,
@@ -36,10 +36,6 @@ from .session_base import reject_constant as _reject_constant
 logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = "frisket.run_scoped_worker.v1"
-PARAKEET_SESSION_BOOTSTRAP = (
-    "from frisket.engine._workers.parakeet_worker import framed_main\nframed_main()"
-)
-
 STARTUP_WALL_SECONDS = 300.0
 REQUEST_WALL_SECONDS = 7_200.0
 CLOSE_WALL_SECONDS = 5.0
@@ -391,7 +387,7 @@ class ParakeetProcessSession:
         startup_started = time.perf_counter()
         try:
             handle = await sandbox_shim.open_sandboxed_process(
-                [sys.executable, "-c", PARAKEET_SESSION_BOOTSTRAP],
+                worker_argv("parakeet-session"),
                 policy=parakeet_inference_policy(self.expected_rows),
                 extra_env=parakeet_inference_env(artifacts),
                 # SandboxedProcess uses the cancellation hook as its bounded

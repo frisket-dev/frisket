@@ -418,8 +418,8 @@ def test_the_real_extract_faces_op_reads_its_image_through_the_fence(
     numpy = pytest.importorskip("numpy")
     from frisket.engine.store import Project
     from frisket.actions.types import ColumnRef
-    from frisket.engine.executor.row_media_read import FACE_WORKER
     from frisket.engine.executor import row_media_read
+    from frisket.runtime.launch import worker_argv
     from tests.engine.test_row_media_reader import bound_media
 
     async def checked_sandbox(*args, **kwargs):
@@ -456,7 +456,7 @@ def test_the_real_extract_faces_op_reads_its_image_through_the_fence(
         asyncio.run(
             run_sandboxed(
                 # subprocess-boundary: seccomp/Landlock are per-process kernel state installed between fork and exec; no in-process invoker can exercise them
-                [sys.executable, "-c", FACE_WORKER],
+                worker_argv("faces"),
                 policy=SandboxPolicy(
                     wall_seconds=120,
                     memory_mb=2048,
@@ -584,7 +584,7 @@ def test_a_confined_python_worker_must_be_this_interpreter_with_one_body():
 
 
 def _convert(path: Path, scratch: Path, *, confined: bool) -> dict:
-    from frisket.engine.executor.document_convert import CONVERT_WORKER
+    from frisket.runtime.launch import worker_argv
 
     scratch.mkdir(parents=True, exist_ok=True)
     out = scratch / "convert-result.json"
@@ -596,7 +596,7 @@ def _convert(path: Path, scratch: Path, *, confined: bool) -> dict:
     result = asyncio.run(
         run_sandboxed(
             # subprocess-boundary: seccomp/Landlock are per-process kernel state installed between fork and exec; no in-process invoker can exercise them
-            [sys.executable, "-c", CONVERT_WORKER],
+            worker_argv("markitdown"),
             policy=SandboxPolicy(
                 cpu_seconds=600,
                 wall_seconds=900,
@@ -649,13 +649,13 @@ def test_a_confined_markitdown_cannot_read_the_operators_other_files(tmp_path):
         "comparison below would prove nothing"
     )
 
-    from frisket.engine.executor.document_convert import CONVERT_WORKER
+    from frisket.runtime.launch import worker_argv
 
     out = scratch / "confined.json"
     result = asyncio.run(
         run_sandboxed(
             # subprocess-boundary: seccomp/Landlock are per-process kernel state installed between fork and exec; no in-process invoker can exercise them
-            [sys.executable, "-c", CONVERT_WORKER],
+            worker_argv("markitdown"),
             policy=SandboxPolicy(
                 wall_seconds=300,
                 memory_mb=4096,
@@ -679,7 +679,7 @@ def test_a_confined_face_worker_reads_its_image_and_writes_its_crops(tmp_path):
     """OpenCV's decoders, confined to one image in and one directory out."""
     cv2 = pytest.importorskip("cv2")
     numpy = pytest.importorskip("numpy")
-    from frisket.engine.executor.row_media_read import FACE_WORKER
+    from frisket.runtime.launch import worker_argv
 
     image = tmp_path / "frame.png"
     cv2.imwrite(str(image), numpy.full((240, 320, 3), 200, dtype=numpy.uint8))
@@ -690,7 +690,7 @@ def test_a_confined_face_worker_reads_its_image_and_writes_its_crops(tmp_path):
         result = asyncio.run(
             run_sandboxed(
                 # subprocess-boundary: seccomp/Landlock are per-process kernel state installed between fork and exec; no in-process invoker can exercise them
-                [sys.executable, "-c", FACE_WORKER],
+                worker_argv("faces"),
                 policy=SandboxPolicy(
                     wall_seconds=120,
                     memory_mb=2048,
