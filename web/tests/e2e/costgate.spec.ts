@@ -131,7 +131,7 @@ test('expensive run trips the 402 cost gate modal', async ({ page }) => {
     const trigger = selector.locator('.engine-selector__trigger');
     await trigger.click();
     const dialog = page.getByTestId('engine-selector-dialog');
-    await dialog.getByRole('searchbox', { name: 'Search Engine' }).fill(OPUS);
+    await dialog.getByRole('searchbox', { name: 'Search Engine' }).fill('Claude Opus');
     await dialog.locator('[data-engine-selector-choice="anthropic-claude-opus-4-8"]').click();
     await expect(trigger).toContainText('Claude Opus 4.8');
 
@@ -139,7 +139,11 @@ test('expensive run trips the 402 cost gate modal', async ({ page }) => {
     // click POSTs an unconfirmed run. A former load-dependent flake came from
     // the preflight racing the
     // debounced estimate; there is no race left to lose.
-    await page.getByTestId('run-button').click();
+    await page.getByTestId('generated-action-run').click();
+    await expect.poll(() => runPosts).toHaveLength(1);
+    expect(runPosts[0]).toMatchObject({
+      params: { engine: 'llm', model: OPUS },
+    });
 
     // POST /run answers 402 -> modal with the SERVER's estimate.
     const modal = page.getByTestId('cost-gate-modal');
