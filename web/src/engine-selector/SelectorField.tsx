@@ -43,7 +43,7 @@ function displayChoice(choice: SelectorChoice): EngineSelectorChoice {
     description: choice.description || undefined,
     facts: displayFact(choice),
     destination: choice.processing_destination.label,
-    modelCardUrl: choice.model_card_url,
+    modelCardUrl: choice.model_card_url ?? undefined,
     status: choice.status,
     canAuthor: choice.can_author,
     canRun: choice.can_run,
@@ -76,7 +76,7 @@ function selectorQueryKey(
   const subject = query.subject;
   if (subject.kind === 'action') {
     const names = new Set([subject.field, 'engine', 'model', ...(response?.depends_on ?? [])]);
-    const params = Object.fromEntries(Object.entries(subject.params).filter(([name]) => names.has(name)));
+    const params = Object.fromEntries(Object.entries(subject.params ?? {}).filter(([name]) => names.has(name)));
     return JSON.stringify({ kind: subject.kind, action_id: subject.action_id, field: subject.field, params });
   }
   return JSON.stringify(subject);
