@@ -9,6 +9,15 @@ import { installDialogPolyfill } from './domPolyfills';
 
 type Selection = Extract<SelectorChoice['authored_selection'], { kind: 'engine' | 'model' }>;
 
+/** An explicitly admitted synthetic provider roster for form-only tests. */
+export function selectorProviderCatalog(modelIds: string[]): LocalProviderCatalog {
+  return {
+    schemaVersion: 'frisket.providers.v1', tier: 'local',
+    providers: [{ id: 'test', label: 'Test provider', kind: 'platform_api', configured: true,
+      source: 'env', hint: null, models: modelIds.map((id) => ({ id, label: id, price: null })) }],
+  };
+}
+
 function choice(selection: Selection, label: string, available: boolean, reason?: string): SelectorChoice {
   return {
     choice_id: JSON.stringify(selection), authored_selection: selection, label,
@@ -86,7 +95,7 @@ export function actionSelectorResponse(
 
 export function selectorTrigger() {
   const field = screen.queryByTestId('field-engine') ?? screen.getByTestId('field-model');
-  return within(field).getByRole('button', { expanded: false });
+  return within(field).getByRole('button');
 }
 
 export async function openActionSelector() {
