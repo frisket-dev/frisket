@@ -26,41 +26,45 @@ const CSV =
   '"The city council approved a $4M paving contract on Tuesday."\n' +
   '"A local pharmacy in the north district will close by March."\n';
 
+const COPILOT_MODEL_GROUPS: SelectorGroupFixture[] = [{
+  id: 'ollama',
+  label: 'Ollama',
+  choices: [{
+    choiceId: 'ollama-qwen',
+    label: 'Qwen',
+    summary: 'Local model',
+    authoredSelection: { kind: 'model', model: 'ollama/qwen' },
+  }],
+}, {
+  id: 'anthropic',
+  label: 'Anthropic',
+  choices: [{
+    choiceId: 'anthropic-claude-haiku-4-5',
+    label: 'Claude Haiku 4.5',
+    summary: 'Hosted model',
+    authoredSelection: { kind: 'model', model: 'anthropic/claude-haiku-4-5' },
+  }],
+}];
+
+async function stubCopilotSelector(page: Parameters<typeof stubSelectorChoices>[0], pid: string) {
+  await stubSelectorChoices(page, pid, (subject) => {
+    expect(subject.kind).toBe('copilot');
+    const model = typeof subject.model === 'string' ? subject.model : 'anthropic/claude-haiku-4-5';
+    return selectorChoicesResponse({
+      projectId: pid,
+      subject: { kind: 'copilot', model },
+      groups: COPILOT_MODEL_GROUPS,
+      currentChoiceId: model === 'ollama/qwen' ? 'ollama-qwen' : 'anthropic-claude-haiku-4-5',
+    });
+  });
+}
+
 test('copilot selector: interacting with the portaled dialog keeps the panel open', async ({
   page,
 }) => {
   const pid = await createProject(page.request, uniqueName('e2e-copilot-model'));
   await importCsv(page.request, pid, 'stories.csv', CSV);
-  const groups: SelectorGroupFixture[] = [{
-    id: 'ollama',
-    label: 'Ollama',
-    choices: [{
-      choiceId: 'ollama-qwen',
-      label: 'Qwen',
-      summary: 'Local model',
-      authoredSelection: { kind: 'model', model: 'ollama/qwen' },
-    }],
-  }, {
-    id: 'anthropic',
-    label: 'Anthropic',
-    choices: [{
-      choiceId: 'anthropic-claude-haiku-4-5',
-      label: 'Claude Haiku 4.5',
-      summary: 'Hosted model',
-      authoredSelection: { kind: 'model', model: 'anthropic/claude-haiku-4-5' },
-    }],
-  }];
-  await stubSelectorChoices(page, pid, (subject) => {
-    expect(subject.kind).toBe('copilot');
-    const model = typeof subject.model === 'string' ? subject.model : 'ollama/qwen';
-    return selectorChoicesResponse({
-      projectId: pid,
-      subject: { kind: 'copilot', model },
-      groups,
-      currentChoiceId: model === 'anthropic/claude-haiku-4-5'
-        ? 'anthropic-claude-haiku-4-5' : 'ollama-qwen',
-    });
-  });
+  await stubCopilotSelector(page, pid);
   await page.goto(`/p/${pid}`);
 
   await page.getByTestId('chrome-copilot-toggle').click();
@@ -92,6 +96,7 @@ test('copilot panel sends a message and surfaces a runnable proposal', async ({
 }) => {
   const pid = await createProject(page.request, uniqueName('e2e-copilot'));
   const sheetId = await importCsv(page.request, pid, 'stories.csv', CSV);
+  await stubCopilotSelector(page, pid);
   await page.route(`**/api/projects/${pid}/copilot`, async (route) => {
     await route.fulfill({
       status: 200,
@@ -148,6 +153,7 @@ test('copilot panel sends a message and surfaces a runnable proposal', async ({
 test('copilot proposal executes through the v1 action run path', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-copilot-run'));
   const sheetId = await importCsv(page.request, pid, 'stories.csv', CSV);
+  await stubCopilotSelector(page, pid);
   await page.route(`**/api/projects/${pid}/copilot`, async (route) => {
     await route.fulfill({
       status: 200,
