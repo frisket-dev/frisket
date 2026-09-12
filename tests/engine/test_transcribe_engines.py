@@ -183,7 +183,7 @@ def _parakeet_cached() -> bool:
 def test_engine_param_contract():
     """Typed params own both the engine reference and its scalar options."""
     params = TranscribeParams(source="audio")
-    assert params.engine.root == "faster_whisper"
+    assert params.engine.root == "parakeet-tdt"
     assert params.vad is True
     assert params.context is None
     assert params.clean is False

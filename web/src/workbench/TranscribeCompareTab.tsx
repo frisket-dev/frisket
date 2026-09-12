@@ -136,7 +136,7 @@ function createTranscribeConfig(
   prepareRun,
   unitsForDoc: (doc, columns): AlignedUnit[] => {
     // Align by SEGMENT INDEX across the columns' transcripts (keyed by column
-    // id, since the shell diffs by column). No segments anywhere → one
+    // id so each engine retains its own aligned text). No segments anywhere → one
     // paragraph unit with a null seek anchor (the affordance hides).
     const columnIds = columns.map((column) => column.id);
     const segmentsByColumn: Record<string, TranscribeCompareEngineResult['segments'] | undefined> = {};
@@ -155,6 +155,7 @@ function createTranscribeConfig(
     }));
   },
   autoRun: false,
+  enableDiff: false,
   includeBillableEngines: true,
   sequential: true,
   noDiffUnitLabel: 'no differences in this segment',
@@ -200,8 +201,6 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
     runnableColumns,
     activeDoc,
     engineLabel,
-    effectiveMode,
-    setMode,
     runningCount,
     sourceOpen,
     setSourceOpen,
@@ -283,24 +282,6 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
             <Play size={13} /> {session.preparing ? 'Estimating…' : 'Run comparison'}
           </button>
           {busy && <button type="button" className="btn" data-testid="transcribe-compare-cancel" onClick={session.cancelRuns}>Cancel</button>}
-          <SegmentedToggle
-            testId="transcribe-compare-mode-switch"
-            className="ocr-compare-mode-switch"
-            fullWidth={false}
-            ariaLabel="Diff or survey view"
-            value={effectiveMode}
-            onValueChange={(value) => setMode(value as 'diff' | 'survey')}
-            buttonTestId={(value) => `transcribe-compare-mode-${value}`}
-            options={[
-              {
-                value: 'diff',
-                label: '◨ Diff',
-                disabledReason:
-                  runnableColumns.length !== 2 ? 'Diff needs exactly two variants' : undefined,
-              },
-              { value: 'survey', label: '◫ Survey' },
-            ]}
-          />
           <button
             type="button"
             className="ocr-compare-source-toggle row-height-select"

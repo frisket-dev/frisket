@@ -107,7 +107,7 @@ RUN uv sync --frozen --no-dev --no-install-project $FRISKET_UV_EXTRAS
 RUN uv run --no-sync python -c "import cv2" \
     && uv run --no-sync python -c "from fastembed import TextEmbedding; \
     TextEmbedding('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')" \
-    && uv run --no-sync python -c "from rapidocr import RapidOCR; RapidOCR()" \
+    && uv run --no-sync python -c "from rapidocr import RapidOCR; from rapidocr.utils.typings import OCRVersion; RapidOCR(params={'Rec.ocr_version': OCRVersion.PPOCRV5})" \
     && uv run --no-sync python -c "from fastembed.rerank.cross_encoder import TextCrossEncoder; \
     TextCrossEncoder('Xenova/ms-marco-MiniLM-L-6-v2')"
 COPY src/ src/

@@ -420,7 +420,7 @@ def test_model_requirements_replace_only_requested_recognition_model() -> None:
         rapidocr_model_requirements("klingon")
 
 
-def test_missing_requested_language_model_halts_before_worker_admission(
+def test_missing_requested_language_model_halts_before_worker_creation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -443,11 +443,13 @@ def test_missing_requested_language_model_halts_before_worker_admission(
         ocr_local, "rapidocr_shared_model_cache_dir", lambda: shared_root
     )
 
-    def forbidden(*args: Any, **kwargs: Any) -> Any:
-        raise AssertionError("missing language assets must fail before admission")
+    lease = _FakeLease()
 
-    monkeypatch.setattr(ocr_local, "rapidocr_topology", forbidden)
-    monkeypatch.setattr(ocr_local, "acquire_local_engine_lease", forbidden)
+    def forbidden(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("missing language assets must fail before worker creation")
+
+    monkeypatch.setattr(ocr_local, "rapidocr_topology", lambda *_: _topology())
+    monkeypatch.setattr(ocr_local, "acquire_local_engine_lease", lambda *_: lease)
     monkeypatch.setattr(ocr_local, "RapidOCRProcessPool", forbidden)
 
     async def run() -> None:
@@ -457,6 +459,7 @@ def test_missing_requested_language_model_halts_before_worker_admission(
     with pytest.raises(RecipeInvocationHalt) as caught:
         asyncio.run(run())
     assert caught.value.code == "local_artifact_unavailable"
+    assert lease.released == 1
 
 
 def test_invalid_language_defers_to_worker_row_validation(
