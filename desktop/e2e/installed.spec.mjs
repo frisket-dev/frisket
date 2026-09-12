@@ -32,7 +32,13 @@ async function launch(testInfo) {
   });
   const page = await electron.firstWindow();
   const rendererErrors = [];
+  let browserLog = '';
+  const record = (message) => { browserLog = `${browserLog}${message}\n`.slice(-16_384); };
   page.on('pageerror', (error) => rendererErrors.push(error.message));
+  page.on('console', (message) => {
+    if (['error', 'warning'].includes(message.type())) record(message.text());
+  });
+  page.on('requestfailed', (request) => record(`${request.url()}: ${request.failure()?.errorText}`));
   try {
     await page.waitForURL('frisket://app/**', { timeout: 300_000 });
     await expect(page.getByTestId('home-screen')).toBeVisible();
@@ -44,6 +50,9 @@ async function launch(testInfo) {
     return { electron, page, rendererErrors };
   } catch (error) {
     await testInfo.attach('startup-stderr', { body: stderr, contentType: 'text/plain' });
+    await testInfo.attach('startup-browser', {
+      body: `${rendererErrors.join('\n')}\n${browserLog}`, contentType: 'text/plain',
+    });
     await page.screenshot({ path: testInfo.outputPath('startup-failure.png') }).catch(() => {});
     await electron.close().catch(() => {});
     throw error;

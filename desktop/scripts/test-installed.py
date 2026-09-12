@@ -68,15 +68,17 @@ def main() -> None:
             flush=True,
         )
         env = {**os.environ, "UV_OFFLINE": "1"}
-        subprocess.run(
+        ui = subprocess.run(
             ["npm", "--prefix", "desktop", "run", "test:installed"],
             cwd=ROOT,
             env=env,
-            check=True,
+            check=False,
         )
-        subprocess.run(
-            ["node", "desktop/scripts/check-native.mjs"], cwd=ROOT, env=env, check=True
+        native = subprocess.run(
+            ["node", "desktop/scripts/check-native.mjs"], cwd=ROOT, env=env, check=False
         )
+        ui.check_returncode()
+        native.check_returncode()
     finally:
         try:
             pf("-a", ANCHOR, "-F", "rules")
