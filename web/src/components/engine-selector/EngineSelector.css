@@ -1,0 +1,33 @@
+.engine-selector { min-width: 0; }
+.engine-selector__trigger { width: 100%; display: flex; align-items: center; gap: var(--space-8); text-align: left; }
+.engine-selector__trigger-copy, .engine-selector__choice-copy { min-width: 0; flex: 1; display: grid; gap: 1px; }
+.engine-selector__trigger-copy small, .engine-selector__choice-copy small { color: var(--text-light); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.engine-selector__dialog { color: var(--text); background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--radius-8); box-shadow: var(--shadow-modal); padding: 0; width: min(92vw, 760px); max-width: 92vw; max-height: min(420px, calc(100vh - 32px)); overflow: hidden; }
+.engine-selector__dialog::backdrop { background: rgba(30, 27, 22, .38); }
+.engine-selector__dialog--anchored { position: fixed; margin: 0; max-width: none; }
+.engine-selector__header { display: flex; gap: var(--space-8); padding: var(--space-8); border-bottom: 1px solid var(--border); }
+.engine-selector__search { min-width: 0; flex: 1; }
+.engine-selector__close, .engine-selector__back { border: 0; background: transparent; color: var(--text-mid); cursor: pointer; font: inherit; }
+.engine-selector__tabs { display: flex; gap: var(--space-4); overflow-x: auto; padding: var(--space-8); border-bottom: 1px solid var(--border); }
+.engine-selector__tabs button, .engine-selector__groups button { border: 1px solid var(--border); border-radius: var(--radius-999); background: var(--bg); color: var(--text-mid); padding: 4px 8px; white-space: nowrap; cursor: pointer; }
+.engine-selector__tabs button[aria-pressed="true"], .engine-selector__groups button.is-active { background: var(--bg-hover); color: var(--text); font-weight: 600; }
+.engine-selector__body { display: grid; grid-template-columns: 160px 230px minmax(0, 1fr); height: min(342px, calc(100vh - 112px)); }
+.engine-selector__groups { overflow-y: auto; padding: var(--space-6); border-right: 1px solid var(--border); display: grid; align-content: start; gap: var(--space-4); }
+.engine-selector__groups button { border: 0; border-radius: var(--radius-5); text-align: left; }
+.engine-selector__choices { min-width: 0; overflow-y: auto; padding: var(--space-6); border-right: 1px solid var(--border); }
+.engine-selector__provider-filter { width: 100%; margin-bottom: var(--space-6); }
+.engine-selector__choice { width: 100%; display: flex; align-items: center; gap: var(--space-6); border: 0; border-radius: var(--radius-5); background: transparent; color: var(--text); padding: var(--space-6); text-align: left; cursor: pointer; }
+.engine-selector__choice:hover, .engine-selector__choice:focus-visible, .engine-selector__choice.is-previewed { background: var(--accent-bg); outline: none; }
+.engine-selector__choice.is-selected strong { color: var(--accent-strong); }
+.engine-selector__status { width: 7px; height: 7px; border-radius: 999px; flex: 0 0 auto; background: var(--text-light); }
+.engine-selector__status--ready { background: var(--green); }.engine-selector__status--needs_setup { background: var(--amber); }.engine-selector__status--working { background: var(--accent); }.engine-selector__status--unavailable { background: var(--red); }
+.engine-selector__group-tag, .engine-selector__default, .engine-selector__recent { flex: 0 0 auto; border: 1px solid var(--border); border-radius: var(--radius-4); color: var(--text-mid); font-size: var(--font-size-caption); padding: 1px 4px; }
+.engine-selector__default { color: var(--accent-strong); border-color: var(--accent); }.engine-selector__recent { color: var(--text-light); }
+.engine-selector__detail { min-width: 0; display: flex; flex-direction: column; }.engine-selector__detail-scroll { min-height: 0; overflow-y: auto; padding: var(--space-12); }.engine-selector__detail h2 { margin: 0; font-size: 14px; }.engine-selector__detail p { color: var(--text-mid); line-height: 1.4; }.engine-selector__detail-heading { display: flex; justify-content: space-between; gap: var(--space-8); }.engine-selector__detail-heading a { color: var(--accent); font-size: var(--font-size-small); white-space: nowrap; display: inline-flex; gap: 3px; align-items: center; }
+.engine-selector__status-copy { display: inline-flex; align-items: center; gap: var(--space-4); color: var(--text-mid); font-size: var(--font-size-small); }.engine-selector__destination, .engine-selector__blocker { border-left: 2px solid var(--border-strong); padding-left: var(--space-8); }.engine-selector__blocker { color: var(--red) !important; }
+.engine-selector__facts { display: grid; gap: var(--space-6); margin: var(--space-12) 0; font-size: var(--font-size-small); }.engine-selector__facts div { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: var(--space-8); }.engine-selector__facts dt { color: var(--text-light); }.engine-selector__facts dd { margin: 0; }.engine-selector__facts dd button { border: 0; background: transparent; color: var(--accent); padding: 0; cursor: pointer; }.engine-selector__chips { display: flex; flex-wrap: wrap; gap: var(--space-4); }.engine-selector__chips span { background: var(--bg-hover); border-radius: var(--radius-4); padding: 2px 5px; }
+.engine-selector__footer { border-top: 1px solid var(--border); padding: var(--space-8) var(--space-12); display: grid; gap: var(--space-8); }.engine-selector__footer:focus { outline: 2px solid var(--accent); outline-offset: -2px; }.engine-selector__empty { padding: var(--space-12); color: var(--text-light); }
+@media (max-width: 999px) { .engine-selector__body { grid-template-columns: 240px minmax(0, 1fr); }.engine-selector__dialog:not(.engine-selector__dialog--anchored) { margin: auto; } }
+@media (max-width: 599px) { .engine-selector__dialog { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; }.engine-selector__body { display: block; height: calc(100dvh - 56px); }.engine-selector__choices { height: 100%; border-right: 0; }.engine-selector__detail { display: none; }.engine-selector__dialog--mobile-detail .engine-selector__choices { display: none; }.engine-selector__dialog--mobile-detail .engine-selector__detail { display: flex; height: 100%; }.engine-selector__tabs { display: none; }.engine-selector__back { display: block; margin: 0 0 var(--space-8); padding: 0; }.engine-selector__footer { margin-top: auto; } }
+@media (min-width: 600px) { .engine-selector__back { display: none; } }
+@media (prefers-reduced-motion: reduce) { .engine-selector *, .engine-selector *::before, .engine-selector *::after { transition: none !important; animation: none !important; } }
