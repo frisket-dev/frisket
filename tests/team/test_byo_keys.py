@@ -5,6 +5,9 @@ import json
 import subprocess
 import sys
 
+import pytest
+
+from frisket.team.security import secrets
 
 from frisket.team.security.secrets import decrypt_secret, encrypt_secret, key_hint
 
@@ -62,3 +65,24 @@ def test_two_processes_load_or_create_secret_key_converge_on_same_bytes(tmp_path
     assert len(keys[0]) == 32 and len(keys[1]) == 32
     assert keys[0] == keys[1]
     assert key_path.read_bytes() == keys[0]
+
+
+def test_generated_secret_key_preserves_line_feed_bytes(tmp_path, monkeypatch):
+    """Windows low-level text mode must not expand a generated ``\n`` byte."""
+    key = b"\n\r\0\x1a" + b"x" * 28
+    monkeypatch.setattr(secrets, "token_bytes", lambda size: key)
+
+    key_path = tmp_path / "master.key"
+    assert secrets.load_or_create_secret_key(key_path) == key
+    assert key_path.read_bytes() == key
+    assert secrets.load_or_create_secret_key(key_path) == key
+
+
+def test_existing_malformed_secret_key_is_refused(tmp_path):
+    key_path = tmp_path / "master.key"
+    key_path.write_bytes(b"x" * 31)
+
+    with pytest.raises(ValueError, match="expected 32 bytes"):
+        secrets.load_or_create_secret_key(key_path)
+
+    assert key_path.read_bytes() == b"x" * 31
