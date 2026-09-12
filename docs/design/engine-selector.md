@@ -43,9 +43,154 @@ owns scoped loading/setup and asynchronous request lifetime. Form-specific
 adapters own conversion between a selected choice and existing authored values.
 No component independently rediscovers provider keys or invents target routing.
 
-The complete API and setup contracts are finalized at the technical review gate
-before implementation. The sections below fix the shared visual and migration
-contracts so that backend and frontend work can be assigned without overlap.
+## Project-scoped choice contract
+
+Add side-effect-free `POST /api/projects/{pid}/selector-choices`, registered as
+`tenant.selector_choices.post` in the viewer and browser-client endpoint catalogs.
+Typed DTOs belong in `contracts/http/selector_choices.py`, admission in
+`server/routes/selector_choices.py`, projection in `server/services/selector_choices.py`.
+Publish OpenAPI and TypeScript through the existing generators.
+
+Request schema `frisket.selector_choices_query.v1` has a discriminated subject:
+
+- `action`: `action_id`, `field`, sparse current draft `params`.
+- `copilot`: optional current `model`.
+- `embedding`: current `provider`/`model`, optional `modality` and
+  `source_column_type`.
+
+An action field must be a declared engine/model field. Only capability-affecting
+options are needed; missing source/output fields do not invalidate loading.
+Reject unknown actions/fields and authored target overrides. Do not echo arbitrary
+draft params. Response schema `frisket.selector_choices.v1` contains normalized
+subject, project ID, `depends_on` option fields, current/default choice IDs,
+groups and an optional blocked `orphaned_current`.
+
+Groups have stable IDs, kind (`local`, `server`, `provider`), label, derived status
+and choices. Choice fields:
+
+- UI-only `choice_id`, label, short summary, description, optional model-card URL,
+  ordered typed facts (text, list or numeric rate).
+- `authored_selection`: discriminated `engine {engine}`, `model {model}`,
+  `engine_model {engine, model: string|null}`, or `embedding {provider, model}`.
+  Preserve opaque IDs including nested OpenRouter paths; this is the only mapping
+  to caller values.
+- Resolved target and processing destination as descriptive facts. Unknown
+  destination produces neutral copy, never an invented local/privacy claim.
+- `status: ready|needs_setup|working|unavailable`, `can_author`, `can_run`, optional
+  typed blocker, setup descriptor and active operation projection.
+- Default/current flags from the usage context, not list order.
+
+`can_run` is selector preflight, not a promise that inputs, quotas or consent pass
+admission. Only the active resolved target contributes readiness; another ready
+target cannot unlock it. A supported missing first-use artifact can be runnable
+with disclosure; missing runtime or unsupported options cannot.
+
+Actions use their project action-execution router/composition and typed engine
+declarations; Copilot uses its router/default model/provider-spend policy;
+embeddings use the existing provider/modality catalog, omitting reserved unbuilt
+engines. Preserve provider-bound custom embedding IDs with a custom-ID detail
+control and existing dimension discovery. A provider placeholder is not runnable.
+Missing-key providers remain visible when policy permits setup. Authoritative
+empty results stay empty; errors show Retry, never static fallback choices.
+Saved unknown IDs remain visible and blocked without silent replacement.
+
+Reads perform no probes, inference, estimates, downloads or runtime startup.
+Reuse passive/cached facts. Descriptions stay with the backend model catalog,
+prices with pricing, download bytes with the artifact manifest, target features
+with execution definitions. Omit unverified speed, quality, size or language data.
+When a complete action draft exists, the controller may debounce the existing
+`/actions/v1/estimate` for an inspected candidate without committing it. Otherwise
+show supported unit pricing or no estimate. No browser pricing formula, new batch
+estimator or per-choice LLM call; retain existing consent/billed-price controls.
+
+### Setup authority
+
+Inject one immutable request/project capability value through a `create_app`
+callback: `can_author`, `can_run`, `configure_workspace_credentials`,
+`configure_project_credentials`, `configure_organization_credentials`,
+`manage_model_downloads`, `configure_models_gateway`. The facade receives
+booleans, not roles or access services. Missing hosted/Team injection fails closed;
+Solo follows the setup routes actually registered. Mutation routes remain the
+authority and independently enforce permissions.
+
+Team derives author/run from editor access, project credential changes from
+**project owner**, organization changes from its owner predicate, and pulls from
+org owner plus enabled pull routes. Cloud injects its existing project access and
+organization key-manager predicates (including admin); no ingress/middleware
+rewrite. Model pulls/gateway edits remain unavailable where routes do not exist.
+Project and organization authority are independent; never infer them in the UI.
+
+Setup union: `api_key`, `models_gateway`, `artifact_download`, `engine_setup`,
+`first_use_download`, `instructions`. Mutation descriptors include actual scope
+and `can_mutate`; downloads separately carry `can_start`, matching operation and
+`blocked_by_operation`. Queue capacity is not authority and a busy queue cannot
+block an already-ready engine. Environment-owned configuration is read-only.
+
+## Setup operations and progress
+
+### Provider keys
+
+Reuse existing workspace/project/organization validation and save routes. Offer
+only permitted scopes; keep keys out of selector URLs, local storage, logs and
+action payloads. Validate the candidate then save with its receipt; failure
+preserves the working credential. Make organization saves require/verify receipts
+as workspace/project saves already do. Reuse each edition's actual authorization.
+Refresh facts on success without selecting/closing. Clear inputs on scope change.
+
+### Explicit downloads
+
+Reuse durable `model_pulls` and workspace activity. Extend its wire projection to
+v4 with `operation_kind: artifact|local_model|engine_setup`, `display_name` and
+status-aware `capabilities {cancel,retry,remove}`. No remove for HF snapshots,
+Ollama or Parakeet where no owned uninstall exists. Unknown byte totals remain
+indeterminate; cancellation becomes terminal only after acknowledgement.
+
+Add `POST /api/providers/models/setup` and Team owner-scoped
+`POST /api/org/models/setup`, body `{setup_ref}`. Initial allowlisted ref
+`engine-setup:parakeet-tdt.local-onnx@1` installs pinned Parakeet plus the VAD needed
+by the existing target. One existing pull row/job stores it in `model_ref`; no
+child jobs, generic dependency graph or migration. Use the existing supervised
+artifact provisioner; recheck cache and skip completed components on retry.
+Same-ref requests deduplicate; another active operation returns existing busy
+behavior plus that operation. Cache/runtime facts decide readiness, not historic
+job completion.
+
+### Models gateway attachment
+
+Use a distinct config resource, not an Ollama endpoint masquerading as a gateway.
+Workspace `/api/models-gateway` and Team `/api/org/models-gateway` expose GET
+status, POST `/validate`, PUT save. Team GET is member-readable, mutations owner
+only. No disconnect control required. Status includes configured/source/origin,
+token-configured/masked hint, authority, environment names and optional probe.
+
+Validation takes both candidate `{origin,token}` or neither for explicit Recheck.
+Candidate success issues an expiring receipt bound to scope, normalized origin,
+exact token and protocol. PUT requires those values and receipt. Validate HTTPS
+(or loopback HTTP) using existing origin rules and a bounded authenticated GET
+`/capabilities`, redirects disabled, service `frisket-models`, required typed engine
+fields. No inference or secret-bearing errors. Failure preserves old config.
+Environment URL/token wins read-only; a partially configured nonblank pair errors
+instead of silently falling through to stored configuration.
+
+Store workspace pair atomically in the existing private provider-key map; Team
+uses its encrypted org environment store, reserving the two names against generic
+writes. One connection resolver feeds actual execution and capability probing.
+Cached probes key on origin/token fingerprint; Recheck bypasses cache. Queued
+workers resolve through trusted org context at the existing runtime credential/
+composition boundary (a narrow connection port if needed), never job payloads.
+No second secret store or migration. Owned Start/Stop and autostart remain #46.
+
+### Opus automatic preparation
+
+Existing worker-side provisioning owns transfers and retries. Eligibility uses
+supported pairs/runtime; web-host cache presence cannot prove worker readiness.
+Add an indeterminate first-use hint derived from active run params while
+completed=0, and in existing preview-job progress. Honest copy: “Preparing the
+language model if this worker needs it, then translating…” Normal row progress
+replaces it when progress starts. No percentage, new run state/column, duplicate
+pull job or generic progress-event subsystem. Reuse cancellation/pair errors.
+Protect local recheck/provision with a per-artifact filesystem lock to close the
+real multi-process promotion race; no distributed-lock abstraction.
 
 ## Shared frontend component
 
@@ -133,3 +278,39 @@ Managed model-service Start/Stop and “Always launch on startup” remain #46.
 This delivery includes server attachment/setup, not a container/process manager.
 Changing Desktop's bundled weight policy is separate from making the picker and
 first-use setup work.
+
+## Implementation and proof gates
+
+Freeze this spec in Git; independent subagent and Claude exact-ref review precede
+implementation. Each writer gets an isolated exact-base worktree and explicit
+path roster. Root integrates overlapping app/route registration and generation.
+No worker pushes or lands independently.
+
+Lanes: choice DTO/projection/authority; setup/gateway/operation integration; shared
+visual component; then caller migration/controller and edition composition.
+Split only where paths and dependencies permit. New public behavior begins with
+a focused failing test, then implementation and bounded validation.
+
+Required proof:
+
+- Choice route: incomplete draft, active-target options, unknown saved choice,
+  authoritative empty list, usage router, no network effects, first-use eligibility.
+- Authority: viewer read without mutation; project-owner/org-member and
+  project-viewer/org-owner cases; real mutation enforcement. Bounded Cloud
+  companion injects its own predicates and inherits the public route.
+- Setup: receipt binding, failed-save preservation, environment precedence,
+  gateway redirect/service/auth failures, saved connection observed by actual
+  target and queued runtime without secrets in payloads.
+- Downloads: one Parakeet operation, partial retry, dedupe/busy/cancel, truthful
+  remove; Opus preparation only on execution, honest progress, same-cache race.
+- Shared UI: selection/inspection, scoped async guards, search/recents, save and
+  completion, keyboard/focus, independent scrolling and small-screen detail path.
+  One offline composed browser journey at desktop/mobile widths.
+- Migration: generated, mixed, compare, Copilot and embedding callers including
+  run/preview gating and custom IDs. Inspect and delete all replaced pickers.
+
+Use focused suites while iterating, then one composed backend/frontend/build and
+relevant integration pass. Sol and Claude review exact code; inspect descendants
+proportionally. PR(s), required CI, merge, verify remote ancestry. Completion
+requires every listed surface and setup path integrated and merged, not a new
+picker beside the old ones.
