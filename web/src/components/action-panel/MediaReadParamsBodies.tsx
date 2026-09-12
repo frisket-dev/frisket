@@ -1,5 +1,9 @@
 import { useEffect, useRef } from 'react';
-import { transcribeOptionsForEngine } from '../../actions/transcribeEngineCatalog';
+import {
+  transcribeActiveTargetOptionReason,
+  transcribeDiarizationForEngine,
+  transcribeOptionsForEngine,
+} from '../../actions/transcribeEngineCatalog';
 import { EngineLanguageControl } from './EngineLanguageControl';
 import { TranscribeDiarizationControl } from './TranscribeDiarizationControl';
 import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
@@ -34,9 +38,15 @@ export function OcrParamsBody({ params, setParams, engine, Field }:
   </>;
 }
 
-export function TranscribeParamsBody({ params, setParams, engine, Field }:
+export function TranscribeParamsBody({ params, setParams, setEditorProblem, engine, Field }:
   GeneratedActionParamsBodyProps<'media.transcribe'>) {
   const support = transcribeOptionsForEngine(engine);
+  const targetDiarization = transcribeDiarizationForEngine(engine);
+  const semanticDiarizationSupported = engine?.diarization?.supported === true;
+  const targetDiarizationUnavailable = Boolean(
+    semanticDiarizationSupported && !targetDiarization?.supported,
+  );
+  const targetOptionReason = transcribeActiveTargetOptionReason(engine);
   const previousEngine = useRef(engine?.id);
   useEffect(() => {
     if (previousEngine.current === engine?.id) return;
@@ -52,14 +62,44 @@ export function TranscribeParamsBody({ params, setParams, engine, Field }:
     const value = params[name];
     if (value != null) speakerParams[name] = String(value);
   }
+  const unsupportedSavedKeys: string[] = [];
+  if (targetDiarizationUnavailable && (
+    params.diarize === true || SPEAKER_FIELDS.slice(1).some((name) => params[name] != null)
+  )) unsupportedSavedKeys.push(...SPEAKER_FIELDS);
+  if (!support.language && Array.isArray(params.language) && params.language.length) {
+    unsupportedSavedKeys.push('language');
+  }
+  if (!support.vad && params.vad === true) unsupportedSavedKeys.push('vad');
+  if (!support.model_size && typeof params.model_size === 'string' && params.model_size.length > 0) {
+    unsupportedSavedKeys.push('model_size');
+  }
+  if (!support.context && params.context != null) unsupportedSavedKeys.push('context');
+  if (!support.clean && params.clean != null) unsupportedSavedKeys.push('clean');
+  const unsupportedSavedOption = unsupportedSavedKeys.length
+    ? 'Some saved settings are unavailable with this setup. Clear them to continue.'
+    : null;
+  useEffect(() => {
+    setEditorProblem?.(unsupportedSavedOption);
+    return () => setEditorProblem?.(null);
+  }, [setEditorProblem, unsupportedSavedOption]);
   return <>
     <Field name="source" label="Audio or video column" />
     <Field name="engine" />
-    <EngineLanguageControl declaration={engine?.language}
+    {unsupportedSavedOption && <button type="button" className="btn"
+      data-testid="transcribe-clear-unavailable-settings"
+      onClick={() => {
+        const next = { ...params };
+        for (const key of unsupportedSavedKeys) delete next[key];
+        setParams(next);
+      }}>
+      Clear unavailable settings
+    </button>}
+    {support.language && <EngineLanguageControl declaration={engine?.language}
       value={Array.isArray(params.language) ? params.language.join(', ') : ''} onChange={(language) => setParams({
         ...params, language: language.split(',').map((code) => code.trim()).filter(Boolean),
-      })} />
+      })} />}
     <TranscribeDiarizationControl key={params.engine} declaration={engine?.diarization}
+      unavailableReason={targetDiarizationUnavailable ? targetOptionReason : null}
       params={speakerParams} onParamsChange={(update) => {
         const values = typeof update === 'function' ? update(speakerParams) : update;
         const next = { ...params };

@@ -8,6 +8,9 @@ import {
   TRANSCRIBE_ENGINE_FALLBACK,
   engineIsRemote,
   tierForEngine,
+  transcribeActiveTargetOptionReason,
+  resolveTranscribeDiarizationMode,
+  transcribeDiarizationForEngine,
   transcribeDiarizationMode,
   transcribeEnginesFromCatalog,
   transcribeOptionsForEngine,
@@ -40,7 +43,7 @@ const DEFAULT_MODEL_SIZE = 'base';
 const MODEL_SIZE_PRESETS = ['tiny', 'base', 'small', 'medium', 'large-v3'];
 const DEFAULT_VAD = true;
 
-interface TranscribeVariantOptions {
+export interface TranscribeVariantOptions {
   language: string | undefined;
   modelSize: string | undefined;
   vad: boolean | undefined;
@@ -72,6 +75,29 @@ function transcribeFieldsForEngine(engine: EngineOption | undefined): {
     modelSize: support.model_size,
     vad: support.vad,
     diarizationMode: transcribeDiarizationMode(engine),
+  };
+}
+
+export function transcribeCompareInputFor(
+  engine: EngineOption | undefined,
+  engineId: string,
+  options: TranscribeVariantOptions,
+  timeLimit: number,
+): TranscribeCompareScratchInput {
+  const fields = transcribeFieldsForEngine(engine);
+  return {
+    engine: engineId,
+    time_limit_seconds: timeLimit,
+    ...(options.language ? { language: options.language } : fields.language ? { language: null } : {}),
+    ...(options.modelSize
+      ? { model_size: options.modelSize }
+      : fields.modelSize ? { model_size: DEFAULT_MODEL_SIZE } : {}),
+    ...(typeof options.vad === 'boolean'
+      ? { vad: options.vad }
+      : fields.vad ? { vad: DEFAULT_VAD } : {}),
+    ...(typeof options.diarize === 'boolean'
+      ? { diarize: options.diarize }
+      : fields.diarizationMode === 'optional' ? { diarize: false } : {}),
   };
 }
 
@@ -149,15 +175,12 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
     inputFor: (_doc, column) => {
       const limit = Number(timeLimit);
       if (!Number.isFinite(limit) || limit <= 0) throw new Error('Enter a positive duration in seconds.');
-      const options = optionsOf(column);
-      const fields = transcribeFieldsForEngine(catalogRef.current.find((engine) => engine.id === column.engineId));
-      return {
-        engine: column.engineId!, time_limit_seconds: limit,
-        ...(fields.language ? { language: options.language || null } : {}),
-        ...(fields.modelSize ? { model_size: options.modelSize || DEFAULT_MODEL_SIZE } : {}),
-        ...(fields.vad ? { vad: options.vad ?? DEFAULT_VAD } : {}),
-        ...(fields.diarizationMode === 'optional' ? { diarize: options.diarize ?? false } : {}),
-      };
+      return transcribeCompareInputFor(
+        catalogRef.current.find((engine) => engine.id === column.engineId),
+        column.engineId!,
+        optionsOf(column),
+        limit,
+      );
     },
     estimate: (file, input) => projectApi.estimateTranscribeScratch(file, input),
     start: (file, input) => projectApi.compareTranscribeScratch(file, input),
@@ -499,6 +522,13 @@ function TranscribeOptionFields({
 }) {
   const options = optionsOf(column);
   const fields = transcribeFieldsForEngine(engine);
+  const semanticDiarization = engine?.diarization;
+  const semanticDiarizationMode = resolveTranscribeDiarizationMode(semanticDiarization);
+  const activeDiarization = transcribeDiarizationForEngine(engine);
+  const targetDiarizationUnavailable = Boolean(
+    semanticDiarization?.supported && !activeDiarization?.supported,
+  );
+  const targetOptionReason = transcribeActiveTargetOptionReason(engine);
   const languageDeclaration = engine?.language;
   const languageOptions = [
     ...(languageDeclaration?.allows_auto === false
@@ -511,6 +541,7 @@ function TranscribeOptionFields({
     && !fields.modelSize
     && !fields.vad
     && fields.diarizationMode === 'none'
+    && !targetDiarizationUnavailable
   ) {
     return (
       <div className="ocr-compare-configure-hint muted">
@@ -520,11 +551,23 @@ function TranscribeOptionFields({
   }
   return (
     <>
-      {fields.diarizationMode === 'optional' && <label className="form-label">
+      {(fields.diarizationMode === 'optional'
+        || (targetDiarizationUnavailable && semanticDiarizationMode === 'optional')) && <label className="form-label">
         <input type="checkbox" checked={options.diarize ?? false}
-          data-testid="transcribe-compare-configure-diarize" onChange={(event) => onSetDiarize(event.target.checked)} /> Identify speakers
+          data-testid="transcribe-compare-configure-diarize"
+          disabled={targetDiarizationUnavailable && !options.diarize}
+          aria-describedby={targetDiarizationUnavailable ? 'transcribe-compare-diarize-unavailable' : undefined}
+          onChange={(event) => {
+            if (targetDiarizationUnavailable && event.target.checked) return;
+            onSetDiarize(event.target.checked);
+          }} /> Identify speakers
       </label>}
-      {fields.diarizationMode === 'intrinsic' ? (
+      {targetDiarizationUnavailable && <p className="ocr-compare-configure-hint muted"
+        id="transcribe-compare-diarize-unavailable"
+        data-testid="transcribe-compare-diarize-unavailable">
+        {targetOptionReason}
+      </p>}
+      {!targetDiarizationUnavailable && fields.diarizationMode === 'intrinsic' ? (
         <div
           className="ocr-compare-configure-hint"
           data-testid="transcribe-compare-diarization-intrinsic"

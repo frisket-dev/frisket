@@ -73,22 +73,21 @@ def _resolve(engine: str, options: dict | None = None) -> Resolution | Refusal:
     )
 
 
-def test_same_engine_resolves_local_or_gateway_from_options(monkeypatch, tmp_path):
+def test_same_engine_refuses_an_option_its_local_target_cannot_honor(monkeypatch, tmp_path):
     _activate_both(monkeypatch, tmp_path)
 
     local = _resolve("parakeet-tdt")
-    hosted = _resolve("parakeet-tdt", {"diarize": True})
+    diarized = _resolve("parakeet-tdt", {"diarize": True})
 
-    assert isinstance(local, Resolution) and isinstance(hosted, Resolution)
-    assert local.facts.engine == hosted.facts.engine == "parakeet-tdt"
+    assert isinstance(local, Resolution)
     assert local.target.id == "local-onnx"
-    assert hosted.target.id == "models-gateway"
     assert local.support.transport == "local"
-    assert hosted.support.transport == "frisket.transcription.v1"
     assert local.support.run_scoped is True
-    assert hosted.support.run_scoped is False
     assert local.support.options.diarization_mode == "none"
-    assert hosted.support.options.diarization_mode == "optional"
+    assert isinstance(diarized, Refusal)
+    assert diarized.family == "no_capable_target"
+    assert diarized.target_id == "local-onnx"
+    assert "diarization" in diarized.remedy
 
 
 def test_omitted_transcribe_engine_defaults_to_local_parakeet(monkeypatch, tmp_path):
@@ -126,16 +125,16 @@ def test_diarize_on_local_only_roster_refuses_never_drops():
     assert "diarization" in choice.remedy
 
 
-def test_diarize_with_dead_gateway_never_substitutes_local(monkeypatch, tmp_path):
+def test_diarize_does_not_probe_or_select_the_gateway(monkeypatch, tmp_path):
     _activate_both(monkeypatch, tmp_path)
     monkeypatch.delenv("FRISKET_MODELS_TOKEN")
 
     result = _resolve("parakeet-tdt", {"diarize": True})
 
     assert isinstance(result, Refusal)
-    assert result.family == "no_live_target"
-    assert result.target_id == "models-gateway"
-    assert "FRISKET_MODELS_TOKEN" in result.remedy
+    assert result.family == "no_capable_target"
+    assert result.target_id == "local-onnx"
+    assert "diarization" in result.remedy
 
 
 def _route_for(target_id: str, transport: str) -> RouteRow:

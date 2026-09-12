@@ -42,7 +42,7 @@ class LanguageDeclaration(ContractModel):
     """Per-engine language capability, engine-generic.
 
     - ``auto_only``  — the engine ignores any language hint (renders no
-      control). Distinct from ``fixed``: auto_only genuinely auto-detects.
+      control). Distinct from ``fixed``: auto_only chooses the language automatically; it reports one only when ``detects`` is true.
     - ``fixed``      — the engine only ever does ``fixed_language``. UI can
       name that language honestly; no control.
     - ``single``     — one language OR Auto. UI renders one Auto-first picker.

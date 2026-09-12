@@ -23,6 +23,14 @@ const INTRINSIC_FIXTURE: EngineOption = {
     mode: 'intrinsic',
     speaker_hint: 'none',
   },
+  target_id: 'fixture-sidecar',
+  targets: [{
+    target: 'fixture-sidecar',
+    target_id: 'fixture-sidecar',
+    available: true,
+    transcription_options: { language: true, vad: false, model_size: false },
+    diarization: { supported: true, mode: 'intrinsic', speaker_hint: 'none' },
+  }],
 };
 
 describe('transcription engine option declarations', () => {
@@ -39,21 +47,23 @@ describe('transcription engine option declarations', () => {
     const noMode: EngineOption = {
       ...INTRINSIC_FIXTURE,
       diarization: { supported: true, speaker_hint: 'count' },
+      targets: [{ ...INTRINSIC_FIXTURE.targets![0],
+        diarization: { supported: true, speaker_hint: 'count' } }],
     };
     expect(transcribeDiarizationMode(noMode)).toBe('optional');
     expect(noMode.diarization?.speaker_hint).toBe('count');
   });
 
-  it('uses explicit fallback declarations for a version-skewed built-in', () => {
+  it('fails closed when a version-skewed catalog has no selected target row', () => {
     const oldWhisperCatalogEntry: EngineOption = {
       id: 'faster_whisper',
       label: 'Old cached Whisper entry',
       tier: 'local',
     };
     expect(transcribeOptionsForEngine(oldWhisperCatalogEntry)).toMatchObject({
-      language: true,
-      vad: true,
-      model_size: true,
+      language: false,
+      vad: false,
+      model_size: false,
     });
   });
 
@@ -93,6 +103,9 @@ describe('transcription engine option declarations', () => {
         ...INTRINSIC_FIXTURE.transcription_options!,
         context: true,
       },
+      targets: [{ ...INTRINSIC_FIXTURE.targets![0], transcription_options: {
+        ...INTRINSIC_FIXTURE.targets![0].transcription_options!, context: true,
+      } }],
     };
     expect(transcribeOptionsForEngine(declaring).context).toBe(true);
     // Declared false — and a declaration MISSING the field entirely (a
@@ -101,17 +114,18 @@ describe('transcription engine option declarations', () => {
     expect(transcribeOptionsForEngine({
       ...declaring,
       transcription_options: { ...declaring.transcription_options!, context: false },
+      targets: [{ ...declaring.targets![0], transcription_options: {
+        ...declaring.targets![0].transcription_options!, context: false,
+      } }],
     }).context).toBe(false);
   });
 
-  it('carries the moss built-in context declaration through the fallback', () => {
-    // A version-skewed live moss entry without transcription_options
-    // inherits the artifact-backed fallback, which declares context (R2).
+  it('does not unlock fallback context without a selected target row', () => {
     const stale: EngineOption = { id: 'moss', label: 'Old moss entry', tier: 'sidecar' };
-    expect(transcribeOptionsForEngine(stale)).toMatchObject({ context: true });
+    expect(transcribeOptionsForEngine(stale)).toMatchObject({ context: false });
     expect(transcribeOptionsForEngine(
       TRANSCRIBE_ENGINE_FALLBACK.find((engine) => engine.id === 'moss'),
-    )).toMatchObject({ context: true });
+    )).toMatchObject({ context: false });
   });
 
   it('keeps VibeVoice-ASR unavailable while preserving its intrinsic profile', () => {
@@ -130,7 +144,7 @@ describe('transcription engine option declarations', () => {
         context: true,
       },
     });
-    expect(transcribeDiarizationMode(vibevoice)).toBe('intrinsic');
+    expect(transcribeDiarizationMode(vibevoice)).toBe('none');
   });
 });
 
