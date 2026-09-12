@@ -7,7 +7,7 @@ import test from 'node:test';
 
 import { prepareRuntime } from '../src/provision.mjs';
 
-async function fixture({ corruptRequirements = false, delay = false } = {}) {
+async function fixture({ corruptRequirements = false, pythonVersion = '3.12.13', realGuard = false, ignoreTermGrandchild = false } = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'frisket-provision-'));
   const resources = path.join(root, 'resources');
   const data = path.join(root, 'data');
@@ -20,27 +20,36 @@ async function fixture({ corruptRequirements = false, delay = false } = {}) {
   const digest = createHash('sha256').update(requirements).digest('hex');
   await fs.writeFile(path.join(resources, 'runtime.json'), JSON.stringify({
     schema: 1,
-    pythonVersion: '3.12.13',
+    pythonVersion,
     uvVersion: '0.11.29',
     requirementsSha256: digest,
     playwrightVersion: '1.62.0',
   }));
   await fs.writeFile(path.join(runtime, '_bootstrap.py'), '# fake bootstrap\n');
-  await fs.writeFile(path.join(runtime, '_guard.py'), '# fake guard\n');
+  const guard = path.join(runtime, '_guard.py');
+  if (realGuard) await fs.copyFile(new URL('../../src/frisket/runtime/_guard.py', import.meta.url), guard);
+  else await fs.writeFile(guard, '# fake guard\n');
   const trace = path.join(root, 'trace.jsonl');
+  const grandchildPid = path.join(root, 'term-ignoring-grandchild.pid');
+  const grandchildReady = path.join(root, 'term-ignoring-grandchild.ready');
   const fake = `#!${process.execPath}
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawn } = require('node:child_process');
 const trace = ${JSON.stringify(trace)};
 const args = process.argv.slice(2);
 fs.appendFileSync(trace, JSON.stringify({ args, pythonpath: process.env.PYTHONPATH, nodeOptions: process.env.NODE_OPTIONS, cache: process.env.UV_CACHE_DIR }) + '\\n');
-if (fs.existsSync(${JSON.stringify(path.join(root, 'delay'))})) setTimeout(() => process.exit(0), 5000);
-else if (args.includes('sync') && fs.existsSync(${JSON.stringify(path.join(root, 'fail-sync-once'))})) { fs.unlinkSync(${JSON.stringify(path.join(root, 'fail-sync-once'))}); process.stderr.write('token=should-not-escape\\n'); process.exit(17); }
+if (args.includes('sync') && ${JSON.stringify(ignoreTermGrandchild)}) {
+  const descendant = spawn(process.execPath, ['-e', ${JSON.stringify(`const fs = require('node:fs'); process.on('SIGTERM', () => {}); fs.writeFileSync(${JSON.stringify(grandchildReady)}, 'ready'); setInterval(() => {}, 1000)`)}], { stdio: 'ignore' });
+  fs.writeFileSync(${JSON.stringify(grandchildPid)}, String(descendant.pid));
+  setInterval(() => {}, 1000);
+} else if (args.includes('sync') && fs.existsSync(${JSON.stringify(path.join(root, 'fail-sync-once'))})) { fs.unlinkSync(${JSON.stringify(path.join(root, 'fail-sync-once'))}); process.stderr.write('token=should-not-escape\\n'); process.exit(17); }
 else {
   if (args[0] === 'venv') {
     const python = path.join(args[1], 'bin', 'python');
     fs.mkdirSync(path.dirname(python), { recursive: true });
-    fs.copyFileSync(process.argv[1], python);
+    if (${JSON.stringify(realGuard)}) fs.writeFileSync(python, '#!/bin/sh\\nexec ' + ${JSON.stringify(JSON.stringify('/usr/bin/python3'))} + ' "$@"\\n');
+    else fs.copyFileSync(process.argv[1], python);
     fs.chmodSync(python, 0o755);
   }
   process.exit(0);
@@ -50,9 +59,22 @@ else {
     await fs.writeFile(file, name === 'uv' ? fake : '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   }
   return {
-    root, resources, data, trace,
+    root, resources, data, trace, grandchildPid, grandchildReady,
     cleanup: () => fs.rm(root, { recursive: true, force: true }),
   };
+}
+
+async function waitForFile(filename) {
+  const deadline = Date.now() + 1_000;
+  while (Date.now() < deadline) {
+    try {
+      return await fs.readFile(filename, 'utf8');
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`timed out waiting for ${filename}`);
 }
 
 async function traceLines(filename) {
@@ -70,6 +92,19 @@ test('refuses requirements whose digest differs from the manifest', async () => 
     await assert.rejects(
       prepareRuntime({ resourcesPath: subject.resources, dataPath: subject.data }),
       /integrity verification/,
+    );
+    assert.deepEqual(await traceLines(subject.trace), []);
+  } finally {
+    await subject.cleanup();
+  }
+});
+
+test('refuses malformed runtime versions before starting a process', async () => {
+  const subject = await fixture({ pythonVersion: '3.12.13;unexpected' });
+  try {
+    await assert.rejects(
+      prepareRuntime({ resourcesPath: subject.resources, dataPath: subject.data }),
+      /unsupported format/,
     );
     assert.deepEqual(await traceLines(subject.trace), []);
   } finally {
@@ -97,7 +132,7 @@ test('repairs an incomplete environment and records completion only after every 
     await fs.access(ready.python, fsConstants.X_OK);
     const all = await traceLines(subject.trace);
     const venvCalls = all.filter(({ args }) => args[0] === 'venv');
-    assert.deepEqual(all[0].args.slice(0, 5), ['python', 'install', '3.12.13', '--managed-python', '--no-config']);
+    assert.deepEqual(all[0].args.slice(0, 6), ['python', 'install', '3.12.13', '--managed-python', '--no-bin', '--no-config']);
     assert.equal(venvCalls.length, 2);
     assert.equal(venvCalls[1].args.includes('--clear'), true);
     const sync = all.find(({ args }) => args.includes('sync'));
@@ -121,13 +156,18 @@ test('repairs an incomplete environment and records completion only after every 
   }
 });
 
-test('cancels and waits for an owned provisioning process', async () => {
-  const subject = await fixture({ delay: true });
+test('the bundled guardian reaps a TERM-ignoring descendant before cancellation resolves', async () => {
+  const subject = await fixture({ realGuard: true, ignoreTermGrandchild: true });
   const controller = new AbortController();
   try {
     const pending = prepareRuntime({ resourcesPath: subject.resources, dataPath: subject.data, signal: controller.signal });
-    setTimeout(() => controller.abort(), 50);
+    const grandchild = Number(await waitForFile(subject.grandchildPid));
+    await waitForFile(subject.grandchildReady);
+    const started = Date.now();
+    controller.abort();
     await assert.rejects(pending, (error) => error.name === 'AbortError');
+    assert.ok(Date.now() - started >= 1_800, 'the guardian received its full two-second cleanup grace');
+    assert.throws(() => process.kill(grandchild, 0), (error) => error.code === 'ESRCH');
   } finally {
     await subject.cleanup();
   }

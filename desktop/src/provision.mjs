@@ -5,6 +5,8 @@ import { spawn } from 'node:child_process';
 
 const MARKER = '.frisket-runtime-ready.json';
 const TAIL_LIMIT = 8_192;
+const GUARD_GRACE_SECONDS = '2';
+const FORCE_CANCEL_MS = 5_000;
 
 /**
  * Prepare the private Python runtime shipped with this application.
@@ -39,7 +41,7 @@ export async function prepareRuntime({ resourcesPath, dataPath, onProgress = () 
     return { python, env };
   }
 
-  const uv = path.join(resources, 'bin', executableName('uv'));
+  const uv = path.join(resources, 'bin', 'uv');
   const bootstrap = path.join(resources, 'python', 'frisket', 'runtime', '_bootstrap.py');
   const guard = path.join(resources, 'python', 'frisket', 'runtime', '_guard.py');
   const wasIncomplete = await exists(environmentPath);
@@ -49,7 +51,7 @@ export async function prepareRuntime({ resourcesPath, dataPath, onProgress = () 
   await fs.mkdir(path.join(data, 'cache', 'playwright', manifest.playwrightVersion), { recursive: true });
 
   onProgress('Installing the private Python interpreter…');
-  await run(uv, ['python', 'install', manifest.pythonVersion, '--managed-python', '--no-config'], {
+  await run(uv, ['python', 'install', manifest.pythonVersion, '--managed-python', '--no-bin', '--no-config'], {
     label: 'installing private Python', env, signal,
   });
 
@@ -60,7 +62,7 @@ export async function prepareRuntime({ resourcesPath, dataPath, onProgress = () 
   await assertFile(python, 'private Python');
 
   // Once a venv exists, the bundled guardian owns each child process group.
-  const guarded = (command, args, label) => run(python, ['-I', guard, String(process.pid), '2', command, ...args], {
+  const guarded = (command, args, label) => run(python, ['-I', guard, String(process.pid), GUARD_GRACE_SECONDS, command, ...args], {
     label, env, signal,
   });
   onProgress('Installing private Python dependencies…');
@@ -77,14 +79,8 @@ export async function prepareRuntime({ resourcesPath, dataPath, onProgress = () 
   return { python, env };
 }
 
-function executableName(name) {
-  return process.platform === 'win32' ? `${name}.exe` : name;
-}
-
 function pythonPath(environmentPath) {
-  return process.platform === 'win32'
-    ? path.join(environmentPath, 'Scripts', 'python.exe')
-    : path.join(environmentPath, 'bin', 'python');
+  return path.join(environmentPath, 'bin', 'python');
 }
 
 function runtimeId(manifest) {
@@ -108,11 +104,15 @@ async function readManifest(filename) {
   } catch {
     throw new Error('Runtime manifest is missing or invalid.');
   }
-  if (!value || value.schema !== 1 || typeof value.pythonVersion !== 'string' || typeof value.uvVersion !== 'string'
-    || typeof value.playwrightVersion !== 'string' || !/^[a-f0-9]{64}$/i.test(value.requirementsSha256 ?? '')) {
+  if (!value || value.schema !== 1 || !isVersion(value.pythonVersion) || !isVersion(value.uvVersion)
+    || !isVersion(value.playwrightVersion) || !/^[a-f0-9]{64}$/i.test(value.requirementsSha256 ?? '')) {
     throw new Error('Runtime manifest has an unsupported format.');
   }
   return { ...value, requirementsSha256: value.requirementsSha256.toLowerCase() };
+}
+
+function isVersion(value) {
+  return typeof value === 'string' && /^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(value);
 }
 
 async function verifyRequirements(filename, expected) {
@@ -130,10 +130,10 @@ async function verifyRequirements(filename, expected) {
 
 async function verifyResources(resources) {
   const required = [
-    path.join(resources, 'bin', executableName('uv')),
-    path.join(resources, 'bin', executableName('ffmpeg')),
-    path.join(resources, 'bin', executableName('ffprobe')),
-    path.join(resources, 'bin', executableName('deno')),
+    path.join(resources, 'bin', 'uv'),
+    path.join(resources, 'bin', 'ffmpeg'),
+    path.join(resources, 'bin', 'ffprobe'),
+    path.join(resources, 'bin', 'deno'),
     path.join(resources, 'python', 'frisket', 'runtime', '_bootstrap.py'),
     path.join(resources, 'python', 'frisket', 'runtime', '_guard.py'),
   ];
@@ -188,7 +188,7 @@ function backendEnvironment({ resources, data, environmentPath, manifest }) {
   env.UV_PYTHON_INSTALL_DIR = path.join(data, 'python');
   if (process.env.UV_OFFLINE !== undefined) env.UV_OFFLINE = process.env.UV_OFFLINE;
   env.PLAYWRIGHT_BROWSERS_PATH = path.join(cache, 'playwright', manifest.playwrightVersion);
-  env.FRISKET_FFPROBE_PATH = path.join(resourcesBin, executableName('ffprobe'));
+  env.FRISKET_FFPROBE_PATH = path.join(resourcesBin, 'ffprobe');
   env.FRISKET_MODEL_CACHE_DIR = path.join(cache, 'models');
   env.HF_HUB_CACHE = path.join(cache, 'huggingface');
   env.FASTEMBED_CACHE_PATH = path.join(cache, 'fastembed');
@@ -239,24 +239,35 @@ function run(command, args, { label, env, signal }) {
   return new Promise((resolve, reject) => {
     let output = '';
     let aborted = false;
+    let forcedCleanup = false;
     let settled = false;
-    const child = spawn(command, args, { env, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
+    let forceTimer;
+    const child = spawn(command, args, { env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const clearForceTimer = () => {
+      if (forceTimer) clearTimeout(forceTimer);
+      forceTimer = undefined;
+    };
     const cancel = () => {
       aborted = true;
       if (child.pid) {
         try {
-          process.kill(process.platform === 'win32' ? child.pid : -child.pid, 'SIGTERM');
+          process.kill(-child.pid, 'SIGTERM');
         } catch (error) {
-          if (error.code !== 'ESRCH') rejectOnce(error);
+          if (error.code !== 'ESRCH') {
+            rejectOnce(new Error('Private runtime cancellation could not prove process cleanup.'));
+          }
+          return;
         }
-        setTimeout(() => {
-          try { process.kill(process.platform === 'win32' ? child.pid : -child.pid, 'SIGKILL'); } catch {}
-        }, 2_000).unref();
+        forceTimer = setTimeout(() => {
+          forcedCleanup = true;
+          try { process.kill(-child.pid, 'SIGKILL'); } catch {}
+        }, FORCE_CANCEL_MS).unref();
       }
     };
     const rejectOnce = (error) => {
       if (settled) return;
       settled = true;
+      clearForceTimer();
       signal?.removeEventListener('abort', cancel);
       reject(error);
     };
@@ -266,13 +277,18 @@ function run(command, args, { label, env, signal }) {
     child.once('close', (code, childSignal) => {
       if (settled) return;
       settled = true;
+      clearForceTimer();
       signal?.removeEventListener('abort', cancel);
-      if (aborted || signal?.aborted) return reject(abortError());
+      if (aborted || signal?.aborted) {
+        if (forcedCleanup) return reject(new Error('Private runtime cancellation could not prove process cleanup.'));
+        return reject(abortError());
+      }
       if (code === 0) return resolve();
       const tail = redact(output.trim());
       const detail = tail ? ` ${tail}` : childSignal ? ` (${childSignal})` : '';
       reject(new Error(`Private runtime failed while ${label}.${detail}`));
     });
     signal?.addEventListener('abort', cancel, { once: true });
+    if (signal?.aborted) cancel();
   });
 }
