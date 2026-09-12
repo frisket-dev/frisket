@@ -18,7 +18,9 @@ There is no system Python, Homebrew, Node, or terminal setup for an app user.
 
 To update, quit Frisket Desktop with **Cmd-Q** or close its last window, open the new DMG, drag Frisket Desktop into
 Applications, choose **Replace**, and reopen it. Your workspace and caches survive
-replacement; a dependency change may require another download.
+replacement; a dependency change may require another download. If your older beta
+is named `Frisket.app`, quit it and remove that old application bundle after
+installing `Frisket Desktop.app`; both use the same preserved workspace folder.
 
 The current beta is ad-hoc signed and not notarized. Developer ID signing,
 notarization and a signed update feed remain release work; this build does not
