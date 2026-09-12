@@ -14,7 +14,9 @@ def test_runtime_schema_remains_authoritative_for_typed_details_outputs() -> Non
     schema = metadata.MEDIA_METADATA_ENVELOPE_SCHEMA
     Draft202012Validator.check_schema(schema)
     terminal = ACTION_REGISTRY.get("media.extract_metadata").definition.run
-    object_fields = terminal.resolve_output_fields(MetadataParams(source="asset"))
+    object_fields = terminal.resolve_output_fields(
+        MetadataParams(source="asset", output_mode="object")
+    )
     columns_fields = terminal.resolve_output_fields(
         MetadataParams(source="asset", output_mode="columns")
     )
