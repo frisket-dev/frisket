@@ -46,7 +46,7 @@ function renderSelector(onSelect = vi.fn()) {
       value="parakeet"
       recentNamespace="component-test"
       onSelect={onSelect}
-      renderDetailFooter={({ choice, pinned }) => <div data-testid="setup-footer">{choice.id}:{String(pinned)}</div>}
+      renderDetailFooter={({ choice, pinned }) => <button type="button" data-testid="setup-footer">{choice.id}:{String(pinned)}</button>}
     />,
   );
   return onSelect;
@@ -74,6 +74,8 @@ describe('EngineSelector', () => {
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 'whisper' }));
     expect(screen.getByTestId('engine-selector-dialog')).toBeVisible();
     expect(screen.getByTestId('setup-footer')).toHaveTextContent('whisper:true');
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    expect(screen.getByTestId('setup-footer')).toHaveFocus();
   });
 
   it('only inspects an unavailable choice', async () => {
@@ -105,7 +107,7 @@ describe('EngineSelector', () => {
     const parakeet = screen.getByTestId('engine-selector-dialog').querySelector<HTMLButtonElement>('[data-engine-selector-choice="parakeet"]')!;
     parakeet.focus();
     await userEvent.keyboard('{ArrowDown}');
-    expect(screen.getByRole('button', { name: /whisper/i })).toHaveFocus();
+    expect(screen.getByTestId('engine-selector-dialog').querySelector('[data-engine-selector-choice="whisper"]')).toHaveFocus();
 
     fireEvent(screen.getByTestId('engine-selector-dialog'), new Event('cancel', { cancelable: true }));
     expect(screen.queryByTestId('engine-selector-dialog')).not.toBeInTheDocument();
@@ -123,5 +125,58 @@ describe('EngineSelector', () => {
     await userEvent.click(screen.getByRole('button', { name: /select and set up/i }));
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 'whisper' }));
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: oldWidth });
+  });
+
+  it('keeps mobile provider tabs and returns focus to the tapped choice from detail', async () => {
+    const oldWidth = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 500 });
+    renderSelector();
+    await userEvent.click(screen.getByRole('button', { name: /parakeet/i }));
+    await userEvent.click(screen.getByRole('button', { name: 'OpenAI' }));
+    expect(screen.getByRole('button', { name: /openai 0/i })).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: /openai 0/i }));
+    const back = screen.getByRole('button', { name: /back/i });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    expect(back).toHaveFocus();
+    await userEvent.click(back);
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    expect(screen.getByRole('button', { name: /openai 0/i })).toHaveFocus();
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: oldWidth });
+  });
+
+  it('replaces provider hover intent before a later choice hover can preview', async () => {
+    const oldWidth = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1200 });
+    renderSelector();
+    const trigger = screen.getByRole('button', { name: /parakeet/i });
+    vi.spyOn(trigger, 'getBoundingClientRect').mockReturnValue(new DOMRect(600, 100, 300, 40));
+    await userEvent.click(trigger);
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const dialog = screen.getByTestId('engine-selector-dialog');
+    fireEvent.mouseEnter(dialog.querySelector('[data-engine-selector-group="openai"]')!);
+    fireEvent.mouseLeave(dialog.querySelector('[data-engine-selector-group="openai"]')!);
+    fireEvent.mouseEnter(dialog.querySelector('[data-engine-selector-choice="whisper"]')!);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(screen.getByRole('heading', { name: 'Whisper' })).toBeVisible();
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: oldWidth });
+  });
+
+  it('portals setup forms and stops their submit from reaching the action form', async () => {
+    const outerSubmit = vi.fn();
+    render(
+      <form onSubmit={outerSubmit}>
+        <EngineSelector
+          label="Engine"
+          groups={groups}
+          value="parakeet"
+          recentNamespace="outer-form"
+          onSelect={vi.fn()}
+          renderDetailFooter={() => <form data-testid="setup-form"><button type="submit">Save setup</button></form>}
+        />
+      </form>,
+    );
+    await userEvent.click(screen.getByRole('button', { name: /parakeet/i }));
+    fireEvent.submit(screen.getByTestId('setup-form'));
+    expect(outerSubmit).not.toHaveBeenCalled();
   });
 });

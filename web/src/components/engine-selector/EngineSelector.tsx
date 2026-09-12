@@ -7,6 +7,7 @@ import {
   type KeyboardEvent,
 } from 'react';
 import { ExternalLink } from 'lucide-react';
+import { createPortal } from 'react-dom';
 
 import { useAnchoredPosition } from '../../hooks/useAnchoredPosition';
 import type {
@@ -81,9 +82,11 @@ export function EngineSelector({
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const detailFooterRef = useRef<HTMLDivElement | null>(null);
+  const mobileBackRef = useRef<HTMLButtonElement | null>(null);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restoreFocusRef = useRef(false);
   const pinnedIdRef = useRef<string | null>(null);
+  const editingSetupRef = useRef(false);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
@@ -92,6 +95,7 @@ export function EngineSelector({
   const [editingSetup, setEditingSetup] = useState(false);
   const [providerFilter, setProviderFilter] = useState('');
   const [mobileDetail, setMobileDetail] = useState(false);
+  const [mobileOriginId, setMobileOriginId] = useState<string | null>(null);
   const [wideAnchor, setWideAnchor] = useState(false);
   const [expandedFacts, setExpandedFacts] = useState<ReadonlySet<string>>(new Set());
 
@@ -137,13 +141,26 @@ export function EngineSelector({
     minHeight: 240,
   });
 
-  useEffect(() => () => {
+  const cancelHoverIntent = () => {
     if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
-  }, []);
+    hoverTimerRef.current = null;
+  };
+
+  useEffect(() => () => cancelHoverIntent(), []);
 
   useEffect(() => {
     pinnedIdRef.current = pinnedId;
   }, [pinnedId]);
+
+  useEffect(() => {
+    editingSetupRef.current = editingSetup;
+  }, [editingSetup]);
+
+  useEffect(() => {
+    if (!mobileDetail) return undefined;
+    const focus = requestAnimationFrame(() => mobileBackRef.current?.focus());
+    return () => cancelAnimationFrame(focus);
+  }, [mobileDetail]);
 
   useEffect(() => {
     if (!open && restoreFocusRef.current) {
@@ -160,7 +177,9 @@ export function EngineSelector({
     setPinnedId(null);
     setEditingSetup(false);
     setMobileDetail(false);
+    setMobileOriginId(null);
     setProviderFilter('');
+    setQuery('');
   // Opening is the boundary where committed selection becomes the preview.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -193,24 +212,29 @@ export function EngineSelector({
   }, [open]);
 
   const close = () => {
+    cancelHoverIntent();
     restoreFocusRef.current = true;
     setOpen(false);
   };
 
   const explicitPreview = (choice: EngineSelectorChoice, showMobileDetail = false) => {
-    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    cancelHoverIntent();
     setPinnedId(null);
     setEditingSetup(false);
     setPreviewedId(choice.id);
     setActiveGroupId(groupForChoice(groups, choice.id)?.id ?? null);
-    if (showMobileDetail) setMobileDetail(true);
+    if (showMobileDetail) {
+      setMobileOriginId(choice.id);
+      setMobileDetail(true);
+    }
   };
 
   const previewAfterIntent = (choice: EngineSelectorChoice) => {
-    if (pinnedIdRef.current || hoverTimerRef.current) return;
+    if (pinnedIdRef.current || editingSetupRef.current) return;
+    cancelHoverIntent();
     hoverTimerRef.current = setTimeout(() => {
       hoverTimerRef.current = null;
-      if (!pinnedIdRef.current && !editingSetup) {
+      if (!pinnedIdRef.current && !editingSetupRef.current) {
         setPreviewedId(choice.id);
         setActiveGroupId(groupForChoice(groups, choice.id)?.id ?? null);
       }
@@ -231,7 +255,12 @@ export function EngineSelector({
     }
     setPinnedId(choice.id);
     setEditingSetup(choice.status === 'needs_setup');
-    requestAnimationFrame(() => detailFooterRef.current?.focus());
+    requestAnimationFrame(() => {
+      const setupControl = detailFooterRef.current?.querySelector<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      (setupControl ?? detailFooterRef.current)?.focus();
+    });
   };
 
   const onChoiceKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
@@ -243,13 +272,33 @@ export function EngineSelector({
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
       const next = (index + (event.key === 'ArrowDown' ? 1 : -1) + orderedChoices.length) % orderedChoices.length;
-      document.querySelector<HTMLButtonElement>(`[data-engine-selector-choice="${CSS.escape(orderedChoices[next].id)}"]`)?.focus();
+      dialogRef.current?.querySelector<HTMLButtonElement>(`[data-engine-selector-choice="${CSS.escape(orderedChoices[next].id)}"]`)?.focus();
       return;
     }
     if (event.key === 'ArrowLeft' && showGroups) {
       event.preventDefault();
-      document.querySelector<HTMLButtonElement>('[data-engine-selector-group]')?.focus();
+      if (currentGroup) dialogRef.current?.querySelector<HTMLButtonElement>(`[data-engine-selector-group="${CSS.escape(currentGroup.id)}"]`)?.focus();
     }
+  };
+
+  const onGroupKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      dialogRef.current?.querySelector<HTMLButtonElement>('[data-engine-selector-choice]')?.focus();
+      return;
+    }
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    event.preventDefault();
+    const next = (index + (event.key === 'ArrowDown' ? 1 : -1) + groups.length) % groups.length;
+    dialogRef.current?.querySelector<HTMLButtonElement>(`[data-engine-selector-group="${CSS.escape(groups[next].id)}"]`)?.focus();
+  };
+
+  const returnToMobileChoices = () => {
+    const origin = mobileOriginId;
+    setMobileDetail(false);
+    requestAnimationFrame(() => {
+      if (origin) dialogRef.current?.querySelector<HTMLButtonElement>(`[data-engine-selector-choice="${CSS.escape(origin)}"]`)?.focus();
+    });
   };
 
   const detailFooter: EngineSelectorDetailFooterContext | null = previewedChoice
@@ -257,7 +306,10 @@ export function EngineSelector({
         choice: previewedChoice,
         pinned: pinnedId === previewedChoice.id,
         regionRef: detailFooterRef,
-        onEditingChange: setEditingSetup,
+        onEditingChange: (editing) => {
+          editingSetupRef.current = editing;
+          setEditingSetup(editing);
+        },
       }
     : null;
   const triggerCopy = selectedChoice ?? previewedChoice;
@@ -284,7 +336,7 @@ export function EngineSelector({
         <span aria-hidden>⌄</span>
       </button>
 
-      {open && (
+      {open && createPortal(
         <dialog
           ref={dialogRef}
           className={`engine-selector__dialog${wideAnchor ? ' engine-selector__dialog--anchored' : ''}${mobileDetail ? ' engine-selector__dialog--mobile-detail' : ''}`}
@@ -298,6 +350,7 @@ export function EngineSelector({
           onClose={() => {
             if (open) close();
           }}
+          onSubmit={(event) => event.stopPropagation()}
         >
           <header className="engine-selector__header">
             <input
@@ -320,9 +373,11 @@ export function EngineSelector({
                   type="button"
                   aria-pressed={currentGroup?.id === group.id}
                   onClick={() => {
+                    cancelHoverIntent();
                     setActiveGroupId(group.id);
                     setPreviewedId(group.choices[0]?.id ?? null);
                     setPinnedId(null);
+                    setProviderFilter('');
                   }}
                 >{group.label}</button>
               ))}
@@ -332,30 +387,32 @@ export function EngineSelector({
           <div className="engine-selector__body">
             {showGroups && (
               <aside className="engine-selector__groups" aria-label="Providers">
-                {groups.map((group) => (
+                {groups.map((group, index) => (
                   <button
                     key={group.id}
                     type="button"
                     data-engine-selector-group={group.id}
                     className={group.id === currentGroup?.id ? 'is-active' : ''}
                     onMouseEnter={() => {
-                      if (pinnedIdRef.current) return;
+                      if (pinnedIdRef.current || editingSetupRef.current) return;
+                      cancelHoverIntent();
                       hoverTimerRef.current = setTimeout(() => {
+                        hoverTimerRef.current = null;
+                        if (pinnedIdRef.current || editingSetupRef.current) return;
                         setActiveGroupId(group.id);
                         setPreviewedId(group.choices[0]?.id ?? null);
+                        setProviderFilter('');
                       }, HOVER_DELAY_MS);
                     }}
+                    onMouseLeave={cancelHoverIntent}
                     onClick={() => {
+                      cancelHoverIntent();
                       setActiveGroupId(group.id);
                       setPreviewedId(group.choices[0]?.id ?? null);
                       setPinnedId(null);
+                      setProviderFilter('');
                     }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'ArrowRight') {
-                        event.preventDefault();
-                        document.querySelector<HTMLButtonElement>('[data-engine-selector-choice]')?.focus();
-                      }
-                    }}
+                    onKeyDown={(event) => onGroupKeyDown(event, index)}
                   >{group.label}</button>
                 ))}
               </aside>
@@ -386,6 +443,7 @@ export function EngineSelector({
                     data-choice-id={choice.id}
                     aria-current={value === choice.id ? 'true' : undefined}
                     onMouseEnter={() => previewAfterIntent(choice)}
+                    onMouseLeave={cancelHoverIntent}
                     onFocus={() => explicitPreview(choice)}
                     onClick={() => window.innerWidth < 600 ? explicitPreview(choice, true) : choose(choice)}
                     onKeyDown={(event) => onChoiceKeyDown(event, index)}
@@ -404,9 +462,9 @@ export function EngineSelector({
               })}
             </section>
 
-            <section className="engine-selector__detail" aria-live="polite">
+            <section className="engine-selector__detail" aria-live="polite" onMouseEnter={cancelHoverIntent}>
               <div className="engine-selector__detail-scroll">
-                {mobileDetail && <button type="button" className="engine-selector__back" onClick={() => setMobileDetail(false)}>← Back</button>}
+                {mobileDetail && <button ref={mobileBackRef} type="button" className="engine-selector__back" onClick={returnToMobileChoices}>← Back</button>}
                 {previewedChoice ? <>
                   <div className="engine-selector__detail-heading">
                     <div>
@@ -442,7 +500,8 @@ export function EngineSelector({
               </footer>}
             </section>
           </div>
-        </dialog>
+        </dialog>,
+        document.body,
       )}
     </div>
   );
