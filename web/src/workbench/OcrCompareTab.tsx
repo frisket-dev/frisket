@@ -449,6 +449,7 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
                   {configureVariantId === column.id ? (
                     <ConfigureVariantPopover
                       testidPrefix="ocr-compare"
+                      actionId="media.ocr"
                       popoverRef={configurePopoverRef}
                       style={popoverShift ? { transform: `translateX(${popoverShift}px)` } : undefined}
                       column={column}

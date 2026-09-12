@@ -10,15 +10,11 @@ import { ChevronLeft, ChevronRight, Copy, Loader2, RotateCw, X } from 'lucide-re
 
 import type { EngineOption } from '../api/open';
 import type { PreviewSampleResult } from '../api/types';
+import { SelectorField } from '../engine-selector/SelectorField';
+import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { formatDuration, formatUsd } from '../format';
-import {
-  engineTierLabel,
-  engineTierOptions,
-  engineUnavailableReason,
-  tierForEngine,
-} from '../actions/engineCatalog';
+import { tierForEngine } from '../actions/engineCatalog';
 import { EngineTierBadge } from '../components/EngineTierBadge';
-import { PanelSelect } from '../components/PanelSelect';
 import { ResizeSeam } from '../components/ResizeSeam';
 import { CompareDocList, CompareFrontDoor } from './mediaCompareBodyParts';
 import type { DiffToken } from './ocrDiff';
@@ -53,6 +49,7 @@ export interface ConfigureVariantPopoverProps {
   /** testid namespace ('ocr-compare' | 'transcribe-compare'); the popover's
    *  own testids are `${testidPrefix}-configure*` etc. */
   testidPrefix: string;
+  actionId: 'media.ocr' | 'media.transcribe' | 'map.find_topic_sections';
   popoverRef: React.RefObject<HTMLDivElement>;
   style?: React.CSSProperties;
   column: CompareColumn;
@@ -73,17 +70,18 @@ export interface ConfigureVariantPopoverProps {
  *  popover's own DOM: engine select, domain fields + duplicate footer. */
 export function ConfigureVariantPopover({
   testidPrefix,
+  actionId,
   popoverRef,
   style,
   column,
   catalog,
-  engineSelectRef,
   errorMessage,
   onChooseEngine,
   onDuplicate,
   renderOptionFields,
   laterHint,
 }: ConfigureVariantPopoverProps) {
+  const { chromePreferences: { projectId } } = useWorkspaceStores();
   const t = (suffix: string) => `${testidPrefix}-${suffix}`;
   const engine = column.engineId
     ? catalog.find((candidate) => candidate.id === column.engineId)
@@ -112,37 +110,33 @@ export function ConfigureVariantPopover({
             <EngineTierBadge tier={tierForEngine(engine)} testId={t('configure-engine-tier')} />
           )}
         </span>
-        <PanelSelect
-          ref={engineSelectRef}
-          className="row-height-select"
-          data-testid={t('configure-engine')}
-          value={column.engineId ?? ''}
-          onChange={(event) => onChooseEngine(event.target.value)}
-        >
-          <option value="" disabled>
-            Choose engine…
-          </option>
-          {/* Grouped by tier (same three-tier vocabulary as EnginePicker);
-              unavailable options carry the catalog's own reason inline —
-              never a bare disabled entry. */}
-          {engineTierOptions(catalog).map((tier) => (
-            <optgroup key={tier.tier} label={engineTierLabel(tier.tier)}>
-              {tier.engines.map((candidate) => {
-                const reason = engineUnavailableReason(candidate);
-                return (
-                  <option
-                    key={candidate.id}
-                    value={candidate.id}
-                    disabled={candidate.available === false}
-                  >
-                    {candidate.label}
-                    {reason ? ` (unavailable — ${reason})` : ''}
-                  </option>
-                );
-              })}
-            </optgroup>
-          ))}
-        </PanelSelect>
+        <SelectorField
+          projectId={projectId}
+          label="Engine"
+          query={{
+            schema_version: 'frisket.selector_choices_query.v1',
+            subject: {
+              kind: 'action',
+              action_id: actionId,
+              field: 'engine',
+              params: {
+                engine: column.engineId ?? '',
+                ...(typeof column.options.language === 'string' ? { language: column.options.language } : {}),
+                ...(typeof column.options.modelSize === 'string' ? { model_size: column.options.modelSize } : {}),
+                ...(typeof column.options.vad === 'boolean' ? { vad: column.options.vad } : {}),
+                ...(typeof column.options.clean === 'boolean' ? { clean: column.options.clean } : {}),
+                ...(typeof column.options.diarize === 'boolean' ? { diarize: column.options.diarize } : {}),
+              },
+            },
+          }}
+          queryKey={`compare:${actionId}:${column.engineId ?? ''}:${JSON.stringify(column.options)}`}
+          recentNamespace={`${projectId}:compare:${actionId}`}
+          onSelect={(choice) => {
+            if (choice.authored_selection.kind === 'engine') onChooseEngine(choice.authored_selection.engine);
+            if (choice.authored_selection.kind === 'engine_model') onChooseEngine(choice.authored_selection.engine);
+          }}
+          testId={t('configure-engine')}
+        />
       </label>
 
       {column.engineId ? (

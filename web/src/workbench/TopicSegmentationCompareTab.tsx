@@ -440,6 +440,7 @@ export function TopicSegmentationCompareTab({
                   {configureColumnId === column.id ? (
                     <ConfigureVariantPopover
                       testidPrefix="topic-compare"
+                      actionId="map.find_topic_sections"
                       popoverRef={configurePopoverRef}
                       column={column}
                       catalog={catalog}

@@ -327,6 +327,7 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
                   {configureVariantId === column.id ? (
                     <ConfigureVariantPopover
                       testidPrefix="transcribe-compare"
+                      actionId="media.transcribe"
                       popoverRef={configurePopoverRef}
                       style={popoverShift ? { transform: `translateX(${popoverShift}px)` } : undefined}
                       column={column}
