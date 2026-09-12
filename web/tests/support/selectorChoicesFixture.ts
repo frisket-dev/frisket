@@ -7,7 +7,7 @@ import type { GeneratedActionCatalogEntry, LocalProviderCatalog } from '../../sr
 import type { HttpSelectorChoicesQuery, HttpSelectorChoicesResponse } from '../../src/generated/openHttpContracts';
 import { installDialogPolyfill } from './domPolyfills';
 
-type Selection = Extract<SelectorChoice['authored_selection'], { kind: 'engine' | 'model' }>;
+type Selection = Extract<SelectorChoice['authored_selection'], { kind: 'engine' | 'engine_model' | 'model' }>;
 
 /** An explicitly admitted synthetic provider roster for form-only tests. */
 export function selectorProviderCatalog(modelIds: string[]): LocalProviderCatalog {
@@ -21,7 +21,8 @@ export function selectorProviderCatalog(modelIds: string[]): LocalProviderCatalo
 function choice(selection: Selection, label: string, available: boolean, reason?: string): SelectorChoice {
   return {
     choice_id: JSON.stringify(selection), authored_selection: selection, label,
-    summary: selection.kind === 'model' ? selection.model : selection.model ?? selection.engine,
+    summary: selection.kind === 'model' ? selection.model
+      : selection.kind === 'engine_model' ? selection.model ?? selection.engine : selection.engine,
     description: '', facts: [], resolved_target: null,
     processing_destination: { kind: 'unknown', label: 'Test execution target' },
     status: available ? 'ready' : 'unavailable', can_author: available, can_run: available,
@@ -53,18 +54,21 @@ export function actionSelectorResponse(
 ): HttpSelectorChoicesResponse {
   if (query.subject.kind !== 'action') throw new Error('An action selector subject is required');
   const subject = query.subject;
-  const mixed = entry.ui_hints.semantic_controls.engine === 'engine';
+  const hasEngine = entry.ui_hints.semantic_controls.engine === 'engine';
+  const hasModel = entry.ui_hints.semantic_controls.model === 'model';
+  const mixed = hasEngine && hasModel;
   const engines = entry.ui_hints.engines ?? [];
   const llm = engines.find((engine) => engine.id === 'llm');
   const groups: HttpSelectorChoicesResponse['groups'] = [];
   const fixed = engines.filter((engine) => engine.id !== 'llm').map((engine) => choice(
-    { kind: 'engine', engine: engine.id, ...(mixed ? { model: null } : {}) },
+    mixed ? { kind: 'engine_model', engine: engine.id, model: null } : { kind: 'engine', engine: engine.id },
     engine.label, engine.available, engine.error,
   ));
   if (fixed.length) groups.push({ group_id: 'local', kind: 'local', label: 'Local', status: 'ready', choices: fixed });
   for (const provider of catalog.providers) {
+    if (!hasModel) break;
     const models = provider.models.map((model) => choice(
-      mixed ? { kind: 'engine', engine: 'llm', model: model.id } : { kind: 'model', model: model.id },
+      mixed ? { kind: 'engine_model', engine: 'llm', model: model.id } : { kind: 'model', model: model.id },
       model.label, provider.configured && (!mixed || llm?.available === true),
       mixed && llm?.available !== true ? llm?.error ?? 'The LLM engine is not offered' : 'Provider setup is required',
     ));
@@ -75,13 +79,16 @@ export function actionSelectorResponse(
   const params = subject.params ?? {};
   const engine = typeof params.engine === 'string' ? params.engine : undefined;
   const model = typeof params.model === 'string' ? params.model : undefined;
-  const current: Selection | null = mixed
-    ? engine && (engine !== 'llm' || model) ? { kind: 'engine', engine, model: model ?? null } : null
+  const current: Selection | null = hasEngine
+    ? mixed
+      ? engine && (engine !== 'llm' || model) ? { kind: 'engine_model', engine, model: model ?? null } : null
+      : engine ? { kind: 'engine', engine } : null
     : model ? { kind: 'model', model } : null;
   const key = current ? JSON.stringify(current) : null;
   const selected = choices.find((candidate) => candidate.choice_id === key);
   const defaultEngine = entry.input_schema.properties?.engine?.default;
-  const preferred = choices.find((candidate) => candidate.can_run && candidate.authored_selection.kind === 'engine'
+  const preferred = choices.find((candidate) => candidate.can_run && (candidate.authored_selection.kind === 'engine'
+    || candidate.authored_selection.kind === 'engine_model')
     && candidate.authored_selection.engine === defaultEngine) ?? choices.find((candidate) => candidate.can_run);
   if (selected) selected.is_current = true;
   if (preferred) preferred.is_default = true;
@@ -89,7 +96,7 @@ export function actionSelectorResponse(
   if (orphan) orphan.is_current = true;
   return { schema_version: 'frisket.selector_choices.v1', project_id: projectId,
     subject: { kind: 'action', action_id: entry.kind, field: subject.field },
-    depends_on: mixed ? ['engine', 'model'] : ['model'], current_choice_id: selected?.choice_id ?? orphan?.choice_id ?? null,
+    depends_on: hasEngine ? mixed ? ['engine', 'model'] : ['engine'] : ['model'], current_choice_id: selected?.choice_id ?? orphan?.choice_id ?? null,
     default_choice_id: preferred?.choice_id ?? null, groups, orphaned_current: orphan };
 }
 
