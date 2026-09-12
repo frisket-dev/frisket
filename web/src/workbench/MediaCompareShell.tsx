@@ -608,6 +608,8 @@ export function MediaCompareBody<R>({
                     ? effectiveMode === 'diff' && diff === null
                       ? noDiffReason ?? 'waiting for both'
                       : 'no differences'
+                    : config.enableDiff === false
+                      ? 'results shown independently'
                     : 'survey — no diff'}
             </span>
           )}
