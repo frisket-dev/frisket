@@ -8,11 +8,13 @@ bounded configured-local-endpoint model listing in ``build_provider_catalog``.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping
 from typing import Any, cast
 
 
 from frisket.authoring.action_metadata import action_available_in_edition
+from frisket.ai.embeddings.capabilities import resolve_embedding_capability
 from frisket.authoring.copilot import default_copilot_model
 from frisket.contracts.http.selector_choices import (
     ActionSelectorSubject,
@@ -67,6 +69,7 @@ from frisket.server.services.selector_choices_projection import (
     _embedding_target,
     _embedding_facts,
     _opus_pair_supported,
+    _opus_pair_key,
 )
 
 
@@ -281,6 +284,16 @@ class SelectorChoiceService:
                 mixed=has_model_field,
             )
             depends_on = _engine_depends_on(properties, engines)
+            execution_capability = _optional_str(hints.get("execution_capability"))
+            if execution_capability is not None:
+                depends_on = list(
+                    dict.fromkeys(
+                        [
+                            *depends_on,
+                            *authored_options(properties, execution_capability),
+                        ]
+                    )
+                )
 
         return _response(
             project_id,
@@ -334,8 +347,12 @@ class SelectorChoiceService:
         capabilities: SelectorCapabilities,
     ) -> dict[str, Any]:
         del composition
+        environment = dict(os.environ)
+        for key in ENV_VAR.values():
+            environment.pop(key, None)
         catalog = embedding_provider_catalog_payload(
             router=router,
+            env=environment,
             modality=subject.modality,
             source_column_type=subject.source_column_type,
         )
@@ -366,6 +383,31 @@ class SelectorChoiceService:
             choices.append(choice)
             if candidate.get("recommended") and candidate.get("modality_compatible"):
                 recommended_selections.append(choice["authored_selection"])
+        if current_pair is not None and not any(
+            choice["authored_selection"]
+            == {
+                "kind": "embedding",
+                "provider": current_pair[0],
+                "model": current_pair[1],
+            }
+            for choice in choices
+        ):
+            custom = resolve_embedding_capability(
+                provider=current_pair[0],
+                model=current_pair[1],
+                modality=catalog.get("modality") or "text",
+                router=router,
+                env=environment,
+            )
+            if custom is not None and custom.get("available"):
+                choices.append(
+                    self._embedding_choice(
+                        router=router,
+                        project=project,
+                        capabilities=capabilities,
+                        row={**custom, "modality_compatible": True},
+                    )
+                )
         default = next(
             (selection for selection in recommended_selections),
             None,
@@ -561,6 +603,7 @@ class SelectorChoiceService:
             )
             destination = _engine_destination(engine, target)
             available = bool(engine.get("available"))
+            policy_forbidden = _network_off(project) and engine.get("tier") == "hosted"
             option_refusal = None
             if execution_capability is not None:
                 preferred = preferred_static_choice(
@@ -595,7 +638,16 @@ class SelectorChoiceService:
                 and not _mapping(engine.get("downloadable_model")).get("installed")
                 else None
             )
-            if engine_id == "parakeet-tdt" and active_target_id == "local-onnx":
+            if policy_forbidden:
+                status = "unavailable"
+                blocker = {
+                    "code": "project_network_off",
+                    "message": str(
+                        engine.get("error") or "This project's network setting is off."
+                    ),
+                    "field": None,
+                }
+            elif engine_id == "parakeet-tdt" and active_target_id == "local-onnx":
                 if not parakeet_runtime_present():
                     setup = {
                         "kind": "instructions",
@@ -689,14 +741,13 @@ class SelectorChoiceService:
                 and engine_id == "opus_mt"
                 and available
                 and _opus_pair_supported(engine, params)
-                and f"{params.get('language')}-{params.get('target_language')}"
-                not in (engine.get("models") or [])
+                and _opus_pair_key(params) not in (engine.get("models") or [])
             ):
                 setup = {
                     "kind": "first_use_download",
                     "disclosure": "Downloads the required language model on first use.",
                 }
-            if option_refusal is not None:
+            if option_refusal is not None and not policy_forbidden:
                 status = "unavailable"
                 setup = None
                 blocker = {
@@ -708,7 +759,7 @@ class SelectorChoiceService:
                 action_id == "map.translate"
                 and engine_id == "opus_mt"
                 and available
-                and not _opus_pair_supported(engine, params)
+                and _opus_pair_supported(engine, params) is False
             ):
                 status = "unavailable"
                 setup = None
@@ -717,7 +768,7 @@ class SelectorChoiceService:
                     "message": "Select a supported source and target language pair.",
                     "field": "language",
                 }
-            elif status == "unavailable" and setup is None:
+            elif status == "unavailable" and setup is None and not policy_forbidden:
                 setup = {
                     "kind": "instructions",
                     "title": "Set up this engine",

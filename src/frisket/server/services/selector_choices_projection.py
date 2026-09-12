@@ -7,6 +7,8 @@ from typing import Any
 from urllib.parse import quote
 
 from frisket.ai.llm.model_catalog import MODEL_ENTRIES
+from frisket.actions.translate_types import TranslationOptions
+from frisket.ops.integrations.opus_mt import resolve_pair_codes
 from frisket.server.provider_config import PROVIDER_LABELS
 
 _GROUP_STATUS_ORDER = {"ready": 0, "working": 1, "needs_setup": 2, "unavailable": 3}
@@ -493,18 +495,30 @@ def _embedding_facts(row: Mapping[str, Any]) -> list[dict[str, Any]]:
     return facts
 
 
-def _opus_pair_supported(engine: Mapping[str, Any], params: Mapping[str, Any]) -> bool:
-    source = params.get("language")
-    target = params.get("target_language")
-    if (
-        not isinstance(source, str)
-        or not isinstance(target, str)
-        or not source
-        or not target
-    ):
-        return False
-    pair = f"{source}-{target}"
+def _opus_pair_key(params: Mapping[str, Any]) -> str | None:
+    try:
+        options = TranslationOptions.model_validate(
+            {
+                key: params[key]
+                for key in ("language", "target_language")
+                if key in params
+            }
+        ).normalize("opus_mt")
+        source, target = resolve_pair_codes(
+            options["language"][0], options["target_language"]
+        )
+    except ValueError:
+        return None
+    return f"{source}-{target}"
+
+
+def _opus_pair_supported(
+    engine: Mapping[str, Any], params: Mapping[str, Any]
+) -> bool | None:
+    if not params.get("language"):
+        return None
+    pair = _opus_pair_key(params)
     return any(
-        isinstance(row, Mapping) and row.get("pair") == pair
+        pair is not None and isinstance(row, Mapping) and row.get("pair") == pair
         for row in engine.get("downloadable_pairs", []) or []
     )

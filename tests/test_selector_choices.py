@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -9,7 +10,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from frisket.ai.llm import ModelRouter
+from frisket.ai.llm import LLMError, ModelRouter
 from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 from frisket.engine.jobs import model_pull_store
 from frisket.server.route_errors import register_route_error_handler
@@ -633,3 +634,171 @@ def test_provider_bound_custom_embedding_id_is_preserved_and_placeholder_cannot_
     )
     assert row["can_run"] is False
     assert row["blocker"]["code"] == "custom_model_required"
+
+
+@pytest.mark.parametrize("installed", [False, True])
+def test_opus_canonical_language_list_and_display_target_use_runtime_pair(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, installed: bool
+) -> None:
+    monkeypatch.setattr(
+        "frisket.ops.integrations.opus_mt.runtime_available", lambda: True
+    )
+    monkeypatch.setattr(
+        "frisket.ops.integrations.opus_mt.installed_pairs",
+        lambda: ["en-es"] if installed else [],
+    )
+    client, _workspace, project_id = _app(
+        tmp_path / "opus",
+        capabilities_for=lambda _request, _pid: SelectorCapabilities(
+            may_author_actions=True, may_run_actions=True
+        ),
+    )
+    response = client.post(
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query(
+            {
+                "kind": "action",
+                "action_id": "map.translate",
+                "field": "engine",
+                "params": {
+                    "engine": "opus_mt",
+                    "language": ["en"],
+                    "target_language": "Spanish",
+                },
+            }
+        ),
+    )
+    assert response.status_code == 200, response.text
+    current = next(row for row in _choices(response.json()) if row["is_current"])
+    assert current["can_run"] is True
+    assert current["status"] == "ready"
+    assert (current["setup"] is None) is installed
+    if not installed:
+        assert current["setup"]["kind"] == "first_use_download"
+
+
+def test_network_off_preserves_policy_refusal_for_keyless_hosted_engine(
+    tmp_path: Path,
+) -> None:
+    client, workspace, project_id = _app(
+        tmp_path / "off",
+        router=ModelRouter(use_env_keys=False),
+        capabilities_for=lambda _request, _pid: SelectorCapabilities(
+            may_author_actions=True,
+            may_run_actions=True,
+            configure_project_credentials=True,
+        ),
+    )
+    workspace.get(project_id).set_network_policy(mode="off")
+    response = client.post(
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query(
+            {
+                "kind": "action",
+                "action_id": "media.transcribe",
+                "field": "engine",
+                "params": {"engine": "openai/whisper-1"},
+            }
+        ),
+    )
+    assert response.status_code == 200, response.text
+    current = next(row for row in _choices(response.json()) if row["is_current"])
+    assert current["status"] == "unavailable"
+    assert current["can_author"] is False
+    assert current["can_run"] is False
+    assert current["setup"] is None
+    assert "network" in current["blocker"]["message"].lower()
+
+
+def test_ambient_embedding_key_does_not_unlock_an_unconfigured_effective_router(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "ambient-key-not-selected")
+    router = ModelRouter(use_env_keys=False)
+    assert router.providers() == []
+    with pytest.raises(LLMError, match="no embedding backend"):
+        asyncio.run(
+            router.embed_batch(["example"], model="openai/text-embedding-3-small")
+        )
+    client, _workspace, project_id = _app(
+        tmp_path / "embedding-router",
+        router=router,
+        capabilities_for=lambda _request, _pid: SelectorCapabilities(
+            may_author_actions=True, may_run_actions=True
+        ),
+    )
+    response = client.post(
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query(
+            {
+                "kind": "embedding",
+                "provider": "openai",
+                "model": "text-embedding-3-small",
+                "modality": "text",
+            }
+        ),
+    )
+    assert response.status_code == 200, response.text
+    current = next(row for row in _choices(response.json()) if row["is_current"])
+    assert current["can_run"] is False
+    assert current["status"] == "needs_setup"
+    assert current["blocker"]["code"] == "provider_key_required"
+
+
+def test_supported_custom_fastembed_current_uses_owner_registry_dimensions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "frisket.ai.embeddings.capabilities._detect_local_text", lambda _env: True
+    )
+    monkeypatch.setattr(
+        "frisket.ai.embeddings.capabilities._fastembed_registry",
+        lambda: {"owner/custom-local": {"dim": 614, "size_in_GB": 0.42}},
+    )
+    client, _workspace, project_id = _app(
+        tmp_path / "custom-local",
+        router=ModelRouter(use_env_keys=False),
+        capabilities_for=lambda _request, _pid: SelectorCapabilities(
+            may_author_actions=True, may_run_actions=True
+        ),
+    )
+    response = client.post(
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query(
+            {
+                "kind": "embedding",
+                "provider": "fastembed",
+                "model": "owner/custom-local",
+                "modality": "text",
+            }
+        ),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["orphaned_current"] is None
+    current = next(row for row in _choices(response.json()) if row["is_current"])
+    assert current["authored_selection"] == {
+        "kind": "embedding",
+        "provider": "fastembed",
+        "model": "owner/custom-local",
+    }
+    assert current["can_run"] is True
+    assert {"kind": "list", "label": "Dimensions", "values": ["614"]} in current[
+        "facts"
+    ]
+
+
+def test_ocr_geometry_knob_is_reported_as_selector_dependency(tmp_path: Path) -> None:
+    client, _workspace, project_id = _app(tmp_path / "geometry")
+    response = client.post(
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query(
+            {
+                "kind": "action",
+                "action_id": "media.ocr",
+                "field": "engine",
+                "params": {},
+            }
+        ),
+    )
+    assert response.status_code == 200, response.text
+    assert "searchable_pdf" in response.json()["depends_on"]
