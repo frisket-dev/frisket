@@ -26,6 +26,7 @@ TARGETS = {
     "plugin": ("frisket.plugins.subprocess_runner", "main"),
     "recipe": ("frisket.engine.sandbox._recipe_worker", "main"),
     "cli-worker": ("frisket.cli", "worker"),
+    "desktop-server": ("frisket.server.desktop", "main"),
 }
 KINDS = frozenset(TARGETS) | {"runtime-info", "yt-dlp", "native-exec"}
 
