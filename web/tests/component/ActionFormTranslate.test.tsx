@@ -355,7 +355,8 @@ describe('opus_mt pair run-gating', () => {
     await user.selectOptions(within(form).getByTestId('translate-pair-target'), 'es');
     // The pair is not installed: the inline download is offered, and the
     // server provisions it at run time, so Run is no longer gated on it.
-    expect(within(form).getByTestId('translate-pair-download')).toBeInTheDocument();
+    expect(within(form).getByText('Downloads the required language model on first use.')).toBeInTheDocument();
+    expect(within(form).queryByTestId('translate-pair-download')).not.toBeInTheDocument();
     expect(within(form).queryByTestId('translate-pair-installed')).not.toBeInTheDocument();
     await runEnabled();
     await user.click(within(form).getByTestId('generated-action-run'));

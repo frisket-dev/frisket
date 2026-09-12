@@ -1,31 +1,10 @@
-/**
- * Google-Translate-style paired source ⇄ swap ⇄ target control for the local
- * Opus-MT translate engine. For a pair engine the PAIR is the availability unit,
- * so this replaces the generic source picker + target text input when
- * `engine === 'opus_mt'`.
- *
- * Each selectable pair carries a badge — installed ✓ or downloadable + size.
- * When the selected pair is not installed, the form shows an INLINE one-click
- * download that reuses the existing ModelPullProgress streaming surface in
- * place (never ejecting the user to another page — the "manage models" link is
- * the secondary path). On completion the parent is told which pair installed so
- * it flips to installed and the run unblocks; the parent also refetches the
- * catalog so a remount reflects the new install.
- */
-import { useMemo, useState } from 'react';
-
-import {
-  ApiError,
-  type DownloadablePair,
-  type ModelPullDto,
-  startArtifactPull,
-} from '../api/open';
-import { ModelPullProgress } from './ModelPullProgress';
+/** Language-pair controls for Opus-MT. Execution prepares missing models. */
+import { useMemo } from 'react';
+import type { DownloadablePair } from '../api/types';
 import { PanelSelect } from './PanelSelect';
 
 export interface TranslatePairPickerProps {
-  /** Installed pair ids ("en-es") — the parent-owned merged set (engine.models
-   *  plus any inline-installed-this-session). */
+  /** Pair ids present in the current catalog. */
   installedPairs: string[];
   /** Downloadable pair roster from the pinned manifest. */
   downloadablePairs: DownloadablePair[];
@@ -34,9 +13,7 @@ export interface TranslatePairPickerProps {
   target: string;
   onSourceChange: (code: string) => void;
   onTargetChange: (code: string) => void;
-  /** Called with the pair id after an inline install completes, so the parent
-   *  can mark it installed (run-gating) and refetch the catalog. */
-  onInstalled?: (pair: string) => void;
+
 }
 
 interface Parsed {
@@ -72,14 +49,6 @@ function formatBytes(bytes: number): string {
   return `${bytes} B`;
 }
 
-// A pull bound to the exact pair that initiated it — the pair is
-// immutable in the pull state, never re-read from the (possibly since-switched)
-// selection at completion time.
-interface BoundPull {
-  pair: string;
-  dto: ModelPullDto;
-}
-
 export function TranslatePairPicker({
   installedPairs,
   downloadablePairs,
@@ -87,12 +56,7 @@ export function TranslatePairPicker({
   target,
   onSourceChange,
   onTargetChange,
-  onInstalled,
 }: TranslatePairPickerProps) {
-  const [pull, setPull] = useState<BoundPull | null>(null);
-  const [startError, setStartError] = useState<string | null>(null);
-  const [starting, setStarting] = useState(false);
-
   // Union of installed + downloadable pairs, each parsed into src/tgt.
   const allPairs = useMemo(() => {
     const set = new Set<string>([
@@ -136,39 +100,10 @@ export function TranslatePairPicker({
   const downloadable = downloadablePairs.find((d) => d.pair === selectedPair);
   const reversedExists = allPairs.some((p) => p.src === target && p.tgt === source);
 
-  // While a pull is streaming, freeze the language controls — the
-  // pull is bound to a specific pair and switching mid-stream is confusing.
-  const pulling = pull !== null;
-
   const swap = () => {
-    if (!source || !target || pulling) return;
+    if (!source || !target) return;
     onSourceChange(target);
     onTargetChange(source);
-  };
-
-  const download = async () => {
-    if (!selectedPair) return;
-    const pair = selectedPair;
-    setStarting(true);
-    setStartError(null);
-    try {
-      const result = await startArtifactPull(`opus-mt:${pair}`);
-      setPull({ pair, dto: result.pull });
-    } catch (err) {
-      // Joining an in-progress pull (409 pull_busy) is not an error — render
-      // the already-active pull's progress, exactly like LocalServerGuidance.
-      if (err instanceof ApiError && err.details && typeof err.details === 'object') {
-        const active = (err.details as { active?: ModelPullDto }).active;
-        if (active && typeof active.id === 'number') {
-          setPull({ pair, dto: active });
-          setStarting(false);
-          return;
-        }
-      }
-      setStartError(err instanceof Error ? err.message : 'Download failed.');
-    } finally {
-      setStarting(false);
-    }
   };
 
   return (
@@ -181,7 +116,6 @@ export function TranslatePairPicker({
           id="translate-pair-source"
           testId="translate-pair-source"
           value={source}
-          disabled={pulling}
           onValueChange={onSourceChange}
           options={[
             { value: '', label: 'Select…' },
@@ -192,7 +126,7 @@ export function TranslatePairPicker({
           type="button"
           className="translate-pair-swap"
           data-testid="translate-pair-swap"
-          disabled={!source || !target || !reversedExists || pulling}
+          disabled={!source || !target || !reversedExists}
           title="Swap languages"
           onClick={swap}
         >
@@ -205,7 +139,6 @@ export function TranslatePairPicker({
           id="translate-pair-target"
           testId="translate-pair-target"
           value={target}
-          disabled={pulling}
           onValueChange={onTargetChange}
           options={[
             { value: '', label: 'Select…' },
@@ -214,7 +147,7 @@ export function TranslatePairPicker({
         />
       </div>
 
-      {selectedPair && !pulling && (
+      {selectedPair && (
         <div className="translate-pair-status" data-testid="translate-pair-badge">
           {isInstalled ? (
             <span className="badge badge-installed" data-testid="translate-pair-installed">
@@ -234,47 +167,8 @@ export function TranslatePairPicker({
         </div>
       )}
 
-      {/* Inline install — reuse ModelPullProgress in place; do NOT eject. */}
-      {!isInstalled && downloadable && !pulling && (
-        <div className="translate-pair-install">
-          <button
-            type="button"
-            className="button"
-            data-testid="translate-pair-download"
-            disabled={starting}
-            onClick={() => void download()}
-          >
-            {starting ? 'Starting…' : `Download ${downloadable.display_name}`}
-          </button>
-          {startError && (
-            <p className="form-error" data-testid="translate-pair-download-error">
-              {startError}
-            </p>
-          )}
-        </div>
-      )}
-
-      {pull && (
-        <ModelPullProgress
-          pull={pull.dto}
-          onDone={() => {
-            // Bind to the pull's OWN pair, not the current
-            // selection (which the user may have switched away from).
-            onInstalled?.(pull.pair);
-            setPull(null);
-          }}
-          onFailed={(dto) => {
-            // A failed/cancelled pull clears back to a retryable state with a
-            // visible error — the download button returns.
-            setPull(null);
-            setStartError(
-              dto.error?.message ??
-                (dto.status === 'cancelled'
-                  ? 'Download cancelled.'
-                  : 'Download failed. Try again.'),
-            );
-          }}
-        />
+      {pairExists && (
+        <p className="form-hint">Downloads the required language model on first use.</p>
       )}
     </div>
   );

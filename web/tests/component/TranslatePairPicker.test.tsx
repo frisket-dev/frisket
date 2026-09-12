@@ -1,12 +1,10 @@
 // @vitest-environment jsdom
 //
 // TranslatePairPicker is the Google-Translate-style source ⇄ swap ⇄ target
-// control for the local Opus-MT translate engine, with
-// per-pair installed/downloadable badges and an INLINE one-click download that
-// reuses ModelPullProgress in place (never ejects the user to another page).
+// control for Opus-MT, with automatic preparation only at execution.
 
 import '@testing-library/jest-dom/vitest';
-import { act, cleanup, fireEvent, screen, render } from '@testing-library/react';
+import { cleanup, fireEvent, screen, render } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -59,10 +57,11 @@ describe('TranslatePairPicker', () => {
     expect(screen.queryByTestId('translate-pair-download')).toBeNull();
   });
 
-  it('shows a downloadable size badge + inline download for an uninstalled pair', () => {
+  it('discloses automatic first-use preparation and size without a manual step', () => {
     renderPicker({ source: 'en', target: 'es' });
     expect(screen.getByTestId('translate-pair-badge')).toHaveTextContent('298 MB');
-    expect(screen.getByTestId('translate-pair-download')).toBeInTheDocument();
+    expect(screen.getByText('Downloads the required language model on first use.')).toBeInTheDocument();
+    expect(screen.queryByTestId('translate-pair-download')).not.toBeInTheDocument();
   });
 
   // badge-installed/
@@ -141,151 +140,13 @@ describe('TranslatePairPicker', () => {
     expect(onTargetChange).toHaveBeenCalledWith('en');
   });
 
-  it('inline download starts a pull and renders progress in place', async () => {
-    (startArtifactPull as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
-      pull: {
-        id: 7,
-        model: 'opus-mt:en-es',
-        status: 'running',
-        phase: 'downloading',
-        total_bytes: null,
-        completed_bytes: null,
-        error: null,
-        resolved_digest: null,
-        resolved_size: null,
-        created_at: '2026-07-17T00:00:00Z',
-        started_at: '2026-07-17T00:00:01Z',
-        finished_at: null,
-        cancel_requested: false,
-      },
-      deduplicated: false,
-    });
-    renderPicker({ source: 'en', target: 'es' });
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('translate-pair-download'));
-    });
-    expect(startArtifactPull).toHaveBeenCalledWith('opus-mt:en-es');
-    // ModelPullProgress mounts in place (its root testid).
-    expect(screen.getByTestId('model-pull-progress')).toBeInTheDocument();
-  });
-});
-
-
-// --- completion, switch-mid-pull, disabled controls, retry ---
-
-import { getModelPull } from '../../src/api/open';
-import type { ModelPullDto } from '../../src/api/types';
-
-
-
-function runningPull(overrides: Partial<ModelPullDto> = {}): ModelPullDto {
-  return {
-    id: 7,
-    model: 'opus-mt:en-es',
-    status: 'running',
-    phase: 'downloading',
-    total_bytes: null,
-    completed_bytes: null,
-    error: null,
-    resolved_digest: null,
-    resolved_size: null,
-    created_at: '2026-07-17T00:00:00Z',
-    started_at: '2026-07-17T00:00:01Z',
-    finished_at: null,
-    cancel_requested: false,
-    artifact: { kind: 'ct2_pair', source_url: 's', license: 'CC-BY-4.0', manifest_version: 'v' },
-    ...overrides,
-  };
-}
-
-describe('TranslatePairPicker inline pull lifecycle', () => {
-  it('freezes the language controls while a pull is streaming', async () => {
-    (startArtifactPull as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
-      pull: runningPull(),
-      deduplicated: false,
-    });
-    renderPicker({ source: 'en', target: 'es' });
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('translate-pair-download'));
-    });
-    expect(screen.getByTestId('translate-pair-source')).toBeDisabled();
-    expect(screen.getByTestId('translate-pair-target')).toBeDisabled();
-    expect(screen.getByTestId('translate-pair-swap')).toBeDisabled();
-  });
-
-  it('calls onInstalled with the pull-bound pair even after switching', async () => {
-    vi.useFakeTimers();
-    try {
-      (startArtifactPull as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
-        pull: runningPull(),
-        deduplicated: false,
-      });
-      (getModelPull as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
-        runningPull({ status: 'done', phase: 'done' }),
-      );
-      const onInstalled = vi.fn();
-      const onSourceChange = vi.fn();
-      const onTargetChange = vi.fn();
-      // start a pull for en-es
-      const { rerender } = render(
-        <TranslatePairPicker
-          installedPairs={[]}
-          downloadablePairs={DOWNLOADABLE}
-          source="en"
-          target="es"
-          onSourceChange={onSourceChange}
-          onTargetChange={onTargetChange}
-          onInstalled={onInstalled}
-        />,
-      );
-      await act(async () => {
-        fireEvent.click(screen.getByTestId('translate-pair-download'));
-      });
-      // parent switches the selection mid-pull (controls are disabled in the UI,
-      // but a prop change could still arrive) — the bound pair must win.
-      rerender(
-        <TranslatePairPicker
-          installedPairs={[]}
-          downloadablePairs={DOWNLOADABLE}
-          source="de"
-          target="en"
-          onSourceChange={onSourceChange}
-          onTargetChange={onTargetChange}
-          onInstalled={onInstalled}
-        />,
-      );
-      // advance the poll -> observes 'done'
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(1100);
-      });
-      expect(onInstalled).toHaveBeenCalledWith('en-es');
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('clears to a retryable state with an error on a failed pull', async () => {
-    vi.useFakeTimers();
-    try {
-      (startArtifactPull as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
-        pull: runningPull(),
-        deduplicated: false,
-      });
-      (getModelPull as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
-        runningPull({ status: 'failed', error: { code: 'checksum_mismatch', message: 'bad checksum' } }),
-      );
-      renderPicker({ source: 'en', target: 'es' });
-      await act(async () => {
-        fireEvent.click(screen.getByTestId('translate-pair-download'));
-      });
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(1100);
-      });
-      // download button returns (retryable) and the error is visible
-      expect(screen.getByTestId('translate-pair-download')).toBeInTheDocument();
-      expect(screen.getByTestId('translate-pair-download-error')).toHaveTextContent('bad checksum');
-    } finally {
-      vi.useRealTimers();
-    }
+  it('keeps first-use preparation out of language selection', () => {
+    const onSourceChange = vi.fn();
+    renderPicker({ source: 'en', target: 'es', onSourceChange });
+    fireEvent.change(screen.getByTestId('translate-pair-source'), { target: { value: 'de' } });
+    expect(onSourceChange).toHaveBeenCalledWith('de');
+    expect(startArtifactPull).not.toHaveBeenCalled();
+    expect(screen.getByTestId('translate-pair-source')).toBeEnabled();
+    expect(screen.getByTestId('translate-pair-target')).toBeEnabled();
   });
 });
