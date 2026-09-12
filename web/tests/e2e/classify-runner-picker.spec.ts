@@ -27,13 +27,23 @@ test('classify uses a full-screen mobile selector with provider tabs and scrolla
         summary: 'Hosted model',
         description: 'A configured API model.',
         authoredSelection: { kind: 'engine_model', engine: 'llm', model: 'openai/gpt-5-mini' },
+      }, {
+        choiceId: 'openai-gpt-5-enterprise',
+        label: 'GPT-5 enterprise',
+        summary: 'Needs workspace setup',
+        status: 'needs_setup',
+        canRun: false,
+        blocker: 'Add a workspace key before this model can run.',
+        authoredSelection: { kind: 'engine_model', engine: 'llm', model: 'openai/gpt-5-enterprise' },
       }],
     },
   ];
   await stubActionSelectorChoices(page, pid, ({ actionId, field, params }) => {
     expect(actionId).toBe('map.classify');
     expect(field).toBe('engine');
-    const currentChoiceId = params.engine === 'llm' ? 'openai-gpt-5-mini' : 'local-0';
+    const currentChoiceId = params.model === 'openai/gpt-5-enterprise'
+      ? 'openai-gpt-5-enterprise'
+      : params.engine === 'llm' ? 'openai-gpt-5-mini' : 'local-0';
     return actionSelectorResponse({ projectId: pid, actionId, field, groups, currentChoiceId });
   });
   await page.goto(`/p/${pid}`);
@@ -57,10 +67,31 @@ test('classify uses a full-screen mobile selector with provider tabs and scrolla
   await page.screenshot({ path: testInfo.outputPath('selector-mobile.png') });
 
   await dialog.getByRole('button', { name: 'API models' }).click();
+  const needsSetup = page.locator('[data-engine-selector-choice="openai-gpt-5-enterprise"]');
+  await needsSetup.focus();
+  await page.keyboard.press('Enter');
+  await expect(dialog.getByRole('button', { name: /Select and set up/ })).toBeVisible();
+  await expect(dialog.getByText('Add a workspace key before this model can run.')).toBeVisible();
+  await dialog.getByRole('button', { name: /Back/ }).click();
   await page.locator('[data-engine-selector-choice="openai-gpt-5-mini"]').click();
   await expect(dialog.getByRole('button', { name: /Back/ })).toBeFocused();
   await expect(dialog.getByText('A configured API model.')).toBeVisible();
   await dialog.getByRole('button', { name: 'Select', exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect(trigger).toContainText('GPT-5 mini');
+
+  // At a genuinely short mobile height, the fixed detail footer remains in
+  // the native dialog's viewport instead of moving below its scroll region.
+  await page.setViewportSize({ width: 390, height: 420 });
+  await trigger.click();
+  const shortDialog = page.getByTestId('engine-selector-dialog');
+  await shortDialog.locator('[data-engine-selector-choice="openai-gpt-5-mini"]').click();
+  const [shortDialogBox, shortFooterBox] = await Promise.all([
+    shortDialog.boundingBox(),
+    shortDialog.locator('.engine-selector__footer').boundingBox(),
+  ]);
+  expect(shortDialogBox).not.toBeNull();
+  expect(shortFooterBox).not.toBeNull();
+  expect(Math.round(shortDialogBox!.height)).toBe(420);
+  expect(shortFooterBox!.y + shortFooterBox!.height).toBeLessThanOrEqual(shortDialogBox!.y + shortDialogBox!.height + 1);
 });
