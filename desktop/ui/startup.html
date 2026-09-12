@@ -1,7 +1,41 @@
 <!doctype html>
 <html lang="en">
-  <head><meta charset="utf-8"><title>Frisket</title>
-    <style>body{font:16px system-ui,sans-serif;margin:0;display:grid;place-items:center;height:100vh;background:#f7f4ee;color:#27332b}main{max-width:30rem;text-align:center}h1{font-size:2rem;margin-bottom:.5rem}p{line-height:1.5;color:#536158}</style>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'">
+    <title>Preparing Frisket Desktop</title>
+    <link rel="stylesheet" href="startup.css">
+    <script src="startup.js" defer></script>
   </head>
-  <body><main><h1>Preparing Frisket</h1><p id="status">Your private workspace is starting. This can take a few minutes the first time.</p></main></body>
+  <body>
+    <main class="startup-card" aria-labelledby="startup-title">
+      <header class="brand">
+        <div class="brand-mark" aria-hidden="true"><img src="favicon.svg" alt=""></div>
+        <span>Frisket Desktop</span>
+      </header>
+
+      <section class="intro">
+        <div class="activity-mark" aria-hidden="true"><span></span></div>
+        <p class="eyebrow">Getting things ready</p>
+        <h1 id="startup-title">Preparing Frisket</h1>
+        <p id="status" class="status" role="status" aria-live="polite">Setting up Frisket Desktop…</p>
+      </section>
+
+      <section class="setup-progress" aria-label="Setup progress">
+        <div class="progress-track" id="progress" role="progressbar" aria-valuemin="0" aria-valuemax="4" aria-valuenow="0" aria-valuetext="Step 1 of 4: Preparing Frisket Desktop">
+          <div class="progress-complete"></div>
+          <div class="progress-active"></div>
+        </div>
+        <ol class="stages" id="stages">
+          <li data-phase="runtime" data-state="active"><span class="stage-icon" aria-hidden="true"></span><span>Preparing Frisket</span></li>
+          <li data-phase="dependencies"><span class="stage-icon" aria-hidden="true"></span><span>Setting up tools</span></li>
+          <li data-phase="browser"><span class="stage-icon" aria-hidden="true"></span><span>Preparing browser features</span></li>
+          <li data-phase="workspace"><span class="stage-icon" aria-hidden="true"></span><span>Opening your workspace</span></li>
+        </ol>
+      </section>
+
+      <p class="reassurance">Your workspace stays private on this device.</p>
+    </main>
+  </body>
 </html>
