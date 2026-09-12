@@ -301,6 +301,17 @@ export function EngineSelector({
     });
   };
 
+  const navigateToProvider = (group: EngineSelectorGroup) => {
+    cancelHoverIntent();
+    pinnedIdRef.current = null;
+    editingSetupRef.current = false;
+    setPinnedId(null);
+    setEditingSetup(false);
+    setProviderFilter('');
+    setActiveGroupId(group.id);
+    setPreviewedId(group.choices[0]?.id ?? null);
+  };
+
   const detailFooter: EngineSelectorDetailFooterContext | null = previewedChoice
     ? {
         choice: previewedChoice,
@@ -372,13 +383,7 @@ export function EngineSelector({
                   key={group.id}
                   type="button"
                   aria-pressed={currentGroup?.id === group.id}
-                  onClick={() => {
-                    cancelHoverIntent();
-                    setActiveGroupId(group.id);
-                    setPreviewedId(group.choices[0]?.id ?? null);
-                    setPinnedId(null);
-                    setProviderFilter('');
-                  }}
+                  onClick={() => navigateToProvider(group)}
                 >{group.label}</button>
               ))}
             </nav>
@@ -405,13 +410,7 @@ export function EngineSelector({
                       }, HOVER_DELAY_MS);
                     }}
                     onMouseLeave={cancelHoverIntent}
-                    onClick={() => {
-                      cancelHoverIntent();
-                      setActiveGroupId(group.id);
-                      setPreviewedId(group.choices[0]?.id ?? null);
-                      setPinnedId(null);
-                      setProviderFilter('');
-                    }}
+                    onClick={() => navigateToProvider(group)}
                     onKeyDown={(event) => onGroupKeyDown(event, index)}
                   >{group.label}</button>
                 ))}

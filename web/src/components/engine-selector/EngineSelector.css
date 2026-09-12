@@ -296,16 +296,20 @@
 
 @media (max-width: 599px) {
   .engine-selector__dialog {
+    display: flex;
     width: 100vw;
     max-width: 100vw;
     height: 100dvh;
     max-height: 100dvh;
     border-radius: 0;
+    flex-direction: column;
   }
 
   .engine-selector__body {
     display: block;
-    height: calc(100dvh - 56px);
+    min-height: 0;
+    height: auto;
+    flex: 1;
   }
 
   .engine-selector__choices {

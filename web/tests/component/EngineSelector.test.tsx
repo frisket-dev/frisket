@@ -144,6 +144,17 @@ describe('EngineSelector', () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: oldWidth });
   });
 
+  it('leaves setup editing when explicit provider navigation changes the list', async () => {
+    renderSelector();
+    await userEvent.click(screen.getByRole('button', { name: /parakeet/i }));
+    await userEvent.click(screen.getByRole('button', { name: /whisper/i }));
+    await userEvent.click(screen.getByRole('button', { name: 'OpenAI' }));
+    const dialog = screen.getByTestId('engine-selector-dialog');
+    fireEvent.mouseEnter(dialog.querySelector('[data-engine-selector-choice="openai-1"]')!);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(screen.getByRole('heading', { name: 'OpenAI 1' })).toBeVisible();
+  });
+
   it('replaces provider hover intent before a later choice hover can preview', async () => {
     const oldWidth = window.innerWidth;
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1200 });
