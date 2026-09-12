@@ -5,9 +5,12 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import json
+import os
 import shutil
+import tempfile
 from contextlib import asynccontextmanager
 from functools import lru_cache
+from hashlib import sha256
 from importlib import metadata
 from pathlib import Path
 from typing import Any
@@ -19,6 +22,7 @@ from frisket.engine._workers.local_engine_lease import (
 )
 from frisket.engine._workers.rapidocr_models import (
     RapidOCRInvalidLanguage,
+    rapidocr_bundled_model_aliases,
     rapidocr_default_model_requirements,
     rapidocr_model_requirements,
     rapidocr_model_root_complete,
@@ -168,12 +172,66 @@ def _rapidocr_model_root_dir(language: str | None = None) -> str | None:
     if rapidocr_model_root_complete(package_root, filenames):
         return None
     shared_dir = rapidocr_shared_model_cache_dir()
+    _copy_bundled_rapidocr_aliases(package_root, filenames, shared_dir)
     if rapidocr_model_root_complete(shared_dir, filenames):
         return str(shared_dir)
     raise RecipeInvocationHalt(
         "local_artifact_unavailable",
         _RAPIDOCR_ARTIFACT_DETAIL,
     )
+
+
+def _copy_bundled_rapidocr_aliases(
+    package_root: Path, filenames: tuple[str, ...], shared_dir: Path
+) -> None:
+    """Seed only verified RapidOCR 3.8.1 aliases into the writable cache."""
+
+    aliases = rapidocr_bundled_model_aliases(package_root, filenames)
+    if aliases is None:
+        return
+    try:
+        for source, _target, expected_hash in aliases:
+            if not source.is_file() or _sha256_file(source) != expected_hash:
+                return
+        shared_dir.mkdir(parents=True, exist_ok=True)
+        for source, target, expected_hash in aliases:
+            destination = shared_dir / target
+            if destination.is_file() and _sha256_file(destination) == expected_hash:
+                continue
+            _copy_verified_model(source, destination, expected_hash)
+    except OSError:
+        return
+
+
+def _copy_verified_model(source: Path, destination: Path, expected_hash: str) -> None:
+    """Atomically publish one checked cache file without touching ``source``."""
+
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.", dir=destination.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with (
+            os.fdopen(descriptor, "wb") as output_file,
+            source.open("rb") as input_file,
+        ):
+            digest = sha256()
+            while chunk := input_file.read(1024 * 1024):
+                digest.update(chunk)
+                output_file.write(chunk)
+        if digest.hexdigest() != expected_hash:
+            return
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _sha256_file(filename: Path) -> str:
+    digest = sha256()
+    with filename.open("rb") as input_file:
+        while chunk := input_file.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _rapidocr_pool_kwargs(

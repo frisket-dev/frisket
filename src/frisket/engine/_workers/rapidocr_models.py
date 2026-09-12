@@ -11,6 +11,22 @@ from functools import lru_cache
 from pathlib import Path
 
 
+# RapidOCR 3.8.1 bundles these verified ONNX files, while its own resolver can
+# still request the older ``*_mobile.onnx`` aliases.  The installed package is
+# readonly; callers may copy this known trio into Frisket's shared cache.
+_BUNDLED_3_8_1_MODEL_HASHES = {
+    "ch_PP-OCRv4_det_infer.onnx": (
+        "d2a7720d45a54257208b1e13e36a8479894cb74155a5efe29462512d42f49da9"
+    ),
+    "ch_ppocr_mobile_v2.0_cls_infer.onnx": (
+        "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c"
+    ),
+    "ch_PP-OCRv4_rec_infer.onnx": (
+        "48fc40f24f6d2a207a2b1091d3437eb3cc3eb6b676dc3ef9c37384005483683b"
+    ),
+}
+
+
 class RapidOCRInvalidLanguage(ValueError):
     """A language is not one of RapidOCR's recognition model families."""
 
@@ -88,9 +104,33 @@ def rapidocr_model_root_complete(root: Path, filenames: tuple[str, ...]) -> bool
         return False
 
 
+def rapidocr_bundled_model_aliases(
+    root: Path, filenames: tuple[str, ...]
+) -> tuple[tuple[Path, str, str], ...] | None:
+    """Return the known 3.8.1 bundled sources for requested legacy names.
+
+    This is discovery only. The runtime copies a hash-verified result into its
+    writable shared cache, never into the installed RapidOCR package.
+    """
+
+    sources = {}
+    for name, digest in _BUNDLED_3_8_1_MODEL_HASHES.items():
+        sources[name] = (name, digest)
+        sources[name.replace("_infer.onnx", "_mobile.onnx")] = (name, digest)
+    aliases: list[tuple[Path, str, str]] = []
+    for filename in filenames:
+        source = sources.get(filename)
+        if source is None:
+            return None
+        source_name, digest = source
+        aliases.append((root / source_name, filename, digest))
+    return tuple(aliases)
+
+
 __all__ = [
     "RapidOCRInvalidLanguage",
     "rapidocr_default_model_requirements",
+    "rapidocr_bundled_model_aliases",
     "rapidocr_model_requirements",
     "rapidocr_model_root_complete",
 ]
