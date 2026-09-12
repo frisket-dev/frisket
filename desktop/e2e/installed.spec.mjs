@@ -20,6 +20,16 @@ async function launch(testInfo) {
   electron.process().stderr.on('data', (chunk) => {
     stderr = `${stderr}${chunk}`.slice(-16_384);
   });
+  // A native error dialog must fail CI rather than wait for a human to click Quit.
+  await electron.evaluate(({ dialog }) => {
+    const showMessageBox = dialog.showMessageBox.bind(dialog);
+    dialog.showMessageBox = async (...args) => {
+      const options = args.at(-1);
+      if (options.type !== 'error') return showMessageBox(...args);
+      process.stderr.write(`Desktop startup error: ${options.message} ${options.detail}\\n`);
+      return { response: options.buttons.indexOf('Quit'), checkboxChecked: false };
+    };
+  });
   const page = await electron.firstWindow();
   const rendererErrors = [];
   page.on('pageerror', (error) => rendererErrors.push(error.message));
