@@ -92,12 +92,14 @@ The CI desktop workflow builds and tests these same artifacts.
 `npm --prefix desktop test` exercises the token/proxy boundary and real process
 cancellation. Python tests cover the service authentication/readiness boundary.
 The macOS job mounts the actual DMG, copies the app out, warms download caches,
-then removes the dependency environment. A temporary macOS PF rule blocks new
+then removes the dependency environment and seeded model caches. A temporary macOS PF rule blocks new
 external connections while preserving the runner’s existing control connection.
 This avoids nesting Seatbelt around Chromium’s own sandbox. The UI smoke uses no
 providers or live datasets. The real application rebuilds its private environment
 from the cache, imports CSV, runs a local action through its queue, exports, quits
-and reopens persisted work. Browser and subprocess cleanup are checked.
+and reopens persisted work. Native checks run Whisper, Parakeet, and RapidOCR from
+the bundled model seed; model downloads occur only before packaging. Browser and
+subprocess cleanup are checked.
 
 Download-cache preparation is a networked build/setup step, separate from tests.
 It is not evidence of offline first launch. The automated journey proves the
