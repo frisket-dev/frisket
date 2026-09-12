@@ -24,6 +24,8 @@ export interface UseSelectorChoicesOptions {
 export interface SelectorChoicesState {
   response: HttpSelectorChoicesResponse | null;
   loading: boolean;
+  refreshing: boolean;
+  refreshing: boolean;
   error: Error | null;
   refresh(): void;
 }
@@ -37,15 +39,16 @@ interface State {
 }
 
 type Action =
-  | { type: 'load'; revision: number; scopeKey: string }
+  | { type: 'load'; revision: number; scopeKey: string; preserveResponse: boolean }
   | { type: 'success'; revision: number; response: HttpSelectorChoicesResponse }
   | { type: 'failure'; revision: number; error: Error };
 
 function reducer(state: State, action: Action): State {
   if (action.type === 'load') {
     return {
-      response: null,
-      loading: true,
+      response: action.preserveResponse ? state.response : null,
+      loading: !action.preserveResponse,
+      refreshing: action.preserveResponse,
       error: null,
       revision: action.revision,
       scopeKey: action.scopeKey,
@@ -53,9 +56,9 @@ function reducer(state: State, action: Action): State {
   }
   if (action.revision !== state.revision) return state;
   if (action.type === 'success') {
-    return { ...state, response: action.response, loading: false };
+    return { ...state, response: action.response, loading: false, refreshing: false };
   }
-  return { ...state, loading: false, error: action.error };
+  return { ...state, loading: false, refreshing: false, error: action.error };
 }
 
 function defaultLoad(
@@ -85,6 +88,7 @@ export function useSelectorChoices({
   const [state, dispatch] = useReducer(reducer, {
     response: null,
     loading: false,
+    refreshing: false,
     error: null,
     revision: 0,
     scopeKey: null,
@@ -101,7 +105,12 @@ export function useSelectorChoices({
     const controller = new AbortController();
     const revision = requestRevision.current + 1;
     requestRevision.current = revision;
-    dispatch({ type: 'load', revision, scopeKey });
+    dispatch({
+      type: 'load',
+      revision,
+      scopeKey,
+      preserveResponse: refreshRevision > 0 && state.scopeKey === scopeKey && state.response !== null,
+    });
     void load(projectId, queryRef.current, { signal: controller.signal })
       .then((response) => {
         if (!controller.signal.aborted) dispatch({ type: 'success', revision, response });
@@ -120,12 +129,19 @@ export function useSelectorChoices({
 
   const refreshChoices = useCallback(() => refresh(), []);
   if (!enabled || !projectId) {
-    return { response: null, loading: false, error: null, refresh: refreshChoices };
+    return { response: null, loading: false, refreshing: false, error: null, refresh: refreshChoices };
   }
   const active = state.scopeKey === scopeKey ? state : {
     response: null,
     loading: true,
+    refreshing: false,
     error: null,
   };
-  return { response: active.response, loading: active.loading, error: active.error, refresh: refreshChoices };
+  return {
+    response: active.response,
+    loading: active.loading,
+    refreshing: active.refreshing,
+    error: active.error,
+    refresh: refreshChoices,
+  };
 }

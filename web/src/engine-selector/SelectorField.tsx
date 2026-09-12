@@ -119,7 +119,7 @@ export function SelectorField({
   useEffect(() => {
     onCurrentChoiceChange?.(currentChoice);
   }, [currentChoice, onCurrentChoiceChange]);
-  if (state.error) {
+  if (state.error && !state.response) {
     return <div data-testid={testId} className="engine-selector-field-error" role="alert">
       <p>Could not load choices. {state.error.message}</p>
       <button type="button" className="btn" onClick={state.refresh}>Retry</button>

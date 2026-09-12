@@ -76,4 +76,23 @@ describe('useSelectorChoices', () => {
     expect(result.current.error).toBeNull();
     expect(load).toHaveBeenCalledTimes(2);
   });
+
+  it('keeps the current catalog mounted while a same-scope refresh is pending', async () => {
+    const refreshed = deferred<HttpSelectorChoicesResponse>();
+    const load = vi.fn<SelectorChoicesLoader>()
+      .mockResolvedValueOnce(response('before-refresh'))
+      .mockReturnValueOnce(refreshed.promise);
+    const { result } = renderHook(() => useSelectorChoices({
+      projectId: 'project-a', query: query(null), queryKey: 'initial', load,
+    }));
+
+    await waitFor(() => expect(result.current.response?.current_choice_id).toBe('before-refresh'));
+    act(() => result.current.refresh());
+    await waitFor(() => expect(result.current.refreshing).toBe(true));
+    expect(result.current.loading).toBe(false);
+    expect(result.current.response?.current_choice_id).toBe('before-refresh');
+
+    await act(async () => refreshed.resolve(response('after-refresh')));
+    await waitFor(() => expect(result.current.response?.current_choice_id).toBe('after-refresh'));
+  });
 });
