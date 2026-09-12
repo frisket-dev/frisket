@@ -376,7 +376,9 @@ def test_whisper_alias_resolves_identically_to_faster_whisper(
         assert alias.family == canonical.family
 
 
-def test_diarize_refuses_before_liveness_when_local_cannot_honor_it(monkeypatch, tmp_path):
+def test_diarize_refuses_before_liveness_when_local_cannot_honor_it(
+    monkeypatch, tmp_path
+):
     # The first declared Parakeet target is local ONNX. An optional control
     # cannot reroute it to the gateway, even when a gateway would be the only
     # target able to honor the option.
