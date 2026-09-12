@@ -31,6 +31,8 @@ KINDS = frozenset(TARGETS) | {"runtime-info", "yt-dlp", "native-exec"}
 
 
 def main() -> int:
+    # Workers import bundled application code from signed app resources.
+    sys.dont_write_bytecode = True
     arguments = sys.argv[1:]
     policy = None
     if arguments[:1] == ["--policy"]:
