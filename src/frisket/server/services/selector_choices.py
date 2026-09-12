@@ -21,9 +21,10 @@ from frisket.contracts.http.selector_choices import (
     SelectorChoicesQuery,
     SelectorChoicesResponse,
 )
+from frisket.engine._workers.parakeet_artifacts import parakeet_setup_ready
+from frisket.engine.jobs.engine_setup import PARAKEET_TDT_SETUP_REF
 from frisket.execution.definitions import (
     MODELS_GATEWAY_TARGET_ID,
-    parakeet_artifacts_present,
     parakeet_runtime_present,
 )
 from frisket.execution.provider import ExecutionComposition
@@ -69,7 +70,6 @@ from frisket.server.services.selector_choices_projection import (
 )
 
 
-_PARAKEET_TDT_SETUP_REF = "engine-setup:parakeet-tdt.local-onnx@1"
 _TARGET_OVERRIDE_FIELDS = frozenset({"target", "target_id", "execution_target"})
 
 
@@ -613,9 +613,9 @@ class SelectorChoiceService:
                         ),
                         "field": None,
                     }
-                elif not parakeet_artifacts_present():
+                elif not parakeet_setup_ready():
                     operation, blocked = self._setup.model_pull_operations(
-                        _PARAKEET_TDT_SETUP_REF
+                        PARAKEET_TDT_SETUP_REF
                     )
                     status = "working" if operation is not None else "needs_setup"
                     blocker = {
@@ -627,7 +627,7 @@ class SelectorChoiceService:
                     }
                     setup = {
                         "kind": "engine_setup",
-                        "setup_ref": _PARAKEET_TDT_SETUP_REF,
+                        "setup_ref": PARAKEET_TDT_SETUP_REF,
                         "scope": "organization"
                         if self._edition != "solo"
                         else "workspace",

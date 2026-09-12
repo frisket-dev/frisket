@@ -493,7 +493,7 @@ def test_busy_setup_embeds_actual_operation_without_removing_download_authority(
         lambda: True,
     )
     monkeypatch.setattr(
-        "frisket.server.services.selector_choices.parakeet_artifacts_present",
+        "frisket.server.services.selector_choices.parakeet_setup_ready",
         lambda: False,
     )
     client, workspace, project_id = _app(
