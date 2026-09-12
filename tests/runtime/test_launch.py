@@ -44,6 +44,47 @@ def test_private_interpreter_loads_separate_app_not_ambient_pythonpath(tmp_path)
     assert Path(info["app_code_root"]) == app
 
 
+def test_worker_does_not_write_bytecode_into_its_app_tree(tmp_path):
+    environment = tmp_path / "private Python"
+    venv.EnvBuilder(with_pip=False).create(environment)
+    executable = environment / (
+        "Scripts/python.exe" if os.name == "nt" else "bin/python"
+    )
+    app = tmp_path / "Application Resources"
+    package = app / "frisket"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("")
+    import frisket.runtime
+
+    shutil.copytree(Path(frisket.runtime.__file__).parent, package / "runtime")
+    plugin = package / "plugins"
+    plugin.mkdir()
+    (plugin / "subprocess_runner.py").write_text("def main():\n    return 0\n")
+    cache = plugin / "__pycache__"
+    cache.mkdir()
+    stale_cache = cache / f"subprocess_runner.{sys.implementation.cache_tag}.pyc"
+    stale_cache.write_bytes(b"signed-app-cache-must-not-change")
+    before = {
+        path.relative_to(app): path.read_bytes()
+        for path in app.rglob("*")
+        if path.is_file()
+    }
+
+    subprocess.run(
+        worker_argv("plugin", runtime=PythonRuntime(executable, app)),
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=True,
+    )
+
+    assert {
+        path.relative_to(app): path.read_bytes()
+        for path in app.rglob("*")
+        if path.is_file()
+    } == before
+
+
 def test_missing_runtime_does_not_fall_back(tmp_path):
     with pytest.raises(ValueError, match="interpreter"):
         worker_argv(
