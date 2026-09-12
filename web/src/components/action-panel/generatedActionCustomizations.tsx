@@ -58,6 +58,7 @@ interface GeneratedActionCustomizationBase {
   initialPromptParams?(prompt: string): CanonicalActionDraft;
   defaultSheetName?: string;
   outputNamesReadOnly?: true;
+  hiddenOutputNameKeys?: readonly string[];
   fields?: Readonly<Partial<Record<string, (props: GeneratedActionFieldProps) => ReactNode>>>;
   fieldOrder?: readonly string[];
   defaultOutputName?(key: string, draft: CanonicalActionDraft): string | undefined;
@@ -66,6 +67,8 @@ interface GeneratedActionCustomizationBase {
     label: string;
     initialValue(names?: Readonly<Record<string, string>>): string;
     outputName(key: string, prefix: string, outputs: readonly { key: string }[]): string;
+    keys?: readonly string[];
+    hint?: ReactNode;
   };
   primaryLabel?: string;
   primaryTestId?: string;
@@ -248,8 +251,16 @@ const EXACT_CUSTOMIZATIONS = {
   },
   'media.ocr': {
     body: OcrParamsBody,
-    defaultOutputName: (key) => key === 'text' ? 'ocr_text' : key === 'blocks' ? 'ocr_blocks' : key === 'pdf' ? 'searchable_pdf' : undefined,
-    outputLabel: (key) => key === 'text' ? 'Extracted text' : key === 'blocks' ? 'Text blocks' : 'Searchable PDF',
+    defaultOutputName: (key) => key === 'text' ? 'ocr_text' : key === 'blocks' ? 'ocr_text_boxes' : key === 'pdf' ? 'searchable_pdf' : undefined,
+    hiddenOutputNameKeys: ['text', 'blocks'],
+    outputLabel: (key) => key === 'pdf' ? 'Searchable PDF' : undefined,
+    outputPrefix: {
+      label: 'OCR result',
+      initialValue: (names) => names?.text ?? 'ocr_text',
+      outputName: (key, prefix) => key === 'text' ? prefix : `${prefix}_boxes`,
+      keys: ['text', 'blocks'],
+      hint: null,
+    },
   },
   'media.transcribe': {
     body: TranscribeParamsBody,

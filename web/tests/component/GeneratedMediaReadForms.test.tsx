@@ -125,13 +125,20 @@ describe('typed OCR/transcription forms', () => {
     }
   });
 
-  it('names OCR outputs independently and adds/removes searchable PDF through resolution', async () => {
-    const { onExecute } = form('media.ocr');
+  it('derives OCR text boxes from the result column and preserves searchable PDF naming', async () => {
+    const { onExecute } = form('media.ocr', { columns: [...sheet.columns,
+      columnDef({ id: '3', name: 'ocr_text', type: 'text' })] });
     expect(screen.getByTestId('field-searchable_pdf')).not.toBeChecked();
-    await screen.findByTestId('field-output-text');
+    await screen.findByTestId('field-output-prefix');
+    expect(screen.getByTestId('field-output-prefix')).toHaveValue('ocr_text_2');
+    expect(screen.queryByTestId('field-output-text')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('field-output-blocks')).not.toBeInTheDocument();
     expect(screen.queryByTestId('field-output-pdf')).not.toBeInTheDocument();
-    fireEvent.change(screen.getByTestId('field-output-text'), { target: { value: 'Read text' } });
-    fireEvent.change(screen.getByTestId('field-output-blocks'), { target: { value: 'Geometry' } });
+    await run();
+    expect(onExecute.mock.lastCall?.[0].output_names).toEqual({
+      text: 'ocr_text_2', blocks: 'ocr_text_2_boxes',
+    });
+    fireEvent.change(screen.getByTestId('field-output-prefix'), { target: { value: 'Read text' } });
     fireEvent.change(screen.getByTestId('field-dpi'), { target: { value: '300' } });
     fireEvent.click(screen.getByTestId('field-searchable_pdf'));
     await screen.findByTestId('field-output-pdf');
@@ -139,12 +146,20 @@ describe('typed OCR/transcription forms', () => {
     await run();
     expect(onExecute.mock.lastCall?.[0]).toMatchObject({
       params: { source: 'scan', engine: 'rapidocr', dpi: 300, searchable_pdf: true },
-      output_names: { text: 'Read text', blocks: 'Geometry', pdf: 'Searchable' },
+      output_names: { text: 'Read text', blocks: 'Read text_boxes', pdf: 'Searchable' },
     });
     fireEvent.click(screen.getByTestId('field-searchable_pdf'));
     await waitFor(() => expect(screen.queryByTestId('field-output-pdf')).not.toBeInTheDocument());
     await run();
-    expect(onExecute.mock.lastCall?.[0].output_names).toEqual({ text: 'Read text', blocks: 'Geometry' });
+    expect(onExecute.mock.lastCall?.[0].output_names).toEqual({ text: 'Read text', blocks: 'Read text_boxes' });
+  });
+
+  it('chooses a fresh OCR result prefix when only its derived boxes exist', async () => {
+    form('media.ocr', { columns: [...sheet.columns,
+      columnDef({ id: '3', name: 'ocr_text_boxes', type: 'json' })] });
+
+    await screen.findByTestId('field-output-prefix');
+    expect(screen.getByTestId('field-output-prefix')).toHaveValue('ocr_text_2');
   });
 
   it('clears a language hint on an auto-only Parakeet switch', async () => {

@@ -245,6 +245,10 @@ def _load_runtime(
     language_param = _language_param(language)
     if language_param is not None:
         params["Rec.lang_type"] = language_param
+    else:
+        from rapidocr.utils.typings import OCRVersion
+
+        params["Rec.ocr_version"] = OCRVersion.PPOCRV5
 
     with _shared_ort_session_options(
         ort,
