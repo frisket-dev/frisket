@@ -886,9 +886,9 @@ def mark_cancelled(engine: sa.engine.Engine, pull_id: int) -> bool:
     return res.rowcount > 0
 
 
-# Wire version 3 carries both parts of immutable local-endpoint provenance:
-# stable endpoint identity plus the enqueue-time origin snapshot.
-PULL_DTO_SCHEMA_VERSION = "frisket.model_pull.v3"
+# Wire version 4 carries immutable endpoint provenance plus the operation
+# presentation/capability facts used by the selector and activity views.
+PULL_DTO_SCHEMA_VERSION = "frisket.model_pull.v4"
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -896,7 +896,7 @@ def _iso(value: datetime | None) -> str | None:
 
 
 def to_dto(row: ModelPullRow) -> dict[str, Any]:
-    """The ONE ``frisket.model_pull.v3`` wire shape -- shared by the local
+    """The ONE ``frisket.model_pull.v4`` wire shape -- shared by the local
     tier's ``/api/providers/models/pull*`` routes and the team tier's
     ``/api/org/models/pull*`` routes, so the surfaces cannot drift on field
     names/types even though they are gated and scoped differently.
@@ -916,6 +916,28 @@ def to_dto(row: ModelPullRow) -> dict[str, Any]:
             "license": row.artifact_license,
             "manifest_version": row.artifact_manifest_version,
         }
+    if row.model_ref == "engine-setup:parakeet-tdt.local-onnx@1":
+        operation_kind = "engine_setup"
+        display_name = "Parakeet TDT (local ONNX)"
+    elif row.endpoint_id is not None:
+        operation_kind = "local_model"
+        display_name = row.model_ref
+    else:
+        operation_kind = "artifact"
+        display_name = row.model_ref
+    # Only the local artifact cache owns an uninstall operation. HF snapshots
+    # are Hub-owned, local daemon models are daemon-owned, and engine bundles
+    # deliberately have no owned uninstall path.
+    can_remove = (
+        operation_kind == "artifact"
+        and row.artifact_kind != "hf_snapshot"
+        and not row.model_ref.startswith("hf-snapshot:")
+    )
+    capabilities = {
+        "cancel": row.status in ACTIVE_STATUSES,
+        "retry": row.status in (STATUS_FAILED, STATUS_CANCELLED),
+        "remove": can_remove and row.status == STATUS_DONE,
+    }
     return {
         "schemaVersion": PULL_DTO_SCHEMA_VERSION,
         "id": row.id,
@@ -940,4 +962,7 @@ def to_dto(row: ModelPullRow) -> dict[str, Any]:
         "initiated_by": row.initiated_by,
         # Null for local-server pulls.
         "artifact": artifact,
+        "operation_kind": operation_kind,
+        "display_name": display_name,
+        "capabilities": capabilities,
     }

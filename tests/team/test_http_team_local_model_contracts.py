@@ -102,7 +102,7 @@ def _pull_payload(
     initiated_by: str | None = "1",
 ) -> dict[str, object]:
     return {
-        "schemaVersion": "frisket.model_pull.v3",
+        "schemaVersion": "frisket.model_pull.v4",
         "id": 7,
         "model": "ollama/@env-a1b2c3d4e5f6/smollm:135m",
         "status": status,
@@ -120,6 +120,9 @@ def _pull_payload(
         "endpoint_origin": endpoint_origin,
         "initiated_by": initiated_by,
         "artifact": None,
+        "operation_kind": "local_model",
+        "display_name": "ollama/@env-a1b2c3d4e5f6/smollm:135m",
+        "capabilities": {"cancel": status in ("pending", "running"), "retry": False, "remove": False},
     }
 
 

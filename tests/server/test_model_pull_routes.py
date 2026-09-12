@@ -138,7 +138,7 @@ def test_happy_path_enqueues_job_and_returns_202(tmp_path, monkeypatch) -> None:
     assert pull["model"] == _local_ref(client, "smollm:135m")
     assert pull["endpoint_id"] == client.local_endpoint_id
     assert pull["status"] in ("pending", "running")
-    assert pull["schemaVersion"] == "frisket.model_pull.v3"
+    assert pull["schemaVersion"] == "frisket.model_pull.v4"
     assert pull["artifact"] is None
 
     workspace = client.app.state.workspace

@@ -160,8 +160,14 @@ class ModelPullArtifact(WireModel):
     manifest_version: str | None
 
 
+class ModelPullCapabilities(WireModel):
+    cancel: bool
+    retry: bool
+    remove: bool
+
+
 class ModelPull(WireModel):
-    schemaVersion: Literal["frisket.model_pull.v3"]
+    schemaVersion: Literal["frisket.model_pull.v4"]
     id: int
     model: str
     status: Literal[
@@ -186,6 +192,9 @@ class ModelPull(WireModel):
     endpoint_origin: str | None
     initiated_by: str | None
     artifact: ModelPullArtifact | None
+    operation_kind: Literal["artifact", "local_model", "engine_setup"]
+    display_name: str
+    capabilities: ModelPullCapabilities
 
 
 class ModelPullStartResponse(WireModel):
@@ -216,6 +225,7 @@ __all__ = [
     "LocalEndpointPatchRequest",
     "LocalProviderCatalog",
     "ModelPull",
+    "ModelPullCapabilities",
     "ModelPullListResponse",
     "ModelPullStartResponse",
     "ProviderKeyRequest",

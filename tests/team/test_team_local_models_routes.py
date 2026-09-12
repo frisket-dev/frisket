@@ -286,7 +286,7 @@ def test_pull_happy_path_enqueues_and_audits(tmp_path, monkeypatch) -> None:
     body = resp.json()
     assert body["deduplicated"] is False
     pull = body["pull"]
-    assert pull["schemaVersion"] == "frisket.model_pull.v3"
+    assert pull["schemaVersion"] == "frisket.model_pull.v4"
     assert pull["model"] == _local_ref("smollm:135m")
     assert (
         pull["endpoint_id"]
@@ -604,7 +604,7 @@ def test_pulls_list_and_get_by_id(tmp_path, monkeypatch) -> None:
     single = member.get(f"/api/org/models/pulls/{created['id']}")
     assert single.status_code == 200, single.text
     assert single.json()["id"] == created["id"]
-    assert single.json()["schemaVersion"] == "frisket.model_pull.v3"
+    assert single.json()["schemaVersion"] == "frisket.model_pull.v4"
 
     missing = member.get("/api/org/models/pulls/999999")
     assert missing.status_code == 404, missing.text
