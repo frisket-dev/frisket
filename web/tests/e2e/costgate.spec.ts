@@ -57,12 +57,11 @@ async function expectCostGateContribution(contribution: Locator) {
 
 test('expensive run trips the 402 cost gate modal', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-costgate'));
-  await importCsv(page.request, pid, 'big.csv', bigCsv(250));
+  await importCsv(page.request, pid, 'big.csv', bigCsv(1_000));
 
   // The POST /run request goes to the live backend and must return the V1
   // action-result 402 envelope.
   const runPosts: Array<Record<string, unknown>> = [];
-  const estimateRoute = `**/api/projects/${pid}/actions/v1/estimate`;
   const runRoute = `**/api/projects/${pid}/actions/v1/run`;
   const choices: SelectorGroupFixture[] = [{
     id: 'local',
@@ -94,25 +93,6 @@ test('expensive run trips the 402 cost gate modal', async ({ page }) => {
       currentChoiceId: params.engine === 'llm' ? 'anthropic-claude-opus-4-8' : 'local-semantic',
     });
   });
-  await page.route(estimateRoute, async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        schema_version: 'frisket.action_estimate_result.v1',
-        action: { kind: 'map.classify', action_id: 'costgate-estimate-e2e' },
-        project_id: pid,
-        estimate: {
-          rows: 250,
-          cost: 0.05,
-          cost_source: 'estimated',
-          billed_cost: 50_000,
-          policy_id: 'frisket.pricing.identity.v1',
-          avg_input_tokens: 12,
-        },
-      }),
-    });
-  });
   await page.route(runRoute, async (route) => {
     runPosts.push(route.request().postDataJSON() as Record<string, unknown>);
     await route.continue();
@@ -121,7 +101,7 @@ test('expensive run trips the 402 cost gate modal', async ({ page }) => {
   try {
     await page.goto(`/p/${pid}`);
     await expect(page.getByTestId('grid')).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByTestId('sheet-stats')).toHaveText(/250 rows/);
+    await expect(page.getByTestId('sheet-stats')).toHaveText(/1,000 rows/);
 
     await openAction(page, 'map.classify');
     await page.getByLabel('Field 1 labels').fill('routine, investigate');
@@ -151,12 +131,15 @@ test('expensive run trips the 402 cost gate modal', async ({ page }) => {
     await expectCostGateContribution(
       page.getByTestId('workbench-contribution-frisket-core-view-cost-gate'),
     );
-    await expect(page.getByTestId('cost-gate-estimate')).toContainText('$');
+    const quotedCost = page.getByTestId('cost-gate-estimate');
+    await expect(quotedCost).toContainText('$');
+    const quoteText = await quotedCost.innerText();
+    const dollars = Number(quoteText.match(/\$([\d,.]+)/)?.[1]?.replaceAll(',', ''));
+    expect(dollars).toBeGreaterThan(2);
 
-    // Run stays locked until the user types "confirm".
+    // The server-issued confirmation token enables the deliberate retry. This
+    // test cancels instead, so it never sends the confirmed execution POST.
     const confirm = page.getByTestId('cost-gate-confirm');
-    await expect(confirm).toBeDisabled();
-    await page.getByTestId('cost-gate-input').fill('confirm');
     await expect(confirm).toBeEnabled();
 
     // Never actually confirm; cancel instead.
@@ -166,7 +149,6 @@ test('expensive run trips the 402 cost gate modal', async ({ page }) => {
     const posted = runPosts[0] as { params: { confirmed?: boolean } };
     expect(posted.params.confirmed ?? false).toBe(false);
   } finally {
-    await page.unroute(estimateRoute);
     await page.unroute(runRoute);
   }
 });
