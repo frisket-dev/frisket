@@ -59,13 +59,14 @@ describe('cluster canonical saved contract', () => {
     { ...review, canonical_overrides: [] },
     { ...review, excluded_members: [] },
     { ...review, excluded_members: { 'jon smith': 'Smith, Jon' } },
-  ])('rejects malformed structured review without silently discarding it', (bad) => {
-    expect(() => decodeSavedActionSpec(catalog, saved({ review: bad }))).toThrow();
+  ])('preserves malformed structured review for server validation', (bad) => {
+    const wire = saved({ review: bad });
+    expect(encodeSavedActionSpec(decodeSavedActionSpec(catalog, wire))).toEqual(wire);
   });
-  it('fails closed when the served schema no longer accepts the saved review field', () => {
+  it('does not interpret a served input schema while decoding the saved envelope', () => {
     const mutated = structuredClone(catalog);
     const changed = mutated.actions.find((item) => item.kind === entry.kind)!;
     delete changed.input_schema.properties?.review;
-    expect(() => decodeSavedActionSpec(mutated, saved())).toThrow();
+    expect(encodeSavedActionSpec(decodeSavedActionSpec(mutated, saved()))).toEqual(saved());
   });
 });

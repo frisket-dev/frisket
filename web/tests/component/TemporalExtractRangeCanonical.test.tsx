@@ -238,7 +238,7 @@ describe('temporal extract-range typed canonical launch', () => {
         title: 'Saved extract',
         spec: savedSpec({
           source: 'alternate_recording',
-          selection: { kind: 'draft_range', start_ms: 20_000, end_ms: 40_000 },
+          selection: { kind: 'draft_range', start_ms: 20_000, end_ms: 40_000, repeat_for_rows: true },
         }, 'saved_clip', [202, 203]),
       },
       activeRowId: '999',
