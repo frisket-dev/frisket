@@ -113,6 +113,47 @@ describe('useMediaCompareSession paid batches', () => {
     expect(runColumn).not.toHaveBeenCalled();
   });
 
+  it('does not prepare or retry a failed variant after authoritative readiness blocks it', async () => {
+    const prepareRun = vi.fn().mockResolvedValue(true);
+    const runColumn = vi.fn().mockResolvedValue({ ok: false, message: 'first attempt failed' });
+    const { result } = renderHook(() => useMediaCompareSession(config({
+      defaultEngineIds: ['local'], includeBillableEngines: true, prepareRun, runColumn,
+    }), vi.fn()));
+    act(() => result.current.ingestFiles([new File(['x'], 'clip.wav')]));
+    await waitFor(() => expect(result.current.pendingPairs).toHaveLength(1));
+    act(() => result.current.runPending());
+    await waitFor(() => expect(result.current.docs[0].runs[result.current.columns[0].id]?.status).toBe('error'));
+    const doc = result.current.docs[0];
+    const column = result.current.columns[0];
+    const blocked = mediaChoices({ schema_version: 'frisket.selector_choices_query.v1',
+      subject: { kind: 'action', action_id: 'media.transcribe', field: 'engine', params: { engine: 'local' } },
+    }, ['local'], false).groups[0].choices[0];
+    act(() => result.current.reportColumnChoice(column, blocked));
+    expect(result.current.runnableColumns).toHaveLength(0);
+    act(() => result.current.retryColumn(doc, column));
+    await act(async () => { await Promise.resolve(); });
+    expect(prepareRun).toHaveBeenCalledTimes(1);
+    expect(runColumn).toHaveBeenCalledTimes(1);
+  });
+
+  it('starts no superseded variant after asynchronous cost preparation', async () => {
+    let approve!: (approved: boolean) => void;
+    const prepareRun = vi.fn(() => new Promise<boolean>((resolve) => { approve = resolve; }));
+    const runColumn = vi.fn();
+    const { result } = renderHook(() => useMediaCompareSession(config({
+      defaultEngineIds: ['local'], includeBillableEngines: true, prepareRun, runColumn,
+    }), vi.fn()));
+    act(() => result.current.ingestFiles([new File(['x'], 'clip.wav')]));
+    await waitFor(() => expect(result.current.pendingPairs).toHaveLength(1));
+    act(() => result.current.runPending());
+    await waitFor(() => expect(prepareRun).toHaveBeenCalledTimes(1));
+    act(() => result.current.updateColumnOptions(result.current.columns[0].id, { vad: true }));
+    await waitFor(() => expect(result.current.runnableColumns).toHaveLength(1));
+    act(() => approve(true));
+    await waitFor(() => expect(result.current.preparing).toBe(false));
+    expect(runColumn).not.toHaveBeenCalled();
+  });
+
   it('aborts preparation and exposes the same signal to runs', async () => {
     let release!: (approved: boolean) => void;
     const prepareRun = vi.fn((_pairs, signal: AbortSignal) => new Promise<boolean>((resolve) => {

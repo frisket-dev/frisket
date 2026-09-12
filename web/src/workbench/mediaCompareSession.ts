@@ -322,6 +322,14 @@ export function useMediaCompareSession<R>(
     },
     [catalog, columns, readiness, readinessKey],
   );
+  const currentRunnable = useRef({ projectId, columns: runnableColumns });
+  currentRunnable.current = { projectId, columns: runnableColumns };
+  const isCurrentlyRunnable = useCallback((column: CompareColumn, scope: typeof projectId) => {
+    if (currentRunnable.current.projectId !== scope) return false;
+    const current = currentRunnable.current.columns.find((item) => item.id === column.id);
+    return current !== undefined && current.engineId === column.engineId
+      && JSON.stringify(current.options) === JSON.stringify(column.options);
+  }, []);
 
   const activeDoc = useMemo(
     () => docs.find((doc) => doc.id === activeDocId) ?? docs[0] ?? null,
@@ -359,7 +367,7 @@ export function useMediaCompareSession<R>(
   const runColumnForDoc = useCallback(
     async (doc: ScratchDoc<R>, column: CompareColumn, signal: AbortSignal) => {
       const engineId = column.engineId;
-      if (!engineId) {
+      if (!engineId || !isCurrentlyRunnable(column, projectId)) {
         bumpProgress(signal);
         return;
       }
@@ -395,7 +403,7 @@ export function useMediaCompareSession<R>(
         bumpProgress(signal);
       }
     },
-    [catalog, config, setRunState, bumpProgress],
+    [catalog, config, setRunState, bumpProgress, isCurrentlyRunnable, projectId],
   );
 
   const pendingPairs = useMemo(
@@ -462,6 +470,7 @@ export function useMediaCompareSession<R>(
     (requestedPairs: Array<{ doc: ScratchDoc<R>; column: CompareColumn }>) => {
       if (requestedPairs.length === 0 || activeBatch.current) return;
       const pairs = [...requestedPairs];
+      if (!pairs.every(({ column }) => isCurrentlyRunnable(column, projectId))) return;
       const controller = new AbortController();
       const batch = { controller, pairs };
       activeBatch.current = batch;
@@ -473,6 +482,9 @@ export function useMediaCompareSession<R>(
             setPreparing(false);
             if (!approved || controller.signal.aborted) return;
           }
+          // Cost preparation belongs to this exact variant snapshot. Draft edits
+          // or refreshed readiness can retire it while the user reviews the quote.
+          if (!pairs.every(({ column }) => isCurrentlyRunnable(column, projectId))) return;
           setRunProgress({ done: 0, total: pairs.length });
           if (config.sequential) {
             for (const { doc, column } of pairs) {
@@ -495,7 +507,7 @@ export function useMediaCompareSession<R>(
         }
       })();
     },
-    [config, runColumnForDoc],
+    [config, runColumnForDoc, isCurrentlyRunnable, projectId],
   );
 
   const runPending = useCallback(() => runPairs(pendingPairs), [runPairs, pendingPairs]);
