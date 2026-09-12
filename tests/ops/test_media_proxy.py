@@ -17,6 +17,7 @@ from frisket.ops.media_proxy import (
     write_media_proxy,
 )
 from frisket.runtime.launch import worker_argv
+from frisket.runtime.supervisor import guarded_argv
 
 
 @pytest.fixture
@@ -311,7 +312,8 @@ def test_cli_extractor_passes_proxy_to_ytdlp(monkeypatch, tmp_path) -> None:
             "proxy": "socks5://127.0.0.1:1080",
         },
     )
-    assert argv[:4] == worker_argv("yt-dlp")
+    prefix = guarded_argv(worker_argv("yt-dlp"))
+    assert argv[: len(prefix)] == prefix
     assert argv[argv.index("--proxy") + 1] == "socks5://127.0.0.1:1080"
     # The explicit argument must come after config handling so it outranks any
     # admin config file value.

@@ -91,7 +91,9 @@ class AdmittedOpenCorporates:
         self.check_active(ctx)
         if self.client is not None:
             return
-        from frisket.authoring.workbench.plugin_subprocess import _project_plugin_secrets
+        from frisket.authoring.workbench.plugin_subprocess import (
+            _project_plugin_secrets,
+        )
 
         env = _project_plugin_secrets(
             ctx.project,

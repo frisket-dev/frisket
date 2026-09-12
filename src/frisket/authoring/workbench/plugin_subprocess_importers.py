@@ -48,7 +48,9 @@ def run_plugin_importer_subprocess(
     secret_values = (
         {}
         if row_limit is not None
-        else _project_plugin_secrets(project, plugin_id=binding.plugin, metadata=metadata)
+        else _project_plugin_secrets(
+            project, plugin_id=binding.plugin, metadata=metadata
+        )
     )
     if isinstance(secret_values, dict) and "_error" in secret_values:
         return secret_values["_error"]

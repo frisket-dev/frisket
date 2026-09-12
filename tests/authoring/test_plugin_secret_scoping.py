@@ -81,12 +81,12 @@ def test_two_plugins_same_env_name_are_isolated(tmp_path) -> None:
     )
 
     metadata = {"requires_secrets": ["SHARED_KEY"]}
-    assert _project_plugin_secrets(project, plugin_id="plugin.a", metadata=metadata) == {
-        "SHARED_KEY": "value-a"
-    }
-    assert _project_plugin_secrets(project, plugin_id="plugin.b", metadata=metadata) == {
-        "SHARED_KEY": "value-b"
-    }
+    assert _project_plugin_secrets(
+        project, plugin_id="plugin.a", metadata=metadata
+    ) == {"SHARED_KEY": "value-a"}
+    assert _project_plugin_secrets(
+        project, plugin_id="plugin.b", metadata=metadata
+    ) == {"SHARED_KEY": "value-b"}
 
 
 def test_plugin_does_not_siphon_unowned_core_project_secret(tmp_path) -> None:
@@ -106,7 +106,9 @@ def test_plugin_does_not_siphon_unowned_core_project_secret(tmp_path) -> None:
     assert _missing_project_plugin_secrets(
         project, plugin_id="demo.plugin", metadata=metadata
     ) == ["CORE_TOKEN"]
-    resolved = _project_plugin_secrets(project, plugin_id="demo.plugin", metadata=metadata)
+    resolved = _project_plugin_secrets(
+        project, plugin_id="demo.plugin", metadata=metadata
+    )
     # Fail-closed: the value is never resolved into the plugin env; the call
     # returns the missing-env error instead of the core-owned plaintext.
     assert "CORE_TOKEN" not in resolved
@@ -182,6 +184,8 @@ def test_plugin_does_not_read_reserved_core_credential(tmp_path) -> None:
     assert _missing_project_plugin_secrets(
         project, plugin_id="demo.plugin", metadata=metadata
     ) == ["OPENAI_API_KEY"]
-    resolved = _project_plugin_secrets(project, plugin_id="demo.plugin", metadata=metadata)
+    resolved = _project_plugin_secrets(
+        project, plugin_id="demo.plugin", metadata=metadata
+    )
     assert "OPENAI_API_KEY" not in resolved
     assert "sk-core" not in str(resolved)

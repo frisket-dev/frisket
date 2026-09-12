@@ -139,6 +139,8 @@ from pathlib import Path
 from typing import Any, BinaryIO
 from urllib.parse import unquote, urlsplit
 
+from frisket.runtime.supervisor import guard_exit_proves_cleanup
+
 from . import fence
 
 logger = logging.getLogger(__name__)
@@ -546,18 +548,10 @@ class ProcessTreeController:
                 if active is not None:
                     return active == 0
             return False
-        # A guardian killed before completing its own proof cannot establish
-        # that its separately-sessioned target tree is gone, even though the
-        # guardian's process group itself is empty. SIGTERM is the exception:
-        # the guardian installs its TERM handler before it starts the target,
-        # so a default TERM death proves the target was never spawned.
-        if self._guarded:
-            # A missing process group is only a cleanup acknowledgement after
-            # asyncio's child watcher has published how the guardian exited.
-            if self.proc.returncode is None:
-                return False
-            if self.proc.returncode < 0 and self.proc.returncode != -_TERM_SIGNAL:
-                return False
+        # Wait for the child watcher to publish an acknowledged guardian exit,
+        # not merely for the guardian's own process group to disappear.
+        if self._guarded and not guard_exit_proves_cleanup(self.proc.returncode):
+            return False
         try:
             os.killpg(pid, 0)
         except ProcessLookupError:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import signal
 import subprocess
 
 from frisket.runtime.launch import PythonRuntime
@@ -38,17 +39,21 @@ def spawn_service(argv: list[str]) -> subprocess.Popen:
     )
 
 
+def guard_exit_proves_cleanup(returncode: int | None) -> bool:
+    """A normal guard exit acknowledges cleanup; unknown/dead guards cannot.
+
+    Default SIGTERM death is safe during startup: the guard installs its TERM
+    handler before it can spawn a target. Later target signal exits are encoded
+    as positive 128+signal values, never negative guardian signal statuses.
+    """
+    return returncode is not None and (returncode >= 0 or returncode == -signal.SIGTERM)
+
+
 def stop_guard(process: subprocess.Popen, *, timeout: float = 1.0) -> None:
     """Let the guardian finish tree cleanup before considering a forced exit."""
 
     def verify_exit() -> None:
-        # The guardian translates target signals to positive 128+signal codes.
-        # A negative status therefore means the guardian itself was killed.
-        if (
-            os.name == "posix"
-            and process.returncode is not None
-            and process.returncode < 0
-        ):
+        if os.name == "posix" and not guard_exit_proves_cleanup(process.returncode):
             raise RuntimeError("worker guardian was killed before proving shutdown")
 
     if process.poll() is not None:

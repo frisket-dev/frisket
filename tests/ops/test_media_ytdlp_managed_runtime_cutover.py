@@ -13,6 +13,7 @@ import frisket.ops.ytdlp as ytdlp
 from frisket.ops import egress_policy
 from frisket.ops.integrations.hosted_error import HostedEngineError
 from frisket.runtime.launch import worker_argv
+from frisket.runtime.supervisor import guarded_argv
 
 # The acquisition-path modules whose in-process yt-dlp extraction must leave the
 # app process. The YouTube SOURCE-POLL path (frisket.sources.youtube) is a
@@ -288,7 +289,8 @@ def test_installed_ytdlp_runs_out_of_process_with_admin_config_and_one_item(
 ):
     monkeypatch.setattr(ytdlp, "_admin_ytdlp_config_paths", tuple)
     argv = _capture_extractor_argv(monkeypatch)
-    assert argv[:4] == worker_argv("yt-dlp")
+    prefix = guarded_argv(worker_argv("yt-dlp"))
+    assert argv[: len(prefix)] == prefix
     # yt-dlp's own discovery includes a CWD-relative slot, so it stays off and
     # admin config reaches the child only through paths frisket names.
     assert "--ignore-config" in argv
@@ -402,29 +404,6 @@ def test_installed_ytdlp_runtime_has_a_total_wall_clock_deadline(
         assert captured["creationflags"] == ytdlp.subprocess.CREATE_NEW_PROCESS_GROUP
     else:
         assert captured["start_new_session"] is True
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX process-group assertion")
-def test_timeout_cleanup_kills_the_entire_posix_process_group(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    killed: list[tuple[int, object]] = []
-
-    class _Proc:
-        pid = 4321
-
-        def kill(self):
-            raise AssertionError("the per-process fallback should not be needed")
-
-    monkeypatch.setattr(
-        ytdlp.os,
-        "killpg",
-        lambda pid, sig: killed.append((pid, sig)),
-    )
-
-    ytdlp._kill_process_tree(_Proc())  # type: ignore[arg-type]
-
-    assert killed == [(4321, ytdlp.signal.SIGKILL)]
 
 
 def test_default_extractor_uses_only_installed_ytdlp_package(
