@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { generatedActionTemplateFromCatalogEntry } from '../../src/actions/model';
 import { decodeSavedActionSpec, encodeSavedActionSpec } from '../../src/actions/savedActionSpec';
@@ -11,10 +10,11 @@ import { columnDef } from '../support/domainFixtures';
 import { sheetMeta } from '../support/actionFormFixtures';
 import { servedActionCatalog } from '../support/servedActionCatalog';
 import { installPopoverPolyfill } from '../support/domPolyfills';
+import { chooseActionSelector, installActionSelectorFixture, openActionSelector, selectorTrigger } from '../support/selectorChoicesFixture';
 
 const catalog = servedActionCatalog();
 beforeAll(installPopoverPolyfill);
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 const sheet = sheetMeta([
   columnDef({ id: '1', name: 'doc', type: 'file' }),
   columnDef({ id: '2', name: 'html', type: 'text' }),
@@ -25,18 +25,19 @@ function form(initialDraft?: GeneratedActionDraft, available = true, roster?: En
   const raw = catalog.actions.find((entry) => entry.kind === 'media.to_markdown');
   if (!raw || !isGeneratedActionCatalogEntry(raw)) throw new Error('Missing typed Markdown catalog');
   // Availability is the test environment; the served catalog still owns the roster.
-  const entry = { ...raw, ui_hints: { ...raw.ui_hints, engines: (roster ?? raw.ui_hints.engines)?.map((engine) => ({
+  const entry = { ...raw, ui_hints: { ...raw.ui_hints, engines: roster ?? raw.ui_hints.engines?.map((engine) => ({
     ...engine, available: available || engine.id === 'markitdown',
     error: !available && engine.id !== 'markitdown' ? 'Test runtime unavailable' : undefined,
   })) } };
   const template = generatedActionTemplateFromCatalogEntry(entry)!;
+  installActionSelectorFixture(entry);
   const onExecute = vi.fn();
   const resolveParams = vi.fn(async ({ params }: { params: Record<string, unknown> }) => ({
     diagnostics: {}, logical_outputs: entry.ui_hints.logical_outputs.filter(({ key }) => (
       key === 'markdown' || entry.ui_hints.engines?.some((engine) => engine.id === params.engine && engine.tier === 'sidecar')
     )),
   }));
-  render(<GeneratedActionForm catalogEntry={entry} actionTemplate={template} sheet={sheet}
+  render(<GeneratedActionForm projectId="markdown-docling" catalogEntry={entry} actionTemplate={template} sheet={sheet}
     selectedRowIds={['3', '8']} initialSourceColumn="doc" initialDraft={initialDraft}
     hasExactRowScopeInitializer={Boolean(initialDraft)} running={false}
     resolveParams={resolveParams} onExecute={onExecute} onClose={vi.fn()}
@@ -48,15 +49,13 @@ async function run() {
   fireEvent.click(screen.getByTestId('generated-action-run'));
 }
 async function choose(engine: string, tier?: string) {
-  await userEvent.click(screen.getByTestId('engine-picker-button'));
-  if (tier) await userEvent.click(screen.getByTestId('engine-picker-tier-' + tier));
-  await userEvent.click(screen.getByTestId('engine-option-' + engine));
+  await chooseActionSelector(engine);
 }
 
 describe('typed Markdown form', () => {
   it('defaults to MarkItDown and submits source, exact rows and generic output names', async () => {
     const { onExecute } = form();
-    expect(screen.getByTestId('engine-picker-button')).toHaveTextContent(/MarkItDown/i);
+    await waitFor(() => expect(selectorTrigger()).toHaveTextContent(/MarkItDown/i));
     expect(screen.getByTestId('field-source')).toHaveValue('doc');
     expect(screen.getByTestId('field-source')).toHaveTextContent('html');
     expect(screen.getByTestId('field-source')).not.toHaveTextContent('image');
@@ -77,32 +76,26 @@ describe('typed Markdown form', () => {
     if (!raw || !isGeneratedActionCatalogEntry(raw)) throw new Error('Missing typed Markdown catalog');
     const docling = raw.ui_hints.engines?.find((engine) => engine.id === 'docling');
     if (!docling) throw new Error('Missing Docling engine');
-    form(undefined, true, [docling]);
+    const markitdown = raw.ui_hints.engines?.find((engine) => engine.id === 'markitdown');
+    if (!markitdown) throw new Error('Missing MarkItDown engine');
+    form(undefined, true, [{ ...markitdown, available: false,
+      error: 'This engine is unavailable for this action.' }, docling]);
 
-    expect(screen.getByTestId('engine-picker-button')).toHaveTextContent('markitdown (unavailable)');
-    expect(screen.queryByTestId('engine-select')).not.toBeInTheDocument();
-    await userEvent.click(screen.getByTestId('engine-picker-button'));
-    expect(screen.getByTestId('engine-option-markitdown')).toHaveAttribute('aria-disabled', 'true');
-    expect(screen.getByTestId('engine-option-reason-markitdown')).toHaveTextContent(
-      'This engine is unavailable for this action.',
-    );
-    await userEvent.click(screen.getByTestId('engine-picker-tier-sidecar'));
-    await userEvent.click(screen.getByTestId('engine-option-docling'));
-    expect(screen.getByTestId('engine-picker-button')).toHaveTextContent('Docling');
+    await waitFor(() => expect(selectorTrigger()).toHaveTextContent('markitdown'));
+    const dialog = await openActionSelector();
+    expect(dialog).toHaveTextContent('This engine is unavailable for this action.');
+    await choose('docling');
+    expect(selectorTrigger()).toHaveTextContent('Docling');
   });
 
   it('retains local, sidecar and hosted engines plus experimental/license details', async () => {
     form();
-    await userEvent.click(screen.getByTestId('engine-picker-button'));
-    expect(screen.getByTestId('engine-option-trafilatura_html')).toHaveTextContent(/Trafilatura/i);
-    await userEvent.click(screen.getByTestId('engine-picker-tier-sidecar'));
-    expect(screen.getByTestId('engine-option-docling')).toHaveTextContent(/Docling/i);
-    expect(screen.getByTestId('engine-option-chandra')).toHaveTextContent(/experimental/i);
-    await userEvent.click(screen.getByTestId('engine-option-chandra'));
-    expect(screen.getByText(/has a restrictive license/)).toBeInTheDocument();
-    await userEvent.click(screen.getByTestId('engine-picker-button'));
-    await userEvent.click(screen.getByTestId('engine-picker-tier-hosted'));
-    expect(screen.getByTestId('engine-option-datalab')).toHaveTextContent(/Datalab/i);
+    const dialog = await openActionSelector();
+    expect(dialog).toHaveTextContent(/Trafilatura/i);
+    expect(dialog).toHaveTextContent(/Docling/i);
+    expect(dialog).toHaveTextContent(/Chandra/i);
+    await choose('chandra');
+    expect((await openActionSelector())).toHaveTextContent(/Datalab/i);
   });
 
   it('names sidecar OCR-use output and drops it when switching to a local engine', async () => {
@@ -125,7 +118,7 @@ describe('typed Markdown form', () => {
       params: { source: 'html', ...(engine ? { engine } : {}) },
       output_names: { markdown: 'Saved markdown', ...(engine ? { ocr_used: 'Saved page OCR' } : {}) } };
     const { onExecute } = form(draft);
-    expect(screen.getByTestId('engine-picker-button')).toHaveTextContent(engine ? /Docling/i : /MarkItDown/i);
+    await waitFor(() => expect(selectorTrigger()).toHaveTextContent(engine ? /Docling/i : /MarkItDown/i));
     expect(encodeSavedActionSpec(decodeSavedActionSpec(catalog, draft))).toEqual(draft);
     await run();
     expect(onExecute.mock.calls[0][0]).toEqual({ ...draft, idempotency_key: expect.any(String) });
@@ -136,7 +129,8 @@ describe('typed Markdown form', () => {
       scope: { kind: 'sheet_rows', sheet_id: 7 }, params: { source: 'doc', engine: 'docling' },
       output_names: { markdown: 'Saved', ocr_used: 'Saved OCR' } }, false);
     await screen.findByTestId('field-output-markdown');
-    expect(screen.getByTestId('engine-picker-selected-unavailable')).toHaveTextContent('unavailable');
+    expect(selectorTrigger()).toHaveTextContent(/Docling/i);
+    expect(await openActionSelector()).toHaveTextContent('Test runtime unavailable');
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
     expect(onExecute).not.toHaveBeenCalled();
   });

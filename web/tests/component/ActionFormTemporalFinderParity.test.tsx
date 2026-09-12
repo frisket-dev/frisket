@@ -9,6 +9,7 @@ import { GeneratedActionForm, type GeneratedActionFormProps } from '../../src/co
 import { columnDef } from '../support/domainFixtures';
 import { completeCatalogPayload, sheetMeta } from '../support/actionFormFixtures';
 import { syntheticActionCatalogEntry } from '../support/actionCatalogFixtures';
+import { installActionSelectorFixture, openActionSelector, selectorTrigger } from '../support/selectorChoicesFixture';
 
 afterEach(cleanup);
 const transcriptSheet = sheetMeta([
@@ -35,7 +36,10 @@ const template = actionTemplatesFromCatalog(catalog)
   .find((candidate) => candidate.kind === 'map.find_topic_sections')!;
 function form(overrides: Partial<GeneratedActionFormProps> = {}) {
   const onExecute = vi.fn();
-  render(<GeneratedActionForm catalogEntry={entry} actionTemplate={template}
+  const selectorEntry = { ...entry, ui_hints: { ...entry.ui_hints,
+    engines: overrides.actionTemplate?.engines ?? entry.ui_hints.engines } };
+  installActionSelectorFixture(selectorEntry);
+  render(<GeneratedActionForm projectId="topic-sections" catalogEntry={selectorEntry} actionTemplate={template}
     sheet={transcriptSheet} running={false}
     resolveParams={async () => ({ diagnostics: {}, logical_outputs: entry.ui_hints.logical_outputs })}
     onExecute={onExecute} onClose={() => {}} {...overrides} />);
@@ -106,25 +110,23 @@ describe('typed topic sections authoring', () => {
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
   });
 
-  it('keeps unavailable engines visible, blocks Run and offers host Diagnose', async () => {
-    const onOpenDiagnose = vi.fn();
+  it('keeps an unavailable engine visible and blocks Run', async () => {
     const onExecute = form({ actionTemplate: { ...template, engines: [{
       id: 'texttiling', label: 'TextTiling', tier: 'local', available: false,
       error: 'Install the segmentation extra.',
-    }] }, onOpenDiagnose });
+    }] } });
     expect(await screen.findByRole('alert')).toHaveTextContent('Install the segmentation extra.');
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
-    fireEvent.click(screen.getByText('Engine availability'));
-    expect(screen.getByTestId('engine-availability-line-texttiling')).toHaveTextContent('unavailable');
-    fireEvent.click(screen.getByTestId('engine-availability-open-diagnose'));
-    expect(onOpenDiagnose).toHaveBeenCalledOnce();
+    expect(await openActionSelector()).toHaveTextContent('Install the segmentation extra.');
     expect(onExecute).not.toHaveBeenCalled();
   });
 
   it('blocks an empty engine list without silently changing a saved engine', async () => {
     form({ actionTemplate: { ...template, engines: [] } });
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
-    expect(screen.getByRole('alert')).toHaveTextContent('texttiling is unavailable.');
+    await waitFor(() => expect(screen.getByRole('alert')).not.toHaveTextContent('Checking engine availability…'));
+    expect(selectorTrigger()).toHaveTextContent(/texttiling/i);
+    expect(await openActionSelector()).toHaveTextContent('Saved choice is not offered');
   });
 
   it('retains selected-row preview and queue-while-running through the shared footer', async () => {

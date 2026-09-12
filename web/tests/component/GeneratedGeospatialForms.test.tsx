@@ -10,6 +10,7 @@ import { columnDef } from '../support/domainFixtures';
 import { sheetMeta } from '../support/actionFormFixtures';
 import { installPopoverPolyfill } from '../support/domPolyfills';
 import { hasServedActionCatalogPython, servedActionCatalog } from '../support/servedActionCatalog';
+import { chooseActionSelector, installActionSelectorFixture, selectorTrigger } from '../support/selectorChoicesFixture';
 
 const SHEET = sheetMeta([
   columnDef({ id: '11', name: 'address', type: 'text' }),
@@ -33,13 +34,17 @@ describe.skipIf(!hasServedActionCatalogPython() && !process.env.CI)('typed geosp
     engineDefault?: string) {
     const raw = catalog.actions.find((entry) => entry.kind === kind)!;
     if (!isGeneratedActionCatalogEntry(raw)) throw new Error(`${kind} must use its typed catalog contract`);
+    const engines = (runtimeHints.engines ?? raw.ui_hints.engines ?? []).map((engine) => (
+      runtimeHints.engines ? engine : { ...engine, available: true, error: undefined }
+    ));
     const entry = { ...raw,
       ...(engineDefault ? { input_schema: { ...raw.input_schema, properties: {
         ...raw.input_schema.properties,
         engine: { ...raw.input_schema.properties?.engine, default: engineDefault },
       } } } : {}),
-      ui_hints: { ...raw.ui_hints, ...runtimeHints, missing_credentials: missingCredentials } };
+      ui_hints: { ...raw.ui_hints, ...runtimeHints, engines, missing_credentials: missingCredentials } };
     const template = generatedActionTemplateFromCatalogEntry(entry)!;
+    installActionSelectorFixture(entry);
     const resolveParams = vi.fn(async ({ params }: Parameters<ComponentProps<typeof GeneratedActionForm>['resolveParams']>[0]) => ({
       diagnostics: {}, logical_outputs: entry.ui_hints.logical_outputs.filter(({ key }) => (
         kind === 'enrich.geocode'
@@ -48,30 +53,28 @@ describe.skipIf(!hasServedActionCatalogPython() && !process.env.CI)('typed geosp
       )),
     }));
     const execute = vi.fn();
-    render(<GeneratedActionForm catalogEntry={entry} actionTemplate={template} sheet={SHEET}
+    render(<GeneratedActionForm projectId={`generated-geospatial:${kind}`} catalogEntry={entry} actionTemplate={template} sheet={SHEET}
       running={false} resolveParams={resolveParams} onExecute={execute} onClose={vi.fn()}
       estimateAction={vi.fn(async () => ({ cost: 0, rows: 3, billed_cost: 0 }))} {...options} />);
     return { entry, execute, resolveParams };
   }
 
-  function chooseEngine(engineId: string): void {
-    fireEvent.click(screen.getByTestId('engine-picker-button'));
-    fireEvent.change(screen.getByTestId('engine-picker-search'), { target: { value: engineId } });
-    fireEvent.click(screen.getByTestId(`engine-option-${engineId}`));
+  async function chooseEngine(engineId: string): Promise<void> {
+    await chooseActionSelector(engineId);
   }
 
   it('keeps address-column eligibility separate from template parts and sends canonical preview/run requests', async () => {
     const { execute } = renderForm('enrich.geocode');
     const column = screen.getByTestId('text-source-column-select') as HTMLSelectElement;
     expect(column).toHaveValue('address');
-    expect(screen.getByTestId('engine-picker-button')).toHaveTextContent('Auto');
+    await waitFor(() => expect(selectorTrigger()).toHaveTextContent('Auto'));
     expect(Array.from(column.options).map((option) => option.value)).not.toContain('house_number');
     const templateOption = Array.from(column.options).find((option) => option.text === 'Template')!;
     fireEvent.change(column, { target: { value: templateOption.value } });
     const composer = screen.getByTestId('text-source-template-input');
     fireEvent.change(composer, { target: { value: '{{house_number}} — {{opened_on}}' } });
     expect(screen.getByTestId('text-source-template-column-insert')).toHaveTextContent('house_number');
-    chooseEngine('nominatim');
+    await chooseEngine('nominatim');
     fireEvent.click(screen.getByTestId('include-lat-lon-columns'));
     await waitFor(() => expect(screen.getByTestId('field-output-latitude')).toBeInTheDocument());
     fireEvent.change(screen.getByTestId('field-output-geo_point'), { target: { value: 'location' } });
@@ -174,14 +177,14 @@ describe.skipIf(!hasServedActionCatalogPython() && !process.env.CI)('typed geosp
     // Wait for validation: an initially disabled button does not prove the
     // catalog availability gate survives successful parameter resolution.
     await screen.findByTestId('field-output-geo_point');
-    expect(screen.getByTestId('engine-picker-button')).toHaveTextContent(/opencage/i);
+    expect(selectorTrigger()).toHaveTextContent(/opencage/i);
     expect(screen.getByRole('alert')).toHaveTextContent(
-      availability === 'unavailable' ? 'OPENCAGE_API_KEY' : 'opencage is unavailable.',
+      availability === 'unavailable' ? 'OPENCAGE_API_KEY' : 'Saved choice is not offered',
     );
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
     expect(screen.getByTestId('generated-action-preview')).toBeDisabled();
     expect(execute).not.toHaveBeenCalled();
-    chooseEngine('nominatim');
+    await chooseEngine('nominatim');
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
     fireEvent.click(screen.getByTestId('generated-action-run'));
     expect(execute.mock.calls[0][0].params).toEqual({ source: 'address', engine: 'nominatim', include_lat_lon: false });
@@ -192,7 +195,7 @@ describe.skipIf(!hasServedActionCatalogPython() && !process.env.CI)('typed geosp
       engines: [{ id: 'nominatim', label: 'Nominatim', tier: 'hosted', available: true }],
     });
     await screen.findByTestId('field-output-geo_point');
-    expect(screen.getByTestId('engine-picker-button')).toHaveTextContent('Auto');
+    expect(selectorTrigger()).toHaveTextContent('Auto');
     expect(screen.getByTestId('generated-action-run')).toBeEnabled();
     fireEvent.click(screen.getByTestId('generated-action-run'));
     expect(execute.mock.calls[0][0].params.engine).toBe('auto');
@@ -204,8 +207,8 @@ describe.skipIf(!hasServedActionCatalogPython() && !process.env.CI)('typed geosp
       params: { source: 'address' }, output_names: { geo_point: 'Saved point', formatted_address: 'Saved address' },
     } }, [], { engines: [{ id: 'nominatim', label: 'Nominatim', tier: 'hosted', available: false }] });
     await screen.findByTestId('field-output-geo_point');
-    expect(screen.getByTestId('engine-picker-button')).toHaveTextContent('Auto');
-    expect(screen.getByRole('alert')).toHaveTextContent('No execution engines are available.');
+    expect(selectorTrigger()).toHaveTextContent('Auto');
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('No execution engines are available.'));
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
     expect(execute).not.toHaveBeenCalled();
   });
@@ -218,7 +221,7 @@ describe.skipIf(!hasServedActionCatalogPython() && !process.env.CI)('typed geosp
   ])('refuses auto when its execution engine roster is $label', async ({ engines }) => {
     const { execute } = renderForm('enrich.geocode', {}, [], { engines });
     await screen.findByTestId('field-output-geo_point');
-    expect(screen.getByTestId('engine-picker-button')).toHaveTextContent('Auto');
+    expect(selectorTrigger()).toHaveTextContent('Auto');
     expect(screen.getByRole('alert')).toHaveTextContent('No execution engines are available.');
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
     expect(screen.getByTestId('generated-action-preview')).toBeDisabled();
