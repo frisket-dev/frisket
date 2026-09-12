@@ -177,8 +177,9 @@ _STDERR_TAIL_LIMIT = 64 * 1024
 
 
 @pytest.mark.skipif(os.name != "posix", reason="signal return codes are POSIX-only")
-@pytest.mark.parametrize("returncode", [-signal.SIGKILL, -signal.SIGABRT])
-def test_guard_signal_death_cannot_prove_sandbox_tree_cleanup(returncode):
+@pytest.mark.parametrize("signal_name", ["SIGKILL", "SIGABRT"])
+def test_guard_signal_death_cannot_prove_sandbox_tree_cleanup(signal_name):
+    returncode = -getattr(signal, signal_name)
     proc = type("GuardProcess", (), {"pid": 2**30, "returncode": returncode})()
 
     assert ProcessTreeController(proc, guarded=True).tree_gone() is False
