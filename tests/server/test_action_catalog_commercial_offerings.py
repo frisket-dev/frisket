@@ -321,6 +321,14 @@ def test_exact_injected_offer_is_the_only_platform_catalog_option() -> None:
     assert engine["targets"] == [
         {
             "target": "synthetic-shared",
+            "transcription_options": {
+                "language": False,
+                "vad": True,
+                "model_size": False,
+                "context": False,
+                "clean": False,
+            },
+            "diarization": {"supported": False, "mode": "none"},
             "target_id": "synthetic-shared",
             "available": True,
             "billable": True,
@@ -359,6 +367,14 @@ def test_edition_target_can_offer_whisper_turbo_without_a_local_gateway() -> Non
     assert engine["targets"] == [
         {
             "target": "modal:edition-models",
+            "transcription_options": {
+                "language": True,
+                "vad": True,
+                "model_size": False,
+                "context": True,
+                "clean": False,
+            },
+            "diarization": {"supported": False, "mode": "none"},
             "target_id": "modal:edition-models",
             "available": True,
             "billable": True,
