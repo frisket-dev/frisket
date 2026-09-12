@@ -10,7 +10,7 @@ import time
 
 import pytest
 
-from frisket.runtime.supervisor import guarded_argv
+from frisket.runtime.supervisor import guarded_argv, stop_guard
 
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="POSIX process guardian")
@@ -116,3 +116,27 @@ def test_parent_death_cleans_nested_separate_sessions(tmp_path):
             if _live(pid):
                 os.kill(pid, signal.SIGKILL)
         process.kill() if process.poll() is None else None
+
+
+def test_stop_guard_waits_for_term_ignoring_target(tmp_path):
+    target = tmp_path / "target.py"
+    target.write_text(
+        "import os,signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); "
+        "print(os.getpid(),flush=True); time.sleep(60)"
+    )
+    process = subprocess.Popen(
+        guarded_argv([sys.executable, str(target)]),
+        stdout=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    pid = int(process.stdout.readline())
+    try:
+        stop_guard(process)
+        assert not _live(pid)
+        assert process.poll() is not None
+    finally:
+        if _live(pid):
+            os.kill(pid, signal.SIGKILL)
+        if process.poll() is None:
+            process.kill()

@@ -18,7 +18,6 @@ import hashlib
 import importlib.metadata as importlib_metadata
 import os
 import re
-import signal
 import subprocess
 import tempfile
 import time
@@ -27,6 +26,8 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from frisket.runtime.supervisor import guarded_argv, stop_guard
+
 from frisket.ops.integrations.hosted_error import HostedEngineError
 from frisket.ops.media_probe import probe_for_ingest
 from frisket.ops.ytdlp_outputs import (
@@ -650,7 +651,7 @@ def _installed_ytdlp_cli_extractor(
         else:
             process_group_kwargs = {"start_new_session": True}
         proc = subprocess.Popen(  # noqa: S603
-            argv,
+            guarded_argv(argv),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -769,6 +770,9 @@ def _communicate_until_cancel_or_deadline(
 
 def _kill_process_tree(proc: subprocess.Popen[str]) -> None:
     """Best-effort termination of yt-dlp and descendants such as ffmpeg."""
+    if os.name == "posix":
+        stop_guard(proc)
+        return
     if os.name == "nt":
         try:
             completed = subprocess.run(  # noqa: S603
@@ -781,14 +785,6 @@ def _kill_process_tree(proc: subprocess.Popen[str]) -> None:
             if completed.returncode == 0:
                 return
         except (OSError, subprocess.SubprocessError):
-            pass
-    else:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-            return
-        except ProcessLookupError:
-            return
-        except OSError:
             pass
     try:
         proc.kill()

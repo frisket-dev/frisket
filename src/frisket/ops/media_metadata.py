@@ -40,6 +40,8 @@ from importlib.metadata import PackageNotFoundError, version as package_version
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping
 
+from frisket.runtime.supervisor import guarded_argv, stop_guard
+
 from frisket.runtime.launch import limited_argv, worker_argv
 
 if TYPE_CHECKING:
@@ -1169,6 +1171,10 @@ def _kill_process(
 ) -> None:
     """Kill the owned tree even when its direct leader has already exited."""
 
+    if os.name == "posix":
+        stop_guard(proc)
+        return
+
     try:
         tree_controller.signal_tree(getattr(signal, "SIGKILL", signal.SIGTERM))
     except (OSError, ProcessLookupError):
@@ -1206,7 +1212,7 @@ def _run_bounded(
             cancelled=True,
         )
     deadline = time.monotonic() + max(0.01, timeout)
-    supervised_argv = _resource_limited_argv(argv, timeout=timeout)
+    supervised_argv = guarded_argv(_resource_limited_argv(argv, timeout=timeout))
     with (
         tempfile.TemporaryDirectory(prefix="frisket-metadata-adapter-") as scratch,
         ExitStack() as resources,

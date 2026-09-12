@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import signal
 import subprocess
 
 from frisket.runtime.launch import PythonRuntime
@@ -38,13 +39,22 @@ def spawn_service(argv: list[str]) -> subprocess.Popen:
     )
 
 
-def stop_service(process: subprocess.Popen | None) -> None:
-    if process is None or process.poll() is not None:
+def stop_guard(process: subprocess.Popen, *, timeout: float = 1.0) -> None:
+    """Let the guardian finish tree cleanup before considering a forced exit."""
+    if process.poll() is not None:
+        if os.name == "posix" and process.returncode == -signal.SIGKILL:
+            raise RuntimeError("worker guardian was killed before proving shutdown")
         return
     process.terminate()
     try:
-        process.wait(timeout=10)
+        process.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
         process.kill()
-        process.wait(timeout=5)
+        process.wait(timeout=1)
         raise RuntimeError("worker guardian did not complete shutdown")
+
+
+def stop_service(process: subprocess.Popen | None) -> None:
+    if process is None or process.poll() is not None:
+        return
+    stop_guard(process, timeout=10)
