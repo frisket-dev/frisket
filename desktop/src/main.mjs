@@ -1,4 +1,5 @@
 import { mkdir } from 'node:fs/promises';
+import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { app, BrowserWindow, Menu, dialog, session, shell, protocol } from 'electron';
@@ -16,6 +17,15 @@ let provisioningController;
 let quitting = false;
 let recoveryTask;
 let cleanupFailed = false;
+
+// Keep the original beta's projects, caches and browser preferences across the rename.
+if (!app.commandLine.hasSwitch('user-data-dir')) {
+  const dataPath = path.join(app.getPath('appData'), 'Frisket');
+  mkdirSync(dataPath, { recursive: true });
+  app.setPath('userData', dataPath);
+}
+mkdirSync(app.getPath('userData'), { recursive: true });
+app.setPath('sessionData', app.getPath('userData'));
 
 // This must happen before Electron's ready event, before any renderer exists.
 protocolPrivileges();
@@ -71,11 +81,13 @@ function resourcesPath() {
 
 function createWindow() {
   const window = new BrowserWindow({
+    title: 'Frisket Desktop',
     width: 1240,
     height: 840,
     minWidth: 900,
     minHeight: 600,
     show: false,
+    backgroundColor: '#f9f7fc',
     webPreferences: {
       sandbox: true,
       contextIsolation: true,
@@ -84,7 +96,11 @@ function createWindow() {
     },
   });
   protectWindow(window);
+  window.on('page-title-updated', (event) => event.preventDefault());
   window.once('ready-to-show', () => window.show());
+  window.webContents.on('render-process-gone', (_event, details) => {
+    if (!quitting) void recover(new Error(`The workspace window stopped (${details.reason}).`));
+  });
   return window;
 }
 
@@ -93,12 +109,11 @@ async function showStartup(window) {
   window.show();
 }
 
-/** @param {string} message */
-function setStartupStatus(message) {
+/** @param {{phase: string, message: string}} progress */
+function setStartupStatus(progress) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.setTitle(`Frisket — ${message}`);
   void mainWindow.webContents.executeJavaScript(
-    `document.querySelector('#status').textContent = ${JSON.stringify(message)}`,
+    `window.updateStartup(${JSON.stringify(progress)})`,
   ).catch(() => {});
 }
 
@@ -111,7 +126,7 @@ async function launch() {
     resourcesPath: resourcesPath(), dataPath, signal: provisioningController.signal, onProgress: setStartupStatus,
   });
   if (quitting) return;
-  setStartupStatus('Opening your workspace…');
+  setStartupStatus({ phase: 'workspace', message: 'Opening your workspace…' });
   backend = await startBackend({
     runtime, resourcesPath: resourcesPath(), workspace,
     onFailure: (error) => void recover(error),
@@ -121,6 +136,7 @@ async function launch() {
     return;
   }
   installProtocol({ protocol }, backend);
+  setStartupStatus({ phase: 'ready', message: 'Your workspace is ready.' });
   await mainWindow.loadURL(`${APP_ORIGIN}/`);
 }
 
@@ -140,8 +156,8 @@ async function recover(error) {
     const choice = await dialog.showMessageBox(mainWindow, {
       type: 'error', buttons: cleanupFailed ? ['Quit'] : ['Retry', 'Quit'],
       defaultId: 0, cancelId: cleanupFailed ? 0 : 1,
-      title: 'Frisket could not start',
-      message: 'The local workspace service stopped unexpectedly.',
+      title: 'Frisket Desktop could not start',
+      message: 'Frisket Desktop could not continue.',
       detail: error instanceof Error ? error.message : 'Please try again.',
     });
     if (!cleanupFailed && choice.response === 0) setTimeout(() => { void startAttempt(); }, 0);
@@ -155,7 +171,7 @@ function startAttempt() {
   startupTask = (async () => {
     try {
       await showStartup(mainWindow);
-      await launch();
+      if (!quitting) await launch();
     } catch (error) {
       if (!quitting) await recover(error);
     } finally {
@@ -201,23 +217,23 @@ app.whenReady().then(async () => {
     callback(canWriteClipboard(contents, permission, details.requestingUrl)));
   session.defaultSession.setPermissionCheckHandler((contents, permission, requestingOrigin) =>
     canWriteClipboard(contents, permission, requestingOrigin));
-  session.defaultSession.on('will-download', (_event, item, webContents) => {
-    item.pause();
-    void dialog.showSaveDialog(BrowserWindow.fromWebContents(webContents), {
-      defaultPath: item.getFilename(),
-    }).then(({ canceled, filePath }) => {
-      if (canceled || !filePath) item.cancel();
-      else { item.setSavePath(filePath); item.resume(); }
-    });
+  session.defaultSession.on('will-download', (_event, item) => {
+    item.setSaveDialogOptions({ defaultPath: item.getFilename() });
   });
-  app.on('second-instance', () => { mainWindow?.show(); mainWindow?.focus(); });
+  app.on('second-instance', () => {
+    if (quitting || !mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
   installMenu();
   mainWindow = createWindow();
   await startAttempt();
 });
 
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') void requestQuit(); });
+app.on('window-all-closed', () => void requestQuit());
 app.on('activate', () => {
+  if (quitting) return;
   if (!mainWindow || mainWindow.isDestroyed()) {
     mainWindow = createWindow();
     if (backend) void mainWindow.loadURL(`${APP_ORIGIN}/`);

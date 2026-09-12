@@ -2,7 +2,7 @@
   "name": "frisket-desktop",
   "version": "0.0.0",
   "private": true,
-  "description": "Frisket desktop application",
+  "description": "Frisket Desktop application",
   "author": "Frisket contributors",
   "license": "Apache-2.0",
   "type": "module",
@@ -19,5 +19,5 @@
     "electron": "44.3.0",
     "electron-builder": "26.15.3"
   },
-  "productName": "Frisket"
+  "productName": "Frisket Desktop"
 }

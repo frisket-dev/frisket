@@ -44,7 +44,7 @@ jobs:
           enable-cache: false
       - name: Check architecture and capacity
         run: |
-          echo "FRISKET_DESKTOP_APP=$RUNNER_TEMP/Applications/Frisket.app" >> "$GITHUB_ENV"
+          echo "FRISKET_DESKTOP_APP=$RUNNER_TEMP/Applications/Frisket Desktop.app" >> "$GITHUB_ENV"
           echo "FRISKET_DESKTOP_PROFILE=$RUNNER_TEMP/frisket-desktop-profile" >> "$GITHUB_ENV"
           test "$(uname -m)" = arm64
           df -h .
@@ -58,7 +58,7 @@ jobs:
         run: python3 desktop/scripts/prepare.py
       - name: Focused desktop unit checks
         run: npm --prefix desktop test
-      - name: Package DMG and ZIP
+      - name: Package DMG
         run: npm --prefix desktop run package:mac
       - name: Install from the DMG
         shell: bash
@@ -70,7 +70,7 @@ jobs:
           mkdir -p "$mount_path" "$(dirname "$FRISKET_DESKTOP_APP")"
           hdiutil attach "${image[0]}" -readonly -nobrowse -mountpoint "$mount_path"
           trap 'hdiutil detach "$mount_path"' EXIT
-          ditto "$mount_path/Frisket.app" "$FRISKET_DESKTOP_APP"
+          ditto "$mount_path/Frisket Desktop.app" "$FRISKET_DESKTOP_APP"
           codesign --verify --deep --strict "$FRISKET_DESKTOP_APP"
       - name: Prepare download caches (networked setup)
         run: node desktop/scripts/prewarm.mjs
@@ -80,14 +80,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: Frisket-macos-arm64-${{ github.event.pull_request.head.sha || github.sha }}
+          name: Frisket-Desktop-macos-arm64-${{ github.event.pull_request.head.sha || github.sha }}
           if-no-files-found: error
           retention-days: 14
-          path: |
-            desktop/dist/*.dmg
-            desktop/dist/*.zip
-            desktop/resources/build.json
-            desktop/resources/runtime.json
+          path: desktop/dist/*.dmg
       - name: Upload installed-app evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -98,3 +94,5 @@ jobs:
           path: |
             desktop/playwright-report/
             desktop/test-results/
+            desktop/resources/build.json
+            desktop/resources/runtime.json

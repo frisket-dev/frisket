@@ -10,7 +10,7 @@ const profile = process.env.FRISKET_DESKTOP_PROFILE;
 
 async function launch(testInfo) {
   const electron = await _electron.launch({
-    executablePath: path.join(appPath, 'Contents/MacOS/Frisket'),
+    executablePath: path.join(appPath, 'Contents/MacOS/Frisket Desktop'),
     args: [`--user-data-dir=${profile}`],
     chromiumSandbox: true,
     timeout: 60_000,
@@ -75,10 +75,15 @@ async function descendants(pid) {
   return [...owned];
 }
 
-async function quit(electron) {
+async function quit(electron, closeWindow = false) {
   const pids = await descendants(electron.process().pid);
-  // Playwright invokes app.quit and detaches its Node debugger before awaiting exit.
-  await electron.close();
+  if (closeWindow) {
+    // Exercise the native close button, which app.quit() bypasses.
+    await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
+    await expect.poll(() => electron.process().exitCode, { timeout: 20_000 }).toBe(0);
+  } else {
+    await electron.close();
+  }
   await expect.poll(() => pids.filter((pid) => {
     try { process.kill(pid, 0); return true; } catch { return false; }
   }), { timeout: 20_000 }).toEqual([]);
@@ -126,7 +131,9 @@ test('installed app imports, runs its worker, exports, quits and reopens', async
   let running = first.electron;
   try {
     const page = first.page;
-    expect(await running.evaluate(({ app }) => app.getName())).toBe('Frisket');
+    expect(await running.evaluate(({ app }) => app.getName())).toBe('Frisket Desktop');
+    expect(await running.evaluate(({ app }) => app.getPath('userData'))).toBe(profile);
+    expect(await running.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getTitle())).toBe('Frisket Desktop');
     expect(await page.evaluate(() => [typeof window.require, typeof window.process])).toEqual(['undefined', 'undefined']);
     await page.evaluate(() => navigator.clipboard.writeText('Desktop clipboard smoke'));
     expect(await running.evaluate(({ clipboard }) => clipboard.readText())).toBe('Desktop clipboard smoke');
@@ -173,9 +180,9 @@ test('installed app imports, runs its worker, exports, quits and reopens', async
 
     const exportPath = testInfo.outputPath('desktop-smoke.csv');
     await mkdir(path.dirname(exportPath), { recursive: true });
-    // Automate only the native save chooser; the ordinary download handler runs.
-    await running.evaluate(({ dialog }, destination) => {
-      dialog.showSaveDialog = async () => ({ canceled: false, filePath: destination });
+    // Supply a destination at the documented download boundary; keep the app handler.
+    await running.evaluate(({ session }, destination) => {
+      session.defaultSession.once('will-download', (_event, item) => item.setSavePath(destination));
     }, exportPath);
     await page.getByTestId('switch-project').click();
     await page.getByTestId('export-menu-open').click();
@@ -193,7 +200,7 @@ test('installed app imports, runs its worker, exports, quits and reopens', async
     expect(extracted(await sheet(second.page, projectId, sheetId))).toBe('$4,200');
     await second.page.screenshot({ path: testInfo.outputPath('reopened-project.png') });
     expect(second.rendererErrors).toEqual([]);
-    await quit(running);
+    await quit(running, true);
     running = undefined;
   } finally {
     if (running) await running.close().catch(() => {});

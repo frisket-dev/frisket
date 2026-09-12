@@ -5,15 +5,16 @@ const build = JSON.parse(fs.readFileSync(path.join(__dirname, 'resources/build.j
 
 module.exports = {
   appId: 'dev.frisket.desktop',
-  productName: 'Frisket',
+  productName: 'Frisket Desktop',
   extraMetadata: { version: build.version },
   asar: true,
   directories: { output: 'dist', buildResources: 'build' },
   files: ['src/**/*.mjs', 'ui/**/*', 'package.json'],
   extraResources: [{ from: 'resources', to: '.', filter: ['**/*'] }],
-  artifactName: `Frisket-\${version}-\${arch}-${build.revision.slice(0, 8)}.\${ext}`,
+  artifactName: `Frisket-Desktop-\${version}-\${arch}-${build.revision.slice(0, 8)}.\${ext}`,
   mac: {
-    target: [{ target: 'dmg', arch: ['arm64'] }, { target: 'zip', arch: ['arm64'] }],
+    icon: 'ui/icon.svg',
+    target: [{ target: 'dmg', arch: ['arm64'] }],
     category: 'public.app-category.productivity',
     minimumSystemVersion: '14.0',
     // Ad-hoc signing cannot enforce a common Team ID across Electron frameworks.

@@ -16,7 +16,7 @@ const FORCE_CANCEL_MS = 5_000;
  * without the completion marker is deliberately treated as repairable; a
  * marked directory is immutable from this module's point of view.
  *
- * @param {{resourcesPath: string, dataPath: string, onProgress?: (status: string) => void, signal?: AbortSignal}} options
+ * @param {{resourcesPath: string, dataPath: string, onProgress?: (progress: {phase: string, message: string}) => void, signal?: AbortSignal}} options
  * @returns {Promise<{python: string, env: Record<string, string>}>}
  */
 export async function prepareRuntime({ resourcesPath, dataPath, onProgress = () => {}, signal }) {
@@ -38,7 +38,7 @@ export async function prepareRuntime({ resourcesPath, dataPath, onProgress = () 
   const ready = await readReadyMarker(markerPath, manifest, environmentId);
   if (ready) {
     await assertFile(python, 'private Python');
-    onProgress('Private Python runtime is ready.');
+    onProgress({ phase: 'workspace', message: 'Opening your workspace…' });
     return { python, env };
   }
 
@@ -51,12 +51,12 @@ export async function prepareRuntime({ resourcesPath, dataPath, onProgress = () 
   await fs.mkdir(path.join(data, 'python'), { recursive: true });
   await fs.mkdir(path.join(data, 'cache', 'playwright', manifest.playwrightVersion), { recursive: true });
 
-  onProgress('Installing the private Python interpreter…');
+  onProgress({ phase: 'runtime', message: 'Downloading the app runtime…' });
   await run(uv, ['python', 'install', manifest.pythonVersion, '--managed-python', '--no-bin', '--no-config'], {
     label: 'installing private Python', env, signal,
   });
 
-  onProgress(wasIncomplete ? 'Repairing the private Python environment…' : 'Creating the private Python environment…');
+  onProgress({ phase: 'runtime', message: wasIncomplete ? 'Resuming setup…' : 'Preparing the app runtime…' });
   const venvArgs = ['venv', environmentPath, '--python', manifest.pythonVersion, '--managed-python', '--no-config'];
   if (wasIncomplete) venvArgs.push('--clear');
   await run(uv, venvArgs, { label: 'creating private Python environment', env, signal });
@@ -66,17 +66,17 @@ export async function prepareRuntime({ resourcesPath, dataPath, onProgress = () 
   const guarded = (command, args, label) => run(python, ['-I', guard, String(process.pid), GUARD_GRACE_SECONDS, command, ...args], {
     label, env, signal,
   });
-  onProgress('Installing private Python dependencies…');
+  onProgress({ phase: 'dependencies', message: 'Installing app components…' });
   await guarded(uv, ['pip', 'sync', '--python', python, '--require-hashes', requirements, '--no-config'], 'installing private Python dependencies');
 
-  onProgress('Installing the bundled Chromium browser…');
+  onProgress({ phase: 'browser', message: 'Setting up browser tools…' });
   await guarded(python, ['-m', 'playwright', 'install', 'chromium'], 'installing bundled Chromium');
 
-  onProgress('Checking the private Python runtime…');
+  onProgress({ phase: 'workspace', message: 'Checking app components…' });
   await guarded(python, ['-I', bootstrap, 'runtime-info'], 'checking private Python runtime');
 
   await writeReadyMarker(markerPath, manifest, environmentId);
-  onProgress('Private Python runtime is ready.');
+  onProgress({ phase: 'workspace', message: 'Opening your workspace…' });
   return { python, env };
 }
 
