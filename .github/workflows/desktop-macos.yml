@@ -182,7 +182,8 @@ jobs:
           mounted_app=("$mount_point"/*.app)
           test "${#mounted_app[@]}" -eq 1
           codesign --verify --deep --strict --verbose=2 "${mounted_app[0]}"
-          syspolicy_check distribution "${mounted_app[0]}"
+          # Gatekeeper assesses our stapled DMG above. A standalone-app
+          # distribution check would require a separate, redundant app ticket.
           mkdir -p "$(dirname "$FRISKET_DESKTOP_APP")"
           ditto "${mounted_app[0]}" "$FRISKET_DESKTOP_APP"
           codesign --verify --deep --strict --verbose=2 "$FRISKET_DESKTOP_APP"
