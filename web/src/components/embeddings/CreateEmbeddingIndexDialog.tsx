@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useState, type FormEvent, type MouseEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+} from 'react';
 import { Boxes, CheckCircle2, X } from 'lucide-react';
 import type { EmbeddingProvider, SheetMeta } from '../../api/types';
 import type { EmbeddingApiPort } from '../../api/ports';
@@ -95,6 +102,70 @@ function refreshPolicyLabel(
     return `Unattended remote refresh needs a per-refresh cost limit before ${selectedCard?.label ?? form.provider} is pre-authorized.`;
   }
   return `Unattended remote refresh is pre-authorized up to ${formatUsd(maxCost)} per refresh with ${selectedCard?.label ?? form.provider}.`;
+}
+
+interface CustomEmbeddingModelDetailProps {
+  provider: string;
+  savedProvider: string;
+  savedModel: string;
+  savedModelIsCatalogued: boolean;
+  onModelSelect(provider: string, model: string): void;
+  onEditingChange(editing: boolean): void;
+  close(): void;
+}
+
+function CustomEmbeddingModelDetail({
+  provider,
+  savedProvider,
+  savedModel,
+  savedModelIsCatalogued,
+  onModelSelect,
+  onEditingChange,
+  close,
+}: CustomEmbeddingModelDetailProps) {
+  // A saved opaque ID belongs only to its provider. Inspecting another choice
+  // must not offer that ID as though it were valid for the inspected provider.
+  const savedCustomModel = provider === savedProvider && !savedModelIsCatalogued
+    ? savedModel : '';
+  const [draft, setDraft] = useState(savedCustomModel);
+
+  useEffect(() => {
+    setDraft(savedCustomModel);
+  }, [savedCustomModel]);
+
+  const useModel = () => {
+    onModelSelect(provider, draft);
+    close();
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    useModel();
+  };
+
+  return (
+    <div className="embedding-model-custom">
+      <label className="form-label" htmlFor="embedding-model-custom-input">
+        Custom model ID
+      </label>
+      <div className="embedding-model-custom-controls">
+        <input
+          id="embedding-model-custom-input"
+          className="form-input"
+          data-testid="embedding-model-custom-input"
+          placeholder="Provider-specific embedding model ID"
+          value={draft}
+          onFocus={() => onEditingChange(true)}
+          onBlur={() => onEditingChange(false)}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={onKeyDown}
+        />
+        <button type="button" className="btn" onClick={useModel}>
+          Use model
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export function CreateEmbeddingIndexDialog({
@@ -287,20 +358,19 @@ export function CreateEmbeddingIndexDialog({
                   }
                 }}
                 onCurrentChoiceChange={setSelectedChoice}
+                renderDetailExtra={({ choice, onEditingChange, close }) => {
+                  if (choice.authored_selection.kind !== 'embedding') return null;
+                  return <CustomEmbeddingModelDetail
+                    provider={choice.authored_selection.provider}
+                    savedProvider={form.provider}
+                    savedModel={form.model}
+                    savedModelIsCatalogued={selectedCard != null}
+                    onModelSelect={onModelSelect}
+                    onEditingChange={onEditingChange}
+                    close={close}
+                  />;
+                }}
               />
-              {form.provider && (
-                <label className="form-label" htmlFor="embedding-model-custom-input">
-                  Custom model ID
-                  <input
-                    id="embedding-model-custom-input"
-                    className="form-input"
-                    data-testid="embedding-model-custom-input"
-                    placeholder="Provider-specific embedding model ID"
-                    value={selectedCard ? '' : form.model}
-                    onChange={(event) => onModelSelect(form.provider, event.target.value)}
-                  />
-                </label>
-              )}
             </div>
 
             <div>
