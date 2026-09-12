@@ -1,4 +1,4 @@
-import type { HttpSelectorChoicesQuery } from '../generated/openHttpContracts';
+import type { HttpSelectorChoicesQuery } from '../api/selectorChoices';
 import type { CompareColumn } from './mediaCompareSession';
 
 export type MediaSelectorAction = 'media.ocr' | 'media.transcribe' | 'map.find_topic_sections' | 'map.translate';
