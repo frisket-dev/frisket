@@ -501,6 +501,61 @@ def test_ensure_pair_installed_rejects_checksum_mismatch(tmp_path, monkeypatch):
     assert not opus_mt.is_pair_installed("en", "es", cache_root=tmp_path)
 
 
+def test_waiting_pair_download_bounds_cancel_polling_and_still_cancels(
+    tmp_path, monkeypatch
+):
+    from filelock import FileLock
+
+    from frisket.ai.models import artifact_manifest, model_cache
+    from frisket.engine.jobs import artifact_pull
+    from frisket.engine.jobs.artifact_ref import normalize_artifact_ref
+
+    entry = _pinned_pair_entry(
+        {"model.bin": b"wa", "source.spm": b"sa", "target.spm": b"ta"}
+    )
+    monkeypatch.setattr(artifact_manifest, "_MANIFEST", {"opus-mt:en-es": entry})
+    lock_path = model_cache.artifact_lock_path(
+        normalize_artifact_ref("opus-mt:en-es"), root=tmp_path
+    )
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    first_poll = threading.Event()
+    repeated_poll = threading.Event()
+    cancel = threading.Event()
+    cancelled = threading.Event()
+    errors: list[BaseException] = []
+
+    def should_cancel() -> bool:
+        if first_poll.is_set():
+            repeated_poll.set()
+        first_poll.set()
+        return cancel.is_set()
+
+    def contender() -> None:
+        try:
+            opus_mt.ensure_pair_installed(
+                "en", "es", cache_root=tmp_path, should_cancel=should_cancel
+            )
+        except artifact_pull.ProvisionCancelled:
+            cancelled.set()
+        except BaseException as exc:
+            errors.append(exc)
+
+    with FileLock(lock_path):
+        thread = threading.Thread(target=contender)
+        thread.start()
+        try:
+            assert first_poll.wait(timeout=5)
+            # Cancellation can query durable state: don't hammer the database
+            # while another process owns a minutes-long model download.
+            assert not repeated_poll.wait(timeout=0.3)
+        finally:
+            cancel.set()
+            thread.join(timeout=5)
+        assert not thread.is_alive()
+    assert errors == []
+    assert cancelled.is_set()
+
+
 def test_ensure_pair_installed_rechecks_after_another_process_provisions_pair(
     tmp_path, monkeypatch
 ):

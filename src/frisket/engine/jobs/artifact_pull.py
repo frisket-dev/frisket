@@ -152,7 +152,9 @@ def _acquire_artifact_lock(
         if should_cancel():
             return None
         try:
-            lock.acquire(timeout=0.1)
+            # The cancellation callback may read durable job state. Bound that
+            # traffic while still noticing cancellation during long downloads.
+            lock.acquire(timeout=2.0)
             return lock
         except Timeout:
             continue
