@@ -12,9 +12,7 @@ import {
   transcribeActiveTargetOptionReason,
   resolveTranscribeDiarizationMode,
   transcribeDiarizationForEngine,
-  transcribeDiarizationMode,
   transcribeEnginesFromCatalog,
-  transcribeOptionsForEngine,
 } from '../actions/transcribeEngineCatalog';
 import { engineUnavailableReason } from '../actions/engineCatalog';
 import { EngineTierBadge } from '../components/EngineTierBadge';
@@ -22,6 +20,13 @@ import { MenuPop } from '../components/MenuPop';
 import { SegmentedToggle } from '../components/PanelPrimitives';
 import { PanelSelect } from '../components/PanelSelect';
 import { alignTranscriptSegments } from './transcriptAlign';
+import {
+  DEFAULT_TRANSCRIBE_MODEL_SIZE,
+  DEFAULT_TRANSCRIBE_VAD,
+  transcribeCompareInputFor,
+  transcribeFieldsForEngine,
+  type TranscribeVariantOptions,
+} from './transcribeCompareInput';
 import { ConfigureVariantPopover, MediaCompareBody } from './MediaCompareShell';
 import { usePaidMediaComparison } from './usePaidMediaComparison';
 import { useTranscribeVariantConfigure } from './useTranscribeVariantConfigure';
@@ -40,16 +45,9 @@ import {
 
 const DEFAULT_ENGINE_IDS = ['faster_whisper', 'parakeet-tdt'];
 
-const DEFAULT_MODEL_SIZE = 'base';
+const DEFAULT_MODEL_SIZE = DEFAULT_TRANSCRIBE_MODEL_SIZE;
 const MODEL_SIZE_PRESETS = ['tiny', 'base', 'small', 'medium', 'large-v3'];
-const DEFAULT_VAD = true;
-
-export interface TranscribeVariantOptions {
-  language: string | undefined;
-  modelSize: string | undefined;
-  vad: boolean | undefined;
-  diarize: boolean | undefined;
-}
+const DEFAULT_VAD = DEFAULT_TRANSCRIBE_VAD;
 
 function optionsOf(column: CompareColumn): TranscribeVariantOptions {
   return {
@@ -58,47 +56,6 @@ function optionsOf(column: CompareColumn): TranscribeVariantOptions {
       typeof column.options.modelSize === 'string' ? column.options.modelSize : undefined,
     vad: typeof column.options.vad === 'boolean' ? column.options.vad : undefined,
     diarize: typeof column.options.diarize === 'boolean' ? column.options.diarize : undefined,
-  };
-}
-
-/** Which option fields actually take effect for an engine. Unknown engines
- * fail closed; only explicit catalog (or version-skewed built-in fallback)
- * declarations can unlock a control. */
-function transcribeFieldsForEngine(engine: EngineOption | undefined): {
-  language: boolean;
-  modelSize: boolean;
-  vad: boolean;
-  diarizationMode: 'none' | 'optional' | 'intrinsic';
-} {
-  const support = transcribeOptionsForEngine(engine);
-  return {
-    language: support.language,
-    modelSize: support.model_size,
-    vad: support.vad,
-    diarizationMode: transcribeDiarizationMode(engine),
-  };
-}
-
-export function transcribeCompareInputFor(
-  engine: EngineOption | undefined,
-  engineId: string,
-  options: TranscribeVariantOptions,
-  timeLimit: number,
-): TranscribeCompareScratchInput {
-  const fields = transcribeFieldsForEngine(engine);
-  return {
-    engine: engineId,
-    time_limit_seconds: timeLimit,
-    ...(options.language ? { language: options.language } : fields.language ? { language: null } : {}),
-    ...(options.modelSize
-      ? { model_size: options.modelSize }
-      : fields.modelSize ? { model_size: DEFAULT_MODEL_SIZE } : {}),
-    ...(typeof options.vad === 'boolean'
-      ? { vad: options.vad }
-      : fields.vad ? { vad: DEFAULT_VAD } : {}),
-    ...(typeof options.diarize === 'boolean'
-      ? { diarize: options.diarize }
-      : fields.diarizationMode === 'optional' ? { diarize: false } : {}),
   };
 }
 

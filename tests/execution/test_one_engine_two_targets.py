@@ -73,7 +73,9 @@ def _resolve(engine: str, options: dict | None = None) -> Resolution | Refusal:
     )
 
 
-def test_same_engine_refuses_an_option_its_local_target_cannot_honor(monkeypatch, tmp_path):
+def test_same_engine_refuses_an_option_its_local_target_cannot_honor(
+    monkeypatch, tmp_path
+):
     _activate_both(monkeypatch, tmp_path)
 
     local = _resolve("parakeet-tdt")

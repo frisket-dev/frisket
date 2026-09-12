@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { EngineOption } from '../../src/api/types';
-import { transcribeCompareInputFor } from '../../src/workbench/TranscribeCompareTab';
+import { transcribeCompareInputFor } from '../../src/workbench/transcribeCompareInput';
 
 const localParakeet: EngineOption = {
   id: 'parakeet-tdt', label: 'Parakeet', tier: 'local', available: true,
