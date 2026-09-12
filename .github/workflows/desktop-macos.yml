@@ -21,6 +21,7 @@ concurrency:
 
 jobs:
   installed-app:
+    if: github.event_name == 'pull_request'
     runs-on: macos-15
     timeout-minutes: 60
     env:
@@ -89,6 +90,122 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: Frisket-desktop-evidence-${{ github.event.pull_request.head.sha || github.sha }}
+          if-no-files-found: ignore
+          retention-days: 14
+          path: |
+            desktop/playwright-report/
+            desktop/test-results/
+            desktop/resources/build.json
+            desktop/resources/runtime.json
+
+  signed-distribution:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-15
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    environment: desktop-signing
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          version: '0.11.29'
+          enable-cache: false
+      - name: Check architecture and capacity
+        run: |
+          echo "FRISKET_DESKTOP_APP=$RUNNER_TEMP/Applications/Frisket Desktop.app" >> "$GITHUB_ENV"
+          echo "FRISKET_DESKTOP_PROFILE=$RUNNER_TEMP/frisket-desktop-profile" >> "$GITHUB_ENV"
+          test "$(uname -m)" = arm64
+          df -h .
+      - name: Install build dependencies
+        run: |
+          npm --prefix sdk ci
+          npm --prefix sdk run build
+          npm --prefix web ci
+          npm --prefix desktop ci
+      - name: Build application resources
+        run: python3 desktop/scripts/prepare.py
+      - name: Focused desktop unit checks
+        run: npm --prefix desktop test
+      - name: Sign, notarize, and verify distribution
+        shell: bash
+        env:
+          # The PR job disables discovery; allow the CSC_LINK-imported Developer ID identity here.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'true'
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          set -euo pipefail
+          umask 077
+          api_key="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+          mount_point=''
+          cleanup() {
+            local status=$?
+            if [[ -n "$mount_point" ]]; then
+              hdiutil detach "$mount_point" -quiet || true
+              rmdir "$mount_point" || true
+            fi
+            rm -f "$api_key" || true
+            unset APPLE_API_KEY APPLE_API_KEY_P8 CSC_LINK CSC_KEY_PASSWORD
+            exit "$status"
+          }
+          trap cleanup EXIT
+          printf '%s' "$APPLE_API_KEY_P8" > "$api_key"
+          test -s "$api_key"
+          export FRISKET_DESKTOP_SIGNED_BUILD=1
+          export APPLE_API_KEY="$api_key"
+          npm --prefix desktop run package:mac
+          unset APPLE_API_KEY_P8 CSC_LINK CSC_KEY_PASSWORD
+          image=(desktop/dist/*.dmg)
+          app=(desktop/dist/mac-arm64/*.app)
+          test "${#image[@]}" -eq 1
+          test "${#app[@]}" -eq 1
+          codesign --verify --deep --strict --verbose=2 "${app[0]}"
+          codesign -dv --verbose=4 "${app[0]}" 2>&1 | grep -F 'Authority=Developer ID Application'
+          node desktop/scripts/notarize-dmg.mjs "${image[0]}"
+          xcrun stapler validate "${image[0]}"
+          spctl --assess --type open --context context:primary-signature --verbose=4 "${image[0]}"
+          mount_point="$(mktemp -d)"
+          hdiutil attach -nobrowse -readonly -mountpoint "$mount_point" "${image[0]}"
+          mounted_app=("$mount_point"/*.app)
+          test "${#mounted_app[@]}" -eq 1
+          codesign --verify --deep --strict --verbose=2 "${mounted_app[0]}"
+          syspolicy_check distribution "${mounted_app[0]}"
+          mkdir -p "$(dirname "$FRISKET_DESKTOP_APP")"
+          ditto "${mounted_app[0]}" "$FRISKET_DESKTOP_APP"
+          codesign --verify --deep --strict --verbose=2 "$FRISKET_DESKTOP_APP"
+          hdiutil detach "$mount_point" -quiet
+          rmdir "$mount_point"
+          mount_point=''
+      - name: Prepare download caches (networked setup)
+        run: node desktop/scripts/prewarm.mjs
+      - name: Installed signed app and native engines (no new external connections)
+        run: python3 desktop/scripts/test-installed.py
+      - name: Upload signed beta
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Frisket-Desktop-macos-arm64-signed-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: desktop/dist/*.dmg
+      - name: Upload signed installed-app evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Frisket-desktop-signed-evidence-${{ github.sha }}
           if-no-files-found: ignore
           retention-days: 14
           path: |

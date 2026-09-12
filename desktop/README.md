@@ -22,9 +22,28 @@ replacement; a dependency change may require another download. If your older bet
 is named `Frisket.app`, quit it and remove that old application bundle after
 installing `Frisket Desktop.app`; both use the same preserved workspace folder.
 
-The current beta is ad-hoc signed and not notarized. Developer ID signing,
-notarization and a signed update feed remain release work; this build does not
-claim to test them. Updates are installed manually using the steps above.
+Pull-request artifacts are ad-hoc signed test builds. A maintainer can manually
+dispatch the protected `desktop-signing` environment to produce a Developer ID
+signed and notarized DMG for the selected commit. Signed builds still update
+manually using the steps above; there is no signed update feed.
+
+## Signed macOS distribution
+
+The dispatch-only signing job is the release-candidate path. It receives its
+certificate and App Store Connect API key only from the protected GitHub
+environment, never from pull requests. `electron-builder` signs the app with
+the Developer ID Application certificate, enables the hardened runtime, and
+signs the DMG container. The job notarizes and staples that final DMG once,
+then mounts it to verify the contained app with `codesign` and checks the
+distribution with `syspolicy_check`, `spctl`, and `xcrun stapler validate`.
+
+The environment supplies `CSC_LINK` as a base64 `.p12`; `CSC_KEY_PASSWORD` is
+optional, so the current passwordless certificate is supported and a protected
+replacement can be used later. It also provides raw `APPLE_API_KEY_P8`,
+`APPLE_API_KEY_ID`, and `APPLE_API_ISSUER`. The API key is written under the
+runner temporary directory with owner-only permissions and removed at the end
+of the signing step. `electron-builder` manages its own temporary certificate
+keychain.
 
 ## Build
 
