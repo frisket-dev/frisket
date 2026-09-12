@@ -19,7 +19,7 @@ const runtime = await prepareRuntime({
   onProgress: ({ message }) => process.stdout.write(`${message}\n`),
 });
 const guard = path.join(resourcesPath, 'python', 'frisket', 'runtime', '_guard.py');
-const modelPrewarm = path.join(here, 'prewarm-asr.py');
+const modelPrewarm = path.join(here, 'prewarm-models.py');
 try {
   const { stdout } = await execFile(runtime.python, [
     '-I', guard, String(process.pid), '2', runtime.python, '-I', modelPrewarm,
@@ -32,7 +32,7 @@ try {
   process.stdout.write(stdout);
 } catch (error) {
   const detail = String(error.stderr || error.message).slice(-4096);
-  throw new Error(`ASR model cache preparation failed. ${detail}`);
+  throw new Error(`Model cache preparation failed. ${detail}`);
 }
 // Keep only downloaded interpreters/packages/browsers, not a completed venv.
 await rm(path.join(dataPath, 'runtimes'), { recursive: true, force: true });

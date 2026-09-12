@@ -89,10 +89,11 @@ from pathlib import Path
 sys.path.insert(0, sys.argv[1])
 workspace = Path(sys.argv[2])
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 from pypdf import PdfWriter
 from frisket.ops.ocr_engines_local import ocr_rapidocr, rapidocr_execution_scope
 from frisket.engine.pdf_render import render_pdf_pages
+from frisket.sample_content.lawsuits import SAMPLE_LAWSUITS, lawsuit_pdf_bytes
 
 pdf = workspace / "native-check.pdf"
 writer = PdfWriter()
@@ -100,15 +101,8 @@ writer.add_blank_page(width=144, height=144)
 with pdf.open("wb") as target:
     writer.write(target)
 
-image = Image.new("RGB", (1280, 360), "white")
-draw = ImageDraw.Draw(image)
-try:
-    font = ImageFont.load_default(size=64)
-except TypeError:
-    font = ImageFont.load_default()
-draw.text((80, 120), "FRISKET 4271", fill="black", font=font)
-image_path = workspace / "rapidocr.png"
-image.save(image_path)
+complaint = workspace / SAMPLE_LAWSUITS[0].filename
+complaint.write_bytes(lawsuit_pdf_bytes(SAMPLE_LAWSUITS[0]))
 
 async def main():
     render_dir = workspace / "rendered"
@@ -119,13 +113,16 @@ async def main():
     with Image.open(rendered.pages[0][1]) as page_image:
         if page_image.size != (288, 288):
             raise RuntimeError("PDFium rendered an unexpected page size")
+    complaint_dir = workspace / "complaint-rendered"
+    complaint_dir.mkdir()
+    complaint_pages = await render_pdf_pages(complaint, complaint_dir, dpi=200)
     async with rapidocr_execution_scope(expected_rows=1, language=None) as pool:
-        pages = await ocr_rapidocr(pool, [image_path], workspace)
+        pages = await ocr_rapidocr(pool, [complaint_pages.pages[0][1]], workspace)
     text = " ".join(str(page.get("text", "")) for page in pages)
-    normalized = "".join(character for character in text.upper() if character.isalnum())
-    if "FRISKET" not in normalized or "4271" not in normalized:
-        raise RuntimeError("RapidOCR did not recognize the generated sentinel")
-    print(json.dumps({"pages": len(pages), "text": text}))
+    for expected in ("COMPLAINT AND DEMAND FOR JURY TRIAL", "Case No. RV-CV-2026-00418."):
+        if expected not in text:
+            raise RuntimeError("RapidOCR did not preserve the complaint's word spacing")
+    print(json.dumps({"pages": len(pages), "text": text[:120]}))
 
 asyncio.run(main())
 `, { mode: 0o600 });

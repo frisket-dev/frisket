@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Populate the installed beta's pinned ASR snapshots during networked setup."""
+"""Populate the installed beta's OCR and ASR caches during networked setup."""
 
 from __future__ import annotations
 
@@ -17,11 +17,14 @@ from frisket.engine._workers.parakeet_artifacts import (  # noqa: E402
     _snapshot_payload,
     huggingface_hub_cache,
 )
+from frisket.ops.ocr_engines_local import _rapidocr_model_root_dir  # noqa: E402
 
 
 def main() -> None:
+    if _rapidocr_model_root_dir() is None:
+        raise RuntimeError("the default RapidOCR model cache could not be prepared")
     cache_dir = huggingface_hub_cache()
-    resolved: dict[str, str] = {}
+    resolved: dict[str, str] = {"rapidocr": "ready"}
     for label, getter in (
         ("whisper", artifact_manifest.whisper_base_artifact),
         ("parakeet", artifact_manifest.parakeet_model_artifact),
