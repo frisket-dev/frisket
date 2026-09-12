@@ -263,6 +263,7 @@ _TENANT_LOCAL_PROVIDERS: tuple[RouteSpec, ...] = (
     ("provider_status", "GET"),
     ("pull_artifact", "POST"),
     ("set_provider_key", "PUT"),
+    ("setup_model_engine", "POST"),
     ("uninstall_artifact", "POST"),
     ("update_local_endpoint", "PATCH"),
     ("validate_provider_key", "POST"),

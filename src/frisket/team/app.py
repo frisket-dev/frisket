@@ -2022,6 +2022,7 @@ _TEAM_LOCAL_MODEL_DECLARATIONS = tuple(
         (
             ("list_org_local_endpoints", "GET"),
             ("post_org_models_pull", "POST"),
+            ("setup_org_model_engine", "POST"),
             ("list_org_model_pulls", "GET"),
             ("get_org_model_pull", "GET"),
             ("cancel_org_model_pull", "POST"),
