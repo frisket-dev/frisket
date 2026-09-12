@@ -109,18 +109,20 @@ export function EngineSelector({
   const selectedChoice = choiceForId(groups, value);
   const previewedChoice = choiceForId(groups, previewedId) ?? selectedChoice ?? allChoices[0] ?? null;
   const hasSearch = query.trim().length > 0;
+  const isSmallCatalog = allChoices.length <= 6;
   // The centered fallback folds the provider rail into tabs. Rendering both
   // would make its two-column body overflow before CSS had a chance to hide it.
-  const showGroups = wideAnchor && !hasSearch && groups.length > 1 && allChoices.length > 6;
+  const showGroups = wideAnchor && !hasSearch && groups.length > 1 && !isSmallCatalog;
   const currentGroup = groups.find((group) => group.id === activeGroupId)
     ?? groupForChoice(groups, previewedChoice?.id ?? value)
     ?? groups[0]
     ?? null;
-  const currentChoices = (hasSearch
+  const currentChoices = (hasSearch || isSmallCatalog
     ? allChoices.filter((choice) => {
         const group = groupForChoice(groups, choice.id);
         const haystack = `${choice.label} ${choice.summary ?? ''} ${group?.label ?? ''}`.toLowerCase();
-        return query.trim().toLowerCase().split(/\s+/).every((term) => haystack.includes(term));
+        const terms = hasSearch ? query.trim().toLowerCase().split(/\s+/) : [];
+        return terms.every((term) => haystack.includes(term));
       })
     : (currentGroup?.choices ?? []).filter((choice) => {
         const term = providerFilter.trim().toLowerCase();
@@ -330,9 +332,22 @@ export function EngineSelector({
         choice: previewedChoice,
         pinned: pinnedId === previewedChoice.id,
         onEditingChange: setEditingSetup,
+        close,
       }
     : null;
   const triggerCopy = selectedChoice ?? previewedChoice;
+  const triggerActivity = triggerCopy?.activity;
+  const triggerProgress = triggerActivity?.percent;
+  const triggerProgressValue = typeof triggerProgress === 'number' && Number.isFinite(triggerProgress)
+    ? Math.min(100, Math.max(0, triggerProgress))
+    : undefined;
+  const triggerSecondaryCopy = !triggerCopy
+    ? label
+    : triggerActivity
+      ? triggerActivity.label
+      : triggerCopy.status !== 'ready'
+        ? triggerCopy.blocker ?? triggerCopy.summary ?? statusLabel(triggerCopy.status)
+        : `${groupForChoice(groups, triggerCopy.id)?.label ?? ''}${triggerCopy.summary ? ` · ${triggerCopy.summary}` : ''}`;
   const anchoredStyle = wideAnchor && positioning
     ? { top: positioning.top, bottom: positioning.bottom, left: positioning.left, width: positioning.width, maxHeight: Math.min(420, positioning.maxHeight) }
     : undefined;
@@ -352,7 +367,16 @@ export function EngineSelector({
         <span className={`engine-selector__status engine-selector__status--${triggerCopy?.status ?? 'unavailable'}`} aria-hidden />
         <span className="engine-selector__trigger-copy">
           <strong>{triggerCopy?.label ?? 'Choose an engine'}</strong>
-          <small>{triggerCopy ? `${groupForChoice(groups, triggerCopy.id)?.label ?? ''}${triggerCopy.summary ? ` · ${triggerCopy.summary}` : ''}` : label}</small>
+          <small>{triggerSecondaryCopy}</small>
+          {triggerActivity && <progress
+            className="engine-selector__trigger-progress"
+            aria-label={`${triggerCopy?.label ?? label}: ${triggerActivity.label}`}
+            aria-valuemin={triggerProgressValue === undefined ? undefined : 0}
+            aria-valuemax={triggerProgressValue === undefined ? undefined : 100}
+            aria-valuenow={triggerProgressValue}
+            max={100}
+            value={triggerProgressValue}
+          />}
         </span>
         <span aria-hidden>⌄</span>
       </button>
@@ -389,7 +413,7 @@ export function EngineSelector({
 
           {notice}
 
-          {!showGroups && groups.length > 1 && !hasSearch && (
+          {!showGroups && !isSmallCatalog && groups.length > 1 && !hasSearch && (
             <nav className="engine-selector__tabs" aria-label="Providers">
               {groups.map((group) => (
                 <button
@@ -481,7 +505,10 @@ export function EngineSelector({
                 {previewedChoice ? <>
                   <div className="engine-selector__detail-heading">
                     <div>
-                      <h2>{previewedChoice.label}</h2>
+                      <div className="engine-selector__detail-title">
+                        <h2>{previewedChoice.label}</h2>
+                        {previewedChoice.destination && <span className="engine-selector__destination">{previewedChoice.destination}</span>}
+                      </div>
                       <span className={`engine-selector__status-copy engine-selector__status-copy--${previewedChoice.status}`}>
                         <span className={`engine-selector__status engine-selector__status--${previewedChoice.status}`} aria-hidden />
                         {statusLabel(previewedChoice.status)}
@@ -490,7 +517,6 @@ export function EngineSelector({
                     {previewedChoice.modelCardUrl && <a href={previewedChoice.modelCardUrl} target="_blank" rel="noopener noreferrer">Model card <ExternalLink size={12} aria-hidden /></a>}
                   </div>
                   {previewedChoice.description && <p>{previewedChoice.description}</p>}
-                  {previewedChoice.destination && <p className="engine-selector__destination">{previewedChoice.destination}</p>}
                   {previewedChoice.facts && previewedChoice.facts.length > 0 && (
                     <dl className="engine-selector__facts">
                       {previewedChoice.facts.map((fact) => {
@@ -499,7 +525,19 @@ export function EngineSelector({
                         const list = Array.isArray(fact.value) ? fact.value : null;
                         return <div key={factKey}>
                           <dt>{fact.label}</dt>
-                          <dd>{list ? (expanded ? <span className="engine-selector__chips">{list.map((item) => <span key={item}>{item}</span>)}</span> : <button type="button" onClick={() => setExpandedFacts((current) => new Set([...current, factKey]))}>{list.length} options</button>) : String(fact.value)}</dd>
+                          <dd>{list ? <>
+                            <button
+                              type="button"
+                              aria-expanded={expanded}
+                              onClick={() => setExpandedFacts((current) => {
+                                const next = new Set(current);
+                                if (next.has(factKey)) next.delete(factKey);
+                                else next.add(factKey);
+                                return next;
+                              })}
+                            >{list.length} {expanded ? '▴' : '▾'}</button>
+                            {expanded && <span className="engine-selector__chips">{list.map((item) => <span key={item}>{item}</span>)}</span>}
+                          </> : String(fact.value)}</dd>
                         </div>;
                       })}
                     </dl>
@@ -507,10 +545,12 @@ export function EngineSelector({
                   {previewedChoice.blocker && <p className="engine-selector__blocker">{previewedChoice.blocker}</p>}
                 </> : <p className="engine-selector__empty">No choices are available.</p>}
               </div>
-              {previewedChoice && <footer ref={detailFooterRef} tabIndex={-1} className="engine-selector__footer">
-                {renderDetailFooter?.(detailFooter!)}
-                {mobileDetail && previewedChoice.canAuthor && previewedChoice.status !== 'unavailable' && <button type="button" className="primary-button" onClick={() => choose(previewedChoice)}>{previewedChoice.status === 'needs_setup' ? 'Select and set up' : 'Select'}</button>}
-              </footer>}
+              {previewedChoice && (renderDetailFooter || (mobileDetail && previewedChoice.canAuthor && previewedChoice.status !== 'unavailable')) && (
+                <footer ref={detailFooterRef} tabIndex={-1} className="engine-selector__footer">
+                  {renderDetailFooter?.(detailFooter!)}
+                  {mobileDetail && previewedChoice.canAuthor && previewedChoice.status !== 'unavailable' && <button type="button" className="primary-button" onClick={() => choose(previewedChoice)}>{previewedChoice.status === 'needs_setup' ? 'Select and set up' : 'Select'}</button>}
+                </footer>
+              )}
             </section>
           </div>
         </dialog>,

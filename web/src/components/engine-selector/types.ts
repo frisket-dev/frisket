@@ -9,6 +9,13 @@ export interface EngineSelectorFact {
   value: string | number | readonly string[];
 }
 
+/** A caller-owned operation projected into the selected field's status copy. */
+export interface EngineSelectorActivity {
+  label: string;
+  /** `null` means the operation is active but has no measurable completion. */
+  percent: number | null;
+}
+
 export interface EngineSelectorChoice {
   /** Stable catalog identity. Keep opaque provider-qualified IDs intact. */
   id: string;
@@ -24,6 +31,8 @@ export interface EngineSelectorChoice {
   /** Preflight display only; execution admission remains outside this component. */
   canRun?: boolean;
   blocker?: string;
+  /** Active setup/download progress supplied by the catalog lifecycle. */
+  activity?: EngineSelectorActivity;
   isDefault?: boolean;
 }
 
@@ -39,6 +48,8 @@ export interface EngineSelectorDetailFooterContext {
   pinned: boolean;
   /** Call when an embedded form starts/stops editing. */
   onEditingChange(editing: boolean): void;
+  /** Dismiss the selector after a custom detail action completes. */
+  close(): void;
 }
 
 export interface EngineSelectorProps {
