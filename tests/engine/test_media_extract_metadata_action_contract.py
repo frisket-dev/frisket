@@ -188,7 +188,7 @@ def test_completed_key_uses_standard_idempotency_replay_without_reprobe(
         action = {
             "action_id": "media.extract_metadata",
             "scope": {"kind": "sheet_rows", "sheet_id": sheet_id, "row_ids": [row_id]},
-            "params": {"source": "asset"},
+            "params": {"source": "asset", "output_mode": "object"},
             "output_names": {"details": "meta"},
             "idempotency_key": "metadata-standard-replay",
         }
