@@ -94,6 +94,41 @@ def test_desktop_launch_config_refuses_invalid_input_without_echoing_it(
     assert "leak-me" not in captured.err
 
 
+def test_desktop_launch_config_requires_an_integer_schema_one():
+    from frisket.server.desktop import DesktopLaunchError, read_launch_config
+
+    for schema in (True, 1.0):
+        payload = json.dumps(
+            {"schema": schema, "workspace": "/workspace", "token": TOKEN}
+        ).encode()
+        with pytest.raises(DesktopLaunchError):
+            read_launch_config(io.BytesIO(payload))
+
+
+def test_desktop_main_reports_deliberately_safe_startup_errors(monkeypatch, capsys):
+    from frisket.server import desktop
+
+    payload = json.dumps(
+        {"schema": 1, "workspace": "/workspace", "token": TOKEN}
+    ).encode()
+    monkeypatch.setattr(
+        desktop.sys, "stdin", SimpleNamespace(buffer=io.BytesIO(payload))
+    )
+    monkeypatch.setattr(desktop.sys, "argv", ["desktop-server"])
+    monkeypatch.setattr(
+        desktop,
+        "_serve",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            desktop.DesktopLaunchError("desktop static assets are unavailable")
+        ),
+    )
+    assert desktop.main() == 1
+    assert (
+        capsys.readouterr().err
+        == "desktop server: desktop static assets are unavailable\n"
+    )
+
+
 def test_desktop_bootstrap_kind_is_fixed_and_worker_stdio_can_be_redirected():
     from frisket.runtime._bootstrap import KINDS
     from frisket.runtime.supervisor import spawn_service
@@ -147,6 +182,25 @@ def test_ready_is_emitted_after_a_live_ephemeral_socket_accepts_connections():
     assert not thread.is_alive()
 
 
+def test_ready_is_suppressed_when_the_worker_has_already_exited():
+    from frisket.server.desktop import _ReadyServer
+
+    class Server:
+        started = True
+
+        async def startup(self, sockets=None):
+            return None
+
+    ready = io.StringIO()
+    server = _ReadyServer(
+        Server(), ready_stdout=ready, port=12345, ready_allowed=lambda: False
+    )
+    import asyncio
+
+    asyncio.run(server._startup_with_ready())
+    assert ready.getvalue() == ""
+
+
 def test_unexpected_worker_exit_stops_server_nonzero_and_cleans_up(
     tmp_path, monkeypatch
 ):
@@ -155,6 +209,7 @@ def test_unexpected_worker_exit_stops_server_nonzero_and_cleans_up(
     import frisket.runtime.launch as launch
     import frisket.runtime.supervisor as supervisor
     import frisket.server.app as app_module
+    import frisket.server.standalone as standalone
     import frisket.server.static_serving as static_serving
 
     events: list[object] = []
@@ -184,7 +239,18 @@ def test_unexpected_worker_exit_stops_server_nonzero_and_cleans_up(
         def run(self, sockets=None):
             events.append(("run", sockets))
 
+    class FakeLock:
+        def __init__(self, _workspace):
+            pass
+
+        def acquire(self):
+            events.append("lock-acquire")
+
+        def release(self):
+            events.append("lock-release")
+
     monkeypatch.setattr(app_module, "create_app", lambda *_args, **_kwargs: app)
+    monkeypatch.setattr(standalone, "StandaloneLifetimeLock", FakeLock)
     monkeypatch.setattr(
         static_serving, "packaged_static_dir", lambda: _static_dir(tmp_path)
     )
@@ -207,3 +273,8 @@ def test_unexpected_worker_exit_stops_server_nonzero_and_cleans_up(
     assert app.state.standalone_runtime.worker_exited_unexpectedly is True
     assert any(item[0] == "run" for item in events if isinstance(item, tuple))
     assert any(item[0] == "stop" for item in events if isinstance(item, tuple))
+    assert events.index("lock-release") > next(
+        index
+        for index, event in enumerate(events)
+        if isinstance(event, tuple) and event[0] == "stop"
+    )

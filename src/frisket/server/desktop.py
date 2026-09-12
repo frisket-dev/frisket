@@ -17,7 +17,7 @@ import socket
 import subprocess
 import sys
 import threading
-from typing import BinaryIO, TextIO
+from typing import BinaryIO, Callable, TextIO
 
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -49,7 +49,7 @@ def read_launch_config(stream: BinaryIO) -> DesktopLaunchConfig:
         raise DesktopLaunchError("invalid desktop launch configuration") from exc
     if not isinstance(value, dict) or set(value) != {"schema", "workspace", "token"}:
         raise DesktopLaunchError("invalid desktop launch configuration")
-    if value.get("schema") != 1 or isinstance(value.get("schema"), bool):
+    if type(value.get("schema")) is not int or value["schema"] != 1:
         raise DesktopLaunchError("invalid desktop launch configuration")
     workspace = value.get("workspace")
     token = value.get("token")
@@ -105,16 +105,24 @@ class DesktopTokenGate:
 class _ReadyServer:
     """Emit readiness at Uvicorn's post-bind startup boundary exactly once."""
 
-    def __init__(self, server, *, ready_stdout: TextIO, port: int) -> None:
+    def __init__(
+        self,
+        server,
+        *,
+        ready_stdout: TextIO,
+        port: int,
+        ready_allowed: Callable[[], bool] | None = None,
+    ) -> None:
         self._server = server
         self._startup = server.startup
         self._ready_stdout = ready_stdout
         self._port = port
         self._ready_sent = False
+        self._ready_allowed = ready_allowed or (lambda: True)
 
     async def _startup_with_ready(self, sockets=None) -> None:
         await self._startup(sockets=sockets)
-        if self._server.started and not self._ready_sent:
+        if self._server.started and not self._ready_sent and self._ready_allowed():
             payload = {
                 "schema": 1,
                 "type": "ready",
@@ -143,8 +151,11 @@ class _ReadyServer:
 
 
 def _request_worker_stop(process: subprocess.Popen | None) -> None:
-    if process is not None and process.poll() is None:
-        process.terminate()
+    try:
+        if process is not None and process.poll() is None:
+            process.terminate()
+    except ProcessLookupError:
+        pass
 
 
 def _serve(config: DesktopLaunchConfig, *, ready_stdout: TextIO) -> int:
@@ -168,66 +179,77 @@ def _serve(config: DesktopLaunchConfig, *, ready_stdout: TextIO) -> int:
     worker: subprocess.Popen | None = None
     watcher: threading.Thread | None = None
     sock: socket.socket | None = None
+    lock = StandaloneLifetimeLock(workspace)
+    lock.acquire()
     try:
-        with StandaloneLifetimeLock(workspace):
-            os.environ["FRISKET_SECRETS_KEY_FILE"] = str(secret_key)
-            configure_logging(stream=sys.stderr, force=True)
-            app = create_app(workspace, static_dir=static_dir)
-            app.state.standalone_runtime = state
-            gated_app = DesktopTokenGate(app, config.token)
-            worker = spawn_service(
-                worker_argv("cli-worker", str(workspace)),
-                stdin=subprocess.DEVNULL,
-                stdout=sys.stderr,
-                stderr=sys.stderr,
-            )
-            state.worker_pid = worker.pid
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            sock.bind(("127.0.0.1", 0))
-            sock.listen(socket.SOMAXCONN)
-            port = int(sock.getsockname()[1])
-            server = _ReadyServer(
-                uvicorn.Server(
-                    uvicorn.Config(
-                        gated_app,
-                        host="127.0.0.1",
-                        port=port,
-                        log_config=None,
-                        proxy_headers=False,
-                    )
-                ),
-                ready_stdout=ready_stdout,
-                port=port,
-            )
-            original_handle_exit = getattr(server._server, "handle_exit", None)
-            if callable(original_handle_exit):
+        os.environ["FRISKET_SECRETS_KEY_FILE"] = str(secret_key)
+        configure_logging(stream=sys.stderr, force=True)
+        app = create_app(workspace, static_dir=static_dir)
+        app.state.standalone_runtime = state
+        gated_app = DesktopTokenGate(app, config.token)
+        worker = spawn_service(
+            worker_argv("cli-worker", str(workspace)),
+            stdin=subprocess.DEVNULL,
+            stdout=sys.stderr,
+            stderr=sys.stderr,
+        )
+        state.worker_pid = worker.pid
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("127.0.0.1", 0))
+        sock.listen(socket.SOMAXCONN)
+        port = int(sock.getsockname()[1])
+        server = _ReadyServer(
+            uvicorn.Server(
+                uvicorn.Config(
+                    gated_app,
+                    host="127.0.0.1",
+                    port=port,
+                    log_config=None,
+                    proxy_headers=False,
+                )
+            ),
+            ready_stdout=ready_stdout,
+            port=port,
+            ready_allowed=lambda: (
+                worker is not None
+                and worker.poll() is None
+                and not state.worker_exited_unexpectedly
+            ),
+        )
+        original_handle_exit = getattr(server._server, "handle_exit", None)
+        if callable(original_handle_exit):
 
-                def handle_exit(sig, frame) -> None:
-                    state.begin_stopping()
-                    _request_worker_stop(worker)
-                    original_handle_exit(sig, frame)
+            def handle_exit(sig, frame) -> None:
+                state.begin_stopping()
+                _request_worker_stop(worker)
+                original_handle_exit(sig, frame)
 
-                server._server.handle_exit = handle_exit
+            server._server.handle_exit = handle_exit
 
-            def watch_worker() -> None:
-                worker.wait()
-                if not state.stopping:
-                    state.worker_exited_unexpectedly = True
-                    server.should_exit = True
+        def watch_worker() -> None:
+            worker.wait()
+            if not state.stopping:
+                state.worker_exited_unexpectedly = True
+                server.should_exit = True
 
-            watcher = threading.Thread(target=watch_worker, daemon=True)
-            watcher.start()
-            server.run(sockets=[sock])
-            return 1 if state.worker_exited_unexpectedly else 0
+        watcher = threading.Thread(target=watch_worker, daemon=True)
+        watcher.start()
+        server.run(sockets=[sock])
+        return 1 if state.worker_exited_unexpectedly else 0
     finally:
         state.begin_stopping()
-        _request_worker_stop(worker)
-        stop_service(worker)
-        if watcher is not None:
-            watcher.join(timeout=1)
-        if sock is not None:
-            sock.close()
+        try:
+            _request_worker_stop(worker)
+            stop_service(worker)
+        finally:
+            try:
+                if watcher is not None:
+                    watcher.join(timeout=1)
+                if sock is not None:
+                    sock.close()
+            finally:
+                lock.release()
 
 
 def main() -> int:
@@ -245,6 +267,9 @@ def main() -> int:
     try:
         sys.stdout = sys.stderr
         return _serve(config, ready_stdout=ready_stdout)
+    except DesktopLaunchError as exc:
+        print(f"desktop server: {exc}", file=sys.stderr)
+        return 1
     except Exception:  # noqa: BLE001 - desktop protocol intentionally reveals no details
         print("desktop server: failed to start", file=sys.stderr)
         return 1
