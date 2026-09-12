@@ -19,6 +19,8 @@ import webbrowser
 from pathlib import Path
 
 from frisket.project_opener import ProjectOpener
+from frisket.runtime.launch import worker_argv
+from frisket.runtime.supervisor import spawn_service, stop_service
 
 from frisket.cli._shared import _standalone_database_url
 
@@ -734,19 +736,12 @@ def hosted_worker(argv: list[str]) -> int:
 
 
 def _worker_argv(workspace: Path) -> list[str]:
-    return [sys.executable, "-m", "frisket.cli", "worker", str(workspace)]
+    return worker_argv("cli-worker", str(workspace))
 
 
 def _database_worker_argv(database_url: str) -> list[str]:
     """Worker argv for a server composition with an explicit shared queue."""
-    return [
-        sys.executable,
-        "-m",
-        "frisket.cli",
-        "worker",
-        "--database-url",
-        database_url,
-    ]
+    return worker_argv("cli-worker", "--database-url", database_url)
 
 
 def _spawn_worker(workspace: Path) -> "subprocess.Popen | None":
@@ -756,24 +751,12 @@ def _spawn_worker(workspace: Path) -> "subprocess.Popen | None":
     running a separate worker yourself)."""
     if os.environ.get("FRISKET_NO_WORKER"):
         return None
-    return subprocess.Popen(_worker_argv(workspace))
+    return spawn_service(_worker_argv(workspace))
 
 
 def _stop_worker(proc: "subprocess.Popen | None") -> None:
-    """Shutdown: `terminate()` first, then forcibly terminated after a grace
-    period — a killed job's lease expires and the next worker recovers it.
-    On POSIX, `terminate()` sends SIGTERM, so the worker finishes its current
-    job and exits between jobs, and the grace-period fallback is SIGKILL. On
-    Windows, `terminate()`/`kill()` both call `TerminateProcess`, so shutdown
-    is always abrupt there — there is no graceful Windows worker shutdown."""
-    if proc is None or proc.poll() is not None:
-        return
-    proc.terminate()
-    try:
-        proc.wait(timeout=10)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait(timeout=5)
+    """Stop the owned queue service and wait for its guardian to finish."""
+    stop_service(proc)
 
 
 def _subcommands() -> "dict[str, tuple]":
@@ -1092,7 +1075,7 @@ def server(argv: list[str]) -> int:
             # before the worker can claim anything from the shared database.
             app = create_team_app_from_env()
             app.state.standalone_runtime = state
-            worker_proc = subprocess.Popen(_database_worker_argv(database_url))
+            worker_proc = spawn_service(_database_worker_argv(database_url))
             state.worker_pid = worker_proc.pid
             watcher: threading.Thread | None = None
             try:
