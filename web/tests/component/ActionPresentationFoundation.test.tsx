@@ -32,6 +32,7 @@ import { columnDef } from '../support/domainFixtures';
 import { completeCatalogPayload, sheetMeta } from '../support/actionFormFixtures';
 import { installPopoverPolyfill } from '../support/domPolyfills';
 import { servedActionCatalog } from '../support/servedActionCatalog';
+import { chooseActionSelector, installActionSelectorFixture, selectorProviderCatalog, selectorTrigger } from '../support/selectorChoicesFixture';
 
 let stores: WorkspaceStores | undefined;
 
@@ -44,12 +45,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function chooseEngine(engineId: string): void {
-  fireEvent.click(screen.getByTestId('model-picker-button'));
-  fireEvent.change(screen.getByTestId('model-picker-search'), {
-    target: { value: `engine:${engineId}` },
-  });
-  fireEvent.click(screen.getByTestId(`model-option-engine-${engineId.replace(/_/g, '-')}`));
+async function chooseEngine(engineId: string): Promise<void> {
+  await chooseActionSelector(engineId);
 }
 
 const catalog = completeCatalogPayload();
@@ -81,6 +78,7 @@ function renderTypedForm(
   params: GeneratedActionDraft['params'],
   outputNames: Record<string, string>,
 ) {
+  installActionSelectorFixture(entry, async () => selectorProviderCatalog(['test/model']));
   const template = generatedActionTemplateFromCatalogEntry(entry);
   if (!template) throw new Error(`Missing generated template for ${entry.kind}`);
   expect(resolveActionPresentation(template)).toEqual({ kind: 'generated' });
@@ -106,6 +104,7 @@ function renderTypedForm(
   const tree = () => (
     <WorkspaceStoresContext.Provider value={stores}>
       <GeneratedActionForm
+        projectId="presentation-foundation"
         catalogEntry={entry}
         actionTemplate={template}
         sheet={TYPED_SHEET}
@@ -295,10 +294,10 @@ describe('closed generic schema renderer', () => {
     expect(screen.getByTestId('field-group_key')).toHaveTextContent('— all rows —');
   });
 
-  it('classify delegates its conditional engine/model controls to the shared pickers', async () => {
+  it('classify delegates its engine and model choices to the shared selector', async () => {
     // No bespoke binding owns classify's engine/model: the served entry
     // renders through the generated form, whose semantic controls mount the
-    // shared EnginePicker and (only for the LLM engine) ModelPicker.
+    // shared engine selector and its hosted model choices.
     const entry = servedTypedEntry('map.classify');
     expect(entry.ui_hints.semantic_controls).toMatchObject({ engine: 'engine', model: 'model' });
 
@@ -309,11 +308,11 @@ describe('closed generic schema renderer', () => {
       { topic: 'topic' },
     );
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
-    expect(screen.getByTestId('field-engine-model-choice')).toBeInTheDocument();
-    expect(screen.getByTestId('model-picker-button')).toHaveTextContent('test/model');
+    expect(screen.getByTestId('field-engine')).toBeInTheDocument();
+    await waitFor(() => expect(selectorTrigger()).toHaveTextContent('test/model'));
 
-    chooseEngine('local_semantic');
-    expect(screen.getByTestId('model-picker-button')).toHaveTextContent('Local semantic');
+    await chooseEngine('local_semantic');
+    await waitFor(() => expect(selectorTrigger()).toHaveTextContent('Local semantic'));
     expect(screen.queryByTestId('field-model')).not.toBeInTheDocument();
   });
 
@@ -381,7 +380,7 @@ describe('closed generic schema renderer', () => {
 
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
     expect(targetLanguageControls()).toHaveLength(1);
-    chooseEngine('opus_mt');
+    await chooseEngine('opus_mt');
     expect(targetLanguageControls()).toHaveLength(1);
   });
 
@@ -389,7 +388,7 @@ describe('closed generic schema renderer', () => {
     const { onExecute } = renderServedTranslate();
 
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
-    chooseEngine('opus_mt');
+    await chooseEngine('opus_mt');
     fireEvent.change(screen.getByTestId('translate-pair-source'), { target: { value: 'en' } });
     fireEvent.change(screen.getByTestId('translate-pair-target'), { target: { value: 'es' } });
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());

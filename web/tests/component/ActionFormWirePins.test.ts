@@ -6,7 +6,7 @@ import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { actionTemplatesFromCatalog } from '../../src/actions/model';
-import type { GeneratedActionDraft } from '../../src/api/types';
+import { isGeneratedActionCatalogEntry, type GeneratedActionDraft } from '../../src/api/types';
 import { WorkspaceStoresContext } from '../../src/bind/workspaceStoresContext';
 import { ActionPanel } from '../../src/components/ActionPanel';
 import { createWorkspaceStores, type WorkspaceStores } from '../../src/state/createWorkspaceStores';
@@ -14,6 +14,7 @@ import { aiMeta, columnDef } from '../support/domainFixtures';
 import { sheetMeta } from '../support/actionFormFixtures';
 import { servedActionCatalog } from '../support/servedActionCatalog';
 import { createProjectApi } from '../../src/api/real';
+import { installActionSelectorFixture, selectorProviderCatalog, selectorTrigger } from '../support/selectorChoicesFixture';
 
 let api = createProjectApi('test-project');
 
@@ -135,6 +136,9 @@ async function postedBodyFromDispatch({
   prepare?: () => void;
   inspectProposalSpec?: GeneratedActionDraft;
 }): Promise<string> {
+  const selectorEntry = catalog.actions.find((entry) => entry.kind === actionKind);
+  if (!selectorEntry || !isGeneratedActionCatalogEntry(selectorEntry)) throw new Error(`Missing ${actionKind}`);
+  installActionSelectorFixture(selectorEntry, async () => selectorProviderCatalog(['openrouter/test-model']));
   api = createProjectApi('p1');
   let runInit: RequestInit | undefined;
   vi.stubGlobal('crypto', { randomUUID: () => wireId });
@@ -256,7 +260,7 @@ describe('ActionForm dispatch-routed whole-envelope wire pins', () => {
       },
     });
 
-    expect(screen.getByTestId('model-picker-button')).toHaveTextContent('DeepL');
+    expect(selectorTrigger()).toHaveTextContent('DeepL');
     expect(screen.getByTestId('field-target_language')).toHaveValue('French');
     expect(JSON.parse(body)).toEqual({
       action_id: 'map.translate',
@@ -287,7 +291,7 @@ describe('ActionForm dispatch-routed whole-envelope wire pins', () => {
       },
     });
 
-    expect(screen.getByTestId('model-picker-button')).toHaveTextContent('GLiNER');
+    expect(selectorTrigger()).toHaveTextContent('GLiNER');
     expect(screen.getAllByTestId('ner-gliner-labels-chip').map((chip) => chip.textContent))
       .toEqual(['person', 'organization, nonprofit', 'person']);
     expect(JSON.parse(body)).toEqual({

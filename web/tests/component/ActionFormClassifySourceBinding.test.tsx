@@ -22,6 +22,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi, type Mock }
 import type { GeneratedActionDraft, LocalProviderCatalog, SheetMeta } from '../../src/api/types';
 import { columnDef } from '../support/domainFixtures';
 import { sheetMeta } from '../support/actionFormFixtures';
+import { chooseActionSelector, openActionSelector, selectorTrigger } from '../support/selectorChoicesFixture';
 import { installPopoverPolyfill } from '../support/domPolyfills';
 import {
   mountTypedForm,
@@ -44,6 +45,7 @@ beforeAll(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 // The product's own copy, verbatim: ClassifyField refuses an unlabeled
@@ -196,9 +198,8 @@ describe('classify source binding', () => {
     const user = userEvent.setup();
     const { onExecute } = mountClassify({ sheet: summarySheet() });
 
-    // One EnginePicker, defaulting to the local engine; the ModelPicker rides
-    // only the llm engine, so it is absent here.
-    expect(screen.getByTestId('model-picker-button')).toHaveTextContent('Local semantic');
+    // The combined selector defaults to the local engine.
+    await waitFor(() => expect(selectorTrigger()).toHaveTextContent('Local semantic'));
     expect(screen.queryByTestId('engine-select')).not.toBeInTheDocument();
     expect(screen.queryByTestId('model-select')).not.toBeInTheDocument();
     expect(screen.queryByTestId('field-minimum_similarity')).not.toBeInTheDocument();
@@ -209,7 +210,7 @@ describe('classify source binding', () => {
     expect(labelDetails).not.toHaveAttribute('open');
     expect(screen.getByTestId('classify-label-descriptions')).not.toBeVisible();
     expect(screen.getByTestId('classify-labels')).toBeVisible();
-    expect(screen.getByTestId('field-engine-model-choice')).toBeVisible();
+    expect(screen.getByTestId('field-engine')).toBeVisible();
     await user.click(screen.getByText('More details'));
     expect(labelDetails).toHaveAttribute('open');
     expect(screen.getByTestId('classify-label-descriptions')).toBeVisible();
@@ -276,15 +277,13 @@ describe('classify source binding', () => {
     const { onExecute } = mountClassify({ sheet: summarySheet() });
 
     await waitFor(() => expect(listProviders).toHaveBeenCalled());
-    await user.click(await screen.findByTestId('model-picker-button'));
-    await user.click(await screen.findByTestId('model-provider-group-openai'));
-    await user.click(screen.getByTestId('model-option-openai-gpt-5-mini'));
+    await chooseActionSelector('openai/gpt-5-mini');
 
     expect(screen.queryByTestId('engine-select')).not.toBeInTheDocument();
     expect(screen.queryByTestId('model-select')).not.toBeInTheDocument();
     expect(screen.queryByTestId('field-minimum_similarity')).not.toBeInTheDocument();
     expect(screen.queryByTestId('field-minimum_margin')).not.toBeInTheDocument();
-    expect(screen.getByTestId('model-picker-button')).toHaveTextContent('GPT-5 mini');
+    await waitFor(() => expect(selectorTrigger()).toHaveTextContent('GPT-5 mini'));
     await user.type(screen.getByTestId('classify-labels'), 'news, opinion');
     const destination = await screen.findByTestId('field-output-category');
     await user.clear(destination);
@@ -299,26 +298,28 @@ describe('classify source binding', () => {
     });
   });
 
-  it('marks the llm engine unavailable with its reason and keeps the local engine selected', async () => {
-    const user = userEvent.setup();
+  it('inspects an unavailable llm model with its reason and keeps the local engine selected', async () => {
+    (listProviders as unknown as Mock).mockResolvedValue({
+      schemaVersion: 'frisket.providers.v1', tier: 'local', providers: [{
+        id: 'openai', label: 'OpenAI', kind: 'platform_api', configured: true, source: 'env', hint: null,
+        models: [{ id: 'openai/gpt-5-mini', label: 'GPT-5 mini', price: null }],
+      }],
+    } satisfies LocalProviderCatalog);
     const entry = servedTypedEntry('map.classify', (engines) => engines.map((engine) => (
       engine.id === 'llm'
         ? { ...engine, available: false, error: 'Configure a provider API key.' }
         : engine
     )));
-    mountClassify({ sheet: summarySheet(), entry });
+    const { onExecute } = mountClassify({ sheet: summarySheet(), entry });
 
-    await user.click(screen.getByTestId('model-picker-button'));
-    await user.click(await screen.findByTestId('model-provider-group-openai'));
-    const option = await screen.findByTestId('model-option-openai-gpt-5-mini');
-    expect(option).toBeDisabled();
-    expect(option).toHaveTextContent('Configure a provider API key.');
-    expect(screen.getByTestId('model-picker-button')).toHaveTextContent('Local semantic');
-    expect(screen.queryByTestId('model-select')).not.toBeInTheDocument();
+    await chooseActionSelector('openai/gpt-5-mini');
+    expect(screen.getByTestId('engine-selector-dialog')).toBeVisible();
+    expect(screen.getByText('Configure a provider API key.')).toBeVisible();
+    expect(selectorTrigger()).toHaveTextContent('Local semantic');
+    expect(onExecute).not.toHaveBeenCalled();
   });
 
-  it('disables provider models when the served roster omits the llm engine', async () => {
-    const user = userEvent.setup();
+  it('keeps provider models unavailable when the served roster omits the llm engine', async () => {
     (listProviders as unknown as Mock).mockResolvedValue({
       schemaVersion: 'frisket.providers.v1', tier: 'local', providers: [{
         id: 'openai', label: 'OpenAI', kind: 'platform_api', configured: true, source: 'env', hint: null,
@@ -326,27 +327,28 @@ describe('classify source binding', () => {
       }],
     } satisfies LocalProviderCatalog);
     const entry = servedTypedEntry('map.classify', (engines) => engines.filter((engine) => engine.id !== 'llm'));
-    mountClassify({ sheet: summarySheet(), entry });
+    const { onExecute } = mountClassify({ sheet: summarySheet(), entry });
 
-    await user.click(screen.getByTestId('model-picker-button'));
-    await user.click(await screen.findByTestId('model-provider-group-openai'));
-    const option = await screen.findByTestId('model-option-openai-gpt-5-mini');
-    expect(option).toBeDisabled();
-    expect(option).toHaveTextContent('The LLM engine is unavailable for this action.');
+    await chooseActionSelector('openai/gpt-5-mini');
+    expect(screen.getByText('The LLM engine is not offered')).toBeVisible();
+    expect(selectorTrigger()).toHaveTextContent('Local semantic');
+    expect(onExecute).not.toHaveBeenCalled();
   });
 
   it('retains an unknown saved fixed engine without inventing a tier', async () => {
-    const user = userEvent.setup();
     const draft = savedClassifyDraft([{ name: 'category', labels: ['news', 'opinion'] }]);
     draft.params = { ...draft.params, engine: 'retired_engine', model: 'legacy/model' };
-    mountClassify({ sheet: summarySheet(), initialDraft: draft });
+    const { onExecute } = mountClassify({ sheet: summarySheet(), initialDraft: draft });
 
-    await user.click(screen.getByTestId('model-picker-button'));
-    await user.type(screen.getByTestId('model-picker-search'), 'retired_engine');
-    const option = screen.getByTestId('model-option-engine-retired-engine');
-    expect(option).toBeDisabled();
-    expect(option).toHaveTextContent('retired_engine (unavailable)');
+    const dialog = await openActionSelector();
+    fireEvent.change(within(dialog).getByRole('searchbox', { name: /^Search / }), { target: { value: 'retired_engine' } });
+    const option = within(dialog).getByRole('button', { name: /retired_engine/i });
     expect(option).not.toHaveTextContent(/local|sidecar|hosted/i);
+    await userEvent.click(option);
+    expect(within(dialog).getByText('Saved choice is not offered')).toBeVisible();
+    expect(selectorTrigger()).toHaveTextContent('retired_engine');
+    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
+    expect(onExecute).not.toHaveBeenCalled();
   });
 
   it('submits only the selected source column by default', async () => {

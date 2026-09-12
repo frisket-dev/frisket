@@ -24,6 +24,7 @@ import * as api from '../../src/api/open';
 import type { EngineOption, GeneratedActionRequest, RunEstimate, SheetMeta } from '../../src/api/types';
 import { columnDef } from '../support/domainFixtures';
 import { sheetMeta } from '../support/actionFormFixtures';
+import { chooseActionSelector, selectorTrigger } from '../support/selectorChoicesFixture';
 import { installPopoverPolyfill } from '../support/domPolyfills';
 import {
   mountTypedForm,
@@ -118,10 +119,7 @@ function mountTranslate(options: {
 }
 
 async function chooseFixedEngine(engineId: string): Promise<void> {
-  const user = userEvent.setup();
-  await user.click(screen.getByTestId('model-picker-button'));
-  await user.type(screen.getByTestId('model-picker-search'), `engine:${engineId}`);
-  await user.click(screen.getByTestId(`model-option-engine-${engineId.replace(/_/g, '-')}`));
+  await chooseActionSelector(engineId);
 }
 
 async function runEnabled(): Promise<void> {
@@ -173,8 +171,8 @@ describe('translate form', () => {
 
     // One combined execution picker carries the default LLM model and fixed
     // translation engines; there is no two-step engine-then-model flow.
-    expect(within(form).getByTestId('field-engine-model-choice')).toBeVisible();
-    expect(within(form).getByTestId('model-picker-button')).toBeVisible();
+    expect(within(form).getByTestId('field-engine')).toBeVisible();
+    await waitFor(() => expect(selectorTrigger()).toBeVisible());
 
     // Translate's confidence/justification toggles are gone — neither param
     // is in the served Params schema, so no control may offer them.
@@ -220,7 +218,7 @@ describe('translate form', () => {
 
     // Default LLM model and dataset-context guidance are present,
     // model-dollar estimate shown.
-    expect(within(form).getByTestId('model-picker-button')).toBeVisible();
+    await waitFor(() => expect(selectorTrigger()).toBeVisible());
     expect(within(form).getByTestId('field-context')).toBeVisible();
     await waitFor(() => expect(within(form).getByTestId('cost-estimate'))
       .toHaveTextContent('Estimated cost: $0.02'), { timeout: 2000 });
@@ -231,7 +229,7 @@ describe('translate form', () => {
     // The same picker now shows DeepL; no LLM guidance remains and the quote
     // is re-rated for the fixed engine
     // and carries the engine's own venue/billing presentation.
-    expect(within(form).getByTestId('model-picker-button')).toHaveTextContent('DeepL');
+    await waitFor(() => expect(selectorTrigger()).toHaveTextContent('DeepL'));
     expect(within(form).queryByTestId('field-context')).not.toBeInTheDocument();
     await waitFor(() => expect(estimateAction!.mock.lastCall?.[0].params.engine).toBe('deepl'), { timeout: 2000 });
     const cost = within(form).getByTestId('cost-estimate');
