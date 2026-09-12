@@ -1,15 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 
-import { invalidateActionCatalog } from '../../api/open';
 import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
 import { NerEngineFields } from './NerEngineFields';
 import { nerLabelsOk, normalizeSpacyLabels } from './nerLabelModel';
 
 export function NerParamsBody({
-  params, setParams, setEditorProblem, errors, Field, engine: engineInfo,
+  params, setParams, setEditorProblem, errors, Field,
 }: GeneratedActionParamsBodyProps<'map.ner'>) {
   const engine = params.engine ?? 'spacy';
-  const [spacyInstalled, setSpacyInstalled] = useState(false);
   const threshold = useRef(params.threshold);
   const extraInstructions = useRef(params.extra_instructions);
 
@@ -51,12 +49,6 @@ export function NerParamsBody({
       labels={params.labels ?? []}
       labelsError={errors.labels?.message ?? labelsProblem ?? undefined}
       onLabelsChange={(labels) => setParams({ ...params, labels })}
-      spacyDownload={engine === 'spacy' && !spacyInstalled
-        && engineInfo?.available === false && engineInfo.downloadable_models?.[0]
-        ? { artifact: engineInfo.downloadable_models[0], onInstalled: () => {
-          setSpacyInstalled(true);
-          invalidateActionCatalog();
-        } } : null}
     />
     {engine === 'gliner' && <Field name="threshold" />}
     {engine === 'llm' && <>
