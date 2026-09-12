@@ -1,0 +1,26 @@
+{
+  "uv": {
+    "version": "0.11.29",
+    "url": "https://github.com/astral-sh/uv/releases/download/0.11.29/uv-aarch64-apple-darwin.tar.gz",
+    "sha256": "61c04acc52a33ef0f331e494bdfbedcdb6c26c6970c022ed3699e5860f8930e3",
+    "member": "uv-aarch64-apple-darwin/uv"
+  },
+  "ffmpeg": {
+    "version": "9.0.1",
+    "url": "https://ffmpeg.martin-riedl.de/download/macos/arm64/1787073674_9.0.1/ffmpeg.zip",
+    "sha256": "8287a1b2229e05eb41859f073e18e6c52c60a778f2f5e6881070fe51b79407fe",
+    "member": "ffmpeg"
+  },
+  "ffprobe": {
+    "version": "9.0.1",
+    "url": "https://ffmpeg.martin-riedl.de/download/macos/arm64/1787073674_9.0.1/ffprobe.zip",
+    "sha256": "102a26b8940a053298d9929bfaae71e4b6ef65ba5f19a99a88c433108560741a",
+    "member": "ffprobe"
+  },
+  "deno": {
+    "version": "2.9.6",
+    "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-aarch64-apple-darwin.zip",
+    "sha256": "213a2f304f04d3c9cb5220669afad138f60a5aab1fe80962abdeb8f35807a472",
+    "member": "deno"
+  }
+}

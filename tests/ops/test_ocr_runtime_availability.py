@@ -206,7 +206,7 @@ def _run_supported_image(script: str, *, exercise_ambient_env: bool) -> dict[str
         stderr = _bounded_output(completed.stderr)
         _fail(
             "OCR_SUPPORTED_IMAGE_EXECUTION_FAILED",
-            "RapidOCR/Poppler/image acceptance failed without skipping; "
+            "RapidOCR/PDFium/image acceptance failed without skipping; "
             f"stdout={stdout!r} stderr={stderr!r}",
         )
 
@@ -241,13 +241,13 @@ def _run_supported_image(script: str, *, exercise_ambient_env: bool) -> dict[str
 _EXACT_IMPORT_AND_SMOKE = r"""
 import json
 import os
-import shutil
 import sys
 from importlib import metadata
 from pathlib import Path
 
 import cv2
 import numpy as np
+import pypdfium2
 import rapidocr
 from rapidocr import RapidOCR
 from rapidocr.utils.typings import OCRVersion
@@ -260,8 +260,9 @@ assert source_identity != "unknown", "supported image exposes unknown source ide
 assert source_identity == expected_source_sha, (
     "supported image source identity does not match the expected checkout commit"
 )
-pdftoppm = shutil.which("pdftoppm")
-assert pdftoppm, "supported image is missing Poppler pdftoppm"
+assert metadata.version("pypdfium2") == pypdfium2.PYPDFIUM_INFO, (
+    "supported image has an inconsistent PDFium package"
+)
 
 canvas = np.full((360, 1600, 3), 255, dtype=np.uint8)
 cv2.putText(
@@ -288,7 +289,7 @@ print(
     + json.dumps(
         {
             "executable": str(Path(sys.executable).resolve()),
-            "pdftoppm": str(Path(pdftoppm).resolve()),
+            "pypdfium2_version": metadata.version("pypdfium2"),
             "rapidocr_class_module": RapidOCR.__module__,
             "rapidocr_file": str(Path(rapidocr.__file__).resolve()),
             "rapidocr_version": metadata.version("rapidocr"),
@@ -428,7 +429,11 @@ async def run():
     assert os.environ.get("VIRTUAL_ENV") == AMBIENT_VIRTUAL_ENV, (
         "controlled parent VIRTUAL_ENV missing"
     )
-    assert shutil.which("pdftoppm"), "supported image is missing Poppler pdftoppm"
+    import pypdfium2
+
+    assert metadata.version("pypdfium2") == pypdfium2.PYPDFIUM_INFO, (
+        "supported image has an inconsistent PDFium package"
+    )
     Path(AMBIENT_HOME).mkdir(parents=True, exist_ok=True)
     expected_source_sha = os.environ.get("FRISKET_OCR_EXPECTED_SOURCE_SHA")
     source_identity = code_version() if expected_source_sha else None
@@ -440,7 +445,7 @@ async def run():
             "supported image source identity does not match the expected checkout commit"
         )
 
-    # A deterministic raster-only PDF makes Poppler, the exact parent engine,
+    # A deterministic raster-only PDF makes PDFium, the exact parent engine,
     # the actual sandboxed OCR_WORKER, and the searchable-PDF composer all
     # participate in one bounded golden.
     canvas = np.full((360, 1600, 3), 255, dtype=np.uint8)
@@ -473,7 +478,7 @@ async def run():
             {"dpi": 200},
             scratch,
         )
-        assert pages, "Poppler rasterization produced no pages"
+        assert pages, "PDFium rasterization produced no pages"
 
         from rapidocr.utils.typings import OCRVersion
         parent_engine = RapidOCR(params={"Rec.ocr_version": OCRVersion.PPOCRV5})
@@ -767,7 +772,7 @@ def test_supported_image_exact_import_and_bounded_ocr_smoke_cannot_skip() -> Non
     assert result["rapidocr_class_module"].startswith("rapidocr")
     assert result["rapidocr_file"]
     assert result["rapidocr_version"]
-    assert result["pdftoppm"]
+    assert result["pypdfium2_version"] == "5.9.0"
     assert result["text"].strip()
 
 

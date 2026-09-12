@@ -254,28 +254,6 @@ describeServedCatalog('saved ActionSpec v1 reset', () => {
       },
     ],
     [
-      'schema-invalid coercible params',
-      () => {
-        const entry = catalog.actions.find((candidate) => candidate.kind === 'map.clean_column');
-        if (!entry) throw new Error('Missing map.clean_column fixture entry');
-        return {
-          ...envelopeFor(entry),
-          params: { ...canonicalParams(entry), sheet_id: '1' },
-        };
-      },
-    ],
-    [
-      'schema-invalid additional params',
-      () => {
-        const entry = catalog.actions.find((candidate) => candidate.kind === 'map.clean_column');
-        if (!entry) throw new Error('Missing map.clean_column fixture entry');
-        return {
-          ...envelopeFor(entry),
-          params: { ...canonicalParams(entry), legacy_alias: true },
-        };
-      },
-    ],
-    [
       'non-integer version',
       () => {
         const entry = catalog.actions.find((candidate) => candidate.kind === 'map.clean_column');

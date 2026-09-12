@@ -32,11 +32,22 @@ def guarded_argv(argv: list[str], *, grace_seconds: float = 0.25) -> list[str]:
     ]
 
 
-def spawn_service(argv: list[str]) -> subprocess.Popen:
-    return subprocess.Popen(
-        guarded_argv(argv, grace_seconds=8),
-        **({"start_new_session": True} if os.name == "posix" else {}),
-    )
+def spawn_service(
+    argv: list[str],
+    *,
+    stdin: int | None = None,
+    stdout: int | None = None,
+    stderr: int | None = None,
+) -> subprocess.Popen:
+    """Spawn a guarded service with optional explicit standard streams."""
+    options: dict[str, object] = {
+        "stdin": stdin,
+        "stdout": stdout,
+        "stderr": stderr,
+    }
+    if os.name == "posix":
+        options["start_new_session"] = True
+    return subprocess.Popen(guarded_argv(argv, grace_seconds=8), **options)
 
 
 def guard_exit_proves_cleanup(returncode: int | None) -> bool:

@@ -102,6 +102,19 @@ def test_unknown_worker_is_rejected_in_parent_and_child():
     assert b"unknown worker" in result.stderr
 
 
+def test_desktop_bootstrap_refuses_invalid_stdin_without_writing_stdout():
+    secret = "not-a-desktop-token"
+    result = subprocess.run(
+        worker_argv("desktop-server"),
+        input=(f'{{"token":"{secret}"}}').encode(),
+        capture_output=True,
+        timeout=10,
+    )
+    assert result.returncode == 2
+    assert result.stdout == b""
+    assert secret.encode() not in result.stderr
+
+
 def test_current_runtime_keeps_venv_executable():
     # subprocess-boundary: verifies interpreter identity or real child lifetime.
     assert worker_argv("runtime-info")[0] == os.path.abspath(sys.executable)

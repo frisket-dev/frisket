@@ -1,0 +1,23 @@
+{
+  "name": "frisket-desktop",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Frisket Desktop application",
+  "author": "Frisket contributors",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "src/main.mjs",
+  "scripts": {
+    "start": "electron .",
+    "prepare:resources": "python3 scripts/prepare.py",
+    "package:mac": "electron-builder --config electron-builder.cjs --mac --arm64 --publish never",
+    "test": "node --test tests/*.test.mjs",
+    "test:installed": "playwright test --config playwright.config.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.60.0",
+    "electron": "44.3.0",
+    "electron-builder": "26.15.3"
+  },
+  "productName": "Frisket Desktop"
+}

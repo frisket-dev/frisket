@@ -61,6 +61,11 @@ dependencies = [
     "pyjwt[crypto]>=2.13.0",
     "pydantic>=2.13.4",
     "pypdf>=5.1.0",
+    # PDFium rasterization runs in Frisket's fenced worker.  Pin the tested
+    # binary wheel release so PDF conversion has no host Poppler prerequisite.
+    "pypdfium2==5.9.0",
+    # PDFium's bitmap adapter writes worker output through Pillow.
+    "pillow==12.2.0",
     "python-multipart>=0.0.32",
     "regex>=2026.5.9",
     "sqlalchemy>=2.0.50",
