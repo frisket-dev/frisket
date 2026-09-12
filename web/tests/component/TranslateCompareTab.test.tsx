@@ -135,6 +135,23 @@ describe('TranslateCompareTab', () => {
     expect(within(chips).getByTestId('translate-compare-engine-chip')).toHaveAttribute('data-engine-id', 'hy_mt2');
   });
 
+  it('shows catalog failure with Retry and recovers without losing the draft', async () => {
+    vi.mocked(api.listActionCatalog).mockRejectedValueOnce(new Error('catalog unavailable'));
+    const user = userEvent.setup();
+    render(<TranslateCompareTab onSessionChange={() => {}} />);
+
+    await user.type(screen.getByTestId('translate-compare-text'), 'Hello');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load comparison engines');
+    expect(screen.queryByTestId('translate-compare-selector')).not.toBeInTheDocument();
+    expect(screen.getByTestId('translate-compare-run')).toBeDisabled();
+
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    await user.click(await screen.findByTestId('translate-compare-selector'));
+    expect(api.listActionCatalog).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('translate-compare-text')).toHaveValue('Hello');
+    await waitFor(() => expect(screen.getByTestId('translate-compare-run')).toBeEnabled());
+  });
+
   it('runs the free engines with no consent step and isolates a failing engine', async () => {
     const result: TranslateCompareScratchResult = {
       schema_version: 'frisket.translate_compare_preview.v1',

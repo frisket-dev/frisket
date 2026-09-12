@@ -1,13 +1,29 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { EmbeddingProvider, SheetMeta } from '../../src/api/types';
 import { CreateEmbeddingIndexDialog } from '../../src/components/embeddings/CreateEmbeddingIndexDialog';
+import type { SelectorChoice, HttpSelectorChoicesQuery } from '../../src/api/selectorChoices';
 
-vi.mock('../../src/engine-selector/SelectorField', () => ({ SelectorField: () => null }));
+vi.mock('../../src/engine-selector/SelectorField', () => ({
+  SelectorField: ({ query, onCurrentChoiceChange }: {
+    query: HttpSelectorChoicesQuery;
+    onCurrentChoiceChange(choice: SelectorChoice): void;
+  }) => <button type="button" data-testid="check-embedding-choice"
+    data-modality={query.subject.kind === 'embedding' ? query.subject.modality : ''}
+    onClick={() => onCurrentChoiceChange({
+      choice_id: 'text-model', label: 'FastEmbed', summary: '', description: '', facts: [],
+      model_card_url: null, authored_selection: { kind: 'embedding', provider: 'fastembed', model: 'default' },
+      resolved_target: null, processing_destination: { kind: 'local', label: 'On this device' },
+      status: 'ready', can_author: true, can_run: true, blocker: null, setup: null,
+      active_operation: null, is_current: true, is_default: false,
+    })}>Check model</button>,
+}));
+
+afterEach(cleanup);
 
 const providerCard: EmbeddingProvider = {
   providerId: 'fastembed', providerKind: 'local', modelId: 'default', label: 'FastEmbed',
@@ -58,5 +74,32 @@ describe('CreateEmbeddingIndexDialog custom model', () => {
     expect(screen.getByTestId('embedding-model-custom-input')).toHaveValue('custom-a');
     fireEvent.change(screen.getByTestId('embedding-model-custom-input'), { target: { value: 'custom-ab' } });
     expect(screen.getByTestId('embedding-model-custom-input')).toHaveValue('custom-ab');
+  });
+
+  it('keeps text and Markdown source columns ready for an authoritative text model', () => {
+    const mixedSheet = { ...sheet, columns: [
+      ...sheet.columns, { id: '12', name: 'notes', type: 'markdown' },
+    ] } as SheetMeta;
+    render(<CreateEmbeddingIndexDialog
+      apiPort={{ getSheetData: vi.fn() }}
+      sheet={mixedSheet}
+      form={{ provider: 'fastembed', model: 'default', sourceColumns: ['bio', 'notes'], allowRemote: false,
+        allowRemoteAutomaticRefresh: false, maxCost: '', confirmRemote: false }}
+      selectedCard={providerCard} providerCard={providerCard}
+      remoteSelected={false} autoRefreshOn={false} createReady={true} creating={false}
+      onClose={vi.fn()} onSubmit={vi.fn()} onModelSelect={vi.fn()} onSourceColumnToggle={vi.fn()}
+      onAllowRemoteChange={vi.fn()} onAllowAutoRefreshChange={vi.fn()} onMaxCostChange={vi.fn()}
+      onConfirmRemoteChange={vi.fn()}
+    />);
+
+    expect(screen.getByTestId('embedding-source-col-bio')).toBeChecked();
+    expect(screen.getByTestId('embedding-source-col-notes')).toBeChecked();
+    expect(screen.getByTestId('check-embedding-choice')).toHaveAttribute('data-modality', 'text');
+    expect(screen.getByTestId('embedding-create-next')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('check-embedding-choice'));
+    expect(screen.getByTestId('embedding-create-next')).toBeEnabled();
+    fireEvent.click(screen.getByTestId('embedding-create-next'));
+    expect(screen.getByTestId('embedding-create')).toBeEnabled();
+    expect(screen.getByTestId('embedding-create-summary-columns')).toHaveTextContent('bio, notes');
   });
 });

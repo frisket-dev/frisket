@@ -54,6 +54,9 @@ interface TranslateCompareTabProps {
 export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProps) {
   const { projectApi: api, chromePreferences: { projectId } } = useWorkspaceStores();
   const [engines, setEngines] = useState<EngineOption[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState(false);
+  const [catalogAttempt, setCatalogAttempt] = useState(0);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectorEngineId, setSelectorEngineId] = useState<string | null>(null);
   const [text, setText] = useState('');
@@ -76,11 +79,23 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
         // forget. `billableEngines` keeps them for the explanatory note.
         if (!cancelled) setEngines(translateEnginesFromCatalog(catalog));
       })
-      .catch(() => { if (!cancelled) setEngines([]); });
+      .catch(() => {
+        if (!cancelled) {
+          setEngines([]);
+          setCatalogError(true);
+        }
+      })
+      .finally(() => { if (!cancelled) setCatalogLoading(false); });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [api, catalogAttempt]);
+
+  const retryCatalog = () => {
+    setCatalogError(false);
+    setCatalogLoading(true);
+    setCatalogAttempt((attempt) => attempt + 1);
+  };
 
   const freeEngines = useMemo(
     () => engines.filter((engine) => !engineIsRemote(engine)),
@@ -201,7 +216,14 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
               </div>
             ))}
             <div className="ocr-compare-add-wrap" data-testid="translate-compare-add-engine">
-              <SelectorField
+              {catalogError ? (
+                <div role="alert" className="form-hint">
+                  Could not load comparison engines.{' '}
+                  <button type="button" className="mini-btn" onClick={retryCatalog}>Retry</button>
+                </div>
+              ) : catalogLoading ? (
+                <span className="form-hint" role="status">Loading comparison engines…</span>
+              ) : <SelectorField
                 projectId={projectId}
                 label="Add engine"
                 query={mediaSelectorQuery('map.translate', selectorColumn)}
@@ -219,7 +241,7 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
                   const authored = choice.authored_selection;
                   if (authored.kind === 'engine' || authored.kind === 'engine_model') addEngine(authored.engine);
                 }}
-              />
+              />}
             </div>
           </div>
         </div>
