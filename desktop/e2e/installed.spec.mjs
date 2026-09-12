@@ -101,6 +101,7 @@ test('installed app imports, runs its worker, exports, quits and reopens', async
   let running = first.electron;
   try {
     const page = first.page;
+    expect(await running.evaluate(({ app }) => app.getName())).toBe('Frisket');
     expect(await page.evaluate(() => [typeof window.require, typeof window.process])).toEqual(['undefined', 'undefined']);
     await page.evaluate(() => navigator.clipboard.writeText('Desktop clipboard smoke'));
     expect(await running.evaluate(({ clipboard }) => clipboard.readText())).toBe('Desktop clipboard smoke');
