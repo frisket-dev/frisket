@@ -5,6 +5,7 @@ import { app, BrowserWindow, Menu, dialog, session, shell, protocol, net } from 
 import { prepareRuntime } from './provision.mjs';
 import { appUrl, installProtocol, APP_ORIGIN, APP_SCHEME } from './protocol.mjs';
 import { startBackend } from './backend.mjs';
+import { CleanupError } from './errors.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const desktopRoot = path.resolve(here, '..');
@@ -14,6 +15,7 @@ let startupTask;
 let provisioningController;
 let quitting = false;
 let recoveryTask;
+let cleanupFailed = false;
 
 // This must happen before Electron's ready event, before any renderer exists.
 protocolPrivileges();
@@ -39,9 +41,15 @@ export function protocolPrivileges() {
 /** @param {Electron.BrowserWindow} window */
 export function protectWindow(window) {
   window.webContents.setWindowOpenHandler(({ url }) => {
+    if (appUrl(url)) {
+      return { action: 'allow', overrideBrowserWindowOptions: { webPreferences: {
+        sandbox: true, contextIsolation: true, nodeIntegration: false, webviewTag: false,
+      } } };
+    }
     openExternal(url);
     return { action: 'deny' };
   });
+  window.webContents.on('did-create-window', (child) => protectWindow(child));
   window.webContents.on('will-navigate', (event, url) => {
     if (appUrl(url)) return;
     event.preventDefault();
@@ -122,15 +130,20 @@ async function recover(error) {
     if (backend) {
       const old = backend;
       backend = undefined;
-      await old.stop().catch(() => {});
+      try { await old.stop(); } catch (cleanup) {
+        cleanupFailed = true;
+        error = cleanup;
+      }
     }
+    cleanupFailed ||= error instanceof CleanupError;
     const choice = await dialog.showMessageBox(mainWindow, {
-      type: 'error', buttons: ['Retry', 'Quit'], defaultId: 0, cancelId: 1,
+      type: 'error', buttons: cleanupFailed ? ['Quit'] : ['Retry', 'Quit'],
+      defaultId: 0, cancelId: cleanupFailed ? 0 : 1,
       title: 'Frisket could not start',
       message: 'The local workspace service stopped unexpectedly.',
       detail: error instanceof Error ? error.message : 'Please try again.',
     });
-    if (choice.response === 0) setTimeout(() => { void startAttempt(); }, 0);
+    if (!cleanupFailed && choice.response === 0) setTimeout(() => { void startAttempt(); }, 0);
     else void requestQuit();
   })();
   try { await recoveryTask; } finally { recoveryTask = undefined; }
@@ -157,13 +170,13 @@ async function requestQuit() {
   quitting = true;
   provisioningController?.abort();
   const cleanup = Promise.allSettled([backend?.stop(), startupTask].filter(Boolean));
-  let failed = false;
+  let failed = cleanupFailed;
   try {
     const results = await Promise.race([
       cleanup,
       new Promise((_, reject) => setTimeout(() => reject(new Error('Desktop shutdown timed out.')), 12_000)),
     ]);
-    failed = results.some((result) => result.status === 'rejected');
+    failed ||= results.some((result) => result.status === 'rejected');
   } catch { failed = true; }
   if (failed) process.stderr.write('Frisket could not prove local service cleanup.\n');
   app.exit(failed ? 1 : 0);
@@ -179,8 +192,14 @@ function installMenu() {
 
 app.whenReady().then(async () => {
   if (!app.requestSingleInstanceLock()) { app.quit(); return; }
-  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
-  session.defaultSession.setPermissionCheckHandler(() => false);
+  // The existing UI copies text, but never needs clipboard reads or device access.
+  const canWriteClipboard = (contents, permission, requestingUrl) =>
+    permission === 'clipboard-sanitized-write' &&
+    Boolean(contents && appUrl(contents.getURL()) && appUrl(requestingUrl));
+  session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) =>
+    callback(canWriteClipboard(contents, permission, details.requestingUrl)));
+  session.defaultSession.setPermissionCheckHandler((contents, permission, requestingOrigin) =>
+    canWriteClipboard(contents, permission, requestingOrigin));
   session.defaultSession.on('will-download', (_event, item, webContents) => {
     item.pause();
     void dialog.showSaveDialog(BrowserWindow.fromWebContents(webContents), {

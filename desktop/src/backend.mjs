@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { spawn as nodeSpawn } from 'node:child_process';
 import path from 'node:path';
+import { CleanupError } from './errors.mjs';
 
 const READY_TIMEOUT_MS = 20_000;
 const STOP_TIMEOUT_MS = 10_000;
@@ -173,7 +174,7 @@ function within(promise, timeoutMs, error) {
   return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeout));
 }
 
-function cleanupError() { return new Error('Desktop backend cleanup could not be proven.'); }
+function cleanupError() { return new CleanupError('Desktop backend cleanup could not be proven.'); }
 
 /** @param {import('node:child_process').ChildProcess} child */
 function observedOutcome(child) {

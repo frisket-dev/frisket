@@ -21,7 +21,8 @@ async function launch(testInfo) {
     stderr = `${stderr}${chunk}`.slice(-16_384);
   });
   const page = await electron.firstWindow();
-  page.on('pageerror', (error) => console.error(`Renderer: ${error.message}`));
+  const rendererErrors = [];
+  page.on('pageerror', (error) => rendererErrors.push(error.message));
   try {
     await page.waitForURL('frisket://app/**', { timeout: 300_000 });
     await expect(page.getByTestId('home-screen')).toBeVisible();
@@ -30,7 +31,7 @@ async function launch(testInfo) {
       await disclosure.getByRole('checkbox').uncheck();
       await disclosure.getByRole('button', { name: 'Continue' }).click();
     }
-    return { electron, page };
+    return { electron, page, rendererErrors };
   } catch (error) {
     await testInfo.attach('startup-stderr', { body: stderr, contentType: 'text/plain' });
     await page.screenshot({ path: testInfo.outputPath('startup-failure.png') }).catch(() => {});
@@ -68,6 +69,7 @@ async function openRegex(page) {
   for (let index = 0; index < await tabs.count() && !await tile.isVisible(); index++) {
     await tabs.nth(index).click();
   }
+  await expect(tile).toBeVisible();
   await tile.click();
   await page.getByTestId('field-input_columns').click();
   await page.getByTestId('field-input_columns-menu').getByRole('option').filter({ hasText: 'note' }).click();
@@ -91,6 +93,8 @@ function extracted(data) {
 test('installed app imports, runs its worker, exports, quits and reopens', async ({}, testInfo) => {
   expect(process.platform).toBe('darwin');
   expect(process.arch).toBe('arm64');
+  expect(typeof appPath).toBe('string');
+  expect(typeof profile).toBe('string');
   expect(path.isAbsolute(appPath)).toBeTruthy();
   expect(path.isAbsolute(profile)).toBeTruthy();
   const first = await launch(testInfo);
@@ -98,6 +102,22 @@ test('installed app imports, runs its worker, exports, quits and reopens', async
   try {
     const page = first.page;
     expect(await page.evaluate(() => [typeof window.require, typeof window.process])).toEqual(['undefined', 'undefined']);
+    await page.evaluate(() => navigator.clipboard.writeText('Desktop clipboard smoke'));
+    expect(await running.evaluate(({ clipboard }) => clipboard.readText())).toBe('Desktop clipboard smoke');
+    const popupPromise = running.waitForEvent('window');
+    await page.evaluate(() => window.open('/api/health', '_blank'));
+    const popup = await popupPromise;
+    await popup.waitForLoadState('domcontentloaded');
+    expect(popup.url()).toBe('frisket://app/api/health');
+    await popup.close();
+    const pids = await descendants(running.process().pid);
+    const { stdout: listeners } = await exec('/usr/sbin/lsof', ['-nP', '-a', '-p', pids.join(','), '-iTCP', '-sTCP:LISTEN', '-Fn']);
+    const ports = [...listeners.matchAll(/^n127\.0\.0\.1:(\d+)$/gm)].map((match) => Number(match[1]));
+    const statuses = await Promise.all(ports.map(async (port) => {
+      const response = await fetch(`http://127.0.0.1:${port}/api/health`);
+      return response.status;
+    }));
+    expect(statuses).toContain(401);
     await page.getByTestId('home-new-project').click();
     await page.getByTestId('new-project-name').fill('Desktop beta smoke');
     await page.getByTestId('create-project').click();
@@ -137,6 +157,7 @@ test('installed app imports, runs its worker, exports, quits and reopens', async
     await page.getByTestId('export-target-csv').click();
     await page.getByTestId('export-dataset-download').click();
     await expect.poll(async () => readFile(exportPath, 'utf8').catch(() => ''), { timeout: 20_000 }).toContain('$4,200');
+    expect(first.rendererErrors).toEqual([]);
     await quit(running);
     running = undefined;
 
@@ -146,6 +167,7 @@ test('installed app imports, runs its worker, exports, quits and reopens', async
     await expect(second.page.getByTestId('grid')).toBeVisible();
     expect(extracted(await sheet(second.page, projectId, sheetId))).toBe('$4,200');
     await second.page.screenshot({ path: testInfo.outputPath('reopened-project.png') });
+    expect(second.rendererErrors).toEqual([]);
     await quit(running);
     running = undefined;
   } finally {

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { constants as fsConstants, promises as fs } from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { CleanupError } from './errors.mjs';
 
 const MARKER = '.frisket-runtime-ready.json';
 const TAIL_LIMIT = 8_192;
@@ -254,7 +255,7 @@ function run(command, args, { label, env, signal }) {
           process.kill(-child.pid, 'SIGTERM');
         } catch (error) {
           if (error.code !== 'ESRCH') {
-            rejectOnce(new Error('Private runtime cancellation could not prove process cleanup.'));
+            rejectOnce(new CleanupError('Private runtime cancellation could not prove process cleanup.'));
           }
           return;
         }
@@ -280,7 +281,7 @@ function run(command, args, { label, env, signal }) {
       clearForceTimer();
       signal?.removeEventListener('abort', cancel);
       if (aborted || signal?.aborted) {
-        if (forcedCleanup) return reject(new Error('Private runtime cancellation could not prove process cleanup.'));
+        if (forcedCleanup) return reject(new CleanupError('Private runtime cancellation could not prove process cleanup.'));
         return reject(abortError());
       }
       if (code === 0) return resolve();

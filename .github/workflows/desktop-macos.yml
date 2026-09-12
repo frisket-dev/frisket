@@ -24,8 +24,6 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 60
     env:
-      FRISKET_DESKTOP_APP: ${{ runner.temp }}/Applications/Frisket.app
-      FRISKET_DESKTOP_PROFILE: ${{ runner.temp }}/frisket-desktop-profile
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -44,6 +42,8 @@ jobs:
           enable-cache: false
       - name: Check architecture and capacity
         run: |
+          echo "FRISKET_DESKTOP_APP=$RUNNER_TEMP/Applications/Frisket.app" >> "$GITHUB_ENV"
+          echo "FRISKET_DESKTOP_PROFILE=$RUNNER_TEMP/frisket-desktop-profile" >> "$GITHUB_ENV"
           test "$(uname -m)" = arm64
           df -h .
       - name: Install build dependencies
