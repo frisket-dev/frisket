@@ -637,7 +637,10 @@ class SelectorChoiceService:
                         and blocked is None,
                         "blocked_by_operation": blocked or operation,
                     }
-            elif not available and active_target_id == MODELS_GATEWAY_TARGET_ID:
+            elif not available and (
+                active_target_id == MODELS_GATEWAY_TARGET_ID
+                or engine.get("tier") == "sidecar"
+            ):
                 status = "needs_setup"
                 setup = self._setup.models_gateway(capabilities)
                 blocker = {

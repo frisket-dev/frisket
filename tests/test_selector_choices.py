@@ -24,6 +24,7 @@ def _app(
     router: ModelRouter | None = None,
     capabilities_for: Callable[..., SelectorCapabilities] | None = None,
     execution_router_factory: Callable[[], ModelRouter] | None = None,
+    models_gateway_status_for: Callable[..., Any] | None = None,
 ) -> tuple[TestClient, Workspace, str]:
     workspace = Workspace(
         root,
@@ -40,6 +41,7 @@ def _app(
         capabilities_for=(
             capabilities_for or (lambda _request, _pid: SelectorCapabilities())
         ),
+        models_gateway_status_for=models_gateway_status_for,
     )
     return TestClient(app), workspace, project_id
 
@@ -542,3 +544,92 @@ def test_busy_setup_embeds_actual_operation_without_removing_download_authority(
         next(row for row in _choices(ready.json()) if row["is_current"])["can_run"]
         is True
     )
+
+
+def test_passive_gateway_status_projects_owner_scope_and_mutation_policy(
+    tmp_path: Path,
+) -> None:
+    seen: list[bool] = []
+
+    def status(can_mutate: bool) -> dict[str, Any]:
+        seen.append(can_mutate)
+        return {
+            "configured": True,
+            "source": "stored",
+            "authority": "organization",
+            "can_mutate": False,
+            "token_hint": "…hint",
+        }
+
+    client, _workspace, project_id = _app(
+        tmp_path / "gateway",
+        models_gateway_status_for=status,
+        capabilities_for=lambda _request, _pid: SelectorCapabilities(
+            configure_models_gateway=True
+        ),
+    )
+    response = client.post(
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query(
+            {
+                "kind": "action",
+                "action_id": "map.ner",
+                "field": "engine",
+                "params": {"engine": "gliner"},
+            }
+        ),
+    )
+    assert response.status_code == 200, response.text
+    current = next(row for row in _choices(response.json()) if row["is_current"])
+    assert seen == [True]
+    scopes = {row["scope"]: row for row in current["setup"]["scopes"]}
+    assert current["setup"]["kind"] == "models_gateway"
+    assert scopes["organization"]["configured"] is True
+    assert scopes["organization"]["can_mutate"] is False
+    assert scopes["organization"]["hint"] == "…hint"
+    assert scopes["environment"]["can_mutate"] is False
+
+
+def test_provider_bound_custom_embedding_id_is_preserved_and_placeholder_cannot_run(
+    tmp_path: Path,
+) -> None:
+    router = ModelRouter(keys={"openrouter": "configured-key"}, use_env_keys=False)
+    client, _workspace, project_id = _app(
+        tmp_path / "custom-embedding",
+        router=router,
+        capabilities_for=lambda _request, _pid: SelectorCapabilities(
+            may_author_actions=True, may_run_actions=True
+        ),
+    )
+    custom = client.post(
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query(
+            {
+                "kind": "embedding",
+                "provider": "openrouter",
+                "model": "owner/nested/embedding",
+                "modality": "text",
+            }
+        ),
+    )
+    assert custom.status_code == 200, custom.text
+    current = next(row for row in _choices(custom.json()) if row["is_current"])
+    assert current["authored_selection"] == {
+        "kind": "embedding",
+        "provider": "openrouter",
+        "model": "owner/nested/embedding",
+    }
+    assert current["can_run"] is True
+    placeholder = client.post(
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query({"kind": "embedding", "modality": "text"}),
+    )
+    assert placeholder.status_code == 200
+    row = next(
+        row
+        for row in _choices(placeholder.json())
+        if row["authored_selection"]
+        == {"kind": "embedding", "provider": "openrouter", "model": ""}
+    )
+    assert row["can_run"] is False
+    assert row["blocker"]["code"] == "custom_model_required"
