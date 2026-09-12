@@ -616,9 +616,7 @@ class StaticExecutionTargetProvider:
                 )
             return (
                 "Parakeet's pinned ONNX artifacts are not installed. Download "
-                "them first (Settings > Local models, or POST "
-                "/api/providers/models/pull for the Parakeet transcription "
-                "model and Silero voice-activity model), then retry."
+                "them before retrying."
             )
         if target_id == MODELS_GATEWAY_TARGET_ID:
             return (

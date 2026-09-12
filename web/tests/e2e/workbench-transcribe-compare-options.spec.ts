@@ -284,6 +284,8 @@ test('faster_whisper exposes language + model size + VAD; parakeet-tdt exposes o
   await expect(popover.getByTestId('transcribe-compare-configure-language')).toBeVisible();
   await expect(popover.getByTestId('transcribe-compare-model-pill-large-v3')).toBeVisible();
   await expect(popover.getByTestId('transcribe-compare-configure-vad')).toBeVisible();
+  await expect(popover).toContainText('Voice Activity Detection');
+  await expect(popover).toContainText('Only transcribe when speech is detected (reduces hallucinations)');
   await whisperChip.getByTestId('transcribe-compare-variant-gear').click(); // close
 
   const parakeetChip = page

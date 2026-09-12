@@ -573,12 +573,12 @@ function TranscribeOptionFields({
       ) : null}
       {fields.vad ? (
         <div className="ocr-compare-configure-field">
-          <span className="ocr-compare-configure-label">Voice-activity detection</span>
+          <span className="ocr-compare-configure-label">Voice Activity Detection</span>
           <SegmentedToggle
             testId="transcribe-compare-configure-vad"
             className="ocr-compare-vad-toggle"
             fullWidth={false}
-            ariaLabel="Voice-activity detection"
+            ariaLabel="Voice Activity Detection"
             value={(options.vad ?? DEFAULT_VAD) ? 'on' : 'off'}
             onValueChange={(value) => onSetVad(value === 'on')}
             buttonTestId={(value) => `transcribe-compare-configure-vad-${value}`}
@@ -588,7 +588,7 @@ function TranscribeOptionFields({
             ]}
           />
           <span className="ocr-compare-configure-hint muted">
-            on (default): silence/music skipped · off: word-level timestamps
+            Only transcribe when speech is detected (reduces hallucinations)
           </span>
         </div>
       ) : null}
