@@ -18,7 +18,12 @@ test('Markdown uses an anchored native selector that restores trigger focus afte
       summary: 'Document conversion',
       description: 'A model-backed document converter.',
       authoredSelection: { kind: 'engine', engine: 'docling' },
-    }],
+    }, ...Array.from({ length: 6 }, (_, index) => ({
+      choiceId: `document-converter-${index}`,
+      label: `Document converter ${index + 1}`,
+      summary: 'Document conversion',
+      authoredSelection: { kind: 'engine', engine: `document-converter-${index}` },
+    }))],
   }];
   await stubActionSelectorChoices(page, pid, ({ actionId, field, params }) => {
     expect(actionId).toBe('media.to_markdown');
@@ -63,6 +68,23 @@ test('Markdown uses an anchored native selector that restores trigger focus afte
   expect(dialogBox!.width).toBeLessThanOrEqual(762);
   expect(dialogBox!.height).toBeLessThanOrEqual(420);
   expect(dialogBox!.x + dialogBox!.width).toBeLessThanOrEqual(triggerBox!.x + triggerBox!.width + 2);
+  const body = dialog.locator('.engine-selector__body');
+  const [groupsBox, choicesBox, detailBox, footerBox] = await Promise.all([
+    dialog.locator('.engine-selector__groups').boundingBox(),
+    dialog.locator('.engine-selector__choices').boundingBox(),
+    dialog.locator('.engine-selector__detail').boundingBox(),
+    dialog.locator('.engine-selector__footer').boundingBox(),
+  ]);
+  expect(groupsBox).not.toBeNull();
+  expect(choicesBox).not.toBeNull();
+  expect(detailBox).not.toBeNull();
+  expect(footerBox).not.toBeNull();
+  expect(Math.round(groupsBox!.width)).toBe(160);
+  expect(Math.round(choicesBox!.width)).toBe(230);
+  expect(Math.abs(detailBox!.x + detailBox!.width - (dialogBox!.x + dialogBox!.width))).toBeLessThanOrEqual(2);
+  expect(footerBox!.x).toBeGreaterThanOrEqual(detailBox!.x);
+  expect(Math.abs(footerBox!.x + footerBox!.width - (detailBox!.x + detailBox!.width))).toBeLessThanOrEqual(2);
+  await expect(body).not.toHaveClass(/engine-selector__body--flat/);
   await page.screenshot({ path: testInfo.outputPath('selector-desktop.png') });
 
   await page.keyboard.press('Escape');
@@ -71,6 +93,16 @@ test('Markdown uses an anchored native selector that restores trigger focus afte
 
   await trigger.click();
   await dialog.getByRole('searchbox', { name: 'Search Engine' }).fill('Docling');
+  await expect(body).toHaveClass(/engine-selector__body--flat/);
+  const [flatChoicesBox, flatDetailBox] = await Promise.all([
+    dialog.locator('.engine-selector__choices').boundingBox(),
+    dialog.locator('.engine-selector__detail').boundingBox(),
+  ]);
+  expect(flatChoicesBox).not.toBeNull();
+  expect(flatDetailBox).not.toBeNull();
+  expect(Math.round(flatChoicesBox!.width)).toBe(230);
+  expect(Math.abs(flatDetailBox!.x + flatDetailBox!.width - (dialogBox!.x + dialogBox!.width))).toBeLessThanOrEqual(2);
+  await page.screenshot({ path: testInfo.outputPath('selector-desktop-search.png') });
   const docling = page.locator('[data-engine-selector-choice="docling"]');
   await docling.focus();
   await page.keyboard.press('Enter');
