@@ -41,6 +41,37 @@ function choice(fixture: SelectorChoiceFixture, currentChoiceId: string | null) 
   };
 }
 
+export function selectorChoicesResponse({
+  projectId,
+  subject,
+  groups,
+  currentChoiceId,
+  orphanedCurrent = null,
+}: {
+  projectId: string;
+  subject: Record<string, unknown>;
+  groups: SelectorGroupFixture[];
+  currentChoiceId: string | null;
+  orphanedCurrent?: SelectorChoiceFixture | null;
+}) {
+  return {
+    schema_version: 'frisket.selector_choices.v1',
+    project_id: projectId,
+    subject,
+    depends_on: ['engine', 'model'],
+    current_choice_id: currentChoiceId,
+    default_choice_id: null,
+    groups: groups.map((group) => ({
+      group_id: group.id,
+      kind: 'local',
+      label: group.label,
+      status: 'ready',
+      choices: group.choices.map((item) => choice(item, currentChoiceId)),
+    })),
+    orphaned_current: orphanedCurrent ? choice(orphanedCurrent, currentChoiceId) : null,
+  };
+}
+
 export function actionSelectorResponse({
   projectId,
   actionId,
@@ -56,22 +87,13 @@ export function actionSelectorResponse({
   currentChoiceId: string | null;
   orphanedCurrent?: SelectorChoiceFixture | null;
 }) {
-  return {
-    schema_version: 'frisket.selector_choices.v1',
-    project_id: projectId,
+  return selectorChoicesResponse({
+    projectId,
     subject: { kind: 'action', action_id: actionId, field },
-    depends_on: ['engine', 'model'],
-    current_choice_id: currentChoiceId,
-    default_choice_id: null,
-    groups: groups.map((group) => ({
-      group_id: group.id,
-      kind: 'local',
-      label: group.label,
-      status: 'ready',
-      choices: group.choices.map((item) => choice(item, currentChoiceId)),
-    })),
-    orphaned_current: orphanedCurrent ? choice(orphanedCurrent, currentChoiceId) : null,
-  };
+    groups,
+    currentChoiceId,
+    orphanedCurrent,
+  });
 }
 
 /** Stubs only the typed side-effect-free selector facade, leaving all action
@@ -98,6 +120,26 @@ export async function stubActionSelectorChoices(
         field: subject.field,
         params: subject.params ?? {},
       })),
+    });
+  });
+}
+
+/** Uses the same facade for a non-action host such as Copilot. */
+export async function stubSelectorChoices(
+  page: Page,
+  projectId: string,
+  respond: (subject: Record<string, unknown>) => unknown,
+): Promise<void> {
+  await page.route(`**/api/projects/${projectId}/selector-choices`, async (route) => {
+    const body = route.request().postDataJSON() as { subject?: Record<string, unknown> };
+    if (!body.subject) {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(respond(body.subject)),
     });
   });
 }
