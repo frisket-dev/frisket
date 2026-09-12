@@ -22,23 +22,23 @@ const runtime = await prepareRuntime({
   resourcesPath, dataPath,
   onProgress: ({ message }) => process.stdout.write(`${message}\n`),
 });
-const guard = path.join(resourcesPath, 'python', 'frisket', 'runtime', '_guard.py');
-const modelPrewarm = path.join(here, 'prewarm-models.py');
-try {
-  const { stdout } = await execFile(runtime.python, [
-    '-I', guard, String(process.pid), '2', runtime.python, '-I', modelPrewarm,
-    path.join(resourcesPath, 'python'),
-  ], {
-    env: { ...runtime.env, HF_HUB_DISABLE_PROGRESS_BARS: '1' },
-    maxBuffer: 16 * 1024 * 1024,
-    timeout: 30 * 60 * 1000,
-  });
-  process.stdout.write(stdout);
-} catch (error) {
-  const detail = String(error.stderr || error.message).slice(-4096);
-  throw new Error(`Model cache preparation failed. ${detail}`);
-}
 if (stageModels) {
+  const guard = path.join(resourcesPath, 'python', 'frisket', 'runtime', '_guard.py');
+  const modelPrewarm = path.join(here, 'prewarm-models.py');
+  try {
+    const { stdout } = await execFile(runtime.python, [
+      '-I', guard, String(process.pid), '2', runtime.python, '-I', modelPrewarm,
+      path.join(resourcesPath, 'python'),
+    ], {
+      env: { ...runtime.env, HF_HUB_DISABLE_PROGRESS_BARS: '1' },
+      maxBuffer: 16 * 1024 * 1024,
+      timeout: 30 * 60 * 1000,
+    });
+    process.stdout.write(stdout);
+  } catch (error) {
+    const detail = String(error.stderr || error.message).slice(-4096);
+    throw new Error(`Model cache preparation failed. ${detail}`);
+  }
   const bundleCache = path.join(resourcesPath, 'model-cache');
   await rm(bundleCache, { recursive: true, force: true });
   for (const [source, destination] of [
@@ -53,6 +53,14 @@ if (stageModels) {
       throw new Error('Model cache preparation did not produce the required bundled models.');
     }
   }
+} else {
+  // The installed-app CI warmup may prepare Python and Chromium over the
+  // network, but its sealed first launch must prove that the app bundle seeds
+  // the model cache itself.
+  await Promise.all([
+    rm(path.join(dataPath, 'cache', 'huggingface'), { recursive: true, force: true }),
+    rm(path.join(dataPath, 'cache', 'models', 'rapidocr'), { recursive: true, force: true }),
+  ]);
 }
 // Keep only downloaded interpreters/packages/browsers, not a completed venv.
 await rm(path.join(dataPath, 'runtimes'), { recursive: true, force: true });
