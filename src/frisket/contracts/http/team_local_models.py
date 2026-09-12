@@ -18,6 +18,10 @@ class TeamArtifactPullRequest(_CompatibleRequest):
     unpinned_acknowledged: bool = False
 
 
+class TeamEngineSetupRequest(_CompatibleRequest):
+    setup_ref: str
+
+
 class TeamModelPullError(WireModel):
     code: str | None
     message: str | None
@@ -161,6 +165,7 @@ def team_model_http_error_responses(
 
 __all__ = [
     "TeamArtifactPullRequest",
+    "TeamEngineSetupRequest",
     "TeamModelHttpError",
     "TeamModelPull",
     "TeamModelPullArtifact",

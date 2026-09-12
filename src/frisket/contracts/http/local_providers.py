@@ -94,6 +94,10 @@ class ArtifactUninstallRequest(_CompatibleRequest):
     ref: str
 
 
+class EngineSetupRequest(_CompatibleRequest):
+    setup_ref: str
+
+
 class LocalProviderPrice(WireModel):
     input: float
     output: float
@@ -218,6 +222,7 @@ class ProviderValidationResponse(WireModel):
 __all__ = [
     "ArtifactPullRequest",
     "ArtifactUninstallRequest",
+    "EngineSetupRequest",
     "LocalEndpointCreateRequest",
     "LocalEndpointCatalog",
     "LocalEndpointDiscoveryCandidate",

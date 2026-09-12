@@ -51,6 +51,15 @@ ROUTES = {
         frozenset({400, 401, 403, 409, 422, 500, 503}),
         True,
     ),
+    "setup_org_model_engine": RouteTruth(
+        "POST",
+        "/api/org/models/setup",
+        202,
+        "TeamModelPullStartResponse",
+        "TeamEngineSetupRequest",
+        frozenset({400, 401, 403, 409, 422, 500, 503}),
+        True,
+    ),
     "list_org_model_pulls": RouteTruth(
         "GET",
         "/api/org/models/pulls",
@@ -122,7 +131,11 @@ def _pull_payload(
         "artifact": None,
         "operation_kind": "local_model",
         "display_name": "ollama/@env-a1b2c3d4e5f6/smollm:135m",
-        "capabilities": {"cancel": status in ("pending", "running"), "retry": False, "remove": False},
+        "capabilities": {
+            "cancel": status in ("pending", "running"),
+            "retry": False,
+            "remove": False,
+        },
     }
 
 
@@ -283,7 +296,7 @@ def test_team_local_model_declarations_are_complete_local_and_browser_exact() ->
         for name, truth in ROUTES.items()
     }
     assert {entry.id for entry in declarations} == OPERATION_IDS
-    assert sum(entry.browser_client for entry in declarations) == 5
+    assert sum(entry.browser_client for entry in declarations) == 6
     assert not {
         entry.id for entry in BASE_ENDPOINT_CATALOG if entry.id in OPERATION_IDS
     }, "F3B declarations must stay edition-local, outside BASE_ENDPOINT_CATALOG"

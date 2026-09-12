@@ -468,6 +468,31 @@ def test_artifact_pull_hf_snapshot_pinned_ref_enqueues(tmp_path, monkeypatch) ->
     assert busy.json()["detail"]["active"]["model"] == PARAKEET_VAD_REF
 
 
+def test_engine_setup_is_allowlisted_and_deduplicated(tmp_path) -> None:
+    from frisket.engine.jobs.engine_setup import PARAKEET_TDT_SETUP_REF
+
+    client = _client(tmp_path)
+    first = client.post(
+        "/api/providers/models/setup", json={"setup_ref": PARAKEET_TDT_SETUP_REF}
+    )
+    assert first.status_code == 202, first.text
+    second = client.post(
+        "/api/providers/models/setup", json={"setup_ref": PARAKEET_TDT_SETUP_REF}
+    )
+    assert second.status_code == 202, second.text
+    assert second.json()["deduplicated"] is True
+    pull = first.json()["pull"]
+    assert pull["operation_kind"] == "engine_setup"
+    assert pull["display_name"] == "Parakeet TDT (local ONNX)"
+    assert pull["capabilities"] == {"cancel": True, "retry": False, "remove": False}
+
+    refused = client.post(
+        "/api/providers/models/setup", json={"setup_ref": "engine-setup:other@1"}
+    )
+    assert refused.status_code == 400
+    assert refused.json()["detail"]["code"] == "unknown_engine_setup"
+
+
 def test_artifact_pull_unpinned_hf_snapshot_rejected_at_parse(tmp_path) -> None:
     """The manifest allowlist is enforced at parse time: an arbitrary repo is
     invalid_model_ref (400), never unpinned_unacknowledged -- there is no

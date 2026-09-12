@@ -52,8 +52,8 @@ async def _mail(_email: str, _link: str) -> bool:
     return True
 
 
-def _app(tmp_path: Path) -> Any:
-    app = create_team_app(_config(tmp_path), send_magic_email=_mail)
+def _app(tmp_path: Path, **kwargs: Any) -> Any:
+    app = create_team_app(_config(tmp_path), send_magic_email=_mail, **kwargs)
     claim_server(app)
     seed_member_invite(app, "member@example.com")
     return app
@@ -99,6 +99,39 @@ def _audit_actions(app: Any) -> list[str]:
     with app.state.control_engine.connect() as cx:
         rows = cx.execute(sa.select(audit_log.c.action)).scalars().all()
     return list(rows)
+
+
+def test_org_provider_key_save_requires_a_validation_receipt(tmp_path) -> None:
+    async def accepted(_provider: str, _key: str) -> bool:
+        return True
+
+    app = _app(tmp_path, validate_provider_key=accepted)
+    owner = _owner(app)
+    candidate = "sk-receipt-bound"
+    refused = owner.post("/api/org/keys", json={"provider": "openai", "key": candidate})
+    assert refused.status_code == 400
+
+    validation = owner.post(
+        "/api/org/keys/validate", json={"provider": "openai", "key": candidate}
+    )
+    assert validation.status_code == 200, validation.text
+    receipt = validation.json()["validation_token"]
+    assert receipt
+    saved = owner.post(
+        "/api/org/keys",
+        json={"provider": "openai", "key": candidate, "validation_token": receipt},
+    )
+    assert saved.status_code == 200, saved.text
+
+
+def test_org_env_rejects_models_gateway_pair(tmp_path) -> None:
+    app = _app(tmp_path)
+    owner = _owner(app)
+    for name in ("FRISKET_MODELS_URL", "FRISKET_MODELS_TOKEN"):
+        saved = owner.post("/api/org/env", json={"name": name, "value": "secret"})
+        assert saved.status_code == 400
+        deleted = owner.delete(f"/api/org/env/{name}")
+        assert deleted.status_code == 400
 
 
 # ---------------------------------------------------------------------------
@@ -794,6 +827,31 @@ def test_org_artifact_pull_opus_mt_skips_daemon_and_audits(
     assert job.kind == "model.pull"
     assert job.org_id == str(app.state.team_org_id)
     assert "model_pull_requested" in _audit_actions(app)
+
+
+def test_org_engine_setup_requires_owner_deduplicates_and_audits(tmp_path) -> None:
+    from frisket.engine.jobs.engine_setup import PARAKEET_TDT_SETUP_REF
+
+    app = _app(tmp_path)
+    owner = _owner(app)
+    member = _member(app)
+    assert (
+        member.post(
+            "/api/org/models/setup", json={"setup_ref": PARAKEET_TDT_SETUP_REF}
+        ).status_code
+        == 403
+    )
+    first = owner.post(
+        "/api/org/models/setup", json={"setup_ref": PARAKEET_TDT_SETUP_REF}
+    )
+    assert first.status_code == 202, first.text
+    second = owner.post(
+        "/api/org/models/setup", json={"setup_ref": PARAKEET_TDT_SETUP_REF}
+    )
+    assert second.status_code == 202
+    assert second.json()["deduplicated"] is True
+    assert first.json()["pull"]["operation_kind"] == "engine_setup"
+    assert "engine_setup_requested" in _audit_actions(app)
 
 
 def test_org_artifact_pull_member_forbidden(tmp_path, monkeypatch) -> None:
