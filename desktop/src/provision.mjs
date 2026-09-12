@@ -232,17 +232,11 @@ async function publishMissingModelFile(source, destination, signal) {
 }
 
 async function publishMissingModelLink(source, destination, signal) {
-  await cleanupModelCacheTemporaries(destination);
-  if (await pathExists(destination)) return;
-
-  const temporary = modelCacheTemporary(destination);
+  throwIfAborted(signal);
   try {
-    throwIfAborted(signal);
-    await fs.symlink(await fs.readlink(source), temporary);
-    throwIfAborted(signal);
-    await publishNoClobber(temporary, destination);
-  } finally {
-    await fs.rm(temporary, { force: true });
+    await fs.symlink(await fs.readlink(source), destination);
+  } catch (error) {
+    if (error.code !== 'EEXIST') throw error;
   }
 }
 
