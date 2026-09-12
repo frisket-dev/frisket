@@ -18,6 +18,13 @@
   gap: 1px;
 }
 
+.engine-selector__trigger-copy strong,
+.engine-selector__choice-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .engine-selector__trigger-copy small,
 .engine-selector__choice-copy small {
   overflow: hidden;
@@ -29,6 +36,7 @@
 .engine-selector__dialog {
   width: min(92vw, 760px);
   max-width: 92vw;
+  height: min(420px, calc(100vh - 32px));
   max-height: min(420px, calc(100vh - 32px));
   overflow: hidden;
   padding: 0;
@@ -37,6 +45,11 @@
   background: var(--bg);
   box-shadow: var(--shadow-modal);
   color: var(--text);
+}
+
+.engine-selector__dialog[open] {
+  display: flex;
+  flex-direction: column;
 }
 
 .engine-selector__dialog::backdrop { background: rgba(30, 27, 22, 0.38); }
@@ -50,6 +63,7 @@
 
 .engine-selector__header {
   display: flex;
+  flex-shrink: 0;
   gap: var(--space-8);
   padding: var(--space-8);
   border-bottom: 1px solid var(--border);
@@ -71,6 +85,7 @@
 
 .engine-selector__tabs {
   display: flex;
+  flex-shrink: 0;
   gap: var(--space-4);
   overflow-x: auto;
   padding: var(--space-8);
@@ -97,8 +112,13 @@
 
 .engine-selector__body {
   display: grid;
-  height: min(342px, calc(100vh - 112px));
+  min-height: 0;
+  flex: 1;
   grid-template-columns: 160px 230px minmax(0, 1fr);
+}
+
+.engine-selector__body--flat {
+  grid-template-columns: 230px minmax(0, 1fr);
 }
 
 .engine-selector__groups {
@@ -185,6 +205,7 @@
 .engine-selector__detail {
   display: flex;
   min-width: 0;
+  min-height: 0;
   flex-direction: column;
 }
 
@@ -197,6 +218,7 @@
 .engine-selector__detail h2 {
   margin: 0;
   font-size: 14px;
+  overflow-wrap: anywhere;
 }
 
 .engine-selector__detail p {
@@ -209,6 +231,8 @@
   justify-content: space-between;
   gap: var(--space-8);
 }
+
+.engine-selector__detail-heading > div { min-width: 0; }
 
 .engine-selector__detail-heading a {
   display: inline-flex;
@@ -273,6 +297,8 @@
 
 .engine-selector__footer {
   display: grid;
+  min-height: 0;
+  overflow-y: auto;
   gap: var(--space-8);
   padding: var(--space-8) var(--space-12);
   border-top: 1px solid var(--border);

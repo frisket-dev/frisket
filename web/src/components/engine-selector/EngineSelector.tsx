@@ -377,7 +377,7 @@ export function EngineSelector({
             <button type="button" className="engine-selector__close" aria-label={`Close ${label} selector`} onClick={close}>×</button>
           </header>
 
-          {!wideAnchor && groups.length > 1 && !hasSearch && (
+          {!showGroups && groups.length > 1 && !hasSearch && (
             <nav className="engine-selector__tabs" aria-label="Providers">
               {groups.map((group) => (
                 <button
@@ -390,7 +390,7 @@ export function EngineSelector({
             </nav>
           )}
 
-          <div className="engine-selector__body">
+          <div className={`engine-selector__body${showGroups ? '' : ' engine-selector__body--flat'}`}>
             {showGroups && (
               <aside className="engine-selector__groups" aria-label="Providers">
                 {groups.map((group, index) => (

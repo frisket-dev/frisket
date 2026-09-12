@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { createRef } from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -201,6 +201,35 @@ describe('EngineSelector', () => {
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(screen.getByRole('heading', { name: 'Whisper' })).toBeVisible();
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: oldWidth });
+  });
+
+  it('uses the flat body whenever the provider rail is absent, including desktop search and small catalogs', async () => {
+    const oldWidth = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1200 });
+    try {
+      const props = { label: 'Engine', value: 'parakeet', recentNamespace: 'flat-body', onSelect: vi.fn() };
+      const view = render(<EngineSelector {...props} groups={groups} />);
+      const trigger = screen.getByRole('button', { name: /parakeet/i });
+      vi.spyOn(trigger, 'getBoundingClientRect').mockReturnValue(new DOMRect(600, 100, 300, 40));
+      await userEvent.click(trigger);
+      const body = screen.getByTestId('engine-selector-dialog').querySelector('.engine-selector__body')!;
+      expect(body.querySelector('.engine-selector__groups')).toBeInTheDocument();
+      expect(body).not.toHaveClass('engine-selector__body--flat');
+      await userEvent.type(screen.getByRole('searchbox', { name: 'Search Engine' }), 'hosted');
+      expect(body.querySelector('.engine-selector__groups')).not.toBeInTheDocument();
+      expect(body.children).toHaveLength(2);
+      expect(body).toHaveClass('engine-selector__body--flat');
+      await userEvent.clear(screen.getByRole('searchbox', { name: 'Search Engine' }));
+      view.rerender(<EngineSelector {...props} groups={groups.map((group) => ({ ...group, choices: group.choices.slice(0, 1) }))} />);
+      expect(body.querySelector('.engine-selector__groups')).not.toBeInTheDocument();
+      expect(body.children).toHaveLength(2);
+      expect(body).toHaveClass('engine-selector__body--flat');
+      const providers = screen.getByRole('navigation', { name: 'Providers' });
+      await userEvent.click(within(providers).getByRole('button', { name: 'OpenAI' }));
+      expect(screen.getByRole('heading', { name: 'OpenAI 0' })).toBeVisible();
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: oldWidth });
+    }
   });
 
   it('portals setup forms and stops their submit from reaching the action form', async () => {
