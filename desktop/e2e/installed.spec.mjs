@@ -89,10 +89,12 @@ async function openRegex(page) {
   const tile = page.getByTestId('ribbon-action-map.regex_extract');
   await expect(ribbon).toBeVisible();
   const tabs = ribbon.getByRole('tab');
-  for (let index = 0; index < await tabs.count() && !await tile.isVisible(); index++) {
-    await tabs.nth(index).click();
-  }
-  await expect(tile).toBeVisible();
+  await expect(async () => {
+    for (let index = 0; index < await tabs.count() && !await tile.isVisible(); index++) {
+      await tabs.nth(index).click();
+    }
+    expect(await tile.isVisible()).toBeTruthy();
+  }).toPass({ timeout: 20_000, intervals: [100, 250, 500] });
   await tile.click();
   await page.getByTestId('field-input_columns').click();
   await page.getByTestId('field-input_columns-menu').getByRole('option').filter({ hasText: 'note' }).click();
@@ -131,8 +133,7 @@ test('installed app imports, runs its worker, exports, quits and reopens', async
     const popupPromise = running.waitForEvent('window');
     await page.evaluate(() => window.open('/api/health', '_blank'));
     const popup = await popupPromise;
-    await popup.waitForLoadState('domcontentloaded');
-    expect(popup.url()).toBe('frisket://app/api/health');
+    await popup.waitForURL('frisket://app/api/health');
     await popup.close();
     const pids = await descendants(running.process().pid);
     const { stdout: listeners } = await exec('/usr/sbin/lsof', ['-nP', '-a', '-p', pids.join(','), '-iTCP', '-sTCP:LISTEN', '-Fn']);
