@@ -1,43 +1,79 @@
 import { expect, test } from '@playwright/test';
 import { createProject, importCsv, openAction, uniqueName } from './helpers';
+import {
+  actionSelectorResponse,
+  stubActionSelectorChoices,
+  type SelectorGroupFixture,
+} from './selectorChoicesFixture';
 
-test('Markdown keeps a full-width engine picker when the deployment omits the default', async ({ page }) => {
+test('Markdown uses an anchored native selector that restores trigger focus after dismissal', async ({ page }, testInfo) => {
   const pid = await createProject(page.request, uniqueName('e2e-markdown-engine'));
   await importCsv(page.request, pid, 'documents.csv', 'html\n"<p>Document</p>"\n');
-  await page.route('**/actions/v1/catalog', async (route) => {
-    const response = await route.fetch();
-    const catalog = await response.json();
-    const markdown = catalog.actions.find((action: { kind: string }) => action.kind === 'media.to_markdown');
-    // Cloud offers Docling while the public schema still defaults to MarkItDown.
-    markdown.ui_hints.engines = [{ id: 'docling', label: 'Docling', tier: 'hosted', available: true }];
-    await route.fulfill({ response, json: catalog });
+  const groups: SelectorGroupFixture[] = [{
+    id: 'models-server',
+    label: 'Models server',
+    choices: [{
+      choiceId: 'docling',
+      label: 'Docling',
+      summary: 'Document conversion',
+      description: 'A model-backed document converter.',
+      authoredSelection: { kind: 'engine', engine: 'docling' },
+    }],
+  }];
+  await stubActionSelectorChoices(page, pid, ({ actionId, field, params }) => {
+    expect(actionId).toBe('media.to_markdown');
+    expect(field).toBe('engine');
+    return actionSelectorResponse({
+      projectId: pid,
+      actionId,
+      field,
+      groups,
+      currentChoiceId: params.engine === 'docling' ? 'docling' : 'markitdown',
+      orphanedCurrent: params.engine === 'docling' ? null : {
+        choiceId: 'markitdown',
+        label: 'MarkItDown',
+        summary: 'Saved choice is unavailable',
+        status: 'unavailable',
+        canAuthor: false,
+        canRun: false,
+        blocker: 'MarkItDown is not available on this deployment.',
+        authoredSelection: { kind: 'engine', engine: 'markitdown' },
+      },
+    });
   });
   await page.goto(`/p/${pid}`);
   await openAction(page, 'media.to_markdown');
 
   const field = page.getByTestId('field-engine');
-  const button = field.getByTestId('engine-picker-button');
-  await expect(button).toContainText('markitdown (unavailable)');
-  const [labelBox, buttonBox, contentWidth] = await Promise.all([
-    field.locator('.form-label').boundingBox(),
-    button.boundingBox(),
-    page.getByTestId('generated-action-form').evaluate((form) => {
-      const style = getComputedStyle(form);
-      return form.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-    }),
-  ]);
-  expect(labelBox).not.toBeNull();
-  expect(buttonBox).not.toBeNull();
-  expect(labelBox!.y + labelBox!.height).toBeLessThanOrEqual(buttonBox!.y);
-  expect(Math.abs(buttonBox!.width - contentWidth)).toBeLessThanOrEqual(2);
+  const trigger = field.locator('.engine-selector__trigger');
+  await expect(trigger).toContainText('MarkItDown');
 
-  await button.click();
-  const unavailable = page.getByTestId('engine-option-markitdown');
-  await expect(unavailable).toHaveAttribute('aria-disabled', 'true');
-  await expect(unavailable).toBeDisabled();
-  await page.getByTestId('engine-option-docling').click();
-  await expect(button).toContainText('Docling');
-  await expect(button).toContainText('Hosted');
-  await button.click();
-  await expect(page.getByTestId('engine-option-docling')).toHaveAttribute('aria-selected', 'true');
+  const [fieldBox, triggerBox] = await Promise.all([field.boundingBox(), trigger.boundingBox()]);
+  expect(fieldBox).not.toBeNull();
+  expect(triggerBox).not.toBeNull();
+  expect(Math.abs(triggerBox!.width - fieldBox!.width)).toBeLessThanOrEqual(2);
+
+  await trigger.click();
+  const dialog = page.getByTestId('engine-selector-dialog');
+  await expect(dialog).toHaveJSProperty('open', true);
+  await expect(dialog.getByRole('searchbox', { name: 'Search Engine' })).toBeFocused();
+  const dialogBox = await dialog.boundingBox();
+  expect(dialogBox).not.toBeNull();
+  expect(dialogBox!.width).toBeGreaterThanOrEqual(758);
+  expect(dialogBox!.width).toBeLessThanOrEqual(762);
+  expect(dialogBox!.height).toBeLessThanOrEqual(420);
+  expect(dialogBox!.x + dialogBox!.width).toBeLessThanOrEqual(triggerBox!.x + triggerBox!.width + 2);
+  await page.screenshot({ path: testInfo.outputPath('selector-desktop.png') });
+
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+
+  await trigger.click();
+  await dialog.getByRole('searchbox', { name: 'Search Engine' }).fill('Docling');
+  const docling = page.locator('[data-engine-selector-choice="docling"]');
+  await docling.focus();
+  await page.keyboard.press('Enter');
+  await expect(dialog).toHaveCount(0);
+  await expect(trigger).toContainText('Docling');
 });
