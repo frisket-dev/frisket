@@ -3,6 +3,20 @@
 This notice covers software copied into Frisket's first-party container image.
 It does not change the Apache-2.0 license for Frisket's own source code.
 
+## PP-OCRv5 Chinese mobile recognizer
+
+- **Component:** `ch_PP-OCRv5_rec_mobile.onnx`, used by the bundled RapidOCR
+  default recognizer.
+- **Source:** RapidAI's RapidOCR v3.8.0 ModelScope artifact:
+  <https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.8.0/onnx/PP-OCRv5/rec/ch_PP-OCRv5_rec_mobile.onnx>
+- **SHA-256:**
+  `5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5`.
+- **License:** `Apache-2.0`, as published by the
+  [RapidOCR model repository](https://www.modelscope.cn/models/RapidAI/RapidOCR/tree/master/onnx/PP-OCRv5/rec).
+
+Frisket verifies this checksum before atomically publishing the first-use
+cache entry. The Docker image prewarms the same exact model.
+
 ## Public Suffix List
 
 - **Component:** Mozilla Public Suffix List (`src/frisket/data/public_suffix_list.dat`),

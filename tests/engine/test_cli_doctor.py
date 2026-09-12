@@ -1,6 +1,7 @@
 """Behavioral coverage for the ``frisket doctor`` self-probe."""
 
 import re
+from hashlib import sha256
 import subprocess
 import sys
 from types import ModuleType
@@ -219,6 +220,11 @@ def test_rapidocr_models_require_complete_package_set(
     requirements = rapidocr_model_resolver.rapidocr_default_model_requirements()
     assert requirements is not None
     resolved_root, filenames = requirements
+    monkeypatch.setattr(
+        rapidocr_model_resolver,
+        "RAPIDOCR_DEFAULT_RECOGNIZER_SHA256",
+        sha256(b"model").hexdigest(),
+    )
     assert resolved_root == package_root / "models"
     assert len(filenames) == len(set(filenames)) == 3
 
@@ -248,6 +254,11 @@ def test_rapidocr_models_accept_complete_shared_set_but_not_split_set(
     requirements = rapidocr_model_resolver.rapidocr_default_model_requirements()
     assert requirements is not None
     package_models, filenames = requirements
+    monkeypatch.setattr(
+        rapidocr_model_resolver,
+        "RAPIDOCR_DEFAULT_RECOGNIZER_SHA256",
+        sha256(b"shared").hexdigest(),
+    )
     shared_models = shared_cache_root / "rapidocr"
     package_models.mkdir(parents=True)
     shared_models.mkdir(parents=True)
