@@ -16,7 +16,7 @@ export interface UseSelectorChoicesOptions {
   projectId: string | null | undefined;
   query: HttpSelectorChoicesQuery;
   /** A caller-provided identity for the capability-affecting draft fields. */
-  queryKey: string;
+  queryKey: string | ((query: HttpSelectorChoicesQuery, response: HttpSelectorChoicesResponse | null) => string);
   enabled?: boolean;
   load?: SelectorChoicesLoader;
 }
@@ -91,13 +91,10 @@ export function useSelectorChoices({
   });
   const [refreshRevision, refresh] = useReducer((value: number) => value + 1, 0);
   const requestRevision = useRef(0);
-  const queryKeyRef = useRef(queryKey);
   const queryRef = useRef(query);
-  if (queryKeyRef.current !== queryKey) {
-    queryKeyRef.current = queryKey;
-    queryRef.current = query;
-  }
-  const scopeKey = `${projectId ?? ''}\u0000${queryKey}`;
+  queryRef.current = query;
+  const effectiveQueryKey = typeof queryKey === 'function' ? queryKey(query, state.response) : queryKey;
+  const scopeKey = `${projectId ?? ''}\u0000${effectiveQueryKey}`;
 
   useEffect(() => {
     if (!enabled || !projectId) return undefined;
@@ -119,7 +116,7 @@ export function useSelectorChoices({
         }
       });
     return () => controller.abort();
-  }, [enabled, load, projectId, queryKey, refreshRevision, scopeKey]);
+  }, [enabled, load, projectId, refreshRevision, scopeKey]);
 
   const refreshChoices = useCallback(() => refresh(), []);
   if (!enabled || !projectId) {

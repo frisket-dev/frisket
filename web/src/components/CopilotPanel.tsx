@@ -326,7 +326,6 @@ export function CopilotPanel({
             schema_version: 'frisket.selector_choices_query.v1',
             subject: { kind: 'copilot', ...(model ? { model } : {}) },
           }}
-          queryKey={`copilot:${model ?? ''}`}
           recentNamespace={`${projectId}:copilot`}
           onSelect={(choice: SelectorChoice) => {
             if (choice.authored_selection.kind === 'model') selectModel(choice.authored_selection.model);

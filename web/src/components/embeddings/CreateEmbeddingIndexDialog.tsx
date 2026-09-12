@@ -272,7 +272,6 @@ export function CreateEmbeddingIndexDialog({
                     source_column_type: columns.find((column) => form.sourceColumns.includes(column.name))?.type,
                   },
                 }}
-                queryKey={`embedding:${form.provider}:${form.model}:${form.sourceColumns.join(',')}`}
                 recentNamespace={`${projectId ?? 'none'}:embedding`}
                 onSelect={(choice) => {
                   if (choice.authored_selection.kind === 'embedding') {

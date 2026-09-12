@@ -51,22 +51,14 @@ function templateText(value: CanonicalFieldValue | undefined): string {
     && typeof value.text === 'string' ? value.text : '';
 }
 const EMPTY_ROW_IDS: string[] = [];
-const SELECTOR_DEPENDENCY_FIELDS = new Set([
-  'engine', 'model', 'language', 'target_language', 'model_size', 'vad', 'context', 'clean',
-  'diarize', 'num_speakers', 'min_speakers', 'max_speakers',
-]);
-
 function actionSelectorQuery(
   actionId: string,
   field: string,
   draft: CanonicalDraft,
 ): HttpSelectorChoicesQuery {
-  const params = Object.fromEntries(Object.entries(draft).filter(([name]) => (
-    SELECTOR_DEPENDENCY_FIELDS.has(name)
-  )));
   return {
     schema_version: 'frisket.selector_choices_query.v1',
-    subject: { kind: 'action', action_id: actionId, field, params },
+    subject: { kind: 'action', action_id: actionId, field, params: draft },
   } as HttpSelectorChoicesQuery;
 }
 
@@ -485,6 +477,7 @@ function GeneratedActionFormContents({
     return displayed;
   }, [catalogEntry.input_schema.properties, draft, renderedParams]);
   const [paramsEdited, setParamsEdited] = useState(false);
+  const [selectorCurrentChoice, setSelectorCurrentChoice] = useState<SelectorChoice | null>(null);
   const [richSourceEditors, setRichSourceEditors] = useState<
   Record<string, RichSourceEditorState>>(() => (
     Object.fromEntries(Object.entries(catalogEntry.ui_hints.semantic_controls)
@@ -695,8 +688,9 @@ function GeneratedActionFormContents({
     if (semanticControl === 'engine' || semanticControl === 'model') {
       const query = actionSelectorQuery(catalogEntry.kind, field.name, draft);
       return <SelectorField projectId={projectId} label={field.label} query={query}
-        queryKey={JSON.stringify(query)} recentNamespace={`${projectId ?? 'none'}:action:${catalogEntry.kind}:${field.name}`}
+        recentNamespace={`${projectId ?? 'none'}:action:${catalogEntry.kind}:${field.name}`}
         testId={field.testid} disabled={running || !projectId}
+        onCurrentChoiceChange={(choice) => setSelectorCurrentChoice(choice)}
         onSelect={(choice) => updateSelectorSelection(field.name, choice)} />;
     }
     if (semanticControl === 'rich_source' || semanticControl === 'column_or_template') {
@@ -800,17 +794,9 @@ function GeneratedActionFormContents({
   const selectedEngine = engineParam && typeof displayDraft[engineParam] === 'string'
     ? displayDraft[engineParam] : undefined;
   const selectedEngineInfo = actionTemplate.engines?.find((engine) => engine.id === selectedEngine);
-  const automaticEngineSupported = engineParam
-    && (catalogEntry.input_schema.properties?.[engineParam]?.default === 'auto'
-      || actionTemplate.engines?.some((engine) => engine.id === 'auto'));
-  const automaticEngineAvailable = actionTemplate.engines?.some(
-    (engine) => engine.id !== 'auto' && engine.available !== false,
-  );
-  const engineProblem = selectedEngineInfo?.available === false
-    ? selectedEngineInfo.error || `${selectedEngineInfo.label} is unavailable.`
-    : selectedEngine === 'auto' && automaticEngineSupported
-      ? automaticEngineAvailable ? null : 'No execution engines are available.'
-      : selectedEngine && !selectedEngineInfo ? `${selectedEngine} is unavailable.` : null;
+  const engineProblem = selectorCurrentChoice && !selectorCurrentChoice.can_run
+    ? selectorCurrentChoice.blocker?.message ?? `${selectorCurrentChoice.label} is unavailable.`
+    : selectedEngine && !selectorCurrentChoice ? 'Checking engine availability…' : null;
   const required = new Set(catalogEntry.input_schema.required ?? []);
   const validParams = (actionTemplate.params ?? []).every((param) => {
     const value = draft[param.name];

@@ -1,4 +1,4 @@
-import { useMemo, type Ref } from 'react';
+import { useEffect, useMemo, type Ref } from 'react';
 
 import {
   EngineSelector,
@@ -14,13 +14,15 @@ export interface SelectorFieldProps {
   projectId: string | null | undefined;
   label: string;
   query: HttpSelectorChoicesQuery;
-  queryKey: string;
   recentNamespace: string;
   onSelect(choice: SelectorChoice): void;
   disabled?: boolean;
   testId?: string;
   load?: SelectorChoicesLoader;
   triggerRef?: Ref<HTMLButtonElement>;
+  /** Host-specific policy may further narrow offered choices, never broaden them. */
+  allowChoice?(choice: SelectorChoice): boolean;
+  onCurrentChoiceChange?(choice: SelectorChoice | null): void;
 }
 
 function displayFact(choice: SelectorChoice): EngineSelectorChoice['facts'] {
@@ -50,18 +52,34 @@ function displayChoice(choice: SelectorChoice): EngineSelectorChoice {
   };
 }
 
-function selectorGroups(response: ReturnType<typeof useSelectorChoices>['response']): EngineSelectorGroup[] {
+function selectorGroups(
+  response: ReturnType<typeof useSelectorChoices>['response'],
+  allowChoice: (choice: SelectorChoice) => boolean,
+): EngineSelectorGroup[] {
   if (!response) return [];
   const groups = response.groups.map((group) => ({
     id: group.group_id,
     label: group.label,
-    choices: group.choices.map(displayChoice),
-  }));
+    choices: group.choices.filter((choice) => choice.is_current || allowChoice(choice)).map(displayChoice),
+  })).filter((group) => group.choices.length > 0);
   const orphan = response.orphaned_current;
   if (orphan && !groups.some((group) => group.choices.some((choice) => choice.id === orphan.choice_id))) {
     groups.push({ id: 'orphaned-current', label: 'Saved selection', choices: [displayChoice(orphan)] });
   }
   return groups;
+}
+
+function selectorQueryKey(
+  query: HttpSelectorChoicesQuery,
+  response: ReturnType<typeof useSelectorChoices>['response'],
+): string {
+  const subject = query.subject;
+  if (subject.kind === 'action') {
+    const names = new Set([subject.field, 'engine', 'model', ...(response?.depends_on ?? [])]);
+    const params = Object.fromEntries(Object.entries(subject.params).filter(([name]) => names.has(name)));
+    return JSON.stringify({ kind: subject.kind, action_id: subject.action_id, field: subject.field, params });
+  }
+  return JSON.stringify(subject);
 }
 
 /**
@@ -72,20 +90,35 @@ export function SelectorField({
   projectId,
   label,
   query,
-  queryKey,
   recentNamespace,
   onSelect,
   disabled = false,
   testId,
   load,
   triggerRef,
+  allowChoice = () => true,
+  onCurrentChoiceChange,
 }: SelectorFieldProps) {
-  const state = useSelectorChoices({ projectId, query, queryKey, enabled: !disabled, load });
-  const groups = useMemo(() => selectorGroups(state.response), [state.response]);
+  const state = useSelectorChoices({
+    projectId,
+    query,
+    queryKey: selectorQueryKey,
+    enabled: !disabled,
+    load,
+  });
+  const groups = useMemo(() => selectorGroups(state.response, allowChoice), [allowChoice, state.response]);
   const choicesById = useMemo(() => new Map(
     state.response?.groups.flatMap((group) => group.choices).map((choice) => [choice.choice_id, choice])
       ?? [],
   ), [state.response]);
+  const currentChoice = state.response?.current_choice_id
+    ? choicesById.get(state.response.current_choice_id)
+      ?? (state.response.orphaned_current?.choice_id === state.response.current_choice_id
+        ? state.response.orphaned_current : null)
+    : null;
+  useEffect(() => {
+    onCurrentChoiceChange?.(currentChoice);
+  }, [currentChoice, onCurrentChoiceChange]);
   if (state.error) {
     return <div data-testid={testId} className="engine-selector-field-error" role="alert">
       <p>Could not load choices. {state.error.message}</p>

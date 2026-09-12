@@ -130,8 +130,13 @@ export function ConfigureVariantPopover({
               },
             },
           }}
-          queryKey={`compare:${actionId}:${column.engineId ?? ''}:${JSON.stringify(column.options)}`}
           recentNamespace={`${projectId}:compare:${actionId}`}
+          allowChoice={(choice) => {
+            const authored = choice.authored_selection;
+            const engineId = authored.kind === 'engine' || authored.kind === 'engine_model'
+              ? authored.engine : null;
+            return engineId !== null && catalog.some((engine) => engine.id === engineId);
+          }}
           onSelect={(choice) => {
             if (choice.authored_selection.kind === 'engine') onChooseEngine(choice.authored_selection.engine);
             if (choice.authored_selection.kind === 'engine_model') onChooseEngine(choice.authored_selection.engine);
