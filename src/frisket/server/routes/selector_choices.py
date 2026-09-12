@@ -12,6 +12,7 @@ from frisket.server.route_errors import http_error_responses
 from frisket.server.services.selector_choices import (
     SelectorCapabilitiesFor,
     SelectorChoiceService,
+    SelectorModelsGatewayStatusFor,
 )
 from frisket.server.workspace import Workspace
 
@@ -22,8 +23,11 @@ def register_selector_choices_routes(
     workspace: Workspace,
     capabilities_for: SelectorCapabilitiesFor,
     edition: str = "solo",
+    models_gateway_status_for: SelectorModelsGatewayStatusFor | None = None,
 ) -> None:
-    service = SelectorChoiceService(workspace, edition=edition)
+    service = SelectorChoiceService(
+        workspace, edition=edition, models_gateway_status_for=models_gateway_status_for
+    )
 
     @app.post(
         "/api/projects/{pid}/selector-choices",

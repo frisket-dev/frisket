@@ -8,14 +8,10 @@ bounded configured-local-endpoint model listing in ``build_provider_catalog``.
 
 from __future__ import annotations
 
-import os
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from collections.abc import Mapping
 from typing import Any, cast
 
-from fastapi import Request
 
-from frisket.ai.llm.model_catalog import MODEL_ENTRIES
 from frisket.authoring.action_metadata import action_available_in_edition
 from frisket.authoring.copilot import default_copilot_model
 from frisket.contracts.http.selector_choices import (
@@ -25,46 +21,56 @@ from frisket.contracts.http.selector_choices import (
     SelectorChoicesQuery,
     SelectorChoicesResponse,
 )
-from frisket.engine.jobs import model_pull_store
 from frisket.execution.definitions import (
     MODELS_GATEWAY_TARGET_ID,
-    MODELS_GATEWAY_TOKEN_ENV,
-    MODELS_GATEWAY_URL_ENV,
     parakeet_artifacts_present,
     parakeet_runtime_present,
 )
 from frisket.execution.provider import ExecutionComposition
+from frisket.execution.resolve_for_action import authored_options
+from frisket.execution.resolver import Refusal, preferred_static_choice
 from frisket.server.action_catalog_hints import (
     project_action_catalog_payload_with_launcher_hints,
 )
 from frisket.server.embedding_catalog import embedding_provider_catalog_payload
 from frisket.server.provider_config import (
     ENV_VAR,
-    PROVIDER_LABELS,
     build_provider_catalog,
-    provider_key_status,
 )
 from frisket.server.route_errors import RouteError
 from frisket.server.workspace import Workspace
+from frisket.server.services.selector_choices_setup import SelectorSetupService
+from frisket.server.services.selector_choices_capabilities import (
+    SelectorCapabilities,
+    SelectorCapabilitiesFor,
+    SelectorModelsGatewayStatusFor,
+)
+
+from frisket.server.services.selector_choices_projection import (
+    _network_off,
+    _mapping,
+    _schema_default,
+    _optional_str,
+    _provider_identity,
+    _provider_from_qualified,
+    _default_action_model,
+    _model_selection,
+    _engine_selection,
+    _choice,
+    _response,
+    _engine_depends_on,
+    _engine_destination,
+    _engine_facts,
+    _model_facts,
+    _model_target,
+    _embedding_target,
+    _embedding_facts,
+    _opus_pair_supported,
+)
 
 
 _PARAKEET_TDT_SETUP_REF = "engine-setup:parakeet-tdt.local-onnx@1"
 _TARGET_OVERRIDE_FIELDS = frozenset({"target", "target_id", "execution_target"})
-_GROUP_STATUS_ORDER = {"ready": 0, "working": 1, "needs_setup": 2, "unavailable": 3}
-
-
-@dataclass(frozen=True, slots=True)
-class SelectorCapabilities:
-    may_author_actions: bool = False
-    may_run_actions: bool = False
-    configure_workspace_credentials: bool = False
-    configure_project_credentials: bool = False
-    configure_organization_credentials: bool = False
-    manage_model_downloads: bool = False
-    configure_models_gateway: bool = False
-
-
-SelectorCapabilitiesFor = Callable[[Request, str], SelectorCapabilities]
 
 
 class SelectorChoicesError(RouteError):
@@ -72,9 +78,20 @@ class SelectorChoicesError(RouteError):
 
 
 class SelectorChoiceService:
-    def __init__(self, workspace: Workspace, *, edition: str = "solo") -> None:
+    def __init__(
+        self,
+        workspace: Workspace,
+        *,
+        edition: str = "solo",
+        models_gateway_status_for: SelectorModelsGatewayStatusFor | None = None,
+    ) -> None:
         self._workspace = workspace
         self._edition = edition
+        self._setup = SelectorSetupService(
+            workspace,
+            edition=edition,
+            models_gateway_status_for=models_gateway_status_for,
+        )
 
     def choices(
         self,
@@ -88,21 +105,36 @@ class SelectorChoiceService:
         if not isinstance(capabilities, SelectorCapabilities):
             raise TypeError("selector capabilities callback returned the wrong type")
         project = self._workspace.get(project_id)
-        router = self._workspace.router_for(project)
+        subject = query.subject
+        router = (
+            self._workspace.action_execution_router_for(project)
+            if isinstance(subject, ActionSelectorSubject)
+            else self._workspace.router_for(project)
+        )
         composition = self._workspace.execution_composition_for(
             project,
             router,
             self._workspace.edition_execution_composition_context_for(request_context),
         )
-        provider_catalog = build_provider_catalog(
-            self._workspace.root,
-            network_off=_network_off(project),
+        provider_catalog = (
+            build_provider_catalog(
+                self._workspace.root,
+                network_off=_network_off(project),
+                local_endpoints=router.local_endpoints,
+                local_endpoint_authority="instance"
+                if self._edition == "solo"
+                else "organization",
+            )
+            if not isinstance(subject, EmbeddingSelectorSubject)
+            else {"providers": []}
         )
         configured_providers = set(router.providers())
         for provider in provider_catalog.get("providers", []):
             if isinstance(provider, dict) and provider.get("id") in ENV_VAR:
                 provider["configured"] = provider["id"] in configured_providers
-        subject = query.subject
+                provider["credential_source"] = router.credential_source_for(
+                    provider["id"]
+                )
         if isinstance(subject, ActionSelectorSubject):
             payload = self._action_choices(
                 project_id,
@@ -203,6 +235,7 @@ class SelectorChoiceService:
 
         if control == "model":
             choices = self._model_choices(
+                router=router,
                 project=project,
                 provider_catalog=provider_catalog,
                 capabilities=capabilities,
@@ -218,10 +251,12 @@ class SelectorChoiceService:
             ]
             has_model_field = controls.get("model") == "model" and "model" in properties
             choices = self._engine_choices(
+                router=router,
                 project=project,
                 composition=composition,
                 provider_catalog=provider_catalog,
                 action_id=subject.action_id,
+                execution_capability=_optional_str(hints.get("execution_capability")),
                 engines=engines,
                 has_model_field=has_model_field,
                 params=subject.params,
@@ -273,6 +308,7 @@ class SelectorChoiceService:
     ) -> dict[str, Any]:
         del composition
         choices = self._model_choices(
+            router=router,
             project=project,
             provider_catalog=provider_catalog,
             capabilities=capabilities,
@@ -304,6 +340,7 @@ class SelectorChoiceService:
             source_column_type=subject.source_column_type,
         )
         choices: list[dict[str, Any]] = []
+        recommended_selections: list[dict[str, Any]] = []
         current_pair = (
             (subject.provider, subject.model)
             if subject.provider is not None and subject.model is not None
@@ -320,23 +357,17 @@ class SelectorChoiceService:
             ):
                 candidate["model_id"] = subject.model
                 candidate["label"] = subject.model
-            choices.append(
-                self._embedding_choice(
-                    project=project,
-                    row=candidate,
-                    capabilities=capabilities,
-                )
+            choice = self._embedding_choice(
+                router=router,
+                project=project,
+                row=candidate,
+                capabilities=capabilities,
             )
+            choices.append(choice)
+            if candidate.get("recommended") and candidate.get("modality_compatible"):
+                recommended_selections.append(choice["authored_selection"])
         default = next(
-            (
-                choice["authored_selection"]
-                for choice, row in zip(
-                    choices, catalog.get("providers", []), strict=True
-                )
-                if isinstance(row, dict)
-                and row.get("recommended")
-                and row.get("modality_compatible")
-            ),
+            (selection for selection in recommended_selections),
             None,
         )
         return _response(
@@ -370,6 +401,7 @@ class SelectorChoiceService:
     def _model_choices(
         self,
         *,
+        router: Any,
         project: Any,
         provider_catalog: dict[str, Any],
         capabilities: SelectorCapabilities,
@@ -420,14 +452,39 @@ class SelectorChoiceService:
                     }
                     if not local_http and provider_id in ENV_VAR:
                         status = "needs_setup"
-                        setup = self._api_key_setup(
+                        setup = self._setup.api_key(
+                            router=router,
                             project=project,
                             provider=provider_id,
                             capabilities=capabilities,
                         )
                     else:
                         status = "unavailable"
+                        setup = {
+                            "kind": "instructions",
+                            "title": "Configure the model server",
+                            "steps": [
+                                "Review the configured endpoint in AI Providers settings and ensure the server is reachable."
+                            ],
+                            "url": None,
+                        }
                 facts = _model_facts(model)
+                if (
+                    status == "ready"
+                    and provider.get("credential_source") == "project_key"
+                ):
+                    spend = project.provider_spend_state(provider_id)
+                    if spend is not None and (
+                        spend.over_cap or not spend.cap_enforceable
+                    ):
+                        status = "unavailable"
+                        blocker = {
+                            "code": "provider_spend_cap_exceeded"
+                            if spend.over_cap
+                            else "provider_spend_cap_unenforceable",
+                            "message": "The project provider key cannot spend under its current cap.",
+                            "field": None,
+                        }
                 target, destination = _model_target(provider)
                 choices.append(
                     _choice(
@@ -452,10 +509,12 @@ class SelectorChoiceService:
     def _engine_choices(
         self,
         *,
+        router: Any,
         project: Any,
         composition: ExecutionComposition,
         provider_catalog: dict[str, Any],
         action_id: str,
+        execution_capability: str | None,
         engines: list[dict[str, Any]],
         has_model_field: bool,
         params: Mapping[str, Any],
@@ -470,6 +529,7 @@ class SelectorChoiceService:
             if engine_id == "llm" and has_model_field:
                 choices.extend(
                     self._model_choices(
+                        router=router,
                         project=project,
                         provider_catalog=provider_catalog,
                         capabilities=capabilities,
@@ -501,6 +561,16 @@ class SelectorChoiceService:
             )
             destination = _engine_destination(engine, target)
             available = bool(engine.get("available"))
+            option_refusal = None
+            if execution_capability is not None:
+                preferred = preferred_static_choice(
+                    engine_id,
+                    authored_options(params, execution_capability),
+                    list(targets.values()),
+                    capability=execution_capability,
+                )
+                if isinstance(preferred, Refusal):
+                    option_refusal = preferred
             status = "ready" if available else "unavailable"
             blocker = (
                 None
@@ -513,6 +583,18 @@ class SelectorChoiceService:
             )
             setup: dict[str, Any] | None = None
             operation: dict[str, Any] | None = None
+            downloadable = engine.get("downloadable_models") or []
+            artifact_ref = (
+                _optional_str(_mapping(downloadable[0]).get("ref"))
+                if engine_id == "spacy" and not available and downloadable
+                else _optional_str(
+                    _mapping(engine.get("downloadable_model")).get("ref")
+                )
+                if engine_id == "hy_mt2"
+                and available
+                and not _mapping(engine.get("downloadable_model")).get("installed")
+                else None
+            )
             if engine_id == "parakeet-tdt" and active_target_id == "local-onnx":
                 if not parakeet_runtime_present():
                     setup = {
@@ -532,7 +614,7 @@ class SelectorChoiceService:
                         "field": None,
                     }
                 elif not parakeet_artifacts_present():
-                    operation, blocked = self._model_pull_operations(
+                    operation, blocked = self._setup.model_pull_operations(
                         _PARAKEET_TDT_SETUP_REF
                     )
                     status = "working" if operation is not None else "needs_setup"
@@ -557,7 +639,7 @@ class SelectorChoiceService:
                     }
             elif not available and active_target_id == MODELS_GATEWAY_TARGET_ID:
                 status = "needs_setup"
-                setup = self._models_gateway_setup(capabilities)
+                setup = self._setup.models_gateway(capabilities)
                 blocker = {
                     "code": "models_gateway_required",
                     "message": str(
@@ -565,10 +647,29 @@ class SelectorChoiceService:
                     ),
                     "field": None,
                 }
+            elif artifact_ref is not None:
+                operation, blocked = self._setup.model_pull_operations(artifact_ref)
+                status = "working" if operation is not None else "needs_setup"
+                blocker = {
+                    "code": "engine_artifacts_missing",
+                    "message": "Download the required engine model before running.",
+                    "field": None,
+                }
+                setup = {
+                    "kind": "artifact_download",
+                    "setup_ref": artifact_ref,
+                    "scope": "workspace" if self._edition == "solo" else "organization",
+                    "can_mutate": capabilities.manage_model_downloads,
+                    "can_start": capabilities.manage_model_downloads
+                    and operation is None
+                    and blocked is None,
+                    "blocked_by_operation": blocked or operation,
+                }
             elif not available and _provider_from_qualified(engine_id) in ENV_VAR:
                 provider = cast(str, _provider_from_qualified(engine_id))
                 status = "needs_setup"
-                setup = self._api_key_setup(
+                setup = self._setup.api_key(
+                    router=router,
                     project=project,
                     provider=provider,
                     capabilities=capabilities,
@@ -585,16 +686,51 @@ class SelectorChoiceService:
                 and engine_id == "opus_mt"
                 and available
                 and _opus_pair_supported(engine, params)
+                and f"{params.get('language')}-{params.get('target_language')}"
+                not in (engine.get("models") or [])
             ):
                 setup = {
                     "kind": "first_use_download",
                     "disclosure": "Downloads the required language model on first use.",
                 }
+            if option_refusal is not None:
+                status = "unavailable"
+                setup = None
+                blocker = {
+                    "code": "engine_options_unsupported",
+                    "message": option_refusal.remedy,
+                    "field": None,
+                }
+            elif (
+                action_id == "map.translate"
+                and engine_id == "opus_mt"
+                and available
+                and not _opus_pair_supported(engine, params)
+            ):
+                status = "unavailable"
+                setup = None
+                blocker = {
+                    "code": "language_pair_unsupported",
+                    "message": "Select a supported source and target language pair.",
+                    "field": "language",
+                }
+            elif status == "unavailable" and setup is None:
+                setup = {
+                    "kind": "instructions",
+                    "title": "Set up this engine",
+                    "steps": [
+                        str(
+                            engine.get("error")
+                            or "Review the engine runtime and model server in AI Providers settings."
+                        )
+                    ],
+                    "url": None,
+                }
             choices.append(
                 _choice(
                     selection=selection,
                     label=str(engine.get("label") or engine_id),
-                    summary=_engine_summary(engine),
+                    summary=destination["label"],
                     description=str(engine.get("description") or ""),
                     model_card_url=_optional_str(engine.get("model_card_url")),
                     resolved_target=resolved_target,
@@ -614,6 +750,7 @@ class SelectorChoiceService:
     def _embedding_choice(
         self,
         *,
+        router: Any,
         project: Any,
         row: dict[str, Any],
         capabilities: SelectorCapabilities,
@@ -644,7 +781,8 @@ class SelectorChoiceService:
                 }
             elif provider in ENV_VAR:
                 status = "needs_setup"
-                setup = self._api_key_setup(
+                setup = self._setup.api_key(
+                    router=router,
                     project=project,
                     provider=provider,
                     capabilities=capabilities,
@@ -677,627 +815,11 @@ class SelectorChoiceService:
             setup=setup,
         )
 
-    def _api_key_setup(
-        self,
-        *,
-        project: Any,
-        provider: str,
-        capabilities: SelectorCapabilities,
-    ) -> dict[str, Any]:
-        status_rows = {
-            row["id"]: row for row in provider_key_status(self._workspace.root)
-        }
-        workspace_status = status_rows.get(provider, {})
-        project_row = project.provider_key_catalog_rows().get(provider)
-        source = _credential_source(self._workspace.router_for(project), provider)
-        org_configured = source == "organization"
-        platform_configured = source == "platform"
-        env_name = ENV_VAR[provider]
-        return {
-            "kind": "api_key",
-            "provider": provider,
-            "scopes": [
-                {
-                    "scope": "environment",
-                    "configured": workspace_status.get("source") == "env",
-                    "can_mutate": False,
-                    "source": "environment"
-                    if workspace_status.get("source") == "env"
-                    else "missing",
-                    "environment_names": [env_name],
-                    "settings_location": None,
-                    "hint": workspace_status.get("hint")
-                    if workspace_status.get("source") == "env"
-                    else None,
-                },
-                {
-                    "scope": "workspace",
-                    "configured": workspace_status.get("source") == "local_file",
-                    "can_mutate": capabilities.configure_workspace_credentials,
-                    "source": "workspace"
-                    if workspace_status.get("source") == "local_file"
-                    else "missing",
-                    "environment_names": [env_name],
-                    "settings_location": "workspace_ai_providers",
-                    "hint": workspace_status.get("hint")
-                    if workspace_status.get("source") == "local_file"
-                    else None,
-                },
-                {
-                    "scope": "project",
-                    "configured": project_row is not None,
-                    "can_mutate": capabilities.configure_project_credentials,
-                    "source": "project" if project_row is not None else "missing",
-                    "environment_names": [env_name],
-                    "settings_location": "project_ai_providers",
-                    "hint": project_row.get("hint") if project_row else None,
-                },
-                {
-                    "scope": "organization",
-                    "configured": org_configured or platform_configured,
-                    "can_mutate": capabilities.configure_organization_credentials
-                    and not platform_configured,
-                    "source": "platform"
-                    if platform_configured
-                    else "organization"
-                    if org_configured
-                    else "missing",
-                    "environment_names": [env_name],
-                    "settings_location": "organization_ai_providers",
-                    "hint": None,
-                },
-            ],
-        }
-
-    def _models_gateway_setup(
-        self, capabilities: SelectorCapabilities
-    ) -> dict[str, Any]:
-        env_configured = bool(os.environ.get(MODELS_GATEWAY_URL_ENV)) and bool(
-            os.environ.get(MODELS_GATEWAY_TOKEN_ENV)
-        )
-        scope = "organization" if self._edition != "solo" else "workspace"
-        return {
-            "kind": "models_gateway",
-            "scopes": [
-                {
-                    "scope": "environment",
-                    "configured": env_configured,
-                    "can_mutate": False,
-                    "source": "environment" if env_configured else "missing",
-                    "environment_names": [
-                        MODELS_GATEWAY_URL_ENV,
-                        MODELS_GATEWAY_TOKEN_ENV,
-                    ],
-                    "settings_location": None,
-                    "hint": None,
-                },
-                {
-                    "scope": scope,
-                    "configured": False,
-                    "can_mutate": capabilities.configure_models_gateway,
-                    "source": "missing",
-                    "environment_names": [
-                        MODELS_GATEWAY_URL_ENV,
-                        MODELS_GATEWAY_TOKEN_ENV,
-                    ],
-                    "settings_location": f"{scope}_models_gateway",
-                    "hint": None,
-                },
-            ],
-        }
-
-    def _model_pull_operations(
-        self, setup_ref: str
-    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-        rows = model_pull_store.list_recent(
-            self._workspace.queue.engine,
-            str(self._workspace.root),
-            limit=20,
-        )
-        active = [row for row in rows if row.is_active]
-        matching = next((row for row in active if row.model_ref == setup_ref), None)
-        blocked = next((row for row in active if row.model_ref != setup_ref), None)
-        return (
-            model_pull_store.to_dto(matching) if matching is not None else None,
-            model_pull_store.to_dto(blocked) if blocked is not None else None,
-        )
-
-
-def _network_off(project: Any) -> bool:
-    try:
-        return project.effective_network_policy() == "off"
-    except Exception:
-        return False
-
-
-def _mapping(value: Any) -> Mapping[str, Any]:
-    return value if isinstance(value, Mapping) else {}
-
-
-def _schema_default(value: Any) -> Any:
-    return value.get("default") if isinstance(value, Mapping) else None
-
-
-def _optional_str(value: Any) -> str | None:
-    return value if isinstance(value, str) and value else None
-
-
-def _provider_identity(provider: Mapping[str, Any]) -> str | None:
-    value = (
-        provider.get("endpoint_id")
-        if provider.get("kind") == "local_http"
-        else provider.get("id")
-    )
-    return value if isinstance(value, str) and value else None
-
-
-def _provider_from_qualified(value: str) -> str | None:
-    provider, separator, _model = value.partition("/")
-    return provider if separator else None
-
-
-def _credential_source(router: Any, provider: str) -> str:
-    raw = router.credential_source_for(provider)
-    if raw == "project_key":
-        return "project"
-    if raw in {"org_byok", "org_key"}:
-        return "organization"
-    if raw in {"platform_key", "platform"}:
-        return "platform"
-    if raw in {"local", "workspace"}:
-        return "workspace"
-    return "missing"
-
-
-def _default_action_model(provider_catalog: dict[str, Any], router: Any) -> str | None:
-    usable: set[str] = set()
-    rows = [
-        row for row in provider_catalog.get("providers", []) if isinstance(row, dict)
-    ]
-    for row in rows:
-        identity = _provider_identity(row)
-        if identity is None:
-            continue
-        if row.get("kind") == "local_http":
-            if row.get("reachable") and row.get("models"):
-                usable.add(identity)
-        elif row.get("configured") or identity in router.providers():
-            usable.add(identity)
-    for provider, entries in MODEL_ENTRIES.items():
-        if provider in usable and entries:
-            return f"{provider}/{entries[0]['id']}"
-    for row in rows:
-        identity = _provider_identity(row)
-        if identity in usable and row.get("models"):
-            return row["models"][0].get("id")
-    return None
-
-
-def _model_selection(value: Any) -> dict[str, Any] | None:
-    return (
-        {"kind": "model", "model": value} if isinstance(value, str) and value else None
-    )
-
-
-def _engine_selection(value: Any, *, model: Any, mixed: bool) -> dict[str, Any] | None:
-    if not isinstance(value, str) or not value:
-        return None
-    if mixed:
-        if value == "llm" and not (isinstance(model, str) and model):
-            return None
-        return {
-            "kind": "engine_model",
-            "engine": value,
-            "model": model if isinstance(model, str) and model else None,
-        }
-    return {"kind": "engine", "engine": value}
-
-
-def _selection_key(selection: Mapping[str, Any]) -> tuple[Any, ...]:
-    kind = selection.get("kind")
-    if kind == "engine":
-        return (kind, selection.get("engine"))
-    if kind == "model":
-        return (kind, selection.get("model"))
-    if kind == "engine_model":
-        return (kind, selection.get("engine"), selection.get("model"))
-    return (kind, selection.get("provider"), selection.get("model"))
-
-
-def _choice_id(selection: Mapping[str, Any]) -> str:
-    return "selector:" + ":".join(
-        "" if item is None else str(item) for item in _selection_key(selection)
-    )
-
-
-def _choice(
-    *,
-    selection: dict[str, Any],
-    label: str,
-    summary: str,
-    description: str,
-    model_card_url: str | None,
-    resolved_target: dict[str, Any] | None,
-    processing_destination: dict[str, str],
-    facts: list[dict[str, Any]],
-    status: str,
-    can_author: bool,
-    can_run: bool,
-    blocker: dict[str, Any] | None,
-    setup: dict[str, Any] | None,
-    active_operation: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    return {
-        "choice_id": _choice_id(selection),
-        "label": label,
-        "summary": summary,
-        "description": description,
-        "model_card_url": model_card_url,
-        "authored_selection": selection,
-        "resolved_target": resolved_target,
-        "processing_destination": processing_destination,
-        "facts": facts,
-        "status": status,
-        "can_author": can_author,
-        "can_run": can_run,
-        "blocker": blocker,
-        "setup": setup,
-        "active_operation": active_operation,
-        "is_default": False,
-        "is_current": False,
-    }
-
-
-def _response(
-    project_id: str,
-    *,
-    subject: dict[str, Any],
-    depends_on: list[str],
-    choices: list[dict[str, Any]],
-    current_selection: dict[str, Any] | None,
-    default_selection: dict[str, Any] | None,
-) -> dict[str, Any]:
-    current_key = _selection_key(current_selection) if current_selection else None
-    default_key = _selection_key(default_selection) if default_selection else None
-    current_choice_id = None
-    default_choice_id = None
-    for choice in choices:
-        key = _selection_key(choice["authored_selection"])
-        if current_key is not None and key == current_key:
-            choice["is_current"] = True
-            current_choice_id = choice["choice_id"]
-        if default_key is not None and key == default_key:
-            choice["is_default"] = True
-            default_choice_id = choice["choice_id"]
-    orphan = None
-    if current_selection is not None and current_choice_id is None:
-        orphan = _orphan(current_selection)
-        current_choice_id = orphan["choice_id"]
-    return {
-        "schema_version": "frisket.selector_choices.v1",
-        "project_id": project_id,
-        "subject": subject,
-        "depends_on": depends_on,
-        "current_choice_id": current_choice_id,
-        "default_choice_id": default_choice_id,
-        "groups": _groups(choices),
-        "orphaned_current": orphan,
-    }
-
-
-def _orphan(selection: dict[str, Any]) -> dict[str, Any]:
-    value = next(
-        (
-            str(selection[name])
-            for name in ("model", "engine", "provider")
-            if selection.get(name)
-        ),
-        "Unknown choice",
-    )
-    choice = _choice(
-        selection=selection,
-        label=value,
-        summary="Saved choice",
-        description="This saved choice is no longer offered in the current project.",
-        model_card_url=None,
-        resolved_target=None,
-        processing_destination={"kind": "unknown", "label": "Destination unknown"},
-        facts=[],
-        status="unavailable",
-        can_author=False,
-        can_run=False,
-        blocker={
-            "code": "unknown_saved_choice",
-            "message": "Choose an available replacement before running.",
-            "field": None,
-        },
-        setup=None,
-    )
-    choice["is_current"] = True
-    return choice
-
-
-def _group_identity(choice: Mapping[str, Any]) -> tuple[str, str, str]:
-    target = _mapping(choice.get("resolved_target"))
-    destination = _mapping(choice.get("processing_destination"))
-    selection = _mapping(choice.get("authored_selection"))
-    target_id = target.get("target_id")
-    if destination.get("kind") == "local":
-        return "local", "local", "On this device"
-    if destination.get("kind") in {"operator_network", "unknown"} and target_id:
-        return f"server:{target_id}", "server", "Models server"
-    provider = selection.get("provider")
-    if not provider:
-        model = selection.get("model")
-        engine = selection.get("engine")
-        provider = _provider_from_qualified(model) if isinstance(model, str) else None
-        provider = provider or (
-            _provider_from_qualified(engine) if isinstance(engine, str) else None
-        )
-    provider = provider or target.get("operator") or "external"
-    return (
-        f"provider:{provider}",
-        "provider",
-        PROVIDER_LABELS.get(str(provider), str(provider).replace("-", " ").title()),
-    )
-
-
-def _groups(choices: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    groups: dict[str, dict[str, Any]] = {}
-    for choice in choices:
-        group_id, kind, label = _group_identity(choice)
-        group = groups.setdefault(
-            group_id,
-            {
-                "group_id": group_id,
-                "kind": kind,
-                "label": label,
-                "status": "unavailable",
-                "choices": [],
-            },
-        )
-        group["choices"].append(choice)
-        if _GROUP_STATUS_ORDER[choice["status"]] < _GROUP_STATUS_ORDER[group["status"]]:
-            group["status"] = choice["status"]
-    return list(groups.values())
-
-
-def _engine_depends_on(
-    properties: Mapping[str, Any], engines: list[dict[str, Any]]
-) -> list[str]:
-    names: list[str] = []
-    has_language = any("language" in engine for engine in engines)
-    has_transcription_options = any(
-        "transcription_options" in engine for engine in engines
-    )
-    has_diarization = any("diarization" in engine for engine in engines)
-    for name in properties:
-        if name in {"language", "target_language"} and has_language:
-            names.append(name)
-        elif (
-            name in {"model_size", "vad", "context", "clean"}
-            and has_transcription_options
-        ):
-            names.append(name)
-        elif (
-            name in {"diarize", "num_speakers", "min_speakers", "max_speakers"}
-            and has_diarization
-        ):
-            names.append(name)
-    return names
-
-
-def _engine_summary(engine: Mapping[str, Any]) -> str:
-    tier = engine.get("tier")
-    return {
-        "local": "Runs on this device.",
-        "sidecar": "Runs on a configured models server.",
-        "hosted": "Runs through an external provider.",
-    }.get(tier, "")
-
-
-def _engine_destination(engine: Mapping[str, Any], target: Any) -> dict[str, str]:
-    if target is not None:
-        return _destination(target.egress_class, target.operator)
-    tier = engine.get("tier")
-    if tier == "local":
-        return {"kind": "local", "label": "Runs on this device"}
-    if tier == "sidecar":
-        return {"kind": "unknown", "label": "Configured models server"}
-    if tier == "hosted":
-        return {"kind": "external", "label": "External provider"}
-    return {"kind": "unknown", "label": "Destination unknown"}
-
-
-def _destination(egress_class: str | None, operator: str | None) -> dict[str, str]:
-    if egress_class == "none":
-        return {"kind": "local", "label": "Runs on this device"}
-    if egress_class in {"operator_lan", "frisket_dedicated_org"}:
-        return {"kind": "operator_network", "label": "Runs on your infrastructure"}
-    if egress_class in {"frisket_shared", "third_party_api"}:
-        label = f"Sends data to {operator}" if operator else "External processing"
-        return {"kind": "external", "label": label}
-    return {"kind": "unknown", "label": "Destination unknown"}
-
-
-def _engine_facts(engine: Mapping[str, Any], target: Any) -> list[dict[str, Any]]:
-    facts: list[dict[str, Any]] = []
-    if target is not None and target.operator:
-        facts.append({"kind": "text", "label": "Operator", "value": target.operator})
-    language = _mapping(engine.get("language"))
-    labels = [
-        str(row["label"])
-        for row in language.get("choices", []) or []
-        if isinstance(row, Mapping) and isinstance(row.get("label"), str)
-    ]
-    if labels:
-        facts.append({"kind": "list", "label": "Languages", "values": labels})
-    active_target = next(
-        (
-            row
-            for row in engine.get("targets", []) or []
-            if isinstance(row, Mapping)
-            and row.get("target_id") == engine.get("target_id")
-        ),
-        {},
-    )
-    sizes = active_target.get("sizes") if isinstance(active_target, Mapping) else None
-    if isinstance(sizes, list) and sizes:
-        facts.append(
-            {"kind": "list", "label": "Model sizes", "values": [str(v) for v in sizes]}
-        )
-    diarization = _mapping(
-        active_target.get("diarization")
-        if isinstance(active_target, Mapping)
-        else engine.get("diarization")
-    )
-    if diarization.get("supported"):
-        facts.append(
-            {
-                "kind": "text",
-                "label": "Speaker labels",
-                "value": "Included"
-                if diarization.get("mode") == "intrinsic"
-                else "Optional",
-            }
-        )
-    pricing = _mapping(engine.get("pricing"))
-    amount = pricing.get("unit_price_usd")
-    if isinstance(amount, int | float) and not isinstance(amount, bool) and amount >= 0:
-        facts.append(
-            {
-                "kind": "rate",
-                "label": str(pricing.get("label") or "Published price"),
-                "amount": float(amount),
-                "currency": "USD",
-                "unit": str(pricing.get("unit") or "unit"),
-                "source_url": None,
-                "updated": None,
-            }
-        )
-    return facts
-
-
-def _model_facts(model: Mapping[str, Any]) -> list[dict[str, Any]]:
-    price = _mapping(model.get("price"))
-    facts: list[dict[str, Any]] = []
-    for key, label, unit in (
-        ("input", "Input price", "million input tokens"),
-        ("output", "Output price", "million output tokens"),
-    ):
-        amount = price.get(key)
-        if (
-            isinstance(amount, int | float)
-            and not isinstance(amount, bool)
-            and amount >= 0
-        ):
-            facts.append(
-                {
-                    "kind": "rate",
-                    "label": label,
-                    "amount": float(amount),
-                    "currency": "USD",
-                    "unit": unit,
-                    "source_url": None,
-                    "updated": None,
-                }
-            )
-    return facts
-
-
-def _model_target(provider: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
-    identity = _provider_identity(provider) or "unknown"
-    if provider.get("kind") == "local_http":
-        return (
-            {"target_id": identity, "operator": None, "egress_class": None},
-            {"kind": "unknown", "label": "Configured model server"},
-        )
-    return (
-        {
-            "target_id": f"remote-api:{identity}",
-            "operator": identity,
-            "egress_class": "third_party_api",
-        },
-        {"kind": "external", "label": f"Sends data to {identity}"},
-    )
-
-
-def _embedding_target(row: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
-    provider = str(row.get("provider_id") or "unknown")
-    if row.get("local") and row.get("provider_kind") == "local_process":
-        return (
-            {"target_id": "local", "operator": "self", "egress_class": "none"},
-            {"kind": "local", "label": "Runs on this device"},
-        )
-    if row.get("provider_kind") == "local_http":
-        return (
-            {"target_id": provider, "operator": None, "egress_class": None},
-            {"kind": "unknown", "label": "Configured model server"},
-        )
-    return (
-        {
-            "target_id": f"remote-api:{provider}",
-            "operator": provider,
-            "egress_class": "third_party_api",
-        },
-        {"kind": "external", "label": f"Sends data to {provider}"},
-    )
-
-
-def _embedding_facts(row: Mapping[str, Any]) -> list[dict[str, Any]]:
-    facts: list[dict[str, Any]] = []
-    for key, label in (("modalities", "Modalities"), ("dimensions", "Dimensions")):
-        values = row.get(key)
-        if isinstance(values, list) and values:
-            facts.append(
-                {
-                    "kind": "list",
-                    "label": label,
-                    "values": [str(value) for value in values],
-                }
-            )
-    max_tokens = row.get("max_input_tokens")
-    if isinstance(max_tokens, int) and not isinstance(max_tokens, bool):
-        facts.append(
-            {"kind": "text", "label": "Maximum input tokens", "value": str(max_tokens)}
-        )
-    pricing = _mapping(row.get("pricing"))
-    amount = pricing.get("input_usd_per_million_tokens")
-    if isinstance(amount, int | float) and not isinstance(amount, bool) and amount >= 0:
-        facts.append(
-            {
-                "kind": "rate",
-                "label": "Input price",
-                "amount": float(amount),
-                "currency": "USD",
-                "unit": "million input tokens",
-                "source_url": _optional_str(pricing.get("source_url")),
-                "updated": _optional_str(pricing.get("updated")),
-            }
-        )
-    return facts
-
-
-def _opus_pair_supported(engine: Mapping[str, Any], params: Mapping[str, Any]) -> bool:
-    source = params.get("language")
-    target = params.get("target_language")
-    if (
-        not isinstance(source, str)
-        or not isinstance(target, str)
-        or not source
-        or not target
-    ):
-        return False
-    pair = f"{source}-{target}"
-    return any(
-        isinstance(row, Mapping) and row.get("pair") == pair
-        for row in engine.get("downloadable_pairs", []) or []
-    )
-
 
 __all__ = [
     "SelectorCapabilities",
     "SelectorCapabilitiesFor",
+    "SelectorModelsGatewayStatusFor",
     "SelectorChoiceService",
     "SelectorChoicesError",
 ]

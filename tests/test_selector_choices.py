@@ -10,6 +10,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from frisket.ai.llm import ModelRouter
+from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
+from frisket.engine.jobs import model_pull_store
 from frisket.server.route_errors import register_route_error_handler
 from frisket.server.routes.selector_choices import register_selector_choices_routes
 from frisket.server.services.selector_choices import SelectorCapabilities
@@ -21,8 +23,14 @@ def _app(
     *,
     router: ModelRouter | None = None,
     capabilities_for: Callable[..., SelectorCapabilities] | None = None,
+    execution_router_factory: Callable[[], ModelRouter] | None = None,
 ) -> tuple[TestClient, Workspace, str]:
-    workspace = Workspace(root, router=router, enable_local_model_pull=False)
+    workspace = Workspace(
+        root,
+        router=router,
+        enable_local_model_pull=False,
+        execution_router_factory=execution_router_factory,
+    )
     project_id = workspace.create("Selector", project_id="selector")["id"]
     app = FastAPI()
     register_route_error_handler(app)
@@ -45,6 +53,52 @@ def _query(subject: dict[str, Any]) -> dict[str, Any]:
 
 def _choices(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return [choice for group in payload["groups"] for choice in group["choices"]]
+
+
+def test_sparse_transcription_options_refuse_on_active_target_without_retargeting(
+    tmp_path: Path,
+) -> None:
+    client, _workspace, project_id = _app(
+        tmp_path / "workspace",
+        capabilities_for=lambda _request, _pid: SelectorCapabilities(
+            may_author_actions=True, may_run_actions=True
+        ),
+    )
+    response = client.post(
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query(
+            {
+                "kind": "action",
+                "action_id": "media.transcribe",
+                "field": "engine",
+                "params": {"engine": "parakeet-tdt", "diarize": True},
+            }
+        ),
+    )
+    assert response.status_code == 200, response.text
+    current = next(
+        choice for choice in _choices(response.json()) if choice["is_current"]
+    )
+    assert current["resolved_target"]["target_id"] == "local-onnx"
+    assert current["status"] == "unavailable"
+    assert current["blocker"]["code"] == "engine_options_unsupported"
+    assert current["can_run"] is False
+    assert current["setup"] is None
+
+
+@pytest.mark.parametrize("field", ["source", "not_a_field"])
+def test_non_selector_field_is_rejected_at_registered_route(
+    tmp_path: Path, field: str
+) -> None:
+    client, _workspace, project_id = _app(tmp_path / field)
+    response = client.post(
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query(
+            {"kind": "action", "action_id": "map.ask", "field": field, "params": {}}
+        ),
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "unknown_selector_field"
 
 
 def test_viewer_can_load_an_incomplete_action_draft_without_mutation_authority(
@@ -353,3 +407,138 @@ def test_configured_local_endpoint_discovery_is_called_once_and_preserves_model_
     )
     assert selected["authored_selection"]["model"] == "ollama/@lab/acme/nested-model"
     assert selected["can_run"] is True
+
+
+def test_action_and_copilot_use_their_distinct_effective_routers(
+    tmp_path: Path,
+) -> None:
+    ordinary = ModelRouter(keys={"anthropic": "ordinary-key"}, use_env_keys=False)
+    execution = ModelRouter(keys={"openai": "execution-key"}, use_env_keys=False)
+    client, _workspace, project_id = _app(
+        tmp_path / "routers",
+        router=ordinary,
+        execution_router_factory=lambda: execution,
+        capabilities_for=lambda _request, _pid: SelectorCapabilities(
+            may_run_actions=True
+        ),
+    )
+    action = client.post(
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query(
+            {
+                "kind": "action",
+                "action_id": "map.ask",
+                "field": "model",
+                "params": {"model": "openai/gpt-5.6-terra"},
+            }
+        ),
+    )
+    copilot = client.post(
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query({"kind": "copilot", "model": "openai/gpt-5.6-terra"}),
+    )
+    assert action.status_code == copilot.status_code == 200
+    action_current = next(row for row in _choices(action.json()) if row["is_current"])
+    copilot_current = next(row for row in _choices(copilot.json()) if row["is_current"])
+    assert action_current["can_run"] is True
+    assert copilot_current["can_run"] is False
+    assert copilot_current["setup"]["kind"] == "api_key"
+
+
+def test_catalog_discovers_only_effective_authenticated_local_endpoints(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    endpoint = LocalModelEndpointConfig(
+        endpoint_id="org",
+        display_name="Organization server",
+        origin="https://models.example.test",
+        source="local_file",
+        inference_token="inference-secret",
+        edge_auth=True,
+    )
+    router = ModelRouter(use_env_keys=False, local_endpoints=(endpoint,))
+    seen: list[tuple[str, str | None, bool]] = []
+
+    def reachable(
+        origin: str, *, token: str | None = None, edge_auth: bool = False
+    ) -> dict[str, Any]:
+        seen.append((origin, token, edge_auth))
+        return {
+            "reachable": True,
+            "protocol": "openai_compatible",
+            "models": ["owner/nested-model"],
+            "auth_status": "ok",
+        }
+
+    monkeypatch.setattr("frisket.server.provider_config.ollama_reachable", reachable)
+    client, _workspace, project_id = _app(
+        tmp_path / "effective-endpoints", router=router
+    )
+    response = client.post(
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query({"kind": "copilot", "model": "ollama/@org/owner/nested-model"}),
+    )
+    assert response.status_code == 200, response.text
+    assert seen == [(endpoint.origin, endpoint.inference_token, True)]
+    current = next(row for row in _choices(response.json()) if row["is_current"])
+    assert current["authored_selection"]["model"] == "ollama/@org/owner/nested-model"
+    assert "inference-secret" not in response.text
+
+
+def test_busy_setup_embeds_actual_operation_without_removing_download_authority(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "frisket.server.services.selector_choices.parakeet_runtime_present",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "frisket.server.services.selector_choices.parakeet_artifacts_present",
+        lambda: False,
+    )
+    client, workspace, project_id = _app(
+        tmp_path / "busy",
+        capabilities_for=lambda _request, _pid: SelectorCapabilities(
+            may_author_actions=True, may_run_actions=True, manage_model_downloads=True
+        ),
+    )
+    operation, _ = model_pull_store.create_or_get_active(
+        workspace.queue.engine,
+        workspace_root=str(workspace.root),
+        model_ref="spacy:en_core_web_sm@3.8.0",
+    )
+    response = client.post(
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query(
+            {
+                "kind": "action",
+                "action_id": "media.transcribe",
+                "field": "engine",
+                "params": {"engine": "parakeet-tdt"},
+            }
+        ),
+    )
+    assert response.status_code == 200, response.text
+    current = next(row for row in _choices(response.json()) if row["is_current"])
+    assert current["status"] == "needs_setup"
+    assert current["setup"]["can_mutate"] is True
+    assert current["setup"]["can_start"] is False
+    assert current["setup"]["blocked_by_operation"]["id"] == operation.id
+    assert current["setup"]["blocked_by_operation"]["status"] == "pending"
+    assert current["active_operation"] is None
+    ready = client.post(
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query(
+            {
+                "kind": "action",
+                "action_id": "map.classify",
+                "field": "engine",
+                "params": {"engine": "local_semantic"},
+            }
+        ),
+    )
+    assert ready.status_code == 200
+    assert (
+        next(row for row in _choices(ready.json()) if row["is_current"])["can_run"]
+        is True
+    )
