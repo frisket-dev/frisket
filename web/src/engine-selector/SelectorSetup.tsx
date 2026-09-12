@@ -96,10 +96,6 @@ function DownloadSetupPanel({ setup, activeOperation, onChanged }: {
         : await workspace.getModelPull(id, { signal: controller.signal });
       if (mounted.current) setError(null);
       return fresh;
-    } catch (caught) {
-      if (mounted.current && !controller.signal.aborted) setError('Could not refresh setup progress. Recheck or wait for the next update.');
-      if (pull) return pull;
-      throw caught;
     } finally { pollRequests.current.delete(controller); }
   };
   const cancelPull = async (id: number) => {

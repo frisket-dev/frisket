@@ -10,7 +10,7 @@ import { ModelSetupRequestError } from '../../src/api/engineSetup';
 
 const { request } = vi.hoisted(() => ({ request: vi.fn() }));
 vi.mock('../../src/api/httpContract', () => ({ httpContract: request }));
-afterEach(() => { cleanup(); vi.resetAllMocks(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.resetAllMocks(); });
 
 type Setup = NonNullable<SelectorChoice['setup']>;
 type Scope = Extract<Setup, { kind: 'api_key' }>['scopes'][number];
@@ -147,6 +147,30 @@ describe('SelectorSetup', () => {
     await waitFor(() => expect(request).toHaveBeenCalledWith('outer.get_org_model_pull.get', expect.objectContaining({ pathParams: { pull_id: 7 } })), { timeout: 1800 });
     expect(changed).not.toHaveBeenCalled();
     expect(screen.queryByText('Cancelled.')).not.toBeInTheDocument();
+  });
+
+  it('retains advanced progress and cancellation after a failed poll, then recovers', async () => {
+    vi.useFakeTimers();
+    const initial = pull({ completed_bytes: 100, total_bytes: 1000 });
+    const advanced = pull({ completed_bytes: 600, total_bytes: 1000 });
+    request.mockResolvedValueOnce(advanced).mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('GET failed'))
+      .mockResolvedValueOnce(pull({ completed_bytes: 800, total_bytes: 1000, cancel_requested: true }));
+    const changed = vi.fn();
+    render(<SelectorSetup projectId="a" choice={choice({ kind: 'engine_setup', scope: 'organization', setup_ref: initial.model, can_mutate: true, can_start: false, blocked_by_operation: initial })} onChanged={changed} onEditingChange={vi.fn()} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '60');
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Cancel' })); });
+    expect(screen.getByRole('button', { name: 'Cancelling…' })).toBeDisabled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '60');
+    expect(screen.getByRole('button', { name: 'Cancelling…' })).toBeDisabled();
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not refresh setup progress');
+    expect(changed).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '80');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(request).toHaveBeenCalledWith('outer.cancel_org_model_pull.post', expect.objectContaining({ pathParams: { pull_id: initial.id } }));
   });
 
   it('starts explicit engine setup with its returned durable operation, without assuming readiness', async () => {

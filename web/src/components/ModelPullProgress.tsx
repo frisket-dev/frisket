@@ -54,6 +54,7 @@ export function ModelPullProgress({
   const [pull, setPull] = useState(initialPull);
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [pollError, setPollError] = useState(false);
   const [uninstalling, setUninstalling] = useState(false);
   const [uninstallError, setUninstallError] = useState<string | null>(null);
 
@@ -66,13 +67,22 @@ export function ModelPullProgress({
     setPull(initialPull);
     setCancelling(false);
     setCancelError(null);
+    setPollError(false);
   }
 
   const active = ACTIVE_STATUSES.includes(pull.status);
 
   usePoll(
     async () => {
-      const fresh = await fetchPull(pull.id);
+      let fresh: ModelPullDto;
+      try {
+        fresh = await fetchPull(pull.id);
+      } catch {
+        // Keep the latest projection and optimistic cancellation on a failed GET.
+        setPollError(true);
+        return;
+      }
+      setPollError(false);
       setPull(fresh);
       if (fresh.status === 'done') onDone?.(fresh);
       else if (fresh.status === 'failed' || fresh.status === 'cancelled') {
@@ -166,6 +176,11 @@ export function ModelPullProgress({
             </p>
           )}
         </>
+      )}
+      {pollError && (
+        <p className="settings-inline-status settings-validation-message is-error" role="alert">
+          Could not refresh setup progress. Waiting for the next update.
+        </p>
       )}
       {pull.status === 'failed' && pull.error && (
         <p className="model-pull-progress-error" data-testid="model-pull-error">
