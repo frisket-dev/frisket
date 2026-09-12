@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { constants as fsConstants, promises as fs } from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -36,7 +36,9 @@ export async function prepareRuntime({ resourcesPath, dataPath, onProgress = () 
   const markerPath = path.join(environmentPath, MARKER);
 
   const ready = await readReadyMarker(markerPath, manifest, environmentId);
+  await fs.mkdir(path.join(data, 'cache'), { recursive: true });
   if (ready) {
+    await seedBundledModelCaches(resources, data, signal);
     await assertFile(python, 'private Python');
     onProgress({ phase: 'workspace', message: 'Opening your workspace…' });
     return { python, env };
@@ -66,6 +68,8 @@ export async function prepareRuntime({ resourcesPath, dataPath, onProgress = () 
   const guarded = (command, args, label) => run(python, ['-I', guard, String(process.pid), GUARD_GRACE_SECONDS, command, ...args], {
     label, env, signal,
   });
+  onProgress({ phase: 'dependencies', message: 'Setting up included local models…' });
+  await seedBundledModelCaches(resources, data, signal);
   onProgress({ phase: 'dependencies', message: 'Installing app components…' });
   await guarded(uv, ['pip', 'sync', '--python', python, '--require-hashes', requirements, '--no-config'], 'installing private Python dependencies');
 
@@ -149,6 +153,121 @@ async function assertFile(filename, description) {
   }
 }
 
+async function seedBundledModelCaches(resources, data, signal) {
+  const bundled = path.join(resources, 'model-cache');
+  if (!await exists(bundled)) return;
+  for (const [source, destination] of [
+    [path.join(bundled, 'huggingface'), path.join(data, 'cache', 'huggingface')],
+    [path.join(bundled, 'models', 'rapidocr'), path.join(data, 'cache', 'models', 'rapidocr')],
+  ]) {
+    if (!await exists(source)) {
+      throw new Error('Bundled local model cache is incomplete.');
+    }
+    await seedBundledModelCacheDirectory(source, destination, signal);
+  }
+}
+
+async function seedBundledModelCacheDirectory(source, destination, signal) {
+  throwIfAborted(signal);
+  await fs.mkdir(destination, { recursive: true });
+  for (const entry of await fs.readdir(source, { withFileTypes: true })) {
+    throwIfAborted(signal);
+    const sourcePath = path.join(source, entry.name);
+    const destinationPath = path.join(destination, entry.name);
+    if (entry.isDirectory()) {
+      await seedBundledModelCacheDirectory(sourcePath, destinationPath, signal);
+    } else if (entry.isFile()) {
+      await publishMissingModelFile(sourcePath, destinationPath, signal);
+    } else if (entry.isSymbolicLink()) {
+      await publishMissingModelLink(sourcePath, destinationPath, signal);
+    } else {
+      throw new Error('Bundled local model cache contains an unsupported entry.');
+    }
+  }
+}
+
+function modelCacheTemporary(destination) {
+  return path.join(
+    path.dirname(destination),
+    `.${path.basename(destination)}.frisket-model-cache-${process.pid}-${randomBytes(8).toString('hex')}.tmp`,
+  );
+}
+
+async function publishMissingModelFile(source, destination, signal) {
+  await cleanupModelCacheTemporaries(destination);
+  if (await pathExists(destination)) return;
+
+  const temporary = modelCacheTemporary(destination);
+  let input;
+  let output;
+  try {
+    input = await fs.open(source, 'r');
+    output = await fs.open(temporary, 'wx', 0o600);
+    const buffer = Buffer.allocUnsafe(1024 * 1024);
+    let position = 0;
+    while (true) {
+      throwIfAborted(signal);
+      const { bytesRead } = await input.read(buffer, 0, buffer.length, position);
+      if (bytesRead === 0) break;
+      let written = 0;
+      while (written < bytesRead) {
+        throwIfAborted(signal);
+        const result = await output.write(buffer, written, bytesRead - written, position + written);
+        written += result.bytesWritten;
+      }
+      position += bytesRead;
+    }
+    await output.sync();
+    await output.close();
+    output = undefined;
+    await input.close();
+    input = undefined;
+    throwIfAborted(signal);
+    await publishNoClobber(temporary, destination);
+  } finally {
+    await input?.close();
+    await output?.close();
+    await fs.rm(temporary, { force: true });
+  }
+}
+
+async function publishMissingModelLink(source, destination, signal) {
+  await cleanupModelCacheTemporaries(destination);
+  if (await pathExists(destination)) return;
+
+  const temporary = modelCacheTemporary(destination);
+  try {
+    throwIfAborted(signal);
+    await fs.symlink(await fs.readlink(source), temporary);
+    throwIfAborted(signal);
+    await publishNoClobber(temporary, destination);
+  } finally {
+    await fs.rm(temporary, { force: true });
+  }
+}
+
+async function publishNoClobber(temporary, destination) {
+  try {
+    await fs.link(temporary, destination);
+  } catch (error) {
+    if (error.code !== 'EEXIST') throw error;
+  }
+}
+
+async function cleanupModelCacheTemporaries(destination) {
+  const prefix = `.${path.basename(destination)}.frisket-model-cache-`;
+  let names;
+  try {
+    names = await fs.readdir(path.dirname(destination));
+  } catch (error) {
+    if (error.code === 'ENOENT') return;
+    throw error;
+  }
+  await Promise.all(names
+    .filter((name) => name.startsWith(prefix) && name.endsWith('.tmp'))
+    .map((name) => fs.rm(path.join(path.dirname(destination), name), { force: true })));
+}
+
 async function readReadyMarker(filename, manifest, environmentId) {
   if (!await exists(filename)) return false;
   let marker;
@@ -211,6 +330,16 @@ async function exists(filename) {
     return true;
   } catch {
     return false;
+  }
+}
+
+async function pathExists(filename) {
+  try {
+    await fs.lstat(filename);
+    return true;
+  } catch (error) {
+    if (error.code === 'ENOENT') return false;
+    throw error;
   }
 }
 
