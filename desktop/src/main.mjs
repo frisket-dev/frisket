@@ -156,7 +156,7 @@ async function recover(error) {
     const choice = await dialog.showMessageBox(mainWindow, {
       type: 'error', buttons: cleanupFailed ? ['Quit'] : ['Retry', 'Quit'],
       defaultId: 0, cancelId: cleanupFailed ? 0 : 1,
-      title: 'Frisket Desktop could not start',
+      title: 'Frisket Desktop encountered a problem',
       message: 'Frisket Desktop could not continue.',
       detail: error instanceof Error ? error.message : 'Please try again.',
     });

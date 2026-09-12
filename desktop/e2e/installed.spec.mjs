@@ -79,7 +79,9 @@ async function quit(electron, closeWindow = false) {
   const pids = await descendants(electron.process().pid);
   if (closeWindow) {
     // Exercise the native close button, which app.quit() bypasses.
-    await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
+    await electron.evaluate(({ BrowserWindow }) => {
+      setImmediate(() => BrowserWindow.getAllWindows()[0]?.close());
+    });
     await expect.poll(() => electron.process().exitCode, { timeout: 20_000 }).toBe(0);
   } else {
     await electron.close();
