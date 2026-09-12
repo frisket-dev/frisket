@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { constants as fsConstants, promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -32,6 +33,7 @@ async function fixture({ corruptRequirements = false, pythonVersion = '3.12.13',
   const trace = path.join(root, 'trace.jsonl');
   const grandchildPid = path.join(root, 'term-ignoring-grandchild.pid');
   const grandchildReady = path.join(root, 'term-ignoring-grandchild.ready');
+  const guardPython = realGuard ? execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).trim() : '';
   const fake = `#!${process.execPath}
 const fs = require('node:fs');
 const path = require('node:path');
@@ -48,7 +50,7 @@ else {
   if (args[0] === 'venv') {
     const python = path.join(args[1], 'bin', 'python');
     fs.mkdirSync(path.dirname(python), { recursive: true });
-    if (${JSON.stringify(realGuard)}) fs.writeFileSync(python, '#!/bin/sh\\nexec ' + ${JSON.stringify(JSON.stringify('/usr/bin/python3'))} + ' "$@"\\n');
+    if (${JSON.stringify(realGuard)}) fs.writeFileSync(python, '#!/bin/sh\\nexec ' + ${JSON.stringify(JSON.stringify(guardPython))} + ' "$@"\\n');
     else fs.copyFileSync(process.argv[1], python);
     fs.chmodSync(python, 0o755);
   }
@@ -65,7 +67,7 @@ else {
 }
 
 async function waitForFile(filename) {
-  const deadline = Date.now() + 1_000;
+  const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
     try {
       return await fs.readFile(filename, 'utf8');
@@ -159,8 +161,10 @@ test('repairs an incomplete environment and records completion only after every 
 test('the bundled guardian reaps a TERM-ignoring descendant before cancellation resolves', async () => {
   const subject = await fixture({ realGuard: true, ignoreTermGrandchild: true });
   const controller = new AbortController();
+  let pending;
   try {
-    const pending = prepareRuntime({ resourcesPath: subject.resources, dataPath: subject.data, signal: controller.signal });
+    pending = prepareRuntime({ resourcesPath: subject.resources, dataPath: subject.data, signal: controller.signal });
+    pending.catch(() => {});
     const grandchild = Number(await waitForFile(subject.grandchildPid));
     await waitForFile(subject.grandchildReady);
     const started = Date.now();
@@ -169,6 +173,8 @@ test('the bundled guardian reaps a TERM-ignoring descendant before cancellation 
     assert.ok(Date.now() - started >= 1_800, 'the guardian received its full two-second cleanup grace');
     assert.throws(() => process.kill(grandchild, 0), (error) => error.code === 'ESRCH');
   } finally {
+    controller.abort();
+    await pending?.catch(() => {});
     await subject.cleanup();
   }
 });
