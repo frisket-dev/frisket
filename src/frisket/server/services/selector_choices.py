@@ -31,7 +31,7 @@ from frisket.execution.definitions import (
 )
 from frisket.execution.provider import ExecutionComposition
 from frisket.execution.resolve_for_action import (
-    _resolve_geocode_engine,
+    resolve_geocode_engine,
     authored_options,
 )
 from frisket.execution.resolver import (
@@ -594,7 +594,7 @@ class SelectorChoiceService:
         # The authored sentinel is not a concrete roster engine. Resolve its
         # credential-dependent engine exactly as execution does, then retain
         # the sentinel in the authored selection.
-        engine_id = _resolve_geocode_engine(
+        engine_id = resolve_geocode_engine(
             {"engine": "auto"},
             project,
             credential_context=composition.credential_use_context,
