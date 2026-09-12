@@ -273,12 +273,30 @@ describe('EngineSelector', () => {
       expect(body.querySelector('.engine-selector__groups')).not.toBeInTheDocument();
       expect(body.children).toHaveLength(2);
       expect(body).toHaveClass('engine-selector__body--flat');
-      const providers = screen.getByRole('navigation', { name: 'Providers' });
-      await userEvent.click(within(providers).getByRole('button', { name: 'OpenAI' }));
-      expect(screen.getByRole('heading', { name: 'OpenAI 0' })).toBeVisible();
+      expect(screen.queryByRole('navigation', { name: 'Providers' })).not.toBeInTheDocument();
+      const choices = within(body.querySelector<HTMLElement>('.engine-selector__choices')!);
+      expect(choices.getByRole('button', { name: /Parakeet.*Local/ })).toBeVisible();
+      expect(choices.getByRole('button', { name: /OpenAI 0.*OpenAI/ })).toBeVisible();
     } finally {
       Object.defineProperty(window, 'innerWidth', { configurable: true, value: oldWidth });
     }
+  });
+
+
+  it.each([38, null])('shows selected operation copy and honest progress with percent %s', (percent) => {
+    const activeGroups = [{
+      id: 'local', label: 'Local', choices: [{
+        ...groups[0].choices[1], status: 'working' as const,
+        activity: { label: 'Whisper download in progress', percent },
+      }],
+    }];
+    render(<EngineSelector label="Engine" groups={activeGroups} value="whisper"
+      recentNamespace="selected-operation" onSelect={vi.fn()} />);
+    const trigger = screen.getByRole('button', { name: /Whisper/ });
+    expect(trigger).toHaveTextContent('Whisper download in progress');
+    const progress = within(trigger).getByRole('progressbar');
+    if (percent === null) expect(progress).not.toHaveAttribute('aria-valuenow');
+    else expect(progress).toHaveAttribute('aria-valuenow', String(percent));
   });
 
   it('portals setup forms and stops their submit from reaching the action form', async () => {
