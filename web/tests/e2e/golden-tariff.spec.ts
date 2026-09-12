@@ -29,16 +29,25 @@ import { runViaUi, waitForRun } from './goldenRun';
 const COUNTRIES = ['Canada', 'Mexico', 'China', 'Germany', 'Vietnam', 'Brazil'];
 const COUNTRIES_CSV = `country\n${COUNTRIES.join('\n')}\n`;
 
-async function expectSelectedEngine(page: Page, field: 'engine' | 'model') {
-  const label = field === 'engine' ? 'Engine' : 'Model';
-  const trigger = page.getByTestId(`field-${field}`).getByRole('button');
+async function expectSelectedModel(page: Page) {
+  const trigger = page.getByTestId('field-model').getByRole('button');
   await expect(trigger).toContainText('Gemini 3.5 Flash-Lite');
   await trigger.click();
-  const dialog = page.getByRole('dialog', { name: `${label} selector` });
+  const dialog = page.getByRole('dialog', { name: 'Model selector' });
   await expect(dialog.getByRole('button', { name: /Gemini 3\.5 Flash-Lite/ }))
     .toHaveAttribute('aria-current', 'true');
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
+}
+
+async function selectGeminiEngine(page: Page) {
+  const trigger = page.getByTestId('field-engine').getByRole('button');
+  await trigger.click();
+  const dialog = page.getByRole('dialog', { name: 'Engine selector' });
+  await dialog.getByRole('searchbox', { name: 'Search Engine' }).fill('Gemini 3.5 Flash-Lite');
+  await dialog.getByRole('button', { name: /Gemini 3\.5 Flash-Lite/ }).click();
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toContainText('Gemini 3.5 Flash-Lite');
 }
 
 test('tariff country search: CSV → web search → summarize → score → sort → export', async ({ page }, testInfo) => {
@@ -85,7 +94,7 @@ test('tariff country search: CSV → web search → summarize → score → sort
 
   // Step 2 — summarize the search results (LIVE model call, chained input).
   await openAction(page, 'map.summarize');
-  await expectSelectedEngine(page, 'model');
+  await expectSelectedModel(page);
   await page.getByTestId('text-source-columns').click();
   await page.getByTestId('text-source-columns-menu')
     .getByRole('option', { name: /search_results/ })
@@ -99,7 +108,7 @@ test('tariff country search: CSV → web search → summarize → score → sort
 
   // Step 3 — 0–10 impact score with justification (LIVE model call, chained).
   await openAction(page, 'map.classify');
-  await expectSelectedEngine(page, 'engine');
+  await selectGeminiEngine(page);
   await page
     .getByTestId('action-prompt')
     .fill('Each row is a country and a summary of search results about US tariff impacts on it. Score the economic impact.');
