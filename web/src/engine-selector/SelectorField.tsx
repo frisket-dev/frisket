@@ -135,11 +135,11 @@ export function SelectorField({
   if (groups.length === 0) {
     return <p data-testid={testId} className="form-hint">No choices are available for this field.</p>;
   }
+  const refreshNotice = state.error && <div className="engine-selector-field-error" role="alert">
+    <p>Could not refresh choices. {state.error.message}</p>
+    <button type="button" className="btn" onClick={state.refresh}>Retry</button>
+  </div>;
   return <div data-testid={testId}>
-    {state.error && <div className="engine-selector-field-error" role="alert">
-      <p>Could not refresh choices. {state.error.message}</p>
-      <button type="button" className="btn" onClick={state.refresh}>Retry</button>
-    </div>}
     <EngineSelector
       label={label}
       groups={groups}
@@ -147,6 +147,7 @@ export function SelectorField({
       recentNamespace={recentNamespace}
       disabled={disabled}
       triggerRef={triggerRef}
+      notice={refreshNotice}
       onSelect={(choice) => {
         const raw = choicesById.get(choice.id)
           ?? (state.response?.orphaned_current?.choice_id === choice.id ? state.response.orphaned_current : undefined);

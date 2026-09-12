@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -102,14 +102,15 @@ describe('SelectorField', () => {
 
     rerender(field('after'));
     await waitFor(() => expect(load).toHaveBeenCalledTimes(3));
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Could not refresh choices. offline'));
-    expect(screen.getByTestId('engine-selector-dialog')).toBeVisible();
+    const dialog = screen.getByTestId('engine-selector-dialog');
+    await waitFor(() => expect(within(dialog).getByRole('alert')).toHaveTextContent('Could not refresh choices. offline'));
+    expect(dialog).toBeVisible();
     expect(onCurrentChoiceChange).toHaveBeenLastCalledWith(null);
 
-    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Retry' }));
     await waitFor(() => expect(onCurrentChoiceChange).toHaveBeenLastCalledWith(
       expect.objectContaining({ choice_id: 'ready-model', can_run: true }),
     ));
-    expect(screen.getByTestId('engine-selector-dialog')).toBeVisible();
+    expect(dialog).toBeVisible();
   });
 });

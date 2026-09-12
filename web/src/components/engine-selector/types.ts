@@ -50,6 +50,8 @@ export interface EngineSelectorProps {
   recentNamespace: string;
   onSelect(choice: EngineSelectorChoice): void;
   renderDetailFooter?(context: EngineSelectorDetailFooterContext): ReactNode;
+  /** Caller-owned status or recovery content, kept inside the modal while open. */
+  notice?: ReactNode;
   disabled?: boolean;
   searchPlaceholder?: string;
   /** Optional focus target for host validation flows. */

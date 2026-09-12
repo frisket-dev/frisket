@@ -76,6 +76,7 @@ export function EngineSelector({
   recentNamespace,
   onSelect,
   renderDetailFooter,
+  notice,
   disabled = false,
   searchPlaceholder = 'Search all engines…',
   triggerRef: externalTriggerRef,
@@ -338,6 +339,7 @@ export function EngineSelector({
 
   return (
     <div className="engine-selector" data-testid="engine-selector">
+      {!open && notice}
       <button
         ref={triggerRef}
         type="button"
@@ -384,6 +386,8 @@ export function EngineSelector({
             />
             <button type="button" className="engine-selector__close" aria-label={`Close ${label} selector`} onClick={close}>×</button>
           </header>
+
+          {notice}
 
           {!showGroups && groups.length > 1 && !hasSearch && (
             <nav className="engine-selector__tabs" aria-label="Providers">
