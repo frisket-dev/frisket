@@ -895,7 +895,7 @@ def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value is not None else None
 
 
-def to_dto(row: ModelPullRow) -> dict[str, Any]:
+def to_dto(row: ModelPullRow, *, allow_remove: bool = True) -> dict[str, Any]:
     """The ONE ``frisket.model_pull.v4`` wire shape -- shared by the local
     tier's ``/api/providers/models/pull*`` routes and the team tier's
     ``/api/org/models/pull*`` routes, so the surfaces cannot drift on field
@@ -936,7 +936,7 @@ def to_dto(row: ModelPullRow) -> dict[str, Any]:
     capabilities = {
         "cancel": row.status in ACTIVE_STATUSES,
         "retry": row.status in (STATUS_FAILED, STATUS_CANCELLED),
-        "remove": can_remove and row.status == STATUS_DONE,
+        "remove": allow_remove and can_remove and row.status == STATUS_DONE,
     }
     return {
         "schemaVersion": PULL_DTO_SCHEMA_VERSION,

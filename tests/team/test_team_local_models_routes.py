@@ -854,6 +854,31 @@ def test_org_engine_setup_requires_owner_deduplicates_and_audits(tmp_path) -> No
     assert "engine_setup_requested" in _audit_actions(app)
 
 
+def test_org_completed_artifact_never_advertises_unowned_remove(tmp_path) -> None:
+    app = _app(tmp_path)
+    workspace = app.state.workspace
+    row, _ = store.create_or_get_active(
+        workspace.queue.engine,
+        workspace_root=str(workspace.root),
+        model_ref="opus-mt:en-es",
+    )
+    store.mark_running(workspace.queue.engine, row.id, job_id=1)
+    store.set_artifact_metadata(
+        workspace.queue.engine,
+        row.id,
+        artifact_kind="ct2_pair",
+        artifact_source_url=None,
+        artifact_license=None,
+        artifact_manifest_version=None,
+    )
+    store.mark_done(workspace.queue.engine, row.id)
+
+    pulls = _member(app).get("/api/org/models/pulls")
+    assert pulls.status_code == 200, pulls.text
+    completed = next(pull for pull in pulls.json()["pulls"] if pull["id"] == row.id)
+    assert completed["capabilities"]["remove"] is False
+
+
 def test_org_artifact_pull_member_forbidden(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FRISKET_ENABLE_MODEL_PULL", "1")
     app = _app(tmp_path)

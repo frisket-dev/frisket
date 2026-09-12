@@ -422,10 +422,13 @@ def register_operational_routes(
                 ),
             }
             if active is not None:
-                detail["active"] = model_pull_store.to_dto(active)
+                detail["active"] = model_pull_store.to_dto(active, allow_remove=False)
             raise HTTPException(409, detail) from exc
         if not created:
-            return {"pull": model_pull_store.to_dto(row), "deduplicated": True}
+            return {
+                "pull": model_pull_store.to_dto(row, allow_remove=False),
+                "deduplicated": True,
+            }
         try:
             job_id = workspace.queue.enqueue(
                 MODEL_PULL_KIND,
@@ -453,7 +456,10 @@ def register_operational_routes(
             ) from exc
         model_pull_store.set_job_id(queue_engine, row.id, job_id=job_id)
         row = model_pull_store.get(queue_engine, row.id)
-        return {"pull": model_pull_store.to_dto(row), "deduplicated": False}
+        return {
+            "pull": model_pull_store.to_dto(row, allow_remove=False),
+            "deduplicated": False,
+        }
 
     @app.post(
         "/api/org/models/pull",
@@ -611,7 +617,7 @@ def register_operational_routes(
         require_member(request)
         queue_engine = workspace.queue.engine
         rows = model_pull_store.list_recent(queue_engine, str(workspace.root), limit=20)
-        return {"pulls": [model_pull_store.to_dto(r) for r in rows]}
+        return {"pulls": [model_pull_store.to_dto(r, allow_remove=False) for r in rows]}
 
     @app.get(
         "/api/org/models/pulls/{pull_id}",
@@ -630,7 +636,7 @@ def register_operational_routes(
                     "message": f"no pull with id {pull_id} in this workspace",
                 },
             )
-        return model_pull_store.to_dto(row)
+        return model_pull_store.to_dto(row, allow_remove=False)
 
     @app.post(
         "/api/org/models/pulls/{pull_id}/cancel",
@@ -709,7 +715,7 @@ def register_operational_routes(
                 target=f"{pull_id}:{row.model_ref}",
             )
         row = model_pull_store.get(queue_engine, pull_id)
-        return model_pull_store.to_dto(row)
+        return model_pull_store.to_dto(row, allow_remove=False)
 
     @app.post(
         "/api/client-errors",
