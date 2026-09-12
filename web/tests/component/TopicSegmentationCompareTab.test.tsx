@@ -396,7 +396,7 @@ describe('TopicSegmentationCompareTab', () => {
       await user.click(within(await screen.findByTestId('engine-selector-dialog')).getByRole('button', { name: /deep_tiling/ }));
       expect(screen.getByTestId('engine-selector-dialog')).toBeVisible();
       expect(screen.getByTestId('topic-compare-configure')).toBeVisible();
-      expect(screen.getByText('Install the semantic extra.')).toBeVisible();
+      expect(within(screen.getByTestId('engine-selector-dialog')).getByText('Install the semantic extra.')).toBeVisible();
       await user.click(screen.getByRole('searchbox', { name: 'Search Engine' }));
       await user.keyboard('{Escape}');
       expect(screen.getByTestId('engine-selector-dialog')).toBeVisible();
