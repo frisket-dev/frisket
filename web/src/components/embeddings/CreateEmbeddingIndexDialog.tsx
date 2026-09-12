@@ -129,18 +129,14 @@ function CustomEmbeddingModelDetail({
     ? savedModel : '';
   const [draft, setDraft] = useState(savedCustomModel);
 
-  useEffect(() => {
-    setDraft(savedCustomModel);
-  }, [savedCustomModel]);
-
-  const useModel = () => {
+  const commitModel = () => {
     onModelSelect(provider, draft);
     close();
   };
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== 'Enter') return;
     event.preventDefault();
-    useModel();
+    commitModel();
   };
 
   return (
@@ -159,7 +155,7 @@ function CustomEmbeddingModelDetail({
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={onKeyDown}
         />
-        <button type="button" className="btn" onClick={useModel}>
+        <button type="button" className="btn" onClick={commitModel}>
           Use model
         </button>
       </div>
@@ -360,7 +356,11 @@ export function CreateEmbeddingIndexDialog({
                 renderDetailExtra={({ choice, onEditingChange, close }) => {
                   if (choice.authored_selection.kind !== 'embedding') return null;
                   return <CustomEmbeddingModelDetail
-                    key={choice.authored_selection.provider}
+                    key={JSON.stringify([
+                      choice.authored_selection.provider,
+                      form.provider === choice.authored_selection.provider && selectedCard == null
+                        ? form.model : '',
+                    ])}
                     provider={choice.authored_selection.provider}
                     savedProvider={form.provider}
                     savedModel={form.model}
