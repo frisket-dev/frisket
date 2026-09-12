@@ -48,6 +48,7 @@ from frisket.contracts.http.organization_operations import (
 from frisket.engine.executor import ExecutorDeps
 from frisket.engine.jobs import WorkerPorts, open_queue
 from frisket.server.app import create_app
+from frisket.server.services.selector_choices import SelectorCapabilities
 from frisket.server.route_errors import http_error_responses
 from frisket.server.static_serving import mount_spa_static, resolve_static_dir
 from frisket.team.auth_runtime import (
@@ -966,6 +967,24 @@ def create_team_app(
     # this function raises otherwise), so an implicit workspace-local
     # `.queue.db` fallback is never reached -- an implicit queue location is
     # the exact silent-topology bug class this guards against.
+    def selector_capabilities_for(request: Request, pid: str) -> SelectorCapabilities:
+        actor = getattr(request.state, "user", None)
+        if not actor:
+            return SelectorCapabilities()
+        user_id = int(actor["id"])
+        can_edit = access.can_on_project(org_id, pid, user_id, "editor")
+        org_owner = _membership_role(engine, user_id, org_id) == "owner"
+        return SelectorCapabilities(
+            may_author_actions=can_edit,
+            may_run_actions=can_edit,
+            configure_project_credentials=access.can_on_project(
+                org_id, pid, user_id, "owner"
+            ),
+            configure_organization_credentials=org_owner,
+            manage_model_downloads=org_owner and model_pull_enabled,
+            configure_models_gateway=org_owner,
+        )
+
     core = create_app(
         config.data_dir,
         queue=open_queue(database_url=config.run_queue_database_url, hosted=False),
@@ -981,6 +1000,7 @@ def create_team_app(
         require_explicit_provider_keys=True,
         serve_spa=False,
         enable_provider_config=False,
+        selector_capabilities_for=selector_capabilities_for,
         product_telemetry_destination=product_telemetry_destination,
         edition="team",
         # Team's own capability fact is env-only (never the local tier's

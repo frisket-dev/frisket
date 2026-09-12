@@ -103,6 +103,11 @@ from frisket.server.routes.project_evidence import register_project_evidence_rou
 from frisket.server.routes.projects import register_project_lifecycle_routes
 from frisket.server.routes.project_mcp import register_project_mcp_routes
 from frisket.server.routes.providers import register_provider_config_routes
+from frisket.server.routes.selector_choices import register_selector_choices_routes
+from frisket.server.services.selector_choices import (
+    SelectorCapabilities,
+    SelectorCapabilitiesFor,
+)
 from frisket.server.routes.project_research import (
     register_project_backfill_activity_routes,
     register_project_copilot_routes,
@@ -310,6 +315,7 @@ def create_app(
     static_dir: str | Path | None = None,
     serve_spa: bool = True,
     enable_provider_config: bool = True,
+    selector_capabilities_for: SelectorCapabilitiesFor | None = None,
     provider_keys_resolver: Callable[[], Mapping[str, str]] | None = None,
     worker_ports: WorkerPorts | None = None,
     project_blob_store_factory: Callable[[str], Any] | None = None,
@@ -503,6 +509,25 @@ def create_app(
             if edition == "cloud"
             else _sidecar_capabilities()
         ),
+        edition=edition,
+    )
+
+    if selector_capabilities_for is None:
+        solo_capabilities = SelectorCapabilities(
+            may_author_actions=edition == "solo",
+            may_run_actions=edition == "solo",
+            configure_workspace_credentials=edition == "solo" and enable_provider_config,
+            configure_project_credentials=edition == "solo",
+            manage_model_downloads=(
+                edition == "solo" and enable_provider_config and model_pull_enabled is not False
+            ),
+            configure_models_gateway=edition == "solo" and enable_provider_config,
+        )
+        selector_capabilities_for = lambda _request, _pid: solo_capabilities
+    register_selector_choices_routes(
+        app,
+        workspace=ws,
+        capabilities_for=selector_capabilities_for,
         edition=edition,
     )
 
