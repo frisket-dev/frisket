@@ -131,7 +131,7 @@ function CustomEmbeddingModelDetail({
 
   useEffect(() => {
     setDraft(savedCustomModel);
-  }, [provider, savedCustomModel]);
+  }, [savedCustomModel]);
 
   const useModel = () => {
     onModelSelect(provider, draft);
@@ -156,7 +156,6 @@ function CustomEmbeddingModelDetail({
           placeholder="Provider-specific embedding model ID"
           value={draft}
           onFocus={() => onEditingChange(true)}
-          onBlur={() => onEditingChange(false)}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={onKeyDown}
         />
@@ -361,6 +360,7 @@ export function CreateEmbeddingIndexDialog({
                 renderDetailExtra={({ choice, onEditingChange, close }) => {
                   if (choice.authored_selection.kind !== 'embedding') return null;
                   return <CustomEmbeddingModelDetail
+                    key={choice.authored_selection.provider}
                     provider={choice.authored_selection.provider}
                     savedProvider={form.provider}
                     savedModel={form.model}
