@@ -18,11 +18,14 @@ import subprocess
 import sys
 import sysconfig
 import tempfile
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
 from frisket.redaction import redact_text
 from frisket.engine._workers.rapidocr_models import (
+    RAPIDOCR_DEFAULT_RECOGNIZER_FILENAME,
+    rapidocr_bundled_model_aliases,
     rapidocr_default_model_requirements,
     rapidocr_model_root_complete,
 )
@@ -481,6 +484,45 @@ def _rapidocr_models_present() -> bool:
     return _rapidocr_model_source() is not None
 
 
+def _rapidocr_default_bootstrap_ready() -> bool:
+    """Whether a missing default recognizer can be prepared before the fence.
+
+    This only reads the bundled detector/classifier aliases or the shared cache.
+    It never starts RapidOCR or contacts ModelScope. Explicit language choices
+    use a different recognizer and therefore still require their full cache.
+    """
+
+    requirements = rapidocr_default_model_requirements()
+    if requirements is None:
+        return False
+    package_root, filenames = requirements
+    try:
+        aliases = rapidocr_bundled_model_aliases(package_root, filenames)
+        if aliases is not None and all(
+            source.is_file() and _sha256_file(source) == expected_hash
+            for source, _target, expected_hash in aliases
+        ):
+            return True
+        from frisket.ai.models.model_cache import default_cache_root
+
+        shared_root = default_cache_root() / "rapidocr"
+        return all(
+            (shared_root / filename).is_file()
+            for filename in filenames
+            if filename != RAPIDOCR_DEFAULT_RECOGNIZER_FILENAME
+        )
+    except OSError:
+        return False
+
+
+def _sha256_file(filename: Path) -> str:
+    digest = sha256()
+    with filename.open("rb") as input_file:
+        while chunk := input_file.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _hf_snapshot_present(
     cache_dir: Path,
     repo_id: str,
@@ -520,8 +562,8 @@ def _engine_provisioned(name: str) -> bool:
     """Whether ``name``'s required default weights are already on disk.
 
     Presence only -- never triggers a download. ``engines_report`` separately
-    classifies what an absent set means for each runtime; notably, RapidOCR's
-    network-walled worker cannot fetch on first use.
+    classifies what an absent set means for each runtime; RapidOCR's default
+    recognizer can be fetched before its network-walled worker starts.
     """
     if name == "embeddings":
         return _fastembed_cache_present()
@@ -642,9 +684,10 @@ def engines_report() -> dict[str, Any]:
     ``provisioned``), can be resolved on first use
     (``fetches_on_first_use``), or leaves an offline-only worker unavailable
     (``offline_unavailable``) is a separate, per-engine fact: offline
-    capability belongs to each engine, not to the tier. RapidOCR and Faster
-    Whisper belong to the last bucket when their models are absent: their
-    trusted workers are network-walled and cannot fetch them mid-run. Never
+    capability belongs to each engine, not to the tier. RapidOCR can prepare
+    its default recognizer before its trusted worker starts when bundled
+    detector/classifier aliases are intact; explicit-language models and
+    Faster Whisper remain cache-only once their workers are fenced. Never
     fails the health check either way: optional-engine provisioning is
     information, not core application health. The content-free RapidOCR
     capacity/configuration object likewise belongs here (and therefore in
@@ -679,10 +722,9 @@ def engines_report() -> dict[str, Any]:
             ready = False
         if ready:
             provisioned.append(name)
+        elif name == "ocr" and _rapidocr_default_bootstrap_ready():
+            fetches_on_first_use.append(name)
         elif name in ("ocr", "faster_whisper"):
-            # Both trusted workers have an explicit network wall. Missing
-            # weights are not deferred downloads; the run will fail until an
-            # operator provisions the needed cache.
             offline_unavailable.append(name)
         else:
             fetches_on_first_use.append(name)
@@ -693,8 +735,13 @@ def engines_report() -> dict[str, Any]:
                 return (
                     "faster_whisper (not provisioned; pre-populated HF cache required)"
                 )
-            return f"{name} (not provisioned; offline worker)"
+            return "ocr (not provisioned; default bootstrap unavailable)"
         if name not in provisioned:
+            if name == "ocr":
+                return (
+                    "ocr (default models fetch on first use; explicit languages "
+                    "need cached models)"
+                )
             if name == "spacy":
                 state = spacy_model_report()["status"]
                 if state == "hash_mismatch":
@@ -704,7 +751,7 @@ def engines_report() -> dict[str, Any]:
         if name == "ocr":
             # The readiness probe covers RapidOCR's default ch/mobile trio.
             # A language override can select a different recognition model.
-            return "ocr (provisioned: default det/cls/rec)"
+            return "ocr (provisioned: default det/cls/rec; explicit languages need cached models)"
         if name == "faster_whisper":
             # The probe only checks the default "base" size; model_size is
             # per-run, so "provisioned" must not read as size-independent.
@@ -739,11 +786,18 @@ def engines_report() -> dict[str, Any]:
                 "for every needed non-Base size before the no-network worker "
                 "sandbox starts;"
             )
+        if "ocr" in fetches_on_first_use:
+            steps.append(
+                "for offline or sensitive default OCR, pre-populate "
+                "$FRISKET_MODEL_CACHE_DIR/rapidocr; otherwise the pinned default "
+                "recognizer downloads before its worker starts. Explicit-language "
+                "OCR requires its own complete cached det/cls/rec set;"
+            )
         if "ocr" in offline_unavailable:
             steps.append(
-                "seed all three default RapidOCR models together under "
-                "$FRISKET_MODEL_CACHE_DIR/rapidocr (or warm RapidOCR once with "
-                "network access and copy/link that complete set);"
+                "repair RapidOCR's bundled detector/classifier files or seed a "
+                "complete default det/cls/rec set under "
+                "$FRISKET_MODEL_CACHE_DIR/rapidocr;"
             )
         if "embeddings" in fetches_on_first_use:
             steps.append(

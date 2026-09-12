@@ -250,6 +250,7 @@ import numpy as np
 import pypdfium2
 import rapidocr
 from rapidocr import RapidOCR
+from rapidocr.utils.typings import OCRVersion
 from frisket.engine.worker_version import code_version
 
 PREFIX = "FRISKET_OCR_ACCEPTANCE_RESULT="
@@ -274,7 +275,7 @@ cv2.putText(
     7,
     cv2.LINE_AA,
 )
-result = RapidOCR()(canvas)
+result = RapidOCR(params={"Rec.ocr_version": OCRVersion.PPOCRV5})(canvas)
 texts = [str(value).strip() for value in (getattr(result, "txts", None) or [])]
 joined = " ".join(value for value in texts if value).strip()
 assert joined, "exact RapidOCR class produced no text in the bounded real smoke"
@@ -479,7 +480,8 @@ async def run():
         )
         assert pages, "PDFium rasterization produced no pages"
 
-        parent_engine = RapidOCR()
+        from rapidocr.utils.typings import OCRVersion
+        parent_engine = RapidOCR(params={"Rec.ocr_version": OCRVersion.PPOCRV5})
         parent_pages = [normalize_rapidocr(parent_engine(str(page))) for page in pages]
         assert any(page["text"].strip() for page in parent_pages), (
             "exact parent RapidOCR class produced no golden text"
