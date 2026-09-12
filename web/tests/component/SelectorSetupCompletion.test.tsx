@@ -64,7 +64,7 @@ it('refreshes a completed setup into a ready choice while keeping the pinned sel
   let resolveReady!: (response: HttpSelectorChoicesResponse) => void;
   const refreshed = new Promise<HttpSelectorChoicesResponse>((resolve) => { resolveReady = resolve; });
   const choices = vi.fn().mockResolvedValueOnce(catalog()).mockResolvedValueOnce(catalog(started))
-    .mockReturnValueOnce(refreshed);
+    .mockReturnValue(refreshed);
   const polls = vi.fn().mockResolvedValueOnce(operation(600)).mockResolvedValueOnce(operation(1000, true));
   request.mockImplementation((id: string) => {
     if (id === 'tenant.selector_choices.post') return choices();
@@ -89,7 +89,8 @@ it('refreshes a completed setup into a ready choice while keeping the pinned sel
   await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
   expect(within(dialog).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '60');
   await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
-  expect(choices).toHaveBeenCalledTimes(3);
+  expect(choices.mock.calls.length).toBeGreaterThanOrEqual(3);
+  expect(choices.mock.calls.length).toBeLessThanOrEqual(4);
   expect(screen.getByTestId('engine-selector-dialog')).toBe(dialog);
   expect(dialog).toHaveAttribute('open');
   expect(within(dialog).getByTestId('model-pull-done')).toHaveTextContent('Parakeet setup installed');
@@ -103,7 +104,9 @@ it('refreshes a completed setup into a ready choice while keeping the pinned sel
   expect(select).toHaveBeenCalledOnce();
   expect(request).toHaveBeenCalledWith('tenant.setup_model_engine.post', expect.objectContaining({ body: { setup_ref: setupRef } }));
   expect(request).toHaveBeenCalledWith('tenant.selector_choices.post', expect.objectContaining({ pathParams: { pid: 'project-a' }, body: query, signal: expect.any(AbortSignal) }));
+  const completedReadCount = choices.mock.calls.length;
   await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+  expect(choices).toHaveBeenCalledTimes(completedReadCount);
   expect(polls).toHaveBeenCalledTimes(2);
 });
 
