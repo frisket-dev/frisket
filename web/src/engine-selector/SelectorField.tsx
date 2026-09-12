@@ -111,9 +111,10 @@ export function SelectorField({
     state.response?.groups.flatMap((group) => group.choices).map((choice) => [choice.choice_id, choice])
       ?? [],
   ), [state.response]);
-  const currentChoice = state.response?.current_choice_id
-    ? choicesById.get(state.response.current_choice_id)
-      ?? (state.response.orphaned_current?.choice_id === state.response.current_choice_id
+  const currentChoiceId = state.response?.current_choice_id ?? state.response?.default_choice_id ?? null;
+  const currentChoice = currentChoiceId
+    ? choicesById.get(currentChoiceId)
+      ?? (state.response?.orphaned_current?.choice_id === currentChoiceId
         ? state.response.orphaned_current : null)
     : null;
   useEffect(() => {
@@ -137,7 +138,7 @@ export function SelectorField({
     <EngineSelector
       label={label}
       groups={groups}
-      value={state.response.current_choice_id}
+      value={currentChoiceId}
       recentNamespace={recentNamespace}
       disabled={disabled}
       triggerRef={triggerRef}

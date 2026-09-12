@@ -251,6 +251,39 @@ describe('GeneratedActionForm', () => {
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
   });
 
+  it('uses one combined engine selector when an action has engine and model leaves', () => {
+    const entry = syntheticActionCatalogEntry('map.engine_model', {
+      input_schema: {
+        type: 'object',
+        required: ['engine', 'model'],
+        properties: {
+          engine: { type: 'string', title: 'Engine' },
+          model: { type: 'string', title: 'Model' },
+        },
+      },
+      ui_hints: {
+        form: 'generated',
+        category: 'text',
+        semantic_controls: { engine: 'engine', model: 'model' },
+        logical_outputs: [],
+      },
+    }) as GeneratedActionCatalogEntry;
+    render(
+      <GeneratedActionForm
+        catalogEntry={entry}
+        actionTemplate={generatedTemplate(entry)}
+        sheet={SHEET}
+        running={false}
+        resolveParams={resolveStaticParams}
+        onExecute={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('field-engine')).toBeInTheDocument();
+    expect(screen.queryByTestId('field-model')).not.toBeInTheDocument();
+  });
+
   it('uses resolved materialization for target controls without interpreting Params names', async () => {
     const entry = syntheticActionCatalogEntry('example.capture', {
       input_schema: { type: 'object', required: ['destination'], properties: {

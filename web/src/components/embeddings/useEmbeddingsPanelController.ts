@@ -244,7 +244,7 @@ export function useEmbeddingsPanelController({
   const modelOk =
     state.form.model.trim().length > 0 &&
     (selectedCard == null ||
-      (Boolean(selectedCard.available) && selectedCard.modalityCompatible));
+      selectedCard.modalityCompatible);
   const createReady =
     state.form.sourceColumns.length > 0 &&
     Boolean(state.form.provider) &&

@@ -416,8 +416,14 @@ function GeneratedActionFormContents({
   }, [ParamsBody, catalogEntry.kind]);
   const editorProblem = editorState?.owner === ParamsBody && editorState?.action === catalogEntry.kind
     ? editorState.message : null;
+  const engineSelectorParam = Object.entries(catalogEntry.ui_hints.semantic_controls)
+    .find(([, control]) => control === 'engine')?.[0];
+  const modelSelectorParam = Object.entries(catalogEntry.ui_hints.semantic_controls)
+    .find(([, control]) => control === 'model')?.[0];
   const renderedParams = useMemo(() => {
-    const params = actionTemplate.params ?? [];
+    const params = (actionTemplate.params ?? []).filter((param) => (
+      param.name !== modelSelectorParam || engineSelectorParam === undefined
+    ));
     const order = customization?.fieldOrder;
     if (!order?.length) return params;
     const rank = new Map(order.map((name, index) => [name, index]));
@@ -425,7 +431,7 @@ function GeneratedActionFormContents({
       (rank.get(left.param.name) ?? order.length + left.index)
       - (rank.get(right.param.name) ?? order.length + right.index)
     )).map(({ param }) => param);
-  }, [actionTemplate.params, customization?.fieldOrder]);
+  }, [actionTemplate.params, customization?.fieldOrder, engineSelectorParam, modelSelectorParam]);
   const dynamicOutputs = catalogEntry.ui_hints.dynamic_outputs === true;
   const staticCreatesSheet = catalogEntry.ui_hints.typed_action?.creates_sheet === true;
   const [resolvedCreatesSheet, setResolvedCreatesSheet] = useState<boolean>();
@@ -653,8 +659,8 @@ function GeneratedActionFormContents({
       ? { [field]: authored.engine }
       : authored.kind === 'model'
         ? { [field]: authored.model }
-        : authored.kind === 'engine_model'
-          ? { engine: authored.engine, model: authored.model }
+        : authored.kind === 'engine_model' && modelSelectorParam
+          ? { [field]: authored.engine, [modelSelectorParam]: authored.model }
           : null;
     if (!updates) return;
     setParamsEdited(true);
@@ -789,8 +795,7 @@ function GeneratedActionFormContents({
     return undefined;
   };
 
-  const engineParam = Object.entries(catalogEntry.ui_hints.semantic_controls)
-    .find(([, control]) => control === 'engine')?.[0];
+  const engineParam = engineSelectorParam;
   const hasSelectorField = Object.values(catalogEntry.ui_hints.semantic_controls)
     .some((control) => control === 'engine' || control === 'model');
   const selectedEngine = engineParam && typeof displayDraft[engineParam] === 'string'

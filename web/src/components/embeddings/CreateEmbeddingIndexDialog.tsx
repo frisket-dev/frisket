@@ -117,6 +117,10 @@ export function CreateEmbeddingIndexDialog({
 }: CreateEmbeddingIndexDialogProps) {
   const [step, setStep] = useState<CreateScreen>('source');
   const [selectedChoice, setSelectedChoice] = useState<SelectorChoice | null>(null);
+  const selectedChoiceCanRun = selectedChoice?.authored_selection.kind === 'embedding'
+    && selectedChoice.authored_selection.provider === form.provider
+    && selectedChoice.authored_selection.model === form.model
+    && selectedChoice.can_run;
   const [costQuote, setCostQuote] = useState<{
     key: string;
     estimate: EmbeddingCostEstimate | null;
@@ -140,9 +144,9 @@ export function CreateEmbeddingIndexDialog({
     form.sourceColumns.length > 0 &&
     Boolean(form.provider) &&
     form.model.trim().length > 0 &&
-    Boolean(selectedChoice?.can_run) &&
+    Boolean(selectedChoiceCanRun) &&
     (selectedCard == null ||
-      (Boolean(selectedCard.available) && selectedCard.modalityCompatible));
+      selectedCard.modalityCompatible);
   const egressReady = !remoteSelected || form.allowRemote;
   const costReady =
     !remoteSelected ||
@@ -211,7 +215,7 @@ export function CreateEmbeddingIndexDialog({
   };
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    if (!finalStep || !selectedChoice?.can_run) {
+    if (!finalStep || !selectedChoiceCanRun) {
       event.preventDefault();
       return;
     }
@@ -477,7 +481,7 @@ export function CreateEmbeddingIndexDialog({
               type="submit"
               className="btn btn-primary"
               data-testid="embedding-create"
-              disabled={!createReady || !selectedChoice?.can_run || creating}
+              disabled={!createReady || !selectedChoiceCanRun || creating}
             >
               {creating ? 'Creating...' : 'Create index'}
             </button>

@@ -25,7 +25,6 @@ export interface SelectorChoicesState {
   response: HttpSelectorChoicesResponse | null;
   loading: boolean;
   refreshing: boolean;
-  refreshing: boolean;
   error: Error | null;
   refresh(): void;
 }
@@ -33,6 +32,7 @@ export interface SelectorChoicesState {
 interface State {
   response: HttpSelectorChoicesResponse | null;
   loading: boolean;
+  refreshing: boolean;
   error: Error | null;
   revision: number;
   scopeKey: string | null;

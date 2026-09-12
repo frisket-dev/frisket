@@ -145,13 +145,20 @@ export function CopilotPanel({
   const nextMessageId = useRef(1);
   const [model, selectModel] = useCopilotModel();
   const [selectedChoice, setSelectedChoice] = useState<SelectorChoice | null>(null);
+  const defaultModel = selectedChoice?.authored_selection.kind === 'model'
+    ? selectedChoice.authored_selection.model
+    : null;
+  const requestModel = model ?? defaultModel;
+  const modelCanRun = selectedChoice?.authored_selection.kind === 'model'
+    && selectedChoice.authored_selection.model === requestModel
+    && selectedChoice.can_run;
 
   async function send() {
     const text = draft.trim();
     // !model: sending before the default resolves would fall back to the
     // server default, which can differ from the provider selected by the
     // live catalog.
-    if (!text || busy || !model || !selectedChoice?.can_run) return;
+    if (!text || busy || !requestModel || !modelCanRun) return;
     const userMessage: ChatMessage = {
       id: `user-${nextMessageId.current++}`,
       role: 'user',
@@ -162,7 +169,7 @@ export function CopilotPanel({
     try {
       const res = await projectApi.copilotChat(
         history.map((m) => ({ role: m.role, content: m.content })),
-        model,
+        requestModel,
       );
       dispatch({
         type: 'sendSucceeded',
@@ -356,7 +363,7 @@ export function CopilotPanel({
           className="btn-primary copilot-send-button"
           data-testid="copilot-send"
           onClick={() => void send()}
-          disabled={busy || !draft.trim() || !model || !selectedChoice?.can_run}
+          disabled={busy || !draft.trim() || !requestModel || !modelCanRun}
           aria-label="Send"
         >
           <Send size={15} />
