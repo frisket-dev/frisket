@@ -76,13 +76,15 @@ async function descendants(pid) {
 }
 
 async function quit(electron, closeWindow = false) {
-  const pids = await descendants(electron.process().pid);
+  // Playwright disposes the Electron channel when the process exits.
+  const child = electron.process();
+  const pids = await descendants(child.pid);
   if (closeWindow) {
     // Exercise the native close button, which app.quit() bypasses.
     await electron.evaluate(({ BrowserWindow }) => {
       setImmediate(() => BrowserWindow.getAllWindows()[0]?.close());
     });
-    await expect.poll(() => electron.process().exitCode, { timeout: 20_000 }).toBe(0);
+    await expect.poll(() => child.exitCode, { timeout: 20_000 }).toBe(0);
   } else {
     await electron.close();
   }
