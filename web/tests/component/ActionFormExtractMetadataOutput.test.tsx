@@ -24,7 +24,7 @@ const ENTRY = syntheticActionCatalogEntry('media.extract_metadata', {
     type: 'object', additionalProperties: false, required: ['source'],
     properties: {
       source: { type: 'string', title: 'Source' },
-      output_mode: { type: 'string', enum: ['object', 'columns'], default: 'object' },
+      output_mode: { type: 'string', enum: ['object', 'columns'], default: 'columns' },
       refresh: { type: 'boolean', default: false },
     },
   },
@@ -72,8 +72,14 @@ describe('typed metadata output naming', () => {
     const { onExecute, resolveParams, template } = renderMetadata();
     expect(template.kind).toBe('media.extract_metadata');
     expect(template.generatedAction).toBe(true);
-    expect(screen.getByTestId('field-output_mode')).toHaveValue('object');
-    expect(await screen.findByTestId('field-output-details')).toHaveValue('meta');
+    const outputMode = screen.getByTestId('field-output_mode') as HTMLSelectElement;
+    expect(outputMode).toHaveValue('columns');
+    expect(Array.from(outputMode.options).map(({ value, label }) => ({ value, label }))).toEqual([
+      { value: 'object', label: 'One column' },
+      { value: 'columns', label: 'Multiple columns' },
+    ]);
+    expect(await screen.findByTestId('field-output-future_role')).toHaveValue('meta_future_role');
+    expect(screen.getByTestId('field-output-details')).toHaveValue('meta_details');
     if (rowScope === 'all') {
       fireEvent.click(screen.getByTestId('generated-action-run-scope-menu-button'));
       fireEvent.click(screen.getByTestId('generated-action-row-scope-all'));
@@ -90,22 +96,22 @@ describe('typed metadata output naming', () => {
     // Parameter admission must resolve the same scope that execution receives.
     expect(resolveParams).toHaveBeenLastCalledWith({
       action_id: 'media.extract_metadata', scope,
-      params: { source: 'asset', output_mode: 'object', refresh: true },
+      params: { source: 'asset', output_mode: 'columns', refresh: true },
     });
     expect(onExecute).toHaveBeenLastCalledWith({
       action_id: 'media.extract_metadata',
       scope,
-      params: { source: 'asset', output_mode: 'object', refresh: true },
-      output_names: { details: 'AssetMeta_2' },
+      params: { source: 'asset', output_mode: 'columns', refresh: true },
+      output_names: {
+        details: 'AssetMeta_2_details', size_bytes: 'AssetMeta_2_size_bytes',
+        future_role: 'AssetMeta_2_future_role',
+      },
       idempotency_key: expect.any(String),
     }, 'run');
   });
 
-  it('expands only server-resolved keys and renames details when switching modes', async () => {
+  it('starts with server-resolved keys and renames details when switching modes', async () => {
     const { onExecute } = renderMetadata();
-    // Change mode before initial resolution, while catalog still lists all fields.
-    fireEvent.change(screen.getByTestId('field-output_mode'), { target: { value: 'columns' } });
-    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
     expect(await screen.findByTestId('field-output-future_role')).toHaveValue('meta_future_role');
     expect(screen.getByTestId('field-output-details')).toHaveValue('meta_details');
     fireEvent.change(screen.getByTestId('field-output-prefix'), { target: { value: 'AssetMeta' } });
@@ -128,6 +134,9 @@ describe('typed metadata output naming', () => {
       columnDef({ id: '3', name: 'details', type: 'json' }),
     ], { id: '7', name: 'Media', rowCount: 2 }) });
     await screen.findByTestId('field-output-details');
+    // This assertion exercises the one-column name, whose default changed to columns.
+    fireEvent.change(screen.getByTestId('field-output_mode'), { target: { value: 'object' } });
+    await waitFor(() => expect(screen.queryByTestId('field-output-future_role')).not.toBeInTheDocument());
     fireEvent.change(screen.getByTestId('field-output-prefix'), { target: { value: 'details_2' } });
     expect(screen.getByTestId('field-output-details')).toHaveValue('details_2');
     expect(screen.queryByTestId('default-output-name-collision-details')).not.toBeInTheDocument();
@@ -146,8 +155,10 @@ describe('typed metadata output naming', () => {
     });
     expect(onExecute.mock.calls[1][0].idempotency_key).not.toBe(preview.idempotency_key);
     expect(preview).not.toHaveProperty('kind');
-    expect(preview.params).toEqual({ source: 'asset', output_mode: 'object', refresh: false });
-    expect(preview.output_names).toEqual({ details: 'meta' });
+    expect(preview.params).toEqual({ source: 'asset', output_mode: 'columns', refresh: false });
+    expect(preview.output_names).toEqual({
+      details: 'meta_details', size_bytes: 'meta_size_bytes', future_role: 'meta_future_role',
+    });
   });
 
   it('preserves saved individual names across non-shape parameter edits without consent', async () => {
@@ -163,6 +174,24 @@ describe('typed metadata output naming', () => {
     fireEvent.click(screen.getByTestId('generated-action-run'));
     expect(onExecute.mock.calls[0][0].output_names).toEqual(names);
     expect(onExecute.mock.calls[0][0]).not.toHaveProperty('replace_existing');
+  });
+
+  it('preserves an explicit saved one-column configuration', async () => {
+    const { onExecute } = renderMetadata({ initialDraft: {
+      action_id: 'media.extract_metadata', scope: { kind: 'sheet_rows', sheet_id: 7 },
+      params: { source: 'asset', output_mode: 'object', refresh: false },
+      output_names: { details: 'Saved_metadata' },
+    } });
+    expect(screen.getByTestId('field-output_mode')).toHaveValue('object');
+    expect(await screen.findByTestId('field-output-details')).toHaveValue('Saved_metadata');
+    expect(screen.queryByTestId('field-output-future_role')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('field-refresh'));
+    await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
+    fireEvent.click(screen.getByTestId('generated-action-run'));
+    expect(onExecute.mock.calls[0][0]).toMatchObject({
+      params: { source: 'asset', output_mode: 'object', refresh: true },
+      output_names: { details: 'Saved_metadata' },
+    });
   });
 
   it('refuses stale saved output keys instead of silently replacing saved intent', async () => {
@@ -184,7 +213,6 @@ describe('typed metadata output naming', () => {
     expect(screen.getByText('Name every output column.')).toBeVisible();
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
     fireEvent.change(screen.getByTestId('field-output-prefix'), { target: { value: 'Meta' } });
-    fireEvent.change(screen.getByTestId('field-output_mode'), { target: { value: 'columns' } });
     await screen.findByTestId('field-output-size_bytes');
     fireEvent.change(screen.getByTestId('field-output-size_bytes'), { target: { value: 'meta_DETAILS' } });
     expect(screen.getByText('Output column names must be unique.')).toBeVisible();
@@ -200,6 +228,7 @@ describe('typed metadata output naming', () => {
       columnDef({ id: '4', name: 'wrong_type', type: 'text', ai: aiMeta(), generationManaged: true }),
       columnDef({ id: '5', name: 'manual_json', type: 'json' }),
     ], { id: '7', name: 'Media', rowCount: 2 }) });
+    fireEvent.change(screen.getByTestId('field-output_mode'), { target: { value: 'object' } });
     const output = await screen.findByTestId('field-output-details');
     fireEvent.focus(output);
     expect(screen.getByTestId('field-output-details-option-previous')).toBeVisible();

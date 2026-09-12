@@ -93,6 +93,8 @@ describe('typed OCR/transcription forms', () => {
     expect(screen.queryByTestId('action-prompt')).not.toBeInTheDocument();
     expect(screen.queryByTestId('output-fields-label')).not.toBeInTheDocument();
     expect(screen.getByTestId('field-vad')).toBeChecked();
+    expect(screen.getByTestId('field-vad').closest('label')).toHaveTextContent('Voice Activity Detection');
+    expect(screen.getByText('Only transcribe when speech is detected (reduces hallucinations)')).toBeVisible();
     await run();
     expect(onExecute.mock.calls[0][0]).toEqual({ action_id: 'media.transcribe',
       scope: { kind: 'sheet_rows', sheet_id: 7, row_ids: [3, 8] },

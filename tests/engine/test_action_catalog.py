@@ -70,7 +70,7 @@ def test_published_action_catalog_fingerprint() -> None:
         "catalog": _canonical_json_fingerprint(payload),
         "errors": _canonical_json_fingerprint(errors),
     } == {
-        "catalog": "07e8cea098e80be503ce90b1367bd5c3b00c8d02d45e7db64c24fa914f344115",
+        "catalog": "dc9af225d3bb446e49b2b6b504a27a7cf9bc8045d2e578c8b7beacadd9778320",
         "errors": "6a15a4c454e27ca52b19b763fa69d8fbed6937253c1a03ec60bd08e989b1974b",
     }
 

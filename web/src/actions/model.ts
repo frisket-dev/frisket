@@ -489,6 +489,11 @@ const CLEAN_COLUMN_CASE_LABELS: Readonly<Record<string, string>> = {
   lower: 'lowercase',
 };
 
+const METADATA_OUTPUT_MODE_LABELS: Readonly<Record<string, string>> = {
+  columns: 'Multiple columns',
+  object: 'One column',
+};
+
 function generatedCatalogParams(entry: ActionCatalogEntry): ActionParam[] | undefined {
   const properties = Object.entries(entry.input_schema.properties ?? {});
   if (!properties.length) return undefined;
@@ -531,7 +536,10 @@ function generatedCatalogParams(entry: ActionCatalogEntry): ActionParam[] | unde
       ai_generated_only: requirement?.ai_generated_only,
       visible_when: presentation?.visible_when,
       ...(choices.length ? { choices,
-        choice_labels: cleanColumn && name === 'case' ? CLEAN_COLUMN_CASE_LABELS : undefined,
+        choice_labels: cleanColumn && name === 'case' ? CLEAN_COLUMN_CASE_LABELS
+          : entry.kind === 'media.extract_metadata' && name === 'output_mode'
+            ? METADATA_OUTPUT_MODE_LABELS
+            : undefined,
       } : {}),
       ...(cleanColumn && type === 'boolean' ? { layout: 'grid', group: 'Cleanings' } : {}),
       ...(cleanColumn && name === 'null_tokens' ? {

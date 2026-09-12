@@ -71,7 +71,10 @@ export function TranscribeParamsBody({ params, setParams, engine, Field }:
         setParams(next);
       }} />
     {support.model_size && <Field name="model_size" />}
-    {support.vad && <Field name="vad" />}
+    {support.vad && <>
+      <Field name="vad" label="Voice Activity Detection" />
+      <p className="form-hint">Only transcribe when speech is detected (reduces hallucinations)</p>
+    </>}
     {support.context && <Field name="context" />}
     {support.clean && <Field name="clean" />}
     <p className="form-hint" data-testid="transcribe-output-summary">

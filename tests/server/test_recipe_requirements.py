@@ -248,7 +248,7 @@ def test_media_and_geo_actions_explain_prerequisites(tmp_path):
     output_mode = metadata_params["output_mode"]
     assert output_mode["type"] == "string"
     assert output_mode["enum"] == ["object", "columns"]
-    assert output_mode["default"] == "object"
+    assert output_mode["default"] == "columns"
     assert metadata_params["refresh"]["type"] == "boolean"
     assert metadata_params["refresh"]["default"] is False
     assert metadata_schema["required"] == ["source"]
