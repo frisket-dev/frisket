@@ -244,7 +244,7 @@ def test_typed_execution_publishes_and_replays_timestamped_transcript(
     body = {
         "action_id": "media.transcribe",
         "scope": {"kind": "sheet_rows", "sheet_id": sheet},
-        "params": {"source": "recording"},
+        "params": {"source": "recording", "engine": "faster_whisper"},
         "output_names": {
             "text": "interview_text",
             "segments": "timings",
