@@ -131,7 +131,7 @@ function CustomEmbeddingModelDetail({
 
   useEffect(() => {
     setDraft(savedCustomModel);
-  }, [savedCustomModel]);
+  }, [provider, savedCustomModel]);
 
   const useModel = () => {
     onModelSelect(provider, draft);
