@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-import signal
 import subprocess
 
 from frisket.runtime.launch import PythonRuntime
@@ -41,9 +40,19 @@ def spawn_service(argv: list[str]) -> subprocess.Popen:
 
 def stop_guard(process: subprocess.Popen, *, timeout: float = 1.0) -> None:
     """Let the guardian finish tree cleanup before considering a forced exit."""
-    if process.poll() is not None:
-        if os.name == "posix" and process.returncode == -signal.SIGKILL:
+
+    def verify_exit() -> None:
+        # The guardian translates target signals to positive 128+signal codes.
+        # A negative status therefore means the guardian itself was killed.
+        if (
+            os.name == "posix"
+            and process.returncode is not None
+            and process.returncode < 0
+        ):
             raise RuntimeError("worker guardian was killed before proving shutdown")
+
+    if process.poll() is not None:
+        verify_exit()
         return
     process.terminate()
     try:
@@ -52,9 +61,10 @@ def stop_guard(process: subprocess.Popen, *, timeout: float = 1.0) -> None:
         process.kill()
         process.wait(timeout=1)
         raise RuntimeError("worker guardian did not complete shutdown")
+    verify_exit()
 
 
 def stop_service(process: subprocess.Popen | None) -> None:
-    if process is None or process.poll() is not None:
+    if process is None:
         return
     stop_guard(process, timeout=10)

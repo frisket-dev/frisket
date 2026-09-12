@@ -1251,19 +1251,17 @@ def _run_bounded(
                 cpu_limit_seconds=max(1, int(math.ceil(float(timeout)))),
             )
         except BaseException as exc:
-            if os.name != "nt":
+            if os.name == "posix":
+                stop_guard(proc)
+            else:
                 try:
-                    os.killpg(proc.pid, getattr(signal, "SIGKILL", signal.SIGTERM))
-                except (OSError, ProcessLookupError):
+                    proc.kill()
+                except OSError:
                     pass
-            try:
-                proc.kill()
-            except OSError:
-                pass
-            try:
-                proc.wait(timeout=2)
-            except (OSError, subprocess.SubprocessError):
-                pass
+                try:
+                    proc.wait(timeout=2)
+                except (OSError, subprocess.SubprocessError):
+                    pass
             raise subprocess.SubprocessError(
                 "adapter process-tree ownership unavailable"
             ) from exc
