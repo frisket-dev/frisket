@@ -4790,10 +4790,12 @@ export interface FrisketApi {
     key: string,
     spendCapUsd?: number | null,
     validationToken?: string | null,
+    options?: { signal?: AbortSignal; headers?: HeadersInit },
   ): Promise<ProjectProviderKeys>;
   validateProjectProviderKey(
     provider: string,
     key?: string,
+    options?: { signal?: AbortSignal; headers?: HeadersInit },
   ): Promise<ProviderValidateResult>;
   deleteProjectProviderKey(provider: string): Promise<{
     ok: boolean;

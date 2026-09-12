@@ -25,6 +25,8 @@ import {
   Trash2,
   XCircle,
 } from 'lucide-react';
+import { ProviderKeyForm } from '../engine-selector/ProviderKeyForm';
+import { ModelsGatewaySettings } from '../engine-selector/ModelsGatewaySettings';
 import { LocalServerGuidance } from '../components/LocalServerGuidance';
 export { McpServersSection } from './McpServersSection';
 import { McpServersSection } from './McpServersSection';
@@ -796,69 +798,6 @@ function PersonalPrivacySettings() {
   );
 }
 
-interface ProviderFormState {
-  adding: boolean;
-  provider: string;
-  keyValue: string;
-  cap: string;
-  notice: string | null;
-  mutationError: string | null;
-  validating: boolean;
-  validation: {
-    provider: string;
-    keyValue: string;
-    token: string;
-    message: string;
-  } | null;
-  validationError: string | null;
-  validationErrorTone: Exclude<ProviderValidationTone, 'success'>;
-}
-type ProviderFormAction =
-  | { type: 'toggle_add' }
-  | { type: 'set_provider'; value: string }
-  | { type: 'set_key_value'; value: string }
-  | { type: 'set_cap'; value: string }
-  | { type: 'validation_start' }
-  | { type: 'validation_success'; token: string; message: string }
-  | { type: 'validation_error'; error: string; tone?: Exclude<ProviderValidationTone, 'success'> }
-  | { type: 'mutation_success'; notice: string }
-  | { type: 'mutation_error'; error: string };
-function providerFormReducer(state: ProviderFormState, action: ProviderFormAction): ProviderFormState {
-  switch (action.type) {
-    case 'toggle_add': return { ...state, adding: !state.adding, notice: null, mutationError: null, validation: null, validationError: null };
-    case 'set_provider': return { ...state, provider: action.value, validation: null, validationError: null };
-    case 'set_key_value': return { ...state, keyValue: action.value, validation: null, validationError: null };
-    case 'set_cap': return { ...state, cap: action.value };
-    case 'validation_start': return { ...state, validating: true, validation: null, validationError: null, mutationError: null, notice: null };
-    case 'validation_success': return {
-      ...state,
-      validating: false,
-      validation: {
-        provider: state.provider,
-        keyValue: state.keyValue.trim(),
-        token: action.token,
-        message: action.message,
-      },
-      validationError: null,
-    };
-    case 'validation_error': return { ...state, validating: false, validation: null, validationError: action.error, validationErrorTone: action.tone ?? 'error' };
-    case 'mutation_success': return { ...providerFormInitial, provider: state.provider, notice: action.notice };
-    case 'mutation_error': return { ...state, notice: null, mutationError: action.error };
-  }
-}
-const providerFormInitial: ProviderFormState = {
-  adding: false,
-  provider: 'anthropic',
-  keyValue: '',
-  cap: '',
-  notice: null,
-  mutationError: null,
-  validating: false,
-  validation: null,
-  validationError: null,
-  validationErrorTone: 'error',
-};
-
 function providerValidationMessage(result: ProviderValidateResult): string {
   if (result.ok) return 'Valid — key accepted';
   if (result.reachable) return result.detail || `Reachable but rejected (HTTP ${result.status ?? '?'})`;
@@ -875,39 +814,17 @@ function providerValidationTone(result: ProviderValidateResult): ProviderValidat
   return result.reachable ? 'error' : 'warning';
 }
 
-function providerFormCanSave(form: ProviderFormState): boolean {
-  return Boolean(
-    form.keyValue.trim() &&
-    form.validation?.provider === form.provider &&
-    form.validation.keyValue === form.keyValue.trim() &&
-    form.validation.token,
-  );
-}
-
 export function OrganizationAiProvidersSettings() {
   const catalog = useLoader<ProviderCatalog>(() => providerCatalog());
   const keys = useLoader<OrgKeyInfo[]>(() => listOrgKeys());
-  const [form, dispatch] = useReducer(providerFormReducer, providerFormInitial);
+  const [adding, setAdding] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const [existingTests, setExistingTests] = useState<
     Record<string, { text: string; tone: ProviderValidationTone | 'pending' }>
   >({});
 
   const rows = keys.data ?? [];
-  const canSave = providerFormCanSave(form);
-  const testNewKey = async () => {
-    if (!form.keyValue.trim()) return;
-    dispatch({ type: 'validation_start' });
-    try {
-      const result = await validateOrgKey(form.provider, form.keyValue.trim());
-      if (result.ok && result.validation_token) {
-        dispatch({ type: 'validation_success', token: result.validation_token, message: providerValidationMessage(result) });
-      } else {
-        dispatch({ type: 'validation_error', error: providerValidationMessage(result), tone: providerValidationTone(result) as Exclude<ProviderValidationTone, 'success'> });
-      }
-    } catch (caught) {
-      dispatch({ type: 'validation_error', error: errMsg(caught) });
-    }
-  };
   const testExisting = async (provider: string) => {
     setExistingTests((current) => ({ ...current, [provider]: { text: 'Testing...', tone: 'pending' } }));
     try {
@@ -920,72 +837,16 @@ export function OrganizationAiProvidersSettings() {
       setExistingTests((current) => ({ ...current, [provider]: { text: errMsg(caught), tone: 'error' } }));
     }
   };
-  const save = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!canSave || !form.validation) return;
-    try {
-      await setOrgKey(form.provider, form.keyValue, form.validation.token);
-      dispatch({ type: 'mutation_success', notice: 'Provider key saved' });
-      await keys.reload();
-    } catch (caught) {
-      dispatch({ type: 'mutation_error', error: errMsg(caught) });
-    }
-  };
-
   return (
     <div className="settings-stack" data-testid="organization-ai-providers-settings">
-      <InlineStatus error={catalog.error ?? keys.error ?? form.mutationError} loading={catalog.loading || keys.loading} notice={form.notice} />
-      <button className="btn" type="button" onClick={() => dispatch({ type: 'toggle_add' })}>
+      <InlineStatus error={catalog.error ?? keys.error ?? mutationError} loading={catalog.loading || keys.loading} notice={notice} />
+      <button className="btn" type="button" onClick={() => { setNotice(null); setMutationError(null); setAdding((current) => !current); }}>
         <KeyRound size={14} /> Add new key
       </button>
-      {form.adding && (
-        <form className="settings-form settings-inline-form settings-provider-key-form" autoComplete="off" onSubmit={save}>
-          <label>
-            <span>Provider</span>
-            <PanelSelect
-              aria-label="Provider"
-              value={form.provider}
-              onChange={(event) => dispatch({ type: 'set_provider', value: event.currentTarget.value })}
-            >
-              {(catalog.data?.providers ?? []).map((item) => (
-                <option key={item.id} value={item.id}>{item.label}</option>
-              ))}
-            </PanelSelect>
-          </label>
-          <label>
-            <span>Key</span>
-            <input
-              aria-label="Provider key"
-              type="password"
-              autoComplete="new-password"
-              placeholder="Provider key"
-              value={form.keyValue}
-              onChange={(event) => dispatch({ type: 'set_key_value', value: event.currentTarget.value })}
-            />
-          </label>
-          {/* No spend cap here: org keys are stored by the control plane
-              (team/schema.py org_keys), which has no cap or accrual column —
-              metered caps against an org key are private commerce and are not
-              part of this edition. The input used to be rendered and silently
-              discarded by POST /api/org/keys. Project-level provider keys
-              (below) DO carry a real, enforced cap. */}
-          <button className="btn" type="button" disabled={form.validating || !form.keyValue.trim()} onClick={() => void testNewKey()}>
-            Test
-          </button>
-          <button className="btn btn-primary" type="submit" disabled={form.validating || !canSave}>
-            <KeyRound size={14} /> Save
-          </button>
-          {(form.validation || form.validationError) && (
-            <p
-              className={`settings-inline-status settings-validation-message is-${form.validation ? 'success' : form.validationErrorTone}`}
-              data-testid="provider-validation-message"
-              role={form.validationError ? 'alert' : undefined}
-            >
-              {form.validation?.message ?? form.validationError}
-            </p>
-          )}
-        </form>
-      )}
+      {adding && <ProviderKeyForm canMutate keyLabel="Provider key" providers={catalog.data?.providers ?? []}
+        validate={(provider, key, signal) => validateOrgKey(provider, key, { signal })}
+        save={(provider, key, receipt, _cap, signal) => setOrgKey(provider, key, receipt, { signal })}
+        onSaved={() => { setAdding(false); setNotice('Provider key saved'); void keys.reload(); }} />}
       <SettingsTable
         headers={['Provider', 'Key', '']}
         rows={rows.map((row) => [
@@ -1017,7 +878,7 @@ export function OrganizationAiProvidersSettings() {
               title={`Delete ${row.provider} provider key`}
               onClick={() => void deleteOrgKey(row.provider)
                 .then(keys.reload)
-                .catch((caught) => dispatch({ type: 'mutation_error', error: errMsg(caught) }))}
+                .catch((caught) => setMutationError(errMsg(caught)))}
             >
               <Trash2 size={14} />
             </button>
@@ -1875,26 +1736,13 @@ function ProjectAccessSettings({ project, identityMode }: { project?: ProjectInf
 export function ProjectAiProvidersSettings({ project }: { project?: ProjectInfo | null }) {
   const { projectApi: api } = useWorkspaceStores();
   const keys = useLoader<ProjectProviderKeys>(() => api.getProjectProviderKeys());
-  const [form, dispatch] = useReducer(providerFormReducer, providerFormInitial);
+  const [adding, setAdding] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const [existingTests, setExistingTests] = useState<
     Record<string, { text: string; tone: ProviderValidationTone | 'pending' }>
   >({});
   const canMutate = canOwnProject(project);
-  const canSave = canMutate && providerFormCanSave(form);
-  const testNewKey = async () => {
-    if (!canMutate || !form.keyValue.trim()) return;
-    dispatch({ type: 'validation_start' });
-    try {
-      const result = await api.validateProjectProviderKey(form.provider, form.keyValue.trim());
-      if (result.ok && result.validation_token) {
-        dispatch({ type: 'validation_success', token: result.validation_token, message: providerValidationMessage(result) });
-      } else {
-        dispatch({ type: 'validation_error', error: providerValidationMessage(result), tone: providerValidationTone(result) as Exclude<ProviderValidationTone, 'success'> });
-      }
-    } catch (caught) {
-      dispatch({ type: 'validation_error', error: errMsg(caught) });
-    }
-  };
   const testExisting = async (provider: string, label: string) => {
     if (!canMutate) return;
     setExistingTests((current) => ({ ...current, [provider]: { text: 'Testing...', tone: 'pending' } }));
@@ -1908,88 +1756,21 @@ export function ProjectAiProvidersSettings({ project }: { project?: ProjectInfo 
       setExistingTests((current) => ({ ...current, [provider]: { text: errMsg(caught) || `Could not test ${label}`, tone: 'error' } }));
     }
   };
-  const save = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!canSave || !form.validation) return;
-    try {
-      keys.setData(await api.setProjectProviderKey(
-        form.provider,
-        form.keyValue,
-        form.cap ? Number(form.cap) : null,
-        form.validation.token,
-      ));
-      dispatch({ type: 'mutation_success', notice: 'Provider override saved' });
-    } catch (caught) {
-      dispatch({ type: 'mutation_error', error: errMsg(caught) });
-    }
-  };
   return (
     <div className="settings-stack" data-testid="project-ai-providers-settings">
-      <InlineStatus error={keys.error ?? form.mutationError} loading={keys.loading} notice={form.notice} />
+      <InlineStatus error={keys.error ?? mutationError} loading={keys.loading} notice={notice} />
       {!canMutate && (
         <ReadOnlyNotice>
           Your project role can view provider override status but cannot change provider keys.
         </ReadOnlyNotice>
       )}
-      <button className="btn" type="button" disabled={!canMutate} onClick={() => dispatch({ type: 'toggle_add' })}>
+      <button className="btn" type="button" disabled={!canMutate} onClick={() => { setNotice(null); setMutationError(null); setAdding((current) => !current); }}>
         <KeyRound size={14} /> Add new key
       </button>
-      {form.adding && (
-        <form className="settings-form settings-inline-form settings-provider-key-form" autoComplete="off" onSubmit={save}>
-          <label>
-            <span>Provider</span>
-            <PanelSelect
-              aria-label="Provider"
-              value={form.provider}
-              disabled={!canMutate}
-              onChange={(event) => dispatch({ type: 'set_provider', value: event.currentTarget.value })}
-            >
-              {(keys.data?.providers ?? []).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-            </PanelSelect>
-          </label>
-          <label>
-            <span>Key</span>
-            <input
-              aria-label="Project provider key"
-              type="password"
-              autoComplete="new-password"
-              placeholder="Provider key"
-              value={form.keyValue}
-              disabled={!canMutate}
-              onChange={(event) => dispatch({ type: 'set_key_value', value: event.currentTarget.value })}
-            />
-          </label>
-          {/* The write side used to state no unit at all while the read side
-              (the Cap column) rendered the same number as currency — so "10"
-              could plausibly be dollars, cents, or calls. The unit is named
-              here, and blank is spelled out as "no cap" rather than left to
-              be inferred from an empty box. */}
-          <label>
-            <span>Spend cap (USD)</span>
-            <input
-              aria-label="Spend cap in US dollars"
-              inputMode="decimal"
-              placeholder="e.g. 5.00 — blank for no cap"
-              value={form.cap}
-              disabled={!canMutate}
-              onChange={(event) => dispatch({ type: 'set_cap', value: event.currentTarget.value })}
-            />
-          </label>
-          <button className="btn" type="button" disabled={!canMutate || form.validating || !form.keyValue.trim()} onClick={() => void testNewKey()}>
-            Test
-          </button>
-          <button className="btn btn-primary" type="submit" disabled={form.validating || !canSave}><KeyRound size={14} /> Save</button>
-          {(form.validation || form.validationError) && (
-            <p
-              className={`settings-inline-status settings-validation-message is-${form.validation ? 'success' : form.validationErrorTone}`}
-              data-testid="provider-validation-message"
-              role={form.validationError ? 'alert' : undefined}
-            >
-              {form.validation?.message ?? form.validationError}
-            </p>
-          )}
-        </form>
-      )}
+      {adding && <ProviderKeyForm key={`${project?.id}:${canMutate}`} canMutate={canMutate} keyLabel="Project provider key" spendCap providers={keys.data?.providers ?? []}
+        validate={(provider, key, signal) => api.validateProjectProviderKey(provider, key, { signal })}
+        save={(provider, key, receipt, cap, signal) => api.setProjectProviderKey(provider, key, cap, receipt, { signal })}
+        onSaved={(saved) => { keys.setData(saved); setAdding(false); setNotice('Provider override saved'); }} />}
       <SettingsTable
         headers={['Provider', 'Secret', 'Key', 'Cap', 'Spent', '']}
         rows={(keys.data?.providers ?? []).map((row) => [
@@ -2027,7 +1808,7 @@ export function ProjectAiProvidersSettings({ project }: { project?: ProjectInfo 
                 disabled={!canMutate}
                 onClick={() => void api.deleteProjectProviderKey(row.id)
                   .then(keys.reload)
-                  .catch((caught) => dispatch({ type: 'mutation_error', error: errMsg(caught) }))}
+                  .catch((caught) => setMutationError(errMsg(caught)))}
               >
                 <Trash2 size={14} />
               </button>
@@ -2042,17 +1823,18 @@ export function ProjectAiProvidersSettings({ project }: { project?: ProjectInfo 
 
 // The workspace-level provider page: deliberately the SAME interface as
 // ProjectAiProvidersSettings above — the
-// shared providerFormReducer add-key flow (validate before save) and a
+// shared ProviderKeyForm controls (validate before save) and a
 // SettingsTable of provider rows with Test/Delete — but backed by the
 // workspace catalog (/api/providers → <ws>/.frisket/provider_keys.json),
 // plus the canonical local endpoint list. Exported for component tests.
 export function WorkspaceAiProvidersSettings() {
   const catalog = useLoader<LocalProviderCatalog>(() => listProviders());
-  const [form, dispatch] = useReducer(providerFormReducer, providerFormInitial);
+  const [adding, setAdding] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const [existingTests, setExistingTests] = useState<
     Record<string, { text: string; tone: ProviderValidationTone | 'pending' }>
   >({});
-  const canSave = providerFormCanSave(form);
   const providers = catalog.data?.providers ?? [];
   const keyProviders = providers.filter((provider) => provider.kind === 'platform_api');
   const localServers = providers.filter(
@@ -2073,20 +1855,6 @@ export function WorkspaceAiProvidersSettings() {
     });
   };
 
-  const testNewKey = async () => {
-    if (!form.keyValue.trim()) return;
-    dispatch({ type: 'validation_start' });
-    try {
-      const result = await validateProviderKey(form.provider, form.keyValue.trim());
-      if (result.ok && result.validation_token) {
-        dispatch({ type: 'validation_success', token: result.validation_token, message: providerValidationMessage(result) });
-      } else {
-        dispatch({ type: 'validation_error', error: providerValidationMessage(result), tone: providerValidationTone(result) as Exclude<ProviderValidationTone, 'success'> });
-      }
-    } catch (caught) {
-      dispatch({ type: 'validation_error', error: errMsg(caught) });
-    }
-  };
   const testExisting = async (provider: string, label: string) => {
     setExistingTests((current) => ({ ...current, [provider]: { text: 'Testing...', tone: 'pending' } }));
     try {
@@ -2099,69 +1867,22 @@ export function WorkspaceAiProvidersSettings() {
       setExistingTests((current) => ({ ...current, [provider]: { text: errMsg(caught) || `Could not test ${label}`, tone: 'error' } }));
     }
   };
-  const save = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!canSave || !form.validation) return;
-    try {
-      catalog.setData(await setProviderKey(form.provider, form.keyValue.trim(), form.validation.token));
-      dispatch({ type: 'mutation_success', notice: 'Provider key saved' });
-    } catch (caught) {
-      dispatch({ type: 'mutation_error', error: errMsg(caught) });
-    }
-  };
-  const sourceLabel = (
-    row: Extract<LocalProviderEntry, { kind: 'platform_api' }>,
-  ): string =>
+  const sourceLabel = (row: Extract<LocalProviderEntry, { kind: 'platform_api' }>): string =>
     row.source === 'env' ? 'Environment' : row.source === 'local_file' ? 'Workspace file' : '—';
-
   return (
     <div className="settings-stack" data-testid="workspace-ai-providers-settings">
-      <InlineStatus error={catalog.error ?? form.mutationError} loading={catalog.loading} notice={form.notice} />
+      <InlineStatus error={catalog.error ?? mutationError} loading={catalog.loading} notice={notice} />
       <p className="settings-help">
         Keys are stored in this workspace only and never sent back to the browser.
         A shell-exported key always wins over one entered here.
       </p>
-      <button className="btn" type="button" onClick={() => dispatch({ type: 'toggle_add' })}>
+      <button className="btn" type="button" onClick={() => { setNotice(null); setMutationError(null); setAdding((current) => !current); }}>
         <KeyRound size={14} /> Add new key
       </button>
-      {form.adding && (
-        <form className="settings-form settings-inline-form settings-provider-key-form" autoComplete="off" onSubmit={save}>
-          <label>
-            <span>Provider</span>
-            <PanelSelect
-              aria-label="Provider"
-              value={form.provider}
-              onChange={(event) => dispatch({ type: 'set_provider', value: event.currentTarget.value })}
-            >
-              {keyProviders.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-            </PanelSelect>
-          </label>
-          <label>
-            <span>Key</span>
-            <input
-              aria-label="Provider key"
-              type="password"
-              autoComplete="new-password"
-              placeholder="Provider key"
-              value={form.keyValue}
-              onChange={(event) => dispatch({ type: 'set_key_value', value: event.currentTarget.value })}
-            />
-          </label>
-          <button className="btn" type="button" disabled={form.validating || !form.keyValue.trim()} onClick={() => void testNewKey()}>
-            Test
-          </button>
-          <button className="btn btn-primary" type="submit" disabled={form.validating || !canSave}><KeyRound size={14} /> Save</button>
-          {(form.validation || form.validationError) && (
-            <p
-              className={`settings-inline-status settings-validation-message is-${form.validation ? 'success' : form.validationErrorTone}`}
-              data-testid="provider-validation-message"
-              role={form.validationError ? 'alert' : undefined}
-            >
-              {form.validation?.message ?? form.validationError}
-            </p>
-          )}
-        </form>
-      )}
+      {adding && <ProviderKeyForm canMutate keyLabel="Provider key" providers={keyProviders}
+        validate={(provider, key, signal) => validateProviderKey(provider, key, { signal })}
+        save={(provider, key, receipt, _cap, signal) => setProviderKey(provider, key, receipt, { signal })}
+        onSaved={(saved) => { catalog.setData(saved); setAdding(false); setNotice('Provider key saved'); }} />}
       <SettingsTable
         headers={['Provider', 'Source', 'Status', '']}
         rows={keyProviders.map((row) => [
@@ -2200,7 +1921,7 @@ export function WorkspaceAiProvidersSettings() {
                   title={`Delete ${row.label} provider key`}
                   onClick={() => void deleteProviderKey(row.id)
                     .then(catalog.reload)
-                    .catch((caught) => dispatch({ type: 'mutation_error', error: errMsg(caught) }))}
+                    .catch((caught) => setMutationError(errMsg(caught)))}
                 >
                   <Trash2 size={14} />
                 </button>
@@ -2217,6 +1938,7 @@ export function WorkspaceAiProvidersSettings() {
           onRecheck={recheckLocalServer}
         />
       )}
+      <ModelsGatewaySettings scope="workspace" />
     </div>
   );
 }
