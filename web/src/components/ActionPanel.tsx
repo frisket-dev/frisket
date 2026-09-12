@@ -21,7 +21,6 @@ import type {
 import { isGeneratedActionCatalogEntry } from '../api/open';
 import {
   decodeSavedActionSpec,
-  SAVED_ACTION_SPEC_REFUSAL,
   SavedActionSpecError,
 } from '../actions/savedActionSpec';
 import type { ActionLaunchPrefill } from '../actions/actionFormInitial';

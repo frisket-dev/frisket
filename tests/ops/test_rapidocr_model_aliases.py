@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from hashlib import sha256
-from pathlib import Path
 
 import pytest
 
@@ -69,9 +68,9 @@ def test_model_root_seeds_verified_bundled_aliases_into_shared_cache(
     )
 
     assert ocr_local._rapidocr_model_root_dir() == str(cache)
-    assert [
-        (cache / target).read_bytes() for target in _REQUESTED
-    ] == [content for _source, content in source_files]
+    assert [(cache / target).read_bytes() for target in _REQUESTED] == [
+        content for _source, content in source_files
+    ]
     assert [source.read_bytes() for source, _content in source_files] == [
         content for _source, content in source_files
     ]

@@ -138,6 +138,8 @@ def test_desktop_bootstrap_kind_is_fixed_and_worker_stdio_can_be_redirected():
     assert {"stdin", "stdout", "stderr"} <= set(spawn_service.__kwdefaults__)
 
 
+# Real socket startup and bounded shutdown are the behavior under test.
+@pytest.mark.realtime
 def test_ready_is_emitted_after_a_live_ephemeral_socket_accepts_connections():
     from frisket.server.desktop import _ReadyServer
 

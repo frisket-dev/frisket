@@ -77,6 +77,11 @@ jobs:
           UV_OFFLINE: '1'
         run: |
           /usr/bin/sandbox-exec -p '(version 1)(allow default)(deny network-outbound)(allow network-outbound (remote ip "localhost:*"))' npm --prefix desktop run test:installed
+      - name: Native engine smoke (no external network)
+        env:
+          UV_OFFLINE: '1'
+        run: |
+          /usr/bin/sandbox-exec -p '(version 1)(allow default)(deny network-outbound)(allow network-outbound (remote ip "localhost:*"))' node desktop/scripts/check-native.mjs
       - name: Upload beta and evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

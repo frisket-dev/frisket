@@ -38,10 +38,10 @@ async function hasCompletedRuntime(dataPath) {
 
 async function run(label, command, args, options) {
   try {
-    return await execFile(command, args, { ...options, maxBuffer: 1024 * 1024 });
+    return await execFile(command, args, { ...options, maxBuffer: 1024 * 1024, timeout: 120_000 });
   } catch (error) {
     const code = error.code ? ` (${error.code})` : '';
-    throw new Error(`${label} failed${code}.`);
+    throw new Error(`${label} failed${code}. ${String(error.stderr || error.message).slice(-4096)}`);
   }
 }
 
@@ -92,6 +92,7 @@ workspace = Path(sys.argv[2])
 from PIL import Image, ImageDraw, ImageFont
 from pypdf import PdfWriter
 from frisket.ops.ocr_engines_local import ocr_rapidocr, rapidocr_execution_scope
+from frisket.engine.pdf_render import render_pdf_pages
 
 pdf = workspace / "native-check.pdf"
 writer = PdfWriter()
@@ -110,6 +111,14 @@ image_path = workspace / "rapidocr.png"
 image.save(image_path)
 
 async def main():
+    render_dir = workspace / "rendered"
+    render_dir.mkdir()
+    rendered = await render_pdf_pages(pdf, render_dir, dpi=144)
+    if rendered.page_count != 1 or len(rendered.pages) != 1:
+        raise RuntimeError("PDFium did not render the generated PDF")
+    with Image.open(rendered.pages[0][1]) as page_image:
+        if page_image.size != (288, 288):
+            raise RuntimeError("PDFium rendered an unexpected page size")
     async with rapidocr_execution_scope(expected_rows=1, language=None) as pool:
         pages = await ocr_rapidocr(pool, [image_path], workspace)
     text = " ".join(str(page.get("text", "")) for page in pages)

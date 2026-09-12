@@ -103,11 +103,15 @@ def prepare(*, skip_web_build: bool = False) -> None:
         raise SystemExit(f"Desktop builds require uv {UV_VERSION}; found {actual_uv}")
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())
     lock = tomllib.loads((ROOT / "uv.lock").read_text())
-    playwright = next(p["version"] for p in lock["package"] if p["name"] == "playwright")
+    playwright = next(
+        p["version"] for p in lock["package"] if p["name"] == "playwright"
+    )
     if not skip_web_build:
         run("python3", "scripts/release/build_frontend.py")
     if not (ROOT / "src/frisket/web_static/index.html").is_file():
-        raise SystemExit("Build and stage the local web UI before packaging the desktop app")
+        raise SystemExit(
+            "Build and stage the local web UI before packaging the desktop app"
+        )
 
     # Only generated resources are replaced; user data lives outside the bundle.
     if RESOURCES.exists():
@@ -117,18 +121,29 @@ def prepare(*, skip_web_build: bool = False) -> None:
     code_root.mkdir()
     with tempfile.TemporaryDirectory(prefix="frisket-desktop-wheel-") as temporary:
         run("uv", "build", "--wheel", "--out-dir", temporary)
-        wheel, = Path(temporary).glob("*.whl")
+        (wheel,) = Path(temporary).glob("*.whl")
         with zipfile.ZipFile(wheel) as archive:
             missing = sorted(set(WHEEL_RESOURCES) - set(archive.namelist()))
             if missing:
-                raise ValueError(f"Desktop wheel is missing runtime resources: {missing}")
+                raise ValueError(
+                    f"Desktop wheel is missing runtime resources: {missing}"
+                )
             archive.extractall(code_root)
 
     requirements = RESOURCES / "requirements.txt"
     run(
-        "uv", "export", "--frozen", "--no-dev", "--extra", "standard",
-        "--no-emit-project", "--no-header", "--no-annotate",
-        "--output-file", str(requirements), quiet=True,
+        "uv",
+        "export",
+        "--frozen",
+        "--no-dev",
+        "--extra",
+        "standard",
+        "--no-emit-project",
+        "--no-header",
+        "--no-annotate",
+        "--output-file",
+        str(requirements),
+        quiet=True,
     )
     manifest = {
         "schema": 1,
@@ -141,11 +156,17 @@ def prepare(*, skip_web_build: bool = False) -> None:
     revision = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
     ).strip()
-    (RESOURCES / "build.json").write_text(json.dumps({
-        "version": desktop_version(project["project"]["version"]),
-        "pythonPackageVersion": project["project"]["version"],
-        "revision": revision,
-    }, indent=2) + "\n")
+    (RESOURCES / "build.json").write_text(
+        json.dumps(
+            {
+                "version": desktop_version(project["project"]["version"]),
+                "pythonPackageVersion": project["project"]["version"],
+                "revision": revision,
+            },
+            indent=2,
+        )
+        + "\n"
+    )
 
     native = json.loads((DESKTOP / "native-assets.json").read_text())
     cache = DESKTOP / "build" / "downloads"
