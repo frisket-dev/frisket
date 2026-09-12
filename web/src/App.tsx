@@ -1164,6 +1164,7 @@ function SidebarContributionBody({ contribution }: { contribution: WorkbenchReso
       return sheet ? (
         <EmbeddingsWorkbenchPanel
           apiPort={projectApi}
+          projectId={project.id}
           key={sheet.id}
           sheet={sheet}
           onSelectSheet={(sheetId) => {

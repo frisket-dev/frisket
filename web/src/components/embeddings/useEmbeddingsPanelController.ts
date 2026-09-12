@@ -149,14 +149,6 @@ function embeddingsPanelReducer(
   }
 }
 
-function defaultSelection(
-  cards: EmbeddingProvider[],
-): Pick<CreateEmbeddingIndexForm, 'provider' | 'model'> {
-  const selectable = cards.filter((card) => card.available && card.modalityCompatible);
-  const pick = selectable.find((card) => card.recommended) ?? selectable[0] ?? null;
-  return { provider: pick?.providerId ?? '', model: pick?.modelId ?? '' };
-}
-
 export function useEmbeddingsPanelController({
   apiPort,
   sheet,
@@ -228,7 +220,6 @@ export function useEmbeddingsPanelController({
       type: 'set_form',
       form: {
         ...emptyCreateEmbeddingIndexForm(sheet.columns[0]?.name),
-        ...(cards ? defaultSelection(cards) : {}),
       },
     });
   }, [apiPort, isCurrentScope, state.providers, sheet.columns]);

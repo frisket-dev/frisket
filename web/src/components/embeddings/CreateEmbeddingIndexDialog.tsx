@@ -9,12 +9,12 @@ import {
   estimateEmbeddingCost,
   type EmbeddingCostEstimate,
 } from './costEstimate';
-import { EmbeddingModelPicker } from './EmbeddingModelPicker';
+import { SelectorField } from '../../engine-selector/SelectorField';
 
 interface CreateEmbeddingIndexDialogProps {
   apiPort: Pick<EmbeddingApiPort, 'getSheetData'>;
+  projectId?: string;
   sheet: SheetMeta;
-  providers: EmbeddingProvider[] | null;
   form: CreateEmbeddingIndexForm;
   selectedCard: EmbeddingProvider | null;
   remoteSelected: boolean;
@@ -97,8 +97,8 @@ function refreshPolicyLabel(
 
 export function CreateEmbeddingIndexDialog({
   apiPort,
+  projectId,
   sheet,
-  providers,
   form,
   selectedCard,
   remoteSelected,
@@ -259,12 +259,40 @@ export function CreateEmbeddingIndexDialog({
           <div className="embeddings-create-panel" data-testid="embedding-create-panel-source">
             <div>
               <span className="form-label">Provider / model</span>
-              <EmbeddingModelPicker
-                models={providers ?? []}
-                provider={form.provider}
-                model={form.model}
-                onSelect={onModelSelect}
+              <SelectorField
+                projectId={projectId}
+                label="Provider / model"
+                query={{
+                  schema_version: 'frisket.selector_choices_query.v1',
+                  subject: {
+                    kind: 'embedding',
+                    ...(form.provider ? { provider: form.provider } : {}),
+                    ...(form.model ? { model: form.model } : {}),
+                    modality: 'text',
+                    source_column_type: columns.find((column) => form.sourceColumns.includes(column.name))?.type,
+                  },
+                }}
+                queryKey={`embedding:${form.provider}:${form.model}:${form.sourceColumns.join(',')}`}
+                recentNamespace={`${projectId ?? 'none'}:embedding`}
+                onSelect={(choice) => {
+                  if (choice.authored_selection.kind === 'embedding') {
+                    onModelSelect(choice.authored_selection.provider, choice.authored_selection.model);
+                  }
+                }}
               />
+              {form.provider && (
+                <label className="form-label" htmlFor="embedding-model-custom-input">
+                  Custom model ID
+                  <input
+                    id="embedding-model-custom-input"
+                    className="form-input"
+                    data-testid="embedding-model-custom-input"
+                    placeholder="Provider-specific embedding model ID"
+                    value={selectedCard ? '' : form.model}
+                    onChange={(event) => onModelSelect(form.provider, event.target.value)}
+                  />
+                </label>
+              )}
             </div>
 
             <div>
