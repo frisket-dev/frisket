@@ -30,8 +30,17 @@ from frisket.execution.definitions import (
     parakeet_runtime_present,
 )
 from frisket.execution.provider import ExecutionComposition
-from frisket.execution.resolve_for_action import authored_options
-from frisket.execution.resolver import Refusal, preferred_static_choice
+from frisket.execution.resolve_for_action import (
+    _resolve_geocode_engine,
+    authored_options,
+)
+from frisket.execution.resolver import (
+    Refusal,
+    ResolutionRequest,
+    preferred_static_choice,
+    resolve,
+)
+from frisket.execution.targets import CAPABILITY_GEOCODE
 from frisket.server.action_catalog_hints import (
     project_action_catalog_payload_with_launcher_hints,
 )
@@ -265,6 +274,17 @@ class SelectorChoiceService:
                 params=subject.params,
                 capabilities=capabilities,
             )
+            if subject.action_id == "enrich.geocode":
+                choices.insert(
+                    0,
+                    self._geocode_auto_choice(
+                        project=project,
+                        composition=composition,
+                        engines=engines,
+                        params=subject.params,
+                        capabilities=capabilities,
+                    ),
+                )
             current_engine = subject.params.get(subject.field)
             current_model = subject.params.get("model") if has_model_field else None
             current_selection = _engine_selection(
@@ -561,6 +581,83 @@ class SelectorChoiceService:
                     )
                 )
         return choices
+
+    def _geocode_auto_choice(
+        self,
+        *,
+        project: Any,
+        composition: ExecutionComposition,
+        engines: list[dict[str, Any]],
+        params: Mapping[str, Any],
+        capabilities: SelectorCapabilities,
+    ) -> dict[str, Any]:
+        # The authored sentinel is not a concrete roster engine. Resolve its
+        # credential-dependent engine exactly as execution does, then retain
+        # the sentinel in the authored selection.
+        engine_id = _resolve_geocode_engine(
+            {"engine": "auto"},
+            project,
+            credential_context=composition.credential_use_context,
+        )
+        engine = next((row for row in engines if row.get("id") == engine_id), {})
+        outcome = resolve(
+            ResolutionRequest(
+                engine=engine_id,
+                options=authored_options(params, CAPABILITY_GEOCODE),
+                capability=CAPABILITY_GEOCODE,
+            ),
+            composition.provider_for_resolution(),
+            composition.facts,
+        )
+        refusal = outcome if isinstance(outcome, Refusal) else None
+        target = (
+            next(
+                (
+                    row
+                    for row in composition.resolution_targets()
+                    if row.id == refusal.target_id
+                ),
+                None,
+            )
+            if refusal is not None
+            else outcome.target
+        )
+        policy_forbidden = _network_off(project) and engine.get("tier") == "hosted"
+        ready = refusal is None and not policy_forbidden
+        destination = _engine_destination(engine, target)
+        return _choice(
+            selection={"kind": "engine", "engine": "auto"},
+            label="Auto",
+            summary=f"{engine.get('label') or engine_id} · {destination['label']}",
+            description="Uses OpenCage when a scoped key is available, otherwise Nominatim.",
+            model_card_url=_optional_str(engine.get("model_card_url")),
+            resolved_target={
+                "target_id": target.id,
+                "operator": target.operator,
+                "egress_class": target.egress_class,
+            }
+            if target is not None
+            else None,
+            processing_destination=destination,
+            facts=_engine_facts(engine, target),
+            status="ready" if ready else "unavailable",
+            can_author=capabilities.may_author_actions and ready,
+            can_run=capabilities.may_run_actions and ready,
+            blocker={
+                "code": "project_network_off",
+                "message": "This project's network setting is off.",
+                "field": None,
+            }
+            if policy_forbidden
+            else {
+                "code": refusal.family,
+                "message": refusal.remedy,
+                "field": None,
+            }
+            if refusal is not None
+            else None,
+            setup=None,
+        )
 
     def _engine_choices(
         self,

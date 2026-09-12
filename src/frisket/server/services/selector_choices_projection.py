@@ -326,6 +326,22 @@ def _engine_facts(engine: Mapping[str, Any], target: Any) -> list[dict[str, Any]
     facts: list[dict[str, Any]] = []
     if target is not None and target.operator:
         facts.append({"kind": "text", "label": "Operator", "value": target.operator})
+    license_hint = _mapping(engine.get("license"))
+    license_parts = [
+        value
+        for key in ("name", "note")
+        if isinstance(value := license_hint.get(key), str) and value
+    ]
+    if license_parts:
+        facts.append(
+            {
+                "kind": "text",
+                "label": "Restrictive license"
+                if license_hint.get("restricted")
+                else "License",
+                "value": ": ".join(license_parts),
+            }
+        )
     language = _mapping(engine.get("language"))
     labels = [
         str(row["label"])

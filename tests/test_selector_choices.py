@@ -994,3 +994,161 @@ def test_viewer_setup_read_projects_terminal_operation_without_store_writes(
     assert terminal.error_code == (
         "enqueue_failed" if failure == "stale_jobless" else "worker_failed"
     )
+
+
+@pytest.mark.parametrize("configured", [False, True])
+@pytest.mark.parametrize("explicit", [False, True])
+def test_geocode_auto_keeps_authored_default_and_resolves_own_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, configured: bool, explicit: bool
+) -> None:
+    from frisket.execution.definitions import NOMINATIM_TARGET_ID, OPENCAGE_TARGET_ID
+
+    if configured:
+        monkeypatch.setenv("OPENCAGE_API_KEY", "geocode-test-key")
+    else:
+        monkeypatch.delenv("OPENCAGE_API_KEY", raising=False)
+    client, _workspace, project_id = _app(
+        tmp_path / "geocode",
+        capabilities_for=lambda _request, _pid: SelectorCapabilities(
+            may_author_actions=True, may_run_actions=True
+        ),
+    )
+    response = client.post(
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query(
+            {
+                "kind": "action",
+                "action_id": "enrich.geocode",
+                "field": "engine",
+                "params": {"engine": "auto"} if explicit else {},
+            }
+        ),
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    selected = next(choice for choice in _choices(payload) if choice["is_default"])
+    assert selected["authored_selection"] == {"kind": "engine", "engine": "auto"}
+    assert selected["is_current"] is explicit
+    assert payload["orphaned_current"] is None
+    assert selected["status"] == "ready"
+    assert selected["can_run"] is True
+    assert selected["resolved_target"]["target_id"] == (
+        OPENCAGE_TARGET_ID if configured else NOMINATIM_TARGET_ID
+    )
+    assert "geocode-test-key" not in response.text
+
+
+@pytest.mark.parametrize(
+    "scoped_key,provider_key,expected_engine,ready",
+    [
+        (False, True, "nominatim", True),
+        (True, True, "opencage", True),
+        (True, False, "opencage", False),
+    ],
+)
+def test_geocode_auto_uses_scoped_owner_without_ready_alternative_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    scoped_key: bool,
+    provider_key: bool,
+    expected_engine: str,
+    ready: bool,
+) -> None:
+    from dataclasses import replace
+
+    from frisket.credentials import ResolvedCredential
+    from frisket.execution.credential_use import CredentialUseContext
+    from frisket.execution.definitions import (
+        NOMINATIM_TARGET_ID,
+        OPENCAGE_TARGET_ID,
+        StaticExecutionTargetProvider,
+    )
+
+    monkeypatch.setenv("OPENCAGE_API_KEY", "ambient-must-not-select-auto")
+    client, workspace, project_id = _app(
+        tmp_path / "scoped",
+        capabilities_for=lambda _request, _pid: SelectorCapabilities(
+            may_author_actions=True, may_run_actions=True
+        ),
+    )
+    project = workspace.get(project_id)
+    router = workspace.action_execution_router_for(project)
+    composition = workspace.execution_composition_for(
+        project, router, workspace.edition_execution_composition_context_for()
+    )
+
+    class ScopedResolver:
+        def resolve_action_credential(self, _project, name):
+            assert name == "OPENCAGE_API_KEY"
+            return (
+                ResolvedCredential("scoped-geocode-key", "project_key")
+                if scoped_key
+                else None
+            )
+
+    composition = replace(
+        composition,
+        credential_use_context=CredentialUseContext(
+            cost_posture=composition.credential_use_context.cost_posture,
+            credential_resolver=ScopedResolver(),
+        ),
+        provider=StaticExecutionTargetProvider(
+            env={"OPENCAGE_API_KEY": "scoped-geocode-key"} if provider_key else {},
+            router=router,
+        ),
+    )
+    monkeypatch.setattr(
+        workspace, "execution_composition_for", lambda *_args: composition
+    )
+    response = client.post(
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query(
+            {
+                "kind": "action",
+                "action_id": "enrich.geocode",
+                "field": "engine",
+                "params": {"engine": "auto"},
+            }
+        ),
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    selected = next(choice for choice in _choices(payload) if choice["is_current"])
+    assert payload["orphaned_current"] is None
+    assert selected["authored_selection"] == {"kind": "engine", "engine": "auto"}
+    assert selected["resolved_target"]["target_id"] == (
+        OPENCAGE_TARGET_ID if expected_engine == "opencage" else NOMINATIM_TARGET_ID
+    )
+    assert selected["can_run"] is ready
+    assert selected["status"] == ("ready" if ready else "unavailable")
+    if not ready:
+        assert selected["blocker"]["code"] == "no_live_target"
+        assert selected["can_author"] is False
+    assert "ambient-must-not-select-auto" not in response.text
+    assert "scoped-geocode-key" not in response.text
+
+
+def test_chandra_selector_preserves_owned_restrictive_license(tmp_path: Path) -> None:
+    client, _workspace, project_id = _app(tmp_path / "license")
+    response = client.post(
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query(
+            {
+                "kind": "action",
+                "action_id": "media.to_markdown",
+                "field": "engine",
+                "params": {},
+            }
+        ),
+    )
+    assert response.status_code == 200, response.text
+    chandra = next(
+        choice
+        for choice in _choices(response.json())
+        if choice["authored_selection"] == {"kind": "engine", "engine": "chandra"}
+    )
+    assert {
+        "kind": "text",
+        "label": "Restrictive license",
+        "value": "Modified OpenRAIL-M (Datalab): Free under $2M revenue/funding; use must not compete with Datalab products.",
+    } in chandra["facts"]
