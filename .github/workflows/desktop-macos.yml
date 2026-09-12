@@ -25,6 +25,8 @@ jobs:
     timeout-minutes: 60
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      # This job has no signing secrets; explicitly permit the ad-hoc PR build.
+      CSC_FOR_PULL_REQUEST: 'true'
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
