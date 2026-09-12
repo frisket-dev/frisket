@@ -91,6 +91,20 @@ def test_same_engine_resolves_local_or_gateway_from_options(monkeypatch, tmp_pat
     assert hosted.support.options.diarization_mode == "optional"
 
 
+def test_omitted_transcribe_engine_defaults_to_local_parakeet(monkeypatch, tmp_path):
+    _activate_both(monkeypatch, tmp_path)
+
+    params = TranscribeParams.model_validate({"source": "media"})
+    result = _resolve(params.engine.root)
+
+    assert params.engine.root == transcribe_engines.DEFAULT_ENGINE == "parakeet-tdt"
+    assert isinstance(result, Resolution)
+    assert result.facts.engine == "parakeet-tdt"
+    assert result.facts.egress_class == "none"
+    assert result.target.id == "local-onnx"
+    assert result.support.transport == "local"
+
+
 def test_diarize_authoring_is_valid_on_the_union():
     params = TranscribeParams.model_validate(
         {

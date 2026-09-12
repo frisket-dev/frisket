@@ -13,6 +13,7 @@ from frisket.engine._workers.parakeet_artifacts import (
     ParakeetArtifactUnavailable,
     ParakeetArtifacts,
 )
+from frisket.engine._workers.parakeet_model import MODEL
 from frisket.engine.sandbox.shim import (
     SandboxProcessCancelledError,
     SandboxTeardownError,
@@ -44,7 +45,7 @@ def _thread_config(**overrides: Any) -> dict[str, Any]:
 def _ready(**overrides: Any) -> bytes:
     values = {
         "engine": "parakeet",
-        "model": "nemo-parakeet-tdt-0.6b-v2",
+        "model": MODEL,
         "onnx_threads": _thread_config(),
     }
     values.update(overrides)
@@ -59,7 +60,7 @@ def _success(request_id: str, text: str = "hello") -> bytes:
         data={
             "text": text,
             "segments": [{"start": 0.0, "end": 0.5, "text": text}],
-            "language": "en",
+            "language": None,
         },
     )
 

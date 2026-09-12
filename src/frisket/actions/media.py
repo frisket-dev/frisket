@@ -32,7 +32,7 @@ class TranscribeParams(TranscriptionOptions):
     source: AudioColumn = Field(
         description="Choose an audio or video column. Import or download the media first."
     )
-    engine: EngineRef[Transcriber] = EngineRef[Transcriber]("faster_whisper")
+    engine: EngineRef[Transcriber] = EngineRef[Transcriber]("parakeet-tdt")
 
     @model_validator(mode="after")
     def _validate_options(self):

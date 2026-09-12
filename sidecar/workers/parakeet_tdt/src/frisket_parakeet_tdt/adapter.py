@@ -46,7 +46,7 @@ ASR_FILES = (
 VAD_FILES = ("config.json", "silero_vad.onnx")
 
 _MODEL_ROOT_ENV = "FRISKET_PARAKEET_TDT_MODEL_ROOT"
-_ONNX_MODEL_NAME = "nemo-parakeet-tdt-0.6b-v2"
+_ONNX_MODEL_NAME = "nemo-parakeet-tdt-0.6b-v3"
 _VAD_MODEL_NAME = "silero"
 _SAMPLE_RATE = 16_000
 _MAX_SPEAKERS = 4
@@ -448,7 +448,9 @@ class ParakeetTdtAdapter:
             engine=ENGINE,
             text=text,
             segments=result_segments,
-            language="en" if text else None,
+            # v3 performs its own language selection but the ONNX result has
+            # no detected-language field. Keep provenance honest.
+            language=None,
             duration=duration,
             model_ids=list(DESCRIPTOR.model_ids),
             revision=REVISION,

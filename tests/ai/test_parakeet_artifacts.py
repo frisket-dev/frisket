@@ -13,6 +13,31 @@ from frisket.engine._workers import parakeet_artifacts as artifacts
 from frisket.engine.sandbox.shim import SandboxResult, SandboxTeardownError
 
 
+def test_v3_int8_pin_is_shared_by_runtime_and_manifest() -> None:
+    from frisket.ai.models import artifact_manifest
+
+    artifact = artifact_manifest.parakeet_model_artifact()
+
+    assert artifacts.PARAKEET_MODEL_REPO == "istupakov/parakeet-tdt-0.6b-v3-onnx"
+    assert artifacts.PARAKEET_MODEL == "nemo-parakeet-tdt-0.6b-v3"
+    assert (
+        artifacts.PARAKEET_MODEL_REVISION == "8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce"
+    )
+    assert artifacts.PARAKEET_MODEL_FILES == (
+        "config.json",
+        "vocab.txt",
+        "encoder-model.int8.onnx",
+        "decoder_joint-model.int8.onnx",
+    )
+    assert artifact is not None
+    assert artifact.display_name == "Parakeet TDT 0.6B v3 (ONNX, int8)"
+    assert artifact.license == "CC-BY-4.0"
+    assert artifact.hf_snapshot is not None
+    assert artifact.hf_snapshot.repo_id == artifacts.PARAKEET_MODEL_REPO
+    assert artifact.hf_snapshot.revision == artifacts.PARAKEET_MODEL_REVISION
+    assert artifact.hf_snapshot.files == artifacts.PARAKEET_MODEL_FILES
+
+
 def _snapshot(
     cache: Path,
     *,

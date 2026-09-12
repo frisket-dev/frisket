@@ -90,10 +90,11 @@ def test_canonicalize_languages_keeps_mixed_auto_for_loud_rejection():
 
 
 def test_transcribe_engine_declarations_match_real_capability():
-    # parakeet-tdt: English-only, no detection (`fixed` mode)
+    # v3 chooses a supported language automatically but exposes neither a
+    # caller override nor a detected-language result on this API.
     decl = transcribe_language_declaration("parakeet-tdt")
-    assert decl.mode == "fixed"
-    assert decl.fixed_language == "en"
+    assert decl.mode == "auto_only"
+    assert decl.fixed_language is None
     assert decl.detects is False
     assert decl.choices is None
     # whisper family: single-language hint or auto, reports detection
@@ -259,7 +260,7 @@ def test_recipe_engines_emit_language_and_diarization(monkeypatch):
     assert set(turbo_targets) == {"models-gateway"}
     assert turbo_targets["models-gateway"]["available"] is False
     assert engines["faster_whisper"]["available"] is True
-    assert engines["parakeet-tdt"]["language"]["mode"] == "fixed"
+    assert engines["parakeet-tdt"]["language"]["mode"] == "auto_only"
     assert engines["parakeet-tdt"]["language"]["detects"] is False
     assert engines["faster_whisper"]["language"]["mode"] == "single"
     assert engines["faster_whisper"]["language"]["detects"] is True
@@ -506,7 +507,7 @@ def test_parakeet_gateway_requires_v1_contract_advertisement():
         "route": "/v1/transcribe",
         "name": "parakeet-tdt",
         "available": True,
-        "models": ["istupakov/parakeet-tdt-0.6b-v2-onnx"],
+        "models": ["istupakov/parakeet-tdt-0.6b-v3-onnx"],
         "contract_versions": ["frisket.transcription.v1"],
     }
     engines = {
@@ -520,7 +521,7 @@ def test_parakeet_gateway_requires_v1_contract_advertisement():
         target["target"]: target for target in engines["parakeet-tdt"]["targets"]
     }["models-gateway"]
     assert gateway["available"] is True
-    assert gateway["models"] == ["istupakov/parakeet-tdt-0.6b-v2-onnx"]
+    assert gateway["models"] == ["istupakov/parakeet-tdt-0.6b-v3-onnx"]
 
 
 def test_moss_v1_advertisement_wins_regardless_of_duplicate_order():
@@ -630,7 +631,14 @@ def test_language_declaration_survives_catalog_projection():
     payload = action_catalog_payload_with_launcher_hints({})
     entry = next(a for a in payload["actions"] if a["kind"] == "media.transcribe")
     engines = {e["id"]: e for e in entry["ui_hints"]["engines"]}
-    assert engines["parakeet-tdt"]["language"]["fixed_language"] == "en"
+    assert engines["parakeet-tdt"]["language"] == {
+        "mode": "auto_only",
+        "default": "auto",
+        "detects": False,
+        "allows_auto": True,
+        "choices": None,
+        "fixed_language": None,
+    }
     assert engines["faster_whisper"]["language"]["detects"] is True
 
 
@@ -680,26 +688,23 @@ def test_single_engine_rejects_unknown_code():
     ).language == ["fr"]
 
 
-def test_fixed_engine_canonicalizes_to_auto_and_rejects_others():
-    # The fixed code and auto both omit the unsupported language hint from
-    # actual dispatch options; another language remains a loud error.
+def test_auto_only_engine_canonicalizes_auto_and_rejects_overrides():
+    # Auto omits the unsupported caller language hint from actual dispatch;
+    # an explicit language remains a loud error.
     assert "language" not in _normalized(engine="parakeet-tdt", language=[])
-    assert "language" not in _normalized(engine="parakeet-tdt", language=["en"])
-    with pytest.raises(ValidationError) as exc:
-        TranscribeParams.model_validate(_params(engine="parakeet-tdt", language=["es"]))
-    assert "invalid_language_selection" in str(exc.value)
+    assert "language" not in _normalized(engine="parakeet-tdt", language=["auto"])
+    for language in (["en"], ["es"]):
+        with pytest.raises(ValidationError, match="invalid_language_selection"):
+            TranscribeParams.model_validate(
+                _params(engine="parakeet-tdt", language=language)
+            )
 
 
-def test_fixed_engine_absent_and_fixed_code_normalize_identically():
+def test_auto_only_engine_absent_and_auto_normalize_identically():
     def options(**overrides):
         return _normalized(engine="parakeet-tdt", **overrides)
 
-    assert (
-        options()
-        == options(language=["en"])
-        == options(language=["auto"])
-        == options(language=[])
-    )
+    assert options() == options(language=["auto"]) == options(language=[])
 
 
 def test_unsupported_knobs_fail_closed_on_every_engine():

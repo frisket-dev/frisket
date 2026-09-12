@@ -8,8 +8,8 @@ both can share these five values without either pulling in the other's
 dependencies.
 """
 
-MODEL = "nemo-parakeet-tdt-0.6b-v2"
-MODEL_REVISION = "0bbb45a3365852604aef28b538a8f066f4ccaa85"
+MODEL = "nemo-parakeet-tdt-0.6b-v3"
+MODEL_REVISION = "8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce"
 VAD_REVISION = "b3e3ee3cce4c11ceb63b1a0b229d916069c1ddf6"
 MODEL_FILES = (
     "config.json",

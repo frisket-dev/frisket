@@ -72,7 +72,7 @@ def test_transcription_omitted_vad_never_materializes(engine):
         ),
         ("whisper-turbo", {"vad": True}, {"vad": True}),
         ("parakeet-tdt", {}, {"diarize": False}),
-        ("parakeet-tdt", {"diarize": True, "language": ["en"]}, {"diarize": True}),
+        ("parakeet-tdt", {"diarize": True, "language": ["auto"]}, {"diarize": True}),
         ("moss", {"context": " Frisket "}, {"context": "Frisket"}),
         ("vibevoice-asr", {}, {}),
         (MAI, {}, {"diarize": True, "clean": False}),
