@@ -6,6 +6,87 @@ import {
   type SelectorGroupFixture,
 } from './selectorChoicesFixture';
 
+test('an open native selector retries a failed draft refresh in its dialog', async ({ page }) => {
+  const pid = await createProject(page.request, uniqueName('e2e-selector-retry'));
+  await importCsv(page.request, pid, 'stories.csv', 'headline,alternate\n"Transit service expanded","Transit service paused"\n');
+  let failRefresh = false;
+  let requests = 0;
+  await page.route(`**/api/projects/${pid}/selector-choices`, async (route) => {
+    const body = route.request().postDataJSON() as {
+      subject?: { kind?: string; action_id?: string; field?: string };
+    };
+    if (body.subject?.kind !== 'action'
+      || body.subject.action_id !== 'map.classify'
+      || body.subject.field !== 'engine') {
+      await route.fallback();
+      return;
+    }
+    requests += 1;
+    if (failRefresh) {
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'temporary selector outage' }),
+      });
+      return;
+    }
+    const response = actionSelectorResponse({
+      projectId: pid,
+      actionId: 'map.classify',
+      field: 'engine',
+      currentChoiceId: 'local-semantic',
+      groups: [{
+        id: 'local',
+        label: 'Local',
+        choices: [{
+          choiceId: 'local-semantic',
+          label: 'Local semantic',
+          summary: 'Runs on this computer',
+          authoredSelection: { kind: 'engine', engine: 'local_semantic' },
+        }],
+      }],
+    });
+    response.depends_on = ['engine', 'model', 'context'];
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(response),
+    });
+  });
+
+  await page.goto(`/p/${pid}`);
+  await openAction(page, 'map.classify');
+  const trigger = page.getByTestId('field-engine').locator('.engine-selector__trigger');
+  await expect(trigger).toContainText('Local semantic');
+  await trigger.click();
+  const dialog = page.getByTestId('engine-selector-dialog');
+  await expect(dialog).toBeVisible();
+
+  failRefresh = true;
+  // A native dialog makes the underlying form inert to pointer input. Dispatch
+  // the form's normal bubbling input event to model the draft refresh that can
+  // arrive while this dialog is already open.
+  await page.getByTestId('field-context').evaluate((element, value) => {
+    const setValue = Object.getOwnPropertyDescriptor(
+      element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype,
+      'value',
+    )?.set;
+    setValue?.call(element, value);
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+  }, 'refresh while selector is open');
+  const retry = dialog.getByRole('button', { name: 'Retry' });
+  await expect(dialog.getByRole('alert')).toContainText('Could not refresh choices.');
+  await expect(retry).toBeVisible();
+  await expect(retry).toBeEnabled();
+
+  failRefresh = false;
+  await retry.click();
+  await expect.poll(() => requests).toBeGreaterThanOrEqual(3);
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('alert')).toHaveCount(0);
+  await expect(dialog.locator('[data-engine-selector-choice="local-semantic"]')).toBeVisible();
+});
+
 test('classify uses a full-screen mobile selector with provider tabs and scrollable choices', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const pid = await createProject(page.request, uniqueName('e2e-classify-runner'));
