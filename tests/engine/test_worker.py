@@ -6,7 +6,6 @@ tests/test_job_queue.py, so the worker tests run on SQLite."""
 
 import functools
 import subprocess
-import sys
 import threading
 from typing import Any
 
@@ -1152,11 +1151,10 @@ class TestCli:
         from frisket import cli
 
         argv = cli._worker_argv(tmp_path)
-        assert argv[:3] == [sys.executable, "-m", "frisket.cli"]
-        assert argv[3:] == ["worker", str(tmp_path)]
+        assert argv[3:] == ["cli-worker", str(tmp_path)]
         # and the module really is runnable that way (serve relies on it)
         out = subprocess.run(
-            [sys.executable, "-m", "frisket.cli", "worker", "--help"],
+            [*argv[:-1], "--help"],
             capture_output=True,
             text=True,
             timeout=60,

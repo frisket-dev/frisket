@@ -133,7 +133,7 @@ def test_server_initializes_app_before_shared_queue_worker_and_exits_on_child_de
     import uvicorn
 
     monkeypatch.setattr(team_app, "create_team_app_from_env", fake_app)
-    monkeypatch.setattr(cli.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(cli, "spawn_service", fake_popen)
     monkeypatch.setattr(uvicorn, "Config", FakeConfig)
     monkeypatch.setattr(uvicorn, "Server", FakeServer)
     monkeypatch.setattr(cli, "_stop_server_worker", lambda proc: events.append("stop"))
@@ -180,7 +180,7 @@ def test_server_stops_spawned_worker_if_http_configuration_fails(tmp_path, monke
     import uvicorn
 
     monkeypatch.setattr(team_app, "create_team_app_from_env", lambda: app)
-    monkeypatch.setattr(cli.subprocess, "Popen", lambda _argv: proc)
+    monkeypatch.setattr(cli, "spawn_service", lambda _argv: proc)
     monkeypatch.setattr(
         uvicorn,
         "Config",

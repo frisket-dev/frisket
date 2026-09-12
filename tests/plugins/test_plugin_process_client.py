@@ -129,8 +129,8 @@ def test_client_entry_points_have_no_project_or_database_handle_types() -> None:
         assert not any(re.search(pattern, rendered) for pattern in forbidden), rendered
 
 
-def test_env_allowlist_and_extra_env_are_forwarded_exactly() -> None:
-    captured: list[tuple[list[str], dict[str, str], dict[str, str]]] = []
+def test_secret_values_stay_in_stdin_and_never_enter_child_environment() -> None:
+    captured: list[tuple[list[str], dict[str, str], dict[str, object]]] = []
 
     async def fake_run(
         _argv: list[str],
@@ -139,23 +139,102 @@ def test_env_allowlist_and_extra_env_are_forwarded_exactly() -> None:
         extra_env: dict[str, str],
         **_kwargs: Any,
     ) -> SandboxResult:
-        captured.append((policy.allowed_extra_env, extra_env, dict(extra_env)))
+        captured.append(
+            (
+                policy.allowed_extra_env,
+                extra_env,
+                json.loads(_kwargs["stdin_data"].decode("utf-8")),
+            )
+        )
         return _completed_action_result()
 
     client = PluginProcessClient("plugin-root", run_sandboxed_call=fake_run)
-    envs = (
-        {},
-        {"PLUGIN_TOKEN": "one"},
-        {"ZED": "last", "OPENAI_API_KEY": "caller-filtered-value", "ALPHA": "first"},
+    request = _operator_request().model_copy(
+        update={
+            "context": _operator_request().context.model_copy(
+                update={
+                    "requires_secrets": ("PLUGIN_TOKEN",),
+                    "secret_values": {"PLUGIN_TOKEN": "stdin-only-secret"},
+                }
+            )
+        }
     )
-    for env in envs:
-        client.operator(_operator_request(), env)
+    client.operator(request)
 
-    assert len(captured) == len(envs)
-    for env, (allowed, forwarded, copied) in zip(envs, captured, strict=True):
-        assert allowed == sorted(env)
-        assert forwarded is env
-        assert copied == env
+    assert captured == [
+        (
+            [],
+            {},
+            {
+                "pluginId": "example.plugin",
+                "handlerKey": "handler",
+                "operatorKind": "example.operator",
+                "modulePath": "plugin.py",
+                "target": {},
+                "params": {},
+                "value": None,
+                "context": {
+                    "projectId": "project",
+                    "pluginId": "example.plugin",
+                    "handlerKey": "handler",
+                    "operatorKind": "example.operator",
+                    "capabilities": ["operator.filter"],
+                    "requiresSecrets": ["PLUGIN_TOKEN"],
+                    "secretValues": {"PLUGIN_TOKEN": "stdin-only-secret"},
+                },
+                "rows": [],
+            },
+        )
+    ]
+
+
+def test_real_child_reads_invocation_secret_without_ambient_environment(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The managed worker receives its scoped snapshot on stdin only."""
+
+    (tmp_path / "plugin.py").write_text(
+        """
+import os
+
+from frisket.plugins.sdk import Plugin
+
+plugin = Plugin()
+
+@plugin.operator(kind="example.operator", handler_key="handler")
+def select(ctx, rows, **_kwargs):
+    if ctx.secret("DEMO_API_KEY") == "stdin-only-secret" and (
+        os.environ.get("DEMO_API_KEY") is None
+    ):
+        return [row["rowId"] for row in rows]
+    return []
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("DEMO_API_KEY", "host-ambient-secret")
+    request = rpc.OperatorRequest.model_validate(
+        {
+            "pluginId": "example.plugin",
+            "handlerKey": "handler",
+            "operatorKind": "example.operator",
+            "modulePath": "plugin.py",
+            "context": {
+                "projectId": "project",
+                "pluginId": "example.plugin",
+                "handlerKey": "handler",
+                "operatorKind": "example.operator",
+                "capabilities": ["operator.filter"],
+                "requiresSecrets": ["DEMO_API_KEY"],
+                "secretValues": {"DEMO_API_KEY": "stdin-only-secret"},
+            },
+            "rows": [{"rowId": 7}],
+        }
+    )
+
+    response = PluginProcessClient(tmp_path).operator(request)
+
+    assert response.plan is not None
+    assert response.plan.row_ids == [7]
 
 
 def test_streams_are_iterators_and_worker_failures_are_structured() -> None:
@@ -188,7 +267,7 @@ def test_streams_are_iterators_and_worker_failures_are_structured() -> None:
         "plugin-root",
         run_sandboxed_stdout_lines_call=fake_lines,
     )
-    frames = client.projection(_projection_request(), {})
+    frames = client.projection(_projection_request())
     assert isinstance(frames, Iterator)
     assert list(frames) == [rpc.ProjectionDoneFrame(type="done")]
     assert calls == 1
@@ -204,7 +283,7 @@ def test_streams_are_iterators_and_worker_failures_are_structured() -> None:
         run_sandboxed_stdout_lines_call=worker_exception,
     )
     with pytest.raises(PluginProcessError) as worker_error:
-        list(worker_error_client.projection(_projection_request(), {}))
+        list(worker_error_client.projection(_projection_request()))
     assert worker_error.value.failure.code == "plugin_subprocess_failed"
     assert isinstance(worker_error.value.__cause__, RuntimeError)
     assert str(worker_error.value.__cause__) == "sandbox worker diagnostic"
@@ -221,14 +300,14 @@ def test_cancelled_sandbox_result_preserves_action_cancellation() -> None:
 
     single = PluginProcessClient("plugin-root", run_sandboxed_call=cancelled)
     with pytest.raises(PluginProcessError) as single_error:
-        single.operator(_operator_request(), {})
+        single.operator(_operator_request())
     assert single_error.value.failure.code == "action_cancelled"
 
     streamed = PluginProcessClient(
         "plugin-root", run_sandboxed_stdout_lines_call=cancelled
     )
     with pytest.raises(PluginProcessError) as stream_error:
-        list(streamed.importer(_importer_request(), {}))
+        list(streamed.importer(_importer_request()))
     assert stream_error.value.failure.code == "action_cancelled"
 
 
@@ -286,8 +365,8 @@ def test_each_invocation_spawns_once_and_serializes_typed_rate_limit() -> None:
         )
 
     client = PluginProcessClient("plugin-root", run_sandboxed_call=fake_run)
-    first = client.operator(_operator_request(), {})
-    second = client.operator(_operator_request(), {})
+    first = client.operator(_operator_request())
+    second = client.operator(_operator_request())
 
     assert calls == 2
     assert client.response_payload(first) == {
@@ -307,7 +386,7 @@ def test_each_invocation_spawns_once_and_serializes_typed_rate_limit() -> None:
         run_sandboxed_call=unexpected_schema,
     )
     with pytest.raises(PluginProcessError) as caught:
-        invalid_client.operator(_operator_request(), {})
+        invalid_client.operator(_operator_request())
     assert caught.value.failure.code == "plugin_subprocess_invalid_response"
 
 
@@ -318,7 +397,7 @@ def test_importer_accepts_typed_rate_limit_error_frame() -> None:
         run_sandboxed_stdout_lines_call=_streaming_result(payload),
     )
 
-    frames = list(client.importer(_importer_request(), {}))
+    frames = list(client.importer(_importer_request()))
 
     assert len(frames) == 1
     frame = frames[0]
@@ -334,7 +413,7 @@ def test_projection_accepts_typed_rate_limit_error_frame() -> None:
         run_sandboxed_stdout_lines_call=_streaming_result(payload),
     )
 
-    frames = list(client.projection(_projection_request(), {}))
+    frames = list(client.projection(_projection_request()))
 
     assert len(frames) == 1
     frame = frames[0]
@@ -355,7 +434,7 @@ def test_projection_stream_allows_output_over_legacy_total_cap() -> None:
     client = PluginProcessClient(
         "plugin-root", run_sandboxed_stdout_lines_call=frames_over_legacy_cap
     )
-    frames = list(client.projection(_projection_request(), {}))
+    frames = list(client.projection(_projection_request()))
 
     assert len(frames) == 5_002
     assert isinstance(frames[-1], rpc.ProjectionDoneFrame)
@@ -370,6 +449,6 @@ def test_streaming_error_details_forbid_retired_status_code() -> None:
     )
 
     with pytest.raises(PluginProcessError) as caught:
-        list(client.projection(_projection_request(), {}))
+        list(client.projection(_projection_request()))
 
     assert caught.value.failure.code == "plugin_subprocess_invalid_response"

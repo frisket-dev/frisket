@@ -10,8 +10,8 @@ from frisket.server.services.projects import (
     ProjectRetentionError,
 )
 from frisket.authoring.workbench.plugin_subprocess import (
-    _missing_project_plugin_env,
-    _project_plugin_env,
+    _missing_project_plugin_secrets,
+    _project_plugin_secrets,
 )
 
 
@@ -167,14 +167,14 @@ def test_project_secret_resolution_prefers_project_secret_over_org_fallback(
     project = app.state.workspace.get(pid)
     metadata = {"requires_secrets": ["TOKEN"]}
     assert (
-        _missing_project_plugin_env(
+        _missing_project_plugin_secrets(
             project,
             plugin_id="demo.plugin",
             metadata=metadata,
         )
         == []
     )
-    assert _project_plugin_env(
+    assert _project_plugin_secrets(
         project,
         plugin_id="demo.plugin",
         metadata=metadata,
@@ -200,7 +200,7 @@ def test_project_secret_resolution_prefers_project_secret_over_org_fallback(
     # own secrets and no longer reads the global project_secrets namespace, so
     # setting a core project secret does NOT leak into the plugin — it keeps
     # resolving only the org fallback it was already entitled to.
-    assert _project_plugin_env(
+    assert _project_plugin_secrets(
         project,
         plugin_id="demo.plugin",
         metadata=metadata,

@@ -21,6 +21,7 @@ import pytest
 
 import frisket.engine.sandbox.shim as sandbox_shim
 from frisket.engine.sandbox.shim import (
+    ProcessTreeController,
     SandboxProcessCancelledError,
     SandboxTeardownError,
     SandboxedProcess,
@@ -173,6 +174,29 @@ while True:
 _NO_READ_WORKER = "import time; time.sleep(300)"
 _PARENT_FRAME_LIMIT = 1024 * 1024
 _STDERR_TAIL_LIMIT = 64 * 1024
+
+
+@pytest.mark.skipif(os.name != "posix", reason="signal return codes are POSIX-only")
+@pytest.mark.parametrize("signal_name", ["SIGKILL", "SIGABRT"])
+def test_guard_signal_death_cannot_prove_sandbox_tree_cleanup(signal_name):
+    returncode = -getattr(signal, signal_name)
+    proc = type("GuardProcess", (), {"pid": 2**30, "returncode": returncode})()
+
+    assert ProcessTreeController(proc, guarded=True).tree_gone() is False
+
+
+@pytest.mark.skipif(os.name != "posix", reason="signal return codes are POSIX-only")
+def test_guard_default_term_death_proves_target_never_started():
+    proc = type("GuardProcess", (), {"pid": 2**30, "returncode": -signal.SIGTERM})()
+
+    assert ProcessTreeController(proc, guarded=True).tree_gone() is True
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX-only")
+def test_missing_guard_group_is_not_proof_before_exit_status_is_known():
+    proc = type("GuardProcess", (), {"pid": 2**30, "returncode": None})()
+
+    assert ProcessTreeController(proc, guarded=True).tree_gone() is False
 
 
 def _argv(code: str = _WORKER) -> list[str]:
@@ -614,7 +638,7 @@ def test_legacy_ownership_failure_kills_reaps_and_preserves_error(
         pass
 
     class FailingController:
-        def __init__(self, proc):
+        def __init__(self, proc, **_kwargs):
             state["proc"] = proc
             raise OwnershipFailure("fixture ownership failed")
 

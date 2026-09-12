@@ -28,7 +28,6 @@ import shutil
 import signal
 import struct
 import subprocess
-import sys
 import tempfile
 import threading
 import time
@@ -40,6 +39,10 @@ from fractions import Fraction
 from importlib.metadata import PackageNotFoundError, version as package_version
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping
+
+from frisket.runtime.supervisor import guarded_argv, stop_guard
+
+from frisket.runtime.launch import limited_argv, worker_argv
 
 if TYPE_CHECKING:
     from frisket.engine.sandbox.shim import ProcessTreeController
@@ -1137,36 +1140,13 @@ class _CommandResult:
     cancelled: bool = False
 
 
-_POSIX_LIMIT_EXEC = r"""
-import math, os, resource, sys
-cpu_seconds = max(1, int(math.ceil(float(sys.argv[1]))))
-address_space = int(sys.argv[2])
-open_files = int(sys.argv[3])
-resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds + 1))
-# Linux (the first-party packaged runtime) enforces a hard virtual-address
-# ceiling. Darwin reports finite-looking memory rlimits but rejects lowering
-# them with EINVAL/ValueError, so it retains the wall/CPU/fd/process-group
-# bounds instead of making every adapter fail before exec.
-if sys.platform != "darwin":
-    resource.setrlimit(resource.RLIMIT_AS, (address_space, address_space))
-resource.setrlimit(resource.RLIMIT_NOFILE, (open_files, open_files))
-os.execv(sys.argv[4], sys.argv[4:])
-"""
-
-
 def _resource_limited_argv(argv: list[str], *, timeout: float) -> list[str]:
-    if os.name == "nt":
-        return argv
-    return [
-        os.path.abspath(sys.executable),
-        "-I",
-        "-c",
-        _POSIX_LIMIT_EXEC,
-        str(max(1.0, float(timeout))),
-        str(MAX_ADAPTER_ADDRESS_SPACE_BYTES),
-        str(MAX_ADAPTER_OPEN_FILES),
-        *argv,
-    ]
+    return limited_argv(
+        argv,
+        cpu_seconds=max(1, int(math.ceil(float(timeout)))),
+        memory_mb=MAX_ADAPTER_ADDRESS_SPACE_BYTES // (1024 * 1024),
+        open_files=MAX_ADAPTER_OPEN_FILES,
+    )
 
 
 def _adapter_env(home: str) -> dict[str, str]:
@@ -1190,6 +1170,10 @@ def _kill_process(
     proc: subprocess.Popen[bytes], tree_controller: ProcessTreeController
 ) -> None:
     """Kill the owned tree even when its direct leader has already exited."""
+
+    if os.name == "posix":
+        stop_guard(proc)
+        return
 
     try:
         tree_controller.signal_tree(getattr(signal, "SIGKILL", signal.SIGTERM))
@@ -1228,7 +1212,7 @@ def _run_bounded(
             cancelled=True,
         )
     deadline = time.monotonic() + max(0.01, timeout)
-    supervised_argv = _resource_limited_argv(argv, timeout=timeout)
+    supervised_argv = guarded_argv(_resource_limited_argv(argv, timeout=timeout))
     with (
         tempfile.TemporaryDirectory(prefix="frisket-metadata-adapter-") as scratch,
         ExitStack() as resources,
@@ -1267,19 +1251,17 @@ def _run_bounded(
                 cpu_limit_seconds=max(1, int(math.ceil(float(timeout)))),
             )
         except BaseException as exc:
-            if os.name != "nt":
+            if os.name == "posix":
+                stop_guard(proc)
+            else:
                 try:
-                    os.killpg(proc.pid, getattr(signal, "SIGKILL", signal.SIGTERM))
-                except (OSError, ProcessLookupError):
+                    proc.kill()
+                except OSError:
                     pass
-            try:
-                proc.kill()
-            except OSError:
-                pass
-            try:
-                proc.wait(timeout=2)
-            except (OSError, subprocess.SubprocessError):
-                pass
+                try:
+                    proc.wait(timeout=2)
+                except (OSError, subprocess.SubprocessError):
+                    pass
             raise subprocess.SubprocessError(
                 "adapter process-tree ownership unavailable"
             ) from exc
@@ -3173,36 +3155,6 @@ def _ffprobe_adapter(
     )
 
 
-_PYPDF_WORKER = r"""
-import json, sys
-try:
-    import pypdf
-    from pypdf import PdfReader
-    reader = PdfReader(sys.argv[1], strict=False)
-    out = {"version": getattr(pypdf, "__version__", None), "encrypted": bool(reader.is_encrypted), "metadata": {}, "pages": [], "page_count": None}
-    try:
-        out["page_count"] = len(reader.pages)
-        for index, page in enumerate(reader.pages[:128]):
-            box = page.mediabox
-            out["pages"].append({"index": index, "width_points": round(float(box.width), 6), "height_points": round(float(box.height), 6), "rotation_degrees": int(page.get("/Rotate", 0) or 0)})
-    except Exception:
-        pass
-    try:
-        metadata = reader.metadata or {}
-        for key in ("/Title", "/Author", "/Subject", "/Creator", "/Producer", "/CreationDate", "/ModDate", "/Keywords"):
-            value = metadata.get(key)
-            if value is not None:
-                out["metadata"][key] = str(value)
-    except Exception:
-        pass
-    print(json.dumps(out, sort_keys=True, separators=(",", ":"), allow_nan=False))
-except ModuleNotFoundError:
-    print(json.dumps({"dependency_missing": True}, separators=(",", ":")))
-except Exception:
-    print(json.dumps({"parse_error": True}, separators=(",", ":")))
-"""
-
-
 def _pypdf_adapter(
     path: Path,
     *,
@@ -3225,16 +3177,7 @@ def _pypdf_adapter(
         )
     try:
         result = _run_bounded(
-            [
-                # Preserve a virtual-environment launcher path.  Resolving the
-                # symlink would select the base interpreter and silently lose
-                # the environment's installed ``pypdf`` package under ``-I``.
-                os.path.abspath(sys.executable),
-                "-I",
-                "-c",
-                _PYPDF_WORKER,
-                str(path.resolve()),
-            ],
+            worker_argv("pypdf", str(path.resolve())),
             timeout=timeout,
             cancel_event=cancel_event,
         )

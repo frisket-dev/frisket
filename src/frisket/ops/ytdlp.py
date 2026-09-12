@@ -18,9 +18,7 @@ import hashlib
 import importlib.metadata as importlib_metadata
 import os
 import re
-import signal
 import subprocess
-import sys
 import tempfile
 import time
 from collections.abc import Callable
@@ -28,6 +26,8 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from frisket.runtime.supervisor import guarded_argv, stop_guard
+
 from frisket.ops.integrations.hosted_error import HostedEngineError
 from frisket.ops.media_probe import probe_for_ingest
 from frisket.ops.ytdlp_outputs import (
@@ -43,6 +43,7 @@ from frisket.engine.store.media_blobs import (
     media_cell,
     owned_media_metadata_document,
 )
+from frisket.runtime.launch import worker_argv
 
 if TYPE_CHECKING:
     # Runtime imports of frisket.ops.* stay function-level: the ops package
@@ -621,11 +622,8 @@ def _installed_ytdlp_cli_extractor(
         # argument below can override. The media egress proxy travels only as
         # the explicit --proxy argument, which outranks any config-file value.
         proxy = request.get("proxy")
-        argv = [
-            sys.executable,
-            "-I",
-            "-m",
-            "yt_dlp",
+        argv = worker_argv(
+            "yt-dlp",
             "--ignore-config",
             *_admin_ytdlp_config_args(),
             "--no-plugin-dirs",
@@ -644,7 +642,7 @@ def _installed_ytdlp_cli_extractor(
             "%()j",
             str(work_dir / "info.json"),
             *request.get("extra_opts_cli_args", []),
-        ]
+        )
         process_group_kwargs: dict[str, Any]
         if os.name == "nt":
             process_group_kwargs = {
@@ -653,7 +651,7 @@ def _installed_ytdlp_cli_extractor(
         else:
             process_group_kwargs = {"start_new_session": True}
         proc = subprocess.Popen(  # noqa: S603
-            argv,
+            guarded_argv(argv),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -772,6 +770,9 @@ def _communicate_until_cancel_or_deadline(
 
 def _kill_process_tree(proc: subprocess.Popen[str]) -> None:
     """Best-effort termination of yt-dlp and descendants such as ffmpeg."""
+    if os.name == "posix":
+        stop_guard(proc)
+        return
     if os.name == "nt":
         try:
             completed = subprocess.run(  # noqa: S603
@@ -784,14 +785,6 @@ def _kill_process_tree(proc: subprocess.Popen[str]) -> None:
             if completed.returncode == 0:
                 return
         except (OSError, subprocess.SubprocessError):
-            pass
-    else:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-            return
-        except ProcessLookupError:
-            return
-        except OSError:
             pass
     try:
         proc.kill()

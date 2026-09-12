@@ -20,8 +20,8 @@ The postures:
                 UI warns; it must never be read as "probably fine".
 
 Derivation, not restatement: ``enforced`` is exactly "the fence hands this
-platform a prelude" (`fence.recipe_prelude`), and the unenforced platforms are
-exactly the ones the fence names in its own notes. The only local fact is
+platform a kernel policy" (`fence.bootstrap_policy`), and the unenforced
+platforms are exactly the ones the fence names in its own notes. The only local fact is
 which KIND of unenforced each is, and
 `tests/server/test_runtime_config_recipe_fence.py` goes red if the fence's set
 of unenforced platforms and this table's ever diverge.
@@ -52,6 +52,7 @@ def recipe_fence_posture() -> RecipeFencePosture:
     Fails closed: a platform neither fenced nor named by the fence reports
     ``unknown``, which every consumer must treat as "warn".
     """
-    if fence.recipe_prelude(allow_unix_sockets=False):
+    policy = fence.bootstrap_policy(audit_netwall=True, recipe=True)
+    if policy["fence"] is not None:
         return "enforced"
     return _UNENFORCED_POSTURES.get(sys.platform, "unknown")

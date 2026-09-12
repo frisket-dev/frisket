@@ -8,7 +8,6 @@ import hashlib
 import json
 import math
 import shutil
-import sys
 import tempfile
 from pathlib import Path
 
@@ -20,49 +19,13 @@ from frisket.engine.executor.blob_outputs import RowBlobOutput, RowBlobPlan
 from frisket.engine.executor.visual_cuts_read import _settle
 from frisket.engine.sandbox import fence
 from frisket.engine.sandbox.shim import SandboxPolicy, run_sandboxed
+from frisket.runtime.launch import worker_argv
 from frisket.engine.store.artifact_timeline import canonical_json_hash
 from frisket.engine.store.blob_backend import BlobNotFoundError
 from frisket.engine.store.media_blobs import MediaBlobStore
 from frisket.execution.provider import enforce_media_duration_limit
 from frisket.sdk.media import media_text_hash
 
-
-FACE_WORKER = """
-import json, math, sys
-payload = json.load(sys.stdin)
-try:
-    import cv2
-except ImportError:
-    print(json.dumps({"error": "opencv not installed"})); raise SystemExit
-# Rows already run concurrently; avoid per-worker native pools exhausting RLIMIT_AS.
-cv2.setNumThreads(1)
-img = cv2.imread(payload["path"])
-if img is None:
-    print(json.dumps({"error": "unreadable image"})); raise SystemExit
-height, width = img.shape[:2]
-detector = cv2.FaceDetectorYN.create(
-    payload["model_path"], "", (320, 320), 0.9, 0.3, 5000,
-    cv2.dnn.DNN_BACKEND_OPENCV, cv2.dnn.DNN_TARGET_CPU,
-)
-detector.setInputSize((width, height))
-_, found = detector.detect(img)
-faces = []
-for found_face in found if found is not None else ():
-    x, y, w, h = (float(value) for value in found_face[:4])
-    if not all(math.isfinite(value) for value in (x, y, w, h)) or w <= 0 or h <= 0:
-        continue
-    x0, y0 = max(0, min(width - 1, round(x))), max(0, min(height - 1, round(y)))
-    x1, y1 = max(x0 + 1, min(width, round(x + w))), max(y0 + 1, min(height, round(y + h)))
-    w, h = x1 - x0, y1 - y0
-    pad = int(0.15 * w)
-    crop_x0, crop_y0 = max(0, x0 - pad), max(0, y0 - pad)
-    crop_x1, crop_y1 = min(width, x1 + pad), min(height, y1 + pad)
-    crop_path = payload["out_dir"] + f"/face{len(faces)}.jpg"
-    if not cv2.imwrite(crop_path, img[crop_y0:crop_y1, crop_x0:crop_x1]):
-        print(json.dumps({"error": "could not write face crop"})); raise SystemExit
-    faces.append({"x": x0, "y": y0, "w": w, "h": h, "crop": crop_path})
-print(json.dumps({"faces": faces}))
-"""
 
 _YUNET_MODEL_PATH = (
     Path(__file__).resolve().parents[2]
@@ -404,7 +367,7 @@ class _BoundFaceExtractor(_BoundMediaExtractor):
             ):
                 path = str(source_path)
                 result = await self._sandbox(
-                    [sys.executable, "-c", FACE_WORKER],
+                    worker_argv("faces"),
                     policy=SandboxPolicy(
                         wall_seconds=120,
                         memory_mb=2048,

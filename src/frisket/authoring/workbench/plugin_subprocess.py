@@ -75,7 +75,7 @@ def _plugin_scoped_env_encrypted(project: Project, *, plugin_id: str) -> dict[st
     return {str(row["name"]): str(row["encrypted"]) for row in rows}
 
 
-def _project_plugin_env(
+def _project_plugin_secrets(
     project: Project,
     *,
     plugin_id: str,
@@ -84,7 +84,7 @@ def _project_plugin_env(
     required = _required_plugin_env_names(metadata)
     if not required:
         return {}
-    missing = _missing_project_plugin_env(
+    missing = _missing_project_plugin_secrets(
         project,
         plugin_id=plugin_id,
         metadata=metadata,
@@ -122,7 +122,7 @@ def _required_plugin_env_names(metadata: dict[str, Any]) -> list[str]:
     ]
 
 
-def _missing_project_plugin_env(
+def _missing_project_plugin_secrets(
     project: Project,
     *,
     plugin_id: str,

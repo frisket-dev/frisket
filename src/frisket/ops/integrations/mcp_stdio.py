@@ -6,7 +6,6 @@ import codecs
 import hashlib
 import json
 import os
-import sys
 import threading
 from collections.abc import AsyncIterator, Awaitable, Mapping
 from contextlib import AsyncExitStack, asynccontextmanager
@@ -20,6 +19,7 @@ from mcp.client.stdio import stdio_client
 from pydantic import BaseModel, ConfigDict, Field
 
 from frisket.redaction import redact_text
+from frisket.runtime.supervisor import guarded_argv
 
 
 _DEFAULT_STARTUP_TIMEOUT_SECONDS = 10.0
@@ -30,50 +30,6 @@ _DEFAULT_MAX_RESULT_BYTES = 262_144
 _DEFAULT_MAX_STDERR_CHARS = 8_192
 _MAX_TOOL_PAGES = 100
 _MAX_TOOLS = 512
-
-# The SDK remains the transport and JSON-RPC implementation.  This tiny POSIX
-# launcher only keeps the actual MCP command in a separately addressable
-# process group so descendants can be terminated when the command exits before
-# them.  stdin/stdout/stderr remain byte-for-byte inherited; no protocol is
-# interpreted here.
-_POSIX_PROCESS_SUPERVISOR = r"""
-import os
-import signal
-import subprocess
-import sys
-import time
-
-child = subprocess.Popen(sys.argv[1:], start_new_session=True)
-
-def terminate_group():
-    try:
-        os.killpg(child.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        return
-    deadline = time.monotonic() + 0.5
-    while time.monotonic() < deadline:
-        try:
-            os.killpg(child.pid, 0)
-        except ProcessLookupError:
-            return
-        time.sleep(0.01)
-    try:
-        os.killpg(child.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-
-def interrupted(signum, _frame):
-    terminate_group()
-    os._exit(128 + signum)
-
-signal.signal(signal.SIGTERM, interrupted)
-signal.signal(signal.SIGINT, interrupted)
-try:
-    returncode = child.wait()
-finally:
-    terminate_group()
-raise SystemExit(returncode)
-"""
 
 _T = TypeVar("_T")
 
@@ -600,8 +556,7 @@ def _server_parameters(config: McpStdioServerConfig) -> StdioServerParameters:
     command = config.command
     args = list(config.args)
     if os.name == "posix":
-        command = sys.executable
-        args = ["-c", _POSIX_PROCESS_SUPERVISOR, config.command, *config.args]
+        command, *args = guarded_argv([config.command, *config.args])
     return StdioServerParameters(
         command=command,
         args=args,

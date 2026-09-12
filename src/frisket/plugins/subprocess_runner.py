@@ -14,6 +14,7 @@ import traceback
 from collections.abc import Iterable
 from email.utils import parsedate_to_datetime
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, TypeVar
 
 from frisket.contracts.plugin_rpc import (
@@ -246,6 +247,8 @@ def _projection_context(request: ProjectionRequest) -> PluginProjectionContext:
         handler_key=request.handler_key,
         projection_kind=request.projection_kind,
         capabilities=context.capabilities,
+        secrets=context.requires_secrets,
+        _secret_values=MappingProxyType(dict(context.secret_values)),
     )
 
 
@@ -257,6 +260,8 @@ def _operator_context(request: OperatorRequest) -> PluginOperatorContext:
         handler_key=request.handler_key,
         operator_kind=request.operator_kind,
         capabilities=context.capabilities,
+        secrets=context.requires_secrets,
+        _secret_values=MappingProxyType(dict(context.secret_values)),
     )
 
 
@@ -270,6 +275,7 @@ def _importer_context(request: ImporterRequest) -> PluginImporterContext:
         capabilities=context.capabilities,
         diagnostics=[],
         secrets=context.requires_secrets,
+        _secret_values=MappingProxyType(dict(context.secret_values)),
     )
 
 

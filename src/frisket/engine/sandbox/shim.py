@@ -50,7 +50,7 @@ tests/engine/test_sandbox_recipe_fence.py:
 - the network. A seccomp-BPF filter refuses `socket()` for every address
   family except `AF_UNIX` (and refuses that too unless the run has a key
   broker to talk to), so `ctypes.CDLL("libc.so.6")` reaches no further than
-  the stdlib does. `PYTHON_NETWALL_BOOTSTRAP`'s audit hook stays on top of it
+  the stdlib does. `_netwall.install()`'s audit hook stays on top of it
   as defense in depth.
 - new programs and new processes, below Python: the same filter refuses
   `execve`/`execveat` outright, and refuses `clone` unless `CLONE_THREAD` is
@@ -86,7 +86,7 @@ NOT enforced:
   `~/.frisket/secrets/master.key`, the key `team/secret_box.py` uses to
   decrypt every stored provider credential.
 - the network, for a caller with neither `run_python_op` nor `confine`, off
-  Darwin. `PYTHON_NETWALL_BOOTSTRAP` installs a CPython audit hook that denies
+  Darwin. `_netwall.install()` installs a CPython audit hook that denies
   the stdlib `socket.*` and `subprocess`/`os.system`/`os.posix_spawn`/
   `os.exec`/`os.fork` events. On its own that is a Python-level wall on two
   surfaces and nothing below them: code that calls libc directly never raises
@@ -138,6 +138,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, BinaryIO
 from urllib.parse import unquote, urlsplit
+
+from frisket.runtime.supervisor import guard_exit_proves_cleanup
 
 from . import fence
 
@@ -495,9 +497,11 @@ class ProcessTreeController:
         *,
         memory_limit_bytes: int | None = None,
         cpu_limit_seconds: int | None = None,
+        guarded: bool = False,
     ) -> None:
         self.proc = proc
         self._job = None
+        self._guarded = guarded
         if os.name == "nt":
             job = _assign_windows_job(
                 proc,
@@ -543,6 +547,10 @@ class ProcessTreeController:
                 active = _job_active_processes(self._job)
                 if active is not None:
                     return active == 0
+            return False
+        # Wait for the child watcher to publish an acknowledged guardian exit,
+        # not merely for the guardian's own process group to disappear.
+        if self._guarded and not guard_exit_proves_cleanup(self.proc.returncode):
             return False
         try:
             os.killpg(pid, 0)
@@ -684,6 +692,13 @@ async def _supervise(
             timeout = remaining if timeout is None else min(timeout, remaining)
         done, _ = await asyncio.wait({task}, timeout=timeout)
         if task in done:
+            # The transparent guardian may finish descendant cleanup between
+            # polling intervals after the target root exits. Preserve the
+            # cancellation contract at that boundary: a cancellation already
+            # observable when completion is collected wins over a normal
+            # result, just as it does at the top of the loop.
+            if should_cancel is not None and should_cancel():
+                raise _Cancelled
             return task.result()
 
 
@@ -760,73 +775,6 @@ SCRUB_PREFIXES = (
 )
 
 
-PYTHON_NETWALL_BOOTSTRAP = r"""
-import os as _frisket_netwall_os
-import sys as _frisket_netwall_sys
-from urllib.parse import unquote as _frisket_netwall_unquote
-from urllib.parse import urlsplit as _frisket_netwall_urlsplit
-
-_FRISKET_NETWALL_SOCKET_EVENTS = {
-    "socket.bind",
-    "socket.connect",
-    "socket.getaddrinfo",
-    "socket.gethostbyaddr",
-    "socket.gethostbyname",
-    "socket.getnameinfo",
-    "socket.sendmsg",
-    "socket.sendto",
-}
-
-# Parse the broker endpoint once. The token is authentication; the exact
-# endpoint (a Unix path or a literal (host, port) tuple) is the network
-# allowlist -- every other socket-audit event stays denied.
-_frisket_netwall_endpoint = _frisket_netwall_os.environ.get("FRISKET_BROKER_ENDPOINT")
-_frisket_netwall_allowed_unix = None
-_frisket_netwall_allowed_tcp = None
-if _frisket_netwall_endpoint:
-    _frisket_netwall_parts = _frisket_netwall_urlsplit(_frisket_netwall_endpoint)
-    if _frisket_netwall_parts.scheme == "unix":
-        _frisket_netwall_allowed_unix = _frisket_netwall_unquote(
-            _frisket_netwall_parts.path
-        )
-    elif (
-        _frisket_netwall_parts.scheme == "tcp"
-        and _frisket_netwall_parts.hostname == "127.0.0.1"
-        and _frisket_netwall_parts.port is not None
-    ):
-        # Pinned to the literal loopback address only -- a tcp:// endpoint
-        # naming any other host (numeric or not) leaves
-        # _frisket_netwall_allowed_tcp unset below, so socket.connect stays
-        # denied for it (fail closed).
-        _frisket_netwall_allowed_tcp = ("127.0.0.1", _frisket_netwall_parts.port)
-
-def _frisket_netwall_audit(
-    event, args, socket_events=_FRISKET_NETWALL_SOCKET_EVENTS
-):
-    if event == "socket.connect":
-        address = args[1] if len(args) > 1 else None
-        if (
-            _frisket_netwall_allowed_unix is not None
-            and isinstance(address, str)
-            and address == _frisket_netwall_allowed_unix
-        ):
-            return
-        if (
-            _frisket_netwall_allowed_tcp is not None
-            and isinstance(address, tuple)
-            and address == _frisket_netwall_allowed_tcp
-        ):
-            return
-    if event in socket_events:
-        raise PermissionError("network access is disabled by the Frisket sandbox")
-    if event in {"subprocess.Popen", "os.system", "os.posix_spawn", "os.exec", "os.fork"}:
-        raise PermissionError("subprocesses are disabled by the Frisket sandbox netwall")
-
-_frisket_netwall_sys.addaudithook(_frisket_netwall_audit)
-del _frisket_netwall_audit, _frisket_netwall_sys, _FRISKET_NETWALL_SOCKET_EVENTS
-"""
-
-
 _ALWAYS_KEPT_ENV_KEYS = (
     "PATH",
     "HOME",
@@ -895,15 +843,11 @@ def _limited_exec_argv(argv: list[str], policy: SandboxPolicy) -> list[str]:
     has the same limit-before-target-exec ordering without parent-thread state.
     Windows uses its Job Object limits instead.
     """
-    if os.name == "nt":
-        return argv
-    payload = json.dumps([policy.cpu_seconds, policy.memory_mb, argv])
-    return [
-        str(Path(sys.executable).resolve()),
-        "-I",
-        str(Path(__file__).with_name("_exec_with_limits.py").resolve()),
-        payload,
-    ]
+    from frisket.runtime.launch import limited_argv
+
+    return limited_argv(
+        argv, cpu_seconds=policy.cpu_seconds, memory_mb=policy.memory_mb
+    )
 
 
 def _sbpl_string(value: str) -> str:
@@ -957,73 +901,42 @@ def _has_process_netwall(policy: SandboxPolicy) -> bool:
     )
 
 
-def _trusted_python_netwall_argv(argv: list[str], policy: SandboxPolicy) -> list[str]:
-    """Apply the shared audit netwall to one explicitly trusted Python body."""
-    if not policy.trusted_python_netwall or policy.allow_network:
-        return argv
-    is_current_python = (
-        bool(argv) and Path(argv[0]).resolve() == Path(sys.executable).resolve()
-    )
-    if len(argv) != 3 or not is_current_python or argv[1] != "-c":
-        raise ValueError(
-            "trusted Python netwall requires the current interpreter and one -c body"
-        )
-    if sys.platform == "darwin":
+def _fenced_argv(argv: list[str], policy: SandboxPolicy) -> list[str]:
+    """Attach one data-only policy to a fixed managed worker entrypoint."""
+
+    from frisket.runtime.launch import with_policy, worker_argv
+
+    audit_netwall = policy.trusted_python_netwall and not policy.allow_network
+    if audit_netwall and sys.platform == "darwin":
         if not _has_process_netwall(policy):
             raise RuntimeError("trusted Python netwall requires sandbox-exec on macOS")
-        return argv
-    return [argv[0], "-c", f"{PYTHON_NETWALL_BOOTSTRAP}\n{argv[2]}"]
-
-
-def _fenced_argv(argv: list[str], policy: SandboxPolicy) -> list[str]:
-    """The argv actually spawned: netwall wrapper first, then the fence.
-
-    Order matters and mirrors `run_python_op`: the kernel fence goes outermost
-    so that everything after it -- including the audit hook that backs it up
-    in Python -- runs already confined.
-
-    Two child shapes, one mechanism:
-
-      a Python worker (`<this interpreter> -c <body>`) gets the fence prelude
-      prepended to its body, with `execve` refused exactly as a recipe's is;
-
-      a native converter (ffmpeg, ffprobe, pdftoppm) is spawned as a Python
-      launcher that installs the fence and `execv`s into the binary, keeping
-      the pid the process supervisor already owns.
-
-    Any other shape with a confinement set is a caller error and fails closed
-    rather than running unfenced: a profile that quietly did nothing is the
-    silent degradation this whole file exists to remove.
-    """
-    argv = _trusted_python_netwall_argv(argv, policy)
+        audit_netwall = False
     profile = policy.confine
-    if profile is None:
+    if profile is None and not audit_netwall:
         return argv
-    if not argv:
-        raise ValueError("a confined sandbox child needs a command")
-    unavailable = fence.kernel_can_confine()
-    if unavailable is not None:
-        fence.warn_confinement_unavailable(profile.op, unavailable)
-        return argv
-    if profile.exec_binary is not None:
+    if profile is not None:
+        if not argv:
+            raise ValueError("a confined sandbox child needs a command")
+        unavailable = fence.kernel_can_confine()
+        if unavailable is not None:
+            fence.warn_confinement_unavailable(profile.op, unavailable)
+            profile = None
+    if profile is not None and profile.exec_binary is not None:
         if Path(argv[0]).resolve() != Path(profile.exec_binary).resolve():
             raise ValueError(
                 f"confinement declares exec_binary {profile.exec_binary!r} but "
                 f"the command runs {argv[0]!r}"
             )
-        return [
-            sys.executable,
-            "-I",
-            "-c",
-            fence.native_launcher_body(profile, argv),
-        ]
-    is_current_python = Path(argv[0]).resolve() == Path(sys.executable).resolve()
-    if len(argv) != 3 or argv[1] != "-c" or not is_current_python:
-        raise ValueError(
-            "a confined Python child must be the current interpreter with one "
-            "-c body; name the program in Confinement.exec_binary instead"
-        )
-    return [argv[0], "-c", fence.linux_confined_prelude(profile) + argv[2]]
+        argv = worker_argv("native-exec", *argv)
+    if profile is None and not audit_netwall:
+        return argv
+    return with_policy(
+        argv,
+        fence.bootstrap_policy(
+            audit_netwall=audit_netwall,
+            confinement=profile,
+        ),
+    )
 
 
 def _raise_if_fence_refused(result: SandboxResult, policy: SandboxPolicy) -> None:
@@ -1462,11 +1375,14 @@ async def _spawn_owned_process(
     before re-raising :class:`asyncio.CancelledError`.
     """
 
+    from frisket.runtime.supervisor import guarded_argv
+
+    child_argv = guarded_argv(
+        _limited_exec_argv(_darwin_netwall_argv(argv, scratch, policy, env), policy)
+    )
     spawn_task = asyncio.ensure_future(
         asyncio.create_subprocess_exec(
-            *_limited_exec_argv(
-                _darwin_netwall_argv(argv, scratch, policy, env), policy
-            ),
+            *child_argv,
             cwd=scratch,
             env=env,
             stdin=stdin,
@@ -1491,7 +1407,7 @@ async def _spawn_owned_process(
             raise asyncio.CancelledError() from exc
         raise
     try:
-        controller = ProcessTreeController(proc)
+        controller = ProcessTreeController(proc, guarded=os.name == "posix")
     except BaseException as exc:
         try:
             await _settle_unowned_process(proc)
@@ -1841,20 +1757,21 @@ async def run_python_op(
         # A broker is the ONLY thing that makes a socket creatable inside the
         # fence, and the one wall the kernel cannot hold up for us.
         fence.warn_broker_isolation_is_unenforced()
-    guarded_code = code
-    use_python_netwall = not _has_process_netwall(policy)
-    if use_python_netwall:
-        guarded_code = f"{PYTHON_NETWALL_BOOTSTRAP}\n{code}"
-    # The kernel fence goes first: everything after it, including the audit
-    # hook that backs it up in Python, runs already confined.
-    guarded_code = (
-        fence.recipe_prelude(allow_unix_sockets=bool(broker_endpoint)) + guarded_code
+    from frisket.runtime.launch import with_policy, worker_argv
+
+    recipe_argv = with_policy(
+        worker_argv("recipe"),
+        fence.bootstrap_policy(
+            audit_netwall=not _has_process_netwall(policy),
+            allow_unix_sockets=bool(broker_endpoint),
+            recipe=True,
+        ),
     )
     fence.warn_if_unenforced()
     result = await run_sandboxed(
-        [sys.executable, "-I", "-c", guarded_code],
+        recipe_argv,
         policy=policy,
-        stdin_data=json.dumps(payload).encode(),
+        stdin_data=json.dumps({"source": code, "payload": payload}).encode(),
         extra_env=extra,
     )
     if not result.ok:

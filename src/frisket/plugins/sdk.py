@@ -16,8 +16,7 @@ validation, writes, and receipts.
 from __future__ import annotations
 
 import asyncio
-import os
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -140,12 +139,14 @@ class PluginOperator:
     func: Callable[..., Any]
 
 
-def _provisioned_secret(declared: tuple[str, ...], name: str) -> str:
+def _provisioned_secret(
+    declared: tuple[str, ...], values: Mapping[str, str], name: str
+) -> str:
     """`ctx.secret` backing: distinguishes an authoring bug (the name is not
     in the manifest's `requires.secrets`, so the host never injects it) from
     a provisioning gap (declared, but no value configured for this project).
-    The host injects declared+provisioned secrets as env vars on the
-    subprocess (workbench/plugin_subprocess.py `_project_plugin_env`)."""
+    The host sends declared+provisioned values in this invocation's stdin
+    request.  They are never read from the process environment."""
     if name not in declared:
         declared_note = ", ".join(repr(item) for item in declared) or "none"
         raise PluginUserError(
@@ -153,7 +154,7 @@ def _provisioned_secret(declared: tuple[str, ...], name: str) -> str:
             f"requires.secrets (declared: {declared_note}); declare it with "
             "Plugin(secrets=[...]) and rebuild plugin.json"
         )
-    value = os.environ.get(name, "").strip()
+    value = values.get(name, "").strip()
     if not value:
         raise PluginUserError(
             f"Plugin secret {name!r} is declared in requires.secrets but no "
@@ -182,13 +183,19 @@ class _PluginHandlerContext:
     # kw-only so subclasses may add required positional fields after this
     # defaulted one; every construction site passes keywords already.
     secrets: tuple[str, ...] = field(default=(), kw_only=True)
+    _secret_values: Mapping[str, str] = field(
+        default_factory=dict,
+        kw_only=True,
+        repr=False,
+        compare=False,
+    )
 
     def secret(self, name: str) -> str:
         """Value of a manifest-declared secret the host provisioned for this
-        run (`requires.secrets` -> injected env var). Raises PluginUserError
+        run (`requires.secrets` -> stdin secret snapshot). Raises PluginUserError
         naming the manifest requirement when the secret is undeclared, or the
         provisioning gap when declared but unset."""
-        return _provisioned_secret(self.secrets, name)
+        return _provisioned_secret(self.secrets, self._secret_values, name)
 
 
 class PluginImporterError(Exception):

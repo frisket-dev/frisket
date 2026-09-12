@@ -44,16 +44,16 @@ def test_process_failure_payload_is_identical_across_contribution_types(
         def response_payload(self, response: Any) -> Any:
             return response
 
-        def importer(self, request: Any, env: Any, *, should_cancel=None) -> Any:
-            del request, env
+        def importer(self, request: Any, *, should_cancel=None) -> Any:
+            del request
             raise PluginProcessError(failure)
 
-        def operator(self, request: Any, env: Any) -> Any:
-            del request, env
+        def operator(self, request: Any) -> Any:
+            del request
             raise PluginProcessError(failure)
 
-        def projection(self, request: Any, env: Any) -> Any:
-            del request, env
+        def projection(self, request: Any) -> Any:
+            del request
             raise PluginProcessError(failure)
 
     client = FailingClient()
@@ -88,7 +88,6 @@ def test_process_failure_payload_is_identical_across_contribution_types(
                     "capabilities": ["project:write"],
                 },
             },
-            env={},
             binding=binding,
             source_label="source",
         )
@@ -110,7 +109,6 @@ def test_process_failure_payload_is_identical_across_contribution_types(
             },
             "rows": [],
         },
-        env={},
     )
     projection_response = projections._run_child_projection(
         plugin_root="plugin-root",
@@ -129,7 +127,6 @@ def test_process_failure_payload_is_identical_across_contribution_types(
             },
             "rows": [],
         },
-        env={},
     )
 
     expected = failure.as_dict()

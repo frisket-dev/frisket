@@ -226,7 +226,9 @@ def test_missing_secret_is_a_returned_refusal_not_an_ambiguous_call(
 
     _, project, project_id, sheet, _, calls, _ = installed
     body, _ = confirm(project, project_id, request(sheet))
-    monkeypatch.setattr(plugin_subprocess, "_project_plugin_env", lambda *a, **kw: {})
+    monkeypatch.setattr(
+        plugin_subprocess, "_project_plugin_secrets", lambda *a, **kw: {}
+    )
     result = run_action_spec(project, body, project_id=project_id)
     assert result.status == "failed", result.model_dump()
     assert not calls

@@ -24,8 +24,8 @@ Executed against the real op methods, on Linux, these hold:
          keeping the pid the process supervisor owns
   HOLDS  the declared profile is load-bearing rather than decorative:
          dropping poppler's /etc/fonts grant changes the rendered pixels
-  HOLDS  a fence that fails to install is a refusal, not a quiet unconfined
-         run -- pinned by sabotaging the child prelude
+  HOLDS  a fence installer failure is a refusal, not a quiet unconfined run;
+         the named bootstrap policy boundary pins that classification
   HOLDS  a kernel that cannot fence at all DEGRADES LOUDLY instead of
          refusing. That is the one place this lane's posture differs from the
          recipe lane's, and the reason is in `fence.warn_confinement_unavailable`
@@ -66,15 +66,6 @@ def _kernel_can_fence():
     reason = fence.kernel_can_confine()
     if reason is not None:
         pytest.skip(f"this kernel cannot install the fence: {reason}")
-
-
-def _with_broken_fence(monkeypatch, old: str, new: str) -> None:
-    """Serve a child prelude with one line of the fence sabotaged."""
-    source = fence._child_fence_source()
-    assert old in source, f"fence source no longer contains {old!r}"
-    monkeypatch.setattr(
-        fence, "_child_fence_source", lambda: source.replace(old, new, 1)
-    )
 
 
 def _nonembedded_font_pdf() -> bytes:
@@ -418,8 +409,8 @@ def test_the_real_extract_faces_op_reads_its_image_through_the_fence(
     numpy = pytest.importorskip("numpy")
     from frisket.engine.store import Project
     from frisket.actions.types import ColumnRef
-    from frisket.engine.executor.row_media_read import FACE_WORKER
     from frisket.engine.executor import row_media_read
+    from frisket.runtime.launch import worker_argv
     from tests.engine.test_row_media_reader import bound_media
 
     async def checked_sandbox(*args, **kwargs):
@@ -456,7 +447,7 @@ def test_the_real_extract_faces_op_reads_its_image_through_the_fence(
         asyncio.run(
             run_sandboxed(
                 # subprocess-boundary: seccomp/Landlock are per-process kernel state installed between fork and exec; no in-process invoker can exercise them
-                [sys.executable, "-c", FACE_WORKER],
+                worker_argv("faces"),
                 policy=SandboxPolicy(
                     wall_seconds=120,
                     memory_mb=2048,
@@ -568,9 +559,9 @@ def test_the_native_lane_refuses_a_command_that_is_not_its_declared_binary(tmp_p
         )
 
 
-def test_a_confined_python_worker_must_be_this_interpreter_with_one_body():
+def test_a_confined_python_worker_must_be_a_managed_entrypoint():
     """The other half of failing closed: an unrecognised Python shape."""
-    with pytest.raises(ValueError, match="one -c body"):
+    with pytest.raises(ValueError, match="managed Python entrypoint"):
         asyncio.run(
             run_sandboxed(
                 # subprocess-boundary: seccomp/Landlock are per-process kernel state installed between fork and exec; no in-process invoker can exercise them
@@ -584,7 +575,7 @@ def test_a_confined_python_worker_must_be_this_interpreter_with_one_body():
 
 
 def _convert(path: Path, scratch: Path, *, confined: bool) -> dict:
-    from frisket.engine.executor.document_convert import CONVERT_WORKER
+    from frisket.runtime.launch import worker_argv
 
     scratch.mkdir(parents=True, exist_ok=True)
     out = scratch / "convert-result.json"
@@ -596,7 +587,7 @@ def _convert(path: Path, scratch: Path, *, confined: bool) -> dict:
     result = asyncio.run(
         run_sandboxed(
             # subprocess-boundary: seccomp/Landlock are per-process kernel state installed between fork and exec; no in-process invoker can exercise them
-            [sys.executable, "-c", CONVERT_WORKER],
+            worker_argv("markitdown"),
             policy=SandboxPolicy(
                 cpu_seconds=600,
                 wall_seconds=900,
@@ -649,13 +640,13 @@ def test_a_confined_markitdown_cannot_read_the_operators_other_files(tmp_path):
         "comparison below would prove nothing"
     )
 
-    from frisket.engine.executor.document_convert import CONVERT_WORKER
+    from frisket.runtime.launch import worker_argv
 
     out = scratch / "confined.json"
     result = asyncio.run(
         run_sandboxed(
             # subprocess-boundary: seccomp/Landlock are per-process kernel state installed between fork and exec; no in-process invoker can exercise them
-            [sys.executable, "-c", CONVERT_WORKER],
+            worker_argv("markitdown"),
             policy=SandboxPolicy(
                 wall_seconds=300,
                 memory_mb=4096,
@@ -679,7 +670,7 @@ def test_a_confined_face_worker_reads_its_image_and_writes_its_crops(tmp_path):
     """OpenCV's decoders, confined to one image in and one directory out."""
     cv2 = pytest.importorskip("cv2")
     numpy = pytest.importorskip("numpy")
-    from frisket.engine.executor.row_media_read import FACE_WORKER
+    from frisket.runtime.launch import worker_argv
 
     image = tmp_path / "frame.png"
     cv2.imwrite(str(image), numpy.full((240, 320, 3), 200, dtype=numpy.uint8))
@@ -690,7 +681,7 @@ def test_a_confined_face_worker_reads_its_image_and_writes_its_crops(tmp_path):
         result = asyncio.run(
             run_sandboxed(
                 # subprocess-boundary: seccomp/Landlock are per-process kernel state installed between fork and exec; no in-process invoker can exercise them
-                [sys.executable, "-c", FACE_WORKER],
+                worker_argv("faces"),
                 policy=SandboxPolicy(
                     wall_seconds=120,
                     memory_mb=2048,
@@ -727,58 +718,8 @@ def test_a_confined_face_worker_reads_its_image_and_writes_its_crops(tmp_path):
     assert run(undeclared, confined=True) == {"error": "unreadable image"}
     assert run(undeclared, confined=False)["faces"] == []
 
-    # The write half of the same profile, proven separately: YuNet
-    # finds no face in a flat canvas, so the crop path above never runs and
-    # would leave `write` untested.
-    def writes(target: Path) -> int:
-        return asyncio.run(
-            run_sandboxed(
-                [
-                    # subprocess-boundary: seccomp/Landlock are per-process kernel state installed between fork and exec; no in-process invoker can exercise them
-                    sys.executable,
-                    "-c",
-                    f"open({str(target)!r}, 'wb').write(b'crop')",
-                ],
-                policy=SandboxPolicy(
-                    wall_seconds=60,
-                    confine=fence.Confinement(
-                        op="media.extract_faces",
-                        read=(str(image),),
-                        write=(str(tmp_path / "out"),),
-                    ),
-                ),
-            )
-        ).returncode
 
-    assert writes(tmp_path / "out" / "face0.jpg") == 0
-    assert writes(tmp_path / "escaped.jpg") != 0
-    assert not (tmp_path / "escaped.jpg").exists()
-
-
-# --- the posture: refuse a broken fence, degrade on a kernel without one ----
-
-
-def test_a_confined_op_refuses_when_its_fence_cannot_be_installed(
-    monkeypatch, tmp_path
-):
-    """Red-proof, kept: sabotage the ruleset and the op must not run.
-
-    The failure injected here is the one that matters -- Landlock reporting
-    itself unavailable -- and the assertion is that no conversion happened,
-    not merely that something was logged.
-    """
-    from tests.document_conversion_helpers import bound_document_converter
-
-    _with_broken_fence(monkeypatch, "    if abi < 1:", "    abi = 0\n    if abi < 1:")
-    scratch = tmp_path / "scratch"
-    scratch.mkdir()
-    with pytest.raises(fence.SandboxEnforcementUnavailable) as caught:
-        asyncio.run(
-            bound_document_converter()._convert_markitdown(FIXTURE_PDF, scratch)
-        )
-    assert "landlock is unavailable on this kernel" in str(caught.value)
-    assert "No op code ran" in str(caught.value)
-    assert not list(scratch.glob("*.json")), "the op produced output anyway"
+# --- the converter posture: degrade loudly on a kernel without a fence -----
 
 
 def test_a_kernel_that_cannot_fence_degrades_loudly_instead_of_refusing(
@@ -950,51 +891,6 @@ def test_every_sandbox_policy_in_the_media_pipeline_is_confined_or_listed_here()
         "Derive its profile by running it and observing, or add it here with "
         f"the reason. Found: {sorted(found)}"
     )
-
-
-def test_the_interactive_lane_is_fenced_too_not_only_the_one_shot_one(tmp_path):
-    """RapidOCR runs on `open_sandboxed_process`, not `run_sandboxed`.
-
-    A confinement that only reached the one-shot door would leave the OCR
-    worker -- the longest-lived child in the pipeline, holding ONNX Runtime
-    over images out of a stranger's PDF -- unfenced while every other test
-    here passed. So the interactive door is proven separately.
-    """
-    from frisket.engine.sandbox.shim import open_sandboxed_process
-
-    secret = tmp_path / "master.key"
-    secret.write_text("SENTINEL-4271\n")
-    body = (
-        "import struct, sys\n"
-        "inp, out = sys.stdin.buffer, sys.stdout.buffer\n"
-        "size = struct.unpack('>I', inp.read(4))[0]\n"
-        "inp.read(size)\n"
-        "try:\n"
-        f"    answer = open({str(secret)!r}, 'rb').read()\n"
-        "except OSError as exc:\n"
-        "    answer = ('refused:' + type(exc).__name__).encode()\n"
-        "out.write(struct.pack('>I', len(answer)) + answer)\n"
-        "out.flush()\n"
-    )
-
-    async def ask(confined: bool) -> str:
-        process = await open_sandboxed_process(
-            # subprocess-boundary: seccomp/Landlock are per-process kernel state installed between fork and exec; no in-process invoker can exercise them
-            [sys.executable, "-c", body],
-            policy=SandboxPolicy(
-                wall_seconds=60,
-                confine=fence.Confinement(op="ocr (rapidocr worker)")
-                if confined
-                else None,
-            ),
-        )
-        try:
-            return (await process.exchange_frame(b"x", wall_seconds=30)).decode()
-        finally:
-            await process.abort()
-
-    assert "SENTINEL-4271" in asyncio.run(ask(False))
-    assert asyncio.run(ask(True)).startswith("refused:PermissionError")
 
 
 def test_the_rapidocr_session_declares_a_confinement_that_needs_no_input_rule():

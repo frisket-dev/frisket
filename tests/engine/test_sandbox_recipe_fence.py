@@ -473,103 +473,6 @@ def test_a_recipe_that_only_computes_still_works():
     }
 
 
-# --- the refusal path ------------------------------------------------------
-#
-# Each of these breaks one fence in the child prelude and asserts the recipe
-# refuses instead of running. They are the house rule ("disable a new fence
-# once and confirm its test notices") kept permanently rather than performed
-# once: if the prover ever stops proving, these go red.
-
-
-def _with_broken_fence(monkeypatch, old: str, new: str) -> None:
-    """Serve a child prelude with one line of the fence sabotaged."""
-    source = fence._child_fence_source()
-    assert old in source, f"fence source no longer contains {old!r}"
-    monkeypatch.setattr(
-        fence, "_child_fence_source", lambda: source.replace(old, new, 1)
-    )
-
-
-def test_recipe_refuses_when_the_kernel_has_no_landlock(monkeypatch, tmp_path):
-    """Simulated old kernel: the ABI probe reports nothing. Refuse, do not run.
-
-    The recipe body would create `canary` if it ever executed. It must not
-    exist afterwards: the fence goes up before recipe code, so an unfenceable
-    kernel is a refusal and never a partial run.
-    """
-    _with_broken_fence(
-        monkeypatch,
-        "    if abi < 1:",
-        "    abi = 0\n    if abi < 1:",
-    )
-    canary = tmp_path / "recipe-ran"
-    with pytest.raises(fence.SandboxEnforcementUnavailable) as caught:
-        _run(f"import pathlib; pathlib.Path({str(canary)!r}).write_text('ran')")
-    assert "landlock is unavailable on this kernel" in str(caught.value)
-    assert "No recipe code ran" in str(caught.value)
-    assert not canary.exists()
-
-
-def test_recipe_refuses_when_seccomp_cannot_be_installed(monkeypatch, tmp_path):
-    """Simulated kernel without CONFIG_SECCOMP_FILTER: the syscall fails."""
-    _with_broken_fence(
-        monkeypatch,
-        "    if rc < 0:\n        raise _FrisketFenceUnavailable(\n"
-        '            "seccomp(SECCOMP_SET_MODE_FILTER) failed',
-        "    rc = -1\n    if rc < 0:\n        raise _FrisketFenceUnavailable(\n"
-        '            "seccomp(SECCOMP_SET_MODE_FILTER) failed',
-    )
-    canary = tmp_path / "recipe-ran"
-    with pytest.raises(fence.SandboxEnforcementUnavailable) as caught:
-        _run(f"import pathlib; pathlib.Path({str(canary)!r}).write_text('ran')")
-    assert "seccomp(SECCOMP_SET_MODE_FILTER) failed" in str(caught.value)
-    assert not canary.exists()
-
-
-def test_the_prover_notices_a_seccomp_filter_that_never_went_up(monkeypatch):
-    """Skip the seccomp install entirely; the refusal probes must catch it.
-
-    This is the red-proof for the syscall half, kept as a test. Without the
-    prover, a wrong syscall number or a silently ignored filter would leave the
-    recipe running unfenced and every other test in this file would still pass
-    for the filesystem reasons.
-    """
-    _with_broken_fence(
-        monkeypatch,
-        "    _frisket_fence_install_seccomp(allow_unix_sockets, allow_exec)",
-        "    pass",
-    )
-    with pytest.raises(fence.SandboxEnforcementUnavailable) as caught:
-        _run("print('{}')")
-    assert "socket() returned rc=" in str(caught.value)
-    assert "the syscall filter is not in force" in str(caught.value)
-
-
-@pytest.mark.parametrize("probe", ["clone", "unshare", "process_vm_readv", "execve"])
-def test_the_prover_catches_a_wrong_number_for_a_non_socket_syscall(monkeypatch, probe):
-    """A typo -- or AArch64 table drift -- must not sail past the prover.
-
-    The prover's original single AF_INET probe certified the socket number and
-    nothing else, so a wrong `execve` or `io_uring_setup` entry would have left
-    that syscall allowed with every test still green. Corrupting one number at
-    a time is the only way to show each probe is load-bearing rather than
-    decorative.
-    """
-    import importlib
-
-    child = importlib.import_module("frisket.engine.sandbox._child_fence")
-    _, _, table = child._FRISKET_FENCE_ARCH_TABLES["x86_64"]
-    _with_broken_fence(
-        monkeypatch,
-        f'"{probe}": {table[probe]},',
-        f'"{probe}": {table[probe] + 4000},',
-    )
-    with pytest.raises(fence.SandboxEnforcementUnavailable) as caught:
-        _run("print('{}')")
-    assert repr(probe) in str(caught.value)
-    assert "is wrong for this architecture" in str(caught.value)
-
-
 def test_raw_fork_is_refused_but_threads_are_not(monkeypatch):
     """`clone` splits: a new thread is allowed, a new process is not.
 
@@ -613,24 +516,37 @@ def test_raw_fork_is_refused_but_threads_are_not(monkeypatch):
     assert out["os_fork"] == "subprocesses are disabled by the Frisket sandbox netwall"
 
 
-def test_the_prover_notices_a_landlock_ruleset_that_never_went_up(monkeypatch):
-    """Skip `landlock_restrict_self`; the canary directory must catch it.
+def test_recipe_cannot_signal_its_guardian():
+    """The kernel denies both Python and ctypes same-uid signal paths.
 
-    The ruleset is built and populated exactly as normal -- only the call that
-    makes it take effect is dropped, which is the failure mode a wrong flag or
-    a kernel regression would produce.
+    If this regresses, the target can only signal its dedicated guardian, not
+    pytest; the guardian's TERM handler still tears the target down. That keeps
+    the failing test contained while exercising the real process boundary.
     """
-    _with_broken_fence(
-        monkeypatch,
-        "        rc = libc.syscall(\n"
-        "            _FRISKET_FENCE_LANDLOCK_RESTRICT_SELF,",
-        "        rc = 0\n"
-        "        _unused = (\n"
-        "            _FRISKET_FENCE_LANDLOCK_RESTRICT_SELF,",
+
+    out = _run(
+        "import ctypes, errno, json, os, signal\n"
+        "result = {}\n"
+        "try:\n"
+        "    os.kill(os.getppid(), signal.SIGTERM)\n"
+        "except PermissionError as exc:\n"
+        "    result['os_kill'] = exc.errno\n"
+        "else:\n"
+        "    result['os_kill'] = None\n"
+        "libc = ctypes.CDLL('libc.so.6', use_errno=True)\n"
+        "ctypes.set_errno(0)\n"
+        "result['libc_kill'] = [libc.kill(os.getppid(), signal.SIGTERM), "
+        "ctypes.get_errno()]\n"
+        "ctypes.set_errno(0)\n"
+        "result['libc_sigqueue'] = [libc.sigqueue(os.getppid(), signal.SIGTERM, "
+        "ctypes.c_void_p()), ctypes.get_errno()]\n"
+        "print(json.dumps(result))\n"
     )
-    with pytest.raises(fence.SandboxEnforcementUnavailable) as caught:
-        _run("print('{}')")
-    assert "was still readable" in str(caught.value)
+    assert out == {
+        "os_kill": errno.EPERM,
+        "libc_kill": [-1, errno.EPERM],
+        "libc_sigqueue": [-1, errno.EPERM],
+    }
 
 
 def test_a_networked_code_recipe_is_refused_outright():
@@ -675,29 +591,15 @@ def test_the_filter_only_narrows_when_unix_sockets_are_refused():
     )
 
 
-def test_the_child_prelude_is_the_source_of_the_child_fence_module():
-    """The prelude ships the real file, not a copy that can drift from it."""
-    source = Path(
-        __import__("frisket.engine.sandbox._child_fence", fromlist=["x"]).__file__
-    ).read_text()
-    assert fence._child_fence_source() == source
-    prelude = fence.linux_recipe_prelude(allow_unix_sockets=False)
-    assert prelude.startswith(source)
-    assert "_frisket_fence_install(False)" in prelude
-    assert fence.FENCE_UNAVAILABLE_MARKER in prelude
-
-
-def test_platform_matrix_is_stated_and_only_linux_gets_a_prelude(monkeypatch):
-    """Windows and macOS get no prelude -- and must not get one silently."""
-    assert fence.recipe_prelude(allow_unix_sockets=False) != ""  # linux, per skipif
+def test_platform_matrix_is_stated_and_only_linux_gets_a_kernel_policy(monkeypatch):
+    """Windows and macOS carry no Linux kernel policy and say so."""
+    assert fence.bootstrap_policy(audit_netwall=True, recipe=True)["fence"] is not None
     assert set(fence._UNENFORCED_PLATFORM_NOTES) == {"darwin", "win32"}
     for platform, note in fence._UNENFORCED_PLATFORM_NOTES.items():
         assert "seccomp + Landlock" in note
         monkeypatch.setattr(fence.sys, "platform", platform)
-        assert fence.recipe_prelude(allow_unix_sockets=False) == "", (
-            f"{platform} would receive the Linux prelude, which its kernel "
-            "cannot install"
-        )
+        policy = fence.bootstrap_policy(audit_netwall=True, recipe=True)
+        assert policy == {"version": 1, "audit_netwall": True, "fence": None}
 
 
 @pytest.mark.parametrize("platform", ["darwin", "win32"])

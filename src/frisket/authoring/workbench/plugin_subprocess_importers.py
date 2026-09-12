@@ -24,7 +24,7 @@ from frisket.plugins.process_client import (
 from frisket.authoring.workbench.plugin_subprocess import (
     _failed,
     _plugin_process_client,
-    _project_plugin_env,
+    _project_plugin_secrets,
     _required_plugin_env_names,
 )
 
@@ -45,14 +45,16 @@ def run_plugin_importer_subprocess(
         raise TableError("action_cancelled", "Importer read was cancelled.")
     metadata = dict(getattr(binding, "metadata", {}) or {})
     # Bounded reads are admitted without secrets before reaching this adapter.
-    env = (
+    secret_values = (
         {}
         if row_limit is not None
-        else _project_plugin_env(project, plugin_id=binding.plugin, metadata=metadata)
+        else _project_plugin_secrets(
+            project, plugin_id=binding.plugin, metadata=metadata
+        )
     )
-    if isinstance(env, dict) and "_error" in env:
-        return env["_error"]
-    assert isinstance(env, dict)
+    if isinstance(secret_values, dict) and "_error" in secret_values:
+        return secret_values["_error"]
+    assert isinstance(secret_values, dict)
 
     module_path = str(metadata.get("module_path") or "")
     plugin_root = str(metadata.get("plugin_root") or "")
@@ -78,13 +80,13 @@ def run_plugin_importer_subprocess(
             "requiresSecrets": []
             if row_limit is not None
             else _required_plugin_env_names(metadata),
+            "secretValues": secret_values,
         },
     }
     return _run_child_importer(
         project,
         plugin_root=plugin_root,
         request=request,
-        env=env,
         binding=binding,
         source_label=source.get("label"),
         row_limit=row_limit,
@@ -97,7 +99,6 @@ def _run_child_importer(
     *,
     plugin_root: str,
     request: dict[str, Any],
-    env: dict[str, str],
     binding: Any,
     source_label: str,
     row_limit: int | None = None,
@@ -111,7 +112,7 @@ def _run_child_importer(
     try:
         typed_request = plugin_rpc.ImporterRequest.model_validate(request)
         client = _plugin_process_client(plugin_root)
-        frames = client.importer(typed_request, env, should_cancel=cancelled)
+        frames = client.importer(typed_request, should_cancel=cancelled)
         prefix = False
         try:
             for frame in frames:

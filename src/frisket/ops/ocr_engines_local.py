@@ -6,7 +6,6 @@ import importlib
 import importlib.util
 import json
 import shutil
-import sys
 from contextlib import asynccontextmanager
 from functools import lru_cache
 from importlib import metadata
@@ -36,6 +35,7 @@ from frisket.engine.sandbox.shim import (
     SandboxTeardownError,
     run_sandboxed,
 )
+from frisket.runtime.launch import worker_argv
 from frisket.ops.base import RecipeInvocationHalt
 
 LIGHT_ENGINE = "rapidocr"
@@ -323,7 +323,7 @@ async def ocr_tesseract(
         raise RuntimeError(err)
     out = scratch / "ocr-result.json"
     result = await run_sandboxed(
-        [sys.executable, "-m", "frisket.engine._workers.tesseract_worker"],
+        worker_argv("tesseract"),
         policy=SandboxPolicy(
             cpu_seconds=1800,
             wall_seconds=3600,

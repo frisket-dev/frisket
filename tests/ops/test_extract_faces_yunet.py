@@ -7,23 +7,18 @@ from pathlib import Path
 import pytest
 
 from frisket.engine.sandbox.shim import SandboxPolicy, run_sandboxed
-from frisket.engine.executor.row_media_read import FACE_WORKER, _YUNET_MODEL_PATH
+from frisket.engine.executor.row_media_read import _YUNET_MODEL_PATH
+from frisket.runtime.launch import worker_argv
 
 
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "face_detection" / "astronaut.png"
 
 
 def _detect(image_path: Path, output_dir: Path) -> list[dict[str, int | str]]:
-    import sys
-
     result = asyncio.run(
         run_sandboxed(
-            [
-                # subprocess-boundary: exercise the confined YuNet worker's stdin and crop-file outputs.
-                sys.executable,
-                "-c",
-                FACE_WORKER + "\nassert cv2.getNumThreads() == 1, cv2.getNumThreads()",
-            ],
+            # subprocess-boundary: exercise the confined YuNet worker's stdin and crop-file outputs.
+            worker_argv("faces"),
             policy=SandboxPolicy(
                 wall_seconds=120,
                 memory_mb=2048,

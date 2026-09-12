@@ -16,12 +16,14 @@ import os
 import pytest
 
 from frisket.contracts.transcription_sidecar import TRANSCRIPTION_CONTRACT_VERSION
+from frisket.runtime.launch import worker_argv
 from frisket.sdk.ops.transcription import parakeet as transcribe_mod
 
 
 class _CapturedCall:
     def __init__(self) -> None:
         self.payloads: list[dict] = []
+        self.argvs: list[list[str]] = []
 
 
 @pytest.fixture()
@@ -31,6 +33,7 @@ def captured(monkeypatch, tmp_path):
     async def fake_run_sandboxed(
         argv, *, policy, stdin_data, should_cancel=None, extra_env=None
     ):
+        cap.argvs.append(list(argv))
         payload = json.loads(stdin_data.decode())
         cap.payloads.append(payload)
 
@@ -110,6 +113,8 @@ def test_sandbox_payload_path_is_absolute(captured, engine):
     assert os.path.isabs(sent), f"sandbox payload path not absolute: {sent}"
     assert os.path.realpath(sent) == os.path.realpath(abs_path)
     assert os.path.exists(sent)
+    if engine == "faster_whisper":
+        assert cap.argvs[-1] == worker_argv("faster-whisper")
 
 
 def test_local_faster_whisper_forwards_supported_controls(captured):

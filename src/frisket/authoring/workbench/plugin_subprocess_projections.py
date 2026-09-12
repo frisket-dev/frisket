@@ -17,7 +17,7 @@ from frisket.plugins.process_client import (
 
 from frisket.authoring.workbench.plugin_subprocess import (
     _plugin_process_client,
-    _project_plugin_env,
+    _project_plugin_secrets,
 )
 
 TIMELINE_PROJECTION_ARTIFACT_SCHEMA_VERSION = "frisket.timeline_projection_artifact.v1"
@@ -155,9 +155,11 @@ def run_plugin_projection_build_subprocess(
             projection_kind=projection_kind,
         )
 
-    env = _project_plugin_env(project, plugin_id=binding.plugin, metadata=metadata)
-    if isinstance(env, dict) and "_error" in env:
-        error = env["_error"]
+    secret_values = _project_plugin_secrets(
+        project, plugin_id=binding.plugin, metadata=metadata
+    )
+    if isinstance(secret_values, dict) and "_error" in secret_values:
+        error = secret_values["_error"]
         errors = error.get("errors") if isinstance(error, dict) else None
         first = errors[0] if isinstance(errors, list) and errors else {}
         raise _projection_error(
@@ -166,7 +168,7 @@ def run_plugin_projection_build_subprocess(
             projection_kind=projection_kind,
             field="plugin_env",
         )
-    assert isinstance(env, dict)
+    assert isinstance(secret_values, dict)
 
     request = {
         "pluginId": binding.plugin,
@@ -184,13 +186,18 @@ def run_plugin_projection_build_subprocess(
                 "projection.build",
                 "projection.artifact.write",
             ],
+            "requiresSecrets": [
+                str(name)
+                for name in metadata.get("requires_secrets", [])
+                if isinstance(name, str) and name
+            ],
+            "secretValues": secret_values,
         },
         "rows": source.rows,
     }
     child = _run_child_projection(
         plugin_root=plugin_root,
         request=request,
-        env=env,
     )
     if child.get("status") != "completed":
         errors = child.get("errors")
@@ -278,9 +285,11 @@ def _run_plugin_projection_plan_subprocess(
             "Plugin projection binding is missing subprocess entrypoint metadata",
             projection_kind=projection_kind,
         )
-    env = _project_plugin_env(project, plugin_id=binding.plugin, metadata=metadata)
-    if isinstance(env, dict) and "_error" in env:
-        error = env["_error"]
+    secret_values = _project_plugin_secrets(
+        project, plugin_id=binding.plugin, metadata=metadata
+    )
+    if isinstance(secret_values, dict) and "_error" in secret_values:
+        error = secret_values["_error"]
         errors = error.get("errors") if isinstance(error, dict) else None
         first = errors[0] if isinstance(errors, list) and errors else {}
         raise _projection_error(
@@ -289,7 +298,7 @@ def _run_plugin_projection_plan_subprocess(
             projection_kind=projection_kind,
             field="plugin_env",
         )
-    assert isinstance(env, dict)
+    assert isinstance(secret_values, dict)
     request = {
         "pluginId": binding.plugin,
         "handlerKey": binding.handler_key,
@@ -306,13 +315,18 @@ def _run_plugin_projection_plan_subprocess(
             "capabilities": [
                 "projection.status" if mode == "status" else "projection.build"
             ],
+            "requiresSecrets": [
+                str(name)
+                for name in metadata.get("requires_secrets", [])
+                if isinstance(name, str) and name
+            ],
+            "secretValues": secret_values,
         },
         "rows": [],
     }
     child = _run_child_projection(
         plugin_root=plugin_root,
         request=request,
-        env=env,
     )
     if child.get("status") != "completed":
         errors = child.get("errors")
@@ -380,12 +394,11 @@ def _run_child_projection(
     *,
     plugin_root: str,
     request: dict[str, Any],
-    env: dict[str, str],
 ) -> dict[str, Any]:
     try:
         typed_request = plugin_rpc.ProjectionRequest.model_validate(request)
         client = _plugin_process_client(plugin_root)
-        return _projection_result_from_frames(client.projection(typed_request, env))
+        return _projection_result_from_frames(client.projection(typed_request))
     except PluginProcessError as exc:
         return exc.failure.as_dict()
 

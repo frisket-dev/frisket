@@ -11,7 +11,6 @@ import asyncio
 import copy
 import json
 import queue
-import sys
 import threading
 from collections.abc import Awaitable, Callable, Iterator
 from dataclasses import dataclass
@@ -22,6 +21,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from frisket.contracts import plugin_rpc as rpc
 from frisket.engine.sandbox import shim
+from frisket.runtime import launch
 
 
 _T = TypeVar("_T")
@@ -118,13 +118,13 @@ class PluginProcessClient:
         self._run_sandboxed_stdout_lines_override = run_sandboxed_stdout_lines_call
 
     @staticmethod
-    def sandbox_policy(env: dict[str, str]) -> shim.SandboxPolicy:
-        """Build plugin policy without resolving or widening caller env."""
+    def sandbox_policy() -> shim.SandboxPolicy:
+        """Build the plugin policy without an invocation env channel."""
 
         return shim.SandboxPolicy(
             allow_network=True,
             wall_seconds=rpc.PLUGIN_ACTION_WALL_SECONDS,
-            allowed_extra_env=sorted(env),
+            allowed_extra_env=[],
         )
 
     @staticmethod
@@ -146,7 +146,6 @@ class PluginProcessClient:
     def importer(
         self,
         request: rpc.ImporterRequest,
-        env: dict[str, str],
         *,
         should_cancel: _ShouldCancel | None = None,
     ) -> rpc.ImporterFrameStream:
@@ -154,7 +153,6 @@ class PluginProcessClient:
             mode="importer",
             argv=self._argv("--importer"),
             request=request,
-            env=env,
             adapter=TypeAdapter(rpc.ImporterFrame),
             should_cancel=should_cancel,
         )
@@ -162,7 +160,6 @@ class PluginProcessClient:
     def projection(
         self,
         request: rpc.ProjectionRequest,
-        env: dict[str, str],
         *,
         should_cancel: _ShouldCancel | None = None,
     ) -> rpc.ProjectionFrameStream:
@@ -170,7 +167,6 @@ class PluginProcessClient:
             mode="projection",
             argv=self._argv("--projection"),
             request=request,
-            env=env,
             adapter=TypeAdapter(rpc.ProjectionFrame),
             should_cancel=should_cancel,
         )
@@ -178,14 +174,12 @@ class PluginProcessClient:
     def operator(
         self,
         request: rpc.OperatorRequest,
-        env: dict[str, str],
         *,
         should_cancel: _ShouldCancel | None = None,
     ) -> rpc.OperatorResponse:
         result = self._run_single(
             argv=self._argv("--operator"),
             request=request,
-            env=env,
             should_cancel=should_cancel,
         )
         response = self._validate_single_response(result, mode="operator")
@@ -193,28 +187,24 @@ class PluginProcessClient:
         return response
 
     def _argv(self, mode_flag: str | None = None) -> list[str]:
-        argv = [sys.executable, "-m", "frisket.plugins.subprocess_runner"]
-        if mode_flag is not None:
-            argv.append(mode_flag)
-        argv.append(self._plugin_root)
-        return argv
+        args = (() if mode_flag is None else (mode_flag,)) + (self._plugin_root,)
+        return launch.worker_argv("plugin", *args)
 
     def _run_single(
         self,
         *,
         argv: list[str],
         request: rpc.PluginRpcModel,
-        env: dict[str, str],
         should_cancel: _ShouldCancel | None,
     ) -> shim.SandboxResult:
         return run_sandboxed_sync(
             self._invoke_sandboxed,
             argv,
-            policy=self.sandbox_policy(env),
+            policy=self.sandbox_policy(),
             stdin_data=json.dumps(
                 self.request_payload(request), separators=(",", ":")
             ).encode("utf-8"),
-            extra_env=env,
+            extra_env={},
             should_cancel=should_cancel,
         )
 
@@ -259,7 +249,6 @@ class PluginProcessClient:
         mode: Literal["importer", "projection"],
         argv: list[str],
         request: rpc.PluginRpcModel,
-        env: dict[str, str],
         adapter: TypeAdapter[Any],
         should_cancel: _ShouldCancel | None,
     ) -> Iterator[Any]:
@@ -270,7 +259,6 @@ class PluginProcessClient:
             mode=mode,
             argv=argv,
             stdin_data=stdin_data,
-            env=env,
             adapter=adapter,
             should_cancel=should_cancel,
         )
@@ -281,7 +269,6 @@ class PluginProcessClient:
         mode: Literal["importer", "projection"],
         argv: list[str],
         stdin_data: bytes,
-        env: dict[str, str],
         adapter: TypeAdapter[Any],
         should_cancel: _ShouldCancel | None,
     ) -> Iterator[Any]:
@@ -306,10 +293,10 @@ class PluginProcessClient:
             async def invoke() -> shim.SandboxResult:
                 return await self._invoke_sandboxed_stdout_lines(
                     argv,
-                    policy=self.sandbox_policy(env),
+                    policy=self.sandbox_policy(),
                     on_stdout_line=lambda line: put_event("line", line),
                     stdin_data=stdin_data,
-                    extra_env=env,
+                    extra_env={},
                     should_cancel=cancelled,
                 )
 

@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import signal
-import sys
 from collections.abc import Callable
 from typing import Any
 
@@ -16,6 +15,7 @@ from frisket.contracts.transcription_sidecar import (
 )
 from frisket.engine._workers.parakeet_artifacts import huggingface_hub_cache
 from frisket.engine.sandbox.shim import SandboxPolicy, run_sandboxed
+from frisket.runtime.launch import worker_argv
 
 from .common import (
     TranscribeCancelled,
@@ -118,7 +118,7 @@ class FasterWhisperAdapter:
             options=options,
         )
         sandbox_result = await run_sandboxed(
-            [sys.executable, "-m", "frisket.engine._workers.faster_whisper_worker"],
+            worker_argv("faster-whisper"),
             policy=faster_whisper_policy(),
             extra_env=faster_whisper_env(),
             stdin_data=request.model_dump_json(exclude_none=True).encode(),

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -24,6 +23,7 @@ from frisket.contracts.actions.schemas._engines import (
 )
 from frisket.engine.sandbox import fence
 from frisket.engine.sandbox.shim import SandboxPolicy, run_sandboxed
+from frisket.runtime.launch import worker_argv
 from frisket.engine.store.artifact_timeline import canonical_json_hash
 from frisket.engine.store.blob_backend import BlobNotFoundError
 from frisket.engine.store.media_blobs import MediaBlobStore
@@ -76,42 +76,6 @@ _MIME_EXT = {
     "text/html": ".html",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
 }
-
-# Runs in a sandboxed child process (no provider keys, wall-clock timeout on
-# every platform, POSIX-only CPU/memory rlimits) like the ocr/transcribe
-# workers. Result JSON goes to a file — converter libraries (pdfminer et al.)
-# chatter on stdout/stderr.
-CONVERT_WORKER = """
-import json, logging, sys, warnings
-
-def main():
-    payload = json.load(sys.stdin)
-    logging.disable(logging.WARNING)
-    warnings.filterwarnings("ignore")
-    try:
-        from markitdown import MarkItDown
-    except ImportError:
-        _write(payload, {"error": "markitdown not installed in this "
-                         "environment even though it is part of the base "
-                         "Frisket install; repair or reinstall Frisket"})
-        return
-    md = MarkItDown(enable_plugins=False)
-    try:
-        result = md.convert(payload["path"])
-    except Exception as e:  # markitdown raises per-format exceptions
-        _write(payload, {"error": f"{type(e).__name__}: {e}"})
-        return
-    text = getattr(result, "markdown", None)
-    if text is None:
-        text = getattr(result, "text_content", "")
-    _write(payload, {"markdown": text or ""})
-
-def _write(payload, obj):
-    with open(payload["out"], "w") as f:
-        json.dump(obj, f)
-
-main()
-"""
 
 
 def _engine_tier(engine: str) -> str:
@@ -436,7 +400,7 @@ class _BoundDocumentConverter:
             raise RowError("invalid_input_ref", f"convert input not found: {path}")
         out = scratch / "convert-result.json"
         result = await run_sandboxed(
-            [sys.executable, "-c", CONVERT_WORKER],
+            worker_argv("markitdown"),
             policy=SandboxPolicy(
                 cpu_seconds=600,
                 wall_seconds=900,
