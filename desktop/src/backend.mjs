@@ -13,12 +13,18 @@ const OUTPUT_LIMIT = 8_192;
 export function parseReadyMessage(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const ready = /** @type {Record<string, unknown>} */ (value);
+  if (Object.keys(ready).length !== 5 || !['schema', 'type', 'host', 'port', 'pid'].every((key) => key in ready)) return null;
   if (
     ready.schema !== 1 || ready.type !== 'ready' || ready.host !== '127.0.0.1' ||
     !Number.isInteger(ready.port) || ready.port < 1 || ready.port > 65535 ||
     !Number.isInteger(ready.pid) || ready.pid < 1
   ) return null;
   return /** @type {{ schema: 1, type: 'ready', host: '127.0.0.1', port: number, pid: number }} */ (ready);
+}
+
+/** The Python guardian treats a normal exit and pre-handler TERM death as proof. */
+export function cleanupProved(code, signal) {
+  return Number.isInteger(code) && code >= 0 || code === null && signal === 'SIGTERM';
 }
 
 /** @param {string} current @param {Buffer | string} chunk */
@@ -42,8 +48,9 @@ export function healthUrl(host, port) {
 }
 
 /**
- * Start the private backend under the bundled guardian.  The random token is
- * kept in this closure and is never placed in argv or the environment.
+ * Start the private backend under the bundled guardian. The startup deadline
+ * covers readiness and authenticated health, and every failed attempt awaits
+ * the guardian's cleanup acknowledgement before a caller can retry.
  * @param {{ runtime: PreparedRuntime, resourcesPath: string, workspace: string, electronPid?: number, spawnProcess?: typeof nodeSpawn, fetchImpl?: typeof fetch, onFailure?: (error: Error) => void, readyTimeoutMs?: number, stopTimeoutMs?: number }} options
  * @returns {Promise<DesktopBackend>}
  */
@@ -63,101 +70,117 @@ export async function startBackend(options) {
   const child = spawnProcess(runtime.python, [
     '-I', guard, String(electronPid), '8', runtime.python, '-I', bootstrap, 'desktop-server',
   ], { detached: true, env: runtime.env, stdio: ['pipe', 'pipe', 'pipe'] });
+  const deadline = Date.now() + readyTimeoutMs;
 
   let stopped = false;
-  let ready = false;
+  let started = false;
   let failureReported = false;
   let stderr = '';
   let stdout = '';
+  let stdoutBytes = 0;
+  let closeOutcome = null;
+  let lifecycleError = null;
   let readyResolve;
   let readyReject;
-  /** @type {ReturnType<typeof setTimeout> | undefined} */
-  let timeout;
-  const readiness = new Promise((resolve, reject) => {
-    readyResolve = resolve;
-    readyReject = reject;
-  });
+  const readiness = new Promise((resolve, reject) => { readyResolve = resolve; readyReject = reject; });
   const fail = (message) => {
     const error = message instanceof Error ? message : new Error(message);
-    if (!ready) readyReject(error);
-    if (ready && !stopped && !failureReported) {
+    lifecycleError ||= error;
+    if (!started) readyReject(error);
+    if (started && !stopped && !failureReported) {
       failureReported = true;
       onFailure(error);
     }
   };
-  const finishReady = (message) => {
-    const parsed = parseReadyMessage(message);
-    if (!parsed || ready) return fail('Desktop backend sent an invalid readiness message.');
-    ready = true;
-    clearTimeout(timeout);
-    readyResolve(parsed);
-  };
-  child.stderr?.on('data', (chunk) => { stderr = appendBounded(stderr, chunk); });
-  child.stdout?.on('data', (chunk) => {
-    stdout = appendBounded(stdout, chunk);
-    const lines = stdout.split('\n');
-    // A readiness protocol has exactly one NDJSON line. Any additional
-    // complete line is evidence the child is not speaking this protocol.
-    if (lines.length > 2 || (lines.length === 2 && lines[1] !== '')) {
-      fail('Desktop backend sent unexpected output.');
-      return;
-    }
-    if (lines.length === 2) {
-      try { finishReady(JSON.parse(lines[0])); } catch { fail('Desktop backend sent invalid readiness JSON.'); }
-    }
+  const closed = new Promise((resolve) => {
+    child.once('close', (code, signal) => {
+      closeOutcome = { code, signal };
+      if (!stopped) {
+        const detail = stderr.trim() ? ` ${redact(stderr.trim(), token)}` : '';
+        fail(`Desktop backend exited unexpectedly.${detail || (signal ? ` (${signal})` : code === 0 ? '' : ` (${code})`)}`);
+      }
+      resolve(closeOutcome);
+    });
   });
-  child.once('error', () => fail('Desktop backend could not be started.'));
-  child.once('close', (code, signal) => {
-    clearTimeout(timeout);
-    if (!stopped) {
-      const detail = stderr.trim() ? ` ${redact(stderr.trim(), token)}` : '';
-      fail(`Desktop backend exited unexpectedly.${detail || (signal ? ` (${signal})` : code === 0 ? '' : ` (${code})`)}`);
-    }
-  });
-  timeout = setTimeout(() => fail('Desktop backend did not become ready in time.'), readyTimeoutMs);
-  timeout.unref?.();
-  child.stdin?.end(startupMessage(workspace, token));
-
-  let announced;
-  try {
-    announced = await readiness;
-    await verifyHealth(announced.host, announced.port, token, fetchImpl);
-  } catch (error) {
-    stopped = true;
-    try { child.kill('SIGTERM'); } catch {}
-    throw error instanceof Error ? error : new Error('Desktop backend failed to start.');
-  }
-
   let stopPromise;
   const stop = () => {
     if (stopPromise) return stopPromise;
     stopped = true;
-    stopPromise = waitForClose(child, stopTimeoutMs);
-    try { child.kill('SIGTERM'); } catch (error) {
-      stopPromise = Promise.reject(new Error('Desktop backend cleanup could not be proven.'));
-    }
+    stopPromise = (async () => {
+      const alreadyClosed = closeOutcome || observedOutcome(child);
+      if (!alreadyClosed) {
+        try { child.kill('SIGTERM'); } catch { throw cleanupError(); }
+      }
+      const outcome = alreadyClosed || closeOutcome || await within(closed, stopTimeoutMs, cleanupError());
+      if (!cleanupProved(outcome.code, outcome.signal)) throw cleanupError();
+    })();
     return stopPromise;
   };
-  return { host: announced.host, port: announced.port, pid: announced.pid, token, stop };
+  child.stderr?.on('data', (chunk) => { stderr = appendBounded(stderr, chunk); });
+  child.stdout?.on('data', (chunk) => {
+    stdoutBytes += Buffer.byteLength(chunk);
+    if (stdoutBytes > OUTPUT_LIMIT) return fail('Desktop backend sent too much readiness output.');
+    stdout += chunk.toString();
+    const newline = stdout.indexOf('\n');
+    if (newline < 0) return;
+    if (newline !== stdout.length - 1) return fail('Desktop backend sent unexpected output.');
+    try {
+      const parsed = parseReadyMessage(JSON.parse(stdout.slice(0, -1)));
+      if (!parsed) throw new Error();
+      readyResolve(parsed);
+    } catch { fail('Desktop backend sent an invalid readiness message.'); }
+  });
+  child.once('error', () => fail('Desktop backend could not be started.'));
+  child.stdin?.once?.('error', () => fail('Desktop backend could not receive its startup configuration.'));
+  try {
+    child.stdin?.end(startupMessage(workspace, token));
+    const announced = await within(readiness, remaining(deadline), new Error('Desktop backend did not become ready in time.'));
+    if (lifecycleError || closeOutcome || observedOutcome(child)) throw lifecycleError || new Error('Desktop backend exited before health verification.');
+    const healthSignal = timeoutSignal(remaining(deadline));
+    await within(verifyHealth(announced.host, announced.port, token, fetchImpl, healthSignal), remaining(deadline), new Error('Desktop backend health check timed out.'));
+    if (lifecycleError || closeOutcome || observedOutcome(child)) throw lifecycleError || new Error('Desktop backend exited before health verification.');
+    started = true;
+    return { host: announced.host, port: announced.port, pid: announced.pid, token, stop };
+  } catch (error) {
+    try { await stop(); } catch (cleanup) { throw cleanup; }
+    throw error instanceof Error ? error : new Error('Desktop backend failed to start.');
+  }
 }
 
-/** @param {string} host @param {number} port @param {string} token @param {typeof fetch} fetchImpl */
-export async function verifyHealth(host, port, token, fetchImpl) {
+/** @param {string} host @param {number} port @param {string} token @param {typeof fetch} fetchImpl @param {AbortSignal} signal */
+export async function verifyHealth(host, port, token, fetchImpl, signal) {
   const response = await fetchImpl(healthUrl(host, port), {
-    headers: { 'X-Frisket-Desktop-Token': token }, redirect: 'error',
+    headers: { 'X-Frisket-Desktop-Token': token }, redirect: 'error', signal,
   });
   if (!response.ok) throw new Error('Desktop backend health check failed.');
 }
 
-/** @param {import('node:child_process').ChildProcess} child @param {number} timeoutMs */
-function waitForClose(child, timeoutMs) {
-  return new Promise((resolve, reject) => {
-    if (child.exitCode !== null) return resolve();
-    const timeout = setTimeout(() => reject(new Error('Desktop backend cleanup could not be proven.')), timeoutMs);
+/** @param {number} deadline */
+function remaining(deadline) { return Math.max(1, deadline - Date.now()); }
+
+/** @param {number} ms */
+function timeoutSignal(ms) {
+  return typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(ms) : new AbortController().signal;
+}
+
+/** @template T @param {Promise<T>} promise @param {number} timeoutMs @param {Error} error */
+function within(promise, timeoutMs, error) {
+  let timeout;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeout = setTimeout(() => reject(error), timeoutMs);
     timeout.unref?.();
-    child.once('close', () => { clearTimeout(timeout); resolve(); });
-    child.once('error', () => { clearTimeout(timeout); reject(new Error('Desktop backend cleanup could not be proven.')); });
   });
+  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeout));
+}
+
+function cleanupError() { return new Error('Desktop backend cleanup could not be proven.'); }
+
+/** @param {import('node:child_process').ChildProcess} child */
+function observedOutcome(child) {
+  if (child.exitCode !== null || child.signalCode) {
+    return { code: child.exitCode, signal: child.signalCode };
+  }
+  return null;
 }
 
 /** @param {string} value @param {string} token */

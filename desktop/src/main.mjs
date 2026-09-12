@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { app, BrowserWindow, Menu, dialog, session, shell, protocol, net } from 'electron';
 import { prepareRuntime } from './provision.mjs';
-import { installProtocol, APP_ORIGIN, APP_SCHEME } from './protocol.mjs';
+import { appUrl, installProtocol, APP_ORIGIN, APP_SCHEME } from './protocol.mjs';
 import { startBackend } from './backend.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -13,6 +13,7 @@ let backend;
 let startupTask;
 let provisioningController;
 let quitting = false;
+let recoveryTask;
 
 // This must happen before Electron's ready event, before any renderer exists.
 protocolPrivileges();
@@ -42,7 +43,7 @@ export function protectWindow(window) {
     return { action: 'deny' };
   });
   window.webContents.on('will-navigate', (event, url) => {
-    if (url.startsWith(`${APP_ORIGIN}/`) || url === APP_ORIGIN) return;
+    if (appUrl(url)) return;
     event.preventDefault();
     openExternal(url);
   });
@@ -88,6 +89,9 @@ async function showStartup(window) {
 function setStartupStatus(message) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.setTitle(`Frisket — ${message}`);
+  void mainWindow.webContents.executeJavaScript(
+    `document.querySelector('#status').textContent = ${JSON.stringify(message)}`,
+  ).catch(() => {});
 }
 
 async function launch() {
@@ -112,44 +116,57 @@ async function launch() {
 }
 
 async function recover(error) {
-  if (quitting) return;
-  if (backend) {
-    const old = backend;
-    backend = undefined;
-    await old.stop().catch(() => {});
-  }
-  const choice = await dialog.showMessageBox(mainWindow, {
-    type: 'error', buttons: ['Retry', 'Quit'], defaultId: 0, cancelId: 1,
-    title: 'Frisket could not start',
-    message: 'The local workspace service stopped unexpectedly.',
-    detail: error instanceof Error ? error.message : 'Please try again.',
-  });
-  if (choice.response === 0) void startAttempt(); else void requestQuit();
+  if (recoveryTask) return recoveryTask;
+  recoveryTask = (async () => {
+    if (quitting) return;
+    if (backend) {
+      const old = backend;
+      backend = undefined;
+      await old.stop().catch(() => {});
+    }
+    const choice = await dialog.showMessageBox(mainWindow, {
+      type: 'error', buttons: ['Retry', 'Quit'], defaultId: 0, cancelId: 1,
+      title: 'Frisket could not start',
+      message: 'The local workspace service stopped unexpectedly.',
+      detail: error instanceof Error ? error.message : 'Please try again.',
+    });
+    if (choice.response === 0) setTimeout(() => { void startAttempt(); }, 0);
+    else void requestQuit();
+  })();
+  try { await recoveryTask; } finally { recoveryTask = undefined; }
 }
 
-async function startAttempt() {
-  try {
-    await showStartup(mainWindow);
-    startupTask = launch();
-    await startupTask;
-  } catch (error) {
-    if (!quitting) await recover(error);
-  } finally {
-    startupTask = undefined;
-    provisioningController = undefined;
-  }
+function startAttempt() {
+  if (startupTask) return startupTask;
+  startupTask = (async () => {
+    try {
+      await showStartup(mainWindow);
+      await launch();
+    } catch (error) {
+      if (!quitting) await recover(error);
+    } finally {
+      startupTask = undefined;
+      provisioningController = undefined;
+    }
+  })();
+  return startupTask;
 }
 
 async function requestQuit() {
   if (quitting) return;
   quitting = true;
   provisioningController?.abort();
-  const stopping = backend?.stop();
-  await Promise.race([
-    Promise.allSettled([stopping, startupTask].filter(Boolean)),
-    new Promise((resolve) => setTimeout(resolve, 12_000)),
-  ]);
-  app.exit(0);
+  const cleanup = Promise.allSettled([backend?.stop(), startupTask].filter(Boolean));
+  let failed = false;
+  try {
+    const results = await Promise.race([
+      cleanup,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Desktop shutdown timed out.')), 12_000)),
+    ]);
+    failed = results.some((result) => result.status === 'rejected');
+  } catch { failed = true; }
+  if (failed) process.stderr.write('Frisket could not prove local service cleanup.\n');
+  app.exit(failed ? 1 : 0);
 }
 
 function installMenu() {
@@ -163,6 +180,7 @@ function installMenu() {
 app.whenReady().then(async () => {
   if (!app.requestSingleInstanceLock()) { app.quit(); return; }
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+  session.defaultSession.setPermissionCheckHandler(() => false);
   session.defaultSession.on('will-download', (_event, item, webContents) => {
     item.pause();
     void dialog.showSaveDialog(BrowserWindow.fromWebContents(webContents), {

@@ -70,7 +70,7 @@ export function authenticatedHeaders(supplied, token) {
 }
 
 export function desktopCsp() {
-  return "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
+  return "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: http: https:; media-src 'self' blob: data: http: https:; font-src 'self' data:; worker-src 'self' blob:; connect-src 'self' https:; object-src 'none'; base-uri 'none'; frame-ancestors 'self'";
 }
 
 /** @param {string | null} location @param {DesktopBackend} backend */
@@ -127,8 +127,9 @@ export function createProtocolHandler({ backend, token, netFetch }) {
   };
 }
 
-/** @param {{ protocol: { handle: Function }, net: { fetch: typeof fetch } }} electron @param {DesktopBackend & { token: string }} backend */
+/** @param {{ protocol: { handle: Function, unhandle: Function }, net: { fetch: typeof fetch } }} electron @param {DesktopBackend & { token: string }} backend */
 export function installProtocol(electron, backend) {
+  electron.protocol.unhandle(APP_SCHEME);
   return electron.protocol.handle(APP_SCHEME, createProtocolHandler({
     backend,
     token: backend.token,

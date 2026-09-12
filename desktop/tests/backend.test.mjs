@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
 import {
-  appendBounded, healthUrl, parseReadyMessage, startBackend, startupMessage,
+  appendBounded, cleanupProved, healthUrl, parseReadyMessage, startBackend, startupMessage,
 } from '../src/backend.mjs';
 
 test('readiness parser refuses malformed or non-loopback messages', () => {
@@ -42,4 +45,69 @@ test('backend launches through guardian, authenticates health, and waits for gua
   assert.match(child.input, /"workspace":"\/data\/workspace"/);
   await backend.stop();
   assert.equal(child.signal, 'SIGTERM');
+});
+
+test('failed startup waits for guardian acknowledgement before allowing a retry', async () => {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+  child.stdin = new EventEmitter(); child.stdin.end = () => {};
+  child.exitCode = null;
+  child.kill = () => { setTimeout(() => { child.exitCode = 0; child.emit('close', 0, null); }, 15); return true; };
+  const started = startBackend({
+    runtime: { python: '/private/python', env: {} }, resourcesPath: '/app/resources', workspace: '/data/workspace', readyTimeoutMs: 200,
+    spawnProcess() { queueMicrotask(() => child.stdout.emit('data', Buffer.from('{"schema":1,"type":"ready","host":"127.0.0.1","port":8123,"pid":9}\n'))); return child; },
+    fetchImpl: async () => { throw new Error('health rejected'); },
+  });
+  await assert.rejects(started, /health rejected/);
+  assert.equal(child.exitCode, 0);
+});
+
+test('cleanup proof rejects killed guardians and accepts only the shared TERM exemption', () => {
+  assert.equal(cleanupProved(0, null), true);
+  assert.equal(cleanupProved(null, 'SIGTERM'), true);
+  assert.equal(cleanupProved(null, 'SIGKILL'), false);
+  assert.equal(cleanupProved(null, 'SIGABRT'), false);
+});
+
+test('an already-dead SIGKILL guardian cannot be returned as a ready backend', async () => {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+  child.stdin = new EventEmitter(); child.stdin.end = () => {};
+  child.exitCode = null; child.signalCode = 'SIGKILL'; child.kill = () => true;
+  await assert.rejects(startBackend({
+    runtime: { python: '/private/python', env: {} }, resourcesPath: '/app/resources', workspace: '/data/workspace',
+    spawnProcess() { queueMicrotask(() => child.stdout.emit('data', Buffer.from('{"schema":1,"type":"ready","host":"127.0.0.1","port":8123,"pid":9}\n'))); return child; },
+    fetchImpl: async () => new Response(null, { status: 204 }),
+  }), /cleanup could not be proven/);
+});
+
+test('oversized readiness output is rejected instead of accepting a truncated suffix', async () => {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+  child.stdin = new EventEmitter(); child.stdin.end = () => {};
+  child.exitCode = null;
+  child.kill = () => { child.exitCode = 0; queueMicrotask(() => child.emit('close', 0, null)); return true; };
+  const started = startBackend({
+    runtime: { python: '/private/python', env: {} }, resourcesPath: '/app/resources', workspace: '/data/workspace', readyTimeoutMs: 200,
+    spawnProcess() { queueMicrotask(() => child.stdout.emit('data', Buffer.from('x'.repeat(8_193)))); return child; },
+    fetchImpl: async () => new Response(null, { status: 204 }),
+  });
+  await assert.rejects(started, /too much readiness output/);
+});
+
+test('the actual guardian acknowledges cleanup after a TERM-ignoring child', { skip: !existsSync('/usr/bin/python3') }, async () => {
+  const python = '/usr/bin/python3';
+  const guard = path.resolve('src/frisket/runtime/_guard.py');
+  const child = spawn(python, [guard, String(process.pid), '0.1', python, '-c',
+    'import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)',
+  ], { detached: true });
+  const closed = new Promise((resolve) => child.once('close', (code, signal) => resolve({ code, signal })));
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    child.kill('SIGTERM');
+    const outcome = await Promise.race([closed, new Promise((_, reject) => setTimeout(() => reject(new Error('guardian did not finish cleanup')), 2_000))]);
+    assert.equal(cleanupProved(outcome.code, outcome.signal), true);
+  } finally {
+    try { child.kill('SIGKILL'); } catch {}
+  }
 });
