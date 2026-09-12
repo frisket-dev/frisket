@@ -17,6 +17,11 @@ import {
   openAction,
   uniqueName,
 } from './helpers';
+import {
+  actionSelectorResponse,
+  stubActionSelectorChoices,
+  type SelectorGroupFixture,
+} from './selectorChoicesFixture';
 
 const OPUS = 'anthropic/claude-opus-4-8';
 
@@ -59,24 +64,36 @@ test('expensive run trips the 402 cost gate modal', async ({ page }) => {
   const runPosts: Array<Record<string, unknown>> = [];
   const estimateRoute = `**/api/projects/${pid}/actions/v1/estimate`;
   const runRoute = `**/api/projects/${pid}/actions/v1/run`;
-  const providersRoute = '**/api/providers';
-  await page.route(providersRoute, (route) => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({
-      schemaVersion: 'frisket.providers.v1',
-      tier: 'local',
-      providers: [{
-        id: 'anthropic',
-        label: 'Anthropic',
-        kind: 'platform_api',
-        configured: true,
-        source: 'env',
-        hint: null,
-        models: [{ id: OPUS, label: 'Claude Opus 4.8', price: null }],
-      }],
-    }),
-  }));
+  const choices: SelectorGroupFixture[] = [{
+    id: 'local',
+    label: 'Local',
+    choices: [{
+      choiceId: 'local-semantic',
+      label: 'Local semantic',
+      summary: 'Runs on this computer',
+      authoredSelection: { kind: 'engine', engine: 'local_semantic' },
+    }],
+  }, {
+    id: 'anthropic',
+    label: 'Anthropic',
+    choices: [{
+      choiceId: 'anthropic-claude-opus-4-8',
+      label: 'Claude Opus 4.8',
+      summary: 'Hosted model',
+      authoredSelection: { kind: 'engine_model', engine: 'llm', model: OPUS },
+    }],
+  }];
+  await stubActionSelectorChoices(page, pid, ({ actionId, field, params }) => {
+    expect(actionId).toBe('map.classify');
+    expect(field).toBe('engine');
+    return actionSelectorResponse({
+      projectId: pid,
+      actionId,
+      field,
+      groups: choices,
+      currentChoiceId: params.engine === 'llm' ? 'anthropic-claude-opus-4-8' : 'local-semantic',
+    });
+  });
   await page.route(estimateRoute, async (route) => {
     await route.fulfill({
       status: 200,
@@ -109,12 +126,14 @@ test('expensive run trips the 402 cost gate modal', async ({ page }) => {
     await openAction(page, 'map.classify');
     await page.getByLabel('Field 1 labels').fill('routine, investigate');
 
-    // Supply Opus through the same provider catalog as production, then pick
-    // it through the visible control a user operates.
-    await page.getByTestId('model-picker-button').click();
-    await page.getByTestId('model-picker-search').fill(OPUS);
-    await page.getByTestId('model-option-anthropic-claude-opus-4-8').click();
-    await expect(page.getByTestId('model-picker-button')).toContainText('Claude Opus 4.8');
+    // The typed selector owns the exact authored engine + model pair.
+    const selector = page.getByTestId('field-engine');
+    const trigger = selector.locator('.engine-selector__trigger');
+    await trigger.click();
+    const dialog = page.getByTestId('engine-selector-dialog');
+    await dialog.getByRole('searchbox', { name: 'Search Engine' }).fill(OPUS);
+    await dialog.locator('[data-engine-selector-choice="anthropic-claude-opus-4-8"]').click();
+    await expect(trigger).toContainText('Claude Opus 4.8');
 
     // No wait for the panel's estimate to land: whether it has or not, the
     // click POSTs an unconfirmed run. A former load-dependent flake came from
@@ -145,6 +164,5 @@ test('expensive run trips the 402 cost gate modal', async ({ page }) => {
   } finally {
     await page.unroute(estimateRoute);
     await page.unroute(runRoute);
-    await page.unroute(providersRoute);
   }
 });
