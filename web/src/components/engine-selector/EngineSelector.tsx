@@ -83,6 +83,7 @@ export function EngineSelector({
   const detailFooterRef = useRef<HTMLDivElement | null>(null);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restoreFocusRef = useRef(false);
+  const pinnedIdRef = useRef<string | null>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
@@ -98,7 +99,6 @@ export function EngineSelector({
   const authoritativeIds = useMemo(() => new Set(allChoices.map((choice) => choice.id)), [allChoices]);
   const selectedChoice = choiceForId(groups, value);
   const previewedChoice = choiceForId(groups, previewedId) ?? selectedChoice ?? allChoices[0] ?? null;
-  const previewedGroup = groupForChoice(groups, previewedChoice?.id ?? null);
   const hasSearch = query.trim().length > 0;
   // The centered fallback folds the provider rail into tabs. Rendering both
   // would make its two-column body overflow before CSS had a chance to hide it.
@@ -140,6 +140,10 @@ export function EngineSelector({
   useEffect(() => () => {
     if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
   }, []);
+
+  useEffect(() => {
+    pinnedIdRef.current = pinnedId;
+  }, [pinnedId]);
 
   useEffect(() => {
     if (!open && restoreFocusRef.current) {
@@ -203,10 +207,10 @@ export function EngineSelector({
   };
 
   const previewAfterIntent = (choice: EngineSelectorChoice) => {
-    if (pinnedId || hoverTimerRef.current) return;
+    if (pinnedIdRef.current || hoverTimerRef.current) return;
     hoverTimerRef.current = setTimeout(() => {
       hoverTimerRef.current = null;
-      if (!pinnedId && !editingSetup) {
+      if (!pinnedIdRef.current && !editingSetup) {
         setPreviewedId(choice.id);
         setActiveGroupId(groupForChoice(groups, choice.id)?.id ?? null);
       }
@@ -335,7 +339,7 @@ export function EngineSelector({
                     data-engine-selector-group={group.id}
                     className={group.id === currentGroup?.id ? 'is-active' : ''}
                     onMouseEnter={() => {
-                      if (pinnedId) return;
+                      if (pinnedIdRef.current) return;
                       hoverTimerRef.current = setTimeout(() => {
                         setActiveGroupId(group.id);
                         setPreviewedId(group.choices[0]?.id ?? null);

@@ -101,6 +101,7 @@ describe('EngineSelector', () => {
     renderSelector();
     const trigger = screen.getByRole('button', { name: /parakeet/i });
     await userEvent.click(trigger);
+    await new Promise((resolve) => requestAnimationFrame(resolve));
     const parakeet = screen.getByTestId('engine-selector-dialog').querySelector<HTMLButtonElement>('[data-engine-selector-choice="parakeet"]')!;
     parakeet.focus();
     await userEvent.keyboard('{ArrowDown}');
