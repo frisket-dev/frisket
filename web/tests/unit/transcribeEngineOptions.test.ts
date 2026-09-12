@@ -4,6 +4,7 @@ import type { EngineOption } from '../../src/api/types';
 import {
   TRANSCRIBE_ENGINE_FALLBACK,
   findTranscribeEngineDeclaration,
+  transcribeActiveTargetOptionReason,
   transcribeDiarizationMode,
   transcribeEnginesFromCatalog,
   transcribeOptionsForEngine,
@@ -93,6 +94,19 @@ describe('transcription engine option declarations', () => {
       available: false,
       error: 'Option availability could not be checked. Refresh and try again.',
     });
+  });
+
+  it('keeps unsupported-option copy separate from target liveness', () => {
+    expect(transcribeActiveTargetOptionReason({
+      ...INTRINSIC_FIXTURE,
+      target_id: 'offline-target',
+      targets: [{
+        target: 'offline-target', target_id: 'offline-target', available: false,
+        error: 'Download model weights before retrying.',
+        transcription_options: { language: false, vad: false, model_size: false },
+        diarization: { supported: false, mode: 'none' },
+      }],
+    })).toBe('This option is not available with this setup.');
   });
 
   it('fails closed for an undeclared unknown engine', () => {

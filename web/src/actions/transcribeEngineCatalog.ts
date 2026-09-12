@@ -285,9 +285,6 @@ export function transcribeActiveTargetOptionReason(
   }
   const target = transcribeActiveTarget(engine);
   if (!target) return 'Option availability could not be checked. Refresh and try again.';
-  if (target.available === false) {
-    return target.error ?? 'The selected execution target is unavailable.';
-  }
   return 'This option is not available with this setup.';
 }
 
