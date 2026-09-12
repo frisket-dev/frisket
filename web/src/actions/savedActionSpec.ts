@@ -1,4 +1,3 @@
-import Ajv from 'ajv';
 import {
   isCopilotRegisteredActionDraft,
   isGeneratedActionCatalogEntry,
@@ -34,22 +33,13 @@ function refuse(): never {
   throw new SavedActionSpecError();
 }
 
-function validatedEntry(
+function uniqueEntry(
   catalog: ActionCatalogPayload,
   actionKind: string,
-  params: Record<string, unknown>,
 ): ActionCatalogEntry {
   const matches = catalog.actions.filter((entry) => entry.kind === actionKind);
   if (matches.length !== 1) refuse();
-  const entry = matches[0];
-  try {
-    const valid = new Ajv({ allErrors: true, strict: false }).compile(entry.input_schema);
-    if (!valid(params)) refuse();
-  } catch (error) {
-    if (error instanceof SavedActionSpecError) throw error;
-    refuse();
-  }
-  return entry;
+  return matches[0];
 }
 
 export function decodeSavedActionSpec(
@@ -69,7 +59,7 @@ function decodeRegisteredDraft(
   if (Object.keys(draft).some((key) => ![
     'action_id', 'scope', 'params', 'output_names', 'sheet_name',
   ].includes(key))) refuse();
-  const entry = validatedEntry(catalog, draft.action_id, draft.params);
+  const entry = uniqueEntry(catalog, draft.action_id);
   if (!isGeneratedActionCatalogEntry(entry)) refuse();
   const createsSheet = entry.ui_hints.typed_action?.creates_sheet === true;
   // Source scope and destination materialization are independent. The host

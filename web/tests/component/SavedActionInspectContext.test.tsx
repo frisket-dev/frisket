@@ -212,6 +212,40 @@ afterEach(() => {
 });
 
 describe('saved ActionPanel context ownership', () => {
+  it.each([
+    ['a coercible field type', (params: Record<string, unknown>) => ({ ...params, sheet_id: '7' })],
+    ['an extra legacy field', (params: Record<string, unknown>) => ({ ...params, legacy_alias: true })],
+  ])('sends original raw params for %s before refusing an invalid saved action', async (_label, mutate) => {
+    const raw = mutate(exampleParams('map.clean_column'));
+    vi.mocked(stores!.projectApi.resolveActionParams).mockResolvedValue({
+      diagnostics: { __all__: { ok: false, message: 'Invalid saved params.' } },
+      logical_outputs: [],
+    });
+
+    renderInspect({ kind: 'map.clean_column', params: raw });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(SAVED_ACTION_SPEC_REFUSAL);
+    expect(stores!.projectApi.resolveActionParams).toHaveBeenCalledWith({
+      action_id: 'map.clean_column',
+      scope: { kind: 'sheet_rows', sheet_id: 7 },
+      params: raw,
+    });
+    expect(screen.queryByTestId('generated-action-form')).not.toBeInTheDocument();
+  });
+
+  it('keeps resolver transport failures temporary and does not mount the saved form', async () => {
+    vi.mocked(stores!.projectApi.resolveActionParams)
+      .mockRejectedValue(new Error('resolver temporarily unavailable'));
+
+    renderInspect({ kind: 'map.template', params: exampleParams('map.template') });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Saved action validation is temporarily unavailable. Try again.',
+    );
+    expect(screen.getByRole('alert')).not.toHaveTextContent('Recreate the action.');
+    expect(screen.queryByTestId('generated-action-form')).not.toBeInTheDocument();
+  });
+
   it('keeps an all-rows saved action authoritative when the grid has selected rows', async () => {
     const onExecute = vi.fn();
     renderInspect({

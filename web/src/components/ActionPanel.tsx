@@ -276,59 +276,91 @@ export function ActionPanel({
     let alive = true;
     let nextAction: OpenActionState | null = null;
     let nextError: string | null = null;
+    const commit = () => {
+      // Advance the last-opened key ONLY when the dispatch actually lands. Setting
+      // it synchronously here loses the open under StrictMode's dev mount double-
+      // invoke: effect#1 sets the ref + queues the microtask, its cleanup flips
+      // alive=false, then effect#2 early-returns on the matching ref and the
+      // surviving microtask no-ops — leaving the drawer stuck on "Loading action…"
+      // when the panel mounts fresh (launch-driven overlay). Guarding the ref
+      // behind the alive check makes effect#2 re-queue and open the form.
+      queueMicrotask(() => {
+        if (!alive) return;
+        lastOpenKeyRef.current = openIntent.key;
+        setOpenAction(nextAction);
+        setOpenActionError(nextError);
+      });
+    };
 
     if (openIntent.kind === 'proposal') {
       const { proposal } = openIntent;
-      try {
-        const decoded = decodeSavedActionSpec(catalog, proposal.spec);
-        const disposition = presentationCatalog.dispositions?.get(decoded.entry.kind);
-        const hidden = disposition?.kind === 'hidden';
-        const actionTemplate = availableActions.find((candidate) => (
-          (candidate.actionKind ?? candidate.kind) === decoded.entry.kind
-        ));
-        const schemaProperties = decoded.entry.input_schema.properties ?? {};
-        const nestedSource = decoded.params.source;
-        const savedSheetId = (decoded.registeredDraft.scope.kind === 'sheet_rows'
-          ? decoded.registeredDraft.scope.sheet_id : undefined)
-          ?? (Object.prototype.hasOwnProperty.call(schemaProperties, 'sheet_id')
-          && typeof decoded.params.sheet_id === 'number'
-          ? decoded.params.sheet_id
-          : Object.prototype.hasOwnProperty.call(schemaProperties, 'source_sheet_id')
-            && typeof decoded.params.source_sheet_id === 'number'
-            ? decoded.params.source_sheet_id
-            : Object.prototype.hasOwnProperty.call(schemaProperties, 'source')
-              && nestedSource !== null
-              && typeof nestedSource === 'object'
-              && !Array.isArray(nestedSource)
-              && typeof (nestedSource as Record<string, unknown>).sheet_id === 'number'
-              ? (nestedSource as Record<string, number>).sheet_id
-              : undefined);
-        const mountedSheetId = sheet ? Number(sheet.id) : undefined;
+      const openProposal = async () => {
+        try {
+          const decoded = decodeSavedActionSpec(catalog, proposal.spec);
+          const resolution = await resolveGeneratedActionParams({
+            action_id: decoded.registeredDraft.action_id,
+            scope: decoded.registeredDraft.scope,
+            params: decoded.registeredDraft.params,
+          });
+          if (!alive) return;
+          if (Object.values(resolution.diagnostics).some((diagnostic) => !diagnostic.ok)) {
+            throw new SavedActionSpecError();
+          }
+          const disposition = presentationCatalog.dispositions?.get(decoded.entry.kind);
+          const hidden = disposition?.kind === 'hidden';
+          const actionTemplate = availableActions.find((candidate) => (
+            (candidate.actionKind ?? candidate.kind) === decoded.entry.kind
+          ));
+          const schemaProperties = decoded.entry.input_schema.properties ?? {};
+          const nestedSource = decoded.params.source;
+          const savedSheetId = (decoded.registeredDraft.scope.kind === 'sheet_rows'
+            ? decoded.registeredDraft.scope.sheet_id : undefined)
+            ?? (Object.prototype.hasOwnProperty.call(schemaProperties, 'sheet_id')
+            && typeof decoded.params.sheet_id === 'number'
+            ? decoded.params.sheet_id
+            : Object.prototype.hasOwnProperty.call(schemaProperties, 'source_sheet_id')
+              && typeof decoded.params.source_sheet_id === 'number'
+              ? decoded.params.source_sheet_id
+              : Object.prototype.hasOwnProperty.call(schemaProperties, 'source')
+                && nestedSource !== null
+                && typeof nestedSource === 'object'
+                && !Array.isArray(nestedSource)
+                && typeof (nestedSource as Record<string, unknown>).sheet_id === 'number'
+                ? (nestedSource as Record<string, number>).sheet_id
+                : undefined);
+          const mountedSheetId = sheet ? Number(sheet.id) : undefined;
 
-        if (hidden) {
-          nextError = `Action unavailable: ${decoded.entry.kind} has no action drawer launcher.`;
-        } else if (
-          sheet && typeof savedSheetId === 'number'
-          && Number.isSafeInteger(mountedSheetId)
-          && savedSheetId !== mountedSheetId
-        ) {
-          nextError = `This saved action reads from sheet ${savedSheetId}, but this drawer is open on sheet ${sheet.id}. Open sheet ${savedSheetId} to Inspect it; the proposal can still be run directly.`;
-        } else if (!actionTemplate) {
-          nextError = `Action unavailable: ${decoded.entry.kind} is not in this catalog.`;
-        } else {
-          nextAction = {
-            launchId: proposal.seq,
-            actionTemplate: generatedActionTemplateFromCatalogEntry(decoded.entry) ?? actionTemplate,
-            generatedDraft: decoded.registeredDraft,
-            generatedCatalogEntry: decoded.entry,
-            title: proposal.title,
-          };
+          if (hidden) {
+            nextError = `Action unavailable: ${decoded.entry.kind} has no action drawer launcher.`;
+          } else if (
+            sheet && typeof savedSheetId === 'number'
+            && Number.isSafeInteger(mountedSheetId)
+            && savedSheetId !== mountedSheetId
+          ) {
+            nextError = `This saved action reads from sheet ${savedSheetId}, but this drawer is open on sheet ${sheet.id}. Open sheet ${savedSheetId} to Inspect it; the proposal can still be run directly.`;
+          } else if (!actionTemplate) {
+            nextError = `Action unavailable: ${decoded.entry.kind} is not in this catalog.`;
+          } else {
+            nextAction = {
+              launchId: proposal.seq,
+              actionTemplate: generatedActionTemplateFromCatalogEntry(decoded.entry) ?? actionTemplate,
+              generatedDraft: decoded.registeredDraft,
+              generatedCatalogEntry: decoded.entry,
+              title: proposal.title,
+            };
+          }
+        } catch (error) {
+          if (!alive) return;
+          nextError = error instanceof SavedActionSpecError
+            ? error.message
+            : 'Saved action validation is temporarily unavailable. Try again.';
         }
-      } catch (error) {
-        nextError = error instanceof SavedActionSpecError
-          ? error.message
-          : SAVED_ACTION_SPEC_REFUSAL;
-      }
+        commit();
+      };
+      void openProposal();
+      return () => {
+        alive = false;
+      };
     } else {
       const actionTemplate = actionForRoute(availableActions, openIntent.actionKind);
       if (!actionTemplate) {
@@ -366,19 +398,7 @@ export function ActionPanel({
       }
     }
 
-    // Advance the last-opened key ONLY when the dispatch actually lands. Setting
-    // it synchronously here loses the open under StrictMode's dev mount double-
-    // invoke: effect#1 sets the ref + queues the microtask, its cleanup flips
-    // alive=false, then effect#2 early-returns on the matching ref and the
-    // surviving microtask no-ops — leaving the drawer stuck on "Loading action…"
-    // when the panel mounts fresh (launch-driven overlay). Guarding the ref
-    // behind the alive check makes effect#2 re-queue and open the form.
-    queueMicrotask(() => {
-      if (!alive) return;
-      lastOpenKeyRef.current = openIntent.key;
-      setOpenAction(nextAction);
-      setOpenActionError(nextError);
-    });
+    commit();
     return () => {
       alive = false;
     };
@@ -388,6 +408,7 @@ export function ActionPanel({
     catalogSnapshot.catalog,
     openIntent,
     presentationCatalog.dispositions,
+    resolveGeneratedActionParams,
     sheet,
   ]);
   const openActionCatalogKind = openAction
