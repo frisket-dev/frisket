@@ -8,6 +8,7 @@ import { useEmbeddingsPanelController } from './embeddings/useEmbeddingsPanelCon
 
 export interface EmbeddingsPanelProps {
   apiPort: EmbeddingApiPort;
+  projectId?: string;
   sheet: SheetMeta;
   /** Open a sheet by id in the grid. Threaded App.selectSheet -> Sidebar ->
    *  EmbeddingsPanel so an analysis action (PCA / k-means) can navigate to the
@@ -21,6 +22,7 @@ export interface EmbeddingsPanelProps {
 
 export function EmbeddingsPanel({
   apiPort,
+  projectId,
   sheet,
   onSelectSheet,
   onOpenLens,
@@ -67,10 +69,11 @@ export function EmbeddingsPanel({
         {panel.adding && (
           <CreateEmbeddingIndexDialog
             apiPort={apiPort}
+            projectId={projectId}
             sheet={sheet}
-            providers={panel.providers}
             form={panel.form}
             selectedCard={panel.selectedCard}
+            providerCard={panel.providerCard}
             remoteSelected={panel.remoteSelected}
             autoRefreshOn={panel.autoRefreshOn}
             createReady={panel.createReady}

@@ -385,6 +385,10 @@ def _patch_local_semantic_embedding(
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     monkeypatch.setenv("FRISKET_ENABLE_PROVIDERLESS_CLASSIFY", "1")
     monkeypatch.setenv("FRISKET_PROVIDERLESS_CLASSIFY_THREADS", "2")
+    monkeypatch.setattr(
+        "frisket.engine.executor.classify_read.ensure_providerless_classifier_installed",
+        lambda: None,
+    )
     embedded: list[list[str]] = []
 
     def fake_embed(  # noqa: ANN001
@@ -639,6 +643,11 @@ async def test_map_classify_global_fence_refuses_before_fastembed_without_opt_in
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     monkeypatch.delenv("FRISKET_ENABLE_PROVIDERLESS_CLASSIFY", raising=False)
+    # This case isolates the embedding fence from first-use model provisioning.
+    monkeypatch.setattr(
+        "frisket.engine.executor.classify_read.ensure_providerless_classifier_installed",
+        lambda: None,
+    )
     real_import = builtins.__import__
 
     def no_fastembed_import(name, *args, **kwargs):  # noqa: ANN001

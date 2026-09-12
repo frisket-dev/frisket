@@ -7,7 +7,6 @@
 // hand-built ActionTemplate or a retired recipe schema.
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { expect, vi } from 'vitest';
 
 import { generatedActionTemplateFromCatalogEntry } from '../../src/actions/model';
@@ -26,6 +25,7 @@ import { WorkspaceStoresContext } from '../../src/bind/workspaceStoresContext';
 import { GeneratedActionForm } from '../../src/components/action-panel/GeneratedActionForm';
 import { createWorkspaceStores } from '../../src/state/createWorkspaceStores';
 import { servedActionCatalog } from '../support/servedActionCatalog';
+import { chooseActionSelector, installActionSelectorFixture } from '../support/selectorChoicesFixture';
 
 /** The served catalog entry for `kind`, cloned, with every engine selectable.
  *  Engine availability is a runtime fact the fixture script cannot observe;
@@ -89,6 +89,7 @@ export interface MountTypedFormOptions {
 
 export function mountTypedForm(options: MountTypedFormOptions) {
   const entry = typedCatalogEntry(options.kind);
+  installActionSelectorFixture(entry);
   const template = generatedActionTemplateFromCatalogEntry(entry);
   if (!template) throw new Error(`No generated template for ${options.kind}`);
   const projectApi = createProjectApi(`cutover-ui-f1:${options.kind}`);
@@ -109,6 +110,7 @@ export function mountTypedForm(options: MountTypedFormOptions) {
   const utils = render(
     <WorkspaceStoresContext.Provider value={stores}>
       <GeneratedActionForm
+        projectId={`cutover-ui-f1:${options.kind}`}
         catalogEntry={entry}
         actionTemplate={template}
         sheet={options.sheet}
@@ -149,18 +151,5 @@ export async function pressRun(): Promise<void> {
 
 /** Pick an execution choice through the combined engine/model picker. */
 export async function chooseEngine(engineId: string): Promise<void> {
-  const user = userEvent.setup();
-  const modelPicker = screen.queryByTestId('model-picker-button');
-  if (modelPicker) {
-    await user.click(modelPicker);
-    const value = engineId === 'llm' ? 'test/model' : `engine:${engineId}`;
-    await user.type(screen.getByTestId('model-picker-search'), value);
-    const testId = `model-option-${value.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase()}`;
-    await user.click(await screen.findByTestId(testId));
-    return;
-  }
-
-  await user.click(screen.getByTestId('engine-picker-button'));
-  await user.type(screen.getByTestId('engine-picker-search'), engineId);
-  await user.click(await screen.findByTestId(`engine-option-${engineId}`));
+  await chooseActionSelector(engineId === 'llm' ? 'test/model' : engineId);
 }

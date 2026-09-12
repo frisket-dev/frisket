@@ -16,7 +16,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import {
   createProject,
   listSheets,
@@ -41,6 +41,17 @@ interface AnswerKeyReport {
 // Degrees of tolerance when matching an extracted pair against the key. The
 // key is exact (copied from the report text); the extraction may round.
 const COORD_TOLERANCE = 0.02;
+
+async function expectSelectedModel(page: Page) {
+  const trigger = page.getByTestId('field-model').getByRole('button');
+  await expect(trigger).toContainText('Gemini 3.5 Flash-Lite');
+  await trigger.click();
+  const dialog = page.getByRole('dialog', { name: 'Model selector' });
+  await expect(dialog.getByRole('button', { name: /Gemini 3\.5 Flash-Lite/ }))
+    .toHaveAttribute('aria-current', 'true');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+}
 
 test('NTSB reports: PDFs → markdown → structured lat/lon extraction vs answer key', async ({ page }, testInfo) => {
   const answerKey = JSON.parse(
@@ -82,7 +93,7 @@ test('NTSB reports: PDFs → markdown → structured lat/lon extraction vs answe
   // {lat, lon, context} dicts per report. This golden exists to show
   // structured > freeform; the schema is the point.
   await openAction(page, 'map.extract');
-  await expect(page.getByTestId('model-picker-button')).toContainText('Gemini 3.5 Flash-Lite');
+  await expectSelectedModel(page);
   await page.getByTestId('text-source-column-select').selectOption('markdown');
   // Extract's output columns ARE its fields: reshape the template's three
   // default fields into one list field named `locations`.

@@ -215,6 +215,8 @@ def project_run_status_payload(
         payload["stalled_reason"] = status.stalled_reason
     if status.job_error:
         payload["error"] = status.job_error
+    if preparation := _run_preparation_hint(row, status.public_status):
+        payload["preparation"] = preparation
     # A typed recipe/session halt (e.g. Parakeet's local_artifact_unavailable)
     # finalizes as a RESUMABLE 'cancelled' by design, but the reason lives only
     # in the run params — so the run reads as an indistinguishable bare
@@ -394,6 +396,24 @@ def _run_halt(row: Any) -> tuple[str | None, str | None]:
         code if isinstance(code, str) and code else None,
         reason if isinstance(reason, str) and reason else None,
     )
+
+
+def _run_preparation_hint(row: Any, public_status: str) -> dict[str, str] | None:
+    """Return the honest first-use hint from the persisted typed run params."""
+    if public_status != "running" or int(row["completed_rows"] or 0) != 0:
+        return None
+    if run_row_action_kind(row) != "map.translate":
+        return None
+    try:
+        params = json.loads(row["params"] or "{}")
+    except (TypeError, ValueError, KeyError, IndexError):
+        return None
+    nested = params.get("params") if isinstance(params, dict) else None
+    if not isinstance(nested, dict) or nested.get("engine") != "opus_mt":
+        return None
+    from frisket.ops.integrations.opus_mt import FIRST_USE_PREPARATION_MESSAGE
+
+    return {"message": FIRST_USE_PREPARATION_MESSAGE}
 
 
 def _project_run_job(

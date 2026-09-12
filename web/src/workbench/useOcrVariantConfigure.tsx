@@ -36,7 +36,7 @@ export function useOcrVariantConfigure(
   // chosen engine removes it. Cleared once an engine is committed.
   const [addingVariantId, setAddingVariantId] = useState<string | null>(null);
   const configureAnchorRef = useRef<HTMLDivElement>(null);
-  const engineSelectRef = useRef<HTMLSelectElement>(null);
+  const engineSelectorRef = useRef<HTMLButtonElement>(null);
   const configurePopoverRef = useRef<HTMLDivElement>(null);
   const addingRef = useRef<string | null>(null);
   useEffect(() => {
@@ -148,11 +148,13 @@ export function useOcrVariantConfigure(
   useEffect(() => {
     if (!configureVariantId) return undefined;
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.target instanceof Element && event.target.closest('.engine-selector__dialog')) return;
       if (event.key === 'Escape') dismissConfigure();
     };
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
+      if (target instanceof Element && target.closest('.engine-selector__dialog')) return;
       if (configureAnchorRef.current?.contains(target)) return;
       dismissConfigure();
     };
@@ -166,7 +168,7 @@ export function useOcrVariantConfigure(
 
   useEffect(() => {
     if (!configureVariantId) return;
-    engineSelectRef.current?.focus();
+    engineSelectorRef.current?.focus();
   }, [configureVariantId]);
 
   const renderSourcePeek = useCallback(
@@ -202,7 +204,7 @@ export function useOcrVariantConfigure(
     configureVariantId,
     popoverShift,
     configureAnchorRef,
-    engineSelectRef,
+    engineSelectorRef,
     configurePopoverRef,
     openConfigure,
     addEngineFlow,

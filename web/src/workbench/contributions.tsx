@@ -813,6 +813,7 @@ export function WatchesWorkbenchPanel({
 
 export function EmbeddingsWorkbenchPanel({
   apiPort,
+  projectId,
   host = 'leftSidebar',
   sheet,
   onSelectSheet,
@@ -825,6 +826,7 @@ export function EmbeddingsWorkbenchPanel({
     <WorkbenchContributionFrame descriptor={descriptor} host={placement.host} className="">
       <EmbeddingsPanel
         apiPort={apiPort}
+        projectId={projectId}
         sheet={sheet}
         onSelectSheet={onSelectSheet}
         onOpenLens={onOpenLens}

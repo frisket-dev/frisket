@@ -191,6 +191,7 @@ function previewSampleResult(wire: ActionPreviewStatusWire): PreviewSampleResult
     progress: {
       done: wire.progress?.done ?? 0,
       total: wire.progress?.total ?? null,
+      preparation: wire.progress?.preparation ?? null,
     },
     columns: (result?.columns ?? []).map(previewOverlayColumn),
     sampled: result?.sampled ?? 0,

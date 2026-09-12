@@ -46,7 +46,7 @@ export interface PreviewGridView {
   /** The server job id, for polling and cancellation. */
   previewId: string;
   status: PreviewStatus;
-  progress: { done: number; total: number | null };
+  progress: PreviewSampleResult['progress'];
   result: PreviewSampleResult | null;
   actionName: string;
   rowCount: number;

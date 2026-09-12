@@ -4,16 +4,12 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { generatedActionTemplateFromCatalogEntry } from '../../src/actions/model';
 import type { CanonicalActionDraft } from '../../src/actions/canonicalActionDraft';
-import { listProviders } from '../../src/api/open';
 import { isGeneratedActionCatalogEntry, type ActionCatalogPayload } from '../../src/api/types';
 import { GeneratedActionForm } from '../../src/components/action-panel/GeneratedActionForm';
 import { aiMeta, columnDef } from '../support/domainFixtures';
 import { sheetMeta } from '../support/actionFormFixtures';
 import { hasServedActionCatalogPython, servedActionCatalog } from '../support/servedActionCatalog';
-
-vi.mock('../../src/api/open', async (importOriginal) => ({
-  ...await importOriginal<typeof import('../../src/api/open')>(), listProviders: vi.fn(),
-}));
+import { installActionSelectorFixture, selectorProviderCatalog } from '../support/selectorChoicesFixture';
 
 const SHEET = sheetMeta([
   columnDef({ id: '11', name: 'body', type: 'text' }),
@@ -36,18 +32,16 @@ describe.skipIf(!hasServedActionCatalogPython() && !process.env.CI)('saved typed
   let catalog: ActionCatalogPayload;
   beforeAll(() => {
     catalog = servedActionCatalog();
-    vi.mocked(listProviders).mockResolvedValue({ schemaVersion: 'frisket.providers.v1', tier: 'local',
-      providers: [{ id: 'anthropic', label: 'Anthropic', kind: 'platform_api', configured: true,
-        source: 'environment', hint: null, models: [{ id: MODEL, label: 'Test model', price: null }] }] });
   }, 30_000);
-  afterEach(cleanup);
+  afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
   it.each(cases)('$kind edits only object.text and preserves every saved option', async ({ kind, field, params }) => {
     const entry = catalog.actions.find((candidate) => candidate.kind === kind)!;
     if (!isGeneratedActionCatalogEntry(entry)) throw new Error(`${kind} is not generated`);
+    installActionSelectorFixture(entry, async () => selectorProviderCatalog([MODEL]));
     const outputs = Object.fromEntries(entry.ui_hints.logical_outputs.map(({ key }) => [key, `saved_${key}`]));
     const execute = vi.fn();
-    render(<GeneratedActionForm catalogEntry={entry}
+    render(<GeneratedActionForm projectId={`template-values:${kind}`} catalogEntry={entry}
       actionTemplate={generatedActionTemplateFromCatalogEntry(entry)!} sheet={SHEET} running={false}
       initialDraft={{ action_id: kind, scope: { kind: 'sheet_rows', sheet_id: 7 }, params,
         output_names: outputs }}

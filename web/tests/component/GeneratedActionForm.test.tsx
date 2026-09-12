@@ -4,7 +4,7 @@ import '@testing-library/jest-dom/vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ActionParamResolution, ActionTemplate, GeneratedActionCatalogEntry } from '../../src/api/types';
+import type { ActionParamResolution, ActionTemplate, GeneratedActionCatalogEntry, RunEstimate } from '../../src/api/types';
 import { isGeneratedActionCatalogEntry } from '../../src/api/types';
 import { GeneratedActionForm } from '../../src/components/action-panel/GeneratedActionForm';
 import { ActionPanel } from '../../src/components/ActionPanel';
@@ -17,6 +17,47 @@ import { sheetMeta } from '../support/actionFormFixtures';
 import { completeCatalogPayload } from '../support/actionFormFixtures';
 import { syntheticActionCatalogEntry } from '../support/actionCatalogFixtures';
 import { aiMeta, columnDef } from '../support/domainFixtures';
+
+type SelectorFixtureChoice = {
+  authored_selection:
+    | { kind: 'model'; model: string }
+    | { kind: 'engine'; engine: string }
+    | { kind: 'engine_model'; engine: string; model: string };
+  can_run: boolean;
+  is_default?: boolean;
+  label: string;
+  blocker: null;
+};
+
+const selectorHarness = vi.hoisted(() => ({
+  emitCurrent: null as ((choice: SelectorFixtureChoice | null) => void) | null,
+}));
+
+vi.mock('../../src/engine-selector/SelectorField', () => ({
+  SelectorField: ({ testId, onSelect, onCurrentChoiceChange }: {
+    testId?: string;
+    onSelect(choice: SelectorFixtureChoice): void;
+    onCurrentChoiceChange?(choice: SelectorFixtureChoice | null): void;
+  }) => {
+    selectorHarness.emitCurrent = onCurrentChoiceChange ?? null;
+    return <button
+      type="button"
+      data-testid={testId}
+      onClick={() => {
+        const choice = {
+          authored_selection: { kind: 'model' as const, model: 'ready-model' },
+          can_run: true,
+          label: 'Ready model',
+          blocker: null,
+        };
+        onSelect(choice);
+        onCurrentChoiceChange?.(choice);
+      }}
+    >
+      Select ready model
+    </button>;
+  },
+}));
 
 const SHEET = sheetMeta([
   columnDef({ id: '11', name: 'raw', type: 'text' }),
@@ -182,6 +223,33 @@ function generatedTemplate(entry: GeneratedActionCatalogEntry): ActionTemplate {
   return template;
 }
 
+function meteredEntry(): GeneratedActionCatalogEntry {
+  return syntheticActionCatalogEntry('map.metered_test', {
+    input_schema: {
+      type: 'object',
+      required: ['source', 'model'],
+      properties: {
+        source: { type: 'string', title: 'Source' },
+        model: { type: 'string', title: 'Model' },
+      },
+    },
+    cost_policy: { kind: 'model_metered', requires_confirmation: true },
+    row_scope_policy: { kind: 'sheet_rows', selectors: ['all_rows', 'exact_membership'] },
+    ui_hints: {
+      form: 'generated',
+      category: 'text',
+      semantic_controls: { source: 'column', model: 'model' },
+      logical_outputs: [],
+    },
+  }) as GeneratedActionCatalogEntry;
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
 beforeEach(() => {
   requestSequence = 0;
   vi.stubGlobal('crypto', { randomUUID: () => `generated-request-${++requestSequence}` });
@@ -195,6 +263,230 @@ afterEach(() => {
 });
 
 describe('GeneratedActionForm', () => {
+  it('keeps the newest metered quote when an older request settles late', async () => {
+    const older = deferred<RunEstimate>();
+    const newer = deferred<RunEstimate>();
+    const estimateAction = vi.fn()
+      .mockImplementationOnce(() => older.promise)
+      .mockImplementationOnce(() => newer.promise);
+    const entry = meteredEntry();
+    render(
+      <GeneratedActionForm
+        catalogEntry={entry}
+        actionTemplate={generatedTemplate(entry)}
+        sheet={SHEET}
+        initialDraft={{ action_id: entry.kind, scope: { kind: 'sheet_rows', sheet_id: 7 },
+          params: { source: 'raw', model: 'ready-model' }, output_names: {} }}
+        running={false}
+        resolveParams={resolveStaticParams}
+        estimateAction={estimateAction}
+        onExecute={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('field-model'));
+    await waitFor(() => expect(estimateAction).toHaveBeenCalledTimes(1));
+    fireEvent.change(screen.getByTestId('field-source'), { target: { value: 'name' } });
+    await waitFor(() => expect(estimateAction).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      newer.resolve({ cost: 2, rows: 2, billed_cost: 2_000_000, policy_id: 'new' });
+      await newer.promise;
+    });
+    expect(screen.getByTestId('cost-estimate')).toHaveTextContent('$2.00');
+    await act(async () => {
+      older.resolve({ cost: 9, rows: 2, billed_cost: 9_000_000, policy_id: 'old' });
+      await older.promise;
+    });
+    expect(screen.getByTestId('cost-estimate')).toHaveTextContent('$2.00');
+  });
+
+  it('re-estimates a priced action for the newly selected row scope before running it', async () => {
+    const entry = meteredEntry();
+    const estimateAction = vi.fn(async () => ({
+      cost: 0.01,
+      rows: 2,
+      billed_cost: 12_000,
+      policy_id: 'metered',
+    }));
+    const onExecute = vi.fn();
+    render(
+      <GeneratedActionForm
+        catalogEntry={entry}
+        actionTemplate={generatedTemplate(entry)}
+        sheet={SHEET}
+        selectedRowIds={['2']}
+        initialDraft={{ action_id: entry.kind,
+          scope: { kind: 'sheet_rows', sheet_id: 7, row_ids: [2] },
+          params: { source: 'raw', model: 'ready-model' }, output_names: {} }}
+        running={false}
+        resolveParams={resolveStaticParams}
+        estimateAction={estimateAction}
+        onExecute={onExecute}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('field-model'));
+    await waitFor(() => expect(estimateAction).toHaveBeenLastCalledWith(expect.objectContaining({
+      scope: { kind: 'sheet_rows', sheet_id: 7, row_ids: [2] },
+    })));
+    fireEvent.click(screen.getByTestId('generated-action-run-scope-menu-button'));
+    fireEvent.click(screen.getByTestId('generated-action-row-scope-all'));
+    expect(onExecute).not.toHaveBeenCalled();
+    await waitFor(() => expect(estimateAction).toHaveBeenLastCalledWith(expect.objectContaining({
+      scope: { kind: 'sheet_rows', sheet_id: 7 },
+    })));
+    fireEvent.click(screen.getByTestId('generated-action-run'));
+    expect(onExecute).toHaveBeenCalledWith(expect.objectContaining({
+      scope: { kind: 'sheet_rows', sheet_id: 7 },
+    }), 'run');
+  });
+
+  it('keeps a model-only action disabled until the authoritative selector reports it runnable', async () => {
+    const entry = syntheticActionCatalogEntry('map.model_only', {
+      input_schema: {
+        type: 'object',
+        required: ['model'],
+        properties: { model: { type: 'string', title: 'Model' } },
+      },
+      ui_hints: {
+        form: 'generated',
+        category: 'text',
+        semantic_controls: { model: 'model' },
+        logical_outputs: [],
+      },
+    }) as GeneratedActionCatalogEntry;
+    render(
+      <GeneratedActionForm
+        catalogEntry={entry}
+        actionTemplate={generatedTemplate(entry)}
+        sheet={SHEET}
+        running={false}
+        resolveParams={resolveStaticParams}
+        onExecute={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('field-model'));
+    await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
+  });
+
+  it('binds an authoritative model default when the required draft is otherwise unset', async () => {
+    const entry = syntheticActionCatalogEntry('map.default_model', {
+      input_schema: {
+        type: 'object',
+        required: ['model'],
+        properties: { model: { type: 'string', title: 'Model' } },
+      },
+      ui_hints: {
+        form: 'generated',
+        category: 'text',
+        semantic_controls: { model: 'model' },
+        logical_outputs: [],
+      },
+    }) as GeneratedActionCatalogEntry;
+    const onExecute = vi.fn();
+    render(
+      <GeneratedActionForm
+        catalogEntry={entry}
+        actionTemplate={generatedTemplate(entry)}
+        sheet={SHEET}
+        running={false}
+        resolveParams={resolveStaticParams}
+        onExecute={onExecute}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
+    act(() => selectorHarness.emitCurrent?.({
+      authored_selection: { kind: 'model', model: 'served-default' },
+      can_run: true,
+      is_default: true,
+      label: 'Served default',
+      blocker: null,
+    }));
+
+    await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
+    fireEvent.click(screen.getByTestId('generated-action-run'));
+    expect(onExecute).toHaveBeenCalledWith(expect.objectContaining({
+      params: expect.objectContaining({ model: 'served-default' }),
+    }), 'run');
+  });
+
+  it('keeps an omitted saved optional engine out of the submitted request', async () => {
+    const entry = syntheticActionCatalogEntry('media.to_markdown') as GeneratedActionCatalogEntry;
+    const onExecute = vi.fn();
+    render(
+      <GeneratedActionForm
+        catalogEntry={entry}
+        actionTemplate={generatedTemplate(entry)}
+        sheet={SHEET}
+        initialDraft={{
+          action_id: entry.kind,
+          scope: { kind: 'sheet_rows', sheet_id: 7 },
+          params: { source: 'raw' },
+          output_names: {},
+        }}
+        running={false}
+        resolveParams={resolveStaticParams}
+        onExecute={onExecute}
+        onClose={vi.fn()}
+      />,
+    );
+
+    act(() => selectorHarness.emitCurrent?.({
+      authored_selection: { kind: 'engine', engine: 'markitdown' },
+      can_run: true,
+      is_default: true,
+      label: 'MarkItDown',
+      blocker: null,
+    }));
+
+    await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
+    fireEvent.click(screen.getByTestId('generated-action-run'));
+    expect(onExecute).toHaveBeenCalledWith(expect.objectContaining({
+      params: { source: 'raw' },
+    }), 'run');
+  });
+
+  it('uses one combined engine selector when an action has engine and model leaves', () => {
+    const entry = syntheticActionCatalogEntry('map.engine_model', {
+      input_schema: {
+        type: 'object',
+        required: ['engine', 'model'],
+        properties: {
+          engine: { type: 'string', title: 'Engine' },
+          model: { type: 'string', title: 'Model' },
+        },
+      },
+      ui_hints: {
+        form: 'generated',
+        category: 'text',
+        semantic_controls: { engine: 'engine', model: 'model' },
+        logical_outputs: [],
+      },
+    }) as GeneratedActionCatalogEntry;
+    render(
+      <GeneratedActionForm
+        catalogEntry={entry}
+        actionTemplate={generatedTemplate(entry)}
+        sheet={SHEET}
+        running={false}
+        resolveParams={resolveStaticParams}
+        onExecute={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('field-engine')).toBeInTheDocument();
+    expect(screen.queryByTestId('field-model')).not.toBeInTheDocument();
+  });
+
   it('uses resolved materialization for target controls without interpreting Params names', async () => {
     const entry = syntheticActionCatalogEntry('example.capture', {
       input_schema: { type: 'object', required: ['destination'], properties: {

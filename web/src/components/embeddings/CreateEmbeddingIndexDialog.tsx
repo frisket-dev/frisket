@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useState, type FormEvent, type MouseEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+} from 'react';
 import { Boxes, CheckCircle2, X } from 'lucide-react';
 import type { EmbeddingProvider, SheetMeta } from '../../api/types';
 import type { EmbeddingApiPort } from '../../api/ports';
@@ -9,14 +16,16 @@ import {
   estimateEmbeddingCost,
   type EmbeddingCostEstimate,
 } from './costEstimate';
-import { EmbeddingModelPicker } from './EmbeddingModelPicker';
+import { SelectorField } from '../../engine-selector/SelectorField';
+import type { SelectorChoice } from '../../api/selectorChoices';
 
 interface CreateEmbeddingIndexDialogProps {
   apiPort: Pick<EmbeddingApiPort, 'getSheetData'>;
+  projectId?: string;
   sheet: SheetMeta;
-  providers: EmbeddingProvider[] | null;
   form: CreateEmbeddingIndexForm;
   selectedCard: EmbeddingProvider | null;
+  providerCard: EmbeddingProvider | null;
   remoteSelected: boolean;
   autoRefreshOn: boolean;
   createReady: boolean;
@@ -95,12 +104,72 @@ function refreshPolicyLabel(
   return `Unattended remote refresh is pre-authorized up to ${formatUsd(maxCost)} per refresh with ${selectedCard?.label ?? form.provider}.`;
 }
 
+interface CustomEmbeddingModelDetailProps {
+  provider: string;
+  savedProvider: string;
+  savedModel: string;
+  savedModelIsCatalogued: boolean;
+  onModelSelect(provider: string, model: string): void;
+  onEditingChange(editing: boolean): void;
+  close(): void;
+}
+
+function CustomEmbeddingModelDetail({
+  provider,
+  savedProvider,
+  savedModel,
+  savedModelIsCatalogued,
+  onModelSelect,
+  onEditingChange,
+  close,
+}: CustomEmbeddingModelDetailProps) {
+  // A saved opaque ID belongs only to its provider. Inspecting another choice
+  // must not offer that ID as though it were valid for the inspected provider.
+  const savedCustomModel = provider === savedProvider && !savedModelIsCatalogued
+    ? savedModel : '';
+  const [draft, setDraft] = useState(savedCustomModel);
+
+  const commitModel = () => {
+    onModelSelect(provider, draft);
+    close();
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    commitModel();
+  };
+
+  return (
+    <div className="embedding-model-custom">
+      <label className="form-label" htmlFor="embedding-model-custom-input">
+        Custom model ID
+      </label>
+      <div className="embedding-model-custom-controls">
+        <input
+          id="embedding-model-custom-input"
+          className="form-input"
+          data-testid="embedding-model-custom-input"
+          placeholder="Provider-specific embedding model ID"
+          value={draft}
+          onFocus={() => onEditingChange(true)}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={onKeyDown}
+        />
+        <button type="button" className="btn" onClick={commitModel}>
+          Use model
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function CreateEmbeddingIndexDialog({
   apiPort,
+  projectId,
   sheet,
-  providers,
   form,
   selectedCard,
+  providerCard,
   remoteSelected,
   autoRefreshOn,
   createReady,
@@ -115,6 +184,11 @@ export function CreateEmbeddingIndexDialog({
   onConfirmRemoteChange,
 }: CreateEmbeddingIndexDialogProps) {
   const [step, setStep] = useState<CreateScreen>('source');
+  const [selectedChoice, setSelectedChoice] = useState<SelectorChoice | null>(null);
+  const selectedChoiceCanRun = selectedChoice?.authored_selection.kind === 'embedding'
+    && selectedChoice.authored_selection.provider === form.provider
+    && selectedChoice.authored_selection.model === form.model
+    && selectedChoice.can_run;
   const [costQuote, setCostQuote] = useState<{
     key: string;
     estimate: EmbeddingCostEstimate | null;
@@ -138,8 +212,8 @@ export function CreateEmbeddingIndexDialog({
     form.sourceColumns.length > 0 &&
     Boolean(form.provider) &&
     form.model.trim().length > 0 &&
-    (selectedCard == null ||
-      (Boolean(selectedCard.available) && selectedCard.modalityCompatible));
+    Boolean(selectedChoiceCanRun) &&
+    (selectedCard?.modalityCompatible ?? providerCard?.modalityCompatible ?? true);
   const egressReady = !remoteSelected || form.allowRemote;
   const costReady =
     !remoteSelected ||
@@ -208,7 +282,7 @@ export function CreateEmbeddingIndexDialog({
   };
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    if (!finalStep) {
+    if (!finalStep || !selectedChoiceCanRun) {
       event.preventDefault();
       return;
     }
@@ -259,11 +333,43 @@ export function CreateEmbeddingIndexDialog({
           <div className="embeddings-create-panel" data-testid="embedding-create-panel-source">
             <div>
               <span className="form-label">Provider / model</span>
-              <EmbeddingModelPicker
-                models={providers ?? []}
-                provider={form.provider}
-                model={form.model}
-                onSelect={onModelSelect}
+              <SelectorField
+                projectId={projectId}
+                label="Provider / model"
+                query={{
+                  schema_version: 'frisket.selector_choices_query.v1',
+                  subject: {
+                    kind: 'embedding',
+                    ...(form.provider ? { provider: form.provider } : {}),
+                    ...(form.model ? { model: form.model } : {}),
+                    modality: 'text',
+                    source_column_type: columns.find((column) => form.sourceColumns.includes(column.name))?.type,
+                  },
+                }}
+                recentNamespace={`${projectId ?? 'none'}:embedding`}
+                onSelect={(choice) => {
+                  if (choice.authored_selection.kind === 'embedding') {
+                    onModelSelect(choice.authored_selection.provider, choice.authored_selection.model);
+                  }
+                }}
+                onCurrentChoiceChange={setSelectedChoice}
+                renderDetailExtra={({ choice, onEditingChange, close }) => {
+                  if (choice.authored_selection.kind !== 'embedding') return null;
+                  return <CustomEmbeddingModelDetail
+                    key={JSON.stringify([
+                      choice.authored_selection.provider,
+                      form.provider === choice.authored_selection.provider && selectedCard == null
+                        ? form.model : '',
+                    ])}
+                    provider={choice.authored_selection.provider}
+                    savedProvider={form.provider}
+                    savedModel={form.model}
+                    savedModelIsCatalogued={selectedCard != null}
+                    onModelSelect={onModelSelect}
+                    onEditingChange={onEditingChange}
+                    close={close}
+                  />;
+                }}
               />
             </div>
 
@@ -292,7 +398,7 @@ export function CreateEmbeddingIndexDialog({
             data-testid="embedding-remote-controls"
           >
             <p className="form-hint embeddings-egress-warning">
-              {selectedCard?.label} is a remote provider. Your source text leaves this machine.
+              {selectedCard?.label ?? providerCard?.label ?? form.provider} is a remote provider. Your source text leaves this machine.
             </p>
             <label className="embeddings-col-check">
               <input
@@ -301,7 +407,7 @@ export function CreateEmbeddingIndexDialog({
                 checked={form.allowRemote}
                 onChange={(e) => onAllowRemoteChange(e.target.checked)}
               />
-              Allow sending data to {selectedCard?.label}
+              Allow sending data to {selectedCard?.label ?? providerCard?.label ?? form.provider}
             </label>
           </div>
         )}
@@ -446,7 +552,7 @@ export function CreateEmbeddingIndexDialog({
               type="submit"
               className="btn btn-primary"
               data-testid="embedding-create"
-              disabled={!createReady || creating}
+              disabled={!createReady || !selectedChoiceCanRun || creating}
             >
               {creating ? 'Creating...' : 'Create index'}
             </button>

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
@@ -128,6 +129,38 @@ def test_running_job_with_live_lease_stays_running_without_row_progress(tmp_path
     assert "stalled_reason" not in status
     assert status["queue"]["status"] == "running"
     assert status["queue"]["lease_expired"] is False
+
+
+def test_opus_first_use_preparation_hint_is_only_running_before_row_progress(tmp_path):
+    client = _client(tmp_path)
+    pid, _, run_id, job_id = _seed_queued_action_run(client)
+    project = client.app.state.workspace.get(pid)
+    project.db.execute(
+        "UPDATE runs SET action_kind='map.translate', params=? WHERE id=?",
+        (json.dumps({"params": {"engine": "opus_mt"}}), run_id),
+    )
+    project.db.commit()
+
+    # Queue wait and stalled states cannot claim the worker is preparing a model.
+    queued = _action_run_public_status(client, pid, run_id)
+    assert queued["status"] == "queued"
+    assert "preparation" not in queued
+
+    job = client.app.state.workspace.queue.claim("opus-worker", lease_seconds=600)
+    assert job is not None and job.id == job_id
+
+    preparing = _action_run_public_status(client, pid, run_id)
+    assert preparing["status"] == "running"
+    assert preparing["completed"] == 0
+    assert preparing["preparation"] == {
+        "message": "Preparing the language model if this worker needs it, then translating…"
+    }
+
+    project.db.execute("UPDATE runs SET completed_rows=1 WHERE id=?", (run_id,))
+    project.db.commit()
+    progressed = _action_run_public_status(client, pid, run_id)
+    assert progressed["status"] == "running"
+    assert "preparation" not in progressed
 
 
 def test_failed_job_with_live_writer_surfaces_reconciliation_stall(tmp_path):

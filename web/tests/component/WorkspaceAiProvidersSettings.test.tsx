@@ -20,6 +20,16 @@ import type {
   ProviderValidateResult,
 } from '../../src/api/types';
 
+vi.mock('../../src/api/modelsGateway', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../src/api/modelsGateway')>(),
+  getModelsGateway: vi.fn(async () => ({
+    schemaVersion: 'frisket.models_gateway.v1', configured: false, source: null,
+    origin: null, token_configured: false, token_hint: null, authority: 'workspace',
+    can_mutate: false, environment_names: ['FRISKET_MODELS_URL', 'FRISKET_MODELS_TOKEN'],
+    error: null, probe: null,
+  })),
+}));
+
 vi.mock('../../src/api/open', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/api/open')>();
   return {
@@ -244,13 +254,13 @@ describe('WorkspaceAiProvidersSettings', () => {
     expect(saveButton).toBeDisabled();
 
     await userEvent.click(screen.getByRole('button', { name: 'Test', exact: true }));
-    await waitFor(() => expect(validateProviderKey).toHaveBeenCalledWith('openai', KEY));
+    await waitFor(() => expect(validateProviderKey).toHaveBeenCalledWith('openai', KEY, { signal: expect.any(AbortSignal) }));
     const message = await screen.findByTestId('provider-validation-message');
     expect(message).toHaveTextContent(/valid/i);
     expect(saveButton).toBeEnabled();
 
     await userEvent.click(saveButton);
-    await waitFor(() => expect(setProviderKey).toHaveBeenCalledWith('openai', KEY, 'e2e-token'));
+    await waitFor(() => expect(setProviderKey).toHaveBeenCalledWith('openai', KEY, 'e2e-token', { signal: expect.any(AbortSignal) }));
 
     const status = await screen.findByTestId('provider-status-openai');
     expect(status).toHaveTextContent(/configured|\.\.\.9999/i);

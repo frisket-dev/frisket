@@ -74,6 +74,7 @@ def test_request_context_is_typed_detached_and_passed_by_identity(tmp_path) -> N
         )
 
     workspace = object.__new__(Workspace)
+    workspace._uses_open_execution_composition = False
     workspace._execution_composition_factory = factory
     request = SimpleNamespace(
         state=SimpleNamespace(execution_composition_context=context)
@@ -317,6 +318,7 @@ def test_two_requests_keep_effective_provider_funding_and_admission_together(
         )
 
     workspace = object.__new__(Workspace)
+    workspace._uses_open_execution_composition = False
     workspace._execution_composition_factory = factory
     direct_context = ExecutionCompositionContext.direct()
     org_composition = workspace.execution_composition_for(

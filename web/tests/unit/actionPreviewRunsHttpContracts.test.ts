@@ -27,6 +27,40 @@ class MappedContractError extends Error {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('action-preview lifecycle HTTP contracts', () => {
+  it('carries the running zero-row preparation hint into the preview domain result', async () => {
+    const responses = [
+      jsonResponse({
+        schema_version: 'frisket.action_preview.v1', preview_id: 'preparing', total: 10,
+      }, 202),
+      jsonResponse({
+        schema_version: 'frisket.action_preview.v1', preview_id: 'preparing', status: 'running',
+        progress: {
+          done: 0,
+          total: 10,
+          preparation: {
+            message: 'Preparing the language model if this worker needs it, then translating…',
+          },
+        },
+      }),
+    ];
+    vi.stubGlobal('fetch', vi.fn(async () => responses.shift() as Response));
+    const api = createActionPreviewDomainApi({
+      errorFactory: (status, payload) => new MappedContractError(status, payload),
+    }, 'project-one');
+    await api.start({ action_id: 'map.translate', scope: { kind: 'sheet_rows', sheet_id: 1 },
+      params: {}, output_names: {}, idempotency_key: 'preview-preparing' }, {});
+
+    await expect(api.get('preparing')).resolves.toMatchObject({
+      status: 'running',
+      progress: {
+        done: 0,
+        preparation: {
+          message: 'Preparing the language model if this worker needs it, then translating…',
+        },
+      },
+    });
+  });
+
   it.each(['done', 'error', 'cancelled'] as const)('preserves accounting without a sample for %s', async (status) => {
     const accounting = { receipt_id: 'receipt-paid', status: status === 'done' ? 'completed' :
       status === 'error' ? 'failed' : 'cancelled', model_call_count: 1, cost_actual: null, elapsed_ms: 3200 };

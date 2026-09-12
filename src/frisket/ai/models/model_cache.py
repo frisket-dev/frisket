@@ -83,6 +83,16 @@ def hf_install_path(ref: "ArtifactRef", *, root: Path | None = None) -> Path:
     return artifact_install_dir(ref, root=root) / ref.hf_path
 
 
+def artifact_lock_path(ref: "ArtifactRef", *, root: Path | None = None) -> Path:
+    """Sidecar lock path for one exact cache artifact, never its siblings."""
+    target = (
+        hf_install_path(ref, root=root)
+        if ref.scheme == "hf"
+        else artifact_install_dir(ref, root=root)
+    )
+    return target.with_name(f".{target.name}.provision.lock")
+
+
 def tmp_dir(pull_id: int | str, *, root: Path | None = None) -> Path:
     """The in-flight download staging dir for a pull, under ``.pull-tmp``."""
     base = root if root is not None else default_cache_root()
@@ -202,6 +212,7 @@ def uninstall(ref: "ArtifactRef", *, root: Path | None = None) -> bool:
 
 
 __all__ = [
+    "artifact_lock_path",
     "artifact_install_dir",
     "default_cache_root",
     "discard_tmp",

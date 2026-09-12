@@ -154,6 +154,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "outer.get_org_models_gateway.get",
+      "method": "GET",
+      "path": "/api/org/models-gateway",
+      "request": null
+    },
+    {
       "id": "outer.instance_info.get",
       "method": "GET",
       "path": "/api/instance",
@@ -298,6 +304,24 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
+      "id": "outer.set_org_models_gateway.put",
+      "method": "PUT",
+      "path": "/api/org/models-gateway",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "outer.setup_org_model_engine.post",
+      "method": "POST",
+      "path": "/api/org/models/setup",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "outer.update_profile.patch",
       "method": "PATCH",
       "path": "/api/me/profile",
@@ -319,6 +343,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "id": "outer.validate_org_key.post",
       "method": "POST",
       "path": "/api/org/keys/validate",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "outer.validate_org_models_gateway.post",
+      "method": "POST",
+      "path": "/api/org/models-gateway/validate",
       "request": {
         "mediaType": "application/json",
         "required": true
@@ -706,6 +739,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "id": "tenant.get_model_pull.get",
       "method": "GET",
       "path": "/api/providers/models/pulls/{pull_id}",
+      "request": null
+    },
+    {
+      "id": "tenant.get_models_gateway.get",
+      "method": "GET",
+      "path": "/api/models-gateway",
       "request": null
     },
     {
@@ -1279,6 +1318,24 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "tenant.selector_choices.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/selector-choices",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.set_models_gateway.put",
+      "method": "PUT",
+      "path": "/api/models-gateway",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "tenant.set_project_provider_key.post",
       "method": "POST",
       "path": "/api/projects/{pid}/provider-keys",
@@ -1300,6 +1357,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "id": "tenant.set_provider_key.put",
       "method": "PUT",
       "path": "/api/providers/keys/{provider}",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.setup_model_engine.post",
+      "method": "POST",
+      "path": "/api/providers/models/setup",
       "request": {
         "mediaType": "application/json",
         "required": true
@@ -1516,6 +1582,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "tenant.validate_models_gateway.post",
+      "method": "POST",
+      "path": "/api/models-gateway/validate",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "tenant.validate_project_provider_key.post",
       "method": "POST",
       "path": "/api/projects/{pid}/provider-keys/validate",
@@ -1729,6 +1804,7 @@ type HttpActionJob_ActionJobProgress = ({
   "halted_code"?: (((string)) | ((null)));
   "halted_reason"?: (((string)) | ((null)));
   "live": (boolean);
+  "preparation"?: (((HttpActionJob_ActionPreparationHint)) | ((null)));
   "queue"?: (((HttpActionJob_ActionRunQueue)) | ((HttpActionJob_ActionRunMissingQueue)) | ((null)));
   "row_errors"?: (((HttpActionJob_RunRowErrorSummary)) | ((null)));
   "run_id": (number);
@@ -1743,6 +1819,10 @@ type HttpActionJob_ActionJobTiming = ({
   "created_at": (((string)) | ((null)));
   "finished_at": (((string)) | ((null)));
   "started_at": (((string)) | ((null)));
+});
+
+type HttpActionJob_ActionPreparationHint = ({
+  "message": (string);
 });
 
 type HttpActionJob_ActionRunMissingQueue = ({
@@ -1867,6 +1947,7 @@ type HttpActionJobsPage_ActionJobProgress = ({
   "halted_code"?: (((string)) | ((null)));
   "halted_reason"?: (((string)) | ((null)));
   "live": (boolean);
+  "preparation"?: (((HttpActionJobsPage_ActionPreparationHint)) | ((null)));
   "queue"?: (((HttpActionJobsPage_ActionRunQueue)) | ((HttpActionJobsPage_ActionRunMissingQueue)) | ((null)));
   "row_errors"?: (((HttpActionJobsPage_RunRowErrorSummary)) | ((null)));
   "run_id": (number);
@@ -1881,6 +1962,10 @@ type HttpActionJobsPage_ActionJobTiming = ({
   "created_at": (((string)) | ((null)));
   "finished_at": (((string)) | ((null)));
   "started_at": (((string)) | ((null)));
+});
+
+type HttpActionJobsPage_ActionPreparationHint = ({
+  "message": (string);
 });
 
 type HttpActionJobsPage_ActionRunMissingQueue = ({
@@ -2002,6 +2087,10 @@ export type HttpActionPreviewStartResponse = ({
   "total": (((number)) | ((null)));
 });
 
+type HttpActionPreviewStatusResponse_ActionPreparationHint = ({
+  "message": (string);
+});
+
 type HttpActionPreviewStatusResponse_ActionPreviewAccounting = ({
   "cost_actual": (((number)) | ((null)));
   "elapsed_ms": (number);
@@ -2025,6 +2114,7 @@ type HttpActionPreviewStatusResponse_ActionPreviewJobError = ({
 
 type HttpActionPreviewStatusResponse_ActionPreviewProgress = ({
   "done": (number);
+  "preparation"?: (((HttpActionPreviewStatusResponse_ActionPreparationHint)) | ((null)));
   "total": (((number)) | ((null)));
 });
 
@@ -2181,6 +2271,10 @@ export type HttpActionRunRows = ({
   "total": (number);
 });
 
+type HttpActionRunStatus_ActionPreparationHint = ({
+  "message": (string);
+});
+
 type HttpActionRunStatus_ActionRunMissingQueue = ({
   "job_id": (((number)) | ((null)));
   "status": ("missing") & (string);
@@ -2196,6 +2290,7 @@ type HttpActionRunStatus_ActionRunPublicStatus = ({
   "halted_code"?: (((string)) | ((null)));
   "halted_reason"?: (((string)) | ((null)));
   "live": (boolean);
+  "preparation"?: (((HttpActionRunStatus_ActionPreparationHint)) | ((null)));
   "queue"?: (((HttpActionRunStatus_ActionRunQueue)) | ((HttpActionRunStatus_ActionRunMissingQueue)) | ((null)));
   "row_errors"?: (((HttpActionRunStatus_RunRowErrorSummary)) | ((null)));
   "run_id": (number);
@@ -3461,6 +3556,11 @@ export type HttpEmbeddingSimilarityPreviewResponse = ({
   "schema_version": ("frisket.embedding_similarity_preview.v1") & (string);
   "sheet_id": (((number)) | ((null)));
   "space_id": (string);
+});
+
+export type HttpEngineSetupRequest = ({
+  "setup_ref": (string);
+  [key: string]: JsonValue | (string);
 });
 
 export type HttpEntityMentionDocumentsRequest = ({
@@ -5824,6 +5924,12 @@ type HttpModelPull_ModelPullArtifact = ({
   "source_url": (((string)) | ((null)));
 });
 
+type HttpModelPull_ModelPullCapabilities = ({
+  "cancel": (boolean);
+  "remove": (boolean);
+  "retry": (boolean);
+});
+
 type HttpModelPull_ModelPullError = ({
   "code": (((string)) | ((null)));
   "message": (((string)) | ((null)));
@@ -5832,8 +5938,10 @@ type HttpModelPull_ModelPullError = ({
 export type HttpModelPull = ({
   "artifact": (((HttpModelPull_ModelPullArtifact)) | ((null)));
   "cancel_requested": (boolean);
+  "capabilities": (HttpModelPull_ModelPullCapabilities);
   "completed_bytes": (((number)) | ((null)));
   "created_at": (string);
+  "display_name": (string);
   "endpoint_id": (((string)) | ((null)));
   "endpoint_origin": (((string)) | ((null)));
   "error": (((HttpModelPull_ModelPullError)) | ((null)));
@@ -5841,10 +5949,11 @@ export type HttpModelPull = ({
   "id": (number);
   "initiated_by": (((string)) | ((null)));
   "model": (string);
+  "operation_kind": ("artifact" | "local_model" | "engine_setup") & (string);
   "phase": (((string)) | ((null)));
   "resolved_digest": (((string)) | ((null)));
   "resolved_size": (((number)) | ((null)));
-  "schemaVersion": ("frisket.model_pull.v3") & (string);
+  "schemaVersion": ("frisket.model_pull.v4") & (string);
   "started_at": (((string)) | ((null)));
   "status": ("pending" | "running" | "done" | "failed" | "cancelled" | "uninstalled") & (string);
   "total_bytes": (((number)) | ((null)));
@@ -5853,8 +5962,10 @@ export type HttpModelPull = ({
 type HttpModelPullListResponse_ModelPull = ({
   "artifact": (((HttpModelPullListResponse_ModelPullArtifact)) | ((null)));
   "cancel_requested": (boolean);
+  "capabilities": (HttpModelPullListResponse_ModelPullCapabilities);
   "completed_bytes": (((number)) | ((null)));
   "created_at": (string);
+  "display_name": (string);
   "endpoint_id": (((string)) | ((null)));
   "endpoint_origin": (((string)) | ((null)));
   "error": (((HttpModelPullListResponse_ModelPullError)) | ((null)));
@@ -5862,10 +5973,11 @@ type HttpModelPullListResponse_ModelPull = ({
   "id": (number);
   "initiated_by": (((string)) | ((null)));
   "model": (string);
+  "operation_kind": ("artifact" | "local_model" | "engine_setup") & (string);
   "phase": (((string)) | ((null)));
   "resolved_digest": (((string)) | ((null)));
   "resolved_size": (((number)) | ((null)));
-  "schemaVersion": ("frisket.model_pull.v3") & (string);
+  "schemaVersion": ("frisket.model_pull.v4") & (string);
   "started_at": (((string)) | ((null)));
   "status": ("pending" | "running" | "done" | "failed" | "cancelled" | "uninstalled") & (string);
   "total_bytes": (((number)) | ((null)));
@@ -5876,6 +5988,12 @@ type HttpModelPullListResponse_ModelPullArtifact = ({
   "license": (((string)) | ((null)));
   "manifest_version": (((string)) | ((null)));
   "source_url": (((string)) | ((null)));
+});
+
+type HttpModelPullListResponse_ModelPullCapabilities = ({
+  "cancel": (boolean);
+  "remove": (boolean);
+  "retry": (boolean);
 });
 
 type HttpModelPullListResponse_ModelPullError = ({
@@ -5890,8 +6008,10 @@ export type HttpModelPullListResponse = ({
 type HttpModelPullStartResponse_ModelPull = ({
   "artifact": (((HttpModelPullStartResponse_ModelPullArtifact)) | ((null)));
   "cancel_requested": (boolean);
+  "capabilities": (HttpModelPullStartResponse_ModelPullCapabilities);
   "completed_bytes": (((number)) | ((null)));
   "created_at": (string);
+  "display_name": (string);
   "endpoint_id": (((string)) | ((null)));
   "endpoint_origin": (((string)) | ((null)));
   "error": (((HttpModelPullStartResponse_ModelPullError)) | ((null)));
@@ -5899,10 +6019,11 @@ type HttpModelPullStartResponse_ModelPull = ({
   "id": (number);
   "initiated_by": (((string)) | ((null)));
   "model": (string);
+  "operation_kind": ("artifact" | "local_model" | "engine_setup") & (string);
   "phase": (((string)) | ((null)));
   "resolved_digest": (((string)) | ((null)));
   "resolved_size": (((number)) | ((null)));
-  "schemaVersion": ("frisket.model_pull.v3") & (string);
+  "schemaVersion": ("frisket.model_pull.v4") & (string);
   "started_at": (((string)) | ((null)));
   "status": ("pending" | "running" | "done" | "failed" | "cancelled" | "uninstalled") & (string);
   "total_bytes": (((number)) | ((null)));
@@ -5915,6 +6036,12 @@ type HttpModelPullStartResponse_ModelPullArtifact = ({
   "source_url": (((string)) | ((null)));
 });
 
+type HttpModelPullStartResponse_ModelPullCapabilities = ({
+  "cancel": (boolean);
+  "remove": (boolean);
+  "retry": (boolean);
+});
+
 type HttpModelPullStartResponse_ModelPullError = ({
   "code": (((string)) | ((null)));
   "message": (((string)) | ((null)));
@@ -5923,6 +6050,88 @@ type HttpModelPullStartResponse_ModelPullError = ({
 export type HttpModelPullStartResponse = ({
   "deduplicated": (boolean);
   "pull": (HttpModelPullStartResponse_ModelPull);
+});
+
+export type HttpModelsGatewayCandidateRequest = ({
+  "origin"?: (((string)) | ((null)));
+  "token"?: (((string)) | ((null)));
+});
+
+export type HttpModelsGatewaySaveRequest = ({
+  "origin": (string);
+  "token": (string);
+  "validation_token": (string);
+});
+
+type HttpModelsGatewayStatus_ModelsGatewayEngineCapability = ({
+  "available": (boolean);
+  "contract_versions"?: (((Array<(string)>)) | ((null)));
+  "error": (((string)) | ((null)));
+  "loaded": (boolean);
+  "models": (Array<(string)>);
+  "name": (string);
+  "options"?: ((({
+  [key: string]: (((boolean)) | ((number)) | ((number)) | ((string)) | ((null)));
+})) | ((null)));
+  "revision"?: (((string)) | ((null)));
+  "route": (string);
+  "runtime_image_id"?: (((string)) | ((null)));
+});
+
+type HttpModelsGatewayStatus_ModelsGatewayProbe = ({
+  "detail": (((string)) | ((null)));
+  "engines": (Array<(HttpModelsGatewayStatus_ModelsGatewayEngineCapability)>);
+  "ok": (boolean);
+  "reachable": (boolean);
+  "service": ((("frisket-models") & (string)) | ((null)));
+  "status": (((number)) | ((null)));
+  "version": (((string)) | ((null)));
+});
+
+export type HttpModelsGatewayStatus = ({
+  "authority": ("workspace" | "organization") & (string);
+  "can_mutate": (boolean);
+  "configured": (boolean);
+  "environment_names": (Array<("FRISKET_MODELS_URL" | "FRISKET_MODELS_TOKEN") & (string)>);
+  "error": (((string)) | ((null)));
+  "origin": (((string)) | ((null)));
+  "probe": (((HttpModelsGatewayStatus_ModelsGatewayProbe)) | ((null)));
+  "schemaVersion": ("frisket.models_gateway.v1") & (string);
+  "source": ((("environment" | "stored") & (string)) | ((null)));
+  "token_configured": (boolean);
+  "token_hint": (((string)) | ((null)));
+});
+
+type HttpModelsGatewayValidationResponse_ModelsGatewayEngineCapability = ({
+  "available": (boolean);
+  "contract_versions"?: (((Array<(string)>)) | ((null)));
+  "error": (((string)) | ((null)));
+  "loaded": (boolean);
+  "models": (Array<(string)>);
+  "name": (string);
+  "options"?: ((({
+  [key: string]: (((boolean)) | ((number)) | ((number)) | ((string)) | ((null)));
+})) | ((null)));
+  "revision"?: (((string)) | ((null)));
+  "route": (string);
+  "runtime_image_id"?: (((string)) | ((null)));
+});
+
+type HttpModelsGatewayValidationResponse_ModelsGatewayProbe = ({
+  "detail": (((string)) | ((null)));
+  "engines": (Array<(HttpModelsGatewayValidationResponse_ModelsGatewayEngineCapability)>);
+  "ok": (boolean);
+  "reachable": (boolean);
+  "service": ((("frisket-models") & (string)) | ((null)));
+  "status": (((number)) | ((null)));
+  "version": (((string)) | ((null)));
+});
+
+export type HttpModelsGatewayValidationResponse = ({
+  "normalized_origin": (((string)) | ((null)));
+  "probe": (HttpModelsGatewayValidationResponse_ModelsGatewayProbe);
+  "schemaVersion": ("frisket.models_gateway_validation.v1") & (string);
+  "validation_token": (((string)) | ((null)));
 });
 
 export type HttpNotificationActorState = ({
@@ -7463,6 +7672,244 @@ export type HttpSeenResult = ({
   "seen_count": (number);
 });
 
+type HttpSelectorChoicesQuery_ActionSelectorSubject = ({
+  "action_id": (string);
+  "field": (string);
+  "kind": ("action") & (string);
+  "params"?: ({
+  [key: string]: (HttpSelectorChoicesQuery_JsonValue);
+});
+});
+
+type HttpSelectorChoicesQuery_CopilotSelectorSubject = ({
+  "kind": ("copilot") & (string);
+  "model"?: (((string)) | ((null)));
+});
+
+type HttpSelectorChoicesQuery_EmbeddingSelectorSubject = ({
+  "kind": ("embedding") & (string);
+  "modality"?: (((string)) | ((null)));
+  "model"?: (((string)) | ((null)));
+  "provider"?: (((string)) | ((null)));
+  "source_column_type"?: (((string)) | ((null)));
+});
+
+type HttpSelectorChoicesQuery_JsonValue = JsonValue;
+
+export type HttpSelectorChoicesQuery = ({
+  "schema_version": ("frisket.selector_choices_query.v1") & (string);
+  "subject": (((HttpSelectorChoicesQuery_ActionSelectorSubject)) | ((HttpSelectorChoicesQuery_CopilotSelectorSubject)) | ((HttpSelectorChoicesQuery_EmbeddingSelectorSubject)));
+});
+
+type HttpSelectorChoicesResponse_ApiKeySetup = ({
+  "kind": ("api_key") & (string);
+  "provider": (string);
+  "scopes": (Array<(HttpSelectorChoicesResponse_SelectorSetupScope)>);
+});
+
+type HttpSelectorChoicesResponse_ArtifactDownloadSetup = ({
+  "blocked_by_operation": (((HttpSelectorChoicesResponse_ModelPull)) | ((null)));
+  "can_mutate": (boolean);
+  "can_start": (boolean);
+  "kind": ("artifact_download") & (string);
+  "scope": ("workspace" | "organization") & (string);
+  "setup_ref": (string);
+});
+
+type HttpSelectorChoicesResponse_EmbeddingSelection = ({
+  "kind": ("embedding") & (string);
+  "model": (string);
+  "provider": (string);
+});
+
+type HttpSelectorChoicesResponse_EngineModelSelection = ({
+  "engine": (string);
+  "kind": ("engine_model") & (string);
+  "model": (((string)) | ((null)));
+});
+
+type HttpSelectorChoicesResponse_EngineSelection = ({
+  "engine": (string);
+  "kind": ("engine") & (string);
+});
+
+type HttpSelectorChoicesResponse_EngineSetup = ({
+  "blocked_by_operation": (((HttpSelectorChoicesResponse_ModelPull)) | ((null)));
+  "can_mutate": (boolean);
+  "can_start": (boolean);
+  "kind": ("engine_setup") & (string);
+  "scope": ("workspace" | "organization") & (string);
+  "setup_ref": (string);
+});
+
+type HttpSelectorChoicesResponse_FirstUseDownloadSetup = ({
+  "disclosure": (string);
+  "kind": ("first_use_download") & (string);
+});
+
+type HttpSelectorChoicesResponse_InstructionsSetup = ({
+  "kind": ("instructions") & (string);
+  "steps": (Array<(string)>);
+  "title": (string);
+  "url"?: (((string)) | ((null)));
+});
+
+type HttpSelectorChoicesResponse_ModelPull = ({
+  "artifact": (((HttpSelectorChoicesResponse_ModelPullArtifact)) | ((null)));
+  "cancel_requested": (boolean);
+  "capabilities": (HttpSelectorChoicesResponse_ModelPullCapabilities);
+  "completed_bytes": (((number)) | ((null)));
+  "created_at": (string);
+  "display_name": (string);
+  "endpoint_id": (((string)) | ((null)));
+  "endpoint_origin": (((string)) | ((null)));
+  "error": (((HttpSelectorChoicesResponse_ModelPullError)) | ((null)));
+  "finished_at": (((string)) | ((null)));
+  "id": (number);
+  "initiated_by": (((string)) | ((null)));
+  "model": (string);
+  "operation_kind": ("artifact" | "local_model" | "engine_setup") & (string);
+  "phase": (((string)) | ((null)));
+  "resolved_digest": (((string)) | ((null)));
+  "resolved_size": (((number)) | ((null)));
+  "schemaVersion": ("frisket.model_pull.v4") & (string);
+  "started_at": (((string)) | ((null)));
+  "status": ("pending" | "running" | "done" | "failed" | "cancelled" | "uninstalled") & (string);
+  "total_bytes": (((number)) | ((null)));
+});
+
+type HttpSelectorChoicesResponse_ModelPullArtifact = ({
+  "kind": (string);
+  "license": (((string)) | ((null)));
+  "manifest_version": (((string)) | ((null)));
+  "source_url": (((string)) | ((null)));
+});
+
+type HttpSelectorChoicesResponse_ModelPullCapabilities = ({
+  "cancel": (boolean);
+  "remove": (boolean);
+  "retry": (boolean);
+});
+
+type HttpSelectorChoicesResponse_ModelPullError = ({
+  "code": (((string)) | ((null)));
+  "message": (((string)) | ((null)));
+});
+
+type HttpSelectorChoicesResponse_ModelSelection = ({
+  "kind": ("model") & (string);
+  "model": (string);
+});
+
+type HttpSelectorChoicesResponse_ModelsGatewaySetup = ({
+  "kind": ("models_gateway") & (string);
+  "scopes": (Array<(HttpSelectorChoicesResponse_SelectorSetupScope)>);
+});
+
+type HttpSelectorChoicesResponse_NormalizedActionSelectorSubject = ({
+  "action_id": (string);
+  "field": (string);
+  "kind": ("action") & (string);
+});
+
+type HttpSelectorChoicesResponse_NormalizedCopilotSelectorSubject = ({
+  "kind": ("copilot") & (string);
+});
+
+type HttpSelectorChoicesResponse_NormalizedEmbeddingSelectorSubject = ({
+  "kind": ("embedding") & (string);
+  "modality": (((string)) | ((null)));
+  "source_column_type": (((string)) | ((null)));
+});
+
+type HttpSelectorChoicesResponse_SelectorBlocker = ({
+  "code": (string);
+  "field"?: (((string)) | ((null)));
+  "message": (string);
+});
+
+type HttpSelectorChoicesResponse_SelectorChoice = ({
+  "active_operation": (((HttpSelectorChoicesResponse_ModelPull)) | ((null)));
+  "authored_selection": (((HttpSelectorChoicesResponse_EngineSelection)) | ((HttpSelectorChoicesResponse_ModelSelection)) | ((HttpSelectorChoicesResponse_EngineModelSelection)) | ((HttpSelectorChoicesResponse_EmbeddingSelection)));
+  "blocker": (((HttpSelectorChoicesResponse_SelectorBlocker)) | ((null)));
+  "can_author": (boolean);
+  "can_run": (boolean);
+  "choice_id": (string);
+  "description": (string);
+  "facts": (Array<(((HttpSelectorChoicesResponse_SelectorTextFact)) | ((HttpSelectorChoicesResponse_SelectorListFact)) | ((HttpSelectorChoicesResponse_SelectorRateFact)))>);
+  "is_current": (boolean);
+  "is_default": (boolean);
+  "label": (string);
+  "model_card_url": (((string)) | ((null)));
+  "processing_destination": (HttpSelectorChoicesResponse_SelectorProcessingDestination);
+  "resolved_target": (((HttpSelectorChoicesResponse_SelectorResolvedTarget)) | ((null)));
+  "setup": (((((HttpSelectorChoicesResponse_ApiKeySetup)) | ((HttpSelectorChoicesResponse_ModelsGatewaySetup)) | ((HttpSelectorChoicesResponse_ArtifactDownloadSetup)) | ((HttpSelectorChoicesResponse_EngineSetup)) | ((HttpSelectorChoicesResponse_FirstUseDownloadSetup)) | ((HttpSelectorChoicesResponse_InstructionsSetup)))) | ((null)));
+  "status": ("ready" | "needs_setup" | "working" | "unavailable") & (string);
+  "summary": (string);
+});
+
+type HttpSelectorChoicesResponse_SelectorChoiceGroup = ({
+  "choices": (Array<(HttpSelectorChoicesResponse_SelectorChoice)>);
+  "group_id": (string);
+  "kind": ("local" | "server" | "provider") & (string);
+  "label": (string);
+  "status": ("ready" | "needs_setup" | "working" | "unavailable") & (string);
+});
+
+type HttpSelectorChoicesResponse_SelectorListFact = ({
+  "kind": ("list") & (string);
+  "label": (string);
+  "values": (Array<(string)>);
+});
+
+type HttpSelectorChoicesResponse_SelectorProcessingDestination = ({
+  "kind": ("local" | "operator_network" | "external" | "unknown") & (string);
+  "label": (string);
+});
+
+type HttpSelectorChoicesResponse_SelectorRateFact = ({
+  "amount": (number);
+  "currency"?: ("USD") & (string);
+  "kind": ("rate") & (string);
+  "label": (string);
+  "source_url"?: (((string)) | ((null)));
+  "unit": (string);
+  "updated"?: (((string)) | ((null)));
+});
+
+type HttpSelectorChoicesResponse_SelectorResolvedTarget = ({
+  "egress_class": (((string)) | ((null)));
+  "operator": (((string)) | ((null)));
+  "target_id": (string);
+});
+
+type HttpSelectorChoicesResponse_SelectorSetupScope = ({
+  "can_mutate": (boolean);
+  "configured": (boolean);
+  "environment_names": (Array<(string)>);
+  "hint": (((string)) | ((null)));
+  "scope": ("workspace" | "project" | "organization" | "environment") & (string);
+  "settings_location": (((string)) | ((null)));
+  "source": ("missing" | "environment" | "workspace" | "project" | "organization" | "platform") & (string);
+});
+
+type HttpSelectorChoicesResponse_SelectorTextFact = ({
+  "kind": ("text") & (string);
+  "label": (string);
+  "value": (string);
+});
+
+export type HttpSelectorChoicesResponse = ({
+  "current_choice_id": (((string)) | ((null)));
+  "default_choice_id": (((string)) | ((null)));
+  "depends_on": (Array<(string)>);
+  "groups": (Array<(HttpSelectorChoicesResponse_SelectorChoiceGroup)>);
+  "orphaned_current": (((HttpSelectorChoicesResponse_SelectorChoice)) | ((null)));
+  "project_id": (string);
+  "schema_version": ("frisket.selector_choices.v1") & (string);
+  "subject": (((HttpSelectorChoicesResponse_NormalizedActionSelectorSubject)) | ((HttpSelectorChoicesResponse_NormalizedCopilotSelectorSubject)) | ((HttpSelectorChoicesResponse_NormalizedEmbeddingSelectorSubject)));
+});
+
 export type HttpSetProjectMemberRequest = ({
   "email": (string);
   "role": ("viewer" | "reviewer" | "editor" | "owner") & (string);
@@ -7668,6 +8115,11 @@ export type HttpTeamArtifactPullRequest = ({
   [key: string]: JsonValue | (string) | (boolean) | undefined;
 });
 
+export type HttpTeamEngineSetupRequest = ({
+  "setup_ref": (string);
+  [key: string]: JsonValue | (string);
+});
+
 type HttpTeamModelHttpError_JsonValue = JsonValue;
 
 type HttpTeamModelHttpError_TeamModelEnqueueFailedDetail = ({
@@ -7695,8 +8147,10 @@ type HttpTeamModelHttpError_TeamModelLocalServerUnreachableDetail = ({
 type HttpTeamModelHttpError_TeamModelPull = ({
   "artifact": (((HttpTeamModelHttpError_TeamModelPullArtifact)) | ((null)));
   "cancel_requested": (boolean);
+  "capabilities": (HttpTeamModelHttpError_TeamModelPullCapabilities);
   "completed_bytes": (((number)) | ((null)));
   "created_at": (string);
+  "display_name": (string);
   "endpoint_id": (((string)) | ((null)));
   "endpoint_origin": (((string)) | ((null)));
   "error": (((HttpTeamModelHttpError_TeamModelPullError)) | ((null)));
@@ -7704,10 +8158,11 @@ type HttpTeamModelHttpError_TeamModelPull = ({
   "id": (number);
   "initiated_by": (((string)) | ((null)));
   "model": (string);
+  "operation_kind": ("artifact" | "local_model" | "engine_setup") & (string);
   "phase": (((string)) | ((null)));
   "resolved_digest": (((string)) | ((null)));
   "resolved_size": (((number)) | ((null)));
-  "schemaVersion": ("frisket.model_pull.v3") & (string);
+  "schemaVersion": ("frisket.model_pull.v4") & (string);
   "started_at": (((string)) | ((null)));
   "status": ("pending" | "running" | "done" | "failed" | "cancelled" | "uninstalled") & (string);
   "total_bytes": (((number)) | ((null)));
@@ -7724,6 +8179,12 @@ type HttpTeamModelHttpError_TeamModelPullBusyDetail = ({
   "active"?: (((HttpTeamModelHttpError_TeamModelPull)) | ((null)));
   "code": ("pull_busy") & (string);
   "message": (string);
+});
+
+type HttpTeamModelHttpError_TeamModelPullCapabilities = ({
+  "cancel": (boolean);
+  "remove": (boolean);
+  "retry": (boolean);
 });
 
 type HttpTeamModelHttpError_TeamModelPullDisabledDetail = ({
@@ -7769,6 +8230,12 @@ type HttpTeamModelPull_TeamModelPullArtifact = ({
   "source_url": (((string)) | ((null)));
 });
 
+type HttpTeamModelPull_TeamModelPullCapabilities = ({
+  "cancel": (boolean);
+  "remove": (boolean);
+  "retry": (boolean);
+});
+
 type HttpTeamModelPull_TeamModelPullError = ({
   "code": (((string)) | ((null)));
   "message": (((string)) | ((null)));
@@ -7777,8 +8244,10 @@ type HttpTeamModelPull_TeamModelPullError = ({
 export type HttpTeamModelPull = ({
   "artifact": (((HttpTeamModelPull_TeamModelPullArtifact)) | ((null)));
   "cancel_requested": (boolean);
+  "capabilities": (HttpTeamModelPull_TeamModelPullCapabilities);
   "completed_bytes": (((number)) | ((null)));
   "created_at": (string);
+  "display_name": (string);
   "endpoint_id": (((string)) | ((null)));
   "endpoint_origin": (((string)) | ((null)));
   "error": (((HttpTeamModelPull_TeamModelPullError)) | ((null)));
@@ -7786,10 +8255,11 @@ export type HttpTeamModelPull = ({
   "id": (number);
   "initiated_by": (((string)) | ((null)));
   "model": (string);
+  "operation_kind": ("artifact" | "local_model" | "engine_setup") & (string);
   "phase": (((string)) | ((null)));
   "resolved_digest": (((string)) | ((null)));
   "resolved_size": (((number)) | ((null)));
-  "schemaVersion": ("frisket.model_pull.v3") & (string);
+  "schemaVersion": ("frisket.model_pull.v4") & (string);
   "started_at": (((string)) | ((null)));
   "status": ("pending" | "running" | "done" | "failed" | "cancelled" | "uninstalled") & (string);
   "total_bytes": (((number)) | ((null)));
@@ -7798,8 +8268,10 @@ export type HttpTeamModelPull = ({
 type HttpTeamModelPullListResponse_TeamModelPull = ({
   "artifact": (((HttpTeamModelPullListResponse_TeamModelPullArtifact)) | ((null)));
   "cancel_requested": (boolean);
+  "capabilities": (HttpTeamModelPullListResponse_TeamModelPullCapabilities);
   "completed_bytes": (((number)) | ((null)));
   "created_at": (string);
+  "display_name": (string);
   "endpoint_id": (((string)) | ((null)));
   "endpoint_origin": (((string)) | ((null)));
   "error": (((HttpTeamModelPullListResponse_TeamModelPullError)) | ((null)));
@@ -7807,10 +8279,11 @@ type HttpTeamModelPullListResponse_TeamModelPull = ({
   "id": (number);
   "initiated_by": (((string)) | ((null)));
   "model": (string);
+  "operation_kind": ("artifact" | "local_model" | "engine_setup") & (string);
   "phase": (((string)) | ((null)));
   "resolved_digest": (((string)) | ((null)));
   "resolved_size": (((number)) | ((null)));
-  "schemaVersion": ("frisket.model_pull.v3") & (string);
+  "schemaVersion": ("frisket.model_pull.v4") & (string);
   "started_at": (((string)) | ((null)));
   "status": ("pending" | "running" | "done" | "failed" | "cancelled" | "uninstalled") & (string);
   "total_bytes": (((number)) | ((null)));
@@ -7821,6 +8294,12 @@ type HttpTeamModelPullListResponse_TeamModelPullArtifact = ({
   "license": (((string)) | ((null)));
   "manifest_version": (((string)) | ((null)));
   "source_url": (((string)) | ((null)));
+});
+
+type HttpTeamModelPullListResponse_TeamModelPullCapabilities = ({
+  "cancel": (boolean);
+  "remove": (boolean);
+  "retry": (boolean);
 });
 
 type HttpTeamModelPullListResponse_TeamModelPullError = ({
@@ -7835,8 +8314,10 @@ export type HttpTeamModelPullListResponse = ({
 type HttpTeamModelPullStartResponse_TeamModelPull = ({
   "artifact": (((HttpTeamModelPullStartResponse_TeamModelPullArtifact)) | ((null)));
   "cancel_requested": (boolean);
+  "capabilities": (HttpTeamModelPullStartResponse_TeamModelPullCapabilities);
   "completed_bytes": (((number)) | ((null)));
   "created_at": (string);
+  "display_name": (string);
   "endpoint_id": (((string)) | ((null)));
   "endpoint_origin": (((string)) | ((null)));
   "error": (((HttpTeamModelPullStartResponse_TeamModelPullError)) | ((null)));
@@ -7844,10 +8325,11 @@ type HttpTeamModelPullStartResponse_TeamModelPull = ({
   "id": (number);
   "initiated_by": (((string)) | ((null)));
   "model": (string);
+  "operation_kind": ("artifact" | "local_model" | "engine_setup") & (string);
   "phase": (((string)) | ((null)));
   "resolved_digest": (((string)) | ((null)));
   "resolved_size": (((number)) | ((null)));
-  "schemaVersion": ("frisket.model_pull.v3") & (string);
+  "schemaVersion": ("frisket.model_pull.v4") & (string);
   "started_at": (((string)) | ((null)));
   "status": ("pending" | "running" | "done" | "failed" | "cancelled" | "uninstalled") & (string);
   "total_bytes": (((number)) | ((null)));
@@ -7858,6 +8340,12 @@ type HttpTeamModelPullStartResponse_TeamModelPullArtifact = ({
   "license": (((string)) | ((null)));
   "manifest_version": (((string)) | ((null)));
   "source_url": (((string)) | ((null)));
+});
+
+type HttpTeamModelPullStartResponse_TeamModelPullCapabilities = ({
+  "cancel": (boolean);
+  "remove": (boolean);
+  "retry": (boolean);
 });
 
 type HttpTeamModelPullStartResponse_TeamModelPullError = ({
@@ -8864,6 +9352,17 @@ export type HttpContractOperationMap = {
       readonly "500": HttpTeamModelHttpError;
     };
   };
+  readonly "outer.get_org_models_gateway.get": {
+    readonly pathParams: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpModelsGatewayStatus;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "500": HttpError;
+    };
+  };
   readonly "outer.instance_info.get": {
     readonly pathParams: HttpInline_d746974fa9afd5e9;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -9113,6 +9612,34 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "outer.set_org_models_gateway.put": {
+    readonly pathParams: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpModelsGatewaySaveRequest;
+    readonly responses: {
+      readonly "200": HttpModelsGatewayStatus;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "outer.setup_org_model_engine.post": {
+    readonly pathParams: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpTeamEngineSetupRequest;
+    readonly responses: {
+      readonly "202": HttpTeamModelPullStartResponse;
+      readonly "400": HttpTeamModelHttpError;
+      readonly "401": HttpTeamModelHttpError;
+      readonly "403": HttpTeamModelHttpError;
+      readonly "409": HttpTeamModelHttpError;
+      readonly "422": HttpTeamModelHttpError;
+      readonly "500": HttpTeamModelHttpError;
+      readonly "503": HttpTeamModelHttpError;
+    };
+  };
   readonly "outer.update_profile.patch": {
     readonly pathParams: HttpInline_d746974fa9afd5e9;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -9154,6 +9681,19 @@ export type HttpContractOperationMap = {
       readonly "422": HttpError;
       readonly "500": HttpError;
       readonly "501": HttpError;
+    };
+  };
+  readonly "outer.validate_org_models_gateway.post": {
+    readonly pathParams: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpModelsGatewayCandidateRequest;
+    readonly responses: {
+      readonly "200": HttpModelsGatewayValidationResponse;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
     };
   };
   readonly "tenant.ack_notification.post": {
@@ -9859,6 +10399,16 @@ export type HttpContractOperationMap = {
       readonly "200": HttpModelPull;
       readonly "404": HttpError;
       readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.get_models_gateway.get": {
+    readonly pathParams: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpModelsGatewayStatus;
+      readonly "400": HttpError;
       readonly "500": HttpError;
     };
   };
@@ -10920,6 +11470,31 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.selector_choices.post": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpSelectorChoicesQuery;
+    readonly responses: {
+      readonly "200": HttpSelectorChoicesResponse;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.set_models_gateway.put": {
+    readonly pathParams: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpModelsGatewaySaveRequest;
+    readonly responses: {
+      readonly "200": HttpModelsGatewayStatus;
+      readonly "400": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
   readonly "tenant.set_project_provider_key.post": {
     readonly pathParams: HttpInline_87cacc773db826e7;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -10957,6 +11532,19 @@ export type HttpContractOperationMap = {
       readonly "400": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.setup_model_engine.post": {
+    readonly pathParams: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpEngineSetupRequest;
+    readonly responses: {
+      readonly "202": HttpModelPullStartResponse;
+      readonly "400": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
     };
   };
   readonly "tenant.sheet_data.get": {
@@ -11330,6 +11918,17 @@ export type HttpContractOperationMap = {
       readonly "403": HttpError;
       readonly "404": HttpError;
       readonly "409": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.validate_models_gateway.post": {
+    readonly pathParams: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpModelsGatewayCandidateRequest;
+    readonly responses: {
+      readonly "200": HttpModelsGatewayValidationResponse;
+      readonly "400": HttpError;
+      readonly "422": HttpError;
       readonly "500": HttpError;
     };
   };

@@ -51,6 +51,15 @@ ROUTES = {
         frozenset({400, 401, 403, 409, 422, 500, 503}),
         True,
     ),
+    "setup_org_model_engine": RouteTruth(
+        "POST",
+        "/api/org/models/setup",
+        202,
+        "TeamModelPullStartResponse",
+        "TeamEngineSetupRequest",
+        frozenset({400, 401, 403, 409, 422, 500, 503}),
+        True,
+    ),
     "list_org_model_pulls": RouteTruth(
         "GET",
         "/api/org/models/pulls",
@@ -80,6 +89,14 @@ ROUTES = {
     ),
 }
 
+# Gateway controls share the Team-local model contribution but own their DTOs
+# and focused route tests in test_team_models_gateway_routes.py.
+GATEWAY_ROUTES = {
+    "get_org_models_gateway": "GET",
+    "validate_org_models_gateway": "POST",
+    "set_org_models_gateway": "PUT",
+}
+
 OPERATION_IDS = frozenset(
     f"outer.{name}.{truth.method.lower()}" for name, truth in ROUTES.items()
 )
@@ -102,7 +119,7 @@ def _pull_payload(
     initiated_by: str | None = "1",
 ) -> dict[str, object]:
     return {
-        "schemaVersion": "frisket.model_pull.v3",
+        "schemaVersion": "frisket.model_pull.v4",
         "id": 7,
         "model": "ollama/@env-a1b2c3d4e5f6/smollm:135m",
         "status": status,
@@ -120,6 +137,13 @@ def _pull_payload(
         "endpoint_origin": endpoint_origin,
         "initiated_by": initiated_by,
         "artifact": None,
+        "operation_kind": "local_model",
+        "display_name": "ollama/@env-a1b2c3d4e5f6/smollm:135m",
+        "capabilities": {
+            "cancel": status in ("pending", "running"),
+            "retry": False,
+            "remove": False,
+        },
     }
 
 
@@ -268,7 +292,7 @@ def test_team_local_model_declarations_are_complete_local_and_browser_exact() ->
         )
         for entry in declarations
     }
-    assert actual == {
+    expected_models = {
         (
             f"outer.{name}.{truth.method.lower()}",
             "outer",
@@ -279,10 +303,25 @@ def test_team_local_model_declarations_are_complete_local_and_browser_exact() ->
         )
         for name, truth in ROUTES.items()
     }
-    assert {entry.id for entry in declarations} == OPERATION_IDS
-    assert sum(entry.browser_client for entry in declarations) == 5
+    expected_gateway = {
+        (
+            f"outer.{name}.{method.lower()}",
+            "outer",
+            name,
+            method,
+            "session_or_pat",
+            True,
+        )
+        for name, method in GATEWAY_ROUTES.items()
+    }
+    assert actual == expected_models | expected_gateway
+    expected_ids = OPERATION_IDS | {
+        f"outer.{name}.{method.lower()}" for name, method in GATEWAY_ROUTES.items()
+    }
+    assert {entry.id for entry in declarations} == expected_ids
+    assert sum(entry.browser_client for entry in declarations) == 9
     assert not {
-        entry.id for entry in BASE_ENDPOINT_CATALOG if entry.id in OPERATION_IDS
+        entry.id for entry in BASE_ENDPOINT_CATALOG if entry.id in expected_ids
     }, "F3B declarations must stay edition-local, outside BASE_ENDPOINT_CATALOG"
 
 

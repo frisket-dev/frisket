@@ -191,10 +191,15 @@ def resolver_main() -> None:
         payload = json.load(sys.stdin)
         if not isinstance(payload, dict):
             raise TypeError("resolver payload must be an object")
-        model = _resolve_snapshot(dict(payload["model"]))
+        model_payload = payload.get("model")
         vad_payload = payload.get("vad")
+        if model_payload is None and vad_payload is None:
+            raise ValueError("resolver requires at least one artifact")
+        model = _resolve_snapshot(dict(model_payload)) if model_payload else None
         vad = _resolve_snapshot(dict(vad_payload)) if vad_payload else None
-        result: dict[str, Any] = {"ok": True, "model_path": model}
+        result: dict[str, Any] = {"ok": True}
+        if model is not None:
+            result["model_path"] = model
         if vad is not None:
             result["vad_path"] = vad
     except Exception:  # child details and paths never cross this boundary
@@ -220,6 +225,59 @@ def _manifest_snapshot_identity(
     return snapshot.repo_id, snapshot.revision, snapshot.files
 
 
+def _cached_snapshot(
+    *, cache_dir: Path, repo_id: str, revision: str, files: tuple[str, ...]
+) -> Path | None:
+    """Return a fully verified cached snapshot, if it is already present."""
+    candidate = (
+        cache_dir / f"models--{repo_id.replace('/', '--')}" / "snapshots" / revision
+    )
+    try:
+        return _validate_snapshot(
+            candidate,
+            cache_dir=cache_dir,
+            repo_id=repo_id,
+            revision=revision,
+            files=files,
+        )
+    except ParakeetArtifactUnavailable:
+        return None
+
+
+def parakeet_setup_ready() -> bool:
+    """Whether the pinned Parakeet model and VAD are locally verified.
+
+    This is a side-effect-free cache fact for selector projections. It does
+    not start a resolver child or infer a runtime's availability.
+    """
+    cache_dir = huggingface_hub_cache()
+    try:
+        model_repo, model_revision, model_files = _manifest_snapshot_identity(
+            artifact_manifest.parakeet_model_artifact, "Parakeet model"
+        )
+        vad_repo, vad_revision, vad_files = _manifest_snapshot_identity(
+            artifact_manifest.parakeet_vad_artifact, "Parakeet VAD"
+        )
+    except ParakeetArtifactUnavailable:
+        return False
+    return (
+        _cached_snapshot(
+            cache_dir=cache_dir,
+            repo_id=model_repo,
+            revision=model_revision,
+            files=model_files,
+        )
+        is not None
+        and _cached_snapshot(
+            cache_dir=cache_dir,
+            repo_id=vad_repo,
+            revision=vad_revision,
+            files=vad_files,
+        )
+        is not None
+    )
+
+
 async def resolve_parakeet_artifacts(
     *,
     vad: bool,
@@ -240,23 +298,46 @@ async def resolve_parakeet_artifacts(
     model_repo, model_revision, model_files = _manifest_snapshot_identity(
         artifact_manifest.parakeet_model_artifact, "Parakeet model"
     )
-    payload: dict[str, Any] = {
-        "model": _snapshot_payload(
+    model_path = _cached_snapshot(
+        cache_dir=cache_dir,
+        repo_id=model_repo,
+        revision=model_revision,
+        files=model_files,
+    )
+    payload: dict[str, Any] = {}
+    if model_path is None:
+        payload["model"] = _snapshot_payload(
             repo_id=model_repo,
             revision=model_revision,
             files=model_files,
             cache_dir=cache_dir,
         )
-    }
+    vad_path = None
     if vad:
         vad_repo, vad_revision, vad_files = _manifest_snapshot_identity(
             artifact_manifest.parakeet_vad_artifact, "Parakeet VAD"
         )
-        payload["vad"] = _snapshot_payload(
+        vad_path = _cached_snapshot(
+            cache_dir=cache_dir,
             repo_id=vad_repo,
             revision=vad_revision,
             files=vad_files,
-            cache_dir=cache_dir,
+        )
+        if vad_path is None:
+            payload["vad"] = _snapshot_payload(
+                repo_id=vad_repo,
+                revision=vad_revision,
+                files=vad_files,
+                cache_dir=cache_dir,
+            )
+
+    if not payload:
+        return ParakeetArtifacts(
+            cache_dir=cache_dir.resolve(strict=True),
+            model_path=model_path,
+            model_revision=model_revision,
+            vad_path=vad_path,
+            vad_revision=vad_revision if vad else None,
         )
 
     try:
@@ -286,20 +367,22 @@ async def resolve_parakeet_artifacts(
         body = json.loads(result.stdout)
         if not isinstance(body, dict) or body.get("ok") is not True:
             raise ValueError("resolver did not return success")
-        expected_fields = {"ok", "model_path"}
-        if vad:
+        expected_fields = {"ok"}
+        if model_path is None:
+            expected_fields.add("model_path")
+        if vad and vad_path is None:
             expected_fields.add("vad_path")
         if set(body) != expected_fields:
             raise ValueError("resolver returned unknown or missing fields")
-        model_path = _validate_snapshot(
-            Path(str(body["model_path"])),
-            cache_dir=cache_dir,
-            repo_id=model_repo,
-            revision=model_revision,
-            files=model_files,
-        )
-        vad_path = None
-        if vad:
+        if model_path is None:
+            model_path = _validate_snapshot(
+                Path(str(body["model_path"])),
+                cache_dir=cache_dir,
+                repo_id=model_repo,
+                revision=model_revision,
+                files=model_files,
+            )
+        if vad and vad_path is None:
             vad_path = _validate_snapshot(
                 Path(str(body["vad_path"])),
                 cache_dir=cache_dir,
@@ -318,3 +401,23 @@ async def resolve_parakeet_artifacts(
         vad_path=vad_path,
         vad_revision=vad_revision if vad else None,
     )
+
+
+__all__ = [
+    "ARTIFACT_WALL_SECONDS",
+    "PARAKEET_MODEL",
+    "PARAKEET_MODEL_FILES",
+    "PARAKEET_MODEL_REPO",
+    "PARAKEET_MODEL_REVISION",
+    "PARAKEET_VAD_FILES",
+    "PARAKEET_VAD_MODEL",
+    "PARAKEET_VAD_REPO",
+    "PARAKEET_VAD_REVISION",
+    "ParakeetArtifactCancelled",
+    "ParakeetArtifactUnavailable",
+    "ParakeetArtifacts",
+    "huggingface_hub_cache",
+    "parakeet_setup_ready",
+    "resolve_parakeet_artifacts",
+    "resolver_main",
+]

@@ -24,6 +24,7 @@ import {
   type GeneratedActionFormProps,
 } from '../../src/components/action-panel/GeneratedActionForm';
 import { servedActionCatalog } from '../support/servedActionCatalog';
+import { installActionSelectorFixture } from '../support/selectorChoicesFixture';
 
 export type TypedResolveParams = GeneratedActionFormProps['resolveParams'];
 export type TypedEstimateAction = NonNullable<GeneratedActionFormProps['estimateAction']>;
@@ -58,6 +59,7 @@ export interface MountTypedFormOptions {
 }
 
 export function mountTypedForm(options: MountTypedFormOptions) {
+  installActionSelectorFixture(options.entry);
   const template = generatedActionTemplateFromCatalogEntry(options.entry);
   if (!template) throw new Error(`${options.entry.kind} has no generated template`);
   const onExecute = vi.fn<(request: GeneratedActionRequest, intent: 'preview' | 'run') => void>();
@@ -66,6 +68,7 @@ export function mountTypedForm(options: MountTypedFormOptions) {
     ? vi.fn<(request: GeneratedActionRequest) => Promise<RunEstimate>>(options.estimateAction)
     : undefined;
   const utils = render(<GeneratedActionForm
+    projectId={`typed-form:${options.entry.kind}`}
     catalogEntry={options.entry}
     actionTemplate={template}
     sheet={options.sheet}

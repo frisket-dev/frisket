@@ -21,31 +21,21 @@ const engine: EngineOption = {
     { pair: 'es-en', display_name: 'Spanish → English', size: 100, license: 'CC-BY-4.0' },
   ],
 };
-const engines: EngineOption[] = [
-  { id: 'llm', label: 'Model', tier: 'hosted', available: true },
-  engine,
-  { id: 'hy_mt2', label: 'Hy-MT2', tier: 'local', available: true },
-];
-const engineModelChoice = {
-  engineParam: 'engine', modelParam: 'model', providerEngineId: 'llm',
-  label: 'Translation engine', fixedGroupLabel: 'Translation engines',
-};
-
 function Harness({ initial, onChange }: { initial: Params; onChange(params: Params): void }) {
   const [params, setParams] = useState(initial);
   const update = (next: Params) => { setParams(next); onChange(next); };
   return <TranslateParamsBody sheet={sheetMeta([])} request={{
     scope: { kind: 'sheet_rows', sheet_id: 1 },
-  }} params={params} setParams={update} engine={engine} engines={engines}
-  engineModelChoice={engineModelChoice} errors={{}}
-  Field={({ name }) => <div data-testid={`field-${name}`} />} />;
+  }} params={params} setParams={update} engine={engine} errors={{}}
+  Field={({ name }) => name === 'engine'
+    ? <button type="button" data-testid="field-engine" onClick={() => update({ ...params, engine: 'hy_mt2' })}>Choose Hy-MT2</button>
+    : <div data-testid={`field-${name}`} />} />;
 }
 
 it('keeps LLM fields and optional detection visible by default', () => {
   const onChange = vi.fn();
   render(<Harness initial={{ source: ['text'], model: 'test/model' }} onChange={onChange} />);
-  expect(screen.getByTestId('field-engine-model-choice')).toBeInTheDocument();
-  expect(screen.getByTestId('model-picker-button')).toHaveTextContent('test/model');
+  expect(screen.getByTestId('field-engine')).toBeInTheDocument();
   expect(screen.getByTestId('field-context')).toBeInTheDocument();
   expect(screen.getByTestId('field-save_detected_language')).toBeInTheDocument();
   expect(onChange).not.toHaveBeenCalled();
@@ -56,12 +46,10 @@ it('clears only unsupported intent on an explicit Hy-MT2 switch', async () => {
   render(<Harness initial={{ source: ['text'], engine: 'llm', model: 'test/model',
     context: 'newsroom', target_language: 'French', language: ['en'], save_detected_language: true }}
   onChange={onChange} />);
-  fireEvent.click(screen.getByTestId('model-picker-button'));
-  fireEvent.change(screen.getByTestId('model-picker-search'), { target: { value: 'engine:hy_mt2' } });
-  fireEvent.click(screen.getByTestId('model-option-engine-hy-mt2'));
+  // Engine selection is delegated to the host Field; the body owns cleanup.
+  fireEvent.click(screen.getByRole('button', { name: 'Choose Hy-MT2' }));
   await waitFor(() => expect(onChange.mock.lastCall?.[0]).toEqual({ source: ['text'], engine: 'hy_mt2',
     target_language: 'French', save_detected_language: false }));
-  expect(screen.getByTestId('model-picker-button')).toHaveTextContent('Hy-MT2');
   expect(screen.queryByTestId('field-model')).not.toBeInTheDocument();
   expect(screen.queryByTestId('field-context')).not.toBeInTheDocument();
   expect(screen.queryByTestId('field-save_detected_language')).not.toBeInTheDocument();

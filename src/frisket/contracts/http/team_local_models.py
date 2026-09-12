@@ -18,6 +18,10 @@ class TeamArtifactPullRequest(_CompatibleRequest):
     unpinned_acknowledged: bool = False
 
 
+class TeamEngineSetupRequest(_CompatibleRequest):
+    setup_ref: str
+
+
 class TeamModelPullError(WireModel):
     code: str | None
     message: str | None
@@ -30,8 +34,14 @@ class TeamModelPullArtifact(WireModel):
     manifest_version: str | None
 
 
+class TeamModelPullCapabilities(WireModel):
+    cancel: bool
+    retry: bool
+    remove: bool
+
+
 class TeamModelPull(WireModel):
-    schemaVersion: Literal["frisket.model_pull.v3"]
+    schemaVersion: Literal["frisket.model_pull.v4"]
     id: int
     model: str
     status: Literal[
@@ -56,6 +66,9 @@ class TeamModelPull(WireModel):
     endpoint_origin: str | None
     initiated_by: str | None
     artifact: TeamModelPullArtifact | None
+    operation_kind: Literal["artifact", "local_model", "engine_setup"]
+    display_name: str
+    capabilities: TeamModelPullCapabilities
 
 
 class TeamModelPullStartResponse(WireModel):
@@ -152,9 +165,11 @@ def team_model_http_error_responses(
 
 __all__ = [
     "TeamArtifactPullRequest",
+    "TeamEngineSetupRequest",
     "TeamModelHttpError",
     "TeamModelPull",
     "TeamModelPullArtifact",
+    "TeamModelPullCapabilities",
     "TeamModelPullBusyDetail",
     "TeamModelPullError",
     "TeamModelPullListResponse",

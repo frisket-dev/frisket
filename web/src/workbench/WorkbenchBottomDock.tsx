@@ -129,6 +129,10 @@ function dockJobErrorMessage(job: DockActionJob): string {
 }
 
 function dockDetailRows(job: DockActionJob): Array<[string, string]> {
+  const preparation =
+    job.progress?.status === 'running' && job.progress.completedRows === 0
+      ? job.progress.preparation?.message
+      : null;
   return [
     ['Job id', String(job.jobId)],
     ['Run id', job.runId ?? '—'],
@@ -137,6 +141,7 @@ function dockDetailRows(job: DockActionJob): Array<[string, string]> {
     ['Action', job.actionKind ?? '—'],
     ['Rows', dockJobRows(job)],
     ['Failed rows', job.progress?.failedRows?.toLocaleString() ?? '—'],
+    ...(preparation ? ([['Preparing', preparation]] as Array<[string, string]>) : []),
     ['Attempts', `${job.attempts} / ${job.maxAttempts}`],
     ['Created', formatDockTime(job.timing.createdAt)],
     ['Started', formatDockTime(job.timing.startedAt)],

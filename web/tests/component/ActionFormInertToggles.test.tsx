@@ -11,12 +11,13 @@
 // legacy form's hand-written "Include confidence" no longer exists.
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, screen } from '@testing-library/react';
+import { cleanup, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { columnDef } from '../support/domainFixtures';
 import { sheetMeta } from '../support/actionFormFixtures';
+import { selectorTrigger } from '../support/selectorChoicesFixture';
 import { installPopoverPolyfill } from '../support/domPolyfills';
 import { mockActionApiDefaults } from '../support/renderActionForm';
 import {
@@ -57,7 +58,7 @@ describe('confidence/justification toggle visibility (A20)', () => {
     const { onExecute } = mount('map.classify');
 
     // Local semantic classification reads neither flag.
-    expect(screen.getByTestId('model-picker-button')).toHaveTextContent('Local semantic');
+    await waitFor(() => expect(selectorTrigger()).toHaveTextContent('Local semantic'));
     expect(screen.queryByLabelText('Include Confidence')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Include Justification')).not.toBeInTheDocument();
 

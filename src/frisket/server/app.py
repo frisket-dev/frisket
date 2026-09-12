@@ -103,6 +103,19 @@ from frisket.server.routes.project_evidence import register_project_evidence_rou
 from frisket.server.routes.projects import register_project_lifecycle_routes
 from frisket.server.routes.project_mcp import register_project_mcp_routes
 from frisket.server.routes.providers import register_provider_config_routes
+from frisket.server.routes.selector_choices import register_selector_choices_routes
+from frisket.server.routes.models_gateway import register_models_gateway_routes
+from frisket.server.services.models_gateway import ModelsGatewayService
+from frisket.ai.models.gateway_config import (
+    InvalidModelsGatewayConfig,
+    ModelsGatewayConnection,
+    resolve_models_gateway_env,
+)
+from frisket.server.services.selector_choices import (
+    SelectorCapabilities,
+    SelectorCapabilitiesFor,
+    SelectorModelsGatewayStatusFor,
+)
 from frisket.server.routes.project_research import (
     register_project_backfill_activity_routes,
     register_project_copilot_routes,
@@ -310,6 +323,10 @@ def create_app(
     static_dir: str | Path | None = None,
     serve_spa: bool = True,
     enable_provider_config: bool = True,
+    selector_capabilities_for: SelectorCapabilitiesFor | None = None,
+    models_gateway_connection_resolver: Callable[[], ModelsGatewayConnection | None]
+    | None = None,
+    models_gateway_status_for: SelectorModelsGatewayStatusFor | None = None,
     provider_keys_resolver: Callable[[], Mapping[str, str]] | None = None,
     worker_ports: WorkerPorts | None = None,
     project_blob_store_factory: Callable[[str], Any] | None = None,
@@ -411,6 +428,19 @@ def create_app(
             ),
         )
 
+    gateway_service = (
+        ModelsGatewayService.workspace(workspace_root)
+        if edition == "solo" and enable_provider_config
+        else None
+    )
+    if gateway_service is not None:
+        models_gateway_connection_resolver = gateway_service.resolve_connection
+
+        def models_gateway_status_for(can_mutate: bool) -> Mapping[str, Any]:
+            return gateway_service.passive_status(can_mutate=can_mutate)
+
+        register_models_gateway_routes(app, service=gateway_service)
+
     ws = server_workspace.Workspace(
         Path(workspace_root),
         router,
@@ -425,6 +455,7 @@ def create_app(
         notification_secret_resolver=notification_secret_resolver,
         notification_delivery_runtime=notification_delivery_runtime,
         provider_keys_resolver=provider_keys_resolver,
+        models_gateway_connection_resolver=models_gateway_connection_resolver,
         worker_ports=worker_ports,
         project_blob_store_factory=project_blob_store_factory,
         project_opener=project_opener,
@@ -504,6 +535,34 @@ def create_app(
             else _sidecar_capabilities()
         ),
         edition=edition,
+    )
+
+    if selector_capabilities_for is None:
+        solo_capabilities = SelectorCapabilities(
+            may_author_actions=edition == "solo",
+            may_run_actions=edition == "solo",
+            configure_workspace_credentials=edition == "solo"
+            and enable_provider_config,
+            configure_project_credentials=edition == "solo",
+            manage_model_downloads=(
+                edition == "solo"
+                and enable_provider_config
+                and model_pull_enabled is not False
+            ),
+            configure_models_gateway=edition == "solo" and enable_provider_config,
+        )
+
+        def selector_capabilities_for(
+            _request: Request, _pid: str
+        ) -> SelectorCapabilities:
+            return solo_capabilities
+
+    register_selector_choices_routes(
+        app,
+        workspace=ws,
+        capabilities_for=selector_capabilities_for,
+        edition=edition,
+        models_gateway_status_for=models_gateway_status_for,
     )
 
     register_walkthrough_routes(app)
@@ -635,14 +694,16 @@ def create_app(
         """
         import httpx
 
-        from frisket.ops._sidecar import (
-            probe_sidecar_capabilities,
-            sidecar_base_url,
-            sidecar_token,
-        )
+        from frisket.ops._sidecar import probe_sidecar_capabilities
 
-        base = sidecar_base_url()
-        token = sidecar_token()
+        try:
+            connection = (
+                models_gateway_connection_resolver or resolve_models_gateway_env
+            )()
+        except InvalidModelsGatewayConfig:
+            connection = None
+        base = connection.origin if connection else None
+        token = connection.token if connection else None
 
         def _probe() -> dict[str, Any]:
             return probe_sidecar_capabilities(

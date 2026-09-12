@@ -10,13 +10,14 @@ import { createWorkspaceStores, type WorkspaceStores } from '../../src/state/cre
 import { WorkspaceStoresContext } from '../../src/bind/workspaceStoresContext';
 import { GeneratedActionForm } from '../../src/components/action-panel/GeneratedActionForm';
 import { servedActionCatalog } from '../support/servedActionCatalog';
+import { installActionSelectorFixture, selectorProviderCatalog } from '../support/selectorChoicesFixture';
 const catalog = servedActionCatalog();
 
 const sheet: SheetMeta = { id: '7', name: 'Stories', rowCount: 3,
   columns: [{ id: '11', name: 'story', type: 'text' }, { id: '12', name: 'category', type: 'category' }],
   citedColumnIds: [], annotatedTextColumnIds: [] };
 let stores: WorkspaceStores | undefined;
-afterEach(() => { cleanup(); stores?.dispose(); stores = undefined; vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); stores?.dispose(); stores = undefined; vi.restoreAllMocks(); });
 
 const examples: Array<[string, GeneratedActionDraft['params'], Record<string, string>, boolean?]> = [
   ['map.classify', { source: ['story'], engine: 'local_semantic',
@@ -40,16 +41,17 @@ it.each(examples)('submits %s through the generated form using served Params and
   const entry = structuredClone(catalog.actions.find((item) => item.kind === kind));
   if (!entry || !isGeneratedActionCatalogEntry(entry)) throw new Error(`${kind} is not generated`);
   entry.ui_hints.engines = entry.ui_hints.engines?.map((engine) => ({ ...engine, available: true }));
+  installActionSelectorFixture(entry, async () => selectorProviderCatalog(['test/model']));
   const template = generatedActionTemplateFromCatalogEntry(entry);
   if (!template) throw new Error('Missing template');
-  const api = createProjectApi('typed-forms');
+  const projectId = 'typed-forms';
+  const api = createProjectApi(projectId);
   vi.spyOn(api, 'listMcpServers').mockResolvedValue([]);
-  stores = createWorkspaceStores('typed-forms', api);
-  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('No provider request in this test')));
+  stores = createWorkspaceStores(projectId, api);
   const onExecute = vi.fn();
   const draft: GeneratedActionDraft = { action_id: kind, scope: { kind: 'sheet_rows', sheet_id: 7, row_ids: [2] },
     params, output_names, ...(createsSheet ? { sheet_name: 'Results' } : {}) };
-  render(<WorkspaceStoresContext.Provider value={stores}><GeneratedActionForm
+  render(<WorkspaceStoresContext.Provider value={stores}><GeneratedActionForm projectId={projectId}
     catalogEntry={entry} actionTemplate={template} sheet={sheet} initialDraft={draft}
     selectedRowIds={['2']} hasExactRowScopeInitializer running={false}
     resolveParams={async () => ({ diagnostics: {}, creates_sheet: createsSheet ?? false,
@@ -80,10 +82,10 @@ it.each(examples)('submits %s through the generated form using served Params and
 it('preserves a question redirected to Extract as the output field instruction', async () => {
   const entry = catalog.actions.find((item) => item.kind === 'map.extract');
   if (!entry || !isGeneratedActionCatalogEntry(entry)) throw new Error('Missing Extract');
+  installActionSelectorFixture(entry, async () => selectorProviderCatalog(['test/model']));
   const template = generatedActionTemplateFromCatalogEntry(entry)!;
   const resolveParams = vi.fn(async () => ({ diagnostics: {}, logical_outputs: [] }));
-  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('No provider request in this test')));
-  render(<GeneratedActionForm catalogEntry={entry} actionTemplate={template} sheet={sheet}
+  render(<GeneratedActionForm projectId="typed-forms:extract-prompt" catalogEntry={entry} actionTemplate={template} sheet={sheet}
     initialSourceColumn="story" initialPrompt="Who signed the contract?" running={false}
     resolveParams={resolveParams} onExecute={vi.fn()} onClose={vi.fn()} />);
   await waitFor(() => expect(resolveParams).toHaveBeenCalledWith(expect.objectContaining({

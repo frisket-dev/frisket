@@ -11,7 +11,7 @@ from typing import Annotated, Literal
 
 from pydantic import ConfigDict, Field, JsonValue, RootModel
 
-from frisket.contracts.http.models import WireModel
+from frisket.contracts.http.models import ActionPreparationHint, WireModel
 
 
 ACTION_PREVIEW_SCHEMA_VERSION = "frisket.action_preview.v1"
@@ -47,6 +47,7 @@ class ActionPreviewStartResponse(WireModel):
 class ActionPreviewProgress(WireModel):
     done: int
     total: int | None
+    preparation: ActionPreparationHint | None = None
 
 
 class ActionPreviewJobError(WireModel):

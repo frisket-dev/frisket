@@ -6,7 +6,7 @@
 // the model-server host are three potentially-different machines. Platform
 // is a selectable tab, never sniffed from navigator (we cannot know which
 // machine will actually run the server). Renders in two places: a compact
-// pane inside the ModelPicker popover, and the full settings section
+// settings section
 // (variant='full' adds the platform-tab install walkthrough).
 
 import { useState } from 'react';

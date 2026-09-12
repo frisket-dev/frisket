@@ -662,7 +662,7 @@ def test_v4_migration_adds_artifact_columns_and_pre_v4_rows_default_to_ollama(
     assert row.artifact_kind is None
     assert row.effective_artifact_kind == "ollama"
     dto = store.to_dto(row)
-    assert dto["schemaVersion"] == "frisket.model_pull.v3"
+    assert dto["schemaVersion"] == "frisket.model_pull.v4"
     assert dto["artifact"] is None
 
 

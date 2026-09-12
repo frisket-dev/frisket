@@ -262,7 +262,7 @@ export const LAWSUIT_DOCUMENT_WALKTHROUGH: WalkthroughDefinition = {
       id: 'choose-converter',
       title: 'Choose an available converter',
       instruction: 'Choose an available conversion engine. Searchable PDFs do not need OCR.',
-      target: { kind: 'field', id: 'engine-picker-button' },
+      target: { kind: 'field', id: 'field-engine' },
       advance: 'next-button',
     },
     {
@@ -398,7 +398,7 @@ export const LAWSUIT_DOCUMENT_WALKTHROUGH: WalkthroughDefinition = {
       id: 'choose-filing-model',
       title: 'Choose a model',
       instruction: 'Choose an available model for structured extraction.',
-      target: { kind: 'field', id: 'model-picker-button' },
+      target: { kind: 'field', id: 'field-engine' },
       advance: 'next-button',
     },
     {
@@ -473,7 +473,7 @@ export const COUNCIL_AUDIO_WALKTHROUGH: WalkthroughDefinition = {
       id: 'choose-transcription-engine',
       title: 'Choose a transcription engine',
       instruction: 'Open the engine picker and choose an available local, sidecar, or hosted speech-to-text engine.',
-      target: { kind: 'field', id: 'engine-picker-button' },
+      target: { kind: 'field', id: 'field-engine' },
       advance: 'next-button',
     },
     {
@@ -623,7 +623,7 @@ export const CIVIC_AI_TRIAGE_WALKTHROUGH: WalkthroughDefinition = {
       id: 'choose-ner-engine',
       title: 'Choose an entity engine',
       instruction: 'Choose an available engine. The local spaCy option is a good fit for this walkthrough.',
-      target: { kind: 'field', id: 'engine-picker-button' },
+      target: { kind: 'field', id: 'field-engine' },
       advance: 'next-button',
     },
     {
@@ -930,7 +930,7 @@ export const RSS_IMPORT_WALKTHROUGH: WalkthroughDefinition = {
       id: 'choose-feed-classify-model',
       title: 'Choose a model',
       instruction: 'Choose an available model for this classification run.',
-      target: { kind: 'field', id: 'model-picker-button' },
+      target: { kind: 'field', id: 'field-engine' },
       advance: 'next-button',
     },
     {
@@ -1393,7 +1393,7 @@ export const LOCAL_MODEL_LAB_WALKTHROUGH: WalkthroughDefinition = {
       id: 'choose-local-llm',
       title: 'Find the runner picker',
       instruction: 'Use Run with to choose the Ollama model for this action.',
-      target: { kind: 'field', id: 'model-picker-button' },
+      target: { kind: 'field', id: 'field-engine' },
       advance: 'next-button',
     },
     {
@@ -1418,7 +1418,7 @@ export const LOCAL_MODEL_LAB_WALKTHROUGH: WalkthroughDefinition = {
       id: 'choose-small-model',
       title: 'Choose qwen3:0.6b',
       instruction: 'Open the model picker and choose qwen3:0.6b under Local model lab server. The saved model ID includes that endpoint, so an identical tag on another server stays distinct.',
-      target: { kind: 'field', id: 'model-picker-button' },
+      target: { kind: 'field', id: 'field-engine' },
       advance: 'next-button',
     },
     {
@@ -1479,7 +1479,7 @@ export const LOCAL_MODEL_LAB_WALKTHROUGH: WalkthroughDefinition = {
       id: 'confirm-hard-model',
       title: 'Choose the same small model',
       instruction: 'Choose qwen3:0.6b under Local model lab server again. Actions keep separate drafts, so make the endpoint explicit before comparing results.',
-      target: { kind: 'field', id: 'model-picker-button' },
+      target: { kind: 'field', id: 'field-engine' },
       advance: 'next-button',
     },
     {

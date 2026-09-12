@@ -149,14 +149,6 @@ function embeddingsPanelReducer(
   }
 }
 
-function defaultSelection(
-  cards: EmbeddingProvider[],
-): Pick<CreateEmbeddingIndexForm, 'provider' | 'model'> {
-  const selectable = cards.filter((card) => card.available && card.modalityCompatible);
-  const pick = selectable.find((card) => card.recommended) ?? selectable[0] ?? null;
-  return { provider: pick?.providerId ?? '', model: pick?.modelId ?? '' };
-}
-
 export function useEmbeddingsPanelController({
   apiPort,
   sheet,
@@ -220,7 +212,6 @@ export function useEmbeddingsPanelController({
           type: 'set_error',
           message: error instanceof Error ? error.message : String(error),
         });
-        cards = null;
       }
     }
     if (!isCurrentScope(generation)) return;
@@ -228,7 +219,6 @@ export function useEmbeddingsPanelController({
       type: 'set_form',
       form: {
         ...emptyCreateEmbeddingIndexForm(sheet.columns[0]?.name),
-        ...(cards ? defaultSelection(cards) : {}),
       },
     });
   }, [apiPort, isCurrentScope, state.providers, sheet.columns]);
@@ -239,12 +229,14 @@ export function useEmbeddingsPanelController({
         (provider) =>
           provider.providerId === state.form.provider &&
           provider.modelId === state.form.model,
-      ) ??
-      state.providers?.find((provider) => provider.providerId === state.form.provider) ??
-      null,
+      ) ?? null,
     [state.providers, state.form.provider, state.form.model],
   );
-  const remoteSelected = Boolean(selectedCard && !selectedCard.local);
+  const providerCard = useMemo(
+    () => state.providers?.find((provider) => provider.providerId === state.form.provider) ?? null,
+    [state.providers, state.form.provider],
+  );
+  const remoteSelected = Boolean(providerCard && !providerCard.local);
   const autoRefreshOn =
     remoteSelected &&
     state.form.allowRemote &&
@@ -252,8 +244,7 @@ export function useEmbeddingsPanelController({
   const maxCostValue = Number(state.form.maxCost);
   const modelOk =
     state.form.model.trim().length > 0 &&
-    (selectedCard == null ||
-      (Boolean(selectedCard.available) && selectedCard.modalityCompatible));
+    (selectedCard?.modalityCompatible ?? providerCard?.modalityCompatible ?? true);
   const createReady =
     state.form.sourceColumns.length > 0 &&
     Boolean(state.form.provider) &&
@@ -393,6 +384,7 @@ export function useEmbeddingsPanelController({
     load,
     openCreate,
     providers: state.providers,
+    providerCard,
     refresh,
     remoteSelected,
     selectedCard,
