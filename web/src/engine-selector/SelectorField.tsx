@@ -5,8 +5,7 @@ import {
   type EngineSelectorChoice,
   type EngineSelectorGroup,
 } from '../components/engine-selector';
-import type { HttpSelectorChoicesQuery } from '../generated/openHttpContracts';
-import type { SelectorChoice } from '../api/selectorChoices';
+import type { HttpSelectorChoicesQuery, SelectorChoice } from '../api/selectorChoices';
 import { SelectorSetup } from './SelectorSetup';
 import { useSelectorChoices, type SelectorChoicesLoader } from './useSelectorChoices';
 

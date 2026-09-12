@@ -212,7 +212,6 @@ export function useEmbeddingsPanelController({
           type: 'set_error',
           message: error instanceof Error ? error.message : String(error),
         });
-        cards = null;
       }
     }
     if (!isCurrentScope(generation)) return;

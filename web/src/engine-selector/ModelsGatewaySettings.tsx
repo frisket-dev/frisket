@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { HttpModelsGatewayStatus } from '../generated/openHttpContracts';
+import type { HttpModelsGatewayStatus } from '../api/modelsGateway';
 import { getModelsGateway, type ModelsGatewayScope } from '../api/modelsGateway';
 import { ModelsGatewayForm } from './ModelsGatewayForm';
 import { useSetupRequests } from './setupLifetime';

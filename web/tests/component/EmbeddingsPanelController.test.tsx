@@ -69,6 +69,9 @@ describe('useEmbeddingsPanelController project retirement', () => {
     await act(async () => {
       await result.current.openCreate();
     });
+    // The dialog now owns the authoritative selector readiness signal. The
+    // controller fixture supplies the matching selection it receives from it.
+    act(() => result.current.selectModel('local', 'tiny'));
     expect(result.current.createReady).toBe(true);
 
     const event = { preventDefault: vi.fn() } as unknown as FormEvent<HTMLFormElement>;
@@ -142,6 +145,7 @@ describe('useEmbeddingsPanelController current scope', () => {
     await act(async () => {
       await result.current.openCreate();
     });
+    act(() => result.current.selectModel('local', 'tiny'));
     const event = { preventDefault: vi.fn() } as unknown as FormEvent<HTMLFormElement>;
     await act(async () => {
       await result.current.submitCreate(event);

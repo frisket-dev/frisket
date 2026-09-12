@@ -6,6 +6,8 @@ import type {
   HttpModelsGatewayValidationResponse,
 } from '../generated/openHttpContracts';
 
+export type { HttpModelsGatewayStatus } from '../generated/openHttpContracts';
+
 export type ModelsGatewayScope = 'workspace' | 'organization';
 
 export function getModelsGateway(scope: ModelsGatewayScope, signal?: AbortSignal): Promise<HttpModelsGatewayStatus> {

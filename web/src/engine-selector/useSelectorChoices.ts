@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef } from 'react';
 
 import type {
   HttpSelectorChoicesQuery,
   HttpSelectorChoicesResponse,
-} from '../generated/openHttpContracts';
+} from '../api/selectorChoices';
 import { selectorChoicesApi } from '../api/selectorChoices';
 
 export type SelectorChoicesLoader = (
@@ -122,10 +122,13 @@ export function useSelectorChoices({
   const [refreshRevision, refresh] = useReducer((value: number) => value + 1, 0);
   const requestRevision = useRef(0);
   const queryRef = useRef(query);
-  queryRef.current = query;
   const effectiveQueryKey = typeof queryKey === 'function' ? queryKey(query, state.response) : queryKey;
   const scopeKey = `${projectId ?? ''}\u0000${effectiveQueryKey}`;
   const presentationKey = presentationKeyFor(projectId, query);
+
+  useLayoutEffect(() => {
+    queryRef.current = query;
+  }, [query]);
 
   useEffect(() => {
     if (!enabled || !projectId) return undefined;
@@ -173,13 +176,18 @@ export function useSelectorChoices({
       refresh: refreshChoices,
     };
   }
-  const active = state;
+  // Effects run after paint. Never let that first render bind a prior
+  // project's (or a different selector subject's) setup/details to this
+  // field while the new scope begins loading. Draft changes within the same
+  // subject deliberately retain the presentation below so pinned setup can
+  // survive its authoritative refresh.
+  const active = state.presentationKey === presentationKey ? state : null;
   return {
-    response: active.response,
-    loading: active.loading,
-    refreshing: active.refreshing,
-    stale: active.response !== null && active.responseScopeKey !== scopeKey,
-    error: active.error,
+    response: active?.response ?? null,
+    loading: active?.loading ?? true,
+    refreshing: active?.refreshing ?? false,
+    stale: active?.response != null && active.responseScopeKey !== scopeKey,
+    error: active?.error ?? null,
     refresh: refreshChoices,
   };
 }

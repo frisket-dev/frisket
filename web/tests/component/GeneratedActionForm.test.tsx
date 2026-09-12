@@ -18,13 +18,24 @@ import { completeCatalogPayload } from '../support/actionFormFixtures';
 import { syntheticActionCatalogEntry } from '../support/actionCatalogFixtures';
 import { aiMeta, columnDef } from '../support/domainFixtures';
 
+const selectorHarness = vi.hoisted(() => ({
+  emitCurrent: null as ((choice: {
+    authored_selection: { kind: 'model'; model: string };
+    can_run: boolean;
+    is_default?: boolean;
+    label: string;
+    blocker: null;
+  } | null) => void) | null,
+}));
+
 vi.mock('../../src/engine-selector/SelectorField', () => ({
   SelectorField: ({ testId, onSelect, onCurrentChoiceChange }: {
     testId?: string;
     onSelect(choice: { authored_selection: { kind: 'model'; model: string } }): void;
     onCurrentChoiceChange?(choice: { can_run: boolean; label: string; blocker: null } | null): void;
-  }) => (
-    <button
+  }) => {
+    selectorHarness.emitCurrent = onCurrentChoiceChange ?? null;
+    return <button
       type="button"
       data-testid={testId}
       onClick={() => {
@@ -39,8 +50,8 @@ vi.mock('../../src/engine-selector/SelectorField', () => ({
       }}
     >
       Select ready model
-    </button>
-  ),
+    </button>;
+  },
 }));
 
 const SHEET = sheetMeta([
@@ -357,6 +368,49 @@ describe('GeneratedActionForm', () => {
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
     fireEvent.click(screen.getByTestId('field-model'));
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
+  });
+
+  it('binds an authoritative model default when the required draft is otherwise unset', async () => {
+    const entry = syntheticActionCatalogEntry('map.default_model', {
+      input_schema: {
+        type: 'object',
+        required: ['model'],
+        properties: { model: { type: 'string', title: 'Model' } },
+      },
+      ui_hints: {
+        form: 'generated',
+        category: 'text',
+        semantic_controls: { model: 'model' },
+        logical_outputs: [],
+      },
+    }) as GeneratedActionCatalogEntry;
+    const onExecute = vi.fn();
+    render(
+      <GeneratedActionForm
+        catalogEntry={entry}
+        actionTemplate={generatedTemplate(entry)}
+        sheet={SHEET}
+        running={false}
+        resolveParams={resolveStaticParams}
+        onExecute={onExecute}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
+    act(() => selectorHarness.emitCurrent?.({
+      authored_selection: { kind: 'model', model: 'served-default' },
+      can_run: true,
+      is_default: true,
+      label: 'Served default',
+      blocker: null,
+    }));
+
+    await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
+    fireEvent.click(screen.getByTestId('generated-action-run'));
+    expect(onExecute).toHaveBeenCalledWith(expect.objectContaining({
+      params: expect.objectContaining({ model: 'served-default' }),
+    }), 'run');
   });
 
   it('uses one combined engine selector when an action has engine and model leaves', () => {

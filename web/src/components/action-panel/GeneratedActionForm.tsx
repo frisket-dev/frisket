@@ -36,7 +36,7 @@ import { dedupeDefaultColumnName, existingColumnByName } from './formControlHelp
 import { generatedActionCustomizationFor } from './generatedActionCustomizations';
 import { SelectorField } from '../../engine-selector/SelectorField';
 import type { SelectorChoice } from '../../api/selectorChoices';
-import type { HttpSelectorChoicesQuery } from '../../generated/openHttpContracts';
+import type { HttpSelectorChoicesQuery } from '../../api/selectorChoices';
 import { JoinOutputNames } from './JoinOutputNames';
 import { PdfTablesReview, type PdfTablesMaterializeIntent, type PdfTablesExportIntent } from './PdfTablesReview';
 import type { OcrCompareTarget } from '../../actions/ocrCompare';
@@ -653,17 +653,40 @@ function GeneratedActionFormContents({
         ? numeric : value;
     setDraft((current) => setCanonicalDraftField(actionTemplate, current, name, normalized));
   };
-  const updateSelectorSelection = (field: string, choice: SelectorChoice) => {
+  const selectorUpdates = (field: string, choice: SelectorChoice): Record<string, CanonicalFieldValue> | null => {
     const authored = choice.authored_selection;
-    const updates = authored.kind === 'engine'
+    return authored.kind === 'engine'
       ? { [field]: authored.engine }
       : authored.kind === 'model'
         ? { [field]: authored.model }
         : authored.kind === 'engine_model' && modelSelectorParam
           ? { [field]: authored.engine, [modelSelectorParam]: authored.model }
           : null;
+  };
+  const updateSelectorSelection = (field: string, choice: SelectorChoice) => {
+    const updates = selectorUpdates(field, choice);
     if (!updates) return;
     setParamsEdited(true);
+    setResolved((current) => ({
+      ...current,
+      diagnostics: {},
+      problem: dynamicOutputs ? 'Resolving outputs…' : 'Validating fields…',
+    }));
+    setDraft((current) => Object.entries(updates).reduce(
+      (next, [name, value]) => setCanonicalDraftField(actionTemplate, next, name, value),
+      current,
+    ));
+  };
+  const publishSelectorChoice = (field: string, choice: SelectorChoice | null) => {
+    setSelectorCurrentChoice(choice);
+    // A server default makes an otherwise blank required selector executable.
+    // Do not rewrite an explicit, partial, or orphaned authored selection:
+    // a combined engine/model choice is one atomic selection owner.
+    if (!choice?.is_default) return;
+    const updates = selectorUpdates(field, choice);
+    if (!updates || !Object.keys(updates).every((name) => (
+      draft[name] === undefined || draft[name] === ''
+    ))) return;
     setResolved((current) => ({
       ...current,
       diagnostics: {},
@@ -696,7 +719,7 @@ function GeneratedActionFormContents({
       return <SelectorField projectId={projectId} label={field.label} query={query}
         recentNamespace={`${projectId ?? 'none'}:action:${catalogEntry.kind}:${field.name}`}
         testId={field.testid} disabled={running || !projectId}
-        onCurrentChoiceChange={(choice) => setSelectorCurrentChoice(choice)}
+        onCurrentChoiceChange={(choice) => publishSelectorChoice(field.name, choice)}
         onSelect={(choice) => updateSelectorSelection(field.name, choice)} />;
     }
     if (semanticControl === 'rich_source' || semanticControl === 'column_or_template') {

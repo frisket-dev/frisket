@@ -5,6 +5,8 @@ import type {
 } from '../generated/openHttpContracts';
 import { httpContract } from './httpContract';
 
+export type { HttpSelectorChoicesQuery, HttpSelectorChoicesResponse } from '../generated/openHttpContracts';
+
 /** Keep raw choices tied to the generated response rather than copying DTOs. */
 export type SelectorChoice = HttpSelectorChoicesResponse['groups'][number]['choices'][number];
 export type SelectorSubject = HttpSelectorChoicesQuery['subject'];

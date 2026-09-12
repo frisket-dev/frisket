@@ -119,4 +119,54 @@ describe('useSelectorChoices', () => {
     await waitFor(() => expect(result.current.stale).toBe(false));
     expect(result.current.response?.current_choice_id).toBe('after-selection');
   });
+
+  it('does not expose a previous project projection during the first render of a new scope', async () => {
+    const nextProject = deferred<HttpSelectorChoicesResponse>();
+    const load = vi.fn<SelectorChoicesLoader>()
+      .mockResolvedValueOnce(response('project-a-choice'))
+      .mockReturnValueOnce(nextProject.promise);
+    const { result, rerender } = renderHook(
+      ({ projectId }) => useSelectorChoices({
+        projectId, query: query(null), queryKey: 'initial', load,
+      }),
+      { initialProps: { projectId: 'project-a' } },
+    );
+
+    await waitFor(() => expect(result.current.response?.current_choice_id).toBe('project-a-choice'));
+    rerender({ projectId: 'project-b' });
+
+    expect(result.current.response).toBeNull();
+    expect(result.current.loading).toBe(true);
+    expect(result.current.stale).toBe(false);
+
+    await act(async () => nextProject.resolve(response('project-b-choice')));
+    await waitFor(() => expect(result.current.response?.current_choice_id).toBe('project-b-choice'));
+  });
+
+  it('does not expose a previous subject projection during the first render of a new scope', async () => {
+    const nextSubject = deferred<HttpSelectorChoicesResponse>();
+    const load = vi.fn<SelectorChoicesLoader>()
+      .mockResolvedValueOnce(response('copilot-choice'))
+      .mockReturnValueOnce(nextSubject.promise);
+    const actionQuery: HttpSelectorChoicesQuery = {
+      schema_version: 'frisket.selector_choices_query.v1',
+      subject: { kind: 'action', action_id: 'map.classify', field: 'model', params: {} },
+    };
+    const { result, rerender } = renderHook(
+      ({ request, queryKey }) => useSelectorChoices({
+        projectId: 'project-a', query: request, queryKey, load,
+      }),
+      { initialProps: { request: query(null), queryKey: 'copilot' } },
+    );
+
+    await waitFor(() => expect(result.current.response?.current_choice_id).toBe('copilot-choice'));
+    rerender({ request: actionQuery, queryKey: 'action' });
+
+    expect(result.current.response).toBeNull();
+    expect(result.current.loading).toBe(true);
+    expect(result.current.stale).toBe(false);
+
+    await act(async () => nextSubject.resolve(response('action-choice')));
+    await waitFor(() => expect(result.current.response?.current_choice_id).toBe('action-choice'));
+  });
 });
