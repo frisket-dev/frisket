@@ -87,16 +87,19 @@ def test_pdfium_page_limit_zero_renders_no_pages(tmp_path):
     assert list(output.iterdir()) == []
 
 
-def test_pdfium_honors_the_pdf_crop_box(tmp_path):
+@pytest.mark.parametrize("rotate, expected", [(False, (72, 144)), (True, (144, 72))])
+def test_pdfium_keeps_media_box_coordinates_despite_crop_box(
+    tmp_path, rotate, expected
+):
     source = tmp_path / "cropped.pdf"
     output = tmp_path / "output"
     output.mkdir()
-    _pdf(source, crop=True)
+    _pdf(source, crop=True, rotate=rotate)
 
     asyncio.run(pdf_render.render_pdf_pages(source, output, dpi=72, pages=[1]))
 
     with Image.open(output / "page-1.png") as image:
-        assert image.size == (36, 72)
+        assert image.size == expected
 
 
 def test_admitted_renderer_keeps_source_until_worker_settles_and_stages_pages(tmp_path):

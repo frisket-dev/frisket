@@ -89,6 +89,9 @@ def main() -> None:
         rendered: list[int] = []
         for number in pages:
             page = document[number - 1]
+            # Preserve the full MediaBox raster used by imports and OCR text
+            # coordinates; PDFium otherwise clips to the document CropBox.
+            page.set_cropbox(*page.get_mediabox())
             bitmap = None
             image = None
             try:
