@@ -28,10 +28,12 @@ def run_plugin_operator_subprocess(
     if not module_path or not plugin_root:
         raise RuntimeError("plugin operator binding is missing subprocess metadata")
 
-    env = _project_plugin_env(project, plugin_id=binding.plugin, metadata=metadata)
-    if isinstance(env, dict) and "_error" in env:
+    secret_values = _project_plugin_env(
+        project, plugin_id=binding.plugin, metadata=metadata
+    )
+    if isinstance(secret_values, dict) and "_error" in secret_values:
         raise RuntimeError("plugin operator env vars are not configured")
-    assert isinstance(env, dict)
+    assert isinstance(secret_values, dict)
 
     sheet_id = int(payload["sheetId"])
     candidate_row_ids = [int(row_id) for row_id in payload["candidateRowIds"]]
@@ -62,10 +64,16 @@ def run_plugin_operator_subprocess(
             "handlerKey": binding.handler_key,
             "operatorKind": payload["operatorKind"],
             "capabilities": ["operator.filter"],
+            "requiresSecrets": [
+                str(name)
+                for name in metadata.get("requires_secrets", [])
+                if isinstance(name, str) and name
+            ],
+            "secretValues": secret_values,
         },
         "rows": rows,
     }
-    child = _run_child_operator(plugin_root=plugin_root, request=request, env=env)
+    child = _run_child_operator(plugin_root=plugin_root, request=request)
     if child.get("status") != "completed":
         raise RuntimeError("trusted-local plugin operator failed")
     plan = child.get("plan")
@@ -78,11 +86,10 @@ def _run_child_operator(
     *,
     plugin_root: str,
     request: dict[str, Any],
-    env: dict[str, str],
 ) -> dict[str, Any]:
     try:
         typed_request = plugin_rpc.OperatorRequest.model_validate(request)
         client = _plugin_process_client(plugin_root)
-        return client.response_payload(client.operator(typed_request, env))
+        return client.response_payload(client.operator(typed_request))
     except PluginProcessError as exc:
         return exc.failure.as_dict()

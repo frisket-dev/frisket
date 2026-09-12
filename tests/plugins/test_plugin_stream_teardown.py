@@ -35,7 +35,7 @@ def test_importer_retains_fatal_teardown_on_prefix_close_and_full_stream(prefix)
     runner = failed_teardown_runner(failure, prefix=prefix)
 
     client = PluginProcessClient("unused", run_sandboxed_stdout_lines_call=runner)
-    frames = client.importer(_importer_request(), {})
+    frames = client.importer(_importer_request())
     with pytest.raises(SandboxTeardownError) as error:
         if prefix:
             assert next(frames).type == "schema"

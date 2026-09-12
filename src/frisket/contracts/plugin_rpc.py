@@ -65,7 +65,13 @@ class PluginImporterCapabilityContext(PluginRpcModel):
     handler_key: str = Field(alias="handlerKey")
     importer_kind: str = Field(alias="importerKind")
     capabilities: tuple[Literal["project:write"], ...]
+    # Values travel only in the supervised child's stdin request, never its
+    # environment.  Hiding the field from repr prevents accidental diagnostic
+    # disclosure while leaving it present in the typed wire payload.
     requires_secrets: tuple[str, ...] = Field(default=(), alias="requiresSecrets")
+    secret_values: dict[str, str] = Field(
+        default_factory=dict, alias="secretValues", repr=False
+    )
 
 
 class PluginOperatorCapabilityContext(PluginRpcModel):
@@ -74,6 +80,10 @@ class PluginOperatorCapabilityContext(PluginRpcModel):
     handler_key: str = Field(alias="handlerKey")
     operator_kind: str = Field(alias="operatorKind")
     capabilities: tuple[Literal["operator.filter"], ...]
+    requires_secrets: tuple[str, ...] = Field(default=(), alias="requiresSecrets")
+    secret_values: dict[str, str] = Field(
+        default_factory=dict, alias="secretValues", repr=False
+    )
 
 
 type ProjectionBuildCapabilities = tuple[
@@ -92,6 +102,10 @@ class PluginProjectionCapabilityContext(PluginRpcModel):
     handler_key: str = Field(alias="handlerKey")
     projection_kind: str = Field(alias="projectionKind")
     capabilities: ProjectionBuildCapabilities | ProjectionPlanCapabilities
+    requires_secrets: tuple[str, ...] = Field(default=(), alias="requiresSecrets")
+    secret_values: dict[str, str] = Field(
+        default_factory=dict, alias="secretValues", repr=False
+    )
 
 
 class OperatorInputRow(PluginRpcModel):

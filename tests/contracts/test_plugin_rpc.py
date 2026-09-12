@@ -175,6 +175,20 @@ def test_internal_rpc_messages_do_not_carry_release_versions() -> None:
     assert "schemaVersion" not in frame.model_dump(mode="json", by_alias=True)
 
 
+def test_secret_snapshot_is_available_to_the_wire_but_hidden_from_repr() -> None:
+    payload = _request_payloads()[1][1]
+    payload["context"] = {
+        **payload["context"],
+        "requiresSecrets": ["DEMO_API_KEY"],
+        "secretValues": {"DEMO_API_KEY": "stdin-only-secret"},
+    }
+
+    parsed = rpc.ProjectionRequest.model_validate(payload)
+
+    assert parsed.context.secret_values == {"DEMO_API_KEY": "stdin-only-secret"}
+    assert "stdin-only-secret" not in repr(parsed.context)
+
+
 def test_protocol_bounds_and_invocation_semantics() -> None:
     # Total work belongs to the caller's machine (or Cloud configuration), not
     # to the trusted-local wire protocol. Per-message framing remains bounded.
