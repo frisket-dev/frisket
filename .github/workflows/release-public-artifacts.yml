@@ -613,8 +613,6 @@ jobs:
           # draft. A new run, an unmarked draft, a different target, or an
           # already-published release fails closed instead of clobbering assets.
           # The initial POST still returns the numeric release id atomically.
-          MAKE_LATEST=true
-          [ "$PRERELEASE" = false ] || MAKE_LATEST=false
           RUN_MARKER="<!-- frisket-release-run:${GITHUB_RUN_ID} -->"
 
           # If the Git tag already exists, dereference lightweight or annotated
@@ -683,7 +681,7 @@ jobs:
               -f body="$BODY" \
               -F draft=true \
               -F prerelease="$PRERELEASE" \
-              -f make_latest="$MAKE_LATEST" \
+              -f make_latest=false \
               --jq '.id')
           fi
           if [ -z "$RELEASE_ID" ]; then
@@ -980,7 +978,7 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN || secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          gh release edit "$TAG" --repo "${{ github.repository }}" --draft=false
+          gh release edit "$TAG" --repo "${{ github.repository }}" --draft=false --latest=false
 
       - name: Verify published assets are anonymously downloadable when public
         env:

@@ -27,8 +27,8 @@ Those were all done the old-fashioned hard-work way, though. No one has done *an
 
 ### Frisket Desktop
 
-- [Download for macOS](https://github.com/frisket-dev/frisket/releases/download/desktop-v0.1.1a75/Frisket-Desktop-0.1.1-alpha.75-arm64-a6bc7434.dmg) — macOS 14 or newer, Apple Silicon
-- [Download for Windows](https://github.com/frisket-dev/frisket/releases/download/desktop-v0.1.1a75/Frisket-Desktop-0.1.1-alpha.75-x64-a6bc7434.exe) — Windows 11, x64
+- [Download for macOS](https://github.com/frisket-dev/frisket/releases/latest/download/Frisket-Desktop-arm64.dmg) — macOS 14 or newer, Apple Silicon
+- [Download for Windows](https://github.com/frisket-dev/frisket/releases/latest/download/Frisket-Desktop-x64.exe) — Windows 11, x64
 
 Updates are manual: quit the app, install the new package, and reopen it.
 Your workspace and downloaded caches stay in the app profile.

@@ -67,6 +67,11 @@ workflow token does not receive that privilege.
 The workflow checks that the tag resolves to the dispatched main revision before
 building and again before publishing. It runs the signed macOS and Windows
 installed-app proofs, then publishes the two direct installers and `SHA256SUMS`.
+Published installers are named `Frisket-Desktop-arm64.dmg` and
+`Frisket-Desktop-x64.exe`; native proof artifacts retain their version and revision.
+Verified Desktop releases are normal GitHub releases marked Latest, even when the
+package version contains an alpha or beta suffix. Stable download links use
+`releases/latest/download/<installer-name>`.
 The normal `v*` wheel/server release workflow remains separate. The dispatcher
 refuses existing releases, including drafts, and leaves an incomplete draft for
 inspection if publication fails.

@@ -25,7 +25,6 @@ jobs:
       python_package_version: ${{ steps.version.outputs.python_package_version }}
       desktop_version: ${{ steps.version.outputs.desktop_version }}
       tag: ${{ steps.version.outputs.tag }}
-      prerelease: ${{ steps.version.outputs.prerelease }}
       full_ci_url: ${{ steps.full-ci.outputs.url }}
     steps:
       - name: Require a main dispatch
@@ -67,12 +66,10 @@ jobs:
               raise SystemExit(f"unsupported desktop release version: {python_package_version}")
           release, phase, number = match.groups()
           desktop_version = release if phase is None else f"{release}-{dict(a='alpha', b='beta', rc='rc')[phase]}.{number}"
-          prerelease = str(phase is not None).lower()
           with Path(sys.argv[1]).open("a") as output:
               output.write(f"python_package_version={python_package_version}\n")
               output.write(f"desktop_version={desktop_version}\n")
               output.write(f"tag=desktop-v{python_package_version}\n")
-              output.write(f"prerelease={prerelease}\n")
           PY
       - name: Require the latest full CI for this exact revision to pass
         id: full-ci
@@ -192,14 +189,16 @@ jobs:
         run: |
           set -euo pipefail
           short_sha="${SOURCE_SHA:0:8}"
-          dmg_name="Frisket-Desktop-${DESKTOP_VERSION}-arm64-${short_sha}.dmg"
-          exe_name="Frisket-Desktop-${DESKTOP_VERSION}-x64-${short_sha}.exe"
+          expected_dmg="Frisket-Desktop-${DESKTOP_VERSION}-arm64-${short_sha}.dmg"
+          expected_exe="Frisket-Desktop-${DESKTOP_VERSION}-x64-${short_sha}.exe"
           mapfile -t dmgs < <(find downloaded/macos -type f -name '*.dmg' -print)
           mapfile -t exes < <(find downloaded/windows -type f -name '*.exe' -print)
           [ "${#dmgs[@]}" -eq 1 ] || { echo '::error::expected exactly one macOS DMG'; exit 1; }
           [ "${#exes[@]}" -eq 1 ] || { echo '::error::expected exactly one Windows EXE'; exit 1; }
-          [ "$(basename "${dmgs[0]}")" = "$dmg_name" ] || { echo '::error::macOS installer name does not match version, architecture, and revision'; exit 1; }
-          [ "$(basename "${exes[0]}")" = "$exe_name" ] || { echo '::error::Windows installer name does not match version, architecture, and revision'; exit 1; }
+          [ "$(basename "${dmgs[0]}")" = "$expected_dmg" ] || { echo '::error::macOS installer name does not match version, architecture, and revision'; exit 1; }
+          [ "$(basename "${exes[0]}")" = "$expected_exe" ] || { echo '::error::Windows installer name does not match version, architecture, and revision'; exit 1; }
+          dmg_name="Frisket-Desktop-arm64.dmg"
+          exe_name="Frisket-Desktop-x64.exe"
           mkdir -p desktop-release-assets
           install -m 0644 "${dmgs[0]}" "desktop-release-assets/$dmg_name"
           install -m 0644 "${exes[0]}" "desktop-release-assets/$exe_name"
@@ -217,7 +216,6 @@ jobs:
           PYTHON_PACKAGE_VERSION: ${{ needs.admission.outputs.python_package_version }}
           DESKTOP_VERSION: ${{ needs.admission.outputs.desktop_version }}
           TAG: ${{ needs.admission.outputs.tag }}
-          PRERELEASE: ${{ needs.admission.outputs.prerelease }}
           FULL_CI_URL: ${{ needs.admission.outputs.full_ci_url }}
           DMG_NAME: ${{ steps.assets.outputs.dmg_name }}
           EXE_NAME: ${{ steps.assets.outputs.exe_name }}
@@ -257,7 +255,7 @@ jobs:
             -f name="Frisket Desktop ${PYTHON_PACKAGE_VERSION}" \
             -f body="$(<"$notes")" \
             -F draft=true \
-            -F prerelease="$PRERELEASE" \
+            -F prerelease=false \
             -f make_latest=false \
             --jq '.id')"
           [ -n "$release_id" ] || { echo '::error::draft release did not return an ID'; exit 1; }
@@ -279,15 +277,14 @@ jobs:
           RELEASE_ID: ${{ steps.draft.outputs.release_id }}
           TAG: ${{ needs.admission.outputs.tag }}
           SOURCE_SHA: ${{ needs.admission.outputs.source_sha }}
-          PRERELEASE: ${{ needs.admission.outputs.prerelease }}
           DMG_NAME: ${{ steps.assets.outputs.dmg_name }}
           EXE_NAME: ${{ steps.assets.outputs.exe_name }}
         run: |
           set -euo pipefail
           release_json="$RUNNER_TEMP/desktop-release-${RELEASE_ID}.json"
           gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" > "$release_json"
-          jq -e --arg tag "$TAG" --arg source_sha "$SOURCE_SHA" --argjson prerelease "$PRERELEASE" '
-            .tag_name == $tag and .target_commitish == $source_sha and .draft == true and .prerelease == $prerelease
+          jq -e --arg tag "$TAG" --arg source_sha "$SOURCE_SHA" '
+            .tag_name == $tag and .target_commitish == $source_sha and .draft == true and .prerelease == false
           ' "$release_json" >/dev/null || {
             echo '::error::draft release identity changed before verification'
             exit 1
@@ -315,4 +312,4 @@ jobs:
           TAG: ${{ needs.admission.outputs.tag }}
         run: |
           set -euo pipefail
-          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=false --latest=true
