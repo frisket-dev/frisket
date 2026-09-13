@@ -67,6 +67,7 @@ module.exports = {
   nsis: {
     oneClick: true,
     perMachine: false,
+    runAfterFinish: false,
   },
   // Sign the outer delivery container in signed builds, then notarize and
   // staple that final artifact exactly once in the workflow.

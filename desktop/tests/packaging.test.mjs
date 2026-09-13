@@ -39,7 +39,7 @@ test('Windows packaging is an explicit per-user x64 NSIS installer', async (t) =
   assert.deepEqual(config.win.target, [{ target: 'nsis', arch: ['x64'] }]);
   assert.equal(config.win.requestedExecutionLevel, 'asInvoker');
   assert.equal(config.win.signExecutable, false);
-  assert.deepEqual(config.nsis, { oneClick: true, perMachine: false });
+  assert.deepEqual(config.nsis, { oneClick: true, perMachine: false, runAfterFinish: false });
   assert.equal(config.forceCodeSigning, false);
   assert.equal(config.mac.identity, '-');
   assert.equal('azureSignOptions' in config.win, false);

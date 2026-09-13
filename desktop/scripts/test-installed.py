@@ -56,7 +56,10 @@ def command_argv(command: str, *args: str) -> list[str]:
     comspec = os.environ.get("COMSPEC")
     if not comspec:
         raise RuntimeError("Windows COMSPEC is unavailable for the npm command wrapper")
-    return [comspec, "/d", "/s", "/c", subprocess.list2cmdline([resolved, *args])]
+    command_line = f'"{resolved}"'
+    if args:
+        command_line = f"{command_line} {subprocess.list2cmdline(list(args))}"
+    return [comspec, "/d", "/s", "/c", command_line]
 
 
 def required_executable(command: str) -> Path:
@@ -64,6 +67,15 @@ def required_executable(command: str) -> Path:
     if not resolved:
         raise RuntimeError(f"Required test command is unavailable: {command}")
     return Path(resolved).resolve()
+
+
+def required_environment_executable(name: str) -> Path:
+    value = os.environ.get(name)
+    if not value:
+        raise RuntimeError(
+            f"Required Windows executable variable is unavailable: {name}"
+        )
+    return Path(value).resolve()
 
 
 def pf(*args: str) -> str:
@@ -172,6 +184,7 @@ def windows_firewall_programs() -> list[Path]:
         Path(sys.executable).resolve(),
         required_executable("node"),
         required_executable("powershell.exe"),
+        required_environment_executable("COMSPEC"),
         runtime_python,
         *(
             resources / "bin" / f"{name}.exe"
@@ -183,7 +196,10 @@ def windows_firewall_programs() -> list[Path]:
         raise RuntimeError(
             "Network prewarm did not retain a private Python base interpreter"
         )
-    programs = [*required, *base_pythons]
+    browser_executables = list((profile / "cache" / "playwright").rglob("*.exe"))
+    if not browser_executables:
+        raise RuntimeError("Network prewarm did not retain a Chromium executable")
+    programs = [*required, *base_pythons, *browser_executables]
     for program in programs:
         if program == runtime_python:
             continue
@@ -211,8 +227,8 @@ def windows() -> None:
             "The pre-rule external TCP probe failed; refusing an inconclusive egress test"
         )
     # Keep the runner's GitHub control channel intact. The listed programs cover
-    # Electron, native tools, the current harness Python, and both private Python
-    # paths used before and after the first-launch venv recreation.
+    # Electron, Chromium, native tools, the command wrappers, current harness
+    # Python, and both private Python paths used before and after first launch.
     create = """
       $ErrorActionPreference = 'Stop'
       $programs = @($env:FRISKET_DESKTOP_FIREWALL_PROGRAMS | ConvertFrom-Json)
@@ -230,6 +246,8 @@ def windows() -> None:
             [str(program) for program in programs]
         ),
     }
+    for signum in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(signum, interrupted)
     try:
         powershell(create, firewall_env)
         if socket_reaches(*PROBE):

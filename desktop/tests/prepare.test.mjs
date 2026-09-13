@@ -44,8 +44,12 @@ with tempfile.TemporaryDirectory() as temporary:
         "staged": (prepare.RESOURCES / "bin" / "tool.exe").read_bytes().decode(),
     }))
 `;
-  const result = spawnSync('python3', ['-c', probe, path.join(DESKTOP, 'scripts', 'prepare.py')], {
-    cwd: DESKTOP, encoding: 'utf8', env: { PATH: process.env.PATH },
+  const python = process.platform === 'win32' ? 'python' : 'python3';
+  const env = process.platform === 'win32'
+    ? { ...process.env }
+    : { PATH: process.env.PATH };
+  const result = spawnSync(python, ['-c', probe, path.join(DESKTOP, 'scripts', 'prepare.py')], {
+    cwd: DESKTOP, encoding: 'utf8', env,
   });
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), {
