@@ -18,6 +18,7 @@ PRICING_URL = (
     "src/frisket/ai/llm/pricing_data.json"
 )
 REFRESH_SECONDS = 24 * 60 * 60
+CACHE_POLL_SECONDS = 60
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
 _started = False
@@ -89,16 +90,20 @@ def refresh_pricing_once(
         return False
 
 
+def _load_cached_pricing(root: Path) -> None:
+    try:
+        install_pricing_data(_read_catalog(root / "pricing_data.json"))
+    except (OSError, ValueError, TypeError):
+        pass
+
+
 def _refresh_loop(root: Path) -> None:
     while True:
-        attempt_path = root / "last_attempt"
-        try:
-            delay = REFRESH_SECONDS - (time.time() - attempt_path.stat().st_mtime)
-        except OSError:
-            delay = 0
-        if delay > 0:
-            time.sleep(delay)
+        # Another app/worker process may have fetched the daily catalog.
+        # Adopt its cache without waiting a day or making another request.
+        _load_cached_pricing(root)
         refresh_pricing_once(cache_dir=root)
+        time.sleep(CACHE_POLL_SECONDS)
 
 
 def start_pricing_refresh() -> None:
@@ -109,10 +114,7 @@ def start_pricing_refresh() -> None:
             return
         _started = True
     root = pricing_cache_dir()
-    try:
-        install_pricing_data(_read_catalog(root / "pricing_data.json"))
-    except (OSError, ValueError, TypeError, json.JSONDecodeError):
-        pass
+    _load_cached_pricing(root)
     threading.Thread(
         target=_refresh_loop,
         args=(root,),
