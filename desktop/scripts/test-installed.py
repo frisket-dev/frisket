@@ -220,7 +220,7 @@ def windows() -> None:
     # Python, and both private Python paths used before and after first launch.
     create = """
       $ErrorActionPreference = 'Stop'
-      $programs = @($env:FRISKET_DESKTOP_FIREWALL_PROGRAMS | ConvertFrom-Json)
+      $programs = $env:FRISKET_DESKTOP_FIREWALL_PROGRAMS | ConvertFrom-Json
       foreach ($program in $programs) {
         New-NetFirewallRule -DisplayName $env:FRISKET_DESKTOP_FIREWALL_NAME -Direction Outbound -Action Block -Program $program -RemoteAddress Any -Profile Any | Out-Null
       }
@@ -250,7 +250,10 @@ def windows() -> None:
         run_installed_checks()
     finally:
         powershell(
-            f"Remove-NetFirewallRule -DisplayName '{name}' -ErrorAction SilentlyContinue"
+            "$ErrorActionPreference = 'Stop'; "
+            "Get-NetFirewallRule | "
+            f"Where-Object {{ $_.DisplayName -eq '{name}' }} | "
+            "Remove-NetFirewallRule"
         )
 
 
