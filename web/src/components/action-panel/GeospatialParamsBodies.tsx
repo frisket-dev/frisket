@@ -49,7 +49,7 @@ export function CensusParamsBody({ sheet, Field, onNavigateToAction }:
           onClick={() => onNavigateToAction?.('enrich.geocode')}>Run Geocode first</button>
       </div>
     )}
-    <Field name="source" label="Geo point column" />
+    <Field name="source" label="Location" />
     <Field name="geography" />
     <Field name="include_moe" />
   </>;

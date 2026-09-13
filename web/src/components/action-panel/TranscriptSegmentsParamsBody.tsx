@@ -150,7 +150,7 @@ function TemporalSegmentsEditor({
       }} ariaLabel="Selection source" buttonTestId={(value) => `split-selection-${value}`} />
     </div>
     {fromColumn ? <label className="field-group">
-      <span className="field-labels">{mode === 'points' ? 'Timestamp' : 'Time-range'} column</span>
+      <span className="field-labels">{mode === 'points' ? 'Timestamp' : 'Time range'}</span>
       <PanelSelect className="form-input" value={selectedColumn?.name ?? ''}
         data-testid="split-selection-column-select"
         onChange={(event) => setSelection({ kind: 'column', column: event.target.value })}>

@@ -23,7 +23,7 @@ export function PythonParamsBody({ params, setParams, sheet, Field }:
   }, [params, setParams, (sheet?.columns ?? [])]);
 
   return <>
-    <Field name="input_columns" label="Input columns" />
+    <Field name="input_columns" label="Inputs" />
     <Field name="code" label="Python snippet" />
     <details className="action-advanced">
       <summary>Return schema and output routes</summary>
