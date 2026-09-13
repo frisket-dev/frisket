@@ -62,6 +62,12 @@ def main() -> int:
                     "-Config",
                     str(config),
                 ],
+                # CREATE_NO_WINDOW cannot rely on console inheritance for the
+                # protocol handles. Explicit redirection makes subprocess pass
+                # inheritable duplicates of these streams to the Job guardian.
+                stdin=sys.stdin if sys.stdin is not None else subprocess.DEVNULL,
+                stdout=sys.stdout if sys.stdout is not None else subprocess.DEVNULL,
+                stderr=sys.stderr if sys.stderr is not None else subprocess.DEVNULL,
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
     stopped = False
