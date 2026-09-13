@@ -17,6 +17,7 @@ from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 from frisket.contracts.http.local_providers import (
     ArtifactPullRequest,
     ArtifactUninstallRequest,
+    EngineSetupRequest,
     LocalEndpointCreateRequest,
     LocalEndpointDiscoveryResponse,
     LocalEndpointPatchRequest,
@@ -455,6 +456,31 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
             endpoint_id=endpoint_id,
             endpoint_origin=endpoint_origin,
             payload_extra=payload_extra,
+        )
+
+    @app.post(
+        "/api/providers/models/setup",
+        status_code=202,
+        response_model=ModelPullStartResponse,
+        responses=http_error_responses(400, 409, 422, 500, 503),
+    )
+    def setup_model_engine(body: EngineSetupRequest) -> ModelPullStartResponse:
+        """Start the one allowlisted local engine setup operation."""
+        from frisket.engine.jobs.engine_setup import PARAKEET_TDT_SETUP_REF
+
+        if body.setup_ref != PARAKEET_TDT_SETUP_REF:
+            raise RouteError(
+                400,
+                {
+                    "code": "unknown_engine_setup",
+                    "message": "the requested engine setup is not supported",
+                },
+            )
+        return _enqueue_and_respond(
+            PARAKEET_TDT_SETUP_REF,
+            endpoint_id=None,
+            endpoint_origin=None,
+            payload_extra={},
         )
 
     @app.post(

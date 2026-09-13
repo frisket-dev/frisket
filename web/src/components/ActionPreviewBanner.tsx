@@ -9,6 +9,12 @@ export function ActionPreviewBanner({ view, onRun, onClose }: {
     <span className="preview-view-title">{view.actionName} preview</span>
     {view.status === 'running' ? (
       <span className="preview-view-scope" data-testid="preview-tab-stats">
+        {view.progress.done === 0 && view.progress.preparation?.message && (
+          <>
+            <span data-testid="preview-preparation-hint">{view.progress.preparation.message}</span>
+            {' · '}
+          </>
+        )}
         Previewing… {view.progress.done.toLocaleString()}
         {view.progress.total !== null && <>/{view.progress.total.toLocaleString()}</>}
       </span>

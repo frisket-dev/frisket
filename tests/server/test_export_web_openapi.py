@@ -383,9 +383,9 @@ def _case_local_team_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert mcp_local_only <= _operation_ids(document)
     assert "tenant.import_followthemoney.post" in _operation_ids(document)
     assert "tenant.import_paste_confirm.post" in _operation_ids(document)
-    assert len(BASE_ENDPOINT_CATALOG) == 267
-    assert len(members) == 201
-    assert len(team_local_models) == 5
+    assert len(BASE_ENDPOINT_CATALOG) == 272
+    assert len(members) == 206
+    assert len(team_local_models) == 9
     assert team_browser_auth == {
         "outer.accept_project_invite.post",
         "outer.complete_magic_link.post",
@@ -393,8 +393,8 @@ def _case_local_team_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         "outer.request_link.post",
         "outer.logout.post",
     }
-    assert len(exporter.CANONICAL_OPERATION_IDS) == 210
-    assert len(_operation_ids(document)) == 211
+    assert len(exporter.CANONICAL_OPERATION_IDS) == 215
+    assert len(_operation_ids(document)) == 220
 
     discovery = _operation(document, "tenant.discover_local_endpoints.post")
     assert discovery["x-frisket-editions"] == ["local"]
@@ -414,6 +414,10 @@ def _case_local_team_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         "tenant.delete_local_endpoint.delete",
         "tenant.delete_provider_key.delete",
         "tenant.get_model_pull.get",
+        "tenant.get_models_gateway.get",
+        "tenant.validate_models_gateway.post",
+        "tenant.set_models_gateway.put",
+        "tenant.setup_model_engine.post",
         "tenant.list_model_pulls.get",
         "tenant.list_providers.get",
         "tenant.provider_status.get",

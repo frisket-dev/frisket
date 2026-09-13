@@ -12,6 +12,11 @@ import {
   type WireSheet,
   uniqueName,
 } from './helpers';
+import {
+  actionSelectorResponse,
+  stubActionSelectorChoices,
+  type SelectorGroupFixture,
+} from './selectorChoicesFixture';
 
 // workbench-ia-sheet-tabs-v1 (Workbench IA increment 3): the Navigate region —
 // browser-style sheet tabs above the grid; the vertical sidebar sheet list is
@@ -97,20 +102,32 @@ const DERIVE_PROMPT =
   'List every sponsor mentioned in this row. For each sponsor, return the company, any coupon code or discount, and the product being advertised. Only use facts present in the row.';
 const DERIVE_MODEL = 'gemini/gemini-3.5-flash-lite';
 
-async function exposeReplayModel(page: Page): Promise<void> {
-  await page.route('**/api/providers', (route) => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({
-      schemaVersion: 'frisket.providers.v1',
-      tier: 'local',
-      providers: [{
-        id: 'gemini', label: 'Gemini', kind: 'platform_api', configured: true,
-        source: 'env', hint: null,
-        models: [{ id: DERIVE_MODEL, label: 'Gemini 3.5 Flash-Lite', price: null }],
-      }],
-    }),
-  }));
+const REPLAY_MODEL_CHOICES: SelectorGroupFixture[] = [{
+  id: 'gemini',
+  label: 'Gemini',
+  choices: [{
+    choiceId: DERIVE_MODEL,
+    label: 'Gemini 3.5 Flash-Lite',
+    summary: DERIVE_MODEL,
+    authoredSelection: { kind: 'model', model: DERIVE_MODEL },
+  }],
+}];
+
+async function exposeReplayModel(page: Page, projectId: string): Promise<void> {
+  await stubActionSelectorChoices(page, projectId, ({ actionId, field, params }) => {
+    expect(actionId).toBe('map.extract');
+    expect(field).toBe('model');
+    const response = actionSelectorResponse({
+      projectId,
+      actionId,
+      field,
+      groups: REPLAY_MODEL_CHOICES,
+      currentChoiceId: params.model === DERIVE_MODEL ? DERIVE_MODEL : null,
+    });
+    response.default_choice_id = DERIVE_MODEL;
+    response.groups[0].choices[0].is_default = true;
+    return response;
+  });
 }
 
 async function selectDescriptionSource(page: Page): Promise<void> {
@@ -238,7 +255,7 @@ test('a derived sheet shows the derived marker; a root sheet does not', async ({
   const pid = await createProject(request, uniqueName('sheet-tabs-derived'));
   const rootSheet = await importCsv(request, pid, 'episodes.csv', DERIVE_CSV);
   primeDeriveObjectCache(pid, rootSheet);
-  await exposeReplayModel(page);
+  await exposeReplayModel(page, pid);
 
   await page.goto(`/p/${pid}`);
   await openAction(page, 'derive.table_from_list');

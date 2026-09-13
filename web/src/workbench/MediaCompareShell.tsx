@@ -10,15 +10,13 @@ import { ChevronLeft, ChevronRight, Copy, Loader2, RotateCw, X } from 'lucide-re
 
 import type { EngineOption } from '../api/open';
 import type { PreviewSampleResult } from '../api/types';
+import { SelectorField } from '../engine-selector/SelectorField';
+import type { SelectorChoice } from '../api/selectorChoices';
+import { mediaSelectorQuery } from './mediaCompareSelector';
+import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { formatDuration, formatUsd } from '../format';
-import {
-  engineTierLabel,
-  engineTierOptions,
-  engineUnavailableReason,
-  tierForEngine,
-} from '../actions/engineCatalog';
+import { tierForEngine } from '../actions/engineCatalog';
 import { EngineTierBadge } from '../components/EngineTierBadge';
-import { PanelSelect } from '../components/PanelSelect';
 import { ResizeSeam } from '../components/ResizeSeam';
 import { CompareDocList, CompareFrontDoor } from './mediaCompareBodyParts';
 import type { DiffToken } from './ocrDiff';
@@ -53,13 +51,15 @@ export interface ConfigureVariantPopoverProps {
   /** testid namespace ('ocr-compare' | 'transcribe-compare'); the popover's
    *  own testids are `${testidPrefix}-configure*` etc. */
   testidPrefix: string;
+  actionId: 'media.ocr' | 'media.transcribe' | 'map.find_topic_sections';
   popoverRef: React.RefObject<HTMLDivElement>;
   style?: React.CSSProperties;
   column: CompareColumn;
   catalog: EngineOption[];
-  engineSelectRef: React.RefObject<HTMLSelectElement>;
+  engineSelectorRef: React.Ref<HTMLButtonElement>;
   errorMessage: string | null;
   onChooseEngine(engineId: string): void;
+  onCurrentChoiceChange?(column: CompareColumn, choice: SelectorChoice | null): void;
   onDuplicate(): void;
   /** The domain option fields once an engine is chosen (OCR: DPI + language;
    *  transcribe: language/model-size/VAD, per-engine declared). */
@@ -73,17 +73,20 @@ export interface ConfigureVariantPopoverProps {
  *  popover's own DOM: engine select, domain fields + duplicate footer. */
 export function ConfigureVariantPopover({
   testidPrefix,
+  actionId,
+  engineSelectorRef,
   popoverRef,
   style,
   column,
   catalog,
-  engineSelectRef,
   errorMessage,
   onChooseEngine,
+  onCurrentChoiceChange,
   onDuplicate,
   renderOptionFields,
   laterHint,
 }: ConfigureVariantPopoverProps) {
+  const { chromePreferences: { projectId } } = useWorkspaceStores();
   const t = (suffix: string) => `${testidPrefix}-${suffix}`;
   const engine = column.engineId
     ? catalog.find((candidate) => candidate.id === column.engineId)
@@ -112,37 +115,25 @@ export function ConfigureVariantPopover({
             <EngineTierBadge tier={tierForEngine(engine)} testId={t('configure-engine-tier')} />
           )}
         </span>
-        <PanelSelect
-          ref={engineSelectRef}
-          className="row-height-select"
-          data-testid={t('configure-engine')}
-          value={column.engineId ?? ''}
-          onChange={(event) => onChooseEngine(event.target.value)}
-        >
-          <option value="" disabled>
-            Choose engine…
-          </option>
-          {/* Grouped by tier (same three-tier vocabulary as EnginePicker);
-              unavailable options carry the catalog's own reason inline —
-              never a bare disabled entry. */}
-          {engineTierOptions(catalog).map((tier) => (
-            <optgroup key={tier.tier} label={engineTierLabel(tier.tier)}>
-              {tier.engines.map((candidate) => {
-                const reason = engineUnavailableReason(candidate);
-                return (
-                  <option
-                    key={candidate.id}
-                    value={candidate.id}
-                    disabled={candidate.available === false}
-                  >
-                    {candidate.label}
-                    {reason ? ` (unavailable — ${reason})` : ''}
-                  </option>
-                );
-              })}
-            </optgroup>
-          ))}
-        </PanelSelect>
+        <SelectorField
+          projectId={projectId}
+          label="Engine"
+          query={mediaSelectorQuery(actionId, column)}
+          onCurrentChoiceChange={(choice) => onCurrentChoiceChange?.(column, choice)}
+          recentNamespace={`${projectId}:compare:${actionId}`}
+          allowChoice={(choice) => {
+            const authored = choice.authored_selection;
+            const engineId = authored.kind === 'engine' || authored.kind === 'engine_model'
+              ? authored.engine : null;
+            return engineId !== null && catalog.some((engine) => engine.id === engineId);
+          }}
+          onSelect={(choice) => {
+            if (choice.authored_selection.kind === 'engine') onChooseEngine(choice.authored_selection.engine);
+            if (choice.authored_selection.kind === 'engine_model') onChooseEngine(choice.authored_selection.engine);
+          }}
+          testId={t('configure-engine')}
+          triggerRef={engineSelectorRef}
+        />
       </label>
 
       {column.engineId ? (

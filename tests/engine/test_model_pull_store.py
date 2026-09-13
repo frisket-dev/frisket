@@ -683,3 +683,27 @@ def test_read_repair_select_for_update_renders_on_postgres_and_is_sqlite_no_op()
 
     postgres_sql = str(stmt.compile(dialect=postgresql.dialect()))
     assert "FOR UPDATE" in postgres_sql.upper()
+
+
+def test_engine_setup_dto_uses_stored_kind_and_queued_owner_ref(tmp_path) -> None:
+    from dataclasses import replace
+
+    from frisket.engine.jobs.engine_setup import PARAKEET_TDT_SETUP_REF
+
+    queue, engine = _engine(tmp_path)
+    try:
+        row, _ = store.create_or_get_active(
+            engine, workspace_root=str(tmp_path), model_ref=PARAKEET_TDT_SETUP_REF
+        )
+        assert store.to_dto(row)["operation_kind"] == "engine_setup"
+        repinned = replace(
+            row,
+            model_ref="engine-setup:parakeet-tdt.local-onnx@2",
+            status=store.STATUS_DONE,
+            artifact_kind="engine_setup",
+        )
+        dto = store.to_dto(repinned)
+        assert dto["operation_kind"] == "engine_setup"
+        assert dto["capabilities"]["remove"] is False
+    finally:
+        queue.close()

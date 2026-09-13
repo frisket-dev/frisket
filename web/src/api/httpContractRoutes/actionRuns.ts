@@ -35,6 +35,7 @@ function mapPublicRunProgress(
     totalRows: status.total,
     failedRows: status.failed,
     costSoFar: status.cost ?? 0,
+    preparation: status.preparation ?? null,
     staleReason: status.stalled_reason ?? null,
     haltedCode: status.halted_code ?? null,
     haltedReason: status.halted_reason ?? null,

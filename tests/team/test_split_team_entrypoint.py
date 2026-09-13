@@ -109,6 +109,7 @@ def _build_app(
     *,
     oidc_email: str = "oidc@example.com",
     oidc_subject: str = "subject-1",
+    validate_provider_key: Callable[[str, str], Any] | None = None,
 ) -> Any:
     _, create_team_app = _team_api()
 
@@ -136,6 +137,7 @@ def _build_app(
         _config(tmp_path),
         send_magic_email=send_magic_email,
         oidc_exchange=oidc_exchange,
+        validate_provider_key=validate_provider_key,
     )
 
 
@@ -330,13 +332,19 @@ def test_pat_and_project_role_ladder_protect_real_core_routes(tmp_path: Path) ->
 def test_open_admin_diagnostics_and_org_secret_management_work_over_http(
     tmp_path: Path,
 ) -> None:
-    app = _build_app(tmp_path)
+    async def validator(_provider: str, _key: str) -> bool:
+        return True
+
+    app = _build_app(tmp_path, validate_provider_key=validator)
     admin = TestClient(app)
     _session_for_email(admin, app, "owner@example.com")
+    candidate = {"provider": "openai", "key": "sk-team-secret"}
+    validation = admin.post("/api/org/keys/validate", json=candidate)
+    assert validation.status_code == 200, validation.text
+    receipt = validation.json()["validation_token"]
+    assert receipt
 
-    key = admin.post(
-        "/api/org/keys", json={"provider": "openai", "key": "sk-team-secret"}
-    )
+    key = admin.post("/api/org/keys", json={**candidate, "validation_token": receipt})
     assert key.status_code == 200, key.text
     env = admin.post("/api/org/env", json={"name": "REPORT_FROM", "value": "desk"})
     assert env.status_code == 200, env.text
@@ -1089,9 +1097,17 @@ def test_owner_authorization_is_rechecked_inside_scoped_mutation_lock(
 
     # Organization-owned mutation: revoke the actor's owner role only after
     # the route's optimistic outer check but inside its scoped lock.
-    org_app = _build_app(tmp_path / "org")
+    async def validator(_provider: str, _key: str) -> bool:
+        return True
+
+    org_app = _build_app(tmp_path / "org", validate_provider_key=validator)
     org_owner = TestClient(org_app)
     _session_for_email(org_owner, org_app, "owner@example.com")
+    candidate = {"provider": "openai", "key": "sk-must-not-save"}
+    validation = org_owner.post("/api/org/keys/validate", json=candidate)
+    assert validation.status_code == 200, validation.text
+    receipt = validation.json()["validation_token"]
+    assert receipt
     with org_app.state.control_engine.connect() as cx:
         org_owner_id = cx.execute(
             sa.select(users.c.id).where(users.c.email == "owner@example.com")
@@ -1119,9 +1135,10 @@ def test_owner_authorization_is_rechecked_inside_scoped_mutation_lock(
         operational_routes, "locked_transaction", revoke_org_inside_lock
     )
     denied_org = org_owner.post(
-        "/api/org/keys", json={"provider": "openai", "key": "sk-must-not-save"}
+        "/api/org/keys", json={**candidate, "validation_token": receipt}
     )
     assert denied_org.status_code == 403, denied_org.text
+    assert org_revoked is True
     with org_app.state.control_engine.connect() as cx:
         assert (
             cx.execute(sa.select(sa.func.count()).select_from(org_keys)).scalar_one()

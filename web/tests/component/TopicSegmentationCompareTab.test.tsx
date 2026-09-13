@@ -1,11 +1,14 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 
+import { selectorChoicesApi } from '../../src/api/selectorChoices';
+import { installDialogPolyfill } from '../support/domPolyfills';
+import { mediaChoices } from '../support/mediaSelectorFixtures';
 import type {
   ActionCatalogPayload,
   TopicSegmentationCompareScratchResult,
@@ -15,6 +18,8 @@ import { TopicSegmentationCompareTab } from '../../src/workbench/TopicSegmentati
 import { createProjectApi } from '../../src/api/real';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 
+
+beforeAll(installDialogPolyfill);
 
 const api = createProjectApi('test-project');
 const { render } = createWorkspaceTestHarness({
@@ -145,6 +150,7 @@ afterEach(() => {
 
 describe('TopicSegmentationCompareTab', () => {
   beforeEach(() => {
+    vi.spyOn(selectorChoicesApi, 'getSelectorChoices').mockImplementation(async (_pid, query) => mediaChoices(query, ['deep_tiling', 'texttiling']));
     vi.spyOn(api, 'listActionCatalog').mockResolvedValue(catalog());
   });
 
@@ -327,8 +333,10 @@ describe('TopicSegmentationCompareTab', () => {
     render(<TopicSegmentationCompareTab onSessionChange={() => {}} />);
     await waitFor(() => expect(screen.getAllByTestId('topic-compare-variant-chip')).toHaveLength(2));
 
+    vi.mocked(selectorChoicesApi.getSelectorChoices).mockImplementation(async (_pid, query) => mediaChoices(query, ['deep_tiling', 'texttiling', 'fixture_third']));
     await user.click(screen.getByTestId('topic-compare-add-variant'));
-    await user.selectOptions(screen.getByTestId('topic-compare-configure-engine'), 'fixture_third');
+    await user.click(within(await screen.findByTestId('topic-compare-configure-engine')).getByRole('button'));
+    await user.click(within(await screen.findByTestId('engine-selector-dialog')).getByRole('button', { name: /fixture_third/ }));
     await waitFor(() => expect(screen.getAllByTestId('topic-compare-variant-chip')).toHaveLength(3));
     expect(screen.getByTestId('topic-compare-mode-survey')).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByTestId('topic-compare-mode-diff')).toBeDisabled();
@@ -356,7 +364,7 @@ describe('TopicSegmentationCompareTab', () => {
       }
     });
 
-    it('groups the configure select by tier, names the unavailable reason inline, and badges the chosen tier', async () => {
+    it('keeps the nested selector open, names the authoritative blocker, and badges the chosen tier', async () => {
       vi.mocked(api.listActionCatalog).mockResolvedValue({
         actions: [
           {
@@ -376,20 +384,27 @@ describe('TopicSegmentationCompareTab', () => {
         expect(screen.getAllByTestId('topic-compare-variant-chip')).toHaveLength(1),
       );
 
+      vi.mocked(selectorChoicesApi.getSelectorChoices).mockImplementation(async (_pid, query) => {
+        const response = mediaChoices(query, ['deep_tiling', 'texttiling']);
+        response.groups[0].choices[0] = { ...response.groups[0].choices[0],
+          status: 'unavailable', can_author: false, can_run: false,
+          blocker: { code: 'engine_runtime_missing', message: 'Install the semantic extra.', field: null } };
+        return response;
+      });
       await user.click(screen.getByTestId('topic-compare-add-variant'));
-      const select = screen.getByTestId('topic-compare-configure-engine') as HTMLSelectElement;
-      // Options are grouped under tier optgroups (both stubs are tier local).
-      expect(Array.from(select.querySelectorAll('optgroup')).map((group) => group.label)).toEqual([
-        'Local',
-      ]);
-      // The disabled option carries the catalog's own reason, not a bare
-      // "(unavailable)".
-      const unavailable = select.querySelector('option[value="deep_tiling"]');
-      expect(unavailable).toBeDisabled();
-      expect(unavailable).toHaveTextContent('unavailable — Install the semantic extra.');
-
-      // Choosing an engine surfaces its tier badge next to the Engine label.
-      await user.selectOptions(select, 'texttiling');
+      await user.click(within(await screen.findByTestId('topic-compare-configure-engine')).getByRole('button'));
+      await user.click(within(await screen.findByTestId('engine-selector-dialog')).getByRole('button', { name: /deep_tiling/ }));
+      expect(screen.getByTestId('engine-selector-dialog')).toBeVisible();
+      expect(screen.getByTestId('topic-compare-configure')).toBeVisible();
+      expect(within(screen.getByTestId('engine-selector-dialog')).getByText('Install the semantic extra.')).toBeVisible();
+      await user.click(screen.getByRole('searchbox', { name: 'Search Engine' }));
+      await user.keyboard('{Escape}');
+      expect(screen.getByTestId('engine-selector-dialog')).toBeVisible();
+      fireEvent(screen.getByTestId('engine-selector-dialog'), new Event('cancel', { cancelable: true }));
+      expect(screen.queryByTestId('engine-selector-dialog')).not.toBeInTheDocument();
+      expect(screen.getByTestId('topic-compare-configure')).toBeVisible();
+      await user.click(within(screen.getByTestId('topic-compare-configure-engine')).getByRole('button'));
+      await user.click(within(await screen.findByTestId('engine-selector-dialog')).getByRole('button', { name: /texttiling/ }));
       const badge = await screen.findByTestId('topic-compare-configure-engine-tier');
       expect(badge).toHaveTextContent('local');
       expect(badge).toHaveAttribute('data-tier', 'local');

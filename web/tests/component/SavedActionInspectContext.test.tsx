@@ -8,7 +8,7 @@ import { actionTemplatesFromCatalog } from '../../src/actions/model';
 import { SAVED_ACTION_SPEC_REFUSAL } from '../../src/actions/savedActionSpec';
 import * as apiModule from '../../src/api/open';
 import { createProjectApi } from '../../src/api/real';
-import type { ActionExecutionRequest, RegisteredActionRequest } from '../../src/api/types';
+import { isGeneratedActionCatalogEntry, type ActionExecutionRequest, type RegisteredActionRequest } from '../../src/api/types';
 import { WorkspaceStoresContext } from '../../src/bind/workspaceStoresContext';
 import { ActionPanel } from '../../src/components/ActionPanel';
 import { createWorkspaceStores, type WorkspaceStores } from '../../src/state/createWorkspaceStores';
@@ -16,6 +16,7 @@ import { syntheticActionCatalogEntry } from '../support/actionCatalogFixtures';
 import { sheetMeta } from '../support/actionFormFixtures';
 import { columnDef } from '../support/domainFixtures';
 import { servedActionCatalog } from '../support/servedActionCatalog';
+import { installActionSelectorFixture } from '../support/selectorChoicesFixture';
 
 
 
@@ -178,6 +179,9 @@ function renderInspect(args: {
 }
 
 beforeEach(() => {
+  const extractEntry = CATALOG.actions.find((entry) => entry.kind === 'map.extract');
+  if (!extractEntry || !isGeneratedActionCatalogEntry(extractEntry)) throw new Error('Missing Extract');
+  installActionSelectorFixture(extractEntry);
   const projectApi = createProjectApi('saved-action-inspect-context');
   stores = createWorkspaceStores('saved-action-inspect-context', projectApi);
   stores.actionCatalog.store.set(() => ({

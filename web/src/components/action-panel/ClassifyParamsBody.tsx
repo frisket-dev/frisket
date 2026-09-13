@@ -1,26 +1,16 @@
-import { useEffect } from 'react';
-
 import type { GeneratedActionParams } from '../../generated/actionTypes';
 import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
 import { StructuredFieldsEditor } from './StructuredFieldsEditor';
-import { EngineModelChoice } from './EngineModelChoice';
 
 type ClassifyField = GeneratedActionParams['map.classify']['fields'][number];
 const FIELD_TYPES: readonly NonNullable<ClassifyField['type']>[] = ['category', 'score', 'integer', 'number', 'boolean', 'text'];
 
-export function ClassifyParamsBody({ params, setParams, errors, Field, engines, engineModelChoice }:
+export function ClassifyParamsBody({ params, setParams, errors, Field }:
   GeneratedActionParamsBodyProps<'map.classify'>) {
   const local = (params.engine ?? 'local_semantic') === 'local_semantic';
-  useEffect(() => {
-    if (local && (params.model != null || params.include_confidence || params.include_justification)) {
-      setParams({ ...params, model: null, include_confidence: false, include_justification: false });
-    }
-  }, [local, params, setParams]);
   return <>
     <Field name="source" />
-    {engineModelChoice && <EngineModelChoice presentation={engineModelChoice} engines={engines ?? []}
-      engine={params.engine ?? 'local_semantic'} model={params.model}
-      onSelect={({ engine, model }) => setParams({ ...params, engine, model })} />}
+    <Field name="engine" />
     <StructuredFieldsEditor actionKind="map.classify" maxFields={local ? 1 : 64}
       fieldTypes={local ? ['category'] : FIELD_TYPES}
       value={(params.fields ?? []).map((field) => ({

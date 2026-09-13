@@ -914,6 +914,7 @@ def _recipe_engines(
         )
         if hy_pinned is not None:
             hy_mt2_engine["downloadable_model"] = {
+                "ref": hy_pinned.ref,
                 "display_name": hy_pinned.display_name,
                 "size": hy_pinned.total_size,
                 "license": hy_pinned.license,
@@ -1633,6 +1634,7 @@ def project_action_catalog_launcher_hints(
         hints: dict[str, Any] = {
             "uses_model": uses_model,
             "form_params": form_params,
+            "execution_capability": execution_capability,
         }
         engines = _recipe_engines(
             f"enrich.{execution_capability}"

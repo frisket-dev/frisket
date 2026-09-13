@@ -42,6 +42,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import httpx
+from filelock import FileLock, Timeout
 
 from frisket.engine.jobs import model_pull_store
 from frisket.engine.jobs.artifact_ref import ArtifactRef
@@ -137,6 +138,28 @@ class ProvisionCancelled(RuntimeError):
     the staging bytes are discarded, so the next attempt re-provisions."""
 
 
+def _acquire_artifact_lock(
+    art: ArtifactRef,
+    *,
+    cache_root: Path | None,
+    should_cancel: Callable[[], bool],
+) -> FileLock | None:
+    """Acquire the exact artifact lock, polling the existing cancel signal."""
+    lock_path = model_cache.artifact_lock_path(art, root=cache_root)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock = FileLock(str(lock_path))
+    while True:
+        if should_cancel():
+            return None
+        try:
+            # The cancellation callback may read durable job state. Bound that
+            # traffic while still noticing cancellation during long downloads.
+            lock.acquire(timeout=2.0)
+            return lock
+        except Timeout:
+            continue
+
+
 def provision_pinned(
     art: ArtifactRef,
     pinned: PinnedArtifact,
@@ -157,7 +180,42 @@ def provision_pinned(
     ``should_cancel`` is polled between chunks so the cooperative
     run-cancel aborts the download promptly; on cancel the staging is discarded
     and :class:`ProvisionCancelled` is raised."""
+    lock = _acquire_artifact_lock(
+        art,
+        cache_root=cache_root,
+        should_cancel=should_cancel or (lambda: False),
+    )
+    if lock is None:
+        raise ProvisionCancelled("artifact provisioning cancelled while waiting")
+    try:
+        _provision_pinned_unlocked(
+            art,
+            pinned,
+            cache_root=cache_root,
+            client=client,
+            should_cancel=should_cancel,
+        )
+    finally:
+        lock.release()
+
+
+def _provision_pinned_unlocked(
+    art: ArtifactRef,
+    pinned: PinnedArtifact,
+    *,
+    cache_root: Path | None,
+    client: httpx.Client,
+    should_cancel: Callable[[], bool] | None = None,
+) -> None:
+    """Provision under :func:`provision_pinned`'s artifact-local lock."""
     import uuid
+
+    if model_cache.is_installed(
+        art,
+        [(file.repo_relpath, file.size) for file in pinned.files],
+        root=cache_root,
+    ):
+        return
 
     token = f"prov-{uuid.uuid4().hex}"
     model_cache.discard_tmp(token, root=cache_root)
@@ -314,7 +372,7 @@ def _unpinned_hf_plan(art: ArtifactRef) -> tuple[str, list[PinnedFile]]:
     ]
 
 
-def run_artifact_pull(
+def _run_artifact_pull_unlocked(
     client: httpx.Client,
     *,
     engine,
@@ -681,6 +739,54 @@ def run_artifact_pull(
         resolved_size=completed_total if total_size is None else total_size,
     )
     return {"status": "done"}
+
+
+def run_artifact_pull(
+    client: httpx.Client,
+    *,
+    engine,
+    pull_id: int,
+    art: ArtifactRef,
+    should_cancel: Callable[[], bool],
+    is_final_attempt: bool,
+    manifest_lookup: Callable[[str], PinnedArtifact | None] = default_manifest_lookup,
+    cache_root: Path | None = None,
+    unpinned_acknowledged: bool = False,
+) -> dict:
+    """Run one durable artifact pull under the exact cache artifact lock."""
+    if art.scheme == "hf-snapshot":
+        return _run_artifact_pull_unlocked(
+            client,
+            engine=engine,
+            pull_id=pull_id,
+            art=art,
+            should_cancel=should_cancel,
+            is_final_attempt=is_final_attempt,
+            manifest_lookup=manifest_lookup,
+            cache_root=cache_root,
+            unpinned_acknowledged=unpinned_acknowledged,
+        )
+    lock = _acquire_artifact_lock(
+        art, cache_root=cache_root, should_cancel=should_cancel
+    )
+    if lock is None:
+        model_cache.discard_tmp(pull_id, root=cache_root)
+        model_pull_store.mark_cancelled(engine, pull_id)
+        return {"status": "cancelled"}
+    try:
+        return _run_artifact_pull_unlocked(
+            client,
+            engine=engine,
+            pull_id=pull_id,
+            art=art,
+            should_cancel=should_cancel,
+            is_final_attempt=is_final_attempt,
+            manifest_lookup=manifest_lookup,
+            cache_root=cache_root,
+            unpinned_acknowledged=unpinned_acknowledged,
+        )
+    finally:
+        lock.release()
 
 
 __all__ = [

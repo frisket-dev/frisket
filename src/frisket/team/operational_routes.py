@@ -39,6 +39,7 @@ from frisket.contracts.http.organization_operations import (
 from frisket.contracts.http.local_providers import LocalEndpointCatalog
 from frisket.contracts.http.team_local_models import (
     TeamArtifactPullRequest,
+    TeamEngineSetupRequest,
     TeamModelPull,
     TeamModelPullListResponse,
     TeamModelPullStartResponse,
@@ -73,6 +74,7 @@ from frisket.team.schema import (
 from frisket.team.secret_box import TeamSecretBox
 
 _ENV_NAME_RE = re.compile(r"^[A-Z_][A-Z0-9_]{0,127}$")
+_RESERVED_ORG_ENV_NAMES = frozenset({"FRISKET_MODELS_URL", "FRISKET_MODELS_TOKEN"})
 
 
 def _admin_membership_http_error(exc: AdminMembershipError) -> HTTPException:
@@ -165,13 +167,12 @@ def register_operational_routes(
             raise HTTPException(400, "unsupported provider")
         if not value.strip():
             raise HTTPException(400, "provider key must not be empty")
-        if body.validation_token is not None:
-            try:
-                provider_config.require_validation_token(
-                    provider, value, body.validation_token
-                )
-            except ValueError as exc:
-                raise HTTPException(400, str(exc)) from exc
+        try:
+            provider_config.require_validation_token(
+                provider, value, body.validation_token
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
         with locked_transaction(engine, lock_scope=("org-key", org_id, provider)) as cx:
             require_owner_in_transaction(cx, actor)
             values = {"encrypted": secret_box.encrypt(value), "hint": key_hint(value)}
@@ -288,6 +289,10 @@ def register_operational_routes(
         name, value = body.name.strip().upper(), body.value
         if not _ENV_NAME_RE.fullmatch(name):
             raise HTTPException(400, "invalid environment variable name")
+        if name in _RESERVED_ORG_ENV_NAMES:
+            raise HTTPException(
+                400, "this environment variable is managed by Models gateway"
+            )
         if not value:
             raise HTTPException(400, "environment variable value must not be empty")
         with locked_transaction(engine, lock_scope=("org-env", org_id, name)) as cx:
@@ -330,6 +335,10 @@ def register_operational_routes(
         canonical = name.strip().upper()
         if not _ENV_NAME_RE.fullmatch(canonical):
             raise HTTPException(400, "invalid environment variable name")
+        if canonical in _RESERVED_ORG_ENV_NAMES:
+            raise HTTPException(
+                400, "this environment variable is managed by Models gateway"
+            )
         with locked_transaction(
             engine, lock_scope=("org-env", org_id, canonical)
         ) as cx:
@@ -380,6 +389,7 @@ def register_operational_routes(
         endpoint_origin: str | None,
         actor,
         payload_extra: dict,
+        audit_action: str = "model_pull_requested",
     ) -> dict[str, Any]:
         # Owner re-check + audit are atomic together; the enqueue runs against
         # the run-queue engine (a different database) and cannot join it.
@@ -388,7 +398,7 @@ def register_operational_routes(
         ) as cx:
             require_owner_in_transaction(cx, actor)
             target = f"{canonical}@{endpoint_origin}" if endpoint_origin else canonical
-            audit(cx, actor=actor, action="model_pull_requested", target=target)
+            audit(cx, actor=actor, action=audit_action, target=target)
 
         queue_engine = workspace.queue.engine
         root_str = str(workspace.root)
@@ -412,10 +422,13 @@ def register_operational_routes(
                 ),
             }
             if active is not None:
-                detail["active"] = model_pull_store.to_dto(active)
+                detail["active"] = model_pull_store.to_dto(active, allow_remove=False)
             raise HTTPException(409, detail) from exc
         if not created:
-            return {"pull": model_pull_store.to_dto(row), "deduplicated": True}
+            return {
+                "pull": model_pull_store.to_dto(row, allow_remove=False),
+                "deduplicated": True,
+            }
         try:
             job_id = workspace.queue.enqueue(
                 MODEL_PULL_KIND,
@@ -443,7 +456,10 @@ def register_operational_routes(
             ) from exc
         model_pull_store.set_job_id(queue_engine, row.id, job_id=job_id)
         row = model_pull_store.get(queue_engine, row.id)
-        return {"pull": model_pull_store.to_dto(row), "deduplicated": False}
+        return {
+            "pull": model_pull_store.to_dto(row, allow_remove=False),
+            "deduplicated": False,
+        }
 
     @app.post(
         "/api/org/models/pull",
@@ -562,6 +578,36 @@ def register_operational_routes(
             payload_extra=payload_extra,
         )
 
+    @app.post(
+        "/api/org/models/setup",
+        status_code=202,
+        response_model=TeamModelPullStartResponse,
+        responses=team_model_http_error_responses(400, 401, 403, 409, 422, 500, 503),
+    )
+    def setup_org_model_engine(
+        request: Request, body: TeamEngineSetupRequest
+    ) -> dict[str, Any]:
+        """Owner-gated, audited start for the allowlisted Parakeet bundle."""
+        from frisket.engine.jobs.engine_setup import PARAKEET_TDT_SETUP_REF
+
+        actor = require_owner(request)
+        if body.setup_ref != PARAKEET_TDT_SETUP_REF:
+            raise HTTPException(
+                400,
+                {
+                    "code": "unknown_engine_setup",
+                    "message": "the requested engine setup is not supported",
+                },
+            )
+        return _org_enqueue_pull_and_respond(
+            canonical=PARAKEET_TDT_SETUP_REF,
+            endpoint_id=None,
+            endpoint_origin=None,
+            actor=actor,
+            payload_extra={},
+            audit_action="engine_setup_requested",
+        )
+
     @app.get(
         "/api/org/models/pulls",
         response_model=TeamModelPullListResponse,
@@ -571,7 +617,7 @@ def register_operational_routes(
         require_member(request)
         queue_engine = workspace.queue.engine
         rows = model_pull_store.list_recent(queue_engine, str(workspace.root), limit=20)
-        return {"pulls": [model_pull_store.to_dto(r) for r in rows]}
+        return {"pulls": [model_pull_store.to_dto(r, allow_remove=False) for r in rows]}
 
     @app.get(
         "/api/org/models/pulls/{pull_id}",
@@ -590,7 +636,7 @@ def register_operational_routes(
                     "message": f"no pull with id {pull_id} in this workspace",
                 },
             )
-        return model_pull_store.to_dto(row)
+        return model_pull_store.to_dto(row, allow_remove=False)
 
     @app.post(
         "/api/org/models/pulls/{pull_id}/cancel",
@@ -669,7 +715,7 @@ def register_operational_routes(
                 target=f"{pull_id}:{row.model_ref}",
             )
         row = model_pull_store.get(queue_engine, pull_id)
-        return model_pull_store.to_dto(row)
+        return model_pull_store.to_dto(row, allow_remove=False)
 
     @app.post(
         "/api/client-errors",

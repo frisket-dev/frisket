@@ -69,6 +69,10 @@ class _ProviderAdapter:
         )
 
 
+async def _validate_provider_key(provider: str, key: str) -> bool:
+    return provider == "openai" and bool(key)
+
+
 def _app(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -102,6 +106,7 @@ def _app(
             admin_emails={"owner@example.com"},
         ),
         send_magic_email=send,
+        validate_provider_key=_validate_provider_key,
     )
     return app
 
@@ -127,6 +132,24 @@ def _project(client: TestClient) -> tuple[str, int]:
     )
     assert imported.status_code == 200, imported.text
     return pid, int(imported.json()["sheet_id"])
+
+
+def _save_org_key(client: TestClient, *, key: str = SECRET) -> None:
+    validated = client.post(
+        "/api/org/keys/validate", json={"provider": "openai", "key": key}
+    )
+    assert validated.status_code == 200, validated.text
+    receipt = validated.json()["validation_token"]
+    assert isinstance(receipt, str) and receipt
+    saved = client.post(
+        "/api/org/keys",
+        json={
+            "provider": "openai",
+            "key": key,
+            "validation_token": receipt,
+        },
+    )
+    assert saved.status_code == 200, saved.text
 
 
 def _action(sheet_id: int, key: str) -> dict[str, Any]:
@@ -203,8 +226,7 @@ def test_http_configured_byok_drives_sync_and_queued_runtime_without_double_coun
     app = _app(tmp_path, monkeypatch)
     client = TestClient(app)
     _login(client, app)
-    saved = client.post("/api/org/keys", json={"provider": "openai", "key": SECRET})
-    assert saved.status_code == 200, saved.text
+    _save_org_key(client)
     pid, sheet_id = _project(client)
     project = app.state.workspace.get(pid)
 
@@ -466,12 +488,7 @@ def test_direct_reduce_quota_error_keeps_named_resumable_receipt_over_http(
     app = _app(tmp_path, monkeypatch)
     client = TestClient(app)
     _login(client, app)
-    assert (
-        client.post(
-            "/api/org/keys", json={"provider": "openai", "key": SECRET}
-        ).status_code
-        == 200
-    )
+    _save_org_key(client)
     pid, sheet_id = _project(client)
     before_jobs = app.state.workspace.queue.list_project_jobs(pid)
 
@@ -509,12 +526,7 @@ def test_provider_quota_error_is_named_resumable_and_does_not_become_402(
     app = _app(tmp_path, monkeypatch)
     client = TestClient(app)
     _login(client, app)
-    assert (
-        client.post(
-            "/api/org/keys", json={"provider": "openai", "key": SECRET}
-        ).status_code
-        == 200
-    )
+    _save_org_key(client)
     pid, sheet_id = _project(client)
     started = post_v1_action_with_exact_confirmation(
         client,

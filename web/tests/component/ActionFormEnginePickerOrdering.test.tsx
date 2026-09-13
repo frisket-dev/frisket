@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 //
-// The engine picker is PRIMARY — rendered before every field its engine
+// The execution selector is PRIMARY — rendered before every field its engine
 // choice shapes — because reading fields shaped by the engine before you've
 // picked the engine doesn't make sense. This pins that order for the typed
 // engine-having kinds in this lane: translate (engine-conditional
-// source-language control, model picker, and its own destination) and ner
+// source-language control, model choices, and its own destination) and ner
 // (engine-conditional label controls).
 
 import '@testing-library/jest-dom/vitest';
@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { columnDef } from '../support/domainFixtures';
 import { sheetMeta } from '../support/actionFormFixtures';
+import { selectorTrigger } from '../support/selectorChoicesFixture';
 import { mockLocalProviders, mountTypedForm } from './cutoverUiF1TypedForm';
 
 let dispose: (() => void) | undefined;
@@ -38,9 +39,9 @@ describe('engine picker renders PRIMARY for every engine-having kind', () => {
       sheet: sheetMeta([columnDef({ id: '1', name: 'statement', type: 'text' })], { id: '7' }),
     }).dispose;
 
-    const enginePicker = screen.getByTestId('field-engine-model-choice');
-    expect(enginePicker).toContainElement(screen.getByTestId('model-picker-button'));
-    expect(screen.queryByTestId('engine-picker-button')).not.toBeInTheDocument();
+    await waitFor(() => expect(selectorTrigger()).toBeInTheDocument());
+    const enginePicker = screen.getByTestId('field-engine');
+    expect(enginePicker).toContainElement(selectorTrigger());
     const destination = await screen.findByTestId('field-output-translation');
     const sourceLanguage = screen.getByTestId('translate-source-language-select');
     expect(precedes(enginePicker, destination)).toBe(true);
@@ -53,8 +54,9 @@ describe('engine picker renders PRIMARY for every engine-having kind', () => {
       sheet: sheetMeta([columnDef({ id: '1', name: 'body', type: 'text' })], { id: '7' }),
     }).dispose;
 
-    const enginePicker = screen.getByTestId('field-engine-model-choice');
-    expect(enginePicker).toContainElement(screen.getByTestId('model-picker-button'));
+    await waitFor(() => expect(selectorTrigger()).toBeInTheDocument());
+    const enginePicker = screen.getByTestId('field-engine');
+    expect(enginePicker).toContainElement(selectorTrigger());
     const nerFields = screen.getByTestId('ner-engine-fields');
     expect(precedes(enginePicker, nerFields)).toBe(true);
     await waitFor(() => expect(screen.getByTestId('field-output-entities')).toBeInTheDocument());

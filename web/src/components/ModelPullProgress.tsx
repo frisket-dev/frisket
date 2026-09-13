@@ -37,11 +37,9 @@ interface ModelPullProgressProps {
    *  defaults preserve the pre-existing behavior exactly. */
   fetchPull?: (id: number) => Promise<ModelPullDto>;
   cancelPull?: (id: number) => Promise<unknown>;
-  /** Uninstall a completed artifact pull (removes bytes, tombstones the
-   *  row with the distinct `uninstalled` status). Only shown for a `done`
-   *  pull whose `artifact` is non-null (an opus-mt:/hf: pull); Ollama models
-   *  are the daemon's to manage. Defaults to the workspace uninstall route. */
+  /** Uses the operation's backend-declared remove capability. */
   uninstall?: (ref: string) => Promise<ModelPullDto>;
+  readOnly?: boolean;
 }
 
 export function ModelPullProgress({
@@ -51,10 +49,12 @@ export function ModelPullProgress({
   fetchPull = getModelPull,
   cancelPull = cancelModelPull,
   uninstall = uninstallArtifact,
+  readOnly = false,
 }: ModelPullProgressProps) {
   const [pull, setPull] = useState(initialPull);
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [pollError, setPollError] = useState(false);
   const [uninstalling, setUninstalling] = useState(false);
   const [uninstallError, setUninstallError] = useState<string | null>(null);
 
@@ -67,13 +67,22 @@ export function ModelPullProgress({
     setPull(initialPull);
     setCancelling(false);
     setCancelError(null);
+    setPollError(false);
   }
 
   const active = ACTIVE_STATUSES.includes(pull.status);
 
   usePoll(
     async () => {
-      const fresh = await fetchPull(pull.id);
+      let fresh: ModelPullDto;
+      try {
+        fresh = await fetchPull(pull.id);
+      } catch {
+        // Keep the latest projection and optimistic cancellation on a failed GET.
+        setPollError(true);
+        return;
+      }
+      setPollError(false);
       setPull(fresh);
       if (fresh.status === 'done') onDone?.(fresh);
       else if (fresh.status === 'failed' || fresh.status === 'cancelled') {
@@ -130,7 +139,7 @@ export function ModelPullProgress({
       data-status={pull.status}
     >
       <div className="model-pull-progress-header">
-        <span className="model-pull-progress-name">{pull.model}</span>
+        <span className="model-pull-progress-name">{pull.display_name}</span>
         {pull.phase && <span className="model-pull-progress-phase">{pull.phase}</span>}
       </div>
       {active && (
@@ -138,7 +147,7 @@ export function ModelPullProgress({
           <span
             className={`model-pull-progress-bar${percent === null ? ' indeterminate' : ''}`}
             role="progressbar"
-            aria-label={`Downloading ${pull.model}`}
+            aria-label={`Downloading ${pull.display_name}`}
             aria-valuemin={0}
             aria-valuemax={100}
             {...(percent !== null ? { 'aria-valuenow': percent } : {})}
@@ -153,7 +162,7 @@ export function ModelPullProgress({
             type="button"
             className="btn btn-compact"
             data-testid="model-pull-cancel"
-            disabled={cancelling || pull.cancel_requested}
+            disabled={readOnly || !pull.capabilities.cancel || cancelling || pull.cancel_requested}
             onClick={() => void cancel()}
           >
             {pull.cancel_requested ? 'Cancelling…' : 'Cancel'}
@@ -168,6 +177,11 @@ export function ModelPullProgress({
           )}
         </>
       )}
+      {pollError && (
+        <p className="settings-inline-status settings-validation-message is-error" role="alert">
+          Could not refresh setup progress. Waiting for the next update.
+        </p>
+      )}
       {pull.status === 'failed' && pull.error && (
         <p className="model-pull-progress-error" data-testid="model-pull-error">
           {pull.error.code}: {pull.error.message}
@@ -175,16 +189,14 @@ export function ModelPullProgress({
       )}
       {pull.status === 'done' && (
         <p className="model-pull-progress-done" data-testid="model-pull-done">
-          {pull.model} installed
+          {pull.display_name} installed
           {pull.resolved_size != null ? ` (${humanBytes(pull.resolved_size)})` : ''}
-          {/* Uninstall is offered only for a pulled artifact (opus-mt:/hf:);
-              Ollama models are managed by the daemon. */}
-          {pull.artifact != null && (
+          {pull.capabilities.remove && (
             <button
               type="button"
               className="btn btn-compact"
               data-testid="model-pull-uninstall"
-              disabled={uninstalling}
+              disabled={readOnly || uninstalling}
               onClick={() => void doUninstall()}
             >
               {uninstalling ? 'Uninstalling…' : 'Uninstall'}

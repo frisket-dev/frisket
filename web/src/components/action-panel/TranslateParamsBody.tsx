@@ -1,18 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 
-import { invalidateActionCatalog } from '../../api/open';
 import type { GeneratedActionParams } from '../../generated/actionTypes';
 import { TranslatePairPicker } from '../TranslatePairPicker';
 import { EngineLanguageControl } from './EngineLanguageControl';
 import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
-import { EngineModelChoice } from './EngineModelChoice';
 
-export function TranslateParamsBody({ params, setParams, engine, errors, Field, engines, engineModelChoice }:
+export function TranslateParamsBody({ params, setParams, engine, errors, Field }:
   GeneratedActionParamsBodyProps<'map.translate'>) {
   const selectedEngine = params.engine ?? 'llm';
   const previousEngine = useRef(selectedEngine);
   const latestParams = useRef(params);
-  const [installed, setInstalled] = useState<string[]>([]);
 
   useEffect(() => { latestParams.current = params; }, [params]);
 
@@ -41,20 +38,15 @@ export function TranslateParamsBody({ params, setParams, engine, errors, Field, 
 
   return <>
     <Field name="source" label="Content to translate" />
-    {engineModelChoice && <EngineModelChoice presentation={engineModelChoice} engines={engines ?? []}
-      engine={selectedEngine} model={params.model}
-      onSelect={({ engine: nextEngine, model }) => setParams({ ...params, engine: nextEngine, model })} />}
+    <Field name="engine" />
     {selectedEngine === 'opus_mt' ? <TranslatePairPicker
-      installedPairs={[...new Set([...(engine?.models ?? []), ...installed])]}
+      installedPairs={engine?.models ?? []}
       downloadablePairs={engine?.downloadable_pairs ?? []}
       source={params.language?.[0] ?? ''}
       target={params.target_language ?? 'English'}
       onSourceChange={(language) => updatePair({ language: language ? [language] : [] })}
       onTargetChange={(target_language) => updatePair({ target_language })}
-      onInstalled={(pair) => {
-        setInstalled((previous) => [...new Set([...previous, pair])]);
-        invalidateActionCatalog();
-      }}
+
     /> : <>
       {selectedEngine !== 'hy_mt2' && <EngineLanguageControl declaration={engine?.language}
         label="Translate from" autoLabel="Auto-detect"

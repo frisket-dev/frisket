@@ -17,6 +17,11 @@ import {
   type WireSheet,
   uniqueName,
 } from './helpers';
+import {
+  actionSelectorResponse,
+  stubActionSelectorChoices,
+  type SelectorGroupFixture,
+} from './selectorChoicesFixture';
 
 const REPO_ROOT =
   path.basename(process.cwd()) === 'web'
@@ -33,20 +38,32 @@ const PROMPT =
   'List every sponsor mentioned in this row. For each sponsor, return the company, any coupon code or discount, and the product being advertised. Only use facts present in the row.';
 const MODEL = 'gemini/gemini-3.5-flash-lite';
 
-async function exposeReplayModel(page: Page): Promise<void> {
-  await page.route('**/api/providers', (route) => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({
-      schemaVersion: 'frisket.providers.v1',
-      tier: 'local',
-      providers: [{
-        id: 'gemini', label: 'Gemini', kind: 'platform_api', configured: true,
-        source: 'env', hint: null,
-        models: [{ id: MODEL, label: 'Gemini 3.5 Flash-Lite', price: null }],
-      }],
-    }),
-  }));
+const REPLAY_MODEL_CHOICES: SelectorGroupFixture[] = [{
+  id: 'gemini',
+  label: 'Gemini',
+  choices: [{
+    choiceId: MODEL,
+    label: 'Gemini 3.5 Flash-Lite',
+    summary: MODEL,
+    authoredSelection: { kind: 'model', model: MODEL },
+  }],
+}];
+
+async function exposeReplayModel(page: Page, projectId: string): Promise<void> {
+  await stubActionSelectorChoices(page, projectId, ({ actionId, field, params }) => {
+    expect(actionId).toBe('map.extract');
+    expect(field).toBe('model');
+    const response = actionSelectorResponse({
+      projectId,
+      actionId,
+      field,
+      groups: REPLAY_MODEL_CHOICES,
+      currentChoiceId: params.model === MODEL ? MODEL : null,
+    });
+    response.default_choice_id = MODEL;
+    response.groups[0].choices[0].is_default = true;
+    return response;
+  });
 }
 
 async function selectDescriptionSource(page: Page): Promise<void> {
@@ -225,7 +242,7 @@ test('derive materializes arrays of typed objects into a child sheet', async ({ 
   const pid = await createProject(page.request, uniqueName('e2e-derive-object-list'));
   const sheetId = await importCsv(page.request, pid, 'episodes.csv', CSV);
   primeDeriveObjectCache(pid, sheetId);
-  await exposeReplayModel(page);
+  await exposeReplayModel(page, pid);
 
   const postedActions: Array<Record<string, unknown>> = [];
   await page.route(`**/api/projects/${pid}/derive`, async (route) => {
@@ -358,9 +375,10 @@ test('derive "From existing list column" materializes a JSON list column with no
   // Switch to the new "From existing list column" mode.
   await page.getByTestId('derive-source-mode-column').click();
   await page.getByTestId('derive-source-column-select').selectOption('pdf_tables');
-  // No prompt / model / fields in this mode; footer advertises a local run.
+  // No prompt, engine, or model fields in this mode; footer advertises a local run.
   await expect(page.getByTestId('action-prompt')).toHaveCount(0);
-  await expect(page.getByTestId('model-picker-button')).toHaveCount(0);
+  await expect(page.getByTestId('field-engine')).toHaveCount(0);
+  await expect(page.getByTestId('field-model')).toHaveCount(0);
   await expect(page.getByTestId('cost-estimate')).toContainText('No execution charge: $0.00');
 
   await page.getByTestId('field-sheet_name').fill('PDF Rows');

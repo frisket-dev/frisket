@@ -29,6 +29,10 @@ import enum
 from collections.abc import Mapping
 from typing import Any, Literal, NewType, Protocol, runtime_checkable
 
+from frisket.ai.models.gateway_config import (
+    ModelsGatewayConnection,
+    resolve_models_gateway_env,
+)
 from frisket.team.control_plane import control_plane_engine, org_provider_keys
 
 
@@ -41,6 +45,15 @@ class CredentialPort(Protocol):
     ) -> Mapping[str, str]:
         """Provider name -> plaintext key. Empty when the org has none."""
         ...
+
+
+@runtime_checkable
+class ModelsGatewayPort(Protocol):
+    """Resolves an org gateway through row-backed trusted worker context."""
+
+    def models_gateway_connection(
+        self, *, org_id: int, control_database_url: str | None
+    ) -> ModelsGatewayConnection | None: ...
 
 
 @runtime_checkable
@@ -163,6 +176,16 @@ class OrgKeyCredentialPort:
         return org_provider_keys(engine, org_id=org_id)
 
 
+class EnvironmentModelsGatewayPort:
+    """Open default preserving operator environment configuration for Team."""
+
+    def models_gateway_connection(
+        self, *, org_id: int, control_database_url: str | None
+    ) -> ModelsGatewayConnection | None:
+        del org_id, control_database_url
+        return resolve_models_gateway_env()
+
+
 def _require_port(value: Any, protocol: type, role: str) -> Any:
     """Fail closed: a port object that cannot answer its question is refused."""
     if value is None:
@@ -186,15 +209,28 @@ class WorkerPorts:
     )
     admission_port: AdmissionPort | None = None
     settlement_port: SettlementPort | None = None
+    models_gateway_port: ModelsGatewayPort | None = dataclasses.field(
+        default_factory=EnvironmentModelsGatewayPort
+    )
 
     def __post_init__(self) -> None:
         _require_port(self.credential_port, CredentialPort, "credential")
+        _require_port(
+            self.models_gateway_port,
+            ModelsGatewayPort,
+            "models gateway",
+        )
         _require_port(self.admission_port, AdmissionPort, "admission")
         _require_port(self.settlement_port, SettlementPort, "settlement")
 
     def credentials(self) -> CredentialPort:
         """The credential port, falling back to the OPEN default."""
         return self.credential_port or OrgKeyCredentialPort()
+
+    def models_gateway(self) -> ModelsGatewayPort:
+        """The gateway port, falling back to the operator environment."""
+
+        return self.models_gateway_port or EnvironmentModelsGatewayPort()
 
 
 def coerce_worker_ports(worker_ports: Any) -> WorkerPorts:

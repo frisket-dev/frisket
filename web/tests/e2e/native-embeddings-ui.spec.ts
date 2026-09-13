@@ -1,10 +1,16 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import type {
+  HttpSelectorChoicesQuery,
+  HttpSelectorChoicesResponse,
+  SelectorSubject,
+} from '../../src/api/selectorChoices';
 import { embeddingIndexFixture, embeddingIndexListFixture } from '../support/embeddingIndexFixtures';
 import { createProject, importCsv, openDiscoverTab, uniqueName } from './helpers';
 
-// The embedding endpoints are stubbed (like media-engine-tier-picker) so the spec
-// is deterministic and independent of whether a local embedder is installed in the
-// e2e backend. The backend contracts themselves are covered by Python tests.
+// The embedding endpoints and their authoritative selector projection are
+// stubbed so the spec is deterministic and independent of whether a local
+// embedder is installed in the e2e backend. The backend contracts themselves
+// are covered by Python tests.
 
 const PROVIDERS = [
   {
@@ -48,6 +54,101 @@ const PROVIDERS = [
 ];
 
 const INDEX_ID = 'embidx_e2e';
+
+const EMBEDDING_CHOICES = [{
+  choiceId: 'fastembed-paraphrase-MiniLM',
+  groupId: 'local',
+  groupLabel: 'Local',
+  groupKind: 'local',
+  label: 'Local text (fastembed)',
+  summary: 'Runs on this computer',
+  provider: 'fastembed',
+  model: 'paraphrase-MiniLM',
+  status: 'ready',
+  canAuthor: true,
+  canRun: true,
+  blocker: null,
+  destination: { kind: 'local', label: 'On this computer' },
+}, {
+  choiceId: 'openai-text-embedding-3-small',
+  groupId: 'openai',
+  groupLabel: 'OpenAI',
+  groupKind: 'provider',
+  label: 'OpenAI text-embedding-3-small',
+  summary: 'Needs setup',
+  provider: 'openai',
+  model: 'text-embedding-3-small',
+  status: 'unavailable',
+  canAuthor: false,
+  canRun: false,
+  blocker: 'missing OPENAI_API_KEY',
+  destination: { kind: 'external', label: 'OpenAI' },
+}, {
+  choiceId: 'cohere-embed-v3',
+  groupId: 'cohere',
+  groupLabel: 'Cohere',
+  groupKind: 'provider',
+  label: 'Cohere embed-v3',
+  summary: 'Remote embedding',
+  provider: 'cohere',
+  model: 'embed-v3',
+  status: 'ready',
+  canAuthor: true,
+  canRun: true,
+  blocker: null,
+  destination: { kind: 'external', label: 'Cohere' },
+}] as const;
+
+function embeddingSelectorResponse(
+  pid: string,
+  subject: Extract<SelectorSubject, { kind: 'embedding' }>,
+): HttpSelectorChoicesResponse {
+  const currentChoice = EMBEDDING_CHOICES.find((choice) => (
+    choice.provider === subject.provider && choice.model === subject.model
+  )) ?? EMBEDDING_CHOICES[0];
+  return {
+    schema_version: 'frisket.selector_choices.v1',
+    project_id: pid,
+    subject: {
+      kind: 'embedding',
+      modality: subject.modality ?? null,
+      source_column_type: subject.source_column_type ?? null,
+    },
+    depends_on: [],
+    current_choice_id: currentChoice.choiceId,
+    default_choice_id: EMBEDDING_CHOICES[0].choiceId,
+    groups: [...new Set(EMBEDDING_CHOICES.map((choice) => choice.groupId))].map((groupId) => {
+      const groupChoices = EMBEDDING_CHOICES.filter((choice) => choice.groupId === groupId);
+      const group = groupChoices[0];
+      return {
+        group_id: group.groupId,
+        kind: group.groupKind,
+        label: group.groupLabel,
+        status: group.status,
+        choices: groupChoices.map((choice) => ({
+          choice_id: choice.choiceId,
+          label: choice.label,
+          summary: choice.summary,
+          description: '',
+          model_card_url: null,
+          authored_selection: { kind: 'embedding', provider: choice.provider, model: choice.model },
+          resolved_target: null,
+          processing_destination: choice.destination,
+          facts: [],
+          status: choice.status,
+          can_author: choice.canAuthor,
+          can_run: choice.canRun,
+          blocker: choice.blocker ? { code: 'unavailable', field: null, message: choice.blocker } : null,
+          setup: null,
+          active_operation: null,
+          is_default: choice.choiceId === EMBEDDING_CHOICES[0].choiceId,
+          is_current: choice.choiceId === currentChoice.choiceId,
+        })),
+      };
+    }),
+    orphaned_current: null,
+  };
+}
 
 function makeIndex(sheetId: number) {
   return embeddingIndexFixture({
@@ -135,6 +236,19 @@ async function installEmbeddingStubs(
         source_column_type: null,
         providers: PROVIDERS,
       }),
+    });
+  });
+
+  await page.route(`**/api/projects/${pid}/selector-choices`, async (route) => {
+    const body = route.request().postDataJSON() as HttpSelectorChoicesQuery;
+    if (body.subject.kind !== 'embedding') {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(embeddingSelectorResponse(pid, body.subject)),
     });
   });
 
@@ -259,16 +373,23 @@ test('provider picker shows available + disabled-remote and creates a local inde
   await page.getByTestId('embeddings-add-button').click();
   await expect(page.getByTestId('embeddings-form')).toBeVisible();
 
-  // open the card picker
-  await page.getByTestId('embedding-model-field').click();
-  await expect(page.getByTestId('embedding-model-popover')).toBeVisible();
-  // unavailable remote model stays visible as a DISABLED card WITH its reason
-  await expect(
-    page.getByTestId('embedding-model-card-disabled-text-embedding-3-small'),
-  ).toContainText('OPENAI_API_KEY');
+  // Open the authoritative selector. An unavailable remote choice stays
+  // inspectable, including its blocker, but cannot change the selection.
+  const modelField = page.getByTestId('embedding-create-panel-source').locator('.engine-selector');
+  const trigger = modelField.locator('.engine-selector__trigger');
+  await trigger.click();
+  const dialog = page.getByTestId('engine-selector-dialog');
+  await dialog.getByRole('searchbox', { name: 'Search Provider / model' }).fill('OpenAI');
+  const unavailable = dialog.locator('[data-engine-selector-choice="openai-text-embedding-3-small"]');
+  await expect(unavailable).toContainText('OpenAI text-embedding-3-small');
+  await unavailable.click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText('missing OPENAI_API_KEY')).toBeVisible();
 
-  // pick the local model and create (the first source column is pre-selected)
-  await page.getByTestId('embedding-model-card-paraphrase-MiniLM').click();
+  // Pick the local model and create (the first source column is pre-selected).
+  await dialog.getByRole('searchbox', { name: 'Search Provider / model' }).fill('fastembed');
+  await dialog.locator('[data-engine-selector-choice="fastembed-paraphrase-MiniLM"]').click();
+  await expect(trigger).toContainText('Local text (fastembed)');
   await expect(page.getByTestId('embedding-source-col-headline')).toBeChecked();
   await page.getByTestId('embedding-create-next').click();
   await expect(page.getByTestId('embedding-create-summary')).toContainText('2 rows');
@@ -284,13 +405,19 @@ test('provider picker shows available + disabled-remote and creates a local inde
 test('remote provider requires privacy confirmation before automatic refresh', async ({ page }) => {
   await setup(page);
   await page.getByTestId('embeddings-add-button').click();
-  await page.getByTestId('embedding-model-field').click();
-  // unavailable remote model is visible but cannot be selected (disabled card)
+  const trigger = page.getByTestId('embedding-create-panel-source')
+    .locator('.engine-selector__trigger');
+  await trigger.click();
+  const dialog = page.getByTestId('engine-selector-dialog');
+  // An unavailable remote model remains visible and explains why it cannot be
+  // selected; choose an available remote model for the egress confirmation.
+  await dialog.getByRole('searchbox', { name: 'Search Provider / model' }).fill('OpenAI');
   await expect(
-    page.getByTestId('embedding-model-card-disabled-text-embedding-3-small'),
-  ).toContainText('OPENAI_API_KEY');
-  // an available remote model triggers the privacy/cost confirmation controls
-  await page.getByTestId('embedding-model-card-embed-v3').click();
+    dialog.locator('[data-engine-selector-choice="openai-text-embedding-3-small"]'),
+  ).toContainText('missing OPENAI_API_KEY');
+  await dialog.getByRole('searchbox', { name: 'Search Provider / model' }).fill('Cohere');
+  await dialog.locator('[data-engine-selector-choice="cohere-embed-v3"]').click();
+  await expect(trigger).toContainText('Cohere embed-v3');
   await page.getByTestId('embedding-create-next').click();
 
   await expect(page.getByTestId('embedding-remote-controls')).toBeVisible();

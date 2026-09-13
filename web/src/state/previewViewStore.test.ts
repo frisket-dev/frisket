@@ -96,6 +96,57 @@ function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
 }
 
 describe('createPreviewViewStore — preview lifecycle additions', () => {
+  it('retains the server preparation hint while a zero-row preview is running', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(api, 'startPreview').mockResolvedValue({ previewId: 'preparing', total: 10 });
+      const preparing: Awaited<ReturnType<typeof api.getPreview>> = {
+        previewId: 'preparing',
+        status: 'running',
+        progress: {
+          done: 0,
+          total: 10,
+          preparation: {
+            message: 'Preparing the language model if this worker needs it, then translating…',
+          },
+        },
+        kind: 'row_overlay',
+        sheetId: 'sheet-1',
+        columns: [],
+        rows: {},
+        rowIds: [],
+        sampled: 0,
+        total: 10,
+        error: null,
+      };
+      vi.spyOn(api, 'getPreview').mockResolvedValue(preparing);
+      vi.spyOn(api, 'cancelPreview').mockResolvedValue(undefined);
+      const previews = createPreviewViewStore(api);
+
+      await previews.openPreviewView(
+        preview('sheet-1').req,
+        { id: 'sheet-1', rowCount: 10 },
+        { invalidateProjectData: vi.fn(), requestCostConfirmation: vi.fn() },
+      );
+      await vi.advanceTimersByTimeAsync(750);
+
+      expect(previews.store.get().previewView).toMatchObject({
+        status: 'running',
+        progress: {
+          done: 0,
+          total: 10,
+          preparation: {
+            message: 'Preparing the language model if this worker needs it, then translating…',
+          },
+        },
+      });
+      previews.dispose();
+    } finally {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    }
+  });
+
   it.each(['clearPreviewView', 'resetForSheetChange'] as const)(
     '%s clears an opened preview',
     async (clear) => {

@@ -83,7 +83,7 @@ import { createColumnTypesDomainApi } from './columnTypes';
 import { createTranslateComparisonApi } from './translateComparison';
 import { createProjectSearchApi } from './projectSearch';
 import { createProjectDataManagementApi } from './projectDataManagement';
-import { createProjectProviderKeysApi } from './projectProviderKeys';
+import { createProjectProviderKeysApi, type ProjectProviderKeysOptions } from './projectProviderKeys';
 import { createProjectSecretsApi } from './projectSecrets';
 import { createMcpServersApi } from './mcpServers';
 import { createResolvePreviewsApi } from './resolvePreviews';
@@ -126,7 +126,7 @@ import {
   createLocalProvidersApi,
   type LocalProvidersOptions,
 } from './localProviders';
-import { createOrganizationProvidersApi } from './organizationProviders';
+import { createOrganizationProvidersApi, type OrganizationProvidersOptions } from './organizationProviders';
 import { createOrganizationOperationsApi } from './organizationOperations';
 import { createProjectAttemptsApi } from './projectAttempts';
 import {
@@ -528,16 +528,18 @@ export async function setOrgKey(
   provider: string,
   key: string,
   validationToken?: string | null,
+  options?: OrganizationProvidersOptions,
 ): Promise<void> {
-  await organizationProvidersApi.setOrgKey(provider, key, validationToken);
+  await organizationProvidersApi.setOrgKey(provider, key, validationToken, options);
   invalidateActionCatalog();
 }
 
 export function validateOrgKey(
   provider: string,
   key?: string,
+  options?: OrganizationProvidersOptions,
 ): Promise<ProviderValidateResult> {
-  return organizationProvidersApi.validateOrgKey(provider, key);
+  return organizationProvidersApi.validateOrgKey(provider, key, options);
 }
 
 export async function deleteOrgKey(provider: string): Promise<void> {
@@ -1238,6 +1240,7 @@ class RealApi implements FrisketApi {
     key: string,
     spendCapUsd?: number | null,
     validationToken?: string | null,
+    options?: ProjectProviderKeysOptions,
   ): Promise<ProjectProviderKeys> {
     const result = await projectProviderKeysApi.setProjectProviderKey(
       this.requireProjectId(),
@@ -1245,6 +1248,7 @@ class RealApi implements FrisketApi {
       key,
       spendCapUsd,
       validationToken,
+      options,
     );
     this.invalidateActionCatalogCache();
     return result;
@@ -1253,11 +1257,13 @@ class RealApi implements FrisketApi {
   async validateProjectProviderKey(
     provider: string,
     key?: string,
+    options?: ProjectProviderKeysOptions,
   ): Promise<ProviderValidateResult> {
     return projectProviderKeysApi.validateProjectProviderKey(
       this.requireProjectId(),
       provider,
       key,
+      options,
     );
   }
 

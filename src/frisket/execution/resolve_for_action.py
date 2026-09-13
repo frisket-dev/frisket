@@ -597,7 +597,7 @@ def resolve_for_action(
         )
     quote = _CAPABILITY_COST_BASIS[capability]
     raw_engine = (
-        _resolve_geocode_engine(
+        resolve_geocode_engine(
             spec, project, credential_context=composition.credential_use_context
         )
         if capability == CAPABILITY_GEOCODE
@@ -773,7 +773,7 @@ def _target_rows_declare_engine(
     )
 
 
-def _resolve_geocode_engine(
+def resolve_geocode_engine(
     spec: Mapping[str, Any], project: Any, *, credential_context: Any = None
 ) -> str:
     """geocode's own selector spells its default ``"auto"`` — a
@@ -809,7 +809,7 @@ def _default_engine(capability: str) -> str:
 
     ``CAPABILITY_GEOCODE`` is absent: its default is credential-presence
     SELECTED, not a static symbol, and is resolved by
-    :func:`_resolve_geocode_engine` before this function is ever consulted.
+    :func:`resolve_geocode_engine` before this function is ever consulted.
     """
     if capability == CAPABILITY_OCR:
         from frisket.ops.ocr_engines import LIGHT_ENGINE

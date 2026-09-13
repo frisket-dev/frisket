@@ -24,7 +24,7 @@ import os
 import secrets
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Literal, TypeVar
@@ -40,6 +40,11 @@ from frisket.ai.llm.endpoint_config import (
     resolve_env_local_endpoint,
 )
 from frisket.ai.llm.model_catalog import MODEL_ENTRIES
+from frisket.ai.models.gateway_config import (
+    ModelsGatewayConnection,
+    normalize_models_gateway_origin,
+    resolve_models_gateway_env,
+)
 from frisket.local_model_ids import format_local_model_id, validate_local_endpoint_id
 from frisket.redaction import redact_text
 from frisket.team.security.secrets import key_hint
@@ -184,6 +189,88 @@ def require_validation_token(provider: str, key: str, token: str | None) -> str:
     if not validation_token_is_valid(normalized, key, token):
         raise ValueError("test this provider key successfully before saving")
     return normalized
+
+
+MODELS_GATEWAY_RECEIPT_PROTOCOL = "frisket.models_gateway.capabilities.v1"
+
+
+def issue_models_gateway_validation_token(
+    scope: str,
+    origin: str,
+    gateway_token: str,
+    *,
+    protocol: str = MODELS_GATEWAY_RECEIPT_PROTOCOL,
+    now: float | None = None,
+) -> str:
+    """Issue a receipt bound to scope, normalized origin, token, and protocol."""
+
+    normalized_scope = scope.strip()
+    normalized_origin = normalize_models_gateway_origin(origin)
+    exact_token = gateway_token.strip()
+    if not normalized_scope or not exact_token:
+        raise ValueError("models gateway receipt values are required")
+    issued_at = int(time.time() if now is None else now)
+    payload = {
+        "scope": normalized_scope,
+        "origin": normalized_origin,
+        "protocol": protocol,
+        "exp": issued_at + VALIDATION_TOKEN_TTL_SECONDS,
+        "nonce": secrets.token_urlsafe(12),
+    }
+    body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
+    signed = body + b"\0" + exact_token.encode()
+    sig = hmac.new(_VALIDATION_TOKEN_SECRET, signed, hashlib.sha256).digest()
+    return f"{_b64url_encode(body)}.{_b64url_encode(sig)}"
+
+
+def models_gateway_validation_token_is_valid(
+    scope: str,
+    origin: str,
+    gateway_token: str,
+    validation_token: str | None,
+    *,
+    protocol: str = MODELS_GATEWAY_RECEIPT_PROTOCOL,
+    now: float | None = None,
+) -> bool:
+    if not validation_token or "." not in validation_token:
+        return False
+    try:
+        body_part, sig_part = validation_token.split(".", 1)
+        body = _b64url_decode(body_part)
+        sig = _b64url_decode(sig_part)
+        exact_token = gateway_token.strip()
+        signed = body + b"\0" + exact_token.encode()
+        expected = hmac.new(_VALIDATION_TOKEN_SECRET, signed, hashlib.sha256).digest()
+        if not exact_token or not hmac.compare_digest(expected, sig):
+            return False
+        payload = json.loads(body)
+        normalized_origin = normalize_models_gateway_origin(origin)
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return False
+    current = int(time.time() if now is None else now)
+    return (
+        payload.get("scope") == scope.strip()
+        and payload.get("origin") == normalized_origin
+        and payload.get("protocol") == protocol
+        and int(payload.get("exp") or 0) >= current
+    )
+
+
+def require_models_gateway_validation_token(
+    scope: str,
+    origin: str,
+    gateway_token: str,
+    validation_token: str | None,
+) -> str:
+    normalized_origin = normalize_models_gateway_origin(origin)
+    if not models_gateway_validation_token_is_valid(
+        scope,
+        normalized_origin,
+        gateway_token,
+        validation_token,
+    ):
+        raise ValueError("test this models gateway successfully before saving")
+    return normalized_origin
 
 
 # ---------------------------------------------------------------------------
@@ -342,6 +429,79 @@ def delete_local_provider_key(root: str | Path, provider: str) -> bool:
         return True, True
 
     return _mutate_config_file(root, delete)
+
+
+MODELS_GATEWAY_CONFIG_KEY = "models_gateway_v1"
+
+
+def _decode_models_gateway(value: str | None) -> ModelsGatewayConnection | None:
+    if value is None:
+        return None
+    try:
+        decoded = json.loads(value)
+    except (TypeError, ValueError) as exc:
+        raise InvalidProviderConfigError(
+            "cannot safely read malformed models gateway settings"
+        ) from exc
+    if (
+        not isinstance(decoded, dict)
+        or set(decoded) != {"origin", "token"}
+        or not isinstance(decoded.get("origin"), str)
+        or not isinstance(decoded.get("token"), str)
+    ):
+        raise InvalidProviderConfigError(
+            "cannot safely read malformed models gateway settings"
+        )
+    try:
+        return ModelsGatewayConnection(
+            origin=decoded["origin"],
+            token=decoded["token"],
+            source="stored",
+        )
+    except ValueError as exc:
+        raise InvalidProviderConfigError(
+            "cannot safely read malformed models gateway settings"
+        ) from exc
+
+
+def load_local_models_gateway(root: str | Path) -> ModelsGatewayConnection | None:
+    """Read the workspace gateway pair from the existing private config map."""
+
+    return _decode_models_gateway(
+        _read_config_file(root).get(MODELS_GATEWAY_CONFIG_KEY)
+    )
+
+
+def save_local_models_gateway(
+    root: str | Path, *, origin: str, token: str
+) -> ModelsGatewayConnection:
+    """Atomically replace both workspace gateway fields in one map mutation."""
+
+    connection = ModelsGatewayConnection(
+        origin=origin,
+        token=token,
+        source="stored",
+    )
+
+    def save(config: dict[str, str]) -> tuple[ModelsGatewayConnection, bool]:
+        config[MODELS_GATEWAY_CONFIG_KEY] = json.dumps(
+            {"origin": connection.origin, "token": connection.token},
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        return connection, True
+
+    return _mutate_config_file(root, save)
+
+
+def resolve_models_gateway(
+    root: str | Path,
+    env: Mapping[str, str] | None = None,
+) -> ModelsGatewayConnection | None:
+    """Resolve env-over-stored gateway authority without partial fallback."""
+
+    environment = resolve_models_gateway_env(os.environ if env is None else env)
+    return environment or load_local_models_gateway(root)
 
 
 LOCAL_MODEL_ENDPOINTS_KEY = "local_model_endpoints_v1"
@@ -1067,6 +1227,8 @@ def build_provider_catalog(
     env: dict[str, str] | None = None,
     *,
     network_off: bool = False,
+    local_endpoints: Sequence[LocalModelEndpointConfig] | None = None,
+    local_endpoint_authority: Literal["instance", "organization"] = "instance",
 ) -> dict[str, Any]:
     """The Braintrust-style picker's source of truth: providers grouped with
     their models (priced from the live table, unknown = None), configured
@@ -1083,13 +1245,17 @@ def build_provider_catalog(
         if network_off and PROVIDER_KIND.get(provider) != "local_http":
             continue
         if provider == "ollama":
-            local_endpoints, _endpoint_notes = resolve_local_endpoints(root, env)
-            if local_endpoints:
+            configured_endpoints = local_endpoints
+            if configured_endpoints is None:
+                configured_endpoints, _endpoint_notes = resolve_local_endpoints(
+                    root, env
+                )
+            if configured_endpoints:
                 # Each endpoint probe has its own timeout and HTTP client.
                 # Bound parallelism keeps one offline server from serially
                 # multiplying picker/settings latency across the collection.
                 with ThreadPoolExecutor(
-                    max_workers=min(4, len(local_endpoints))
+                    max_workers=min(4, len(configured_endpoints))
                 ) as pool:
                     providers.extend(
                         pool.map(
@@ -1097,9 +1263,9 @@ def build_provider_catalog(
                                 root,
                                 endpoint,
                                 env,
-                                authority="instance",
+                                authority=local_endpoint_authority,
                             ),
-                            local_endpoints,
+                            configured_endpoints,
                         )
                     )
             continue

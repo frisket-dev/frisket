@@ -9,12 +9,14 @@ import { GeneratedActionForm, type GeneratedActionFormProps } from '../../src/co
 import { columnDef } from '../support/domainFixtures';
 import { sheetMeta } from '../support/actionFormFixtures';
 import { servedActionCatalog } from '../support/servedActionCatalog';
+import { installActionSelectorFixture, selectorProviderCatalog } from '../support/selectorChoicesFixture';
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 function renderResearch(question = 'Research {{country}}', diagnostics: ActionParamResolution['diagnostics'] = {}) {
   const entry = servedActionCatalog().actions.find((item) => item.kind === 'research.answer');
   if (!entry || !isGeneratedActionCatalogEntry(entry)) throw new Error('Missing typed research action');
+  installActionSelectorFixture(entry, async () => selectorProviderCatalog(['test/model']));
   const template = generatedActionTemplateFromCatalogEntry(entry)!;
   const sheet = sheetMeta([
     columnDef({ id: '1', name: 'country', type: 'text' }),
@@ -28,8 +30,7 @@ function renderResearch(question = 'Research {{country}}', diagnostics: ActionPa
     ],
   }));
   const onExecute = vi.fn();
-  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('No provider requests in this test')));
-  render(<GeneratedActionForm catalogEntry={entry} actionTemplate={template} sheet={sheet}
+  render(<GeneratedActionForm projectId="research-form" catalogEntry={entry} actionTemplate={template} sheet={sheet}
     initialDraft={{ action_id: 'research.answer', scope: { kind: 'sheet_rows', sheet_id: 7 },
       params: { source: ['country'], question: { text: question }, model: 'test/model',
         include_sources: entry.input_schema.properties?.include_sources?.default === true },

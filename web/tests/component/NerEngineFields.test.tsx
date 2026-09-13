@@ -62,39 +62,6 @@ describe('NerEngineFields', () => {
     );
   });
 
-  it('keeps the optional model download attached only to the spaCy surface', () => {
-    const spacyDownload = {
-      artifact: {
-        ref: 'spacy:en_core_web_sm',
-        display_name: 'spaCy English pipeline',
-        revision: 'abc123',
-        size: 48_000_000,
-        license: 'MIT',
-      },
-      onInstalled: () => {},
-    };
-    const { rerender } = render(
-      <NerEngineFields
-        engine="spacy"
-        labels={['person']}
-        onLabelsChange={() => {}}
-        spacyDownload={spacyDownload}
-      />,
-    );
-
-    expect(screen.getByTestId('engine-artifact-download')).toBeVisible();
-
-    rerender(
-      <NerEngineFields
-        engine="gliner"
-        labels={['person']}
-        onLabelsChange={() => {}}
-        spacyDownload={spacyDownload}
-      />,
-    );
-    expect(screen.queryByTestId('engine-artifact-download')).not.toBeInTheDocument();
-  });
-
   it('keeps GLiNER and LLM error test ids and accessible input names distinct', () => {
     const { rerender } = render(
       <NerEngineFields

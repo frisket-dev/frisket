@@ -82,9 +82,14 @@ def _config(tmp_path: Path, **overrides) -> TeamConfig:
     return TeamConfig(**values)
 
 
-def _app(tmp_path: Path, **overrides):
+def _app(tmp_path: Path, *, validate_provider_key=None, **overrides):
     config = _config(tmp_path, **overrides)
-    app = create_team_app(config, send_magic_email=_mail, oidc_exchange=_oidc)
+    app = create_team_app(
+        config,
+        send_magic_email=_mail,
+        oidc_exchange=_oidc,
+        validate_provider_key=validate_provider_key,
+    )
     claim_server(app, origin=config.base_url)
     for email in (
         "alice@example.com",
@@ -517,15 +522,35 @@ def test_dual_member_cannot_use_org_two_pat_on_org_one_routes(tmp_path: Path) ->
 def test_secret_upsert_delete_validation_and_diagnostic_redaction(
     tmp_path: Path,
 ) -> None:
-    app = _app(tmp_path)
+    async def validator(_provider: str, _secret: str) -> bool:
+        return True
+
+    app = _app(tmp_path, validate_provider_key=validator)
     client = TestClient(app)
     _login(client, app, "owner@example.com")
     assert (
         client.post("/api/org/keys", json={"provider": "bogus", "key": "x"}).status_code
         == 400
     )
-    client.post("/api/org/keys", json={"provider": "openai", "key": "sk-first-secret"})
-    client.post("/api/org/keys", json={"provider": "openai", "key": "sk-second-secret"})
+    assert (
+        client.post(
+            "/api/org/keys", json={"provider": "openai", "key": "sk-first-secret"}
+        ).status_code
+        == 400
+    )
+    for secret in ("sk-first-secret", "sk-second-secret"):
+        candidate = {"provider": "openai", "key": secret}
+        validation = client.post("/api/org/keys/validate", json=candidate)
+        assert validation.status_code == 200
+        assert validation.json()["ok"] is True
+        receipt = validation.json()["validation_token"]
+        assert receipt
+        assert (
+            client.post(
+                "/api/org/keys", json={**candidate, "validation_token": receipt}
+            ).status_code
+            == 200
+        )
     assert client.get("/api/org/keys").json() == [
         {"provider": "openai", "hint": "...cret"}
     ]
@@ -894,12 +919,23 @@ def test_exact_catalog_paths_audits_key_files_and_safe_hints(tmp_path: Path) -> 
     assert ("PATCH", "/api/admin/users/{user_id}/role") in paths
     assert ("DELETE", "/api/projects/{pid}/members/{email}") in paths
     assert ("POST", "/api/org/keys/validate") in paths
-    client.post("/api/org/keys", json={"provider": "openai", "key": "sk-secret-value"})
+    candidate = {"provider": "openai", "key": "sk-secret-value"}
+    validation = client.post("/api/org/keys/validate", json=candidate)
+    assert validation.status_code == 200
+    assert validation.json()["ok"] is True
+    receipt = validation.json()["validation_token"]
+    assert receipt
+    assert (
+        client.post(
+            "/api/org/keys", json={**candidate, "validation_token": receipt}
+        ).status_code
+        == 200
+    )
     assert (
         client.post("/api/org/keys/validate", json={"provider": "openai"}).json()["ok"]
         is True
     )
-    assert validated == [("openai", "sk-secret-value")]
+    assert validated == [("openai", "sk-secret-value")] * 2
     assert (
         client.post("/api/org/env", json={"name": "TINY", "value": "desk"}).json()[
             "hint"

@@ -1,20 +1,12 @@
-import type { DownloadableArtifact } from '../../api/open';
-import { PinnedArtifactDownload } from '../PinnedArtifactDownload';
 import { LabelChipsInput } from './LabelChipsInput';
 import { SpacyTypeMultiSelect } from './NerFieldControls';
 import styles from './NerEngineFields.module.css';
-
-interface SpacyDownload {
-  artifact: DownloadableArtifact;
-  onInstalled: () => void;
-}
 
 interface NerEngineFieldsProps {
   engine: string;
   labels: readonly string[];
   labelsError?: string | null;
   onLabelsChange: (labels: string[]) => void;
-  spacyDownload?: SpacyDownload | null;
 }
 
 /** Engine-specific NER authoring controls. Label state remains owned by the
@@ -24,17 +16,9 @@ export function NerEngineFields({
   labels,
   labelsError,
   onLabelsChange,
-  spacyDownload,
 }: NerEngineFieldsProps) {
   return (
     <>
-      {engine === 'spacy' && spacyDownload && (
-        <PinnedArtifactDownload
-          artifact={spacyDownload.artifact}
-          onInstalled={spacyDownload.onInstalled}
-        />
-      )}
-
       <div className={styles.fields} data-testid="ner-engine-fields">
         {engine === 'spacy' && (
           <>

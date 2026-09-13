@@ -33,10 +33,6 @@ type ReturnedProvider = {
   models?: Array<{ id: string }>;
 };
 
-function modelOptionTestId(endpointId: string): string {
-  return `model-option-ollama-${endpointId}-qwen3-0-6b`;
-}
-
 function authoredEndpointTarget(
   page: Page,
   stepId: string,
@@ -293,7 +289,7 @@ test('local-model walkthrough connects a named endpoint, succeeds simply, and ex
       await page.getByTestId('classify-source-column-select').selectOption('easy_notice');
     });
     await walkthroughStep('choose-local-llm', async () => {
-      await expect(page.getByTestId('model-picker-button')).toBeVisible();
+      await expect(page.getByTestId('field-engine').locator('.engine-selector__trigger')).toBeVisible();
     });
     await walkthroughStep('set-easy-labels', async () => {
       await page.getByLabel('Field 1 labels').fill('meeting, inspection, contract');
@@ -302,10 +298,12 @@ test('local-model walkthrough connects a named endpoint, succeeds simply, and ex
       await page.getByTestId('new-column-name').fill('small_model_label');
     });
     await walkthroughStep('choose-small-model', async () => {
-      await page.getByTestId('model-picker-button').click();
-      await page.getByTestId(`model-provider-group-${endpointId}`).click();
-      await page.getByTestId(modelOptionTestId(endpointId)).click();
-      await expect(page.getByTestId('model-picker-button')).toContainText('qwen3:0.6b');
+      const trigger = page.getByTestId('field-engine').locator('.engine-selector__trigger');
+      await trigger.click();
+      const dialog = page.getByTestId('engine-selector-dialog');
+      await dialog.getByRole('searchbox', { name: 'Search Engine' }).fill(MODEL);
+      await dialog.getByRole('button', { name: new RegExp(MODEL) }).click();
+      await expect(trigger).toContainText(MODEL);
     });
     await walkthroughStep('run-easy-local-task', async () => {
       await page.getByTestId('run-button').click();
@@ -358,10 +356,12 @@ test('local-model walkthrough connects a named endpoint, succeeds simply, and ex
       await page.getByTestId('field-output-answer').fill('small_model_answer');
     });
     await walkthroughStep('confirm-hard-model', async () => {
-      await page.getByTestId('model-picker-button').click();
-      await page.getByTestId(`model-provider-group-${endpointId}`).click();
-      await page.getByTestId(modelOptionTestId(endpointId)).click();
-      await expect(page.getByTestId('model-picker-button')).toContainText('qwen3:0.6b');
+      const trigger = page.getByTestId('field-engine').locator('.engine-selector__trigger');
+      await trigger.click();
+      const dialog = page.getByTestId('engine-selector-dialog');
+      await dialog.getByRole('searchbox', { name: 'Search Engine' }).fill(MODEL);
+      await dialog.getByRole('button', { name: new RegExp(MODEL) }).click();
+      await expect(trigger).toContainText(MODEL);
     });
     await walkthroughStep('run-hard-local-task', async () => {
       await page.getByTestId('generated-action-run').click();

@@ -138,6 +138,7 @@ function createOcrConfig(
   defaultColumnOptions: Record<string, unknown>,
 ): MediaCompareConfig<OcrComparePreviewPageResult[]> {
   return {
+  selectorActionId: 'media.ocr',
   testidPrefix: 'ocr-compare',
   accept: 'application/pdf,image/*,.pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,.bmp',
   classifyFile: (file) => {
@@ -259,7 +260,7 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
     configureVariantId,
     popoverShift,
     configureAnchorRef,
-    engineSelectRef,
+    engineSelectorRef,
     configurePopoverRef,
     openConfigure,
     addEngineFlow,
@@ -448,12 +449,14 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
                   </div>
                   {configureVariantId === column.id ? (
                     <ConfigureVariantPopover
+                      onCurrentChoiceChange={session.reportColumnChoice}
                       testidPrefix="ocr-compare"
+                      actionId="media.ocr"
                       popoverRef={configurePopoverRef}
                       style={popoverShift ? { transform: `translateX(${popoverShift}px)` } : undefined}
                       column={column}
                       catalog={catalog}
-                      engineSelectRef={engineSelectRef}
+                      engineSelectorRef={engineSelectorRef}
                       errorMessage={
                         activeDoc?.runs[column.id]?.status === 'error'
                           ? (activeDoc.runs[column.id] as { message: string }).message

@@ -37,6 +37,7 @@ from frisket.project_opener import (
     require_opener_storage_org_id,
 )
 from frisket.ai.llm import CacheMode, ModelRouter, ResponseCache
+from frisket.ai.models.gateway_config import ModelsGatewayConnection
 from frisket.server.runtime_settings import (
     resolve_workspace_cache_mode,
     resolve_workspace_cost_preapproval_usd,
@@ -155,6 +156,8 @@ class Workspace:
         enable_local_model_pull: bool = True,
         execution_router_factory: Callable[[], ModelRouter] | None = None,
         execution_composition_factory: ExecutionCompositionFactory | None = None,
+        models_gateway_connection_resolver: Callable[[], ModelsGatewayConnection | None]
+        | None = None,
         direct_action_receipt_settlement_port: DirectActionReceiptSettlementPort
         | None = None,
         plugin_composition_policy: PluginCompositionPolicy | None = None,
@@ -179,6 +182,8 @@ class Workspace:
         self._execution_composition_factory = (
             execution_composition_factory or open_execution_composition
         )
+        self._uses_open_execution_composition = execution_composition_factory is None
+        self._models_gateway_connection_resolver = models_gateway_connection_resolver
         # The open/local server's cache-mode authority. FRISKET_CACHE_MODE
         # seeds a fresh workspace; a deliberate Preferences change persists in
         # the workspace and wins on later starts. Injected routers retain their
@@ -255,7 +260,11 @@ class Workspace:
             install_queue_terminalization=install_queue_terminalization,
             plugin_composition_policy=plugin_composition_policy,
             execution_router_factory=self._execution_router_factory,
-            execution_composition_factory=self._execution_composition_factory,
+            execution_composition_factory=(
+                None
+                if self._uses_open_execution_composition
+                else self._execution_composition_factory
+            ),
         )
         if enable_local_model_pull:
             # Local-tier-only: deliberately
@@ -509,6 +518,13 @@ class Workspace:
     ) -> ExecutionComposition:
         """Build one request's composition from its exact effective router."""
         effective_router = router if router is not None else self.router_for(project)
+        if self._uses_open_execution_composition:
+            return open_execution_composition(
+                project,
+                effective_router,
+                context,
+                models_gateway_resolver=self._models_gateway_connection_resolver,
+            )
         return self._execution_composition_factory(project, effective_router, context)
 
     @staticmethod

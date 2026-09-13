@@ -82,7 +82,18 @@ def test_resolver_uses_exact_public_pins_and_revalidates_parent_side(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cache = tmp_path / "hub"
-    model, vad = _snapshots(cache)
+    model = _snapshot(
+        cache,
+        repo_id=artifacts.PARAKEET_MODEL_REPO,
+        revision=artifacts.PARAKEET_MODEL_REVISION,
+        files=artifacts.PARAKEET_MODEL_FILES,
+    )
+    expected_vad = (
+        cache
+        / f"models--{artifacts.PARAKEET_VAD_REPO.replace('/', '--')}"
+        / "snapshots"
+        / artifacts.PARAKEET_VAD_REVISION
+    )
     monkeypatch.setenv("HF_HUB_CACHE", str(cache))
     seen: dict[str, Any] = {}
 
@@ -93,11 +104,15 @@ def test_resolver_uses_exact_public_pins_and_revalidates_parent_side(
             payload=json.loads(stdin_data),
             should_cancel=should_cancel,
         )
+        vad = _snapshot(
+            cache,
+            repo_id=artifacts.PARAKEET_VAD_REPO,
+            revision=artifacts.PARAKEET_VAD_REVISION,
+            files=artifacts.PARAKEET_VAD_FILES,
+        )
         return SandboxResult(
             returncode=0,
-            stdout=json.dumps(
-                {"ok": True, "model_path": str(model), "vad_path": str(vad)}
-            ),
+            stdout=json.dumps({"ok": True, "vad_path": str(vad)}),
             stderr="",
         )
 
@@ -111,23 +126,36 @@ def test_resolver_uses_exact_public_pins_and_revalidates_parent_side(
     )
 
     assert resolved.model_path == model.resolve()
-    assert resolved.vad_path == vad.resolve()
+    assert resolved.vad_path == expected_vad.resolve()
     assert resolved.cache_dir == cache.resolve()
     assert seen["should_cancel"] is cancel
     assert seen["policy"].allow_network is True
     assert seen["policy"].env_passthrough == ["VIRTUAL_ENV", "PYTHONPATH"]
     payload = seen["payload"]
-    assert payload["model"] == {
-        "repo_id": artifacts.PARAKEET_MODEL_REPO,
-        "revision": artifacts.PARAKEET_MODEL_REVISION,
-        "files": list(artifacts.PARAKEET_MODEL_FILES),
-        "cache_dir": str(cache),
-    }
+    assert "model" not in payload
     assert payload["vad"]["repo_id"] == artifacts.PARAKEET_VAD_REPO
     assert payload["vad"]["revision"] == artifacts.PARAKEET_VAD_REVISION
     assert payload["vad"]["files"] == list(artifacts.PARAKEET_VAD_FILES)
     assert "HF_TOKEN" not in seen["policy"].env_passthrough
     assert "HF_HOME" not in seen["policy"].env_passthrough
+
+
+def test_ready_cache_skips_the_supervised_downloader(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cache = tmp_path / "hub"
+    _snapshots(cache)
+    monkeypatch.setenv("HF_HUB_CACHE", str(cache))
+
+    async def should_not_run(*_args, **_kwargs):
+        raise AssertionError("a verified Parakeet cache must not be downloaded again")
+
+    monkeypatch.setattr(artifacts, "run_sandboxed", should_not_run)
+    resolved = asyncio.run(artifacts.resolve_parakeet_artifacts(vad=True))
+
+    assert resolved.model_path.is_file() is False
+    assert resolved.vad_path is not None
+    assert artifacts.parakeet_setup_ready() is True
 
 
 def test_child_snapshot_resolution_uses_hub_without_importing_onnx(
@@ -269,12 +297,17 @@ def test_resolution_identity_comes_from_the_manifest(
     from frisket.ai.models import artifact_manifest
 
     cache = tmp_path / "hub"
-    model, _ = _snapshots(cache)
     monkeypatch.setenv("HF_HUB_CACHE", str(cache))
     seen: dict[str, Any] = {}
 
     async def fake_run(argv, *, policy, stdin_data, should_cancel=None):
         seen["payload"] = json.loads(stdin_data)
+        model = _snapshot(
+            cache,
+            repo_id=artifacts.PARAKEET_MODEL_REPO,
+            revision=artifacts.PARAKEET_MODEL_REVISION,
+            files=artifacts.PARAKEET_MODEL_FILES,
+        )
         return SandboxResult(
             returncode=0,
             stdout=json.dumps({"ok": True, "model_path": str(model)}),
@@ -309,10 +342,15 @@ def test_parent_rejects_malformed_or_extra_resolver_output(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cache = tmp_path / "hub"
-    model, _ = _snapshots(cache)
     monkeypatch.setenv("HF_HUB_CACHE", str(cache))
 
     async def fake_run(*args, **kwargs):
+        model = _snapshot(
+            cache,
+            repo_id=artifacts.PARAKEET_MODEL_REPO,
+            revision=artifacts.PARAKEET_MODEL_REVISION,
+            files=artifacts.PARAKEET_MODEL_FILES,
+        )
         return SandboxResult(
             returncode=0,
             stdout=json.dumps(

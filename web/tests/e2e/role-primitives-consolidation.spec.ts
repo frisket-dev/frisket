@@ -15,10 +15,8 @@
 //     comment) now share one scroll/window/measure/arrow-nav hook. Covered
 //     here: ArrowUp/ArrowDown nav parity on both lists (same clamp-not-wrap
 //     boundary behavior).
-//  3. ModelPicker.renderOption (src/components/ModelPicker.tsx:253) gains
-//     role="option" + aria-selected — both listbox panes (search results,
-//     provider models) render through the same renderOption, so both were
-//     malformed before this fix. Covered here via the search-results pane.
+//  3. EngineSelector choice buttons carry the selected state through
+//     aria-current. Covered here through the searchable action host.
 //  4. ActionPanel's two hand-rolled ".segmented source-mode-switch" toggles
 //     (:2013 SourceInputControl, :4074 derive) now render through the
 //     SegmentedToggle primitive the file already imports/uses elsewhere.
@@ -45,6 +43,11 @@ import {
   uniqueName,
   type WireColumn,
 } from './helpers';
+import {
+  actionSelectorResponse,
+  stubActionSelectorChoices,
+  type SelectorGroupFixture,
+} from './selectorChoicesFixture';
 
 // ---------------------------------------------------------------------------
 // 1. ResizeSeam — aria-valuenow/valuemin/valuemax on real DOM sites.
@@ -326,7 +329,7 @@ test('AnswersView row list arrow-nav clamps at the boundary — same shape as Do
 });
 
 // ---------------------------------------------------------------------------
-// 3. ModelPicker.renderOption — role="option" + aria-selected.
+// 3. EngineSelector choice buttons expose their selected state.
 
 async function openClassifyForm(page: Page, pid: string): Promise<void> {
   await importCsv(page.request, pid, 'snippets.csv', TINY_CSV);
@@ -336,48 +339,58 @@ async function openClassifyForm(page: Page, pid: string): Promise<void> {
   await expect(page.getByTestId('action-form')).toBeVisible();
 }
 
-test('ModelPicker option rows carry role="option" + aria-selected (both search and provider panes render via the same renderOption)', async ({
+test('EngineSelector choice buttons retain aria-current through searchable action selection', async ({
   page,
 }) => {
-  const pid = await createProject(page.request, uniqueName('model-picker-option-aria'));
+  const pid = await createProject(page.request, uniqueName('engine-selector-choice-aria'));
+  const groups: SelectorGroupFixture[] = [{
+    id: 'local', label: 'Local', choices: [{
+      choiceId: 'local-semantic', label: 'Local semantic', summary: 'Runs on this computer',
+      authoredSelection: { kind: 'engine', engine: 'local_semantic' },
+    }],
+  }, {
+    id: 'anthropic', label: 'Anthropic', choices: [{
+      choiceId: 'anthropic-claude-haiku', label: 'Claude Haiku', summary: 'Hosted model',
+      authoredSelection: { kind: 'engine_model', engine: 'llm', model: 'anthropic/claude-haiku-4-5' },
+    }],
+  }];
+  await stubActionSelectorChoices(page, pid, ({ actionId, field, params }) => {
+    expect(actionId).toBe('map.classify');
+    expect(field).toBe('engine');
+    return actionSelectorResponse({
+      projectId: pid,
+      actionId,
+      field,
+      groups,
+      currentChoiceId: params.engine === 'llm' ? 'anthropic-claude-haiku' : 'local-semantic',
+    });
+  });
   await openClassifyForm(page, pid);
 
-  await page.getByTestId('model-picker-button').click();
-  const menu = page.getByTestId('model-picker-menu');
-  await expect(menu).toBeVisible();
-
-  // Search mode (.model-picker-search-results, ModelPicker.tsx:330 — a
-  // className, not a testid) — 'a' matches broadly regardless of the live vs.
-  // fallback catalog's exact provider/model names.
-  await page.getByTestId('model-picker-search').fill('a');
-  const results = menu.locator('.model-picker-search-results');
-  await expect(results).toBeVisible();
-  const options = results.locator('[data-testid^="model-option-"]');
-  await expect(options.first()).toBeVisible();
-  const optionCount = await options.count();
-  expect(optionCount).toBeGreaterThan(0);
-  for (let i = 0; i < optionCount; i++) {
-    await expect(options.nth(i)).toHaveAttribute('role', 'option');
-    // Every option has an aria-selected value (true or false) — never absent.
-    await expect(options.nth(i)).toHaveAttribute('aria-selected', /true|false/);
+  const trigger = page.getByTestId('field-engine').locator('.engine-selector__trigger');
+  await trigger.click();
+  const dialog = page.getByTestId('engine-selector-dialog');
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('searchbox', { name: 'Search Engine' }).fill('a');
+  const choices = dialog.locator('[data-engine-selector-choice]');
+  await expect(choices.first()).toBeVisible();
+  const choiceCount = await choices.count();
+  expect(choiceCount).toBeGreaterThan(0);
+  for (let i = 0; i < choiceCount; i++) {
+    await expect(choices.nth(i)).toHaveRole('button');
   }
-  // Exactly one option reflects the current selection.
-  const selectedCount = await results.locator('[data-testid^="model-option-"][aria-selected="true"]').count();
+  // Exactly one choice reflects the authoritative current selection.
+  const selectedCount = await dialog.locator('[data-engine-selector-choice][aria-current="true"]').count();
   expect(selectedCount).toBe(1);
 
-  // Selecting a DIFFERENT (not-yet-selected) option moves aria-selected="true"
-  // onto it — the option's own state, not just the trigger's summary text.
-  const unselected = results.locator('[data-testid^="model-option-"][aria-selected="false"]').first();
-  const unselectedTestId = await unselected.getAttribute('data-testid');
-  await unselected.click();
-  await expect(menu).toBeHidden();
-
-  await page.getByTestId('model-picker-button').click();
-  await expect(menu).toBeVisible();
-  await page.getByTestId('model-picker-search').fill('a');
-  const reopened = page.getByTestId(unselectedTestId!);
-  await expect(reopened).toHaveAttribute('role', 'option');
-  await expect(reopened).toHaveAttribute('aria-selected', 'true');
+  // Selecting a different model moves aria-current onto the new choice after
+  // the host receives the updated authoritative projection.
+  await dialog.locator('[data-engine-selector-choice="anthropic-claude-haiku"]').click();
+  await expect(trigger).toContainText('Claude Haiku');
+  await trigger.click();
+  await expect(
+    page.getByTestId('engine-selector-dialog').locator('[data-engine-selector-choice="anthropic-claude-haiku"]'),
+  ).toHaveAttribute('aria-current', 'true');
 });
 
 // ---------------------------------------------------------------------------

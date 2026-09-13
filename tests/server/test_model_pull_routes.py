@@ -138,7 +138,7 @@ def test_happy_path_enqueues_job_and_returns_202(tmp_path, monkeypatch) -> None:
     assert pull["model"] == _local_ref(client, "smollm:135m")
     assert pull["endpoint_id"] == client.local_endpoint_id
     assert pull["status"] in ("pending", "running")
-    assert pull["schemaVersion"] == "frisket.model_pull.v3"
+    assert pull["schemaVersion"] == "frisket.model_pull.v4"
     assert pull["artifact"] is None
 
     workspace = client.app.state.workspace
@@ -468,6 +468,31 @@ def test_artifact_pull_hf_snapshot_pinned_ref_enqueues(tmp_path, monkeypatch) ->
     assert busy.json()["detail"]["active"]["model"] == PARAKEET_VAD_REF
 
 
+def test_engine_setup_is_allowlisted_and_deduplicated(tmp_path) -> None:
+    from frisket.engine.jobs.engine_setup import PARAKEET_TDT_SETUP_REF
+
+    client = _client(tmp_path)
+    first = client.post(
+        "/api/providers/models/setup", json={"setup_ref": PARAKEET_TDT_SETUP_REF}
+    )
+    assert first.status_code == 202, first.text
+    second = client.post(
+        "/api/providers/models/setup", json={"setup_ref": PARAKEET_TDT_SETUP_REF}
+    )
+    assert second.status_code == 202, second.text
+    assert second.json()["deduplicated"] is True
+    pull = first.json()["pull"]
+    assert pull["operation_kind"] == "engine_setup"
+    assert pull["display_name"] == "Parakeet TDT (local ONNX)"
+    assert pull["capabilities"] == {"cancel": True, "retry": False, "remove": False}
+
+    refused = client.post(
+        "/api/providers/models/setup", json={"setup_ref": "engine-setup:other@1"}
+    )
+    assert refused.status_code == 400
+    assert refused.json()["detail"]["code"] == "unknown_engine_setup"
+
+
 def test_artifact_pull_unpinned_hf_snapshot_rejected_at_parse(tmp_path) -> None:
     """The manifest allowlist is enforced at parse time: an arbitrary repo is
     invalid_model_ref (400), never unpinned_unacknowledged -- there is no
@@ -528,6 +553,31 @@ def test_uninstall_done_artifact_marks_uninstalled(tmp_path, monkeypatch) -> Non
     assert resp.json()["status"] == "uninstalled"
     fresh = store.get(engine, row.id)
     assert fresh.status == store.STATUS_UNINSTALLED
+
+
+def test_local_completed_artifact_advertises_owned_remove(tmp_path) -> None:
+    client = _client(tmp_path)
+    workspace = client.app.state.workspace
+    row, _ = store.create_or_get_active(
+        workspace.queue.engine,
+        workspace_root=str(workspace.root),
+        model_ref="opus-mt:en-es",
+    )
+    store.mark_running(workspace.queue.engine, row.id, job_id=1)
+    store.set_artifact_metadata(
+        workspace.queue.engine,
+        row.id,
+        artifact_kind="ct2_pair",
+        artifact_source_url=None,
+        artifact_license=None,
+        artifact_manifest_version=None,
+    )
+    store.mark_done(workspace.queue.engine, row.id)
+
+    pulls = client.get("/api/providers/models/pulls")
+    assert pulls.status_code == 200, pulls.text
+    completed = next(pull for pull in pulls.json()["pulls"] if pull["id"] == row.id)
+    assert completed["capabilities"]["remove"] is True
 
 
 def test_uninstall_rejected_while_a_pull_is_in_flight(tmp_path) -> None:

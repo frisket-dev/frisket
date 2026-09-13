@@ -54,7 +54,7 @@ from __future__ import annotations
 import math
 import os
 from importlib.util import find_spec
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -65,6 +65,13 @@ from frisket.contracts.actions.schemas._engines import (
     find_engine,
 )
 from frisket.contracts.transcription_sidecar import TranscriptionOptionSupport
+from frisket.ai.models.gateway_config import (
+    InvalidModelsGatewayConfig,
+    MODELS_GATEWAY_TOKEN_ENV,
+    MODELS_GATEWAY_URL_ENV,
+    ModelsGatewayConnection,
+    resolve_models_gateway_env,
+)
 from frisket.execution.provider import ConnectionConfig
 from frisket.execution.targets import (
     CAPABILITY_CENSUS as CAPABILITY_CENSUS,
@@ -89,8 +96,6 @@ from frisket.execution.targets import (
     TranslateOptionSupport,
 )
 
-MODELS_GATEWAY_URL_ENV = "FRISKET_MODELS_URL"
-MODELS_GATEWAY_TOKEN_ENV = "FRISKET_MODELS_TOKEN"
 MODELS_GATEWAY_TIMEOUT_ENV = "FRISKET_TRANSCRIPTION_SIDECAR_TIMEOUT_SECONDS"
 DEFAULT_MODELS_GATEWAY_TIMEOUT_SECONDS = 3600.0
 MODELS_GATEWAY_CONNECT_TIMEOUT_SECONDS = 10.0
@@ -563,11 +568,14 @@ class StaticExecutionTargetProvider:
         env: Mapping[str, str] | None = None,
         secrets: Any | None = None,
         router: Any | None = None,
+        models_gateway_resolver: Callable[[], ModelsGatewayConnection | None]
+        | None = None,
     ) -> None:
         self._env_override = env
         self._secrets = secrets
         # Use the request's effective key overlay when composition provides it.
         self._router = router
+        self._models_gateway_resolver = models_gateway_resolver
         self._targets = build_static_targets()
         self._by_id = {target.id: target for target in self._targets}
         self.probe_counts: dict[str, int] = {}
@@ -669,13 +677,21 @@ class StaticExecutionTargetProvider:
         return value
 
     def _models_gateway_connection(self) -> ConnectionConfig | None:
-        base_url = self._get(MODELS_GATEWAY_URL_ENV)
-        token = self._get(MODELS_GATEWAY_TOKEN_ENV)
-        if not base_url or not token:
+        try:
+            gateway = (
+                self._models_gateway_resolver()
+                if self._models_gateway_resolver is not None
+                else resolve_models_gateway_env(
+                    os.environ if self._env_override is None else self._env_override
+                )
+            )
+        except InvalidModelsGatewayConfig:
+            return None
+        if gateway is None:
             return None
         return ConnectionConfig(
-            base_url=base_url,
-            token=token,
+            base_url=gateway.origin,
+            token=gateway.token,
             timeout_seconds=self._float(
                 MODELS_GATEWAY_TIMEOUT_ENV, DEFAULT_MODELS_GATEWAY_TIMEOUT_SECONDS
             ),

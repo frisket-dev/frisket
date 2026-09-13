@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { generatedActionTemplateFromCatalogEntry } from '../../src/actions/model';
@@ -12,6 +12,7 @@ import { columnDef } from '../support/domainFixtures';
 import { sheetMeta } from '../support/actionFormFixtures';
 import { servedActionCatalog } from '../support/servedActionCatalog';
 import { installPopoverPolyfill } from '../support/domPolyfills';
+import { chooseActionSelector, installActionSelectorFixture, openActionSelector, selectorTrigger } from '../support/selectorChoicesFixture';
 
 const catalog = servedActionCatalog();
 type MediaAction = 'media.ocr' | 'media.transcribe';
@@ -20,7 +21,7 @@ const sheet = sheetMeta([
   columnDef({ id: '2', name: 'clip', type: 'audio' }),
 ], { id: '7', rowCount: 9 });
 beforeAll(installPopoverPolyfill);
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 function form(kind: MediaAction, options: {
   initialDraft?: GeneratedActionDraft;
@@ -37,6 +38,7 @@ function form(kind: MediaAction, options: {
       ?? { ...engine, available: true, error: undefined }),
   } };
   const template = generatedActionTemplateFromCatalogEntry(entry)!;
+  installActionSelectorFixture(entry);
   const onExecute = vi.fn();
   const onOpenDiagnose = vi.fn();
   const onOpenOcrCompare = vi.fn();
@@ -55,7 +57,7 @@ function form(kind: MediaAction, options: {
   const estimateAction = vi.fn(async () => options.estimate ?? {
     cost: 0, rows: 2, billed_cost: 0, policy_id: 'frisket.identity.v1',
   });
-  render(<GeneratedActionForm catalogEntry={entry} actionTemplate={template}
+  render(<GeneratedActionForm projectId={`generated-media:${kind}`} catalogEntry={entry} actionTemplate={template}
     sheet={{ ...sheet, columns: options.columns ?? sheet.columns }} selectedRowIds={options.selectedRowIds ?? ['3', '8']} initialSourceColumn={kind === 'media.ocr' ? 'scan' : 'clip'}
     initialDraft={options.initialDraft} hasExactRowScopeInitializer={Boolean(options.initialDraft)}
     running={false} resolveParams={resolveParams} estimateAction={estimateAction}
@@ -72,9 +74,7 @@ async function run() {
   fireEvent.click(screen.getByTestId('generated-action-run'));
 }
 async function choose(engine: EngineOption) {
-  await userEvent.click(screen.getByTestId('engine-picker-button'));
-  await userEvent.click(screen.getByTestId(`engine-picker-tier-${engine.tier}`));
-  await userEvent.click(screen.getByTestId(`engine-option-${engine.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`));
+  await chooseActionSelector(engine.id);
 }
 
 describe('typed OCR/transcription forms', () => {
@@ -110,7 +110,7 @@ describe('typed OCR/transcription forms', () => {
     const { entry, onExecute } = form(kind);
     for (const engine of entry.ui_hints.engines ?? []) {
       await choose(engine);
-      expect(screen.getByTestId('engine-picker-button')).toHaveTextContent(engine.label);
+      await waitFor(() => expect(selectorTrigger()).toHaveTextContent(engine.label));
       await run();
       expect(onExecute.mock.lastCall?.[0].params.engine).toBe(engine.id);
     }
@@ -183,7 +183,7 @@ describe('typed OCR/transcription forms', () => {
     const { onExecute } = form('media.transcribe', {
       initialDraft: draft,
       enginePatch: (engine) => engine.id === 'parakeet-tdt' ? {
-        ...engine,
+        ...engine, available: true, error: undefined,
         targets: engine.targets?.map((target) => target.target_id === engine.target_id ? {
           ...target,
           transcription_options: { ...target.transcription_options!, vad: false },
@@ -372,24 +372,17 @@ describe('typed OCR/transcription forms', () => {
     expect(onExecute.mock.calls[1][1]).toBe('run');
   });
 
-  it('preserves unavailable engines and the reason in the availability disclosure', async () => {
+  it('preserves an unavailable engine and its reason in the selector', async () => {
     const draft = saved('media.ocr', { engine: 'dots.mocr' }, { text: 'Words', blocks: 'Bounds' });
-    const { onExecute, onOpenDiagnose } = form('media.ocr', { initialDraft: draft,
+    const { onExecute } = form('media.ocr', { initialDraft: draft,
       enginePatch: (engine) => ({ ...engine, available: engine.id !== 'dots.mocr',
         error: engine.id === 'dots.mocr' ? 'Test runtime unavailable' : undefined }) });
-    expect(screen.getByTestId('engine-availability-disclosure')).toHaveTextContent('Test runtime unavailable');
-    expect(screen.getByTestId('engine-picker-selected-unavailable')).toHaveTextContent('unavailable');
+    const dialog = await openActionSelector();
+    expect(dialog).toHaveTextContent(/dots\.mocr/i);
+    expect(dialog).toHaveTextContent('Test runtime unavailable');
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
     expect(screen.getByTestId('generated-action-run')).toHaveAttribute('title', expect.stringContaining('Test runtime unavailable'));
-    expect(screen.getByTestId('engine-picker-selected-reason')).toHaveTextContent('Test runtime unavailable');
     expect(onExecute).not.toHaveBeenCalled();
-    const disclosure = screen.getByTestId('engine-availability-disclosure');
-    expect(disclosure.tagName).toBe('DETAILS');
-    expect(disclosure).not.toHaveAttribute('open');
-    await userEvent.click(within(disclosure).getByText('Engine availability'));
-    expect(disclosure).toHaveAttribute('open');
-    await userEvent.click(screen.getByTestId('engine-availability-open-diagnose'));
-    expect(onOpenDiagnose).toHaveBeenCalledTimes(1);
   });
 
   it.each(['media.ocr', 'media.transcribe'] as const)('keeps the declared default despite another recommendation for %s', async (kind) => {
@@ -397,8 +390,7 @@ describe('typed OCR/transcription forms', () => {
     const { onExecute } = form(kind, { enginePatch: (engine) => ({
       ...engine, available: true, error: undefined, recommended: engine.id !== defaultId,
     }) });
-    expect(screen.queryByTestId('engine-availability-disclosure')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('engine-picker-selected-unavailable')).not.toBeInTheDocument();
+    await waitFor(() => expect(selectorTrigger()).not.toHaveTextContent('unavailable'));
     await run();
     expect(onExecute.mock.lastCall?.[0].params.engine).toBe(defaultId);
   });

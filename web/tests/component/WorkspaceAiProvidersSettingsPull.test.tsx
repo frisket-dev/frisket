@@ -13,6 +13,16 @@ import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { WorkspaceAiProvidersSettings } from '../../src/settings/SettingsSections';
 import type { LocalHttpEndpointEntry, LocalProviderCatalog, ModelPullDto } from '../../src/api/types';
 
+vi.mock('../../src/api/modelsGateway', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../src/api/modelsGateway')>(),
+  getModelsGateway: vi.fn(async () => ({
+    schemaVersion: 'frisket.models_gateway.v1', configured: false, source: null,
+    origin: null, token_configured: false, token_hint: null, authority: 'workspace',
+    can_mutate: false, environment_names: ['FRISKET_MODELS_URL', 'FRISKET_MODELS_TOKEN'],
+    error: null, probe: null,
+  })),
+}));
+
 vi.mock('../../src/api/open', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/api/open')>();
   return {
@@ -61,7 +71,10 @@ function catalog(providers: LocalProviderEntry[]): LocalProviderCatalog {
 
 function pull(overrides: Partial<ModelPullDto>): ModelPullDto {
   return {
-    schemaVersion: 'frisket.model_pull.v3',
+    schemaVersion: 'frisket.model_pull.v4',
+    operation_kind: 'local_model',
+    display_name: 'qwen3:8b',
+    capabilities: { cancel: true, retry: true, remove: false },
     id: 1,
     model: 'ollama/@local-a1b2c3d4e5f6/qwen3:8b',
     status: 'running',

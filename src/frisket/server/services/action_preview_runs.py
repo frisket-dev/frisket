@@ -751,6 +751,16 @@ class ActionPreviewRunService:
         total = (
             semantic_scope_total if semantic_scope_total is not None else sample_total
         )
+        preparation_message = None
+        params = runner_spec.get("params")
+        if (
+            plan.action_kind == "map.translate"
+            and isinstance(params, dict)
+            and params.get("engine") == "opus_mt"
+        ):
+            from frisket.ops.integrations.opus_mt import FIRST_USE_PREPARATION_MESSAGE
+
+            preparation_message = FIRST_USE_PREPARATION_MESSAGE
         try:
             job = self._registry.start(
                 project_id,
@@ -758,6 +768,7 @@ class ActionPreviewRunService:
                 run,
                 **({"receipt": receipt} if receipt is not None else {}),
                 on_finished=on_finished,
+                preparation_message=preparation_message,
             )
         except BaseException:
             finish_receipt("failed")
@@ -838,11 +849,18 @@ class ActionPreviewRunService:
 
 def _job_payload(job: PreviewJob) -> dict[str, Any]:
     result = job.result
+    progress = dict(job.progress)
+    if (
+        job.status == "running"
+        and int(progress.get("done") or 0) == 0
+        and job.preparation_message is not None
+    ):
+        progress["preparation"] = {"message": job.preparation_message}
     payload: dict[str, Any] = {
         "schema_version": PREVIEW_SCHEMA_VERSION,
         "preview_id": job.id,
         "status": job.status,
-        "progress": dict(job.progress),
+        "progress": progress,
     }
     if job.status == "done" and isinstance(result, PreviewResult):
         payload["result"] = _preview_result_payload(result)

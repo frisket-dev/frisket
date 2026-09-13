@@ -14,6 +14,16 @@ import {
 
 const LABELS = ['transit', 'money', 'other'];
 
+async function selectGeminiEngine(page: Page) {
+  const trigger = page.getByTestId('field-engine').getByRole('button');
+  await trigger.click();
+  const dialog = page.getByRole('dialog', { name: 'Engine selector' });
+  await dialog.getByRole('searchbox', { name: 'Search Engine' }).fill('Gemini 3.5 Flash-Lite');
+  await dialog.getByRole('button', { name: /Gemini 3\.5 Flash-Lite/ }).click();
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toContainText('Gemini 3.5 Flash-Lite');
+}
+
 async function clickRunAndCaptureResponse(page: Page, pid: string) {
   const runButton = page.getByTestId('run-button');
   for (let attempt = 0; attempt < 4; attempt += 1) {
@@ -74,7 +84,7 @@ test('import → classify run → results → undo/redo', async ({ page }) => {
   // the live pending → complete transition, not a cache replay.
   await openAction(page, 'map.classify');
   await expect(page.getByTestId('action-form')).toBeVisible();
-  await expect(page.getByTestId('model-picker-button')).toContainText('Gemini 3.5 Flash-Lite');
+  await selectGeminiEngine(page);
   await page
     .getByTestId('action-prompt')
     .fill(`Each row is a one-line local news item. Pick the single best label. (run ${Date.now()})`);
