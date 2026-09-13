@@ -1,0 +1,58 @@
+{
+  "darwin": {
+    "uv": {
+      "version": "0.11.29",
+      "url": "https://github.com/astral-sh/uv/releases/download/0.11.29/uv-aarch64-apple-darwin.tar.gz",
+      "sha256": "61c04acc52a33ef0f331e494bdfbedcdb6c26c6970c022ed3699e5860f8930e3",
+      "member": "uv-aarch64-apple-darwin/uv"
+    },
+    "ffmpeg": {
+      "version": "9.0.1",
+      "url": "https://ffmpeg.martin-riedl.de/download/macos/arm64/1787073674_9.0.1/ffmpeg.zip",
+      "sha256": "8287a1b2229e05eb41859f073e18e6c52c60a778f2f5e6881070fe51b79407fe",
+      "member": "ffmpeg"
+    },
+    "ffprobe": {
+      "version": "9.0.1",
+      "url": "https://ffmpeg.martin-riedl.de/download/macos/arm64/1787073674_9.0.1/ffprobe.zip",
+      "sha256": "102a26b8940a053298d9929bfaae71e4b6ef65ba5f19a99a88c433108560741a",
+      "member": "ffprobe"
+    },
+    "deno": {
+      "version": "2.9.6",
+      "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-aarch64-apple-darwin.zip",
+      "sha256": "213a2f304f04d3c9cb5220669afad138f60a5aab1fe80962abdeb8f35807a472",
+      "member": "deno"
+    }
+  },
+  "win32": {
+    "uv": {
+      "version": "0.11.29",
+      "url": "https://github.com/astral-sh/uv/releases/download/0.11.29/uv-x86_64-pc-windows-msvc.zip",
+      "sha256": "a047d55651bc3e0ca24595b25ec4cfcb10f9dca9fb56514e661269b37d4fae68",
+      "member": "uv.exe",
+      "destination": "uv.exe"
+    },
+    "ffmpeg": {
+      "version": "9.0.1",
+      "url": "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-9.0.1-essentials_build.zip",
+      "sha256": "fec81ae03971d9dd4be3ebe02e263bd2ec1d789483f931bdba5f5715e65da2e9",
+      "member": "ffmpeg-9.0.1-essentials_build/bin/ffmpeg.exe",
+      "destination": "ffmpeg.exe"
+    },
+    "ffprobe": {
+      "version": "9.0.1",
+      "url": "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-9.0.1-essentials_build.zip",
+      "sha256": "fec81ae03971d9dd4be3ebe02e263bd2ec1d789483f931bdba5f5715e65da2e9",
+      "member": "ffmpeg-9.0.1-essentials_build/bin/ffprobe.exe",
+      "destination": "ffprobe.exe"
+    },
+    "deno": {
+      "version": "2.9.6",
+      "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-x86_64-pc-windows-msvc.zip",
+      "sha256": "15e5300b0ba3c3695a7621d90160a746ec9e710228cee639afa9d580f6e3cd11",
+      "member": "deno.exe",
+      "destination": "deno.exe"
+    }
+  }
+}

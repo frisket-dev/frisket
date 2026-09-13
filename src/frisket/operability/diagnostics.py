@@ -1078,7 +1078,7 @@ def media_toolbelt_report() -> dict[str, Any]:
     zero; yt-dlp's own warning about that is suppressed because the download
     child runs with ``--no-warnings``, so this probe is the only signal.
     """
-    tools = ("ffmpeg", "pdftoppm", "deno")
+    tools = ("ffmpeg", "ffprobe", "deno")
     present = [t for t in tools if shutil.which(t)]
     missing = [t for t in tools if t not in set(present)]
     summary = ", ".join(present) or "none on PATH"

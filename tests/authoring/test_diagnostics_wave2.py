@@ -754,7 +754,7 @@ def test_media_toolbelt_reports_deno_so_a_jsless_fallback_is_visible(monkeypatch
     # the only place the operator can learn about it.
     assert report["missing"] == ["deno"]
     assert "deno" in report["summary"]
-    assert report["present"] == ["ffmpeg", "pdftoppm"]
+    assert report["present"] == ["ffmpeg", "ffprobe"]
 
 
 def test_media_toolbelt_summary_is_clean_when_every_tool_resolves(monkeypatch):

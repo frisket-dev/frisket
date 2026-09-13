@@ -1,7 +1,7 @@
 """Engine-selectable OCR over image and PDF columns.
 
 - light engine (rapidocr, onnx-class) runs offline in the base env
-- PDFs go rasterize-then-OCR (poppler pdftoppm), per-page blocks preserved
+- PDFs go rasterize-then-OCR (PDFium), per-page blocks preserved
 - engine param resolves local-light → sidecar (dots.mocr) → remote VLM (router)
 """
 
@@ -200,10 +200,8 @@ def test_ocr_light_unknown_language_fails_per_row(tmp_path):
 
 
 def test_ocr_pdf_rasterize_then_ocr(tmp_path):
-    """A two-page PDF rasterizes via poppler and OCRs every page; the text
+    """A two-page PDF rasterizes via PDFium and OCRs every page; the text
     column joins pages, the blocks column stays per-page."""
-    if not shutil.which("pdftoppm"):
-        pytest.skip("poppler (pdftoppm) not on PATH")
     if not rapidocr_models_present()[0]:
         pytest.skip(RAPIDOCR_MODELS_NOT_PROVISIONED)
     _require_nested_macos_sandbox()

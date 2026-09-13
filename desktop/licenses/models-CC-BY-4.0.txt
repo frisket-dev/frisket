@@ -1,0 +1,12 @@
+Creative Commons Attribution 4.0 International
+
+The Parakeet TDT 0.6B v3 ONNX model, downloaded on request through the engine
+selector, is licensed under the Creative Commons Attribution 4.0 International
+Public License (CC BY 4.0).
+
+The complete license text is available at:
+https://creativecommons.org/licenses/by/4.0/legalcode
+
+Attribution for this model is in ../THIRD_PARTY.md. That notice
+identifies NVIDIA as the upstream model publisher and istupakov as the ONNX
+conversion publisher, with the exact source revision.

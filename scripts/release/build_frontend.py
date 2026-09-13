@@ -40,8 +40,11 @@ def build_web(*, skip_npm_build: bool = False) -> None:
     """Run `npm --prefix web run build` unless the caller already built it."""
     if skip_npm_build:
         return
+    npm = shutil.which("npm")
+    if npm is None:
+        raise RuntimeError("Building the frontend requires npm on PATH")
     subprocess.run(
-        ["npm", "--prefix", str(WEB_DIR), "run", "build"],
+        [npm, "--prefix", str(WEB_DIR), "run", "build"],
         cwd=ROOT,
         check=True,
     )

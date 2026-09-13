@@ -575,18 +575,14 @@ def test_action_run_is_partial_when_only_some_rows_fail_to_compose(
 
 
 # --------------------------------------------------------------------------
-# golden — the REAL rapidocr engine + pdftoppm (heavy; importorskip'd)
+# golden — the real RapidOCR engine + PDFium worker (heavy; importorskip'd)
 # --------------------------------------------------------------------------
 
 
 def test_rapidocr_golden_real_searchable_pdf(tmp_path: Path) -> None:
-    import shutil
-
     pytest.importorskip("rapidocr")
     Image = pytest.importorskip("PIL.Image")
     ImageDraw = pytest.importorskip("PIL.ImageDraw")
-    if shutil.which("pdftoppm") is None:
-        pytest.skip("poppler pdftoppm not on PATH")
     if not rapidocr_models_present()[0]:
         pytest.skip(RAPIDOCR_MODELS_NOT_PROVISIONED)
 

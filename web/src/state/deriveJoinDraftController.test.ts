@@ -94,13 +94,14 @@ describeServedCatalog('ordinary join canonical saved state', () => {
     expect(encodeSavedActionSpec(decodeSavedActionSpec(servedActionCatalog(), wire))).toEqual(wire);
   });
 
-  it('distinguishes default projection from an invalid empty explicit projection', () => {
+  it('preserves omitted and explicit empty projection choices for server validation', () => {
     const catalog = servedActionCatalog();
     const all = { ...saved(), params: { ...PARAMS, columns: null } };
     expect(encodeSavedActionSpec(decodeSavedActionSpec(catalog, all))).toEqual(all);
-    expect(() => decodeSavedActionSpec(catalog, {
+    const explicitEmpty = {
       ...all, params: { ...PARAMS, columns: [] },
-    })).toThrow(SavedActionSpecError);
+    };
+    expect(encodeSavedActionSpec(decodeSavedActionSpec(catalog, explicitEmpty))).toEqual(explicitEmpty);
   });
 
   it.each(['confirmation', 'idempotency_key'])('does not persist invocation authority %s', (field) => {
@@ -111,10 +112,11 @@ describeServedCatalog('ordinary join canonical saved state', () => {
 
   it.each(['left_sheet_id', 'right_sheet_id', 'left_row_ids', 'right_row_ids',
     'left_suffix', 'right_suffix', 'indicator_name', 'target_sheet_name', 'confirmed'])(
-    'refuses the retired Params authority %s', (field) => {
-      expect(() => decodeSavedActionSpec(servedActionCatalog(), {
+    'preserves unrecognized Params field %s for server validation', (field) => {
+      const wire = {
         ...saved(), params: { ...PARAMS, [field]: 'legacy-value' },
-      })).toThrow(SavedActionSpecError);
+      };
+      expect(encodeSavedActionSpec(decodeSavedActionSpec(servedActionCatalog(), wire))).toEqual(wire);
     },
   );
 
@@ -173,10 +175,11 @@ describeServedCatalog('semantic join canonical saved state', () => {
 
   it.each(['sheet_id', 'input_columns', 'target_sheet', 'target_column', 'carry_columns',
     'child_sheet', 'output_name', 'confirmed', 'consented_promise_set_hash'])(
-    'refuses retired semantic Params field %s', (field) => {
-      expect(() => decodeSavedActionSpec(servedActionCatalog(), {
+    'preserves unrecognized semantic Params field %s for server validation', (field) => {
+      const wire = {
         ...semantic, params: { ...semantic.params, [field]: 'old-value' },
-      })).toThrow(SavedActionSpecError);
+      };
+      expect(encodeSavedActionSpec(decodeSavedActionSpec(servedActionCatalog(), wire))).toEqual(wire);
     },
   );
 

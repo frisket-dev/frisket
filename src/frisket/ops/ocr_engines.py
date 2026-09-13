@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import shutil
 import time
 from pathlib import Path
 from typing import Any
@@ -16,8 +15,11 @@ from frisket.contracts.actions.schemas._engines import (
     engine_ids,
     execution_alias_map,
 )
-from frisket.engine.sandbox import fence
-from frisket.engine.sandbox.shim import SandboxPolicy, run_sandboxed
+from frisket.engine.pdf_render import (
+    PdfRenderCancelled,
+    PdfRenderError,
+    render_pdf_pages,
+)
 from frisket.execution.targets import CAPABILITY_OCR
 from frisket.ops.base import OpContext
 from frisket.ops.media_metadata import image_dimensions as _image_dimensions
@@ -181,29 +183,11 @@ class OcrEngines:
     async def _page_images(
         self, path: Path, media: Any, spec: dict, scratch: Path
     ) -> list[Path]:
-        """An image is one page; a PDF rasterizes to one PNG per page
-        (poppler ``pdftoppm`` — rasterize-then-OCR, the decided route)."""
+        """An image is one page; a PDF rasterizes to one PNG per page."""
         if not path.exists():
             raise ValueError(f"ocr input not found: {path}")
         if not self._is_pdf(path, media):
             return [path]
-        pdftoppm = shutil.which("pdftoppm")
-        if not pdftoppm:
-            logger.info(
-                "OCR PDF rasterization unavailable",
-                extra={
-                    "event": "ocr_pdf_rasterized",
-                    "status": "unavailable",
-                    "requested_dpi": int(spec.get("dpi", DEFAULT_DPI)),
-                    "duration_ms": 0.0,
-                    "page_count": 0,
-                    "rendered_bytes": 0,
-                },
-            )
-            raise RuntimeError(
-                "PDF OCR needs poppler (pdftoppm) on PATH — "
-                "brew/apt install poppler(-utils)"
-            )
         dpi = int(spec.get("dpi", DEFAULT_DPI))
         selected_pages = spec.get("_selected_pages")
         if selected_pages is not None and (
@@ -217,78 +201,20 @@ class OcrEngines:
         pages: list[Path] = []
         status = "failed"
         try:
-            commands = []
-            if selected_pages is None:
-                commands.append(
-                    [
-                        pdftoppm,
-                        "-png",
-                        "-r",
-                        str(dpi),
-                        str(path),
-                        str(scratch / "page"),
-                    ]
-                )
-            else:
-                commands.extend(
-                    [
-                        pdftoppm,
-                        "-png",
-                        "-r",
-                        str(dpi),
-                        "-f",
-                        str(page),
-                        "-l",
-                        str(page),
-                        "-singlefile",
-                        str(path),
-                        str(scratch / f"page-{page}"),
-                    ]
-                    for page in selected_pages
-                )
-            render_seconds = max(1, 600 // len(commands))
-            for command in commands:
-                result = await run_sandboxed(
-                    command,
-                    policy=SandboxPolicy(
-                        cpu_seconds=render_seconds,
-                        wall_seconds=render_seconds,
-                        memory_mb=2048,
-                        env_passthrough=["PATH"],
-                        # Poppler parsing a PDF nobody vetted is the sharpest
-                        # edge in this pipeline. It reads that one file and
-                        # writes page rasters into the op's scratch directory.
-                        #
-                        # /etc/fonts is measured and load-bearing: without it a
-                        # PDF whose fonts are NOT embedded still rasterizes and
-                        # still exits 0, but fontconfig falls back and the pixels
-                        # differ from the unconfined render -- which OCR would
-                        # then read wrong. Pinned in
-                        # tests/engine/test_sandbox_media_fence.py. The font files
-                        # themselves are under /usr/share, already readable.
-                        confine=fence.Confinement(
-                            op="ocr (pdftoppm rasterization)",
-                            read=(str(path), "/etc/fonts"),
-                            write=(str(scratch),),
-                            exec_binary=pdftoppm,
-                        ),
-                    ),
+            try:
+                rendered = await render_pdf_pages(
+                    path,
+                    scratch,
+                    dpi=dpi,
+                    pages=selected_pages,
+                    timeout_seconds=600,
                     should_cancel=self.cancelled,
                 )
-                if result.cancelled:
-                    raise OcrCancelled("OCR cancelled")
-                if not result.ok:
-                    raise RuntimeError(
-                        f"pdf rasterization failed: {result.stderr[:300]}"
-                    )
-            if selected_pages is None:
-                pages = sorted(
-                    scratch.glob("page-*.png"),
-                    key=lambda x: int(x.stem.rsplit("-", 1)[-1]),
-                )
-            else:
-                pages = [scratch / f"page-{page}.png" for page in selected_pages]
-                pages = [page for page in pages if page.is_file()]
+            except PdfRenderCancelled:
+                raise OcrCancelled("OCR cancelled") from None
+            except PdfRenderError:
+                raise RuntimeError("PDF rasterization failed") from None
+            pages = [page for _number, page in rendered.pages]
             if not pages:
                 raise RuntimeError("pdf rasterization produced no pages")
             if selected_pages is not None and len(pages) != len(selected_pages):

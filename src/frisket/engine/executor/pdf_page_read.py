@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import re
-import shutil
 import stat
 import tempfile
 from collections.abc import Callable, Mapping
@@ -13,9 +12,12 @@ from types import MappingProxyType
 
 from frisket.actions.types import PdfPage, StagedFile, TableError
 from frisket.engine.executor.import_blob_stage import AdmittedImportBlobStager
-from frisket.engine.sandbox import fence
+from frisket.engine.pdf_render import (
+    PdfRenderCancelled,
+    PdfRenderError,
+    render_pdf_pages,
+)
 from frisket.engine.sandbox.media_sync import run_media_sync
-from frisket.engine.sandbox.shim import SandboxPolicy, run_sandboxed
 
 
 class AdmittedPdfPageRenderer:
@@ -55,54 +57,38 @@ class AdmittedPdfPageRenderer:
             raise ValueError("PDF rendering requires an admitted PDF document")
         if type(dpi) is not int or not 50 <= dpi <= 600:
             raise ValueError("PDF dpi must be between 50 and 600")
-        executable = shutil.which("pdftoppm")
-        if executable is None or self._page_limit == 0:
+        if self._page_limit == 0:
             return MappingProxyType({})
         with tempfile.TemporaryDirectory(prefix="frisket-pdf-pages-") as temporary:
             directory = Path(temporary)
-            # Diagnostics were previously discarded; do not buffer arbitrary
-            # document-triggered Poppler messages in the host process.
-            command = [executable, "-q", "-png", "-r", str(dpi)]
-            if self._page_limit is not None:
-                command.extend(["-f", "1", "-l", str(self._page_limit)])
-            command.extend([str(source.path), str(directory / "page")])
             try:
                 # The sandbox alone owns timeout, cancellation and process-tree
                 # reaping; source and scratch stay alive until it settles.
-                result = run_media_sync(
-                    lambda should_cancel: run_sandboxed(
-                        command,
-                        policy=SandboxPolicy(
-                            cpu_seconds=30,
-                            wall_seconds=30,
-                            memory_mb=2048,
-                            env_passthrough=["PATH"],
-                            confine=fence.Confinement(
-                                op="PDF page rasterization",
-                                read=(str(source.path), "/etc/fonts"),
-                                write=(str(directory),),
-                                exec_binary=executable,
-                            ),
-                        ),
-                        scratch_dir=directory,
+                rendered = run_media_sync(
+                    lambda should_cancel: render_pdf_pages(
+                        source.path,
+                        directory,
+                        dpi=dpi,
+                        page_limit=self._page_limit,
                         should_cancel=should_cancel,
                     ),
                     cancelled=self._is_cancelled,
                 )
-            except OSError:
+            except PdfRenderCancelled:
+                raise TableError(
+                    "action_cancelled", "PDF rendering was cancelled"
+                ) from None
+            except PdfRenderError:
                 return MappingProxyType({})
             self._check_cancelled()
-            if result.cancelled:
-                raise TableError("action_cancelled", "PDF rendering was cancelled")
-            if not result.ok:
-                return MappingProxyType({})
 
             images = {}
             stem = source.filename.rsplit(".", 1)[0] or "document"
             pages = (
-                (int(match[1]), path)
-                for path in directory.glob("page-*.png")
-                if (match := re.fullmatch(r"page-(\d+)\.png", path.name)) is not None
+                (page, path)
+                for page, path in rendered.pages
+                if (match := re.fullmatch(r"page-(\d+)\.png", path.name))
+                and int(match.group(1)) == page
             )
             for page, path in sorted(pages):
                 if page < 1 or (

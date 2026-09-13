@@ -5,7 +5,6 @@ import io
 import threading
 from contextlib import closing
 from contextvars import ContextVar
-from pathlib import Path
 
 import pytest
 from pydantic import BaseModel
@@ -426,7 +425,7 @@ def test_async_pdf_capability_bridges_only_renderer_and_joins_before_cleanup(
 ):
     from frisket.engine.executor import pdf_page_read
     from frisket.engine.executor.import_blob_stage import AdmittedImportBlobStager
-    from frisket.engine.sandbox.shim import SandboxResult
+    from frisket.engine.pdf_render import PdfRenderCancelled, PdfRenderResult
 
     owner = threading.get_ident()
     entered, stopped = threading.Event(), threading.Event()
@@ -437,21 +436,22 @@ def test_async_pdf_capability_bridges_only_renderer_and_joins_before_cleanup(
         assert threading.get_ident() == owner
         return stage(self, *args, **kwargs)
 
-    async def render(command, *, should_cancel, **kwargs):
+    async def render(_source, scratch, *, should_cancel, **_kwargs):
         assert threading.get_ident() != owner
-        paths.append(Path(command[-1]).parent)
+        paths.append(scratch)
         entered.set()
         if cancel:
             while not should_cancel():
                 await asyncio.sleep(0.01)
         else:
-            Path(f"{command[-1]}-1.png").write_bytes(b"image")
+            (scratch / "page-1.png").write_bytes(b"image")
         stopped.set()
-        return SandboxResult(0, "", "", cancelled=cancel)
+        if cancel:
+            raise PdfRenderCancelled("cancelled")
+        return PdfRenderResult(1, ((1, scratch / "page-1.png"),))
 
     monkeypatch.setattr(AdmittedImportBlobStager, "stage", owned_stage)
-    monkeypatch.setattr(pdf_page_read.shutil, "which", lambda _: "/tools/pdftoppm")
-    monkeypatch.setattr(pdf_page_read, "run_sandboxed", render)
+    monkeypatch.setattr(pdf_page_read, "render_pdf_pages", render)
 
     async def produce(
         params: Params, blobs: ImportBlobStager, pdfs: PdfPageRenderer
