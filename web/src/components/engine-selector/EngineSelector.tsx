@@ -1,5 +1,4 @@
 import {
-  Fragment,
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
@@ -156,8 +155,6 @@ export function EngineSelector({
         return leftRecent - rightRecent;
       });
   const orderedChoices = prioritizeRunnableChoices(recentOrderedChoices);
-  const hasRecentChoices = !hasSearch && orderedChoices.some((choice) => recents.includes(choice.id));
-  const hasNonRecentChoices = !hasSearch && orderedChoices.some((choice) => !recents.includes(choice.id));
   const showProviderFilter = !hasSearch && (currentGroup?.choices.length ?? 0) > 12;
   const positioning = useAnchoredPosition(triggerRef, {
     enabled: open,
@@ -483,10 +480,7 @@ export function EngineSelector({
               ) : orderedChoices.map((choice, index) => {
                 const group = groupForChoice(groups, choice.id);
                 const isRecent = !hasSearch && recents.includes(choice.id);
-                const isFirstNonRecent = hasRecentChoices && hasNonRecentChoices && !isRecent
-                  && !orderedChoices.slice(0, index).some((candidate) => !recents.includes(candidate.id));
-                return <Fragment key={choice.id}>
-                  {isFirstNonRecent && <div className="engine-selector__recent-divider" data-engine-selector-recent-divider aria-hidden />}
+                return (
                   <button
                     key={choice.id}
                     type="button"
@@ -510,7 +504,7 @@ export function EngineSelector({
                     {isRecent && <span className="engine-selector__recent">Recent</span>}
                     {value === choice.id && <span aria-label="Selected">✓</span>}
                   </button>
-                </Fragment>;
+                );
               })}
             </section>
 

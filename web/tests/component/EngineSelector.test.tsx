@@ -191,6 +191,9 @@ describe('EngineSelector', () => {
     await userEvent.click(trigger);
     expect(choiceIds()).toEqual(['parakeet', 'whisper', 'legacy']);
     const dialog = screen.getByTestId('engine-selector-dialog');
+    const choices = dialog.querySelector('.engine-selector__choices')!;
+    expect(choices.firstElementChild).toHaveAttribute('data-engine-selector-choice', 'parakeet');
+    expect(dialog.querySelector('[data-engine-selector-recent-divider]')).not.toBeInTheDocument();
     dialog.querySelector<HTMLButtonElement>('[data-engine-selector-choice="parakeet"]')!.focus();
     await userEvent.keyboard('{ArrowDown}');
     expect(dialog.querySelector('[data-engine-selector-choice="whisper"]')).toHaveFocus();
