@@ -6,14 +6,7 @@ I wanted a spreadsheet that did AI things for investigative journalism. The NYT 
 
 ## Quickstart
 
-Use the [cloud version](https://app.frisket.dev/) or run locally with Python 3.12:
-
-```
-pip install 'frisket-data[standard]'
-frisket ./my-workspace
-```
-
-> Note that is NOT installed with `frisket`, it's `frisket-data`. I got package-name-sniped!
+Use [Frisket Desktop](#frisket-desktop), [Frisket Cloud](https://app.frisket.dev/), or [Frisket Self-Hosted](#frisket-self-hosted).
 
 ## What Frisket can do
 
@@ -32,21 +25,24 @@ Those were all done the old-fashioned hard-work way, though. No one has done *an
 
 ## Installation
 
-Frisket requires Python 3.12.
+### Frisket Desktop
 
-### Desktop beta
+- [Download for macOS](https://github.com/frisket-dev/frisket/releases/download/desktop-v0.1.1a75/Frisket-Desktop-0.1.1-alpha.75-arm64-a6bc7434.dmg) — macOS 14 or newer, Apple Silicon
+- [Download for Windows](https://github.com/frisket-dev/frisket/releases/download/desktop-v0.1.1a75/Frisket-Desktop-0.1.1-alpha.75-x64-a6bc7434.exe) — Windows 11, x64
 
-For a desktop install without Python, use the signed installers on the
-[GitHub releases page](https://github.com/frisket-dev/frisket/releases).
-Download the matching `Frisket-Desktop-<version>-arm64-<revision>.dmg` for
-macOS 14 or newer on Apple Silicon, or
-`Frisket-Desktop-<version>-x64-<revision>.exe` for Windows 11 x64. Desktop
-updates are manual: quit the app, install the new package, and reopen it.
+Updates are manual: quit the app, install the new package, and reopen it.
 Your workspace and downloaded caches stay in the app profile.
 
-### Single-user
+### Frisket Cloud
+
+[Open Frisket Cloud](https://app.frisket.dev/) to request access.
+
+### Frisket Self-Hosted
+
+#### Single-user
 
 If you just want to run Frisket on your own computer, use **solo mode**.
+This requires Python 3.12.
 
 ```
 pip install 'frisket-data[standard]'
@@ -55,19 +51,17 @@ frisket ./my-workspace
 
 If you want more shiny extras, use `pip install 'frisket-data[complete]'`.
 
-### Team
+The package name is `frisket-data`, not `frisket`.
 
-If you're running Frisket on a server or want to support multiple uers, go for **team mode**.
+#### Team
+
+If you're running Frisket on a server or want to support multiple users, go for **team mode**.
 
 1. [Download the server install bundle](https://github.com/frisket-dev/frisket/releases) (`frisket-server-<version>.tar.gz`)
 2. Extract it, then run `sudo ./frisket-install` from the extracted directory
 3. The installer asks a few questions and then you should be good to go. It can keep Frisket behind an SSH tunnel or serve a public domain using Caddy for HTTPS.
 
 Codex claims it requires Linux, Docker Engine, and Docker Compose. It installs Frisket under `/srv/frisket`.
-
-### Hosted (cloud)
-
-You're lazy, I get it! [Go to app.frisket.dev](https://app.frisket.dev/) and request access. This is a Frisket instance that I personally run.
 
 ### CAVEAT: The big, fancy parts
 
