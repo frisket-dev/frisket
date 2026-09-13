@@ -362,3 +362,23 @@ def test_parent_rejects_malformed_or_extra_resolver_output(
     monkeypatch.setattr(artifacts, "run_sandboxed", fake_run)
     with pytest.raises(artifacts.ParakeetArtifactUnavailable):
         asyncio.run(artifacts.resolve_parakeet_artifacts(vad=False))
+
+
+def test_whisper_setup_requires_complete_pinned_snapshot(tmp_path, monkeypatch):
+    from frisket.ai.models import artifact_manifest
+
+    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path))
+    assert artifacts.whisper_setup_ready() is False
+    entry = artifact_manifest.whisper_base_artifact()
+    assert entry is not None and entry.hf_snapshot is not None
+    snap = entry.hf_snapshot
+    snapshot = _snapshot(
+        tmp_path,
+        repo_id=snap.repo_id,
+        revision=snap.revision,
+        files=snap.files,
+        symlinks=True,
+    )
+    assert artifacts.whisper_setup_ready() is True
+    (snapshot / snap.files[0]).unlink()
+    assert artifacts.whisper_setup_ready() is False

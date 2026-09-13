@@ -244,6 +244,25 @@ def _cached_snapshot(
         return None
 
 
+def whisper_setup_ready() -> bool:
+    """Whether the pinned Whisper base snapshot is locally verified, without downloads."""
+    try:
+        repo_id, revision, files = _manifest_snapshot_identity(
+            artifact_manifest.whisper_base_artifact, "Whisper base"
+        )
+    except ParakeetArtifactUnavailable:
+        return False
+    return (
+        _cached_snapshot(
+            cache_dir=huggingface_hub_cache(),
+            repo_id=repo_id,
+            revision=revision,
+            files=files,
+        )
+        is not None
+    )
+
+
 def parakeet_setup_ready() -> bool:
     """Whether the pinned Parakeet model and VAD are locally verified.
 
@@ -418,6 +437,7 @@ __all__ = [
     "ParakeetArtifacts",
     "huggingface_hub_cache",
     "parakeet_setup_ready",
+    "whisper_setup_ready",
     "resolve_parakeet_artifacts",
     "resolver_main",
 ]

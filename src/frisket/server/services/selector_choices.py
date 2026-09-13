@@ -23,7 +23,10 @@ from frisket.contracts.http.selector_choices import (
     SelectorChoicesQuery,
     SelectorChoicesResponse,
 )
-from frisket.engine._workers.parakeet_artifacts import parakeet_setup_ready
+from frisket.engine._workers.parakeet_artifacts import (
+    parakeet_setup_ready,
+    whisper_setup_ready,
+)
 from frisket.engine.jobs.engine_setup import PARAKEET_TDT_SETUP_REF
 from frisket.execution.definitions import (
     MODELS_GATEWAY_TARGET_ID,
@@ -752,6 +755,13 @@ class SelectorChoiceService:
                 if engine_id == "hy_mt2"
                 and available
                 and not _mapping(engine.get("downloadable_model")).get("installed")
+                else _optional_str(_mapping(downloadable[0]).get("ref"))
+                if engine_id == "faster_whisper"
+                and active_target_id == "local"
+                and available
+                and params.get("model_size") in (None, "base")
+                and downloadable
+                and not whisper_setup_ready()
                 else None
             )
             if policy_forbidden:

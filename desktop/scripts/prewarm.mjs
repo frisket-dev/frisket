@@ -59,11 +59,11 @@ if (stageModels) {
   }
 } else {
   // This branch runs only in installed-app CI, never during ordinary startup.
-  // Bundled models must seed themselves again on first launch. Parakeet must
-  // instead be downloaded through the same durable setup operation as the UI.
+  // Bundled models must seed themselves again on first launch. Transcription
+  // weights must be downloaded through the same durable setup operation as the UI.
   const bundled = await readdir(path.join(resourcesPath, 'model-cache', 'huggingface'));
-  if (bundled.some((name) => name.toLowerCase().includes('parakeet'))) {
-    throw new Error('Parakeet weights must not be bundled in the app.');
+  if (bundled.some((name) => /parakeet|whisper/i.test(name))) {
+    throw new Error('Transcription weights must not be bundled in the app.');
   }
   await Promise.all([
     rm(path.join(dataPath, 'cache', 'huggingface'), { recursive: true, force: true }),
@@ -83,25 +83,37 @@ if (stageModels) {
         headers: authenticatedHeaders({ 'Content-Type': 'application/json' }, backend.token),
         signal: AbortSignal.timeout(30_000),
       });
-      if (!response.ok) throw new Error(`Parakeet setup returned HTTP ${response.status}.`);
+      if (!response.ok) throw new Error(`Model preparation returned HTTP ${response.status}.`);
       return response.json();
     };
-    process.stdout.write('Downloading Parakeet into the test profile through model setup…\n');
-    let { pull } = await request('/api/providers/models/setup', {
-      method: 'POST',
-      body: JSON.stringify({ setup_ref: 'engine-setup:parakeet-tdt.local-onnx@1' }),
-    });
-    const deadline = Date.now() + 30 * 60 * 1000;
-    while (pull.status !== 'done') {
-      if (backendFailure) throw backendFailure;
-      if (['failed', 'cancelled'].includes(pull.status)) {
-        throw new Error(`Parakeet setup ${pull.status}: ${pull.error_message || 'no detail'}`);
+    const { stdout: whisperRef } = await execFile(runtime.python, [
+      '-I', '-B', path.join(here, 'prewarm-models.py'),
+      path.join(resourcesPath, 'python'), '--whisper-ref',
+    ], { env: runtime.env, timeout: 30_000 });
+    for (const [label, endpoint, payload] of [
+      ['Parakeet', '/api/providers/models/setup', {
+        setup_ref: 'engine-setup:parakeet-tdt.local-onnx@1',
+      }],
+      ['Whisper base', '/api/providers/models/pull', {
+        ref: whisperRef.trim(),
+      }],
+    ]) {
+      process.stdout.write(`Downloading ${label} into the test profile through model setup…\n`);
+      let { pull } = await request(endpoint, {
+        method: 'POST', body: JSON.stringify(payload),
+      });
+      const deadline = Date.now() + 30 * 60 * 1000;
+      while (pull.status !== 'done') {
+        if (backendFailure) throw backendFailure;
+        if (['failed', 'cancelled'].includes(pull.status)) {
+          throw new Error(`${label} setup ${pull.status}: ${pull.error?.message || 'no detail'}`);
+        }
+        if (Date.now() >= deadline) throw new Error(`${label} setup timed out.`);
+        await delay(1_000);
+        pull = await request(`/api/providers/models/pulls/${pull.id}`);
       }
-      if (Date.now() >= deadline) throw new Error('Parakeet setup timed out.');
-      await delay(1_000);
-      pull = await request(`/api/providers/models/pulls/${pull.id}`);
     }
-    process.stdout.write('Parakeet downloaded; native checks will run offline.\n');
+    process.stdout.write('Transcription weights downloaded; native checks will run offline.\n');
   } finally {
     await backend.stop();
   }
