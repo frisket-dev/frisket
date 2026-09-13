@@ -3,7 +3,7 @@
     "litellm": "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json",
     "openrouter": "https://openrouter.ai/api/v1/models"
   },
-  "updated": "2026-09-03",
+  "updated": "2026-09-12",
   "text": {
     "claude-haiku-4-5": [
       1.0,
@@ -82,8 +82,8 @@
       0.25
     ],
     "moonshotai/kimi-k3": [
-      3.0,
-      15.0
+      2.3027,
+      11.5502
     ],
     "xiaomi/mimo-v2.5": [
       0.14,
