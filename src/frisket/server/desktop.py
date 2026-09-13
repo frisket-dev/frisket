@@ -162,6 +162,7 @@ def _serve(config: DesktopLaunchConfig, *, ready_stdout: TextIO) -> int:
     """Compose the Solo ASGI app, local worker, and owned loopback socket."""
     import uvicorn
 
+    from frisket.ai.llm.pricing_refresh import start_pricing_refresh
     from frisket.operability.structured_logging import configure_logging
     from frisket.runtime.launch import worker_argv
     from frisket.runtime.supervisor import spawn_service, stop_service
@@ -184,6 +185,7 @@ def _serve(config: DesktopLaunchConfig, *, ready_stdout: TextIO) -> int:
     try:
         os.environ["FRISKET_SECRETS_KEY_FILE"] = str(secret_key)
         configure_logging(stream=sys.stderr, force=True)
+        start_pricing_refresh()
         app = create_app(workspace, static_dir=static_dir)
         app.state.standalone_runtime = state
         gated_app = DesktopTokenGate(app, config.token)

@@ -63,7 +63,7 @@ interface GeneratedActionCustomizationBase {
   defaultOutputName?(key: string, draft: CanonicalActionDraft): string | undefined;
   outputLabel?(key: string): string | undefined;
   outputPrefix?: {
-    label: string;
+    label: string | ((outputs: readonly { key: string }[]) => string);
     initialValue(names?: Readonly<Record<string, string>>): string;
     outputName(key: string, prefix: string, outputs: readonly { key: string }[]): string;
     keys?: readonly string[];
@@ -186,14 +186,14 @@ function GuidanceField({ id, testid, label, value, onChange }: GeneratedActionFi
 
 const EXACT_CUSTOMIZATIONS = {
   'web.capture_page': { body: PageCaptureParamsBody, primaryLabel: 'Capture pages',
-    defaultSheetName: 'Links', outputLabel: (key: string) => key === 'page' ? 'Save the snapshot to' : undefined },
+    defaultSheetName: 'Links', outputLabel: (key: string) => key === 'page' ? 'Snapshot' : undefined },
   'cluster.values': { body: ClusterParamsBody, primaryLabel: 'Write canonical values',
     primaryTestId: 'cluster-commit-button', defaultOutputName: (_key, draft) =>
       typeof draft.source === 'string' ? `${draft.source}_canonical` : 'canonical' },
   'join.semantic': { body: SemanticJoinParamsBody, primaryLabel: 'Match rows', defaultSheetName: 'Matches',
     initialParams: { carry: [] } },
   'derive.join': { body: JoinParamsBody, primaryLabel: 'Join tables', defaultSheetName: 'Joined',
-    outputLabel: (key: string) => key === '_merge' ? 'Indicator column name' : undefined },
+    outputLabel: (key: string) => key === '_merge' ? 'Indicator' : undefined },
   'media.ytdlp_download': {
     body: DownloadMediaOptions,
     primaryLabel: 'Download media',
@@ -208,11 +208,11 @@ const EXACT_CUSTOMIZATIONS = {
   'media.video_frames': { body: VideoFramesParamsBody, initialParams: { max_dimension: 720 },
     primaryLabel: 'Extract frames' },
   'media.extract_pdf_tables': { body: PdfTablesParamsBody, primaryLabel: 'Extract PDF tables',
-    outputLabel: () => 'Result column name' },
+    outputLabel: () => 'Tables' },
   'derive.transcript_segments': { body: TranscriptSegmentsParamsBody, primaryLabel: 'Create transcript segments' },
   'derive.link_table': { body: LinkTableParamsBody, primaryLabel: 'Create link table' },
   'map.find_topic_sections': { body: TopicSectionsParamsBody },
-  'map.api_call': { body: ApiCallParamsBody, primaryLabel: 'Run API calls', outputLabel: () => 'Save JSON response to' },
+  'map.api_call': { body: ApiCallParamsBody, primaryLabel: 'Run API calls', outputLabel: () => 'Response' },
   'map.python': {
     body: PythonParamsBody,
     fields: {
@@ -234,7 +234,7 @@ const EXACT_CUSTOMIZATIONS = {
   },
   'media.extract_metadata': {
     outputPrefix: {
-      label: 'Metadata',
+      label: (outputs) => outputs.length === 1 ? 'Metadata' : 'Metadata prefix',
       initialValue: (names) => {
         if (!names || !Object.keys(names).length) return 'meta';
         const details = names.details ?? '';
@@ -251,7 +251,7 @@ const EXACT_CUSTOMIZATIONS = {
     hiddenOutputNameKeys: ['text', 'blocks'],
     outputLabel: (key) => key === 'pdf' ? 'Searchable PDF' : undefined,
     outputPrefix: {
-      label: 'OCR result',
+      label: 'Text result',
       initialValue: (names) => names?.text ?? 'ocr_text',
       outputName: (key, prefix) => key === 'text' ? prefix : `${prefix}_boxes`,
       keys: ['text', 'blocks'],
@@ -276,13 +276,13 @@ const EXACT_CUSTOMIZATIONS = {
   'map.ask': {
     fieldOrder: ['source', 'question', 'model', 'context'],
     fields: { question: PromptField },
-    outputLabel: (key) => key === 'answer' ? 'Save answer to' : undefined,
+    outputLabel: (key) => key === 'answer' ? 'Answer' : undefined,
   },
   'map.ner': {
     body: NerParamsBody,
     fields: { extra_instructions: GuidanceField },
     initialParams: { labels: [...RECOMMENDED_SPACY_TYPES] },
-    outputLabel: () => 'Save entities to',
+    outputLabel: () => 'Entities',
   },
   'map.classify': {
     body: ClassifyParamsBody,
@@ -325,7 +325,7 @@ const EXACT_CUSTOMIZATIONS = {
   'map.summarize': {
     fieldOrder: ['source', 'preset', 'instruction', 'model', 'context'],
     fields: { instruction: PromptField },
-    outputLabel: (key) => key === 'summary' ? 'Save summary to' : undefined,
+    outputLabel: (key) => key === 'summary' ? 'Summary' : undefined,
   },
   'map.columns_from_json': {
     fields: { routes: (props) => <ColumnsFromJsonRoutesField {...props} /> },

@@ -5,7 +5,7 @@
 //   C1  a real three-mode source picker (All / Column(s) / { } Template) whose
 //       "All" is expanded to an EXPLICIT ordered `params.source` list at
 //       submit, and whose template mode posts `params.source = { text }`.
-//   C2  one output control ("Save entities to") writing `output_names.entities`.
+//   C2  one output control ("Entities") writing `output_names.entities`.
 //   C4a the entity-type chips render the 17 CANONICAL types, so the value
 //       written into `params.labels` is `location`, never a raw `GPE` tag.
 //   C4b an empty selection is INVALID (it never meant "all types").
@@ -248,10 +248,10 @@ describe('engine-aware cost gating', () => {
 // ---------------------------------------------------------------- C2
 
 describe('C2 — one output control', () => {
-  it('renders "Save entities to" and NOT a duplicate generic output param', () => {
+  it('renders "Entities" and NOT a duplicate generic output param', () => {
     mountNer();
 
-    expect(screen.getByLabelText('Save entities to')).toHaveValue('entities');
+    expect(screen.getByLabelText('Entities')).toHaveValue('entities');
     expect(screen.getByTestId('field-output-entities')).toHaveValue('entities');
     expect(screen.queryByTestId('field-output_name')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Output Name')).not.toBeInTheDocument();
