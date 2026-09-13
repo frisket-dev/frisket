@@ -47,6 +47,8 @@ def spawn_service(
     }
     if os.name == "posix":
         options["start_new_session"] = True
+    elif os.name == "nt":
+        options["creationflags"] = subprocess.CREATE_NO_WINDOW
     return subprocess.Popen(guarded_argv(argv, grace_seconds=8), **options)
 
 

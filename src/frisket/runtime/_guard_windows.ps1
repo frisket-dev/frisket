@@ -104,7 +104,9 @@ public static class FrisketWindowsGuard {
             startup.input = GetStdHandle(-10); startup.output = GetStdHandle(-11); startup.error = GetStdHandle(-12);
             var line = new StringBuilder(Quote(command));
             foreach (string arg in args) line.Append(" ").Append(Quote(arg));
-            Check(CreateProcessW(command, line, IntPtr.Zero, IntPtr.Zero, true, 4, IntPtr.Zero, null, ref startup, out child));
+            // CREATE_SUSPENDED | CREATE_NO_WINDOW: a headless guardian does
+            // not make its console-subsystem children headless automatically.
+            Check(CreateProcessW(command, line, IntPtr.Zero, IntPtr.Zero, true, 4 | 0x08000000, IntPtr.Zero, null, ref startup, out child));
             // Assignment failure leaves a suspended process. Terminate it in
             // finally; never let the target run outside the owned Job.
             Check(AssignProcessToJobObject(job, child.process));

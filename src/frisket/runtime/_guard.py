@@ -61,7 +61,8 @@ def main() -> int:
                     str(Path(__file__).with_name("_guard_windows.ps1")),
                     "-Config",
                     str(config),
-                ]
+                ],
+                creationflags=subprocess.CREATE_NO_WINDOW,
             )
     stopped = False
 
