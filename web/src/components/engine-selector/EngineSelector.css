@@ -396,7 +396,11 @@
 }
 
 .engine-selector__footer .selector-setup-form--compact {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.engine-selector__footer .selector-setup-form--compact > label:first-child {
+  grid-column: 1 / -1;
 }
 
 .engine-selector__footer .settings-provider-key-form--compact .settings-inline-status,
