@@ -289,6 +289,7 @@ def test_desktop_server_loads_cached_prices_before_creating_the_app(
     tmp_path, monkeypatch
 ):
     from frisket.ai.llm import pricing, pricing_refresh
+    from frisket.operability import structured_logging
     from frisket.server import app as app_module, desktop, static_serving
 
     cache = tmp_path / "cache" / "frisket" / "pricing"
@@ -319,6 +320,7 @@ def test_desktop_server_loads_cached_prices_before_creating_the_app(
         raise AppReady
 
     monkeypatch.setattr(pricing_refresh.threading, "Thread", RefreshThread)
+    monkeypatch.setattr(structured_logging, "configure_logging", lambda **_kwargs: None)
     monkeypatch.setattr(app_module, "create_app", create_app)
     monkeypatch.setattr(
         static_serving, "packaged_static_dir", lambda: _static_dir(tmp_path)
