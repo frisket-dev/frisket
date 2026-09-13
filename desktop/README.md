@@ -1,7 +1,7 @@
 # Frisket Desktop beta
 
 Frisket Desktop runs on macOS 14 or newer with Apple Silicon and on Windows
-10/11 x64. Electron displays the ordinary local Frisket UI.
+11 x64. Electron displays the ordinary local Frisket UI.
 First launch downloads a private Python interpreter, the locked standard Python
 dependencies, and Chromium for browser actions. It needs an internet connection.
 Whisper, VAD and RapidOCR model caches are included with the app. Parakeet stays
