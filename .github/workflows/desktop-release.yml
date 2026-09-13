@@ -122,7 +122,13 @@ jobs:
             fi
           }
           require_absent "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" tag
-          require_absent "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" release
+          releases="$RUNNER_TEMP/desktop-release-admission-releases.json"
+          gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases?per_page=100" > "$releases"
+          matches="$(jq --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)] | length' "$releases")"
+          if [ "$matches" -ne 0 ]; then
+            echo "::error::release already exists for ${TAG}, including a draft; choose a new version"
+            exit 1
+          fi
 
   macos:
     name: signed macOS installer
@@ -238,7 +244,13 @@ jobs:
             fi
           }
           require_absent "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" tag
-          require_absent "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" release
+          releases="$RUNNER_TEMP/desktop-release-prepublish-releases.json"
+          gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases?per_page=100" > "$releases"
+          matches="$(jq --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)] | length' "$releases")"
+          if [ "$matches" -ne 0 ]; then
+            echo "::error::release already exists for ${TAG}, including a draft; refusing to overwrite it"
+            exit 1
+          fi
           notes="$RUNNER_TEMP/desktop-release-notes.md"
           printf '%s\n' \
             "Frisket Desktop ${PYTHON_PACKAGE_VERSION}" \
@@ -252,12 +264,15 @@ jobs:
             '' \
             "Full CI: ${FULL_CI_URL}" \
             "Release workflow: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" > "$notes"
-          args=(--repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" --draft --title "Frisket Desktop ${PYTHON_PACKAGE_VERSION}" --notes-file "$notes")
-          if [ "$PRERELEASE" = true ]; then
-            args+=(--prerelease)
-          fi
-          gh release create "$TAG" "${args[@]}"
-          release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq '.id')"
+          release_id="$(gh api -X POST "repos/${GITHUB_REPOSITORY}/releases" \
+            -f tag_name="$TAG" \
+            -f target_commitish="$SOURCE_SHA" \
+            -f name="Frisket Desktop ${PYTHON_PACKAGE_VERSION}" \
+            -f body="$(<"$notes")" \
+            -F draft=true \
+            -F prerelease="$PRERELEASE" \
+            -f make_latest=false \
+            --jq '.id')"
           [ -n "$release_id" ] || { echo '::error::draft release did not return an ID'; exit 1; }
           echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
       - name: Upload installers and checksums without replacement
