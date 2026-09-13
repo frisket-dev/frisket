@@ -117,6 +117,7 @@ def stage_native(name: str, asset: dict, cache: Path) -> None:
 
 def materialize_bundled_snapshots(cache: Path) -> None:
     """Export HF snapshots as portable files without duplicate bundled blobs."""
+    cache = cache.resolve()
     blobs: set[Path] = set()
     for repository in cache.glob("models--*"):
         for entry in (repository / "snapshots").rglob("*"):

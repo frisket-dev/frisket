@@ -68,7 +68,7 @@ with tempfile.TemporaryDirectory() as temporary:
 });
 
 for (const copyFallback of [false, true]) {
-  test(`bundled snapshots remain ordinary portable files (${copyFallback ? 'copy fallback' : 'hardlinks'})`, () => {
+  test(`bundled snapshots remain portable through parent aliases (${copyFallback ? 'copy fallback' : 'hardlinks'})`, () => {
     const probe = `
 import importlib.util
 import json
@@ -97,12 +97,17 @@ with tempfile.TemporaryDirectory() as temporary:
         entry.symlink_to(Path("../../blobs/digest"), target_is_directory=False)
     config = snapshot / "config.json"
     config.write_text('{"model":"fixture"}')
+    # macOS /tmp aliases /private/tmp; reproduce the same parent alias on all
+    # platforms so containment compares canonical paths on both sides.
+    bundle_alias = root / "bundle-alias"
+    bundle_alias.symlink_to(cache.parent, target_is_directory=True)
+    aliased_cache = bundle_alias / "huggingface"
     fallback = sys.argv[2] == "true"
     if fallback:
         with patch.object(Path, "hardlink_to", side_effect=OSError("hardlinks unavailable")):
-            prepare.materialize_bundled_snapshots(cache)
+            prepare.materialize_bundled_snapshots(aliased_cache)
     else:
-        prepare.materialize_bundled_snapshots(cache)
+        prepare.materialize_bundled_snapshots(aliased_cache)
     ordinary = all(entry.is_file() and not entry.is_symlink() for entry in (model, alias))
     hardlinked = model.stat().st_ino == blob_inode and alias.stat().st_ino == blob_inode
     blob_removed = not blob.exists()
