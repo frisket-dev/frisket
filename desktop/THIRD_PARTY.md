@@ -32,7 +32,7 @@ beta does not bundle GPU model weights or a GPU runtime.
   `Systran/faster-whisper-base` at
   [`ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66`](https://huggingface.co/Systran/faster-whisper-base/tree/ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66).
   MIT; the notice text is in `licenses/models-MIT.txt`.
-- **Parakeet TDT 0.6B v3 (ONNX, int8)**: NVIDIA's multilingual
+- **Parakeet TDT 0.6B v3 (ONNX, int8; downloaded on request)**: NVIDIA's multilingual
   `nvidia/parakeet-tdt-0.6b-v3`, exported to ONNX and published for onnx-asr by
   `istupakov` as `istupakov/parakeet-tdt-0.6b-v3-onnx` at
   [`8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce`](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/tree/8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce).
