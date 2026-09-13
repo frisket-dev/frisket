@@ -246,7 +246,7 @@ jobs:
             "Source revision: \`${SOURCE_SHA}\`" \
             '' \
             "macOS 14+ (Apple Silicon): https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${DMG_NAME}" \
-            "Windows 10/11 x64: https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${EXE_NAME}" \
+            "Windows 11 x64: https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${EXE_NAME}" \
             "Checksums: https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/SHA256SUMS" \
             'Updates are manual: quit Frisket Desktop, install the new package, then reopen it. Your data and caches remain in the app profile.' \
             '' \

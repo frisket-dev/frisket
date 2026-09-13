@@ -40,7 +40,7 @@ For a desktop install without Python, use the signed installers on the
 [GitHub releases page](https://github.com/frisket-dev/frisket/releases).
 Download the matching `Frisket-Desktop-<version>-arm64-<revision>.dmg` for
 macOS 14 or newer on Apple Silicon, or
-`Frisket-Desktop-<version>-x64-<revision>.exe` for Windows 10/11 x64. Desktop
+`Frisket-Desktop-<version>-x64-<revision>.exe` for Windows 11 x64. Desktop
 updates are manual: quit the app, install the new package, and reopen it.
 Your workspace and downloaded caches stay in the app profile.
 
