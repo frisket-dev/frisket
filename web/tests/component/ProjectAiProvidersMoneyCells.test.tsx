@@ -11,6 +11,7 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
 
 import type {
   ProjectInfo,
@@ -82,6 +83,33 @@ function page(providers: ProjectProviderKeyInfo[]): ProjectProviderKeys {
 const OWNER = { id: 'p1', name: 'P', role: 'owner' } as unknown as ProjectInfo;
 
 describe('AI Providers money cells', () => {
+  it('offers caps only where supported and saves Datalab without a stale cap', async () => {
+    const rows = page([
+      providerRow('openai'),
+      providerRow('datalab', { kind: 'document', policy_fields: [], configured: false }),
+    ]);
+    mockApi.getProjectProviderKeys.mockResolvedValue(rows);
+    vi.spyOn(api, 'validateProjectProviderKey').mockResolvedValue({
+      provider: 'datalab', ok: true, reachable: true, status: 200,
+      detail: null, validation_token: 'datalab-receipt',
+    });
+    const save = vi.spyOn(api, 'setProjectProviderKey').mockResolvedValue(rows);
+    render(<ProjectAiProvidersSettings project={OWNER} />);
+    await screen.findByText('datalab');
+    await userEvent.click(screen.getByRole('button', { name: 'Add new key' }));
+    await userEvent.type(screen.getByLabelText('Spend cap in US dollars'), '5');
+    await userEvent.selectOptions(screen.getByLabelText('Provider'), 'datalab');
+    expect(screen.queryByLabelText('Spend cap in US dollars')).not.toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText('Project provider key'), 'candidate-key');
+    await userEvent.click(screen.getByRole('button', { name: 'Test', exact: true }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith(
+      'datalab', 'candidate-key', null, 'datalab-receipt',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    ));
+  });
+
   it('shows sub-cent spend and caps instead of a false $0.00', async () => {
     mockApi.getProjectProviderKeys.mockResolvedValue(
       page([

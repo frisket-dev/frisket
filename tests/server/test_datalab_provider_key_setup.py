@@ -114,6 +114,23 @@ def test_datalab_inline_setup_validate_save_test_and_resolve(setup_client):
     assert "validation_token" not in rejected.json()
     assert client.app.state.workspace.get(pid).provider_key_catalog_rows() == {}
 
+    validated = client.post(
+        endpoint + "/validate",
+        json={"provider": "datalab", "key": "datalab-inline-valid"},
+    )
+    unsupported_cap = client.post(
+        endpoint,
+        json={
+            "provider": "datalab",
+            "key": "datalab-inline-valid",
+            "validation_token": validated.json()["validation_token"],
+            "spend_cap_usd": 1,
+        },
+    )
+    assert unsupported_cap.status_code == 400
+    assert "datalab-inline-valid" not in unsupported_cap.text
+    assert client.app.state.workspace.get(pid).provider_key_catalog_rows() == {}
+
     project = _save(client, pid)
     tested = client.post(endpoint + "/validate", json={"provider": "datalab"})
     assert tested.json()["ok"] is True
