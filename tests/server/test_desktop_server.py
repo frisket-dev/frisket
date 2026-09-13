@@ -213,6 +213,9 @@ def test_unexpected_worker_exit_stops_server_nonzero_and_cleans_up(
     import frisket.server.app as app_module
     import frisket.server.standalone as standalone
     import frisket.server.static_serving as static_serving
+    from frisket.ai.llm import pricing_refresh
+
+    monkeypatch.setattr(pricing_refresh, "start_pricing_refresh", lambda: None)
 
     events: list[object] = []
     app = SimpleNamespace(state=SimpleNamespace())
@@ -280,3 +283,48 @@ def test_unexpected_worker_exit_stops_server_nonzero_and_cleans_up(
         for index, event in enumerate(events)
         if isinstance(event, tuple) and event[0] == "stop"
     )
+
+
+def test_desktop_server_loads_cached_prices_before_creating_the_app(
+    tmp_path, monkeypatch
+):
+    from frisket.ai.llm import pricing, pricing_refresh
+    from frisket.server import app as app_module, desktop, static_serving
+
+    cache = tmp_path / "cache" / "frisket" / "pricing"
+    cache.mkdir(parents=True)
+    (cache / "pricing_data.json").write_text(
+        json.dumps({"text": {"desktop-model": [2.0, 4.0]}, "audio": {}})
+    )
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    monkeypatch.setattr(pricing, "PRICES", pricing.PRICES)
+    monkeypatch.setattr(pricing, "AUDIO_PRICES", pricing.AUDIO_PRICES)
+    monkeypatch.setattr(pricing_refresh, "_started", False)
+    starts = []
+
+    class RefreshThread:
+        def __init__(self, **kwargs):
+            self.options = kwargs
+
+        def start(self):
+            starts.append(self.options)
+
+    class AppReady(Exception):
+        pass
+
+    def create_app(*_args, **_kwargs):
+        assert pricing.model_pricing("desktop-model").price == (2.0, 4.0)
+        assert len(starts) == 1
+        assert starts[0]["daemon"] is True
+        raise AppReady
+
+    monkeypatch.setattr(pricing_refresh.threading, "Thread", RefreshThread)
+    monkeypatch.setattr(app_module, "create_app", create_app)
+    monkeypatch.setattr(
+        static_serving, "packaged_static_dir", lambda: _static_dir(tmp_path)
+    )
+    with pytest.raises(AppReady):
+        desktop._serve(
+            desktop.DesktopLaunchConfig(tmp_path / "workspace", TOKEN),
+            ready_stdout=io.StringIO(),
+        )
