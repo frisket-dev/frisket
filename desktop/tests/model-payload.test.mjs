@@ -21,8 +21,12 @@ test('prewarm bundles OCR, Whisper, and VAD without downloading Parakeet', async
   await Promise.all(Object.entries(files).map(async ([name, contents]) => {
     const file = path.join(resources, name); await fs.mkdir(path.dirname(file), { recursive: true }); await fs.writeFile(file, contents);
   }));
-  const result = spawnSync('python3', ['-I', path.resolve('scripts/prewarm-models.py'), resources], {
-    cwd: path.resolve('.'), encoding: 'utf8', env: { PATH: process.env.PATH, PREWARM_TRACE: trace },
+  const python = process.platform === 'win32' ? 'python' : 'python3';
+  const env = process.platform === 'win32'
+    ? { ...process.env, PREWARM_TRACE: trace }
+    : { PATH: process.env.PATH, PREWARM_TRACE: trace };
+  const result = spawnSync(python, ['-I', path.resolve('scripts/prewarm-models.py'), resources], {
+    cwd: path.resolve('.'), encoding: 'utf8', env,
   });
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), { rapidocr: 'ready', whisper: 'whisper', vad: 'vad' });

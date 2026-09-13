@@ -1,6 +1,6 @@
 // Networked artifact setup, deliberately separate from the offline app tests.
 import { execFile as execFileCallback } from 'node:child_process';
-import { cp, mkdir, readdir, rm } from 'node:fs/promises';
+import { cp, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -8,6 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { startBackend } from '../src/backend.mjs';
 import { authenticatedHeaders } from '../src/protocol.mjs';
 import { prepareRuntime } from '../src/provision.mjs';
+import { installedResources } from '../e2e/installed-platform.mjs';
 
 const execFile = promisify(execFileCallback);
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -20,7 +21,7 @@ if (!dataPath || !path.isAbsolute(dataPath) || Boolean(app) === Boolean(directRe
   || (stageModels && !directResources)) {
   throw new Error('Set either FRISKET_DESKTOP_APP or FRISKET_DESKTOP_RESOURCES and an absolute FRISKET_DESKTOP_PROFILE path. --stage-models requires FRISKET_DESKTOP_RESOURCES.');
 }
-const resourcesPath = directResources || path.join(app, 'Contents', 'Resources');
+const resourcesPath = directResources || installedResources(app);
 const runtime = await prepareRuntime({
   resourcesPath, dataPath,
   onProgress: ({ message }) => process.stdout.write(`${message}\n`),
@@ -104,6 +105,9 @@ if (stageModels) {
   } finally {
     await backend.stop();
   }
+  await writeFile(path.join(dataPath, '.frisket-prewarm-runtime-python'), `${runtime.python}\n`, {
+    mode: 0o600,
+  });
 }
 // Keep only downloaded interpreters/packages/browsers, not a completed venv.
 await rm(path.join(dataPath, 'runtimes'), { recursive: true, force: true });

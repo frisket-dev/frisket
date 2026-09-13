@@ -1,16 +1,16 @@
 import { test, expect, _electron } from '@playwright/test';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { readFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
+import {
+  alivePids, assertInstalledPlatform, descendants, installedExecutable, listeningPorts,
+} from './installed-platform.mjs';
 
-const exec = promisify(execFile);
 const appPath = process.env.FRISKET_DESKTOP_APP;
 const profile = process.env.FRISKET_DESKTOP_PROFILE;
 
 async function launch(testInfo) {
   const electron = await _electron.launch({
-    executablePath: path.join(appPath, 'Contents/MacOS/Frisket Desktop'),
+    executablePath: installedExecutable(appPath),
     args: [`--user-data-dir=${profile}`],
     chromiumSandbox: true,
     timeout: 60_000,
@@ -64,17 +64,6 @@ async function launch(testInfo) {
   }
 }
 
-async function descendants(pid) {
-  const { stdout } = await exec('/bin/ps', ['-axo', 'pid=,ppid=']);
-  const rows = stdout.trim().split('\n').map((line) => line.trim().split(/\s+/).map(Number));
-  const owned = new Set([pid]);
-  for (let previous = -1; previous !== owned.size;) {
-    previous = owned.size;
-    for (const [child, parent] of rows) if (owned.has(parent)) owned.add(child);
-  }
-  return [...owned];
-}
-
 async function quit(electron, closeWindow = false) {
   // Playwright disposes the Electron channel when the process exits.
   const child = electron.process();
@@ -88,9 +77,7 @@ async function quit(electron, closeWindow = false) {
   } else {
     await electron.close();
   }
-  await expect.poll(() => pids.filter((pid) => {
-    try { process.kill(pid, 0); return true; } catch { return false; }
-  }), { timeout: 20_000 }).toEqual([]);
+  await expect.poll(() => alivePids(pids), { timeout: 20_000 }).toEqual([]);
 }
 
 async function openRegex(page) {
@@ -125,8 +112,7 @@ function extracted(data) {
 }
 
 test('installed app imports, runs its worker, exports, quits and reopens', async ({}, testInfo) => {
-  expect(process.platform).toBe('darwin');
-  expect(process.arch).toBe('arm64');
+  assertInstalledPlatform();
   expect(typeof appPath).toBe('string');
   expect(typeof profile).toBe('string');
   expect(path.isAbsolute(appPath)).toBeTruthy();
@@ -147,8 +133,7 @@ test('installed app imports, runs its worker, exports, quits and reopens', async
     await popup.waitForURL('frisket://app/api/health');
     await popup.close();
     const pids = await descendants(running.process().pid);
-    const { stdout: listeners } = await exec('/usr/sbin/lsof', ['-nP', '-a', '-p', pids.join(','), '-iTCP', '-sTCP:LISTEN', '-Fn']);
-    const ports = [...listeners.matchAll(/^n127\.0\.0\.1:(\d+)$/gm)].map((match) => Number(match[1]));
+    const ports = await listeningPorts(pids);
     const statuses = await Promise.all(ports.map(async (port) => {
       const response = await fetch(`http://127.0.0.1:${port}/api/health`);
       return response.status;
