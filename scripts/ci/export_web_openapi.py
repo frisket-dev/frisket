@@ -333,6 +333,7 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
         ("tenant", "project_v1_action_catalog", "GET"): (
             "tenant.project_v1_action_catalog.get"
         ),
+        ("tenant", "selector_choices", "POST"): "tenant.selector_choices.post",
         ("tenant", "project_diagnose", "GET"): "tenant.project_diagnose.get",
         ("tenant", "project_lineage", "GET"): "tenant.project_lineage.get",
         ("tenant", "provenance", "GET"): "tenant.provenance.get",
@@ -494,6 +495,14 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
             "PATCH",
         ): "tenant.update_local_endpoint.patch",
         ("tenant", "set_provider_key", "PUT"): "tenant.set_provider_key.put",
+        ("tenant", "setup_model_engine", "POST"): "tenant.setup_model_engine.post",
+        ("tenant", "get_models_gateway", "GET"): "tenant.get_models_gateway.get",
+        (
+            "tenant",
+            "validate_models_gateway",
+            "POST",
+        ): "tenant.validate_models_gateway.post",
+        ("tenant", "set_models_gateway", "PUT"): "tenant.set_models_gateway.put",
         (
             "tenant",
             "uninstall_artifact",

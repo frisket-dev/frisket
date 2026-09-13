@@ -3,8 +3,9 @@
 macOS 14 or newer, Apple Silicon. Electron displays the ordinary local Frisket UI.
 First launch downloads a private Python interpreter, the locked standard Python
 dependencies, and Chromium for browser actions. It needs an internet connection.
-The default local Whisper, Parakeet, VAD and RapidOCR model cache is included
-with the app and copied into the preserved cache during setup. There is no system
+Whisper, VAD and RapidOCR model caches are included with the app. Parakeet stays
+the default transcription engine; download its weights from the engine selector
+when needed. Downloaded models stay in the preserved cache across app updates. There is no system
 Python, Homebrew, Node, or terminal setup for an app user.
 
 ## Install or update the beta
@@ -16,8 +17,8 @@ Python, Homebrew, Node, or terminal setup for an app user.
 3. Open Frisket Desktop from Applications. If macOS blocks it, open **System Settings →
    Privacy & Security → Open Anyway**, authenticate, and choose **Open**.
 4. Leave Frisket Desktop open and connected to the internet while **Preparing Frisket**
-   installs its runtime. The included local transcription and OCR models are ready
-   after setup; optional models may download later when selected.
+   installs its runtime. Whisper and OCR are ready after setup. For Parakeet,
+   open its engine details and choose **Download** before transcribing.
 
 To update, quit Frisket Desktop with **Cmd-Q** or close its last window, open the new DMG, drag Frisket Desktop into
 Applications, choose **Replace**, and reopen it. Your workspace and caches survive
@@ -92,13 +93,16 @@ The CI desktop workflow builds and tests these same artifacts.
 `npm --prefix desktop test` exercises the token/proxy boundary and real process
 cancellation. Python tests cover the service authentication/readiness boundary.
 The macOS job mounts the actual DMG, copies the app out, warms download caches,
-then removes the dependency environment and seeded model caches. A temporary macOS PF rule blocks new
+then removes the dependency environment and seeded model caches. It verifies
+Parakeet is absent from the installed app payload and downloads it into the test
+profile through the ordinary model-setup API. A temporary macOS PF rule blocks new
 external connections while preserving the runner’s existing control connection.
 This avoids nesting Seatbelt around Chromium’s own sandbox. The UI smoke uses no
 providers or live datasets. The real application rebuilds its private environment
 from the cache, imports CSV, runs a local action through its queue, exports, quits
 and reopens persisted work. Native checks run Whisper, Parakeet, and RapidOCR from
-the bundled model seed; model downloads occur only before packaging. Browser and
+the persistent model cache: Whisper and RapidOCR come from the bundle, while
+Parakeet comes from the explicit networked setup operation. Browser and
 subprocess cleanup are checked.
 
 Download-cache preparation is a networked build/setup step, separate from tests.

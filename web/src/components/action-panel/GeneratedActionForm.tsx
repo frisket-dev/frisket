@@ -4,11 +4,10 @@ import { Eye } from 'lucide-react';
 import { PluginActionUIBoundary } from './PluginActionUIBoundary';
 import type { GeneratedActionCustomization } from './generatedActionCustomizations';
 
-import { compatibleSourceColumns, defaultActionModel, formatUsd, isProjectScopedAction } from '../../actions/model';
+import { compatibleSourceColumns, formatUsd, isProjectScopedAction } from '../../actions/model';
 import { quotedUsd } from '../../actions/quotedCost';
 import { formatDuration } from '../../format';
 import { parseStrictJson } from '../../actions/strictJson';
-import { listProviders } from '../../api/open';
 import type { ActionParamResolution, ActionTemplate, GeneratedActionCatalogEntry,
   GeneratedActionDraft, GeneratedActionRequest, PreviewSampleResult, SheetMeta } from '../../api/types';
 import type { RunEstimate } from '../../api/types';
@@ -35,9 +34,9 @@ import {
 import { OutputNameCombobox } from './TargetSaveToControl';
 import { dedupeDefaultColumnName, existingColumnByName } from './formControlHelpers';
 import { generatedActionCustomizationFor } from './generatedActionCustomizations';
-import pickerStyles from './EngineModelChoice.module.css';
-import { ModelPicker } from '../ModelPicker';
-import { EnginePicker } from '../EnginePicker';
+import { SelectorField } from '../../engine-selector/SelectorField';
+import type { SelectorChoice } from '../../api/selectorChoices';
+import type { HttpSelectorChoicesQuery } from '../../api/selectorChoices';
 import { JoinOutputNames } from './JoinOutputNames';
 import { PdfTablesReview, type PdfTablesMaterializeIntent, type PdfTablesExportIntent } from './PdfTablesReview';
 import type { OcrCompareTarget } from '../../actions/ocrCompare';
@@ -52,6 +51,16 @@ function templateText(value: CanonicalFieldValue | undefined): string {
     && typeof value.text === 'string' ? value.text : '';
 }
 const EMPTY_ROW_IDS: string[] = [];
+function actionSelectorQuery(
+  actionId: string,
+  field: string,
+  draft: CanonicalDraft,
+): HttpSelectorChoicesQuery {
+  return {
+    schema_version: 'frisket.selector_choices_query.v1',
+    subject: { kind: 'action', action_id: actionId, field, params: draft },
+  } as HttpSelectorChoicesQuery;
+}
 
 function jsonFieldText(value: CanonicalFieldValue | undefined): string {
   return typeof value === 'string' ? value
@@ -369,6 +378,7 @@ export function GeneratedActionForm(props: GeneratedActionFormProps) {
 }
 
 function GeneratedActionFormContents({
+  projectId,
   pluginUI,
   catalogEntry,
   actionTemplate,
@@ -386,7 +396,6 @@ function GeneratedActionFormContents({
   onSwitchAction,
   onNavigateToAction,
   sampleColumnValues,
-  onOpenDiagnose,
   onBackfill,
   onMaterializePdfTables,
   onExportPdfTables,
@@ -407,8 +416,15 @@ function GeneratedActionFormContents({
   }, [ParamsBody, catalogEntry.kind]);
   const editorProblem = editorState?.owner === ParamsBody && editorState?.action === catalogEntry.kind
     ? editorState.message : null;
+  const engineSelectorParam = Object.entries(catalogEntry.ui_hints.semantic_controls)
+    .find(([, control]) => control === 'engine')?.[0];
+  const modelSelectorParam = Object.entries(catalogEntry.ui_hints.semantic_controls)
+    .find(([, control]) => control === 'model')?.[0];
+  const required = new Set(catalogEntry.input_schema.required ?? []);
   const renderedParams = useMemo(() => {
-    const params = actionTemplate.params ?? [];
+    const params = (actionTemplate.params ?? []).filter((param) => (
+      param.name !== modelSelectorParam || engineSelectorParam === undefined
+    ));
     const order = customization?.fieldOrder;
     if (!order?.length) return params;
     const rank = new Map(order.map((name, index) => [name, index]));
@@ -416,7 +432,7 @@ function GeneratedActionFormContents({
       (rank.get(left.param.name) ?? order.length + left.index)
       - (rank.get(right.param.name) ?? order.length + right.index)
     )).map(({ param }) => param);
-  }, [actionTemplate.params, customization?.fieldOrder]);
+  }, [actionTemplate.params, customization?.fieldOrder, engineSelectorParam, modelSelectorParam]);
   const dynamicOutputs = catalogEntry.ui_hints.dynamic_outputs === true;
   const staticCreatesSheet = catalogEntry.ui_hints.typed_action?.creates_sheet === true;
   const [resolvedCreatesSheet, setResolvedCreatesSheet] = useState<boolean>();
@@ -467,12 +483,8 @@ function GeneratedActionFormContents({
     }
     return displayed;
   }, [catalogEntry.input_schema.properties, draft, renderedParams]);
-  const modelTouched = useRef(new Set(
-    Object.keys(initialDraft?.params ?? {}).filter(
-      (name) => catalogEntry.ui_hints.semantic_controls[name] === 'model',
-    ),
-  ));
   const [paramsEdited, setParamsEdited] = useState(false);
+  const [selectorCurrentChoice, setSelectorCurrentChoice] = useState<SelectorChoice | null>(null);
   const [richSourceEditors, setRichSourceEditors] = useState<
   Record<string, RichSourceEditorState>>(() => (
     Object.fromEntries(Object.entries(catalogEntry.ui_hints.semantic_controls)
@@ -549,42 +561,6 @@ function GeneratedActionFormContents({
   const resolving = resolutionProblem === 'Resolving outputs…'
     || resolutionProblem === 'Validating fields…';
   useEffect(() => {
-    const modelParams = Object.entries(catalogEntry.ui_hints.semantic_controls)
-      .flatMap(([name, control]) => control === 'model' ? [name] : []);
-    if (!modelParams.length) return undefined;
-    let current = true;
-    listProviders()
-      .then((catalog) => {
-        if (!current) return;
-        const preferred = defaultActionModel(catalog);
-        if (!preferred) return;
-        setDraft((before) => {
-          let after = before;
-          for (const name of modelParams) {
-            const existing = before[name];
-            const pairedChoice = customization?.engineModelChoice;
-            // A fixed-engine leaf deliberately clears its paired model. The
-            // provider-catalog default must not race that atomic selection
-            // and silently turn a fixed run back into an LLM run.
-            if (pairedChoice?.modelParam === name
-              && before[pairedChoice.engineParam] !== pairedChoice.providerEngineId) continue;
-            if (modelTouched.current.has(name)
-              || (typeof existing === 'string' && existing.trim())) continue;
-            after = setCanonicalDraftField(actionTemplate, after, name, preferred);
-          }
-          return after;
-        });
-      })
-      .catch(() => {
-        // ModelPicker owns the provider-configuration state. A failed lookup
-        // leaves the required field empty rather than implying a usable model.
-      });
-    return () => {
-      current = false;
-    };
-  }, [actionTemplate, catalogEntry.ui_hints.semantic_controls, customization?.engineModelChoice]);
-
-  useEffect(() => {
     let current = true;
     const timer = window.setTimeout(() => {
       resolveParams({
@@ -660,9 +636,6 @@ function GeneratedActionFormContents({
     columns, sheetId]);
 
   const updateField = (name: string, value: CanonicalFieldValue) => {
-    if (catalogEntry.ui_hints.semantic_controls[name] === 'model') {
-      modelTouched.current.add(name);
-    }
     setParamsEdited(true);
     setResolved((current) => ({
       ...current,
@@ -681,6 +654,54 @@ function GeneratedActionFormContents({
         ? numeric : value;
     setDraft((current) => setCanonicalDraftField(actionTemplate, current, name, normalized));
   };
+  const selectorUpdates = (field: string, choice: SelectorChoice): Record<string, CanonicalFieldValue> | null => {
+    const authored = choice.authored_selection;
+    return authored.kind === 'engine'
+      ? { [field]: authored.engine }
+      : authored.kind === 'model'
+        ? { [field]: authored.model }
+        : authored.kind === 'engine_model' && modelSelectorParam
+          ? { [field]: authored.engine, [modelSelectorParam]: authored.model }
+          : null;
+  };
+  const updateSelectorSelection = (field: string, choice: SelectorChoice) => {
+    const updates = selectorUpdates(field, choice);
+    if (!updates) return;
+    setParamsEdited(true);
+    setResolved((current) => ({
+      ...current,
+      diagnostics: {},
+      problem: dynamicOutputs ? 'Resolving outputs…' : 'Validating fields…',
+    }));
+    setDraft((current) => Object.entries(updates).reduce(
+      (next, [name, value]) => setCanonicalDraftField(actionTemplate, next, name, value),
+      current,
+    ));
+  };
+  const publishSelectorChoice = (field: string, choice: SelectorChoice | null) => {
+    setSelectorCurrentChoice(choice);
+    // A server default makes an otherwise blank required selector executable.
+    // Do not rewrite an explicit, partial, or orphaned authored selection:
+    // a combined engine/model choice is one atomic selection owner.
+    if (!choice?.is_default) return;
+    const updates = selectorUpdates(field, choice);
+    // A saved optional selector default is display/readiness metadata, not an
+    // authored request value. Required selector leaves still need the served
+    // default, including fresh derived forms that provide an initial draft.
+    if (!updates || !Object.keys(updates).some((name) => required.has(name))) return;
+    if (!Object.keys(updates).every((name) => (
+      draft[name] === undefined || draft[name] === ''
+    ))) return;
+    setResolved((current) => ({
+      ...current,
+      diagnostics: {},
+      problem: dynamicOutputs ? 'Resolving outputs…' : 'Validating fields…',
+    }));
+    setDraft((current) => Object.entries(updates).reduce(
+      (next, [name, value]) => setCanonicalDraftField(actionTemplate, next, name, value),
+      current,
+    ));
+  };
   const updateBodyParams = useCallback((params: CanonicalDraft) => {
     setParamsEdited(true);
     setResolved((current) => ({
@@ -698,44 +719,13 @@ function GeneratedActionFormContents({
         error={diagnostics[field.name]} onChange={(value) => updateField(field.name, value)} />;
     }
     const semanticControl = catalogEntry.ui_hints.semantic_controls[field.name];
-    if (semanticControl === 'engine') {
-      const engines = actionTemplate.engines ?? [];
-      const raw = displayDraft[field.name];
-      const defaultEngine = catalogEntry.input_schema.properties?.[field.name]?.default;
-      const selected = typeof raw === 'string' ? raw : '';
-      const ordinaryChoices = [];
-      if (defaultEngine === 'auto' && !engines.some((engine) => engine.id === 'auto')) {
-        ordinaryChoices.push({ id: 'auto', label: 'Auto',
-          available: engines.some((engine) => engine.available !== false),
-          unavailableReason: 'No execution engines are available.' });
-      }
-      if (selected && !engines.some((engine) => engine.id === selected)
-        && !ordinaryChoices.some((choice) => choice.id === selected)) {
-        ordinaryChoices.push({ id: selected, label: `${selected} (unavailable)`, available: false,
-          unavailableReason: 'This engine is unavailable for this action.' });
-      }
-      return <div className={pickerStyles.choice} data-testid={field.testid}>
-        <span className={`form-label ${pickerStyles.label}`} id={field.id}>{field.label}</span>
-        <div className={pickerStyles.picker}>
-          <EnginePicker engines={engines} ordinaryChoices={ordinaryChoices} value={selected}
-            onChange={(value) => updateField(field.name, value)} ariaLabelledBy={field.id} />
-        </div>
-        {engines.some((engine) => engine.available === false) && (
-          <details className="action-advanced" data-testid="engine-availability-disclosure">
-            <summary>Engine availability</summary>
-            {engines.filter((engine) => engine.available === false).map((engine) => (
-              <p className="form-hint" key={engine.id}
-                data-testid={`engine-availability-line-${engine.id}`}>
-                {engine.label}: unavailable{engine.error && ` — ${engine.error}`}
-              </p>
-            ))}
-            {onOpenDiagnose && <button type="button" className="btn btn-secondary"
-              data-testid="engine-availability-open-diagnose" onClick={onOpenDiagnose}>
-              Open Diagnose
-            </button>}
-          </details>
-        )}
-      </div>;
+    if (semanticControl === 'engine' || semanticControl === 'model') {
+      const query = actionSelectorQuery(catalogEntry.kind, field.name, draft);
+      return <SelectorField projectId={projectId} label={field.label} query={query}
+        recentNamespace={`${projectId ?? 'none'}:action:${catalogEntry.kind}:${field.name}`}
+        testId={field.testid} disabled={running || !projectId}
+        onCurrentChoiceChange={(choice) => publishSelectorChoice(field.name, choice)}
+        onSelect={(choice) => updateSelectorSelection(field.name, choice)} />;
     }
     if (semanticControl === 'rich_source' || semanticControl === 'column_or_template') {
       const singleColumn = semanticControl === 'column_or_template';
@@ -809,18 +799,6 @@ function GeneratedActionFormContents({
         </>
       );
     }
-    if (semanticControl === 'model') {
-      return (
-        <div className={pickerStyles.choice} data-testid={field.testid}>
-          <span className={`form-label ${pickerStyles.label}`} id={field.id}>{field.label}</span>
-          <div className={pickerStyles.picker}>
-          <ModelPicker value={field.value}
-            onChange={(value) => updateField(field.name, value)}
-            ariaLabelledBy={field.id} />
-          </div>
-        </div>
-      );
-    }
     if (semanticControl === 'template') {
       return (
         <>
@@ -845,23 +823,17 @@ function GeneratedActionFormContents({
     return undefined;
   };
 
-  const engineParam = Object.entries(catalogEntry.ui_hints.semantic_controls)
-    .find(([, control]) => control === 'engine')?.[0];
+  const engineParam = engineSelectorParam;
+  const hasSelectorField = Object.values(catalogEntry.ui_hints.semantic_controls)
+    .some((control) => control === 'engine' || control === 'model');
   const selectedEngine = engineParam && typeof displayDraft[engineParam] === 'string'
     ? displayDraft[engineParam] : undefined;
   const selectedEngineInfo = actionTemplate.engines?.find((engine) => engine.id === selectedEngine);
-  const automaticEngineSupported = engineParam
-    && (catalogEntry.input_schema.properties?.[engineParam]?.default === 'auto'
-      || actionTemplate.engines?.some((engine) => engine.id === 'auto'));
-  const automaticEngineAvailable = actionTemplate.engines?.some(
-    (engine) => engine.id !== 'auto' && engine.available !== false,
-  );
-  const engineProblem = selectedEngineInfo?.available === false
-    ? selectedEngineInfo.error || `${selectedEngineInfo.label} is unavailable.`
-    : selectedEngine === 'auto' && automaticEngineSupported
-      ? automaticEngineAvailable ? null : 'No execution engines are available.'
-      : selectedEngine && !selectedEngineInfo ? `${selectedEngine} is unavailable.` : null;
-  const required = new Set(catalogEntry.input_schema.required ?? []);
+  const engineProblem = hasSelectorField && !selectorCurrentChoice
+    ? 'Checking engine availability…'
+    : selectorCurrentChoice && !selectorCurrentChoice.can_run
+      ? selectorCurrentChoice.blocker?.message ?? `${selectorCurrentChoice.label} is unavailable.`
+      : null;
   const validParams = (actionTemplate.params ?? []).every((param) => {
     const value = draft[param.name];
     if (value === undefined) return !required.has(param.name);
@@ -1055,8 +1027,6 @@ function GeneratedActionFormContents({
             <ParamsBody sheet={sheet} params={draft} setParams={updateBodyParams}
               setEditorProblem={setEditorProblem}
               engine={selectedEngineInfo}
-              engines={actionTemplate.engines}
-              engineModelChoice={customization?.engineModelChoice}
               request={{ scope: requestScope, sheet_name: estimateDraft.sheet_name,
                 output_names: estimateDraft.output_names }}
               errors={diagnostics} Field={GeneratedField} onNavigateToAction={onNavigateToAction}

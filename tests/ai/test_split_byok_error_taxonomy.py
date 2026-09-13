@@ -20,6 +20,7 @@ from tests.ai.test_split_team_byok_runs import (
     _login,
     _project,
     _reduce_action,
+    _save_org_key,
 )
 
 pytestmark = pytest.mark.gap
@@ -81,8 +82,7 @@ def _configured_client(
     app = _app(tmp_path, monkeypatch)
     client = TestClient(app)
     _login(client, app)
-    saved = client.post("/api/org/keys", json={"provider": "openai", "key": SECRET})
-    assert saved.status_code == 200, saved.text
+    _save_org_key(client, key=SECRET)
     project_id, sheet_id = _project(client)
     project = app.state.workspace.get(project_id)
     assert (

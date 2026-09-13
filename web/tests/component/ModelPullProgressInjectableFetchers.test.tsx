@@ -28,10 +28,19 @@ vi.mock('../../src/api/open', async (importOriginal) => {
 });
 
 function pull(overrides: Partial<ModelPullDto>): ModelPullDto {
+  const status = overrides.status ?? 'running';
   return {
+    schemaVersion: 'frisket.model_pull.v4',
     id: 7,
+    display_name: 'Qwen 3 8B',
+    operation_kind: 'local_model',
+    capabilities: { cancel: status === 'pending' || status === 'running', retry: false, remove: false },
+    endpoint_id: null,
+    endpoint_origin: null,
+    initiated_by: null,
+    artifact: null,
     model: 'qwen3:8b',
-    status: 'running',
+    status,
     phase: 'downloading',
     total_bytes: null,
     completed_bytes: null,
@@ -102,8 +111,7 @@ describe('ModelPullProgress — injectable fetchPull/cancelPull', () => {
     });
 
     // The shared component accepts truthful response-bearing cancel ports but
-    // deliberately ignores their values: org cancellation still returns void,
-    // and the next poll remains the status owner.
+    // deliberately ignores their values: the next poll remains the status owner.
     expect(screen.queryByTestId('model-pull-cancelled')).not.toBeInTheDocument();
     expect(cancelBtn).toHaveTextContent('Cancelling…');
     expect(cancelBtn).toBeDisabled();

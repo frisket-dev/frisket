@@ -39,7 +39,6 @@ import type {
   DynamicGeneratedActionParamsBody,
   GeneratedActionParamsBody,
   GeneratedActionParamsBodyProps,
-  EngineModelChoicePresentation,
 } from './GeneratedActionParamsBody';
 import './api-call-form.css';
 
@@ -73,9 +72,6 @@ interface GeneratedActionCustomizationBase {
   primaryLabel?: string;
   primaryTestId?: string;
   freePublicApiLabel?: string;
-  /** Fixed engines and provider-backed LLM models share one presentation while
-   * retaining the established `{ engine, model }` request shape. */
-  engineModelChoice?: EngineModelChoicePresentation;
 }
 
 export interface GeneratedActionCustomization extends GeneratedActionCustomizationBase {
@@ -287,19 +283,11 @@ const EXACT_CUSTOMIZATIONS = {
     fields: { extra_instructions: GuidanceField },
     initialParams: { labels: [...RECOMMENDED_SPACY_TYPES] },
     outputLabel: () => 'Save entities to',
-    engineModelChoice: {
-      engineParam: 'engine', modelParam: 'model', providerEngineId: 'llm',
-      label: 'Entity recognition', fixedGroupLabel: 'Recognition engines',
-    },
   },
   'map.classify': {
     body: ClassifyParamsBody,
     fields: { context: GuidanceField },
     initialParams: { fields: [{ name: 'category', type: 'category', labels: [], description: '' }] },
-    engineModelChoice: {
-      engineParam: 'engine', modelParam: 'model', providerEngineId: 'llm',
-      label: 'Classifier', fixedGroupLabel: 'Classification engines',
-    },
   },
   'map.extract': {
     body: ExtractParamsBody,
@@ -324,10 +312,6 @@ const EXACT_CUSTOMIZATIONS = {
     fields: { context: GuidanceField },
     initialParams: { engine: 'llm', target_language: 'English' },
     defaultOutputName: (key) => key === 'detected_language' ? 'translation_detected_language' : undefined,
-    engineModelChoice: {
-      engineParam: 'engine', modelParam: 'model', providerEngineId: 'llm',
-      label: 'Translation engine', fixedGroupLabel: 'Translation engines',
-    },
   },
   'research.answer': {
     fieldOrder: ['source', 'question', 'model', 'include_sources'],

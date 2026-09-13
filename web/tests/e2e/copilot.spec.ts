@@ -15,21 +15,56 @@
 
 import { expect, test } from '@playwright/test';
 import { createProject, importCsv, openHistory, sheetColumns, uniqueName } from './helpers';
+import {
+  selectorChoicesResponse,
+  stubSelectorChoices,
+  type SelectorGroupFixture,
+} from './selectorChoicesFixture';
 
 const CSV =
   'story\n' +
   '"The city council approved a $4M paving contract on Tuesday."\n' +
   '"A local pharmacy in the north district will close by March."\n';
 
-test('copilot model picker: interacting with the portaled menu keeps the panel open', async ({
+const COPILOT_MODEL_GROUPS: SelectorGroupFixture[] = [{
+  id: 'ollama',
+  label: 'Ollama',
+  choices: [{
+    choiceId: 'ollama-qwen',
+    label: 'Qwen',
+    summary: 'Local model',
+    authoredSelection: { kind: 'model', model: 'ollama/qwen' },
+  }],
+}, {
+  id: 'anthropic',
+  label: 'Anthropic',
+  choices: [{
+    choiceId: 'anthropic-claude-haiku-4-5',
+    label: 'Claude Haiku 4.5',
+    summary: 'Hosted model',
+    authoredSelection: { kind: 'model', model: 'anthropic/claude-haiku-4-5' },
+  }],
+}];
+
+async function stubCopilotSelector(page: Parameters<typeof stubSelectorChoices>[0], pid: string) {
+  await stubSelectorChoices(page, pid, (subject) => {
+    expect(subject.kind).toBe('copilot');
+    const model = typeof subject.model === 'string' ? subject.model : 'anthropic/claude-haiku-4-5';
+    return selectorChoicesResponse({
+      projectId: pid,
+      subject: { kind: 'copilot', model },
+      groups: COPILOT_MODEL_GROUPS,
+      currentChoiceId: model === 'ollama/qwen' ? 'ollama-qwen' : 'anthropic-claude-haiku-4-5',
+    });
+  });
+}
+
+test('copilot selector: interacting with the portaled dialog keeps the panel open', async ({
   page,
 }) => {
-  // Regression (copilot-model-selection-v1 live demo, 2026-07-15): the
-  // ModelPicker menu portals to <body>, so its pointerdowns read as "outside"
-  // the copilot popover and dismissed the whole panel mid-selection until
-  // popovers.tsx ignored '.model-picker-menu'.
   const pid = await createProject(page.request, uniqueName('e2e-copilot-model'));
   await importCsv(page.request, pid, 'stories.csv', CSV);
+  await stubCopilotSelector(page, pid);
   await page.goto(`/p/${pid}`);
 
   await page.getByTestId('chrome-copilot-toggle').click();
@@ -37,20 +72,21 @@ test('copilot model picker: interacting with the portaled menu keeps the panel o
   await expect(panel).toBeVisible();
   await expect(page.getByTestId('copilot-model-row')).toBeVisible();
 
-  await page.getByTestId('model-picker-button').click();
-  const menu = page.getByTestId('model-picker-menu');
-  await expect(menu).toBeVisible();
+  const trigger = panel.locator('.engine-selector__trigger');
+  await trigger.click();
+  const dialog = page.getByTestId('engine-selector-dialog');
+  await expect(dialog).toBeVisible();
 
-  // pointerdowns inside the portaled menu (hovering/clicking a provider
-  // group) must not dismiss the copilot popover
-  await page.getByTestId('model-provider-group-ollama').click();
-  await expect(menu).toBeVisible();
+  // The dialog lives at the native top layer. Its provider navigation must
+  // not be read as a click outside Copilot's popover.
+  await dialog.getByRole('button', { name: 'Ollama', exact: true }).click();
+  await expect(dialog).toBeVisible();
   await expect(panel).toBeVisible();
 
-  // selecting a model closes the menu but leaves the panel usable
-  await page.getByTestId('model-picker-search').fill('haiku');
-  await page.getByTestId('model-option-anthropic-claude-haiku-4-5').click();
-  await expect(menu).not.toBeVisible();
+  // Selecting a model closes the dialog but leaves the panel usable.
+  await dialog.getByRole('searchbox', { name: 'Search Model' }).fill('Haiku');
+  await dialog.locator('[data-engine-selector-choice="anthropic-claude-haiku-4-5"]').click();
+  await expect(dialog).not.toBeVisible();
   await expect(panel).toBeVisible();
   await expect(page.getByTestId('copilot-input')).toBeEditable();
 });
@@ -60,6 +96,7 @@ test('copilot panel sends a message and surfaces a runnable proposal', async ({
 }) => {
   const pid = await createProject(page.request, uniqueName('e2e-copilot'));
   const sheetId = await importCsv(page.request, pid, 'stories.csv', CSV);
+  await stubCopilotSelector(page, pid);
   await page.route(`**/api/projects/${pid}/copilot`, async (route) => {
     await route.fulfill({
       status: 200,
@@ -116,6 +153,7 @@ test('copilot panel sends a message and surfaces a runnable proposal', async ({
 test('copilot proposal executes through the v1 action run path', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-copilot-run'));
   const sheetId = await importCsv(page.request, pid, 'stories.csv', CSV);
+  await stubCopilotSelector(page, pid);
   await page.route(`**/api/projects/${pid}/copilot`, async (route) => {
     await route.fulfill({
       status: 200,

@@ -43,6 +43,7 @@ from frisket.ai.llm import (
 from frisket.ai.llm.endpoint_config import (
     LocalModelEndpointConfig,
 )
+from frisket.ai.models.gateway_config import ModelsGatewayConnection
 from frisket.ops.base import persisted_recipe_invocation_halt
 from frisket.engine.runner import MapRunner
 from frisket.engine.sandbox.shim import SandboxTeardownError
@@ -268,6 +269,32 @@ def resolve_run_local_endpoints(
 
     configs, _notes = resolve_local_endpoints(root, env)
     return configs
+
+
+def resolve_run_models_gateway(
+    root: str | Path,
+    *,
+    handler_context: JobHandlerContext,
+    ports: WorkerPorts,
+    control_database_url: str | None,
+    env: Mapping[str, str] | None = None,
+) -> ModelsGatewayConnection | None:
+    """Resolve gateway credentials at execution from trusted worker context.
+
+    A claimed org id is carried outside the job payload by ``JobHandlerContext``.
+    Local/direct work reads the workspace's existing private config map. In both
+    cases environment values retain precedence and a partial pair refuses.
+    """
+
+    trusted_org_id = handler_context.trusted_job_org_id
+    if isinstance(trusted_org_id, int):
+        return ports.models_gateway().models_gateway_connection(
+            org_id=int(trusted_org_id),
+            control_database_url=control_database_url,
+        )
+    from frisket.server.provider_config import resolve_models_gateway
+
+    return resolve_models_gateway(root, env)
 
 
 def resolve_run_keys(
@@ -528,6 +555,7 @@ def register_project_run_handler(
     settlement = ports.settlement_port
     root = Path(workspace_root)
     composition_factory = execution_composition_factory or open_execution_composition
+    uses_open_composition = execution_composition_factory is None
 
     def handle(payload: dict, handler_context: JobHandlerContext) -> dict:
         project_id, _project_root, project_path = claimed_project_location(
@@ -794,8 +822,20 @@ def register_project_run_handler(
                 trusted_job_org_id=handler_context.trusted_job_org_id,
                 edition_snapshot=edition_snapshot,
             )
-            execution_composition = composition_factory(
-                project, effective_router, execution_context
+            execution_composition = (
+                open_execution_composition(
+                    project,
+                    effective_router,
+                    execution_context,
+                    models_gateway_resolver=lambda: resolve_run_models_gateway(
+                        root,
+                        handler_context=handler_context,
+                        ports=ports,
+                        control_database_url=db_url,
+                    ),
+                )
+                if uses_open_composition
+                else composition_factory(project, effective_router, execution_context)
             )
             actor_row = project.db.execute(
                 "SELECT consent_principal FROM runs WHERE id=?", (run_id,)

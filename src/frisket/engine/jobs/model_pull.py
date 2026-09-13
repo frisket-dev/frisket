@@ -527,6 +527,20 @@ def register_model_pull_handler(
                 )
             canonical_ref = row.model_ref
 
+            from frisket.engine.jobs.engine_setup import (
+                is_engine_setup_ref,
+                run_engine_setup,
+            )
+
+            should_cancel = _make_cancel_checker(queue, job_id, engine, pull_id)
+            if is_engine_setup_ref(canonical_ref):
+                return run_engine_setup(
+                    engine=engine,
+                    pull_id=pull_id,
+                    should_cancel=should_cancel,
+                    is_final_attempt=is_final_attempt,
+                )
+
             # Route by ref kind. A qualified local-model ref uses the native
             # server flow below; an opus-mt:/hf: artifact ref routes to the HTTP
             # artifact backend, which OWNS the bytes and has no daemon endpoint
@@ -535,7 +549,6 @@ def register_model_pull_handler(
             from frisket.engine.jobs.artifact_ref import normalize_artifact_ref
 
             art = normalize_artifact_ref(canonical_ref)
-            should_cancel = _make_cancel_checker(queue, job_id, engine, pull_id)
             if not art.is_ollama:
                 from frisket.engine.jobs.artifact_pull import run_artifact_pull
 

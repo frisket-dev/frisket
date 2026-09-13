@@ -49,6 +49,7 @@ from frisket.execution.targets import (
 from frisket.project_identity import ProjectStorageKey
 
 if TYPE_CHECKING:
+    from frisket.ai.models.gateway_config import ModelsGatewayConnection
     from frisket.engine.jobs.ports import TrustedJobOrg
 
 # Composition edition vocabulary. ``CompositionFacts`` makes operator and
@@ -542,6 +543,8 @@ def open_execution_composition(
     project: Any,
     router: Any,
     context: ExecutionCompositionContext,
+    *,
+    models_gateway_resolver: Callable[[], ModelsGatewayConnection | None] | None = None,
 ) -> ExecutionComposition:
     """The open-edition production composition for one effective router.
 
@@ -560,6 +563,10 @@ def open_execution_composition(
             org_id=None,
             funding=OperatorBorne(),
         ),
-        provider=StaticExecutionTargetProvider(secrets=project, router=router),
+        provider=StaticExecutionTargetProvider(
+            secrets=project,
+            router=router,
+            models_gateway_resolver=models_gateway_resolver,
+        ),
         credential_use_context=CredentialUseContext.open(),
     )

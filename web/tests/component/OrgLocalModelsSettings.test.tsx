@@ -72,7 +72,10 @@ function models(...names: string[]): LocalHttpEndpointEntry['models'] {
 
 function pull(overrides: Partial<ModelPullDto>): ModelPullDto {
   return {
-    schemaVersion: 'frisket.model_pull.v3',
+    schemaVersion: 'frisket.model_pull.v4',
+    operation_kind: 'local_model',
+    display_name: 'qwen3:8b',
+    capabilities: { cancel: true, retry: true, remove: false },
     id: 9,
     model: 'ollama/@local-a1b2c3d4e5f6/qwen3:8b',
     status: 'running',
@@ -196,7 +199,7 @@ describe('OrgLocalModelsSettings (organization AI-providers section)', () => {
 
     it('surfaces a 409 pull_busy error by showing the already-active pull instead of a bare error', async () => {
       (listOrgLocalEndpoints as unknown as Mock).mockResolvedValue(reachableWithPull());
-      const active = pull({ id: 42, model: 'ollama/@local-a1b2c3d4e5f6/llama3:70b' });
+      const active = pull({ id: 42, model: 'ollama/@local-a1b2c3d4e5f6/llama3:70b', display_name: 'llama3:70b' });
       (orgStartArtifactPull as unknown as Mock).mockRejectedValue(
         new ApiError(409, 'a pull is already in progress', 'pull_busy', { active }),
       );

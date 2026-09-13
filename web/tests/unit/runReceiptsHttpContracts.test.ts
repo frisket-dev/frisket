@@ -44,6 +44,33 @@ afterEach(() => {
 });
 
 describe('run and receipt HTTP contracts', () => {
+  it('maps the server preparation hint for a running zero-row action run', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      schema_version: 'frisket.actions.v1', action: 'run_status', project_id: 'project-1',
+      run: {
+        id: 17, sheet_id: 2, action_kind: 'map.translate', action_name: 'Translate',
+        status: 'running', total_rows: 10, completed_rows: 0, failed_rows: 0,
+        cost_actual: null, cost_estimate: null,
+        public_status: {
+          run_id: 17, action_kind: 'map.translate', action_name: 'Translate', status: 'running',
+          live: true, completed: 0, total: 10, failed: 0, cost: null,
+          timing: {},
+          preparation: {
+            message: 'Preparing the language model if this worker needs it, then translating…',
+          },
+        },
+      },
+    })));
+
+    await expect(getRunProgressContract('project-1', 17, contractError)).resolves.toMatchObject({
+      status: 'running',
+      completedRows: 0,
+      preparation: {
+        message: 'Preparing the language model if this worker needs it, then translating…',
+      },
+    });
+  });
+
   it.each([null, false, 0, '', { matched: 2 }])('maps receipt presentation and domain value %j', async (value) => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
       schema_version: 'frisket.receipt.v1',

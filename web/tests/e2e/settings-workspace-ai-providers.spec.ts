@@ -1,5 +1,5 @@
 // "Configure AI providers" is a settings page for the whole profile/workspace,
-// not a pane buried inside the ModelPicker popover. The workspace-level keys
+// not a pane buried inside a model selector. The workspace-level keys
 // (<ws>/.frisket/provider_keys.json) and the Ollama URL had no settings home
 // in the local tier — project.ai-providers manages per-PROJECT overrides and
 // organization.ai-providers is hosted-only/disabled locally.
@@ -8,14 +8,52 @@
 // - /settings/personal/ai-providers renders the workspace provider panel:
 //   per-provider key rows (add/test/save) AND the Ollama URL editor with the
 //   reachability badge — the exact surface the picker's inline pane held.
-// - The ModelPicker's "Configure AI providers…" entry NAVIGATES there (no
-//   more inline config view), from the copilot popover included.
+// - Copilot's model selector is an authoritative project-scoped dialog, not an
+//   inline provider configuration view.
 // - The remediation copy's "Settings → AI Providers" is thereby literal.
 
 import { expect, test } from '@playwright/test';
+import type {
+  HttpSelectorChoicesQuery,
+  HttpSelectorChoicesResponse,
+  SelectorSubject,
+} from '../../src/api/selectorChoices';
 import { createProject, importCsv, uniqueName } from './helpers';
 
 const CSV = 'story\n"City council approved a paving contract."\n';
+
+function copilotSelectorResponse(
+  pid: string,
+  subject: Extract<SelectorSubject, { kind: 'copilot' }>,
+): HttpSelectorChoicesResponse {
+  const current = subject.model === 'ollama/qwen' ? 'ollama-qwen' : 'local-semantic';
+  return {
+    schema_version: 'frisket.selector_choices.v1',
+    project_id: pid,
+    subject: { kind: 'copilot' },
+    depends_on: [],
+    current_choice_id: current,
+    default_choice_id: 'local-semantic',
+    groups: [{
+      group_id: 'local', kind: 'local', label: 'Local', status: 'ready', choices: [{
+        choice_id: 'local-semantic', label: 'Local semantic', summary: 'On this computer', description: '',
+        model_card_url: null, authored_selection: { kind: 'model', model: 'local/semantic' },
+        resolved_target: null, processing_destination: { kind: 'local', label: 'On this computer' },
+        facts: [], status: 'ready', can_author: true, can_run: true, blocker: null, setup: null,
+        active_operation: null, is_default: true, is_current: current === 'local-semantic',
+      }],
+    }, {
+      group_id: 'ollama', kind: 'local', label: 'Ollama', status: 'ready', choices: [{
+        choice_id: 'ollama-qwen', label: 'Qwen', summary: 'On this computer', description: '',
+        model_card_url: null, authored_selection: { kind: 'model', model: 'ollama/qwen' },
+        resolved_target: null, processing_destination: { kind: 'local', label: 'On this computer' },
+        facts: [], status: 'ready', can_author: true, can_run: true, blocker: null, setup: null,
+        active_operation: null, is_default: false, is_current: current === 'ollama-qwen',
+      }],
+    }],
+    orphaned_current: null,
+  };
+}
 
 test('workspace AI-providers settings page renders keys + ollama URL editor', async ({
   page,
@@ -32,24 +70,36 @@ test('workspace AI-providers settings page renders keys + ollama URL editor', as
   await expect(section.getByTestId('ollama-reachability-badge')).toBeVisible();
 });
 
-test('model picker Configure AI providers navigates to the settings page', async ({
+test('copilot model selector opens an authoritative dialog without an inline configuration pane', async ({
   page,
 }) => {
   const pid = await createProject(page.request, uniqueName('e2e-provider-nav'));
   await importCsv(page.request, pid, 'stories.csv', CSV);
+  await page.route(`**/api/projects/${pid}/selector-choices`, async (route) => {
+    const body = route.request().postDataJSON() as HttpSelectorChoicesQuery;
+    if (body.subject.kind !== 'copilot') {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(copilotSelectorResponse(pid, body.subject)),
+    });
+  });
   await page.goto(`/p/${pid}`);
 
   await page.getByTestId('chrome-copilot-toggle').click();
-  await expect(page.getByTestId('copilot-panel')).toBeVisible();
-  await page.getByTestId('model-picker-button').click();
-  await expect(page.getByTestId('model-picker-menu')).toBeVisible();
-
-  await page.getByTestId('configure-providers').click();
-
-  await expect(page).toHaveURL(/\/settings\/personal\/ai-providers$/);
-  await expect(
-    page.getByTestId('settings-section-personal-ai-providers'),
-  ).toBeVisible();
-  // the picker's inline config pane is gone — configuration lives here now
+  const panel = page.getByTestId('copilot-panel');
+  await expect(panel).toBeVisible();
+  const trigger = panel.locator('.engine-selector__trigger');
+  await trigger.click();
+  const dialog = page.getByTestId('engine-selector-dialog');
+  await expect(dialog.getByRole('searchbox', { name: 'Search Model' })).toBeFocused();
+  await dialog.getByRole('searchbox', { name: 'Search Model' }).fill('Qwen');
+  await dialog.locator('[data-engine-selector-choice="ollama-qwen"]').click();
+  await expect(trigger).toContainText('Qwen');
+  await expect(panel).toBeVisible();
+  // Provider setup does not leak into the chat popover.
   await expect(page.getByTestId('provider-config')).toHaveCount(0);
 });

@@ -7,12 +7,68 @@ provenance are the behaviour under test."""
 
 from __future__ import annotations
 
+import multiprocessing
+import threading
+
 import pytest
 
 from frisket.ops.integrations import opus_mt
 from frisket.ops.integrations.translate_common import TranslateEngineError
 from frisket.ops.base import OpContext
 from frisket.ops.integrations.translation_engine import TranslationEngine
+
+
+def _hold_file_lock(lock_path: str, acquired, release) -> None:
+    from filelock import FileLock
+
+    with FileLock(lock_path, timeout=5):
+        acquired.set()
+        assert release.wait(timeout=5)
+
+
+def _run_manual_pair_pull(
+    cache_root: str, workspace: str, files: dict[str, bytes], acquired, release
+) -> None:
+    """Spawn target: a durable pull holds the shared artifact lock in download."""
+    from pathlib import Path
+
+    import httpx
+
+    from frisket.engine.jobs import model_pull_store
+    from frisket.engine.jobs.artifact_pull import run_artifact_pull
+    from frisket.engine.jobs.artifact_ref import normalize_artifact_ref
+    from frisket.engine.jobs.queue import open_queue
+
+    entry = _pinned_pair_entry(files)
+    first_request = True
+
+    def handler(request):
+        nonlocal first_request
+        if first_request:
+            first_request = False
+            acquired.set()
+            assert release.wait(timeout=5)
+        name = request.url.path.rsplit("/", 1)[-1]
+        return httpx.Response(200, content=files[name])
+
+    queue = open_queue(workspace=workspace)
+    try:
+        row, created = model_pull_store.create_or_get_active(
+            queue.engine, workspace_root="/ws", model_ref="opus-mt:en-es"
+        )
+        assert created
+        assert run_artifact_pull(
+            httpx.Client(transport=httpx.MockTransport(handler)),
+            engine=queue.engine,
+            pull_id=row.id,
+            art=normalize_artifact_ref("opus-mt:en-es"),
+            should_cancel=lambda: False,
+            is_final_attempt=False,
+            manifest_lookup=lambda ref: entry if ref == entry.ref else None,
+            cache_root=Path(cache_root),
+        ) == {"status": "done"}
+    finally:
+        queue.close()
 
 
 def test_resolve_pair_codes_accepts_codes_and_names():
@@ -306,8 +362,6 @@ def test_ensure_pair_installed_no_double_pull_under_concurrency(tmp_path, monkey
 
     # a shared client (MockTransport is thread-safe for our purposes)
     client = httpx.Client(transport=httpx.MockTransport(handler))
-    # reset the per-pair provision lock registry so this test is isolated
-    opus_mt._PROVISION_LOCKS.clear()
 
     def worker():
         opus_mt.ensure_pair_installed("en", "es", cache_root=tmp_path, client=client)
@@ -445,6 +499,236 @@ def test_ensure_pair_installed_rejects_checksum_mismatch(tmp_path, monkeypatch):
         opus_mt.ensure_pair_installed("en", "es", cache_root=tmp_path, client=client)
     assert exc.value.code == "checksum_mismatch"
     assert not opus_mt.is_pair_installed("en", "es", cache_root=tmp_path)
+
+
+def test_waiting_pair_download_bounds_cancel_polling_and_still_cancels(
+    tmp_path, monkeypatch
+):
+    from filelock import FileLock
+
+    from frisket.ai.models import artifact_manifest, model_cache
+    from frisket.engine.jobs import artifact_pull
+    from frisket.engine.jobs.artifact_ref import normalize_artifact_ref
+
+    entry = _pinned_pair_entry(
+        {"model.bin": b"wa", "source.spm": b"sa", "target.spm": b"ta"}
+    )
+    monkeypatch.setattr(artifact_manifest, "_MANIFEST", {"opus-mt:en-es": entry})
+    lock_path = model_cache.artifact_lock_path(
+        normalize_artifact_ref("opus-mt:en-es"), root=tmp_path
+    )
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    import time
+
+    polls: list[float] = []
+
+    def should_cancel() -> bool:
+        # realtime: observe the positive interval between actual file-lock polls.
+        polls.append(time.monotonic())
+        return len(polls) == 2
+
+    with FileLock(lock_path), pytest.raises(artifact_pull.ProvisionCancelled):
+        opus_mt.ensure_pair_installed(
+            "en", "es", cache_root=tmp_path, should_cancel=should_cancel
+        )
+    assert len(polls) == 2
+    assert polls[1] - polls[0] >= 1.5
+
+
+def _observe_artifact_lock_attempt(monkeypatch) -> threading.Event:
+    """Rendezvous with an actual lock attempt, without racing a wait window."""
+    from frisket.engine.jobs import artifact_pull
+
+    attempted = threading.Event()
+
+    class ObservedLock(artifact_pull.FileLock):
+        def acquire(self, *args, **kwargs):
+            attempted.set()
+            return super().acquire(*args, **kwargs)
+
+    monkeypatch.setattr(artifact_pull, "FileLock", ObservedLock)
+    return attempted
+
+
+def test_ensure_pair_installed_rechecks_after_another_process_provisions_pair(
+    tmp_path, monkeypatch
+):
+    """A separate worker process owns the artifact lock until it publishes bytes."""
+    from frisket.ai.models import artifact_manifest
+
+    files = {"model.bin": b"wa", "source.spm": b"sa", "target.spm": b"ta"}
+    entry = _pinned_pair_entry(files)
+    monkeypatch.setattr(artifact_manifest, "_MANIFEST", {"opus-mt:en-es": entry})
+    from frisket.ai.models import model_cache
+    from frisket.engine.jobs.artifact_ref import normalize_artifact_ref
+
+    lock_path = model_cache.artifact_lock_path(
+        normalize_artifact_ref("opus-mt:en-es"), root=tmp_path
+    )
+    context = multiprocessing.get_context("spawn")
+    acquired = context.Event()
+    release = context.Event()
+    holder = context.Process(
+        target=_hold_file_lock, args=(str(lock_path), acquired, release)
+    )
+    holder.start()
+    try:
+        assert acquired.wait(timeout=5), "lock holder did not start"
+        attempted = _observe_artifact_lock_attempt(monkeypatch)
+        errors: list[BaseException] = []
+
+        def contender() -> None:
+            try:
+                opus_mt.ensure_pair_installed(
+                    "en", "es", cache_root=tmp_path, client=object()
+                )
+            except BaseException as exc:  # test reports the worker exception below
+                errors.append(exc)
+
+        # realtime: event rendezvous proves entry into a real cross-process file lock.
+        contender_thread = threading.Thread(target=contender)
+        contender_thread.start()
+        assert attempted.wait(timeout=5), "contender did not attempt the file lock"
+        pair_dir = opus_mt._pair_dir("en", "es", tmp_path)
+        pair_dir.mkdir(parents=True)
+        for name, content in files.items():
+            (pair_dir / name).write_bytes(content)
+        release.set()
+        contender_thread.join(timeout=5)
+        assert not contender_thread.is_alive()
+        assert errors == []
+        assert opus_mt.is_pair_installed("en", "es", cache_root=tmp_path)
+    finally:
+        release.set()
+        holder.join(timeout=5)
+        if holder.is_alive():
+            holder.terminate()
+            holder.join(timeout=5)
+    assert holder.exitcode == 0
+
+
+def test_ensure_pair_installed_rechecks_after_a_durable_pull_in_another_process(
+    tmp_path, monkeypatch
+):
+    """The manual durable pull and first-use path share one lock and download."""
+    from frisket.ai.models import artifact_manifest
+
+    files = {"model.bin": b"wa", "source.spm": b"sa", "target.spm": b"ta"}
+    entry = _pinned_pair_entry(files)
+    monkeypatch.setattr(artifact_manifest, "_MANIFEST", {"opus-mt:en-es": entry})
+    context = multiprocessing.get_context("spawn")
+    acquired = context.Event()
+    release = context.Event()
+    holder = context.Process(
+        target=_run_manual_pair_pull,
+        args=(
+            str(tmp_path / "cache"),
+            str(tmp_path / "manual-workspace"),
+            files,
+            acquired,
+            release,
+        ),
+    )
+    holder.start()
+    try:
+        assert acquired.wait(timeout=5), "durable pull did not begin downloading"
+        attempted = _observe_artifact_lock_attempt(monkeypatch)
+        errors: list[BaseException] = []
+
+        def contender() -> None:
+            try:
+                opus_mt.ensure_pair_installed(
+                    "en", "es", cache_root=tmp_path / "cache", client=object()
+                )
+            except BaseException as exc:  # test reports the worker exception below
+                errors.append(exc)
+
+        # realtime: event rendezvous proves entry into a real cross-process file lock.
+        contender_thread = threading.Thread(target=contender)
+        contender_thread.start()
+        assert attempted.wait(timeout=5), (
+            "first-use worker did not attempt the file lock"
+        )
+        release.set()
+        contender_thread.join(timeout=5)
+        assert not contender_thread.is_alive()
+        assert errors == []
+        assert opus_mt.is_pair_installed("en", "es", cache_root=tmp_path / "cache")
+    finally:
+        release.set()
+        holder.join(timeout=5)
+        if holder.is_alive():
+            holder.terminate()
+            holder.join(timeout=5)
+    assert holder.exitcode == 0
+
+
+def test_ensure_pair_installed_cancels_while_same_process_provisioning_waits(
+    tmp_path, monkeypatch
+):
+    """A cancelled row reaches the cancellable file-lock wait immediately."""
+    import httpx
+
+    from frisket.ai.models import artifact_manifest
+    from frisket.engine.jobs import artifact_pull
+
+    files = {"model.bin": b"wa", "source.spm": b"sa", "target.spm": b"ta"}
+    entry = _pinned_pair_entry(files)
+    monkeypatch.setattr(artifact_manifest, "_MANIFEST", {"opus-mt:en-es": entry})
+    provisioning = threading.Event()
+    release = threading.Event()
+    primary_errors: list[BaseException] = []
+
+    def handler(request):
+        if request.url.path.endswith("/model.bin"):
+            provisioning.set()
+            assert release.wait(timeout=5)
+        return httpx.Response(200, content=files[request.url.path.rsplit("/", 1)[-1]])
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+
+    def primary() -> None:
+        try:
+            opus_mt.ensure_pair_installed(
+                "en", "es", cache_root=tmp_path, client=client
+            )
+        except BaseException as exc:  # test reports the primary error below
+            primary_errors.append(exc)
+
+    # realtime: the primary download and cancellation rendezvous through events.
+    primary_thread = threading.Thread(target=primary)
+    primary_thread.start()
+    try:
+        assert provisioning.wait(timeout=5), "primary provision did not begin"
+        cancelled = threading.Event()
+        cancellation_errors: list[BaseException] = []
+
+        def cancelled_contender() -> None:
+            try:
+                opus_mt.ensure_pair_installed(
+                    "en",
+                    "es",
+                    cache_root=tmp_path,
+                    should_cancel=lambda: True,
+                )
+            except artifact_pull.ProvisionCancelled:
+                cancelled.set()
+            except BaseException as exc:  # test reports the unexpected exception below
+                cancellation_errors.append(exc)
+                cancelled.set()
+
+        # realtime: positively observe cancellation while the primary is event-blocked.
+        contender_thread = threading.Thread(target=cancelled_contender)
+        contender_thread.start()
+        assert cancelled.wait(timeout=1), "cancelled contender waited behind a mutex"
+        contender_thread.join(timeout=5)
+        assert not contender_thread.is_alive()
+        assert cancellation_errors == []
+    finally:
+        release.set()
+        primary_thread.join(timeout=5)
+    assert not primary_thread.is_alive()
+    assert primary_errors == []
 
 
 @pytest.mark.asyncio

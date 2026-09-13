@@ -20,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ActionParamResolution, GeneratedActionDraft, GeneratedActionRequest } from '../../src/api/types';
 import { aiMeta, columnDef } from '../support/domainFixtures';
 import { sheetMeta } from '../support/actionFormFixtures';
+import { chooseActionSelector, selectorTrigger } from '../support/selectorChoicesFixture';
 import { installPopoverPolyfill } from '../support/domPolyfills';
 import {
   chooseEngine,
@@ -149,7 +150,6 @@ describe('engine-aware cost gating', () => {
   });
 
   it('shows the SERVER price for the LLM engine and launches unconfirmed', async () => {
-    const user = userEvent.setup();
     const { onExecute, estimateAction } = mountNer({
       estimateAction: async (request) => (
         request.params.engine === 'llm'
@@ -164,11 +164,9 @@ describe('engine-aware cost gating', () => {
       expect(screen.getByTestId('cost-estimate')).toHaveClass('cost-local');
       expect(screen.getByTestId('cost-estimate')).toHaveTextContent('$0.00');
     });
-    expect(screen.getByTestId('model-picker-button')).toBeInTheDocument();
+    await waitFor(() => expect(selectorTrigger()).toBeInTheDocument());
 
-    await user.click(screen.getByTestId('model-picker-button'));
-    await user.type(screen.getByTestId('model-picker-search'), 'test/model');
-    await user.click(await screen.findByTestId('model-option-test-model'));
+    await chooseActionSelector('test/model');
     await waitFor(() => {
       expect(estimateAction).toHaveBeenLastCalledWith(
         expect.objectContaining({ action_id: 'map.ner', params: expect.objectContaining({ engine: 'llm' }) }),
@@ -534,7 +532,7 @@ describe('C4b — an empty selection is invalid', () => {
   it('defaults a new run to spaCy and the five recommended types', async () => {
     const { onExecute } = mountNer();
 
-    expect(screen.getByTestId('model-picker-button')).toHaveTextContent('spaCy');
+    await waitFor(() => expect(selectorTrigger()).toHaveTextContent('spaCy'));
     for (const type of RECOMMENDED_LABELS) {
       expect(screen.getByTestId(`ner-spacy-types-${type}`)).toHaveAttribute('aria-pressed', 'true');
     }

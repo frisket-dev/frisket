@@ -4,7 +4,7 @@
 // state. Kept in a SEPARATE file from LocalServerGuidance.test.tsx so the existing
 // spec — which pins the pull_enabled-absent behavior — never needs editing.
 //
-// Contract (frisket.model_pull.v3):
+// Contract (frisket.model_pull.v4):
 //   - pull_enabled absent/false: render exactly today's copyable command,
 //     no Download button.
 //   - pull_enabled true: a primary "Download qwen3:0.6b" button ABOVE the
@@ -15,7 +15,7 @@
 //     `details.active` — show ITS progress instead of a bare error.
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, screen, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, screen, render } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 
@@ -30,7 +30,7 @@ vi.mock('../../src/api/open', async (importOriginal) => {
 });
 
 import { LocalServerGuidance } from '../../src/components/LocalServerGuidance';
-import { ApiError, startArtifactPull } from '../../src/api/open';
+import { ApiError, getModelPull, startArtifactPull } from '../../src/api/open';
 import type { LocalHttpEndpointEntry, ModelPullDto } from '../../src/api/types';
 
 
@@ -38,6 +38,7 @@ import type { LocalHttpEndpointEntry, ModelPullDto } from '../../src/api/types';
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.useRealTimers();
 });
 
 function entry(overrides: Partial<LocalHttpEndpointEntry>): LocalHttpEndpointEntry {
@@ -64,11 +65,15 @@ function entry(overrides: Partial<LocalHttpEndpointEntry>): LocalHttpEndpointEnt
 }
 
 function activePull(overrides: Partial<ModelPullDto> = {}): ModelPullDto {
+  const status = overrides.status ?? 'running';
   return {
-    schemaVersion: 'frisket.model_pull.v3',
+    schemaVersion: 'frisket.model_pull.v4',
     id: 42,
+    display_name: 'Qwen 3 8B',
+    operation_kind: 'local_model',
+    capabilities: { cancel: status === 'pending' || status === 'running', retry: false, remove: false },
     model: 'ollama/@local-a1b2c3d4e5f6/qwen3:8b',
-    status: 'running',
+    status,
     phase: 'downloading',
     total_bytes: 1000,
     completed_bytes: 400,
@@ -108,12 +113,15 @@ describe('LocalServerGuidance download affordance', () => {
   });
 
   it('pull_enabled true: Download button -> confirm -> start -> inline progress; onRecheck fires on completion', async () => {
+    vi.useFakeTimers();
     const onRecheck = vi.fn();
     const startedPull = activePull({ id: 7, status: 'pending', completed_bytes: null, total_bytes: null });
     (startArtifactPull as unknown as Mock).mockResolvedValue({
       pull: startedPull,
       deduplicated: false,
     });
+
+    vi.mocked(getModelPull).mockResolvedValue(activePull({ id: 7, status: 'done', completed_bytes: 1000, finished_at: '2026-07-16T00:00:02Z' }));
 
     render(
       <LocalServerGuidance
@@ -128,19 +136,24 @@ describe('LocalServerGuidance download affordance', () => {
 
     const downloadBtn = screen.getByTestId('guidance-download');
     expect(downloadBtn).toHaveTextContent(/qwen3:0\.6b/);
-    await userEvent.click(downloadBtn);
+    await act(async () => { fireEvent.click(downloadBtn); });
 
     const confirm = screen.getByTestId('guidance-download-confirm');
     expect(confirm.textContent).toMatch(/about 523 MB/i);
     expect(confirm.textContent).toMatch(/machine running your local server/i);
 
-    await userEvent.click(screen.getByTestId('guidance-download-confirm-yes'));
+    await act(async () => { fireEvent.click(screen.getByTestId('guidance-download-confirm-yes')); });
 
     expect(startArtifactPull).toHaveBeenCalledWith(
       'ollama/@local-a1b2c3d4e5f6/qwen3:0.6b',
     );
     expect(screen.queryByTestId('guidance-download-confirm')).not.toBeInTheDocument();
     expect(screen.getByTestId('model-pull-progress')).toBeInTheDocument();
+    expect(onRecheck).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(getModelPull).toHaveBeenCalledWith(7);
+    expect(screen.getByTestId('model-pull-done')).toBeInTheDocument();
+    expect(onRecheck).toHaveBeenCalledOnce();
   });
 
   it('Cancel on the confirm step returns to the plain Download button', async () => {

@@ -10,6 +10,7 @@ import { DeriveActionForm } from '../../src/components/action-panel/DeriveAction
 import { sheetMeta } from '../support/actionFormFixtures';
 import { columnDef } from '../support/domainFixtures';
 import { servedActionCatalog } from '../support/servedActionCatalog';
+import { installActionSelectorFixture } from '../support/selectorChoicesFixture';
 
 const catalog = servedActionCatalog();
 function entry(kind: string) {
@@ -26,6 +27,7 @@ const sheet = sheetMeta([
 ], { id: '7' });
 
 beforeEach(() => {
+  installActionSelectorFixture(extract);
   vi.spyOn(api, 'listProviders').mockResolvedValue({ schemaVersion: 'frisket.providers.v1', tier: 'local',
     providers: [{ id: 'test', label: 'Test', kind: 'platform_api', configured: true, source: 'env', hint: null,
       models: [{ id: 'test/model', label: 'Test model', price: null }] }] });
@@ -35,7 +37,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 function mount() {
   const onCompositeRun = vi.fn();
   const onExecute = vi.fn();
-  render(<DeriveActionForm catalogEntry={derive} extractEntry={extract}
+  render(<DeriveActionForm projectId="derive-composite-test" catalogEntry={derive} extractEntry={extract}
     actionTemplate={generatedActionTemplateFromCatalogEntry(derive)!} sheet={sheet}
     initialSourceColumn="entities" running={false} onClose={vi.fn()}
     resolveParams={async (request) => ({ diagnostics: {}, logical_outputs:
@@ -82,7 +84,7 @@ it('materializes an existing list column directly without an extraction request'
 it('keeps the list editor without a sheet, but does not invent an AI extraction source', async () => {
   const onExecute = vi.fn();
   const onCompositeRun = vi.fn();
-  render(<DeriveActionForm catalogEntry={derive} extractEntry={extract}
+  render(<DeriveActionForm projectId="derive-composite-test" catalogEntry={derive} extractEntry={extract}
     actionTemplate={generatedActionTemplateFromCatalogEntry(derive)!} sheet={null}
     running={false} onClose={vi.fn()}
     resolveParams={async () => ({ diagnostics: {}, logical_outputs: [], creates_sheet: true })}
@@ -102,7 +104,7 @@ it('preserves an explicit saved list source and custom options without a current
       source: { kind: 'named_result', sheet_id: 7, column_id: 4, run_id: 2, route: 'items', schema: 'item_list' },
       item_schema: { type: 'object', properties: { name: { type: 'string' } } },
     } };
-  render(<DeriveActionForm catalogEntry={derive} extractEntry={extract}
+  render(<DeriveActionForm projectId="derive-composite-test" catalogEntry={derive} extractEntry={extract}
     actionTemplate={generatedActionTemplateFromCatalogEntry(derive)!} sheet={null}
     initialDraft={initialDraft} running={false} onClose={vi.fn()}
     resolveParams={async () => ({ diagnostics: {}, logical_outputs: [], creates_sheet: true })}

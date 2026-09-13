@@ -1,10 +1,10 @@
-import { useEffect, useReducer, useRef, useState } from 'react';
+import { useReducer, useRef, useState } from 'react';
 import { Bot, Send, Play, X, Upload, ChevronDown, ChevronUp } from 'lucide-react';
-import { listProviders, type CopilotProposal } from '../api/open';
+import type { CopilotProposal } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
-import { defaultCopilotModel } from '../actions/model';
 import { MarkdownView } from '../markdown';
-import { ModelPicker } from './ModelPicker';
+import { SelectorField } from '../engine-selector/SelectorField';
+import type { SelectorChoice } from '../api/selectorChoices';
 
 // Copilot is a floating chat UI summoned by the chrome ✧ button — its
 // open/closed state is
@@ -16,9 +16,9 @@ import { ModelPicker } from './ModelPicker';
 // copilot.spec.ts): copilot-panel / copilot-input / copilot-send /
 // copilot-proposal / copilot-run / copilot-inspect.
 
-// User-level preference (not per project): the last model the copilot chatted
-// with. Absent → derive a default from the live provider catalog, mirroring
-// the server's own preference order (defaultCopilotModel).
+// User-level preference (not per project): the last model the user explicitly
+// chose for Copilot. The selector service remains authoritative for whether it
+// is offered, ready, or retained as a blocked saved choice.
 const COPILOT_MODEL_STORAGE_KEY = 'frisket:copilot-model';
 
 function useCopilotModel(): [string | null, (modelId: string) => void] {
@@ -29,20 +29,6 @@ function useCopilotModel(): [string | null, (modelId: string) => void] {
       return null;
     }
   });
-  useEffect(() => {
-    if (model) return undefined;
-    let cancelled = false;
-    listProviders()
-      .then((catalog) => {
-        if (!cancelled) setModel((prev) => prev ?? defaultCopilotModel(catalog));
-      })
-      .catch(() => {
-        if (!cancelled) setModel((prev) => prev ?? defaultCopilotModel(null));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [model]);
   const select = (modelId: string) => {
     setModel(modelId);
     try {
@@ -149,7 +135,7 @@ export function CopilotPanel({
   collapsed?: boolean;
   onCollapsedChange?(collapsed: boolean): void;
 }) {
-  const { projectApi } = useWorkspaceStores();
+  const { projectApi, chromePreferences: { projectId } } = useWorkspaceStores();
   const [state, dispatch] = useReducer(
     copilotReducer,
     undefined,
@@ -158,13 +144,21 @@ export function CopilotPanel({
   const { messages, draft, busy, error, ran } = state;
   const nextMessageId = useRef(1);
   const [model, selectModel] = useCopilotModel();
+  const [selectedChoice, setSelectedChoice] = useState<SelectorChoice | null>(null);
+  const defaultModel = selectedChoice?.authored_selection.kind === 'model'
+    ? selectedChoice.authored_selection.model
+    : null;
+  const requestModel = model ?? defaultModel;
+  const modelCanRun = selectedChoice?.authored_selection.kind === 'model'
+    && selectedChoice.authored_selection.model === requestModel
+    && selectedChoice.can_run;
 
   async function send() {
     const text = draft.trim();
     // !model: sending before the default resolves would fall back to the
     // server default, which can differ from the provider selected by the
     // live catalog.
-    if (!text || busy || !model) return;
+    if (!text || busy || !requestModel || !modelCanRun) return;
     const userMessage: ChatMessage = {
       id: `user-${nextMessageId.current++}`,
       role: 'user',
@@ -175,7 +169,7 @@ export function CopilotPanel({
     try {
       const res = await projectApi.copilotChat(
         history.map((m) => ({ role: m.role, content: m.content })),
-        model,
+        requestModel,
       );
       dispatch({
         type: 'sendSucceeded',
@@ -333,13 +327,19 @@ export function CopilotPanel({
         <span className="copilot-model-label" id="copilot-model-label">
           Model
         </span>
-        {model && (
-          <ModelPicker
-            value={model}
-            onChange={selectModel}
-            ariaLabelledBy="copilot-model-label"
-          />
-        )}
+        <SelectorField
+          projectId={projectId}
+          label="Model"
+          query={{
+            schema_version: 'frisket.selector_choices_query.v1',
+            subject: { kind: 'copilot', ...(model ? { model } : {}) },
+          }}
+          recentNamespace={`${projectId}:copilot`}
+          onSelect={(choice: SelectorChoice) => {
+            if (choice.authored_selection.kind === 'model') selectModel(choice.authored_selection.model);
+          }}
+          onCurrentChoiceChange={setSelectedChoice}
+        />
       </div>
       <div className="copilot-compose">
         <textarea
@@ -363,7 +363,7 @@ export function CopilotPanel({
           className="btn-primary copilot-send-button"
           data-testid="copilot-send"
           onClick={() => void send()}
-          disabled={busy || !draft.trim() || !model}
+          disabled={busy || !draft.trim() || !requestModel || !modelCanRun}
           aria-label="Send"
         >
           <Send size={15} />

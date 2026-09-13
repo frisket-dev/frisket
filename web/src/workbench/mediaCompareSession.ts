@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { ActionCatalogPayload, EngineOption } from '../api/open';
 import type { PreviewSampleResult } from '../api/types';
@@ -8,6 +8,9 @@ import type { ResolvedMediaValue } from '../media/resolveMediaValue';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { useResizable } from '../components/useResizable';
 import { diffWords, type DiffToken } from './ocrDiff';
+import type { SelectorChoice } from '../api/selectorChoices';
+import type { MediaSelectorAction } from './mediaCompareSelector';
+import { useCompareSelectorReadiness } from './useCompareSelectorReadiness';
 
 export type MediaKind = 'pdf' | 'image' | 'audio' | 'video' | 'text';
 export type Vote = 'neutral' | 'keep' | 'reject';
@@ -54,6 +57,7 @@ export interface ScratchDoc<R> {
 }
 
 export interface MediaCompareConfig<R> {
+  selectorActionId: MediaSelectorAction;
   testidPrefix: string;
   accept: string;
   classifyFile(file: File): MediaKind | null;
@@ -108,6 +112,7 @@ export interface DiffModel {
 }
 
 export interface MediaCompareSession<R> {
+  reportColumnChoice(column: CompareColumn, choice: SelectorChoice | null): void;
   catalog: EngineOption[];
   engineLabel(id: string | null): string;
   columns: CompareColumn[];
@@ -183,6 +188,7 @@ export function useMediaCompareSession<R>(
   const [columns, setColumns] = useState<CompareColumn[]>(() =>
     config.defaultEngineIds.map((id) => makeCompareColumn(id, config.defaultColumnOptions)),
   );
+  const { isRunnable, reportColumnChoice } = useCompareSelectorReadiness(projectId, config.selectorActionId, columns);
   const [docs, setDocs] = useState<ScratchDoc<R>[]>([]);
   const [activeDocId, setActiveDocId] = useState<string | null>(null);
   const [mode, setMode] = useState<'diff' | 'survey'>('diff');
@@ -265,15 +271,25 @@ export function useMediaCompareSession<R>(
     () => {
       const runnableEngineIds = new Set(
         catalog
-          .filter((engine) => engine.available !== false)
           .map((engine) => engine.id),
       );
       return columns.filter(
-        (column) => column.engineId && runnableEngineIds.has(column.engineId),
+        (column) => column.engineId && runnableEngineIds.has(column.engineId)
+          && isRunnable(column),
       );
     },
-    [catalog, columns],
+    [catalog, columns, isRunnable],
   );
+  const currentRunnable = useRef({ projectId, columns: runnableColumns });
+  useLayoutEffect(() => {
+    currentRunnable.current = { projectId, columns: runnableColumns };
+  }, [projectId, runnableColumns]);
+  const isCurrentlyRunnable = useCallback((column: CompareColumn, scope: typeof projectId) => {
+    if (currentRunnable.current.projectId !== scope) return false;
+    const current = currentRunnable.current.columns.find((item) => item.id === column.id);
+    return current !== undefined && current.engineId === column.engineId
+      && JSON.stringify(current.options) === JSON.stringify(column.options);
+  }, []);
 
   const activeDoc = useMemo(
     () => docs.find((doc) => doc.id === activeDocId) ?? docs[0] ?? null,
@@ -311,7 +327,7 @@ export function useMediaCompareSession<R>(
   const runColumnForDoc = useCallback(
     async (doc: ScratchDoc<R>, column: CompareColumn, signal: AbortSignal) => {
       const engineId = column.engineId;
-      if (!engineId) {
+      if (!engineId || !isCurrentlyRunnable(column, projectId)) {
         bumpProgress(signal);
         return;
       }
@@ -347,7 +363,7 @@ export function useMediaCompareSession<R>(
         bumpProgress(signal);
       }
     },
-    [catalog, config, setRunState, bumpProgress],
+    [catalog, config, setRunState, bumpProgress, isCurrentlyRunnable, projectId],
   );
 
   const pendingPairs = useMemo(
@@ -414,6 +430,7 @@ export function useMediaCompareSession<R>(
     (requestedPairs: Array<{ doc: ScratchDoc<R>; column: CompareColumn }>) => {
       if (requestedPairs.length === 0 || activeBatch.current) return;
       const pairs = [...requestedPairs];
+      if (!pairs.every(({ column }) => isCurrentlyRunnable(column, projectId))) return;
       const controller = new AbortController();
       const batch = { controller, pairs };
       activeBatch.current = batch;
@@ -425,6 +442,9 @@ export function useMediaCompareSession<R>(
             setPreparing(false);
             if (!approved || controller.signal.aborted) return;
           }
+          // Cost preparation belongs to this exact variant snapshot. Draft edits
+          // or refreshed readiness can retire it while the user reviews the quote.
+          if (!pairs.every(({ column }) => isCurrentlyRunnable(column, projectId))) return;
           setRunProgress({ done: 0, total: pairs.length });
           if (config.sequential) {
             for (const { doc, column } of pairs) {
@@ -447,7 +467,7 @@ export function useMediaCompareSession<R>(
         }
       })();
     },
-    [config, runColumnForDoc],
+    [config, runColumnForDoc, isCurrentlyRunnable, projectId],
   );
 
   const runPending = useCallback(() => runPairs(pendingPairs), [runPairs, pendingPairs]);
@@ -746,6 +766,7 @@ export function useMediaCompareSession<R>(
   );
 
   return {
+    reportColumnChoice,
     catalog,
     engineLabel,
     columns,

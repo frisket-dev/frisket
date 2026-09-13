@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 //
 // P6: ModelPullProgress offers an Uninstall action for a completed ARTIFACT
-// pull (opus-mt:/hf:, i.e. pull.artifact != null) and renders the distinct
-// `uninstalled` terminal state. Ollama pulls (artifact == null) show no
-// uninstall button (the daemon manages those).
+// pull with a backend-declared remove capability and renders the distinct
+// `uninstalled` terminal state. Daemon-managed Ollama pulls have no remove
+// capability and show no uninstall button.
 
 import '@testing-library/jest-dom/vitest';
 import { act, cleanup, fireEvent, screen, render } from '@testing-library/react';
@@ -27,7 +27,14 @@ import type { ModelPullDto } from '../../src/api/types';
 
 function donePull(overrides: Partial<ModelPullDto>): ModelPullDto {
   return {
+    schemaVersion: 'frisket.model_pull.v4',
     id: 5,
+    display_name: 'OPUS-MT English to Spanish',
+    operation_kind: 'artifact',
+    capabilities: { cancel: false, retry: false, remove: (overrides.status ?? 'done') === 'done' },
+    endpoint_id: null,
+    endpoint_origin: null,
+    initiated_by: null,
     model: 'opus-mt:en-es',
     status: 'done',
     phase: 'done',
@@ -66,7 +73,7 @@ describe('ModelPullProgress uninstall', () => {
 
   it('shows no uninstall button for an ollama pull (artifact == null)', () => {
     render(
-      <ModelPullProgress pull={donePull({ model: 'llama3:8b', artifact: null })} />,
+      <ModelPullProgress pull={donePull({ model: 'llama3:8b', display_name: 'Llama 3 8B', operation_kind: 'local_model', artifact: null, capabilities: { cancel: false, retry: false, remove: false } })} />,
     );
     expect(screen.queryByTestId('model-pull-uninstall')).toBeNull();
   });

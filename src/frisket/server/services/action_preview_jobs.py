@@ -46,6 +46,7 @@ class PreviewJob:
     finished_at: float | None = None
     receipt: Receipt | None = None
     on_finished: PreviewFinished | None = None
+    preparation_message: str | None = None
 
 
 class ActionPreviewJobRegistry:
@@ -74,6 +75,7 @@ class ActionPreviewJobRegistry:
         *,
         receipt: Receipt | None = None,
         on_finished: PreviewFinished | None = None,
+        preparation_message: str | None = None,
     ) -> PreviewJob:
         """Cancel and join the prior same-project job, then start its successor.
 
@@ -105,6 +107,7 @@ class ActionPreviewJobRegistry:
             job = PreviewJob(
                 receipt=receipt,
                 on_finished=on_finished,
+                preparation_message=preparation_message,
                 id=uuid.uuid4().hex,
                 project_id=project_id,
                 total=total,

@@ -442,6 +442,12 @@ class ActionRunMissingQueue(WireModel):
     status: Literal["missing"]
 
 
+class ActionPreparationHint(WireModel):
+    """Indeterminate copy from an active action's existing execution facts."""
+
+    message: str
+
+
 class ActionRunPublicStatus(WireModel):
     run_id: int
     action_kind: str
@@ -462,6 +468,7 @@ class ActionRunPublicStatus(WireModel):
     halted_reason: str | None = None
     error: str | None = None
     row_errors: RunRowErrorSummary | None = None
+    preparation: ActionPreparationHint | None = None
 
 
 class ActionJobProgress(ActionRunPublicStatus):
