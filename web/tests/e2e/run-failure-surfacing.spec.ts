@@ -52,7 +52,7 @@ test('a failing census run surfaces a non-empty error toast (never an empty red 
   await page.goto(`/p/${pid}/s/${sheetId}`);
   await openAction(page, 'enrich.census_demographics');
   await expect(page.getByTestId('generated-action-form')).toBeVisible();
-  await expect(page.getByRole('combobox', { name: 'Geo point column' })).toHaveValue('point');
+  await expect(page.getByRole('combobox', { name: 'Location' })).toHaveValue('point');
   await page.getByTestId('generated-action-run').click();
 
   const toast = page.getByTestId('error-toast');

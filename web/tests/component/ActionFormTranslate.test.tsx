@@ -132,9 +132,9 @@ describe('translate form', () => {
     mountTranslate();
     const form = screen.getByTestId('generated-action-form');
 
-    // The source label is "Content to translate" — "Translate from" labels the
+    // The source label is "Content" — "Translate from" labels the
     // source-LANGUAGE picker instead (asserted below via its own testid).
-    expect(within(form).getByText('Content to translate')).toBeVisible();
+    expect(within(form).getByText('Content')).toBeVisible();
     expect(within(form).queryByText('Target column')).not.toBeInTheDocument();
     expect(within(form).queryByTestId('output-fields-label')).not.toBeInTheDocument();
     expect(within(form).queryByTestId('target-column-select')).not.toBeInTheDocument();
@@ -156,7 +156,7 @@ describe('translate form', () => {
 
     // One destination, named after the resolved translation output.
     const destination = await within(form).findByTestId('field-output-translation');
-    expect(destination).toHaveAccessibleName('Save to');
+    expect(destination).toHaveAccessibleName('Result');
     expect(destination).toHaveValue('translation');
     expect(within(form).queryByTestId('field-output-detected_language')).not.toBeInTheDocument();
     await user.clear(destination);

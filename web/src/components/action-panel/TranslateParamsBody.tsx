@@ -37,7 +37,7 @@ export function TranslateParamsBody({ params, setParams, engine, errors, Field }
   };
 
   return <>
-    <Field name="source" label="Content to translate" />
+    <Field name="source" label="Content" />
     <Field name="engine" />
     {selectedEngine === 'opus_mt' ? <TranslatePairPicker
       installedPairs={engine?.models ?? []}

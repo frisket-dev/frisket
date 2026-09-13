@@ -17,7 +17,7 @@ export function PageCaptureParamsBody({ params, setParams, errors, Field }:
           { value: 'links', label: 'Links only', description: 'Create one child-sheet row per unique page link' },
         ]} />
     </label>
-    <Field name="source" label="Page links come from" />
+    <Field name="source" label="URL" />
     <p className="form-hint">{mode === 'links'
       ? 'Each unique HTTP(S) link becomes a row with its anchor text and source-row lineage.'
       : 'The column holding the URLs you want to snapshot.'}</p>

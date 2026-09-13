@@ -43,7 +43,7 @@ test('census demographics filters source choices to geo_point columns', async ({
 
   await page.goto(`/p/${pid}`);
   await openAction(page, 'enrich.census_demographics');
-  const select = page.getByRole('combobox', { name: 'Geo point column' });
+  const select = page.getByRole('combobox', { name: 'Location' });
   await expect(select).toBeVisible();
   await expect(select).toHaveValue('point');
   await expect(select.locator('option')).toHaveCount(1);

@@ -26,7 +26,7 @@ export function OcrParamsBody({ params, setParams, engine, Field }:
     }
   }, [engine, params, setParams]);
   return <>
-    <Field name="source" label="Image or document column" />
+    <Field name="source" label="Document" />
     <Field name="engine" />
     {engine?.language ? <EngineLanguageControl declaration={engine.language}
       value={typeof params.language === 'string' ? params.language : ''} fixedNoun="reads" testIdPrefix="ocr"
@@ -88,7 +88,7 @@ export function TranscribeParamsBody({ params, setParams, setEditorProblem, engi
     return () => setEditorProblem?.(null);
   }, [setEditorProblem, unsupportedSavedOption]);
   return <>
-    <Field name="source" label="Audio or video column" />
+    <Field name="source" label="Media" />
     <Field name="engine" />
     {unavailableReason && <p className="form-hint" data-testid="transcribe-option-availability">{unavailableReason}</p>}
     {unsupportedSavedKeys.length > 0 && <button type="button" className="btn"
