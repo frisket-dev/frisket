@@ -80,8 +80,12 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $installers = @(Get-ChildItem desktop/dist -Filter '*.exe' -File)
           if ($installers.Count -ne 1) { throw "Expected one NSIS installer, found $($installers.Count)." }
-          Start-Process -FilePath $installers[0].FullName -ArgumentList '/S' -Wait
-          $app = Join-Path $env:LOCALAPPDATA 'Programs\Frisket Desktop\Frisket Desktop.exe'
+          $installation = Start-Process -FilePath $installers[0].FullName -ArgumentList '/S' -Wait -PassThru
+          if ($installation.ExitCode -ne 0) {
+            throw "NSIS installer $($installers[0].Name) failed with exit code $($installation.ExitCode)."
+          }
+          # electron-builder uses package.name for the one-click per-user folder.
+          $app = Join-Path $env:LOCALAPPDATA 'Programs\frisket-desktop\Frisket Desktop.exe'
           if (-not (Test-Path -LiteralPath $app -PathType Leaf)) {
             throw "NSIS installer did not create expected per-user executable: $app"
           }
@@ -280,8 +284,15 @@ jobs:
           & desktop/scripts/verify-signature.ps1 -Paths @($installers[0].FullName) -PublisherName $env:EXPECTED_PUBLISHER
           $build = Get-Content desktop/resources/build.json -Raw | ConvertFrom-Json
           if ($build.revision -ne $env:GITHUB_SHA) { throw 'Signed artifact revision does not match this dispatch.' }
-          Start-Process -FilePath $installers[0].FullName -ArgumentList '/S' -Wait
-          $app = Join-Path $env:LOCALAPPDATA 'Programs\Frisket Desktop\Frisket Desktop.exe'
+          $installation = Start-Process -FilePath $installers[0].FullName -ArgumentList '/S' -Wait -PassThru
+          if ($installation.ExitCode -ne 0) {
+            throw "NSIS installer $($installers[0].Name) failed with exit code $($installation.ExitCode)."
+          }
+          # electron-builder uses package.name for the one-click per-user folder.
+          $app = Join-Path $env:LOCALAPPDATA 'Programs\frisket-desktop\Frisket Desktop.exe'
+          if (-not (Test-Path -LiteralPath $app -PathType Leaf)) {
+            throw "NSIS installer did not create expected per-user executable: $app"
+          }
           & desktop/scripts/verify-signature.ps1 -Paths @($app) -PublisherName $env:EXPECTED_PUBLISHER
           $installedBuild = Get-Content (Join-Path (Split-Path $app) 'resources/build.json') -Raw | ConvertFrom-Json
           if ($installedBuild.revision -ne $env:GITHUB_SHA) { throw 'Installed application revision does not match this dispatch.' }
