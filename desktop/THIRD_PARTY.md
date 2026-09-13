@@ -21,8 +21,9 @@ The native archive versions, download URLs and SHA-256 digests are recorded in
   Source: https://github.com/electron/electron/tree/v44.3.0
 
 Private Python and Python packages are downloaded on first launch. Their licenses
-and package metadata remain with that managed runtime. The following model weights
-are redistributed in the bundled default local cache. The persistent cache may
+and package metadata remain with that managed runtime. Whisper, VAD and RapidOCR
+weights are redistributed in the bundled cache; Parakeet is downloaded separately
+when requested through the engine selector. The persistent cache may
 also hold user-provisioned models, which are not covered by these notices. This
 beta does not bundle GPU model weights or a GPU runtime.
 

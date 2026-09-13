@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Populate the installed beta's OCR and ASR caches during networked setup."""
+"""Stage OCR, Whisper and VAD caches; Parakeet downloads through the UI."""
 
 from __future__ import annotations
 
@@ -27,7 +27,6 @@ def main() -> None:
     resolved: dict[str, str] = {"rapidocr": "ready"}
     for label, getter in (
         ("whisper", artifact_manifest.whisper_base_artifact),
-        ("parakeet", artifact_manifest.parakeet_model_artifact),
         ("vad", artifact_manifest.parakeet_vad_artifact),
     ):
         entry = getter()

@@ -1,9 +1,12 @@
 // Networked artifact setup, deliberately separate from the offline app tests.
 import { execFile as execFileCallback } from 'node:child_process';
-import { cp, rm } from 'node:fs/promises';
+import { cp, mkdir, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { setTimeout as delay } from 'node:timers/promises';
+import { startBackend } from '../src/backend.mjs';
+import { authenticatedHeaders } from '../src/protocol.mjs';
 import { prepareRuntime } from '../src/provision.mjs';
 
 const execFile = promisify(execFileCallback);
@@ -27,7 +30,7 @@ if (stageModels) {
   const modelPrewarm = path.join(here, 'prewarm-models.py');
   try {
     const { stdout } = await execFile(runtime.python, [
-      '-I', guard, String(process.pid), '2', runtime.python, '-I', modelPrewarm,
+      '-I', '-B', guard, String(process.pid), '2', runtime.python, '-I', '-B', modelPrewarm,
       path.join(resourcesPath, 'python'),
     ], {
       env: { ...runtime.env, HF_HUB_DISABLE_PROGRESS_BARS: '1' },
@@ -54,13 +57,53 @@ if (stageModels) {
     }
   }
 } else {
-  // The installed-app CI warmup may prepare Python and Chromium over the
-  // network, but its sealed first launch must prove that the app bundle seeds
-  // the model cache itself.
+  // This branch runs only in installed-app CI, never during ordinary startup.
+  // Bundled models must seed themselves again on first launch. Parakeet must
+  // instead be downloaded through the same durable setup operation as the UI.
+  const bundled = await readdir(path.join(resourcesPath, 'model-cache', 'huggingface'));
+  if (bundled.some((name) => name.toLowerCase().includes('parakeet'))) {
+    throw new Error('Parakeet weights must not be bundled in the app.');
+  }
   await Promise.all([
     rm(path.join(dataPath, 'cache', 'huggingface'), { recursive: true, force: true }),
     rm(path.join(dataPath, 'cache', 'models', 'rapidocr'), { recursive: true, force: true }),
   ]);
+  const workspace = path.join(dataPath, 'workspace');
+  await mkdir(workspace, { recursive: true });
+  let backendFailure;
+  const backend = await startBackend({
+    runtime, resourcesPath, workspace,
+    onFailure: (error) => { backendFailure = error; },
+  });
+  try {
+    const request = async (endpoint, options = {}) => {
+      const response = await fetch(`http://${backend.host}:${backend.port}${endpoint}`, {
+        ...options,
+        headers: authenticatedHeaders({ 'Content-Type': 'application/json' }, backend.token),
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!response.ok) throw new Error(`Parakeet setup returned HTTP ${response.status}.`);
+      return response.json();
+    };
+    process.stdout.write('Downloading Parakeet into the test profile through model setup…\n');
+    let { pull } = await request('/api/providers/models/setup', {
+      method: 'POST',
+      body: JSON.stringify({ setup_ref: 'engine-setup:parakeet-tdt.local-onnx@1' }),
+    });
+    const deadline = Date.now() + 30 * 60 * 1000;
+    while (pull.status !== 'done') {
+      if (backendFailure) throw backendFailure;
+      if (['failed', 'cancelled'].includes(pull.status)) {
+        throw new Error(`Parakeet setup ${pull.status}: ${pull.error_message || 'no detail'}`);
+      }
+      if (Date.now() >= deadline) throw new Error('Parakeet setup timed out.');
+      await delay(1_000);
+      pull = await request(`/api/providers/models/pulls/${pull.id}`);
+    }
+    process.stdout.write('Parakeet downloaded; native checks will run offline.\n');
+  } finally {
+    await backend.stop();
+  }
 }
 // Keep only downloaded interpreters/packages/browsers, not a completed venv.
 await rm(path.join(dataPath, 'runtimes'), { recursive: true, force: true });
