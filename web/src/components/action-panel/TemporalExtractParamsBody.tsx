@@ -59,7 +59,7 @@ export function TemporalExtractParamsBody({ sheet, params, setParams, request, F
           } else updateRange(start, end);
         }} />
     </div>
-    {fromColumn ? <label className="field-group"><span className="field-labels">Time-range column</span>
+    {fromColumn ? <label className="field-group"><span className="field-labels">Time range</span>
       <PanelSelect className="form-input" data-testid="extract-range-column-select"
         value={selectedColumn?.name ?? ''} onChange={(event) => setParams({ ...params,
           selection: { kind: 'column', column: event.target.value } })}>

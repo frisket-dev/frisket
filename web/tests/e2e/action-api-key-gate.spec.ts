@@ -27,7 +27,7 @@ test('census enrichment shows a needs-credential banner with a Settings deep lin
   // The fixture has a valid geo_point source, so the accepted catalog's
   // missing credential is the sole readiness blocker. The controller-owned
   // reason must disable both preview and run before any backend round trip.
-  await expect(page.getByRole('combobox', { name: 'Geo point column' })).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'Location' })).toBeVisible();
   await expect(page.getByTestId('generated-action-run')).toBeDisabled();
   await expect(page.getByTestId('generated-action-preview')).toBeDisabled();
   await expect(page.getByTestId('generated-action-run')).toHaveAttribute('title', /CENSUS_API_KEY|credential/i);

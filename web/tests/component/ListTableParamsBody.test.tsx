@@ -63,5 +63,5 @@ it('hydrates saved properties and replaces raw text when the parent resets the s
   expect(input).toHaveValue('name');
   fireEvent.click(screen.getByText('Load another source'));
   expect(input).toHaveValue('title, url');
-  expect(screen.getByLabelText('List column to materialize')).toHaveValue('44');
+  expect(screen.getByLabelText('List')).toHaveValue('44');
 });

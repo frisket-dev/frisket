@@ -78,6 +78,56 @@ async function choose(engine: EngineOption) {
 }
 
 describe('typed OCR/transcription forms', () => {
+  it('uses the empty source picker as the required-column guidance without repeating its validation', async () => {
+    const message = 'value must be non-empty and trimmed';
+    form('media.ocr', {
+      columns: [columnDef({ id: '1', name: 'notes', type: 'text' })],
+      diagnostics: { source: { ok: false, message } },
+    });
+
+    await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeDisabled());
+    expect(screen.getByTestId('field-source')).toHaveTextContent('No items found');
+    expect(screen.queryByTestId('field-source-error')).not.toBeInTheDocument();
+    expect(screen.queryByText(message)).not.toBeInTheDocument();
+  });
+
+  it('keeps a populated source diagnostic on its source field without repeating it by outputs', async () => {
+    const message = 'The selected source is no longer available.';
+    form('media.ocr', { diagnostics: { source: { ok: false, message } } });
+
+    const sourceError = await screen.findByTestId('field-source-error');
+    expect(sourceError).toHaveTextContent(message);
+    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
+  });
+
+  it('keeps a stale selected source diagnostic visible when no replacement is eligible', async () => {
+    const message = 'The selected source is no longer available.';
+    form('media.ocr', {
+      columns: [columnDef({ id: '1', name: 'notes', type: 'text' })],
+      initialDraft: saved('media.ocr', { engine: 'rapidocr' }, { text: 'Words', blocks: 'Bounds' }),
+      diagnostics: { source: { ok: false, message } },
+    });
+
+    expect(await screen.findByTestId('field-source-error')).toHaveTextContent(message);
+    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
+  });
+
+  it('keeps a global validation error visible when an empty picker suppresses its source error', async () => {
+    const sourceMessage = 'value must be non-empty and trimmed';
+    const globalMessage = 'The action is unavailable.';
+    form('media.ocr', {
+      columns: [columnDef({ id: '1', name: 'notes', type: 'text' })],
+      diagnostics: {
+        source: { ok: false, message: sourceMessage },
+        __all__: { ok: false, message: globalMessage },
+      },
+    });
+
+    expect(await screen.findByText(globalMessage)).toBeVisible();
+    expect(screen.queryByText(sourceMessage)).not.toBeInTheDocument();
+    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
+  });
+
   it.each([{ selectedRowIds: [] }, { selectedRowIds: ['3', '8'] }])('opens upload OCR comparison without requiring one selected project row (%j)', ({ selectedRowIds }) => {
     const { onOpenOcrCompare, onExecute } = form('media.ocr', { columns: [], selectedRowIds });
     expect(screen.getByTestId('ocr-compare-open')).toBeEnabled();
@@ -130,6 +180,8 @@ describe('typed OCR/transcription forms', () => {
       columnDef({ id: '3', name: 'ocr_text', type: 'text' })] });
     expect(screen.getByTestId('field-searchable_pdf')).not.toBeChecked();
     await screen.findByTestId('field-output-prefix');
+    expect(screen.getByLabelText('Document')).toHaveValue('scan');
+    expect(screen.getByLabelText('Text result')).toHaveValue('ocr_text_2');
     expect(screen.getByTestId('field-output-prefix')).toHaveValue('ocr_text_2');
     expect(screen.queryByTestId('field-output-text')).not.toBeInTheDocument();
     expect(screen.queryByTestId('field-output-blocks')).not.toBeInTheDocument();
@@ -356,6 +408,7 @@ describe('typed OCR/transcription forms', () => {
     });
     await waitFor(() => expect(resolveParams).toHaveBeenCalled());
     expect(resolveParams.mock.calls[0][0].params.language).toEqual(language);
+    expect(screen.getAllByText('Invalid language value.')[0]).toBeVisible();
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
     expect(onExecute).not.toHaveBeenCalled();
   });
