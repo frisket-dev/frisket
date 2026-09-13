@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import tomllib
@@ -124,7 +125,7 @@ def prepare(*, skip_web_build: bool = False, platform: str = "darwin") -> None:
         p["version"] for p in lock["package"] if p["name"] == "playwright"
     )
     if not skip_web_build:
-        run("python3", "scripts/release/build_frontend.py")
+        run(sys.executable, "scripts/release/build_frontend.py")
     if not (ROOT / "src/frisket/web_static/index.html").is_file():
         raise SystemExit(
             "Build and stage the local web UI before packaging the desktop app"
