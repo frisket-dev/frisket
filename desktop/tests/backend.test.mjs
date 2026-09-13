@@ -21,7 +21,7 @@ test('startup message carries an absolute workspace and appends bounded diagnost
   assert.throws(() => healthUrl('localhost', 3000));
 });
 
-test('backend launches through guardian, authenticates health, and waits for guardian close', async () => {
+test('backend launches through guardian, authenticates health, and waits for guardian close', { skip: process.platform === 'win32' }, async () => {
   let call;
   const child = new EventEmitter();
   child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
@@ -44,7 +44,7 @@ test('backend launches through guardian, authenticates health, and waits for gua
   assert.equal(child.signal, 'SIGTERM');
 });
 
-test('failed startup waits for guardian acknowledgement before allowing a retry', async () => {
+test('failed startup waits for guardian acknowledgement before allowing a retry', { skip: process.platform === 'win32' }, async () => {
   const child = new EventEmitter();
   child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
   child.stdin = new EventEmitter(); child.stdin.end = () => {};
@@ -66,7 +66,7 @@ test('cleanup proof rejects killed guardians and accepts only the shared TERM ex
   assert.equal(cleanupProved(null, 'SIGABRT'), false);
 });
 
-test('an already-dead SIGKILL guardian cannot be returned as a ready backend', async () => {
+test('an already-dead SIGKILL guardian cannot be returned as a ready backend', { skip: process.platform === 'win32' }, async () => {
   const child = new EventEmitter();
   child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
   child.stdin = new EventEmitter(); child.stdin.end = () => {};
@@ -78,7 +78,7 @@ test('an already-dead SIGKILL guardian cannot be returned as a ready backend', a
   }), /cleanup could not be proven/);
 });
 
-test('oversized readiness output is rejected instead of accepting a truncated suffix', async () => {
+test('oversized readiness output is rejected instead of accepting a truncated suffix', { skip: process.platform === 'win32' }, async () => {
   const child = new EventEmitter();
   child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
   child.stdin = new EventEmitter(); child.stdin.end = () => {};

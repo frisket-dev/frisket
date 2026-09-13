@@ -3,6 +3,8 @@ import { constants as fsConstants, promises as fs } from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { CleanupError } from './errors.mjs';
+import { executablePath, privatePythonPath, assertSupportedPlatform } from './platform.mjs';
+import { spawnWindowsOwned, requestWindowsStop } from './windows-owned.mjs';
 
 const MARKER = '.frisket-runtime-ready.json';
 const TAIL_LIMIT = 8_192;
@@ -45,7 +47,7 @@ export async function prepareRuntime({ resourcesPath, dataPath, onProgress = () 
     return { python, env };
   }
 
-  const uv = path.join(resources, 'bin', 'uv');
+  const uv = executablePath(resources, 'uv');
   const bootstrap = path.join(resources, 'python', 'frisket', 'runtime', '_bootstrap.py');
   const guard = path.join(resources, 'python', 'frisket', 'runtime', '_guard.py');
   const wasIncomplete = await exists(environmentPath);
@@ -56,19 +58,19 @@ export async function prepareRuntime({ resourcesPath, dataPath, onProgress = () 
 
   onProgress({ phase: 'runtime', message: 'Downloading the app runtime…' });
   await run(uv, ['python', 'install', manifest.pythonVersion, '--managed-python', '--no-bin', '--no-config'], {
-    label: 'installing private Python', env, signal,
+    label: 'installing private Python', env, signal, resourcesPath: resources,
   });
 
   onProgress({ phase: 'runtime', message: wasIncomplete ? 'Resuming setup…' : 'Preparing the app runtime…' });
   const venvArgs = ['venv', environmentPath, '--python', manifest.pythonVersion, '--managed-python', '--no-config'];
   if (wasIncomplete) venvArgs.push('--clear');
-  await run(uv, venvArgs, { label: 'creating private Python environment', env, signal });
+  await run(uv, venvArgs, { label: 'creating private Python environment', env, signal, resourcesPath: resources });
   await assertFile(python, 'private Python');
 
   // Once a venv exists, the bundled guardian owns each child process group.
-  const guarded = (command, args, label) => run(python, ['-I', guard, String(process.pid), GUARD_GRACE_SECONDS, command, ...args], {
-    label, env, signal,
-  });
+  const guarded = (command, args, label) => process.platform === 'win32'
+    ? run(command, args, { label, env, signal, resourcesPath: resources })
+    : run(python, ['-I', guard, String(process.pid), GUARD_GRACE_SECONDS, command, ...args], { label, env, signal });
   onProgress({ phase: 'dependencies', message: 'Setting up included local models…' });
   await seedBundledModelCaches(resources, data, signal);
   onProgress({ phase: 'dependencies', message: 'Installing app components…' });
@@ -86,21 +88,12 @@ export async function prepareRuntime({ resourcesPath, dataPath, onProgress = () 
 }
 
 function pythonPath(environmentPath) {
-  return path.join(environmentPath, 'bin', 'python');
+  return privatePythonPath(environmentPath);
 }
 
 function runtimeId(manifest) {
   const identity = [manifest.pythonVersion, manifest.requirementsSha256, manifest.uvVersion, process.platform, process.arch].join('\0');
   return `runtime-${createHash('sha256').update(identity).digest('hex').slice(0, 24)}`;
-}
-
-function assertSupportedPlatform() {
-  if (process.platform === 'darwin' && process.arch !== 'arm64') {
-    throw new Error('Frisket desktop requires Apple Silicon on macOS.');
-  }
-  if (process.platform !== 'darwin' && process.platform !== 'linux') {
-    throw new Error(`Unsupported desktop runtime platform: ${process.platform}/${process.arch}`);
-  }
 }
 
 async function readManifest(filename) {
@@ -136,13 +129,11 @@ async function verifyRequirements(filename, expected) {
 
 async function verifyResources(resources) {
   const required = [
-    path.join(resources, 'bin', 'uv'),
-    path.join(resources, 'bin', 'ffmpeg'),
-    path.join(resources, 'bin', 'ffprobe'),
-    path.join(resources, 'bin', 'deno'),
+    ...['uv', 'ffmpeg', 'ffprobe', 'deno'].map((name) => executablePath(resources, name)),
     path.join(resources, 'python', 'frisket', 'runtime', '_bootstrap.py'),
     path.join(resources, 'python', 'frisket', 'runtime', '_guard.py'),
   ];
+  if (process.platform === 'win32') required.push(path.join(resources, 'python', 'frisket', 'runtime', '_guard_windows.ps1'));
   await Promise.all(required.map((filename) => assertFile(filename, 'bundled runtime resource')));
 }
 
@@ -234,6 +225,8 @@ async function publishMissingModelFile(source, destination, signal) {
 
 async function publishMissingModelLink(source, destination, signal) {
   throwIfAborted(signal);
+  // Ordinary Windows users need no Developer Mode privilege to seed weights.
+  if (process.platform === 'win32') return publishMissingModelFile(source, destination, signal);
   try {
     await fs.symlink(await fs.readlink(source), destination);
   } catch (error) {
@@ -303,7 +296,7 @@ function backendEnvironment({ resources, data, environmentPath, manifest }) {
   env.UV_PYTHON_INSTALL_DIR = path.join(data, 'python');
   if (process.env.UV_OFFLINE !== undefined) env.UV_OFFLINE = process.env.UV_OFFLINE;
   env.PLAYWRIGHT_BROWSERS_PATH = path.join(cache, 'playwright', manifest.playwrightVersion);
-  env.FRISKET_FFPROBE_PATH = path.join(resourcesBin, 'ffprobe');
+  env.FRISKET_FFPROBE_PATH = executablePath(resources, 'ffprobe');
   env.FRISKET_MODEL_CACHE_DIR = path.join(cache, 'models');
   env.HF_HUB_CACHE = path.join(cache, 'huggingface');
   env.FASTEMBED_CACHE_PATH = path.join(cache, 'fastembed');
@@ -313,7 +306,7 @@ function backendEnvironment({ resources, data, environmentPath, manifest }) {
 
 function cleanChildEnvironment() {
   const env = {};
-  for (const name of ['HOME', 'TMPDIR', 'TEMP', 'TMP', 'LANG', 'LC_ALL', 'SYSTEMROOT', 'WINDIR']) {
+  for (const name of ['HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'TMPDIR', 'TEMP', 'TMP', 'LANG', 'LC_ALL', 'SYSTEMROOT', 'WINDIR']) {
     if (process.env[name] !== undefined) env[name] = process.env[name];
   }
   return env;
@@ -359,15 +352,18 @@ function appendTail(current, chunk) {
   return next.length > TAIL_LIMIT ? next.slice(-TAIL_LIMIT) : next;
 }
 
-function run(command, args, { label, env, signal }) {
+async function run(command, args, { label, env, signal, resourcesPath }) {
   throwIfAborted(signal);
+  const windows = process.platform === 'win32';
+  const child = windows
+    ? await spawnWindowsOwned(command, args, { resourcesPath, env, stdio: ['ignore', 'pipe', 'pipe'] })
+    : spawn(command, args, { env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
   return new Promise((resolve, reject) => {
     let output = '';
     let aborted = false;
     let forcedCleanup = false;
     let settled = false;
     let forceTimer;
-    const child = spawn(command, args, { env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
     const clearForceTimer = () => {
       if (forceTimer) clearTimeout(forceTimer);
       forceTimer = undefined;
@@ -375,6 +371,16 @@ function run(command, args, { label, env, signal }) {
     const cancel = () => {
       aborted = true;
       if (child.pid) {
+        if (windows) {
+          requestWindowsStop(child).catch(() => {
+            if (child.exitCode === null) rejectOnce(new CleanupError('Private runtime cancellation could not prove process cleanup.'));
+          });
+          forceTimer = setTimeout(() => {
+            forcedCleanup = true;
+            child.kill();
+          }, 12_000).unref();
+          return;
+        }
         try {
           process.kill(-child.pid, 'SIGTERM');
         } catch (error) {
@@ -399,11 +405,12 @@ function run(command, args, { label, env, signal }) {
     child.stdout.on('data', (chunk) => { output = appendTail(output, chunk); });
     child.stderr.on('data', (chunk) => { output = appendTail(output, chunk); });
     child.once('error', (error) => rejectOnce(new Error(`Private runtime failed while ${label}: ${redact(error.message)}`)));
-    child.once('close', (code, childSignal) => {
+    child.once('close', async (code, childSignal) => {
       if (settled) return;
       settled = true;
       clearForceTimer();
       signal?.removeEventListener('abort', cancel);
+      if (windows && !await child.windowsCleanupProof) return reject(new CleanupError('Private runtime could not prove process cleanup.'));
       if (aborted || signal?.aborted) {
         if (forcedCleanup) return reject(new CleanupError('Private runtime cancellation could not prove process cleanup.'));
         return reject(abortError());

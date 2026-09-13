@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { spawn as nodeSpawn } from 'node:child_process';
 import path from 'node:path';
 import { CleanupError } from './errors.mjs';
+import { spawnWindowsOwned, requestWindowsStop } from './windows-owned.mjs';
 
 const READY_TIMEOUT_MS = 20_000;
 const STOP_TIMEOUT_MS = 10_000;
@@ -68,7 +69,11 @@ export async function startBackend(options) {
   const guard = path.join(resourcesPath, 'python', 'frisket', 'runtime', '_guard.py');
   const bootstrap = path.join(resourcesPath, 'python', 'frisket', 'runtime', '_bootstrap.py');
   const token = randomBytes(32).toString('hex');
-  const child = spawnProcess(runtime.python, [
+  const child = process.platform === 'win32'
+    ? await spawnWindowsOwned(runtime.python, ['-I', bootstrap, 'desktop-server'], {
+      resourcesPath, parentPid: electronPid, env: runtime.env, stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    : spawnProcess(runtime.python, [
     '-I', guard, String(electronPid), '8', runtime.python, '-I', bootstrap, 'desktop-server',
   ], { detached: true, env: runtime.env, stdio: ['pipe', 'pipe', 'pipe'] });
   const deadline = Date.now() + readyTimeoutMs;
@@ -110,9 +115,18 @@ export async function startBackend(options) {
     stopPromise = (async () => {
       const alreadyClosed = closeOutcome || observedOutcome(child);
       if (!alreadyClosed) {
-        try { child.kill('SIGTERM'); } catch { throw cleanupError(); }
+        try {
+          if (process.platform === 'win32') await requestWindowsStop(child);
+          else child.kill('SIGTERM');
+        } catch {
+          if (!closeOutcome && !observedOutcome(child)) throw cleanupError();
+        }
       }
       const outcome = alreadyClosed || closeOutcome || await within(closed, stopTimeoutMs, cleanupError());
+      if (process.platform === 'win32') {
+        if (!await child.windowsCleanupProof) throw cleanupError();
+        return;
+      }
       if (!cleanupProved(outcome.code, outcome.signal)) throw cleanupError();
     })();
     return stopPromise;
