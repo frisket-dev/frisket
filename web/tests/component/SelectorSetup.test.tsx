@@ -43,31 +43,37 @@ function pull(overrides: Partial<ModelPullDto> = {}): ModelPullDto {
 }
 
 describe('SelectorSetup', () => {
-  it('validates then saves a project key with its real receipt, without selecting or closing', async () => {
+  it('validates then turns the compact project-key action into Save with its real receipt', async () => {
     request.mockResolvedValueOnce(accepted).mockResolvedValueOnce({});
     const changed = vi.fn();
     render(<SelectorSetup projectId="project-a" choice={choice({ kind: 'api_key', provider: 'openai', scopes: [scope('project')] })} onChanged={changed} onEditingChange={vi.fn()} />);
-    await userEvent.type(screen.getByLabelText('API key'), 'candidate-key');
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
-    await userEvent.click(screen.getByRole('button', { name: 'Test' }));
+    const key = screen.getByLabelText('API key');
+    expect(key).toHaveAttribute('placeholder', 'API key');
+    await userEvent.type(key, 'candidate-key{enter}');
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
+    expect(screen.queryByRole('button', { name: 'Test' })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(changed).toHaveBeenCalledOnce());
     expect(request).toHaveBeenNthCalledWith(1, 'tenant.validate_project_provider_key.post', expect.objectContaining({ pathParams: { pid: 'project-a' }, body: { provider: 'openai', key: 'candidate-key' }, signal: expect.any(AbortSignal) }));
     expect(request).toHaveBeenNthCalledWith(2, 'tenant.set_project_provider_key.post', expect.objectContaining({ pathParams: { pid: 'project-a' }, body: { provider: 'openai', key: 'candidate-key', validation_token: 'signed-key-receipt' } }));
-    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Test' })).toBeDisabled();
     expect(screen.getByLabelText('API key')).toHaveValue('');
   });
 
-  it('uses organization gateway validation and exact returned normalized origin/receipt; edits invalidate it', async () => {
+  it('uses an authorized gateway scope without showing diagnostics or a scope picker', async () => {
     request.mockResolvedValue(gatewayAccepted);
-    render(<SelectorSetup projectId="project-a" choice={choice({ kind: 'models_gateway', scopes: [scope('organization')] })} onChanged={vi.fn()} onEditingChange={vi.fn()} />);
+    const environment = { ...scope('environment', false), source: 'environment' as const,
+      configured: true, environment_names: ['FRISKET_MODELS_URL', 'FRISKET_MODELS_TOKEN'] };
+    render(<SelectorSetup projectId="project-a" choice={choice({ kind: 'models_gateway', scopes: [environment, scope('organization')] })} onChanged={vi.fn()} onEditingChange={vi.fn()} />);
+    expect(screen.queryByText(/FRISKET_MODELS_URL/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Credential scope')).not.toBeInTheDocument();
     await userEvent.type(screen.getByLabelText('Gateway URL'), 'https://models.test/');
     await userEvent.type(screen.getByLabelText('Gateway token'), 'gateway-token');
     await userEvent.click(screen.getByRole('button', { name: 'Test' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
+    expect(screen.queryByRole('button', { name: 'Test' })).not.toBeInTheDocument();
     await userEvent.type(screen.getByLabelText('Gateway token'), '-changed');
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Test' })).toBeEnabled();
     await userEvent.click(screen.getByRole('button', { name: 'Test' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -75,11 +81,12 @@ describe('SelectorSetup', () => {
     expect(request).toHaveBeenCalledWith('outer.validate_org_models_gateway.post', expect.objectContaining({ body: { origin: 'https://models.test/', token: 'gateway-token' } }));
   });
 
-  it('renders environment and unauthorized instructions without editable controls or network calls', () => {
+  it('does not expose environment diagnostics when no gateway scope is authorized', () => {
     const environment = { ...scope('environment', false), source: 'environment' as const,
       configured: true, environment_names: ['FRISKET_MODELS_URL', 'FRISKET_MODELS_TOKEN'] };
     render(<SelectorSetup projectId="a" choice={choice({ kind: 'models_gateway', scopes: [environment, scope('organization', false)] })} onChanged={vi.fn()} onEditingChange={vi.fn()} />);
-    expect(screen.getByText(/FRISKET_MODELS_URL/)).toBeInTheDocument();
+    expect(screen.queryByText(/FRISKET_MODELS_URL/)).not.toBeInTheDocument();
+    expect(screen.getByText('You do not have permission to complete this setup.')).toBeInTheDocument();
     expect(screen.queryByLabelText('Gateway token')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
     expect(request).not.toHaveBeenCalled();
@@ -98,39 +105,31 @@ describe('SelectorSetup', () => {
     expect(signal.aborted).toBe(true);
     expect(screen.getByLabelText('API key')).toHaveValue('');
     await act(async () => resolve(accepted));
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Test' })).toBeDisabled();
     expect(changed).not.toHaveBeenCalled();
     expect(editing).toHaveBeenLastCalledWith(false);
     fireEvent.change(screen.getByLabelText('API key'), { target: { value: 'new-key' } });
   });
 
-  it('clears a validated credential and aborts requests when its authorized scope changes', async () => {
-    request.mockResolvedValue(accepted);
-    render(<SelectorSetup projectId="a" choice={choice({ kind: 'api_key', provider: 'openai', scopes: [scope('project'), scope('organization')] })} onChanged={vi.fn()} onEditingChange={vi.fn()} />);
-    await userEvent.type(screen.getByLabelText('API key'), 'project-key');
-    await userEvent.click(screen.getByRole('button', { name: 'Test' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
-    const signal = request.mock.calls[0][1].signal;
-    fireEvent.change(screen.getByLabelText('Credential scope'), { target: { value: 'organization' } });
-    expect(signal.aborted).toBe(true);
-    expect(screen.getByLabelText('API key')).toHaveValue('');
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
-    await userEvent.type(screen.getByLabelText('API key'), 'org-key');
-    await userEvent.click(screen.getByRole('button', { name: 'Test' }));
-    expect(request).toHaveBeenLastCalledWith('outer.validate_org_key.post', expect.objectContaining({ body: { provider: 'openai', key: 'org-key' } }));
+  it('never falls back to a mutable workspace or organization key scope', () => {
+    render(<SelectorSetup projectId="a" choice={choice({ kind: 'api_key', provider: 'openai', scopes: [scope('project', false), scope('workspace'), scope('organization')] })} onChanged={vi.fn()} onEditingChange={vi.fn()} />);
+    expect(screen.queryByLabelText('API key')).not.toBeInTheDocument();
+    expect(screen.getByText('You do not have permission to complete this setup.')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Credential scope')).not.toBeInTheDocument();
+    expect(request).not.toHaveBeenCalled();
   });
 
   it('does not unlock save for a rejected key or a success without a receipt', async () => {
     request.mockResolvedValueOnce({ ...accepted, ok: false, validation_token: null, detail: 'bad candidate-key' })
       .mockResolvedValueOnce({ ...accepted, validation_token: null });
-    render(<SelectorSetup projectId="a" choice={choice({ kind: 'api_key', provider: 'openai', scopes: [scope('workspace')] })} onChanged={vi.fn()} onEditingChange={vi.fn()} />);
+    render(<SelectorSetup projectId="a" choice={choice({ kind: 'api_key', provider: 'openai', scopes: [scope('project')] })} onChanged={vi.fn()} onEditingChange={vi.fn()} />);
     await userEvent.type(screen.getByLabelText('API key'), 'candidate-key');
     await userEvent.click(screen.getByRole('button', { name: 'Test' }));
     expect(await screen.findByRole('alert')).not.toHaveTextContent('candidate-key');
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Test' })).toBeEnabled();
     await userEvent.click(screen.getByRole('button', { name: 'Test' }));
     await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Test' })).toBeEnabled();
   });
 
   it('shows a busy durable operation, polling and requesting cancellation on its actual organization scope', async () => {
@@ -224,14 +223,14 @@ describe('SelectorSetup', () => {
   it('invalidates a rejected save receipt, preserves the draft key, and does not publish a successful change', async () => {
     request.mockResolvedValueOnce(accepted).mockRejectedValueOnce(new Error('expired receipt'));
     const changed = vi.fn();
-    render(<SelectorSetup projectId="a" choice={choice({ kind: 'api_key', provider: 'openai', scopes: [scope('workspace')] })} onChanged={changed} onEditingChange={vi.fn()} />);
+    render(<SelectorSetup projectId="a" choice={choice({ kind: 'api_key', provider: 'openai', scopes: [scope('project')] })} onChanged={changed} onEditingChange={vi.fn()} />);
     await userEvent.type(screen.getByLabelText('API key'), 'draft-key');
     await userEvent.click(screen.getByRole('button', { name: 'Test' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not confirm the save');
     expect(screen.getByLabelText('API key')).toHaveValue('draft-key');
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Test' })).toBeEnabled();
     expect(changed).not.toHaveBeenCalled();
   });
 });
