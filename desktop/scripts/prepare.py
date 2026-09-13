@@ -115,6 +115,32 @@ def stage_native(name: str, asset: dict, cache: Path) -> None:
     destination.chmod(0o755)
 
 
+def materialize_bundled_snapshots(cache: Path) -> None:
+    """Export HF snapshots as portable files without duplicate bundled blobs."""
+    blobs: set[Path] = set()
+    for repository in cache.glob("models--*"):
+        for entry in (repository / "snapshots").rglob("*"):
+            if not entry.is_symlink():
+                continue
+            blob = entry.resolve(strict=True)
+            if not blob.is_file() or not blob.is_relative_to(repository / "blobs"):
+                raise ValueError(f"Bundled snapshot link is not a model blob: {entry}")
+            # Electron Builder 26.15.3 copies all Windows symlinks as directory
+            # junctions, including HF's file links. Actual files avoid that
+            # packaging error and also work for HF's ordinary cache lookup.
+            entry.unlink()
+            try:
+                entry.hardlink_to(blob)
+            except OSError:
+                shutil.copy2(blob, entry)
+            blobs.add(blob)
+    # Wait until every snapshot reference is materialized: two files may share
+    # a blob. Only this disposable bundle is compacted; the download cache is
+    # untouched, and hardlinks avoid allocating another copy of large weights.
+    for blob in blobs:
+        blob.unlink()
+
+
 def prepare(*, skip_web_build: bool = False, platform: str = "darwin") -> None:
     actual_uv = subprocess.check_output(["uv", "--version"], text=True).split()[1]
     if actual_uv != UV_VERSION:
@@ -212,6 +238,7 @@ def prepare(*, skip_web_build: bool = False, platform: str = "darwin") -> None:
             env=stage_env,
             check=True,
         )
+    materialize_bundled_snapshots(RESOURCES / "model-cache" / "huggingface")
     print(f"Desktop resources ready: {RESOURCES}")
 
 
