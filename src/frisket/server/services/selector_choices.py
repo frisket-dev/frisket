@@ -128,32 +128,12 @@ class SelectorChoiceService:
             router,
             self._workspace.edition_execution_composition_context_for(request_context),
         )
-        provider_catalog = (
-            build_provider_catalog(
-                self._workspace.root,
-                network_off=_network_off(project),
-                local_endpoints=router.local_endpoints,
-                local_endpoint_authority="instance"
-                if self._edition == "solo"
-                else "organization",
-            )
-            if not isinstance(subject, EmbeddingSelectorSubject)
-            else {"providers": []}
-        )
-        configured_providers = set(router.providers())
-        for provider in provider_catalog.get("providers", []):
-            if isinstance(provider, dict) and provider.get("id") in ENV_VAR:
-                provider["configured"] = provider["id"] in configured_providers
-                provider["credential_source"] = router.credential_source_for(
-                    provider["id"]
-                )
         if isinstance(subject, ActionSelectorSubject):
             payload = self._action_choices(
                 project_id,
                 project=project,
                 router=router,
                 composition=composition,
-                provider_catalog=provider_catalog,
                 subject=subject,
                 capabilities=capabilities,
             )
@@ -163,7 +143,7 @@ class SelectorChoiceService:
                 project=project,
                 router=router,
                 composition=composition,
-                provider_catalog=provider_catalog,
+                provider_catalog=self._provider_catalog(project, router),
                 subject=subject,
                 capabilities=capabilities,
             )
@@ -178,6 +158,24 @@ class SelectorChoiceService:
             )
         return SelectorChoicesResponse.model_validate(payload)
 
+    def _provider_catalog(self, project: Any, router: Any) -> dict[str, Any]:
+        catalog = build_provider_catalog(
+            self._workspace.root,
+            network_off=_network_off(project),
+            local_endpoints=router.local_endpoints,
+            local_endpoint_authority="instance"
+            if self._edition == "solo"
+            else "organization",
+        )
+        configured_providers = set(router.providers())
+        for provider in catalog.get("providers", []):
+            if isinstance(provider, dict) and provider.get("id") in ENV_VAR:
+                provider["configured"] = provider["id"] in configured_providers
+                provider["credential_source"] = router.credential_source_for(
+                    provider["id"]
+                )
+        return catalog
+
     def _action_choices(
         self,
         project_id: str,
@@ -185,7 +183,6 @@ class SelectorChoiceService:
         project: Any,
         router: Any,
         composition: ExecutionComposition,
-        provider_catalog: dict[str, Any],
         subject: ActionSelectorSubject,
         capabilities: SelectorCapabilities,
     ) -> dict[str, Any]:
@@ -209,6 +206,7 @@ class SelectorChoiceService:
             connected_account_resolver_configured=(
                 self._workspace.executor_deps_factory is not None
             ),
+            action_kinds=frozenset({subject.action_id}),
         )
         actions = [
             item
@@ -246,6 +244,7 @@ class SelectorChoiceService:
             )
 
         if control == "model":
+            provider_catalog = self._provider_catalog(project, router)
             choices = self._model_choices(
                 router=router,
                 project=project,
@@ -262,6 +261,12 @@ class SelectorChoiceService:
                 dict(row) for row in hints.get("engines", []) if isinstance(row, dict)
             ]
             has_model_field = controls.get("model") == "model" and "model" in properties
+            provider_catalog = (
+                self._provider_catalog(project, router)
+                if has_model_field
+                and any(engine.get("id") == "llm" for engine in engines)
+                else {"providers": []}
+            )
             choices = self._engine_choices(
                 router=router,
                 project=project,

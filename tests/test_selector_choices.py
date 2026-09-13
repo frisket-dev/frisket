@@ -452,8 +452,26 @@ def test_action_and_copilot_use_their_distinct_effective_routers(
     assert copilot_current["setup"]["kind"] == "api_key"
 
 
+@pytest.mark.parametrize(
+    "subject",
+    [
+        {"kind": "copilot", "model": "ollama/@org/owner/nested-model"},
+        {
+            "kind": "action",
+            "action_id": "map.ask",
+            "field": "model",
+            "params": {"model": "ollama/@org/owner/nested-model"},
+        },
+        {
+            "kind": "action",
+            "action_id": "map.translate",
+            "field": "engine",
+            "params": {"engine": "llm", "model": "ollama/@org/owner/nested-model"},
+        },
+    ],
+)
 def test_catalog_discovers_only_effective_authenticated_local_endpoints(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, subject: dict[str, Any]
 ) -> None:
     endpoint = LocalModelEndpointConfig(
         endpoint_id="org",
@@ -483,13 +501,117 @@ def test_catalog_discovers_only_effective_authenticated_local_endpoints(
     )
     response = client.post(
         f"/api/projects/{project_id}/selector-choices",
-        json=_query({"kind": "copilot", "model": "ollama/@org/owner/nested-model"}),
+        json=_query(subject),
     )
     assert response.status_code == 200, response.text
     assert seen == [(endpoint.origin, endpoint.inference_token, True)]
     current = next(row for row in _choices(response.json()) if row["is_current"])
     assert current["authored_selection"]["model"] == "ollama/@org/owner/nested-model"
     assert "inference-secret" not in response.text
+
+
+def test_fixed_engine_selector_does_not_discover_local_models(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    endpoint = LocalModelEndpointConfig(
+        endpoint_id="offline",
+        display_name="Offline model server",
+        origin="https://models.example.test",
+        source="local_file",
+    )
+    router = ModelRouter(use_env_keys=False, local_endpoints=(endpoint,))
+    probes: list[str] = []
+
+    def unreachable(origin: str, **_kwargs: Any) -> dict[str, Any]:
+        probes.append(origin)
+        return {"reachable": False, "models": [], "protocol": "unknown"}
+
+    monkeypatch.setattr("frisket.server.provider_config.ollama_reachable", unreachable)
+    client, _workspace, project_id = _app(tmp_path / "fixed-engine", router=router)
+    for diarize in (False, True):
+        response = client.post(
+            f"/api/projects/{project_id}/selector-choices",
+            json=_query(
+                {
+                    "kind": "action",
+                    "action_id": "media.transcribe",
+                    "field": "engine",
+                    "params": {"engine": "parakeet-tdt", "diarize": diarize},
+                }
+            ),
+        )
+        assert response.status_code == 200, response.text
+        assert _choices(response.json())
+    assert probes == []
+
+
+def test_model_selector_does_not_probe_unrelated_translation_runtimes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def unrelated_probe() -> bool:
+        raise AssertionError("An unrelated translation runtime was probed")
+
+    monkeypatch.setattr(
+        "frisket.ops.integrations.opus_mt.runtime_available", unrelated_probe
+    )
+    monkeypatch.setattr(
+        "frisket.ops.integrations.hy_mt2.runtime_available", unrelated_probe
+    )
+    client, _workspace, project_id = _app(tmp_path / "single-action")
+    response = client.post(
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query(
+            {"kind": "action", "action_id": "map.ask", "field": "model", "params": {}}
+        ),
+    )
+    assert response.status_code == 200, response.text
+    assert _choices(response.json())
+
+
+@pytest.mark.parametrize(
+    "subject",
+    [
+        {"kind": "action", "action_id": "map.ask", "field": "model", "params": {}},
+        {
+            "kind": "action",
+            "action_id": "media.transcribe",
+            "field": "engine",
+            "params": {"engine": "parakeet-tdt", "diarize": True},
+        },
+        {
+            "kind": "action",
+            "action_id": "map.translate",
+            "field": "engine",
+            "params": {
+                "engine": "opus_mt",
+                "source_language": "en",
+                "target_language": "es",
+            },
+        },
+    ],
+)
+def test_single_action_projection_preserves_full_catalog_selector_choices(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, subject: dict[str, Any]
+) -> None:
+    from frisket.server.action_catalog_hints import (
+        project_action_catalog_payload_with_launcher_hints,
+    )
+
+    client, _workspace, project_id = _app(tmp_path / "catalog-parity")
+    route = f"/api/projects/{project_id}/selector-choices"
+    narrow = client.post(route, json=_query(subject))
+
+    def full_catalog(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        kwargs.pop("action_kinds", None)
+        return project_action_catalog_payload_with_launcher_hints(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "frisket.server.services.selector_choices.project_action_catalog_payload_with_launcher_hints",
+        full_catalog,
+    )
+    full = client.post(route, json=_query(subject))
+    assert narrow.status_code == full.status_code == 200, (narrow.text, full.text)
+    assert narrow.json() == full.json()
 
 
 def test_busy_setup_embeds_actual_operation_without_removing_download_authority(
