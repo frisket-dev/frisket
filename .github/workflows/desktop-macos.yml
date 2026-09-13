@@ -2,6 +2,18 @@ name: desktop-macos
 
 on:
   workflow_call:
+    # Optional here so protected environment secrets can supply these values.
+    secrets:
+      CSC_LINK:
+        required: false
+      CSC_KEY_PASSWORD:
+        required: false
+      APPLE_API_KEY_P8:
+        required: false
+      APPLE_API_KEY_ID:
+        required: false
+      APPLE_API_ISSUER:
+        required: false
     outputs:
       source_sha:
         description: "Revision verified by the signed installed-app proof"
@@ -122,6 +134,20 @@ jobs:
       python_package_version: ${{ steps.release-metadata.outputs.python_package_version }}
       desktop_version: ${{ steps.release-metadata.outputs.desktop_version }}
     steps:
+      - name: Check signing configuration
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          for name in CSC_LINK APPLE_API_KEY_P8 APPLE_API_KEY_ID APPLE_API_ISSUER; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::$name is required for macOS signing."
+              exit 1
+            fi
+          done
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ github.sha }}
