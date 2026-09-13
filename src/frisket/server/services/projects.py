@@ -138,6 +138,13 @@ PROVIDER_CATALOG: list[dict[str, Any]] = [
         "kind": "llm",
         "policy_fields": ["spend_cap_usd"],
     },
+    {
+        "id": "datalab",
+        "label": "Datalab",
+        "secret_name": "DATALAB_API_KEY",
+        "kind": "document",
+        "policy_fields": [],
+    },
 ]
 
 SECRET_CONSUMER_KINDS = {"plugin", "source", "job", "mcp_connector"}

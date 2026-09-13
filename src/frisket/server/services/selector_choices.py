@@ -836,8 +836,14 @@ class SelectorChoiceService:
                     and blocked is None,
                     "blocked_by_operation": blocked or operation,
                 }
-            elif not available and _provider_from_qualified(engine_id) in ENV_VAR:
-                provider = cast(str, _provider_from_qualified(engine_id))
+            elif not available and (
+                engine_id == "datalab" or _provider_from_qualified(engine_id) in ENV_VAR
+            ):
+                provider = (
+                    "datalab"
+                    if engine_id == "datalab"
+                    else cast(str, _provider_from_qualified(engine_id))
+                )
                 status = "needs_setup"
                 setup = self._setup.api_key(
                     router=router,

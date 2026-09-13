@@ -10,6 +10,9 @@ self-hosted/ops-managed deploys) wins, falling back to the project-scoped
 secrets store (`Project.secret_plaintext`, store/project.py:1565 — the same
 store the Settings -> Secrets panel writes, web/src/settings/
 SettingsSections.tsx `ProjectSecretsSettings`).
+For Datalab, an inline-setup provider key precedes the legacy project secret;
+the process environment still wins. Catalog, target and dispatch read that
+same resolver.
 
 `missing_required_credentials` is the single check both the queued run gate
 (server/action_enqueue.py) and the project-aware catalog hints (server/
@@ -20,6 +23,7 @@ one source of truth for "can this action run right now."
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -40,7 +44,7 @@ class ResolvedCredential:
 
 
 def resolve_credential_with_source(
-    project: Any, name: str
+    project: Any, name: str, *, env: Mapping[str, str] | None = None
 ) -> ResolvedCredential | None:
     """Resolve one action credential without dropping who supplied it.
 
@@ -49,9 +53,16 @@ def resolve_credential_with_source(
     same closed vocabulary used by provider facts and never contains key
     material.
     """
-    env_value = os.environ.get(name)
+    env_value = (os.environ if env is None else env).get(name)
     if env_value:
         return ResolvedCredential(env_value, "local")
+    if name == "DATALAB_API_KEY":
+        # Inline Datalab setup uses the existing encrypted provider-key store.
+        # Preserve environment precedence and existing project-secret keys.
+        provider_keys = getattr(project, "provider_model_keys", None)
+        value = provider_keys().get("datalab") if callable(provider_keys) else None
+        if value:
+            return ResolvedCredential(value, "project_key")
     secret_plaintext = getattr(project, "secret_plaintext", None)
     if secret_plaintext is None:
         return None
