@@ -8,14 +8,19 @@ The native archive versions, download URLs and SHA-256 digests are recorded in
   Source: https://github.com/astral-sh/uv/tree/0.11.29
 - **Deno 2.9.6**: Deno contributors; MIT. License text is in `licenses/`.
   Source: https://github.com/denoland/deno/tree/v2.9.6
-- **FFmpeg and FFprobe 9.0.1**: FFmpeg contributors and the libraries in Martin
-  Riedl's macOS arm64 release build. This build enables GPL components, including
-  x264/x265, and is distributed under GPL version 3 or later, not Frisket's license.
+- **FFmpeg and FFprobe 9.0.1**: FFmpeg contributors and the libraries in the
+  platform-specific builds below. Both builds enable GPL components, including
+  x264/x265, and are distributed under GPL version 3 or later, not Frisket's license.
   The GPL text is in `licenses/GPL-3.0.txt`.
-  FFmpeg source: https://ffmpeg.org/releases/ffmpeg-9.0.1.tar.xz
-  Build scripts and dependency source locations: https://git.martin-riedl.de/ffmpeg/build-script
-  Exact component versions: https://ffmpeg.martin-riedl.de/download/macos/arm64/1787073674_9.0.1/versions.txt
-  Distributor and corresponding-source information: https://ffmpeg.martin-riedl.de/
+  - macOS arm64 uses Martin Riedl's release build. Build scripts and dependency
+    source locations: https://git.martin-riedl.de/ffmpeg/build-script
+    Exact component versions: https://ffmpeg.martin-riedl.de/download/macos/arm64/1787073674_9.0.1/versions.txt
+    Distributor and corresponding-source information: https://ffmpeg.martin-riedl.de/
+  - Windows x64 uses Gyan Doshi's static essentials build. It has no runtime DLL
+    companions. FFmpeg source: https://ffmpeg.org/releases/ffmpeg-9.0.1.tar.xz
+    Exact build source revision: https://github.com/FFmpeg/FFmpeg/commit/bf1b838f2a
+    Distributor, build configuration, and dependency source locations:
+    https://www.gyan.dev/ffmpeg/builds/
 - **Electron**: Electron contributors; MIT, with Chromium and other component
   notices shipped by electron-builder in the application bundle.
   Source: https://github.com/electron/electron/tree/v44.3.0

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the ordinary Frisket wheel and stage the macOS desktop resources."""
+"""Build the ordinary Frisket wheel and stage desktop resources."""
 
 from __future__ import annotations
 
@@ -22,12 +22,14 @@ ROOT = DESKTOP.parent
 RESOURCES = DESKTOP / "resources"
 PYTHON_VERSION = "3.12.13"
 UV_VERSION = "0.11.29"
+NATIVE_TOOL_NAMES = frozenset(("uv", "ffmpeg", "ffprobe", "deno"))
 
 # These are executable package resources, not an inventory of every source file.
 WHEEL_RESOURCES = (
     "frisket/web_static/index.html",
     "frisket/runtime/_bootstrap.py",
     "frisket/runtime/_guard.py",
+    "frisket/runtime/_guard_windows.ps1",
     "frisket/data/plugin_sdk.mjs",
     "frisket/data/action_ui.d.ts",
     "frisket/data/first_party_workbench_descriptors.json",
@@ -62,8 +64,16 @@ def desktop_version(version: str) -> str:
     return release
 
 
+def native_assets(platform: str) -> dict[str, dict]:
+    manifest = json.loads((DESKTOP / "native-assets.json").read_text())
+    assets = manifest.get(platform)
+    if not isinstance(assets, dict) or set(assets) != NATIVE_TOOL_NAMES:
+        raise ValueError(f"Unsupported native asset platform: {platform}")
+    return assets
+
+
 def stage_native(name: str, asset: dict, cache: Path) -> None:
-    archive_path = cache / f"{name}-{asset['sha256']}"
+    archive_path = cache / asset["sha256"]
     if not archive_path.is_file():
         temporary = archive_path.with_suffix(".download")
         try:
@@ -81,7 +91,13 @@ def stage_native(name: str, asset: dict, cache: Path) -> None:
     if digest != asset["sha256"]:
         archive_path.unlink()
         raise ValueError(f"Native asset checksum mismatch: {name}")
-    destination = RESOURCES / "bin" / name
+    destination_name = asset.get("destination", name)
+    if (
+        not isinstance(destination_name, str)
+        or Path(destination_name).name != destination_name
+    ):
+        raise ValueError(f"Invalid native destination: {name}")
+    destination = RESOURCES / "bin" / destination_name
     if asset["url"].endswith(".zip"):
         with zipfile.ZipFile(archive_path) as archive:
             with archive.open(asset["member"]) as source:
@@ -98,7 +114,7 @@ def stage_native(name: str, asset: dict, cache: Path) -> None:
     destination.chmod(0o755)
 
 
-def prepare(*, skip_web_build: bool = False) -> None:
+def prepare(*, skip_web_build: bool = False, platform: str = "darwin") -> None:
     actual_uv = subprocess.check_output(["uv", "--version"], text=True).split()[1]
     if actual_uv != UV_VERSION:
         raise SystemExit(f"Desktop builds require uv {UV_VERSION}; found {actual_uv}")
@@ -169,7 +185,7 @@ def prepare(*, skip_web_build: bool = False) -> None:
         + "\n"
     )
 
-    native = json.loads((DESKTOP / "native-assets.json").read_text())
+    native = native_assets(platform)
     cache = DESKTOP / "build" / "downloads"
     cache.mkdir(parents=True, exist_ok=True)
     for name, asset in native.items():
@@ -201,5 +217,6 @@ def prepare(*, skip_web_build: bool = False) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--skip-web-build", action="store_true")
+    parser.add_argument("--platform", choices=("darwin", "win32"), default="darwin")
     args = parser.parse_args()
-    prepare(skip_web_build=args.skip_web_build)
+    prepare(skip_web_build=args.skip_web_build, platform=args.platform)
