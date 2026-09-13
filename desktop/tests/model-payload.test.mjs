@@ -30,5 +30,5 @@ test('prewarm bundles OCR, Whisper, and VAD without downloading Parakeet', async
   });
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), { rapidocr: 'ready', whisper: 'whisper', vad: 'vad' });
-  assert.deepEqual((await fs.readFile(trace, 'utf8')).trim().split('\n'), ['rapidocr', 'whisper', 'whisper', 'vad', 'vad']);
+  assert.deepEqual((await fs.readFile(trace, 'utf8')).trim().split(/\r?\n/), ['rapidocr', 'whisper', 'whisper', 'vad', 'vad']);
 });
