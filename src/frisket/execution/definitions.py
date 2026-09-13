@@ -23,7 +23,7 @@ run-scoped behavior:
   wildcard support entry (e.g. ``openai/whisper-1`` via
   ``remote-api:openai``).
 - ``datalab`` — the hosted OCR API: a third-party document venue billed
-  per PAGE, live iff a Datalab key resolves (env or project secret).
+  per PAGE, live iff a Datalab key resolves (env, project key or legacy secret).
 
 **A target is a VENUE, not a kind of work.** Each ``TargetEngineSupport``
 row declares the CAPABILITY it serves, so the same rows above carry OCR too:
@@ -699,13 +699,15 @@ class StaticExecutionTargetProvider:
         )
 
     def _datalab_connection(self) -> ConnectionConfig | None:
-        """Probe Datalab using dispatch's environment-then-project order."""
-        key = self._get(DATALAB_API_KEY_ENV) or self._project_secret(
-            DATALAB_API_KEY_ENV
+        """Probe Datalab through dispatch's credential resolver."""
+        from frisket.credentials import resolve_credential_with_source
+
+        credential = resolve_credential_with_source(
+            self._secrets, DATALAB_API_KEY_ENV, env=self._env_override
         )
-        if not key:
+        if credential is None:
             return None
-        return ConnectionConfig(token=key, extra={"provider": "datalab"})
+        return ConnectionConfig(token=credential.value, extra={"provider": "datalab"})
 
     def _api_key_connection(
         self, env_name: str, provider: str

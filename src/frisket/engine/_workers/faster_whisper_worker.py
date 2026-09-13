@@ -45,11 +45,10 @@ def _resolve_pinned_base_snapshot() -> str | None:
     """Resolve the pinned faster-whisper 'base' snapshot from the local
     Hugging Face Hub cache, entirely offline (this worker's sandbox has no
     network -- see ops/transcribe_engines.py's SandboxPolicy; it relies on a
-    pre-warmed cache, same as Parakeet). Returns the absolute local snapshot
+    cache prepared by model setup). Returns the absolute local snapshot
     directory (which ``WhisperModel`` loads directly, exactly like a Hub repo
     id) when the exact pinned revision is already cached, or ``None`` when
-    it isn't -- the caller then falls back to today's unpinned
-    ``WhisperModel("base", ...)`` resolution unchanged."""
+    it isn't; the caller reports that model setup is required."""
     try:
         from huggingface_hub import snapshot_download
 
@@ -113,15 +112,20 @@ def main() -> None:
     warnings = ["model revision was resolved by the local faster-whisper runtime"]
     if size == "base":
         pinned_path = _resolve_pinned_base_snapshot()
-        if pinned_path is not None:
-            model_source = pinned_path
-            from frisket.ai.models import artifact_manifest
+        if pinned_path is None:
+            _emit_error(
+                "engine_unavailable",
+                "Download Whisper base from the engine selector before transcribing.",
+            )
+            return
+        model_source = pinned_path
+        from frisket.ai.models import artifact_manifest
 
-            entry = artifact_manifest.whisper_base_artifact()
-            if entry is not None and entry.hf_snapshot is not None:
-                model_ids = [entry.hf_snapshot.repo_id]
-                revision = entry.hf_snapshot.revision
-                warnings = []
+        entry = artifact_manifest.whisper_base_artifact()
+        if entry is not None and entry.hf_snapshot is not None:
+            model_ids = [entry.hf_snapshot.repo_id]
+            revision = entry.hf_snapshot.revision
+            warnings = []
     try:
         model = WhisperModel(model_source, device="cpu", compute_type="int8")
     except Exception as error:

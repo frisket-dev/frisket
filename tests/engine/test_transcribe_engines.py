@@ -497,6 +497,7 @@ def test_local_worker_normalizes_empty_words_language_and_missing_duration(
     fake_module = types.ModuleType("faster_whisper")
     fake_module.WhisperModel = FakeWhisperModel
     monkeypatch.setitem(sys.modules, "faster_whisper", fake_module)
+    monkeypatch.setattr(worker, "_resolve_pinned_base_snapshot", lambda: "/pinned-base")
     monkeypatch.setattr(
         sys,
         "stdin",
@@ -544,7 +545,7 @@ def test_faster_whisper_worker_reports_clean_error_on_model_load_failure(tmp_pat
     env["PYTHONPATH"] = os.pathsep.join([str(fake_pkg_dir), env.get("PYTHONPATH", "")])
     proc = subprocess.run(
         [sys.executable, "-m", "frisket.engine._workers.faster_whisper_worker"],
-        input=_local_worker_request("unused.wav", model_size="base").encode(),
+        input=_local_worker_request("unused.wav", model_size="small").encode(),
         capture_output=True,
         env=env,
     )
@@ -577,8 +578,8 @@ def test_faster_whisper_worker_reports_clean_error_on_model_load_failure(tmp_pat
 # faster-whisper 'base' pinned-snapshot resolution (task: complete the
 # local-model provisioning story alongside Parakeet). model_size == "base"
 # (the default) now resolves through the pinned manifest entry, offline from
-# the local Hub cache when present; any other size — or a cache miss — keeps
-# today's unpinned lazy WhisperModel(size, ...) resolution unchanged.
+# the local Hub cache when present; a missing base requires setup before
+# inference. Other explicit sizes retain their existing resolution.
 
 
 def test_resolve_pinned_base_snapshot_uses_the_manifest_pin(monkeypatch, tmp_path):
@@ -615,8 +616,7 @@ def test_resolve_pinned_base_snapshot_uses_the_manifest_pin(monkeypatch, tmp_pat
 
 
 def test_resolve_pinned_base_snapshot_returns_none_on_cache_miss(monkeypatch):
-    """No pinned snapshot cached (this worker's sandbox has no network) --
-    the caller falls back to today's unpinned WhisperModel('base', ...)."""
+    """No pinned snapshot cached; model setup must precede inference."""
     from frisket.engine._workers import faster_whisper_worker as worker
 
     import huggingface_hub
@@ -1624,3 +1624,66 @@ def test_alias_maps_agree_and_carry_no_resolves_to_oddity():
     assert "remote" not in ENGINE_ALIASES
     assert "remote" not in TRANSCRIBE_ENGINE_ALIASES
     assert ENGINE_ALIASES == TRANSCRIBE_ENGINE_ALIASES
+
+
+def test_whisper_default_requires_download_before_offline_inference(monkeypatch):
+    from frisket.engine._workers import faster_whisper_worker as worker
+
+    monkeypatch.setattr(worker, "_resolve_pinned_base_snapshot", lambda: None)
+    fake_module = types.ModuleType("faster_whisper")
+
+    def unexpected_model(*args, **kwargs):
+        raise AssertionError("missing pinned base must not resolve an unpinned model")
+
+    fake_module.WhisperModel = unexpected_model
+    monkeypatch.setitem(sys.modules, "faster_whisper", fake_module)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(_local_worker_request("unused.wav")))
+    output = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", output)
+    worker.main()
+    error = json.loads(output.getvalue())["error"]
+    assert error["code"] == "engine_unavailable"
+    assert "Download Whisper base" in error["message"]
+
+
+def test_whisper_offline_worker_consumes_prepared_pinned_cache(monkeypatch, tmp_path):
+    from frisket.ai.models import artifact_manifest
+    from frisket.engine._workers import faster_whisper_worker as worker
+    from frisket.engine._workers.parakeet_artifacts import whisper_setup_ready
+
+    entry = artifact_manifest.whisper_base_artifact()
+    assert entry is not None and entry.hf_snapshot is not None
+    snap = entry.hf_snapshot
+    snapshot = (
+        tmp_path
+        / f"models--{snap.repo_id.replace('/', '--')}"
+        / "snapshots"
+        / snap.revision
+    )
+    snapshot.mkdir(parents=True)
+    for filename in snap.files:
+        artifact = snapshot / filename
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        artifact.write_bytes(b"prepared-model-fixture")
+    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path))
+    assert whisper_setup_ready() is True
+    captured = {}
+
+    class PreparedWhisperModel:
+        def __init__(self, model_source, **kwargs):
+            captured["source"] = model_source
+
+        def transcribe(self, *args, **kwargs):
+            return [], SimpleNamespace(language="en", duration=0.0)
+
+    fake_module = types.ModuleType("faster_whisper")
+    fake_module.WhisperModel = PreparedWhisperModel
+    monkeypatch.setitem(sys.modules, "faster_whisper", fake_module)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(_local_worker_request("unused.wav")))
+    output = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", output)
+    worker.main()
+    assert captured["source"] == str(snapshot)
+    result = json.loads(output.getvalue())["results"][0]
+    assert result["revision"] == snap.revision
+    assert result["warnings"] == []

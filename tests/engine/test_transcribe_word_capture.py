@@ -86,6 +86,9 @@ def _run_worker_code(
     fake_module = type(sys)("faster_whisper")
     fake_module.WhisperModel = _FakeWhisperModel  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "faster_whisper", fake_module)
+    monkeypatch.setattr(
+        faster_whisper_worker, "_resolve_pinned_base_snapshot", lambda: "/pinned-base"
+    )
     options = dict(payload)
     path = str(options.pop("path"))
     request = {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage OCR, Whisper and VAD caches; Parakeet downloads through the UI."""
+"""Stage OCR and VAD caches; transcription weights download through the UI."""
 
 from __future__ import annotations
 
@@ -21,27 +21,26 @@ from frisket.ops.ocr_engines_local import _rapidocr_model_root_dir  # noqa: E402
 
 
 def main() -> None:
+    if "--whisper-ref" in sys.argv[2:]:
+        print(artifact_manifest.WHISPER_BASE_REF)
+        return
     if _rapidocr_model_root_dir() is None:
         raise RuntimeError("the default RapidOCR model cache could not be prepared")
     cache_dir = huggingface_hub_cache()
     resolved: dict[str, str] = {"rapidocr": "ready"}
-    for label, getter in (
-        ("whisper", artifact_manifest.whisper_base_artifact),
-        ("vad", artifact_manifest.parakeet_vad_artifact),
-    ):
-        entry = getter()
-        if entry is None or entry.hf_snapshot is None:
-            raise RuntimeError(f"the pinned {label} snapshot is missing")
-        snapshot = entry.hf_snapshot
-        snapshot_path = _resolve_snapshot(
-            _snapshot_payload(
-                repo_id=snapshot.repo_id,
-                revision=snapshot.revision,
-                files=snapshot.files,
-                cache_dir=cache_dir,
-            )
+    entry = artifact_manifest.parakeet_vad_artifact()
+    if entry is None or entry.hf_snapshot is None:
+        raise RuntimeError("the pinned VAD snapshot is missing")
+    snapshot = entry.hf_snapshot
+    snapshot_path = _resolve_snapshot(
+        _snapshot_payload(
+            repo_id=snapshot.repo_id,
+            revision=snapshot.revision,
+            files=snapshot.files,
+            cache_dir=cache_dir,
         )
-        resolved[label] = Path(snapshot_path).name
+    )
+    resolved["vad"] = Path(snapshot_path).name
     print(json.dumps(resolved, separators=(",", ":")))
 
 

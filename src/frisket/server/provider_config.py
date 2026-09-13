@@ -9,8 +9,8 @@ shell-exported key always overrides a file-stored one.
 
 Model/pricing facts come from the live pricing table (``frisket.llm.pricing``);
 unknown prices surface as ``None``, never a fabricated number. The validate
-probe issues the cheapest possible real request per provider (a models
-listing — no tokens billed) and never returns the key value to the caller.
+probe issues an authenticated models listing or Datalab health check, with
+no inference or document processing, and never returns the key value.
 Local-server reachability is probed for real for each configured endpoint.
 """
 
@@ -54,6 +54,8 @@ from frisket.team.security.secrets import key_hint
 
 # Providers that take an API key the local UI can manage.
 KEY_PROVIDERS: tuple[str, ...] = ("anthropic", "openai", "gemini", "openrouter")
+# Datalab supports project keys, without a workspace key resolver or LLM models.
+PROJECT_KEY_PROVIDERS: tuple[str, ...] = (*KEY_PROVIDERS, "datalab")
 
 PROVIDER_ORDER: tuple[str, ...] = (*KEY_PROVIDERS, "ollama")
 
@@ -62,6 +64,7 @@ PROVIDER_LABELS: dict[str, str] = {
     "openai": "OpenAI",
     "gemini": "Gemini",
     "openrouter": "OpenRouter",
+    "datalab": "Datalab",
     # Qualified model IDs retain the ``ollama`` provider segment, while each
     # endpoint has its own ordinary endpoint_id. The slot supports any
     # OpenAI-compatible local server — Ollama, LM Studio, llama.cpp, or vLLM.
@@ -74,6 +77,7 @@ ENV_VAR: dict[str, str] = {
     "openai": "OPENAI_API_KEY",
     "gemini": "GEMINI_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
+    "datalab": "DATALAB_API_KEY",
 }
 
 # Capability-contract provider_kind (mirrors models/metadata.py PROVIDER_KIND):
@@ -128,6 +132,13 @@ def _b64url_encode(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
 
+def _normalize_validation_provider(value: str) -> str:
+    clean = (value or "").strip().lower()
+    if clean not in PROJECT_KEY_PROVIDERS:
+        raise UnknownProviderError(f"unsupported provider: {value}")
+    return clean
+
+
 def _b64url_decode(value: str) -> bytes:
     padding = "=" * (-len(value) % 4)
     return base64.urlsafe_b64decode((value + padding).encode())
@@ -145,7 +156,7 @@ def issue_validation_token(
     Neither the key nor a reusable digest of it appears in the opaque token.
     """
 
-    normalized = normalize_provider(provider)
+    normalized = _normalize_validation_provider(provider)
     issued_at = int(time.time() if now is None else now)
     payload = {
         "provider": normalized,
@@ -178,14 +189,14 @@ def validation_token_is_valid(
         payload = json.loads(body)
     except (ValueError, TypeError, json.JSONDecodeError):
         return False
-    normalized = normalize_provider(provider)
+    normalized = _normalize_validation_provider(provider)
     expires_at = int(payload.get("exp") or 0)
     current = int(time.time() if now is None else now)
     return payload.get("provider") == normalized and expires_at >= current
 
 
 def require_validation_token(provider: str, key: str, token: str | None) -> str:
-    normalized = normalize_provider(provider)
+    normalized = _normalize_validation_provider(provider)
     if not validation_token_is_valid(normalized, key, token):
         raise ValueError("test this provider key successfully before saving")
     return normalized
@@ -942,12 +953,14 @@ def probe_provider(
     client: httpx.Client | None = None,
     timeout: float = 6.0,
 ) -> dict[str, Any]:
-    """Cheapest real validation request for a cloud provider: a models
-    listing. Returns reachability + whether the key was accepted. NEVER
-    includes the key value."""
+    """Validate via an authenticated listing or Datalab health check.
+
+    Returns reachability and whether the key was accepted without inference
+    or document processing. Never includes the key value.
+    """
     provider = (provider or "").strip().lower()
     base = _PROBE_BASE.get(provider)
-    if base is None:
+    if base is None and provider != "datalab":
         return {
             "provider": provider,
             "reachable": False,
@@ -955,8 +968,16 @@ def probe_provider(
             "status": None,
             "detail": f"unsupported provider: {provider}",
         }
-    url = f"{base}/models"
-    if provider == "anthropic":
+    # Official authenticated health probe; never submit a billable document.
+    # https://documentation.datalab.to/api-reference/api-health
+    url = (
+        "https://www.datalab.to/api/v1/user_health"
+        if provider == "datalab"
+        else f"{base}/models"
+    )
+    if provider == "datalab":
+        headers = {"X-API-Key": key}
+    elif provider == "anthropic":
         headers = {"x-api-key": key, "anthropic-version": "2023-06-01"}
     else:
         headers = {"Authorization": f"Bearer {key}"}
@@ -966,6 +987,17 @@ def probe_provider(
     try:
         resp = http_client.get(url, headers=headers, timeout=timeout)
         detail = None
+        ok = resp.status_code == 200
+        if ok and provider == "datalab":
+            try:
+                body = resp.json()
+            except ValueError:
+                body = None
+            ok = isinstance(body, dict) and body.get("status") == "ok"
+            if not ok:
+                detail = (
+                    "Datalab did not return a successful authenticated health check."
+                )
         if resp.status_code != 200:
             label = PROVIDER_LABELS.get(provider, provider)
             detail = (
@@ -975,7 +1007,7 @@ def probe_provider(
         return {
             "provider": provider,
             "reachable": True,
-            "ok": resp.status_code == 200,
+            "ok": ok,
             "status": resp.status_code,
             "detail": detail,
         }
@@ -985,7 +1017,9 @@ def probe_provider(
             "reachable": False,
             "ok": False,
             "status": None,
-            "detail": str(exc)[:200] or type(exc).__name__,
+            "detail": redact_text(
+                str(exc) or type(exc).__name__, secret_values=(key,), max_chars=200
+            ),
         }
     finally:
         if own:

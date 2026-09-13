@@ -5,7 +5,7 @@ import { safeSetupDetail, useSetupEditing, useSetupRequests } from './setupLifet
 
 export interface ProviderKeyFormProps<Result = void> {
   provider?: string;
-  providers?: ReadonlyArray<{ id: string; label: string }>;
+  providers?: ReadonlyArray<{ id: string; label: string; policy_fields?: readonly string[] }>;
   canMutate: boolean;
   keyLabel?: string;
   spendCap?: boolean;
@@ -27,6 +27,8 @@ export function ProviderKeyForm<Result = void>({ provider: fixedProvider, provid
   const [busy, setBusy] = useState<'test' | 'save' | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const policyFields = providers.find((item) => item.id === provider)?.policy_fields;
+  const supportsSpendCap = spendCap && (policyFields === undefined || policyFields.includes('spend_cap_usd'));
   const { begin, invalidate } = useSetupRequests();
   const editing = useSetupEditing(onEditingChange);
   const clearValidation = () => {
@@ -54,7 +56,7 @@ export function ProviderKeyForm<Result = void>({ provider: fixedProvider, provid
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!canMutate || !receipt || !key.trim() || busy) return;
-    const numericCap = cap.trim() ? Number(cap) : null;
+    const numericCap = supportsSpendCap && cap.trim() ? Number(cap) : null;
     if (numericCap !== null && (!Number.isFinite(numericCap) || numericCap < 0)) {
       setError('Spend cap must be a nonnegative amount in US dollars.'); return;
     }
@@ -79,7 +81,7 @@ export function ProviderKeyForm<Result = void>({ provider: fixedProvider, provid
       {providers.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
     </PanelSelect></label>}
     <label><span className={compact ? 'sr-only' : undefined}>{keyLabel}</span><input aria-label={keyLabel} placeholder={compact ? keyLabel : undefined} type="password" autoComplete="new-password" value={key} disabled={!canMutate || busy === 'save'} onChange={(event) => { clearValidation(); setKey(event.currentTarget.value); editing(true); }} /></label>
-    {spendCap && <label><span>Spend cap (USD)</span><input aria-label="Spend cap in US dollars" inputMode="decimal" placeholder="e.g. 5.00 — blank for no cap" value={cap} disabled={!canMutate || busy === 'save'} onChange={(event) => setCap(event.currentTarget.value)} /></label>}
+    {supportsSpendCap && <label><span>Spend cap (USD)</span><input aria-label="Spend cap in US dollars" inputMode="decimal" placeholder="e.g. 5.00 — blank for no cap" value={cap} disabled={!canMutate || busy === 'save'} onChange={(event) => setCap(event.currentTarget.value)} /></label>}
     {compact ? <button className="btn btn-primary" type="submit" disabled={!canMutate || Boolean(busy) || !key.trim()}>{actionLabel}</button>
       : <><button className="btn" type="button" disabled={!canMutate || Boolean(busy) || !key.trim()} onClick={() => void test()}>{busy === 'test' ? 'Testing…' : 'Test'}</button>
         <button className="btn btn-primary" type="submit" disabled={!canMutate || Boolean(busy) || !receipt || !key.trim()}>{busy === 'save' ? 'Saving…' : 'Save'}</button></>}

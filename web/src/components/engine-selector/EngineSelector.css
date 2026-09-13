@@ -215,12 +215,6 @@
 
 .engine-selector__choice.is-selected strong { color: var(--accent-strong); }
 
-.engine-selector__recent-divider {
-  height: 1px;
-  margin: 5px 10px;
-  background: var(--border);
-}
-
 .engine-selector__status {
   width: 8px;
   height: 8px;

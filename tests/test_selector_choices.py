@@ -1274,3 +1274,73 @@ def test_chandra_selector_preserves_owned_restrictive_license(tmp_path: Path) ->
         "label": "Restrictive license",
         "value": "Modified OpenRAIL-M (Datalab): Free under $2M revenue/funding; use must not compete with Datalab products.",
     } in chandra["facts"]
+
+
+@pytest.mark.parametrize("prepared", [False, True])
+@pytest.mark.parametrize("model_size", [None, "base", "small"])
+def test_whisper_base_selector_requires_durable_download(
+    tmp_path, monkeypatch, prepared, model_size
+):
+    from frisket.ai.models import artifact_manifest
+
+    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "hub"))
+    monkeypatch.setattr(
+        "frisket.execution.definitions.faster_whisper_runtime_present", lambda: True
+    )
+    entry = artifact_manifest.whisper_base_artifact()
+    assert entry is not None and entry.hf_snapshot is not None
+    snap = entry.hf_snapshot
+    if prepared:
+        snapshot = (
+            tmp_path
+            / "hub"
+            / f"models--{snap.repo_id.replace('/', '--')}"
+            / "snapshots"
+            / snap.revision
+        )
+        snapshot.mkdir(parents=True)
+        for filename in snap.files:
+            target = snapshot / filename
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"prepared-fixture")
+    client, workspace, project_id = _app(
+        tmp_path / "workspace",
+        capabilities_for=lambda _request, _pid: SelectorCapabilities(
+            may_author_actions=True, may_run_actions=True, manage_model_downloads=True
+        ),
+    )
+    params = {"engine": "faster_whisper"}
+    if model_size is not None:
+        params["model_size"] = model_size
+    query = _query(
+        {
+            "kind": "action",
+            "action_id": "media.transcribe",
+            "field": "engine",
+            "params": params,
+        }
+    )
+    response = client.post(f"/api/projects/{project_id}/selector-choices", json=query)
+    assert response.status_code == 200, response.text
+    current = next(
+        choice for choice in _choices(response.json()) if choice["is_current"]
+    )
+    needs_download = not prepared and model_size in (None, "base")
+    assert current["status"] == ("needs_setup" if needs_download else "ready")
+    assert current["can_run"] is (not needs_download)
+    if needs_download:
+        assert current["setup"]["kind"] == "artifact_download"
+        assert current["setup"]["setup_ref"] == entry.ref
+        assert current["setup"]["can_start"] is True
+        pull, _ = model_pull_store.create_or_get_active(
+            workspace.queue.engine,
+            workspace_root=str(workspace.root),
+            model_ref=entry.ref,
+        )
+        busy = client.post(f"/api/projects/{project_id}/selector-choices", json=query)
+        choice = next(row for row in _choices(busy.json()) if row["is_current"])
+        assert choice["status"] == "working"
+        assert choice["active_operation"]["id"] == pull.id
+        assert choice["setup"]["can_start"] is False
+    else:
+        assert current["setup"] is None

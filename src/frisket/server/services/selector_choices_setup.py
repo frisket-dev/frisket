@@ -10,7 +10,7 @@ from frisket.execution.definitions import (
     MODELS_GATEWAY_TOKEN_ENV,
     MODELS_GATEWAY_URL_ENV,
 )
-from frisket.server.provider_config import ENV_VAR, provider_key_status
+from frisket.server.provider_config import ENV_VAR, KEY_PROVIDERS, provider_key_status
 from frisket.server.services.selector_choices_capabilities import (
     SelectorCapabilities,
     SelectorModelsGatewayStatusFor,
@@ -47,6 +47,8 @@ class SelectorSetupService:
             row["id"]: row for row in provider_key_status(self._workspace.root)
         }
         workspace_status = status_rows.get(provider, {})
+        if provider == "datalab" and os.environ.get(ENV_VAR[provider]):
+            workspace_status = {"source": "env"}
         project_row = project.provider_key_catalog_rows().get(provider)
         source = _credential_source(router, provider, raw_source=credential_source)
         org_configured = source == "organization"
@@ -72,7 +74,8 @@ class SelectorSetupService:
                 {
                     "scope": "workspace",
                     "configured": workspace_status.get("source") == "local_file",
-                    "can_mutate": capabilities.configure_workspace_credentials,
+                    "can_mutate": capabilities.configure_workspace_credentials
+                    and provider in KEY_PROVIDERS,
                     "source": "workspace"
                     if workspace_status.get("source") == "local_file"
                     else "missing",
@@ -95,7 +98,8 @@ class SelectorSetupService:
                     "scope": "organization",
                     "configured": org_configured or platform_configured,
                     "can_mutate": capabilities.configure_organization_credentials
-                    and not platform_configured,
+                    and not platform_configured
+                    and provider in KEY_PROVIDERS,
                     "source": "platform"
                     if platform_configured
                     else "organization"
