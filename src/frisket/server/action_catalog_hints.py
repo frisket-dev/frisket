@@ -1585,7 +1585,10 @@ def project_action_catalog_launcher_hints(
     execution_composition: ExecutionComposition | None = None,
     has_local_model_endpoint: bool = False,
     effective_router: Any = None,
+    *,
+    action_kinds: frozenset[str] | None = None,
 ) -> dict[str, dict[str, Any]]:
+    """Project launcher hints only for requested actions when a filter is supplied."""
     launcher_hints: dict[str, dict[str, Any]] = {}
     network_off = _project_network_off(project)
     from frisket.actions.registry import ACTION_REGISTRY
@@ -1602,6 +1605,7 @@ def project_action_catalog_launcher_hints(
         )
         for spec in default_registry().recipe_specs()
         if spec.action_kind
+        and (action_kinds is None or spec.action_kind in action_kinds)
     ]
     providers.extend(
         (registered.action_id, registered.action_id.rsplit(".", 1)[-1], True, [], None)
@@ -1631,6 +1635,8 @@ def project_action_catalog_launcher_hints(
         form_params,
         execution_capability,
     ) in providers:
+        if action_kinds is not None and action_kind not in action_kinds:
+            continue
         hints: dict[str, Any] = {
             "uses_model": uses_model,
             "form_params": form_params,
@@ -1710,13 +1716,16 @@ def project_action_catalog_launcher_hints(
             hints["default_output"] = default_output
         launcher_hints[action_kind] = _sanitize_action_hint(hints)
     for action_kind, extra in _url_classification_launcher_hints().items():
+        if action_kinds is not None and action_kind not in action_kinds:
+            continue
         target = launcher_hints.setdefault(action_kind, {})
         target.update(_sanitize_action_hint(extra))
-    from frisket.features.topic_segmentation.engines import engine_catalog
+    if action_kinds is None or "map.find_topic_sections" in action_kinds:
+        from frisket.features.topic_segmentation.engines import engine_catalog
 
-    launcher_hints.setdefault("map.find_topic_sections", {})["engines"] = list(
-        engine_catalog()
-    )
+        launcher_hints.setdefault("map.find_topic_sections", {})["engines"] = list(
+            engine_catalog()
+        )
     return launcher_hints
 
 
@@ -1727,6 +1736,8 @@ def action_catalog_payload_with_launcher_hints(
     execution_composition: ExecutionComposition | None = None,
     has_local_model_endpoint: bool = False,
     effective_router: Any = None,
+    *,
+    action_kinds: frozenset[str] | None = None,
 ) -> dict[str, Any]:
     launcher_hints = project_action_catalog_launcher_hints(
         sidecar_capabilities,
@@ -1735,8 +1746,13 @@ def action_catalog_payload_with_launcher_hints(
         execution_composition=execution_composition,
         has_local_model_endpoint=has_local_model_endpoint,
         effective_router=effective_router,
+        action_kinds=action_kinds,
     )
     payload = root_action_catalog_payload()
+    if action_kinds is not None:
+        payload["actions"] = [
+            entry for entry in payload["actions"] if entry["kind"] in action_kinds
+        ]
     collisions: list[tuple[str, list[str]]] = []
     for entry in payload["actions"]:
         hints = launcher_hints.get(entry["kind"])
@@ -1861,6 +1877,7 @@ def project_action_catalog_payload_with_launcher_hints(
     execution_composition: ExecutionComposition | None = None,
     has_local_model_endpoint: bool = False,
     effective_router: Any = None,
+    action_kinds: frozenset[str] | None = None,
 ) -> dict[str, Any]:
     payload = action_catalog_payload_with_launcher_hints(
         sidecar_capabilities,
@@ -1869,10 +1886,15 @@ def project_action_catalog_payload_with_launcher_hints(
         execution_composition=execution_composition,
         has_local_model_endpoint=has_local_model_endpoint,
         effective_router=effective_router,
+        action_kinds=action_kinds,
     )
     payload["actions"] = [
         *payload["actions"],
-        *_project_plugin_action_catalog_entries(project),
+        *[
+            entry
+            for entry in _project_plugin_action_catalog_entries(project)
+            if action_kinds is None or entry["kind"] in action_kinds
+        ],
     ]
     payload["actions"] = sorted(payload["actions"], key=lambda entry: entry["kind"])
     _apply_missing_credential_hints(project, payload["actions"])
