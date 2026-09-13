@@ -39,6 +39,17 @@ function displayFact(choice: SelectorChoice): EngineSelectorChoice['facts'] {
   });
 }
 
+function hasActionableCredentialSetup(choice: SelectorChoice): boolean {
+  if (choice.setup?.kind === 'api_key') {
+    return choice.setup.scopes.some((scope) => scope.scope === 'project' && scope.can_mutate);
+  }
+  if (choice.setup?.kind === 'models_gateway') {
+    return choice.setup.scopes.some((scope) => scope.can_mutate
+      && (scope.scope === 'workspace' || scope.scope === 'organization'));
+  }
+  return false;
+}
+
 function displayChoice(choice: SelectorChoice): EngineSelectorChoice {
   const setup = choice.setup;
   const blocked = setup && 'blocked_by_operation' in setup ? setup.blocked_by_operation : null;
@@ -60,7 +71,9 @@ function displayChoice(choice: SelectorChoice): EngineSelectorChoice {
     status: choice.status,
     canAuthor: choice.can_author,
     canRun: choice.can_run,
-    blocker: choice.blocker?.message,
+    blocker: hasActionableCredentialSetup(choice)
+      && (choice.blocker?.code === 'provider_key_required' || choice.blocker?.code === 'models_gateway_required')
+      ? undefined : choice.blocker?.message,
     activity: active ? {
       label: choice.active_operation ? operation.display_name
         : choice.blocker?.message ?? `Waiting for ${operation.display_name}`,

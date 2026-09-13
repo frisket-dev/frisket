@@ -76,6 +76,29 @@ describe('SelectorField', () => {
     expect(screen.getByRole('button', { name: /ready model/i })).toBeDisabled();
   });
 
+  it('replaces a raw missing gateway remediation with its actionable setup in the detail scroller', async () => {
+    const missing = response();
+    const choice = missing.groups[0].choices[0];
+    Object.assign(choice, {
+      label: 'Gateway model', status: 'needs_setup', can_run: false,
+      blocker: { code: 'models_gateway_required', message: 'Set FRISKET_MODELS_URL and FRISKET_MODELS_TOKEN.', field: null },
+      setup: { kind: 'models_gateway', scopes: [{
+        scope: 'workspace', can_mutate: true, configured: false, source: 'missing',
+        hint: null, environment_names: ['FRISKET_MODELS_URL', 'FRISKET_MODELS_TOKEN'], settings_location: null,
+      }] },
+    });
+    render(<SelectorField projectId="project-a" label="Model"
+      query={{ schema_version: 'frisket.selector_choices_query.v1',
+        subject: { kind: 'action', action_id: 'map.classify', field: 'model', params: {} } }}
+      recentNamespace="missing-gateway" load={vi.fn().mockResolvedValue(missing)} onSelect={vi.fn()} />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /Gateway model/ }));
+    const dialog = screen.getByTestId('engine-selector-dialog');
+    const token = within(dialog).getByLabelText('Gateway token');
+    expect(within(dialog).queryByText(/FRISKET_MODELS_URL/)).not.toBeInTheDocument();
+    expect(dialog.querySelector('.engine-selector__detail-scroll')).toContainElement(token);
+  });
+
 
   it('withholds a same-scope ready snapshot after failed refresh and throughout Retry until authoritative recovery', async () => {
     const ready = response();

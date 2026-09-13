@@ -2,13 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import type { SelectorChoice } from '../api/selectorChoices';
 import { createProjectProviderKeysApi } from '../api/projectProviderKeys';
 import { createLocalProvidersApi } from '../api/localProviders';
-import { createOrganizationProvidersApi } from '../api/organizationProviders';
 import { createTeamLocalModelsApi } from '../api/teamLocalModels';
 import { ModelSetupRequestError, modelSetupErrorFactory, startEngineSetup } from '../api/engineSetup';
 import type { ModelPullDto } from '../api/types';
 import { ModelPullProgress } from '../components/ModelPullProgress';
 import { ProviderKeyForm } from './ProviderKeyForm';
 import { ModelsGatewayForm } from './ModelsGatewayForm';
+import type { ModelsGatewayScope } from '../api/modelsGateway';
 import { useSetupRequests } from './setupLifetime';
 
 export interface SelectorSetupProps {
@@ -16,61 +16,36 @@ export interface SelectorSetupProps {
 }
 type Setup = NonNullable<SelectorChoice['setup']>;
 type CredentialSetup = Extract<Setup, { kind: 'api_key' | 'models_gateway' }>;
-type Scope = CredentialSetup['scopes'][number];
+type GatewayScope = CredentialSetup['scopes'][number] & { scope: ModelsGatewayScope };
 type DownloadSetup = Extract<Setup, { kind: 'engine_setup' | 'artifact_download' }>;
 const requestError = () => new Error('Setup request failed');
 const workspace = createLocalProvidersApi(requestError);
-const organization = createOrganizationProvidersApi(requestError);
 const projectKeys = createProjectProviderKeysApi(requestError);
 const downloads = createLocalProvidersApi(modelSetupErrorFactory);
 const teamModels = createTeamLocalModelsApi(modelSetupErrorFactory);
 
-function scopeLabel(scope: Scope['scope']): string {
-  switch (scope) {
-    case 'workspace': return 'Workspace'; case 'project': return 'Project';
-    case 'organization': return 'Organization'; case 'environment': return 'Environment';
-  }
+function isMutableGatewayScope(scope: CredentialSetup['scopes'][number]): scope is GatewayScope {
+  return scope.can_mutate && (scope.scope === 'workspace' || scope.scope === 'organization');
 }
 
 function CredentialSetupPanel({ setup, projectId, onChanged, onEditingChange }: {
   setup: CredentialSetup; projectId: string; onChanged(): void; onEditingChange(editing: boolean): void;
 }) {
-  const editable = setup.scopes.filter((scope) => scope.can_mutate && scope.scope !== 'environment'
-    && (setup.kind === 'api_key' || scope.scope === 'workspace' || scope.scope === 'organization'));
-  const [selected, setSelected] = useState(editable[0]?.scope ?? setup.scopes[0]?.scope ?? 'environment');
-  const scope = editable.find((item) => item.scope === selected);
+  const projectScope = setup.kind === 'api_key'
+    ? setup.scopes.find((scope) => scope.scope === 'project')
+    : undefined;
+  const gatewayScope = setup.kind === 'models_gateway'
+    ? setup.scopes.find(isMutableGatewayScope)
+    : undefined;
   return <section className="selector-setup">
-    <ul className="settings-help">{setup.scopes.map((item) => <li key={item.scope}>
-      {scopeLabel(item.scope)}: {item.configured ? `configured${item.hint ? ` (${item.hint})` : ''}` : 'not configured'}
-      {item.scope === 'environment' && <>. Change {item.environment_names.join(' and ')} in the server environment.</>}
-      {!item.can_mutate && item.scope !== 'environment' && '. Ask an owner to change this credential.'}
-    </li>)}</ul>
-    {editable.length > 1 && <label className="settings-field"><span>Save in</span>
-      <select aria-label="Credential scope" value={selected} onChange={(event) => {
-        const next = editable.find((item) => item.scope === event.currentTarget.value);
-        if (next) { onEditingChange(false); setSelected(next.scope); }
-      }}>{editable.map((item) => <option key={item.scope} value={item.scope}>{scopeLabel(item.scope)}</option>)}</select>
-    </label>}
-    {!scope && <p className="settings-help">Read-only configuration. Ask an owner or server operator to complete setup.</p>}
-    {scope && setup.kind === 'api_key' && <ProviderKeyForm key={scope.scope} provider={setup.provider} canMutate
-      validate={(provider, key, signal) => {
-        switch (scope.scope) {
-          case 'project': return projectKeys.validateProjectProviderKey(projectId, provider, key, { signal });
-          case 'organization': return organization.validateOrgKey(provider, key, { signal });
-          case 'workspace': return workspace.validateProviderKey(provider, key, { signal });
-          case 'environment': throw new Error('Environment credentials are read-only');
-        }
-      }}
-      save={async (provider, key, receipt, _cap, signal) => {
-        switch (scope.scope) {
-          case 'project': await projectKeys.setProjectProviderKey(projectId, provider, key, null, receipt, { signal }); break;
-          case 'organization': await organization.setOrgKey(provider, key, receipt, { signal }); break;
-          case 'workspace': await workspace.setProviderKey(provider, key, receipt, { signal }); break;
-          case 'environment': throw new Error('Environment credentials are read-only');
-        }
-      }} onSaved={onChanged} onEditingChange={onEditingChange} />}
-    {scope && setup.kind === 'models_gateway' && (scope.scope === 'workspace' || scope.scope === 'organization') &&
-      <ModelsGatewayForm key={scope.scope} scope={scope.scope} onSaved={onChanged} onEditingChange={onEditingChange} />}
+    {setup.kind === 'api_key' && projectScope?.can_mutate && <ProviderKeyForm provider={setup.provider} canMutate compact
+      validate={(provider, key, signal) => projectKeys.validateProjectProviderKey(projectId, provider, key, { signal })}
+      save={(provider, key, receipt, _cap, signal) => projectKeys.setProjectProviderKey(projectId, provider, key, null, receipt, { signal })}
+      onSaved={onChanged} onEditingChange={onEditingChange} />}
+    {setup.kind === 'models_gateway' && gatewayScope &&
+      <ModelsGatewayForm key={gatewayScope.scope} scope={gatewayScope.scope} compact onSaved={onChanged} onEditingChange={onEditingChange} />}
+    {((setup.kind === 'api_key' && !projectScope?.can_mutate) || (setup.kind === 'models_gateway' && !gatewayScope)) &&
+      <p className="settings-help">You do not have permission to complete this setup.</p>}
   </section>;
 }
 

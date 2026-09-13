@@ -2,8 +2,8 @@ import { useState, type FormEvent } from 'react';
 import { saveModelsGateway, validateModelsGateway, type ModelsGatewayScope } from '../api/modelsGateway';
 import { safeSetupDetail, useSetupEditing, useSetupRequests } from './setupLifetime';
 
-export function ModelsGatewayForm({ scope, initialOrigin = '', onSaved, onEditingChange }: {
-  scope: ModelsGatewayScope; initialOrigin?: string; onSaved(): void; onEditingChange?(editing: boolean): void;
+export function ModelsGatewayForm({ scope, initialOrigin = '', compact = false, onSaved, onEditingChange }: {
+  scope: ModelsGatewayScope; initialOrigin?: string; compact?: boolean; onSaved(): void; onEditingChange?(editing: boolean): void;
 }) {
   const [origin, setOrigin] = useState(initialOrigin);
   const [token, setToken] = useState('');
@@ -44,13 +44,19 @@ export function ModelsGatewayForm({ scope, initialOrigin = '', onSaved, onEditin
       if (request.isCurrent()) { setReceipt(null); setError('Could not confirm the save. Recheck before trying again.'); }
     } finally { if (request.isCurrent()) setBusy(null); }
   };
-  return <form className="settings-form settings-inline-form selector-setup-form" autoComplete="off" onSubmit={submit} onFocus={() => editing(true)}>
-    <label><span>Gateway URL</span><input aria-label="Gateway URL" type="url" placeholder="https://models.example.org" value={origin} disabled={busy === 'save'} onChange={(event) => { edit(); setOrigin(event.currentTarget.value); }} /></label>
-    <label><span>Gateway token</span><input aria-label="Gateway token" type="password" autoComplete="new-password" value={token} disabled={busy === 'save'} onChange={(event) => { edit(); setToken(event.currentTarget.value); }} /></label>
-    <p className="settings-help">Use HTTPS or a loopback address. Test this URL and token before saving.</p>
-    <button className="btn" type="button" disabled={Boolean(busy) || !origin.trim() || !token.trim()} onClick={() => void test()}>{busy === 'test' ? 'Testing…' : 'Test'}</button>
-    <button className="btn btn-primary" type="submit" disabled={Boolean(busy) || !receipt}>{busy === 'save' ? 'Saving…' : 'Save'}</button>
-    <button className="btn" type="button" disabled={Boolean(busy)} onClick={() => void test(true)}>{busy === 'recheck' ? 'Checking…' : 'Recheck saved gateway'}</button>
+  const compactSubmit = (event: FormEvent) => {
+    if (receipt) { void submit(event); return; }
+    event.preventDefault(); void test();
+  };
+  const actionLabel = busy === 'test' ? 'Testing…' : busy === 'save' ? 'Saving…' : receipt ? 'Save' : 'Test';
+  return <form className={`settings-form settings-inline-form selector-setup-form${compact ? ' selector-setup-form--compact' : ''}`} autoComplete="off" onSubmit={compact ? compactSubmit : submit} onFocus={() => editing(true)}>
+    <label><span className={compact ? 'sr-only' : undefined}>Gateway URL</span><input aria-label="Gateway URL" type="url" placeholder="https://models.example.org" value={origin} disabled={busy === 'save'} onChange={(event) => { edit(); setOrigin(event.currentTarget.value); }} /></label>
+    <label><span className={compact ? 'sr-only' : undefined}>Gateway token</span><input aria-label="Gateway token" placeholder={compact ? 'Gateway token' : undefined} type="password" autoComplete="new-password" value={token} disabled={busy === 'save'} onChange={(event) => { edit(); setToken(event.currentTarget.value); }} /></label>
+    {!compact && <p className="settings-help">Use HTTPS or a loopback address. Test this URL and token before saving.</p>}
+    {compact ? <button className="btn btn-primary" type="submit" disabled={Boolean(busy) || !origin.trim() || !token.trim()}>{actionLabel}</button>
+      : <><button className="btn" type="button" disabled={Boolean(busy) || !origin.trim() || !token.trim()} onClick={() => void test()}>{busy === 'test' ? 'Testing…' : 'Test'}</button>
+        <button className="btn btn-primary" type="submit" disabled={Boolean(busy) || !receipt}>{busy === 'save' ? 'Saving…' : 'Save'}</button>
+        <button className="btn" type="button" disabled={Boolean(busy)} onClick={() => void test(true)}>{busy === 'recheck' ? 'Checking…' : 'Recheck saved gateway'}</button></>}
     {(error || message) && <p className={`settings-inline-status settings-validation-message is-${error ? 'error' : 'success'}`} role={error ? 'alert' : 'status'}>{error ?? message}</p>}
   </form>;
 }

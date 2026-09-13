@@ -262,6 +262,7 @@
 }
 
 .engine-selector__detail-scroll {
+  flex: 1;
   min-height: 0;
   overflow-y: auto;
   padding: 6px 6px 4px 8px;
@@ -370,10 +371,9 @@
 
 .engine-selector__footer {
   display: grid;
-  min-height: 0;
-  overflow-y: auto;
   gap: var(--space-8);
-  padding: 0 6px 6px 8px;
+  margin-top: var(--space-8);
+  padding: 0 0 6px;
 }
 
 .engine-selector__footer:focus {
@@ -390,6 +390,23 @@
 
 .engine-selector__footer .selector-setup > :first-child { margin-top: 0; }
 .engine-selector__footer .selector-setup > :last-child { margin-bottom: 0; }
+
+.engine-selector__footer .settings-provider-key-form--compact {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.engine-selector__footer .selector-setup-form--compact {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.engine-selector__footer .selector-setup-form--compact > label:first-child {
+  grid-column: 1 / -1;
+}
+
+.engine-selector__footer .settings-provider-key-form--compact .settings-inline-status,
+.engine-selector__footer .selector-setup-form--compact .settings-inline-status {
+  grid-column: 1 / -1;
+}
 
 .engine-selector__empty {
   padding: var(--space-12);

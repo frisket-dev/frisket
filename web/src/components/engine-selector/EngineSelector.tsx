@@ -549,13 +549,13 @@ export function EngineSelector({
                   )}
                   {previewedChoice.blocker && <p className="engine-selector__blocker">{previewedChoice.blocker}</p>}
                 </> : <p className="engine-selector__empty">No choices are available.</p>}
+                  {previewedChoice && (renderDetailFooter || (mobileDetail && previewedChoice.canAuthor && previewedChoice.status !== 'unavailable')) && (
+                    <footer ref={detailFooterRef} tabIndex={-1} className="engine-selector__footer">
+                      {renderDetailFooter?.(detailFooter!)}
+                      {mobileDetail && previewedChoice.canAuthor && previewedChoice.status !== 'unavailable' && <button type="button" className="primary-button" onClick={() => choose(previewedChoice)}>{previewedChoice.status === 'needs_setup' ? 'Select and set up' : 'Select'}</button>}
+                    </footer>
+                  )}
               </div>
-              {previewedChoice && (renderDetailFooter || (mobileDetail && previewedChoice.canAuthor && previewedChoice.status !== 'unavailable')) && (
-                <footer ref={detailFooterRef} tabIndex={-1} className="engine-selector__footer">
-                  {renderDetailFooter?.(detailFooter!)}
-                  {mobileDetail && previewedChoice.canAuthor && previewedChoice.status !== 'unavailable' && <button type="button" className="primary-button" onClick={() => choose(previewedChoice)}>{previewedChoice.status === 'needs_setup' ? 'Select and set up' : 'Select'}</button>}
-                </footer>
-              )}
             </section>
           </div>
         </dialog>,
