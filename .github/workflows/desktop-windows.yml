@@ -1,6 +1,17 @@
 name: desktop-windows
 
 on:
+  workflow_call:
+    outputs:
+      source_sha:
+        description: "Revision verified by the signed installed-app proof"
+        value: ${{ jobs.signed-installed-proof.outputs.source_sha }}
+      python_package_version:
+        description: "Python package version embedded in the verified installer"
+        value: ${{ jobs.signed-installed-proof.outputs.python_package_version }}
+      desktop_version:
+        description: "Electron version embedded in the verified installer"
+        value: ${{ jobs.signed-installed-proof.outputs.desktop_version }}
   pull_request:
     paths:
       - 'desktop/**'
@@ -232,6 +243,10 @@ jobs:
     timeout-minutes: 75
     permissions:
       contents: read
+    outputs:
+      source_sha: ${{ steps.release-metadata.outputs.source_sha }}
+      python_package_version: ${{ steps.release-metadata.outputs.python_package_version }}
+      desktop_version: ${{ steps.release-metadata.outputs.desktop_version }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -282,6 +297,27 @@ jobs:
           EXPECTED_PUBLISHER: ${{ needs.signed-distribution.outputs.publisher }}
         run: |
           & desktop/scripts/verify-signature.ps1 -Paths @($env:FRISKET_DESKTOP_APP) -PublisherName $env:EXPECTED_PUBLISHER
+      - name: Record proof-approved release metadata
+        id: release-metadata
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $build = Get-Content desktop/resources/build.json -Raw | ConvertFrom-Json
+          if ($build.revision -ne $env:GITHUB_SHA) {
+            throw 'Verified installer revision does not match this dispatch.'
+          }
+          foreach ($name in @('pythonPackageVersion', 'version')) {
+            $value = [string]$build.$name
+            if ([string]::IsNullOrWhiteSpace($value) -or $value -match '[\r\n]') {
+              throw "Verified installer has invalid $name metadata."
+            }
+          }
+          if ([string]$build.version -notmatch '^\d+\.\d+\.\d+(-(alpha|beta|rc)\.\d+)?$') {
+            throw 'Verified installer has an unsupported desktop version.'
+          }
+          "source_sha=$($build.revision)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "python_package_version=$($build.pythonPackageVersion)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "desktop_version=$($build.version)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
       - name: Upload signed beta after installed proof
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
