@@ -105,8 +105,8 @@ function JoinParamsBodyForSheet({ params, setParams, setEditorProblem, sheet, Fi
       <Plus size={13} /> Add key</button>
     <div className="form-row-pair">
       {(['left', 'right'] as const).map((side) => <div key={side}>
-        <span className="form-label">{side === 'left' ? 'Left' : 'Right'} columns to include</span>
-        <MultiColumnPicker testId={`field-join_${side}_columns`} ariaLabel={`${side} columns to include`}
+        <span className="form-label">{side === 'left' ? 'Left' : 'Right'} fields</span>
+        <MultiColumnPicker testId={`field-join_${side}_columns`} ariaLabel={`${side === 'left' ? 'Left' : 'Right'} fields`}
           value={[...new Set((columns ?? []).filter((column) => column.side === side).map((column) => column.column))]}
           options={((side === 'left' ? left : right)?.columns ?? []).map(({ name, type, ai }) =>
             ({ name, type, ai: Boolean(ai) }))} disabled={blocked}

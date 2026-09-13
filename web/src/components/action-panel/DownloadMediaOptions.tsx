@@ -91,7 +91,7 @@ export function DownloadMediaOptions({ params, setParams, Field }:
   const [youtubeFormatCustom, setYoutubeFormatCustom] = useState(false);
   return (
     <div className="action-io-summary" data-testid="youtube-media-options">
-      <Field name="source" label="Source URL column" />
+      <Field name="source" label="URL" />
       <MediaProxyChip />
       {/* span, not label: SegmentedToggle's role="group" already carries
           its own aria-label below — a <label> here would claim an

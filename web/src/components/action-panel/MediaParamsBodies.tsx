@@ -10,7 +10,7 @@ export function FetchUrlParamsBody({ sheet, params, Field, sampleColumnValues, o
   const suggestDownload = sample.length > 0
     && sample.filter(looksLikeSupportedMediaUrl).length / sample.length >= 0.5;
   return <>
-    <Field name="source" label="URL column" />
+    <Field name="source" label="URL" />
     {suggestDownload && source && <div className="action-io-summary" data-testid="youtube-routing-chip">
       <p className="form-hint">"{source.name}" looks like it has supported media links — Download media
         handles those (formats, audio/video, subtitles) better than a plain download.</p>
@@ -40,7 +40,7 @@ export function VideoFramesParamsBody({ params, setParams, Field, errors }:
     setParams({ ...params, sampling: kind === 'count' ? { kind, count: 4 } : { kind, seconds: 5 } });
   };
   return <>
-    <Field name="source" label="Video column" />
+    <Field name="source" label="Video" />
     <div className="action-io-summary">
       <div className="form-label">Sampling</div>
       <div className="segmented segmented-full" data-testid="frame-sampling-mode">

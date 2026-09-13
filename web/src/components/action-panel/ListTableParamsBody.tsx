@@ -35,7 +35,7 @@ export function ListTableParamsBody({ sheet, params, setParams }:
         Named result {namedSource.route} from run {namedSource.run_id} on sheet {namedSource.sheet_id}
       </p>
     </> : <>
-      <label className="form-label" htmlFor="list-table-column">List column to materialize</label>
+      <label className="form-label" htmlFor="list-table-column">List</label>
       <select id="list-table-column" className="form-input" data-testid="derive-source-column-select"
         disabled={!sheet} value={liveSource?.column_id ?? ''} onChange={(event) => sheet && setParams({ ...params,
           source: { ...liveSource, kind: 'column', sheet_id: Number(sheet.id),

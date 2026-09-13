@@ -70,8 +70,8 @@ function SemanticJoinParamsBodyForSheet({ params, setParams, setEditorProblem, s
         onValueChange={(column) => setParams({ ...params,
           target: { sheet_id: params.target?.sheet_id ?? 0, column } })} />
     </label>
-    <div className="field-group"><span className="form-label">Carry source columns into matches</span>
-      <MultiColumnPicker testId="field-semantic_carry_columns" ariaLabel="Carry source columns"
+    <div className="field-group"><span className="form-label">Include</span>
+      <MultiColumnPicker testId="field-semantic_carry_columns" ariaLabel="Include"
         value={carry} options={primary.columns.filter((column) => column.name !== params.source)
           .map(({ name, type, ai }) => ({ name, type, ai: Boolean(ai) }))} disabled={blocked}
         onValueChange={(carry) => setParams({ ...params, carry })} />

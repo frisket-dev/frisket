@@ -465,7 +465,7 @@ function catalogFormParamsForActionTemplate(entry: ActionCatalogEntry): ActionPa
 }
 
 const CLEAN_COLUMN_LABELS: Readonly<Record<string, string>> = {
-  source: 'Column to clean',
+  source: 'Column',
   case: 'Case',
   blank_null_tokens: 'Blank null tokens',
   lowercase_emails: 'Lowercase emails',

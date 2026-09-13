@@ -558,6 +558,30 @@ function GeneratedActionFormContents({
     problem: dynamicOutputs ? 'Resolving outputs…' : 'Validating fields…',
   });
   const { outputs, diagnostics, problem: resolutionProblem } = resolved;
+  // An empty required column picker already explains why it cannot be filled.
+  // Keep the server refusal in state (so Run remains unavailable), but do not
+  // repeat it beside the picker or below unrelated output controls. This is
+  // based on the declared field and its eligible choices, never error copy.
+  const unavailableRequiredColumnFields = new Set((actionTemplate.params ?? []).flatMap((param) => {
+    const value = draft[param.name];
+    const isEmpty = value === undefined || value === null
+      || (typeof value === 'string' && value.trim().length === 0);
+    if (!required.has(param.name) || catalogEntry.ui_hints.semantic_controls[param.name] !== 'column'
+      || !isEmpty) {
+      return [];
+    }
+    const requirement = catalogEntry.ui_hints.source_requirements
+      ?.find((candidate) => candidate.param === param.name) ?? null;
+    return requirement && compatibleSourceColumns(orderedSourceColumns(columns), requirement).length === 0
+      ? [param.name] : [];
+  }));
+  const displayedDiagnostics = Object.fromEntries(Object.entries(diagnostics).filter(([name]) => (
+    !unavailableRequiredColumnFields.has(name)
+  )));
+  const hasNamedDiagnostic = Object.entries(diagnostics).some(([name, diagnostic]) => (
+    name !== '__all__' && !diagnostic.ok
+  ));
+  const hasGlobalDiagnostic = diagnostics.__all__?.ok === false;
   const resolving = resolutionProblem === 'Resolving outputs…'
     || resolutionProblem === 'Validating fields…';
   useEffect(() => {
@@ -570,7 +594,9 @@ function GeneratedActionFormContents({
       })
         .then((resolution) => {
           if (!current) return;
-          const diagnostic = Object.values(resolution.diagnostics).find((item) => !item.ok);
+          const globalDiagnostic = resolution.diagnostics.__all__;
+          const diagnostic = globalDiagnostic?.ok === false ? globalDiagnostic
+            : Object.values(resolution.diagnostics).find((item) => !item.ok);
           const nextOutputs = dynamicOutputs
             ? resolution.logical_outputs : catalogEntry.ui_hints.logical_outputs;
           const nextCreatesSheet = resolution.creates_sheet ?? staticCreatesSheet;
@@ -1023,13 +1049,13 @@ function GeneratedActionFormContents({
       {ParamsBody ? (
         <fieldset disabled={running} className="resolve-drawer-body-fields">
           <GeneratedFieldContext.Provider value={{ actionTemplate, draft: displayDraft, columns,
-            diagnostics, renderField, onFieldChange: updateField }}>
+            diagnostics: displayedDiagnostics, renderField, onFieldChange: updateField }}>
             <ParamsBody sheet={sheet} params={draft} setParams={updateBodyParams}
               setEditorProblem={setEditorProblem}
               engine={selectedEngineInfo}
               request={{ scope: requestScope, sheet_name: estimateDraft.sheet_name,
                 output_names: estimateDraft.output_names }}
-              errors={diagnostics} Field={GeneratedField} onNavigateToAction={onNavigateToAction}
+              errors={displayedDiagnostics} Field={GeneratedField} onNavigateToAction={onNavigateToAction}
               sampleColumnValues={sampleColumnValues} />
           </GeneratedFieldContext.Provider>
         </fieldset>
@@ -1040,7 +1066,7 @@ function GeneratedActionFormContents({
           )) }}
           draft={displayDraft}
           columns={columns}
-          diagnostics={diagnostics}
+          diagnostics={displayedDiagnostics}
           renderField={renderField}
           onFieldChange={updateField}
         />
@@ -1060,7 +1086,8 @@ function GeneratedActionFormContents({
 
       {customization?.outputPrefix && <div className="param-row">
         <label className="form-label" htmlFor="generated-output-prefix">
-          {customization.outputPrefix.label} column {outputs.length === 1 ? 'name' : 'prefix'}
+          {typeof customization.outputPrefix.label === 'function'
+            ? customization.outputPrefix.label(outputs) : customization.outputPrefix.label}
         </label>
         <input id="generated-output-prefix" className="form-input"
           data-testid="field-output-prefix" value={outputPrefix} disabled={running}
@@ -1104,8 +1131,8 @@ function GeneratedActionFormContents({
               columnType,
               existingColumnPolicy,
             )}
-            label={customization?.outputLabel?.(key) ?? (outputs.length === 1 ? 'Save to'
-              : `Save ${key.replace(/_/g, ' ').replace(/^./, (letter) => letter.toUpperCase())} to`)}
+            label={customization?.outputLabel?.(key) ?? (outputs.length === 1 ? 'Result'
+              : key.replace(/_/g, ' ').replace(/^./, (letter) => letter.toUpperCase()))}
             inputTestId={`field-output-${key}`} value={outputNames[key] ?? (createsSheet ? key : '')}
             allowExistingTargets={!createsSheet}
             onChange={(value) => {
@@ -1148,10 +1175,7 @@ function GeneratedActionFormContents({
           ))}>Remove unavailable output names</button>
       </div>}
 
-      {resolutionProblem && !resolving
-        && (ParamsBody || !Object.entries(diagnostics).some(([name, diagnostic]) => (
-          name !== '__all__' && !diagnostic.ok
-        ))) && (
+      {resolutionProblem && !resolving && (!hasNamedDiagnostic || hasGlobalDiagnostic) && (
         <p className="form-error" role="alert">{resolutionProblem}</p>
       )}
 
