@@ -59,12 +59,17 @@ environment authorizes the immutable OIDC subject for this repository.
 ## Publishing a desktop beta
 
 After the normal version bump reaches `main`, wait for the full `ci.yml` run for
-that exact revision to succeed, then dispatch **desktop-release** from `main`.
-It runs the signed macOS and Windows installed-app proofs for the same commit,
-then publishes `desktop-v<project.version>` with the two direct installers and
-`SHA256SUMS`. The normal `v*` wheel/server release workflow remains separate.
-The dispatcher refuses an existing Desktop tag or release and leaves an
-incomplete draft for inspection if publication fails.
+that exact revision to succeed. An authorized maintainer or release bot must
+create `desktop-v<project.version>` at that exact commit, then dispatch
+**desktop-release** from `main`. Repository rules restrict tag creation; the
+workflow token does not receive that privilege.
+
+The workflow checks that the tag resolves to the dispatched main revision before
+building and again before publishing. It runs the signed macOS and Windows
+installed-app proofs, then publishes the two direct installers and `SHA256SUMS`.
+The normal `v*` wheel/server release workflow remains separate. The dispatcher
+refuses existing releases, including drafts, and leaves an incomplete draft for
+inspection if publication fails.
 
 ## Build
 

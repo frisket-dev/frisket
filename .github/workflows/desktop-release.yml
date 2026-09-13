@@ -98,30 +98,21 @@ jobs:
             exit 1
           fi
           echo "url=$url" >> "$GITHUB_OUTPUT"
-      - name: Refuse an existing desktop tag or release before native builds
+      - name: Require the authorized tag and refuse an existing release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
+          SOURCE_SHA: ${{ steps.commit.outputs.source_sha }}
         run: |
           set -euo pipefail
-          require_absent() {
-            local endpoint="$1"
-            local label="$2"
-            local response="$RUNNER_TEMP/desktop-release-${label}.response"
-            set +e
-            gh api --include "$endpoint" > "$response" 2>&1
-            local status=$?
-            set -e
-            if [ "$status" -eq 0 ]; then
-              echo "::error::${label} already exists for ${TAG}; choose a new version"
-              exit 1
-            fi
-            if ! grep -Eq 'HTTP 404|^HTTP/[0-9.]+ 404 ' "$response"; then
-              echo "::error::could not determine whether ${label} exists; refusing to release"
-              exit 1
-            fi
-          }
-          require_absent "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" tag
+          if ! tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/refs/tags/${TAG}" --jq .sha)"; then
+            echo "::error::An authorized maintainer or release bot must create ${TAG} at ${SOURCE_SHA} before dispatch."
+            exit 1
+          fi
+          if [ "$tag_sha" != "$SOURCE_SHA" ]; then
+            echo "::error::${TAG} does not resolve to the dispatched main revision; refusing to release."
+            exit 1
+          fi
           releases="$RUNNER_TEMP/desktop-release-admission-releases.json"
           gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases?per_page=100" > "$releases"
           matches="$(jq --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)] | length' "$releases")"
@@ -218,7 +209,7 @@ jobs:
           )
           echo "dmg_name=$dmg_name" >> "$GITHUB_OUTPUT"
           echo "exe_name=$exe_name" >> "$GITHUB_OUTPUT"
-      - name: Recheck absence and create a new draft release
+      - name: Recheck the tag and create a new draft release
         id: draft
         env:
           GH_TOKEN: ${{ github.token }}
@@ -232,24 +223,14 @@ jobs:
           EXE_NAME: ${{ steps.assets.outputs.exe_name }}
         run: |
           set -euo pipefail
-          require_absent() {
-            local endpoint="$1"
-            local label="$2"
-            local response="$RUNNER_TEMP/desktop-release-prepublish-${label}.response"
-            set +e
-            gh api --include "$endpoint" > "$response" 2>&1
-            local status=$?
-            set -e
-            if [ "$status" -eq 0 ]; then
-              echo "::error::${label} already exists for ${TAG}; refusing to overwrite it"
-              exit 1
-            fi
-            if ! grep -Eq 'HTTP 404|^HTTP/[0-9.]+ 404 ' "$response"; then
-              echo "::error::could not determine whether ${label} exists; refusing to create a release"
-              exit 1
-            fi
-          }
-          require_absent "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" tag
+          if ! tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/refs/tags/${TAG}" --jq .sha)"; then
+            echo "::error::An authorized maintainer or release bot must create ${TAG} at ${SOURCE_SHA} before dispatch."
+            exit 1
+          fi
+          if [ "$tag_sha" != "$SOURCE_SHA" ]; then
+            echo "::error::${TAG} does not resolve to the dispatched main revision; refusing to release."
+            exit 1
+          fi
           releases="$RUNNER_TEMP/desktop-release-prepublish-releases.json"
           gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases?per_page=100" > "$releases"
           matches="$(jq --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)] | length' "$releases")"
