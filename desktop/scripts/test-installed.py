@@ -48,18 +48,7 @@ def run_installed_checks() -> None:
 
 
 def command_argv(command: str, *args: str) -> list[str]:
-    resolved = str(required_executable(command))
-    if platform.system() != "Windows" or not resolved.lower().endswith(
-        (".cmd", ".bat")
-    ):
-        return [resolved, *args]
-    comspec = os.environ.get("COMSPEC")
-    if not comspec:
-        raise RuntimeError("Windows COMSPEC is unavailable for the npm command wrapper")
-    command_line = f'"{resolved}"'
-    if args:
-        command_line = f"{command_line} {subprocess.list2cmdline(list(args))}"
-    return [comspec, "/d", "/s", "/c", command_line]
+    return [str(required_executable(command)), *args]
 
 
 def required_executable(command: str) -> Path:
