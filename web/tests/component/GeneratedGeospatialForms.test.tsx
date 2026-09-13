@@ -124,7 +124,7 @@ describe.skipIf(!hasServedActionCatalogPython() && !process.env.CI)('typed geosp
       action_id: 'enrich.census_demographics', scope: { kind: 'sheet_rows', sheet_id: 7 },
       params, output_names: outputNames,
     } });
-    const source = screen.getByRole('combobox', { name: 'Geo point column' }) as HTMLSelectElement;
+    const source = screen.getByRole('combobox', { name: 'Location' }) as HTMLSelectElement;
     expect(Array.from(source.options).map((option) => option.value)).toEqual(['point']);
     expect(screen.getByTestId('field-geography')).toHaveValue('block_group');
     expect(screen.getByTestId('field-geography')).toHaveTextContent('Census block group');

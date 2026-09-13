@@ -578,10 +578,16 @@ function GeneratedActionFormContents({
   const displayedDiagnostics = Object.fromEntries(Object.entries(diagnostics).filter(([name]) => (
     !unavailableRequiredColumnFields.has(name)
   )));
+  const firstDisplayedDiagnostic = displayedDiagnostics.__all__?.ok === false
+    ? displayedDiagnostics.__all__
+    : Object.values(displayedDiagnostics).find((diagnostic) => !diagnostic.ok);
   const hasNamedDiagnostic = Object.entries(diagnostics).some(([name, diagnostic]) => (
     name !== '__all__' && !diagnostic.ok
   ));
   const hasGlobalDiagnostic = diagnostics.__all__?.ok === false;
+  const showResolutionProblem = ParamsBody
+    ? !hasNamedDiagnostic || hasGlobalDiagnostic || Boolean(firstDisplayedDiagnostic)
+    : !hasNamedDiagnostic || hasGlobalDiagnostic;
   const resolving = resolutionProblem === 'Resolving outputs…'
     || resolutionProblem === 'Validating fields…';
   useEffect(() => {
@@ -1175,8 +1181,10 @@ function GeneratedActionFormContents({
           ))}>Remove unavailable output names</button>
       </div>}
 
-      {resolutionProblem && !resolving && (!hasNamedDiagnostic || hasGlobalDiagnostic) && (
-        <p className="form-error" role="alert">{resolutionProblem}</p>
+      {resolutionProblem && !resolving && showResolutionProblem && (
+        <p className="form-error" role="alert">
+          {firstDisplayedDiagnostic?.message ?? resolutionProblem}
+        </p>
       )}
 
       {projectScoped ? <div className="form-actions action-run-actions">

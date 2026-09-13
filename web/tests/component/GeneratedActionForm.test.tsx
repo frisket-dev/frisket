@@ -1416,7 +1416,7 @@ describe('GeneratedActionForm', () => {
       />,
     );
 
-    expect(screen.getByLabelText('Column to clean')).toHaveValue('name');
+    expect(screen.getByLabelText('Column')).toHaveValue('name');
     expect(screen.getByTestId('field-case')).toHaveValue('smart_title');
     expect(screen.getByText('Fix capitalization (names & titles)')).toBeInTheDocument();
     const cleanings = screen.getByTestId('cleanings-grid');

@@ -97,7 +97,6 @@ describe('typed OCR/transcription forms', () => {
 
     const sourceError = await screen.findByTestId('field-source-error');
     expect(sourceError).toHaveTextContent(message);
-    expect(screen.getAllByText(message)).toHaveLength(1);
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
   });
 
@@ -110,7 +109,6 @@ describe('typed OCR/transcription forms', () => {
     });
 
     expect(await screen.findByTestId('field-source-error')).toHaveTextContent(message);
-    expect(screen.getAllByText(message)).toHaveLength(1);
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
   });
 
@@ -410,6 +408,7 @@ describe('typed OCR/transcription forms', () => {
     });
     await waitFor(() => expect(resolveParams).toHaveBeenCalled());
     expect(resolveParams.mock.calls[0][0].params.language).toEqual(language);
+    expect(screen.getAllByText('Invalid language value.')[0]).toBeVisible();
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
     expect(onExecute).not.toHaveBeenCalled();
   });

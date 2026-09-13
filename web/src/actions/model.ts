@@ -481,6 +481,14 @@ const CLEAN_COLUMN_LABELS: Readonly<Record<string, string>> = {
   null_tokens: 'Blank these tokens',
 };
 
+const GENERATED_SOURCE_LABELS: Readonly<Record<string, string>> = {
+  latitude_column: 'Latitude',
+  longitude_column: 'Longitude',
+  source_document_columns: 'Documents',
+  judged_column: 'Answer',
+  input_columns: 'Inputs',
+};
+
 const CLEAN_COLUMN_CASE_LABELS: Readonly<Record<string, string>> = {
   keep: 'Keep as-is',
   smart_title: 'Fix capitalization (names & titles)',
@@ -527,7 +535,7 @@ function generatedCatalogParams(entry: ActionCatalogEntry): ActionParam[] | unde
     const declaration: ActionCatalogFormParam = {
       name,
       type,
-      label: cleanColumn ? CLEAN_COLUMN_LABELS[name] : presentation?.label ?? requirement?.label
+      label: cleanColumn ? CLEAN_COLUMN_LABELS[name] : presentation?.label ?? GENERATED_SOURCE_LABELS[name] ?? requirement?.label
         ?? (typeof schema.title === 'string' ? schema.title : undefined),
       required: required.has(name),
       default: schema.default as ActionCatalogFormParam['default'],
