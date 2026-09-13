@@ -1,0 +1,331 @@
+name: desktop-release
+
+# This is deliberately separate from the v* public-artifact publisher. Desktop
+# releases own desktop-v<python-package-version>, so the normal wheel/server
+# release pipeline remains the sole owner of v<python-package-version>.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frisket-desktop-release
+  cancel-in-progress: false
+
+jobs:
+  admission:
+    name: admit main revision and desktop version
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      source_sha: ${{ steps.commit.outputs.source_sha }}
+      python_package_version: ${{ steps.version.outputs.python_package_version }}
+      desktop_version: ${{ steps.version.outputs.desktop_version }}
+      tag: ${{ steps.version.outputs.tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      full_ci_url: ${{ steps.full-ci.outputs.url }}
+    steps:
+      - name: Require a main dispatch
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::desktop releases must be dispatched from refs/heads/main"
+            exit 1
+          fi
+      - name: Checkout the dispatched revision
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Record the exact source revision
+        id: commit
+        run: |
+          set -euo pipefail
+          source_sha="$(git rev-parse HEAD)"
+          if [ "$source_sha" != "$GITHUB_SHA" ]; then
+            echo "::error::checkout did not resolve the dispatched revision"
+            exit 1
+          fi
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+      - name: Read the authoritative desktop version
+        id: version
+        run: |
+          set -euo pipefail
+          python3 - "$GITHUB_OUTPUT" <<'PY'
+          import re
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          project = tomllib.loads(Path("pyproject.toml").read_text())
+          python_package_version = project["project"]["version"]
+          match = re.fullmatch(r"(\d+\.\d+\.\d+)(?:(a|b|rc)(\d+))?", python_package_version)
+          if match is None:
+              raise SystemExit(f"unsupported desktop release version: {python_package_version}")
+          release, phase, number = match.groups()
+          desktop_version = release if phase is None else f"{release}-{dict(a='alpha', b='beta', rc='rc')[phase]}.{number}"
+          prerelease = str(phase is not None).lower()
+          with Path(sys.argv[1]).open("a") as output:
+              output.write(f"python_package_version={python_package_version}\n")
+              output.write(f"desktop_version={desktop_version}\n")
+              output.write(f"tag=desktop-v{python_package_version}\n")
+              output.write(f"prerelease={prerelease}\n")
+          PY
+      - name: Require the latest full CI for this exact revision to pass
+        id: full-ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ steps.commit.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          runs="$RUNNER_TEMP/desktop-release-ci-runs.json"
+          workflow_url="https://github.com/${GITHUB_REPOSITORY}/actions/workflows/ci.yml"
+          gh api --method GET "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
+            -f head_sha="$SOURCE_SHA" -F per_page=100 > "$runs"
+          latest="$(jq -c '[.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch")] | max_by(.run_number) // empty' "$runs")"
+          if [ -z "$latest" ]; then
+            echo "::error::no automatic-main or manually dispatched full CI run exists for ${SOURCE_SHA}; ${workflow_url}"
+            exit 1
+          fi
+          status="$(printf '%s' "$latest" | jq -r '.status')"
+          conclusion="$(printf '%s' "$latest" | jq -r '.conclusion // ""')"
+          url="$(printf '%s' "$latest" | jq -r '.html_url')"
+          if [ "$status" != completed ] || [ "$conclusion" != success ]; then
+            echo "::error::latest full CI for ${SOURCE_SHA} is ${status}/${conclusion}; evidence: ${url}"
+            exit 1
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+      - name: Refuse an existing desktop tag or release before native builds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          require_absent() {
+            local endpoint="$1"
+            local label="$2"
+            local response="$RUNNER_TEMP/desktop-release-${label}.response"
+            set +e
+            gh api --include "$endpoint" > "$response" 2>&1
+            local status=$?
+            set -e
+            if [ "$status" -eq 0 ]; then
+              echo "::error::${label} already exists for ${TAG}; choose a new version"
+              exit 1
+            fi
+            if ! grep -Eq 'HTTP 404|^HTTP/[0-9.]+ 404 ' "$response"; then
+              echo "::error::could not determine whether ${label} exists; refusing to release"
+              exit 1
+            fi
+          }
+          require_absent "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" tag
+          releases="$RUNNER_TEMP/desktop-release-admission-releases.json"
+          gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases?per_page=100" > "$releases"
+          matches="$(jq --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)] | length' "$releases")"
+          if [ "$matches" -ne 0 ]; then
+            echo "::error::release already exists for ${TAG}, including a draft; choose a new version"
+            exit 1
+          fi
+
+  macos:
+    name: signed macOS installer
+    needs: admission
+    permissions:
+      contents: read
+    uses: ./.github/workflows/desktop-macos.yml
+
+  windows:
+    name: signed Windows installer
+    needs: admission
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/desktop-windows.yml
+
+  publish:
+    name: publish verified desktop installers
+    needs: [admission, macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Require matching proof metadata
+        env:
+          SOURCE_SHA: ${{ needs.admission.outputs.source_sha }}
+          PYTHON_PACKAGE_VERSION: ${{ needs.admission.outputs.python_package_version }}
+          DESKTOP_VERSION: ${{ needs.admission.outputs.desktop_version }}
+          MACOS_SOURCE_SHA: ${{ needs.macos.outputs.source_sha }}
+          MACOS_PYTHON_PACKAGE_VERSION: ${{ needs.macos.outputs.python_package_version }}
+          MACOS_DESKTOP_VERSION: ${{ needs.macos.outputs.desktop_version }}
+          WINDOWS_SOURCE_SHA: ${{ needs.windows.outputs.source_sha }}
+          WINDOWS_PYTHON_PACKAGE_VERSION: ${{ needs.windows.outputs.python_package_version }}
+          WINDOWS_DESKTOP_VERSION: ${{ needs.windows.outputs.desktop_version }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::invalid admitted source SHA'; exit 1; }
+          [[ "$PYTHON_PACKAGE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(a|b|rc)?[0-9]*$ ]] || { echo '::error::invalid admitted package version'; exit 1; }
+          [[ "$DESKTOP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]] || { echo '::error::invalid admitted desktop version'; exit 1; }
+          for value in "$MACOS_SOURCE_SHA" "$WINDOWS_SOURCE_SHA"; do
+            [ "$value" = "$SOURCE_SHA" ] || { echo '::error::native proof revision differs from admission'; exit 1; }
+          done
+          for value in "$MACOS_PYTHON_PACKAGE_VERSION" "$WINDOWS_PYTHON_PACKAGE_VERSION"; do
+            [ "$value" = "$PYTHON_PACKAGE_VERSION" ] || { echo '::error::native proof package version differs from admission'; exit 1; }
+          done
+          for value in "$MACOS_DESKTOP_VERSION" "$WINDOWS_DESKTOP_VERSION"; do
+            [ "$value" = "$DESKTOP_VERSION" ] || { echo '::error::native proof desktop version differs from admission'; exit 1; }
+          done
+      - name: Download proof-approved macOS installer
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: Frisket-Desktop-macos-arm64-signed-${{ needs.admission.outputs.source_sha }}
+          path: downloaded/macos
+      - name: Download proof-approved Windows installer
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: Frisket-Desktop-windows-x64-signed-${{ needs.admission.outputs.source_sha }}
+          path: downloaded/windows
+      - name: Stage only the expected native installers and checksums
+        id: assets
+        env:
+          SOURCE_SHA: ${{ needs.admission.outputs.source_sha }}
+          DESKTOP_VERSION: ${{ needs.admission.outputs.desktop_version }}
+        run: |
+          set -euo pipefail
+          short_sha="${SOURCE_SHA:0:8}"
+          dmg_name="Frisket-Desktop-${DESKTOP_VERSION}-arm64-${short_sha}.dmg"
+          exe_name="Frisket-Desktop-${DESKTOP_VERSION}-x64-${short_sha}.exe"
+          mapfile -t dmgs < <(find downloaded/macos -type f -name '*.dmg' -print)
+          mapfile -t exes < <(find downloaded/windows -type f -name '*.exe' -print)
+          [ "${#dmgs[@]}" -eq 1 ] || { echo '::error::expected exactly one macOS DMG'; exit 1; }
+          [ "${#exes[@]}" -eq 1 ] || { echo '::error::expected exactly one Windows EXE'; exit 1; }
+          [ "$(basename "${dmgs[0]}")" = "$dmg_name" ] || { echo '::error::macOS installer name does not match version, architecture, and revision'; exit 1; }
+          [ "$(basename "${exes[0]}")" = "$exe_name" ] || { echo '::error::Windows installer name does not match version, architecture, and revision'; exit 1; }
+          mkdir -p desktop-release-assets
+          install -m 0644 "${dmgs[0]}" "desktop-release-assets/$dmg_name"
+          install -m 0644 "${exes[0]}" "desktop-release-assets/$exe_name"
+          (
+            cd desktop-release-assets
+            sha256sum "$dmg_name" "$exe_name" > SHA256SUMS
+          )
+          echo "dmg_name=$dmg_name" >> "$GITHUB_OUTPUT"
+          echo "exe_name=$exe_name" >> "$GITHUB_OUTPUT"
+      - name: Recheck absence and create a new draft release
+        id: draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.admission.outputs.source_sha }}
+          PYTHON_PACKAGE_VERSION: ${{ needs.admission.outputs.python_package_version }}
+          DESKTOP_VERSION: ${{ needs.admission.outputs.desktop_version }}
+          TAG: ${{ needs.admission.outputs.tag }}
+          PRERELEASE: ${{ needs.admission.outputs.prerelease }}
+          FULL_CI_URL: ${{ needs.admission.outputs.full_ci_url }}
+          DMG_NAME: ${{ steps.assets.outputs.dmg_name }}
+          EXE_NAME: ${{ steps.assets.outputs.exe_name }}
+        run: |
+          set -euo pipefail
+          require_absent() {
+            local endpoint="$1"
+            local label="$2"
+            local response="$RUNNER_TEMP/desktop-release-prepublish-${label}.response"
+            set +e
+            gh api --include "$endpoint" > "$response" 2>&1
+            local status=$?
+            set -e
+            if [ "$status" -eq 0 ]; then
+              echo "::error::${label} already exists for ${TAG}; refusing to overwrite it"
+              exit 1
+            fi
+            if ! grep -Eq 'HTTP 404|^HTTP/[0-9.]+ 404 ' "$response"; then
+              echo "::error::could not determine whether ${label} exists; refusing to create a release"
+              exit 1
+            fi
+          }
+          require_absent "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" tag
+          releases="$RUNNER_TEMP/desktop-release-prepublish-releases.json"
+          gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases?per_page=100" > "$releases"
+          matches="$(jq --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)] | length' "$releases")"
+          if [ "$matches" -ne 0 ]; then
+            echo "::error::release already exists for ${TAG}, including a draft; refusing to overwrite it"
+            exit 1
+          fi
+          notes="$RUNNER_TEMP/desktop-release-notes.md"
+          printf '%s\n' \
+            "Frisket Desktop ${PYTHON_PACKAGE_VERSION}" \
+            '' \
+            "Source revision: \`${SOURCE_SHA}\`" \
+            '' \
+            "macOS 14+ (Apple Silicon): https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${DMG_NAME}" \
+            "Windows 11 x64: https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${EXE_NAME}" \
+            "Checksums: https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/SHA256SUMS" \
+            'Updates are manual: quit Frisket Desktop, install the new package, then reopen it. Your data and caches remain in the app profile.' \
+            '' \
+            "Full CI: ${FULL_CI_URL}" \
+            "Release workflow: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" > "$notes"
+          release_id="$(gh api -X POST "repos/${GITHUB_REPOSITORY}/releases" \
+            -f tag_name="$TAG" \
+            -f target_commitish="$SOURCE_SHA" \
+            -f name="Frisket Desktop ${PYTHON_PACKAGE_VERSION}" \
+            -f body="$(<"$notes")" \
+            -F draft=true \
+            -F prerelease="$PRERELEASE" \
+            -f make_latest=false \
+            --jq '.id')"
+          [ -n "$release_id" ] || { echo '::error::draft release did not return an ID'; exit 1; }
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+      - name: Upload installers and checksums without replacement
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.admission.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" \
+            "desktop-release-assets/${{ steps.assets.outputs.dmg_name }}" \
+            "desktop-release-assets/${{ steps.assets.outputs.exe_name }}" \
+            desktop-release-assets/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY"
+      - name: Verify uploaded bytes before publishing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ steps.draft.outputs.release_id }}
+          TAG: ${{ needs.admission.outputs.tag }}
+          SOURCE_SHA: ${{ needs.admission.outputs.source_sha }}
+          PRERELEASE: ${{ needs.admission.outputs.prerelease }}
+          DMG_NAME: ${{ steps.assets.outputs.dmg_name }}
+          EXE_NAME: ${{ steps.assets.outputs.exe_name }}
+        run: |
+          set -euo pipefail
+          release_json="$RUNNER_TEMP/desktop-release-${RELEASE_ID}.json"
+          gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" > "$release_json"
+          jq -e --arg tag "$TAG" --arg source_sha "$SOURCE_SHA" --argjson prerelease "$PRERELEASE" '
+            .tag_name == $tag and .target_commitish == $source_sha and .draft == true and .prerelease == $prerelease
+          ' "$release_json" >/dev/null || {
+            echo '::error::draft release identity changed before verification'
+            exit 1
+          }
+          expected=("$DMG_NAME" "$EXE_NAME" SHA256SUMS)
+          for name in "${expected[@]}"; do
+            count="$(jq --arg name "$name" '[.assets[] | select(.name == $name)] | length' "$release_json")"
+            [ "$count" -eq 1 ] || { echo "::error::draft has ${count} assets named ${name}"; exit 1; }
+            asset_id="$(jq -r --arg name "$name" '.assets[] | select(.name == $name) | .id' "$release_json")"
+            remote_size="$(jq -r --arg name "$name" '.assets[] | select(.name == $name) | .size' "$release_json")"
+            local_file="desktop-release-assets/$name"
+            local_size="$(stat -c '%s' "$local_file")"
+            [ "$remote_size" = "$local_size" ] || { echo "::error::uploaded ${name} size differs"; exit 1; }
+            downloaded="$RUNNER_TEMP/desktop-release-${asset_id}"
+            gh api "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}" \
+              -H 'Accept: application/octet-stream' > "$downloaded"
+            cmp -s "$local_file" "$downloaded" || { echo "::error::uploaded ${name} bytes differ"; exit 1; }
+          done
+          unexpected="$(jq -r --argjson expected "$(printf '%s\n' "${expected[@]}" | jq -R . | jq -sc .)" \
+            '[.assets[].name | select(. as $name | ($expected | index($name) | not))] | length' "$release_json")"
+          [ "$unexpected" -eq 0 ] || { echo '::error::draft contains unexpected assets'; exit 1; }
+      - name: Publish the verified desktop release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.admission.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false

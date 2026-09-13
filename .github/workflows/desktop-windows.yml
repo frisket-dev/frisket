@@ -1,0 +1,350 @@
+name: desktop-windows
+
+on:
+  workflow_call:
+    outputs:
+      source_sha:
+        description: "Revision verified by the signed installed-app proof"
+        value: ${{ jobs.signed-installed-proof.outputs.source_sha }}
+      python_package_version:
+        description: "Python package version embedded in the verified installer"
+        value: ${{ jobs.signed-installed-proof.outputs.python_package_version }}
+      desktop_version:
+        description: "Electron version embedded in the verified installer"
+        value: ${{ jobs.signed-installed-proof.outputs.desktop_version }}
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - 'src/frisket/**'
+      - 'web/**'
+      - 'sdk/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/desktop-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-windows-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  installed-app:
+    if: github.event_name == 'pull_request'
+    runs-on: windows-2022
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          version: '0.11.29'
+          enable-cache: false
+      - name: Check architecture and capacity
+        shell: pwsh
+        run: |
+          if (-not [Environment]::Is64BitOperatingSystem -or $env:PROCESSOR_ARCHITECTURE -ne 'AMD64') {
+            throw 'Windows desktop beta requires an x64 runner.'
+          }
+          Get-PSDrive -PSProvider FileSystem | Format-Table -AutoSize
+      - name: Install build dependencies
+        shell: pwsh
+        run: |
+          npm --prefix sdk ci
+          npm --prefix sdk run build
+          npm --prefix web ci
+          npm --prefix desktop ci
+      - name: Build Windows application resources
+        run: python desktop/scripts/prepare.py --platform win32
+      - name: Focused desktop unit checks
+        run: npm --prefix desktop test
+      - name: Native Windows guardian console proof
+        env:
+          PYTHONPATH: src
+        run: uv run --no-project --with pytest==9.0.3 python -m pytest --confcutdir tests/runtime -o addopts= -q tests/runtime/test_windows_guard.py
+      - name: Package unsigned Windows installer
+        run: npm --prefix desktop run package:win
+      - name: Install the NSIS artifact for this user
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installers = @(Get-ChildItem desktop/dist -Filter '*.exe' -File)
+          if ($installers.Count -ne 1) { throw "Expected one NSIS installer, found $($installers.Count)." }
+          $installation = Start-Process -FilePath $installers[0].FullName -ArgumentList '/S' -Wait -PassThru
+          if ($installation.ExitCode -ne 0) {
+            throw "NSIS installer $($installers[0].Name) failed with exit code $($installation.ExitCode)."
+          }
+          # electron-builder uses package.name for the one-click per-user folder.
+          $app = Join-Path $env:LOCALAPPDATA 'Programs\frisket-desktop\Frisket Desktop.exe'
+          if (-not (Test-Path -LiteralPath $app -PathType Leaf)) {
+            throw "NSIS installer did not create expected per-user executable: $app"
+          }
+          "FRISKET_DESKTOP_APP=$app" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "FRISKET_DESKTOP_PROFILE=$env:RUNNER_TEMP\frisket-desktop-profile" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Prepare download caches (networked setup)
+        run: node desktop/scripts/prewarm.mjs
+      - name: Installed app and native engines (no new external connections)
+        run: python desktop/scripts/test-installed.py
+      - name: Upload unsigned beta
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Frisket-Desktop-windows-x64-${{ github.event.pull_request.head.sha || github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: desktop/dist/*.exe
+      - name: Upload installed-app evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Frisket-desktop-windows-evidence-${{ github.event.pull_request.head.sha || github.sha }}
+          if-no-files-found: ignore
+          retention-days: 14
+          path: |
+            desktop/playwright-report/
+            desktop/test-results/
+            desktop/resources/build.json
+            desktop/resources/runtime.json
+
+  signed-distribution:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-2022
+    timeout-minutes: 75
+    environment: desktop-signing
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      publisher: ${{ steps.signing-metadata.outputs.publisher }}
+    env:
+      AZURE_CORE_OUTPUT: none
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          version: '0.11.29'
+          enable-cache: false
+      - name: Check architecture and capacity
+        shell: pwsh
+        run: |
+          if (-not [Environment]::Is64BitOperatingSystem -or $env:PROCESSOR_ARCHITECTURE -ne 'AMD64') {
+            throw 'Windows desktop beta requires an x64 runner.'
+          }
+          Get-PSDrive -PSProvider FileSystem | Format-Table -AutoSize
+      - name: Check signing configuration
+        id: signing-metadata
+        shell: pwsh
+        env:
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          FRISKET_WINDOWS_SIGNING_PUBLISHER_NAME: ${{ vars.FRISKET_WINDOWS_SIGNING_PUBLISHER_NAME }}
+          FRISKET_WINDOWS_SIGNING_ENDPOINT: ${{ vars.FRISKET_WINDOWS_SIGNING_ENDPOINT }}
+          FRISKET_WINDOWS_SIGNING_ACCOUNT: ${{ vars.FRISKET_WINDOWS_SIGNING_ACCOUNT }}
+          FRISKET_WINDOWS_SIGNING_PROFILE: ${{ vars.FRISKET_WINDOWS_SIGNING_PROFILE }}
+        run: |
+          $names = @('AZURE_CLIENT_ID', 'AZURE_TENANT_ID', 'AZURE_SUBSCRIPTION_ID',
+            'FRISKET_WINDOWS_SIGNING_PUBLISHER_NAME', 'FRISKET_WINDOWS_SIGNING_ENDPOINT',
+            'FRISKET_WINDOWS_SIGNING_ACCOUNT', 'FRISKET_WINDOWS_SIGNING_PROFILE')
+          foreach ($name in $names) {
+            $value = [Environment]::GetEnvironmentVariable($name)
+            if ([string]::IsNullOrWhiteSpace($value) -or $value -match '[\r\n]') {
+              throw "desktop-signing variable $name must contain one nonempty value."
+            }
+          }
+          "publisher=$env:FRISKET_WINDOWS_SIGNING_PUBLISHER_NAME" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "AZURE_CONFIG_DIR=$env:RUNNER_TEMP\frisket-azure-signing" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Install build dependencies
+        shell: pwsh
+        run: |
+          npm --prefix sdk ci
+          npm --prefix sdk run build
+          npm --prefix web ci
+          npm --prefix desktop ci
+      - name: Build Windows application resources
+        run: python desktop/scripts/prepare.py --platform win32
+      - name: Focused desktop unit checks
+        run: npm --prefix desktop test
+      - name: Native Windows guardian console proof
+        env:
+          PYTHONPATH: src
+        run: uv run --no-project --with pytest==9.0.3 python -m pytest --confcutdir tests/runtime -o addopts= -q tests/runtime/test_windows_guard.py
+      - name: Azure login with GitHub OIDC
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          audience: api://AzureADTokenExchange
+      - name: Package signed Windows installer
+        env:
+          FRISKET_DESKTOP_WINDOWS_SIGNED_BUILD: '1'
+          FRISKET_WINDOWS_SIGNING_PUBLISHER_NAME: ${{ vars.FRISKET_WINDOWS_SIGNING_PUBLISHER_NAME }}
+          FRISKET_WINDOWS_SIGNING_ENDPOINT: ${{ vars.FRISKET_WINDOWS_SIGNING_ENDPOINT }}
+          FRISKET_WINDOWS_SIGNING_ACCOUNT: ${{ vars.FRISKET_WINDOWS_SIGNING_ACCOUNT }}
+          FRISKET_WINDOWS_SIGNING_PROFILE: ${{ vars.FRISKET_WINDOWS_SIGNING_PROFILE }}
+        run: npm --prefix desktop run package:win
+      - name: Remove Azure login before transferring the artifact
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cache = Join-Path $env:RUNNER_TEMP 'frisket-azure-signing'
+          if (Test-Path -LiteralPath $cache) {
+            try {
+              az logout
+              if ($LASTEXITCODE -ne 0) { throw 'Azure logout failed.' }
+              az account clear
+              if ($LASTEXITCODE -ne 0) { throw 'Azure CLI account cleanup failed.' }
+            } finally {
+              Remove-Item -LiteralPath $cache -Recurse -Force
+            }
+          }
+          if (Test-Path -LiteralPath $cache) { throw 'Azure login cache remains.' }
+      - name: Verify signed installer and packaged application
+        shell: pwsh
+        env:
+          EXPECTED_PUBLISHER: ${{ steps.signing-metadata.outputs.publisher }}
+        run: |
+          $installers = @(Get-ChildItem desktop/dist -Filter '*.exe' -File)
+          if ($installers.Count -ne 1) { throw "Expected one NSIS installer, found $($installers.Count)." }
+          & desktop/scripts/verify-signature.ps1 -Paths @($installers[0].FullName, (Join-Path $PWD 'desktop/dist/win-unpacked/Frisket Desktop.exe')) -PublisherName $env:EXPECTED_PUBLISHER
+      # This intermediate artifact is not a release. The fresh proof job below
+      # has no OIDC permission and never receives an Azure login context.
+      - name: Transfer signed candidate for installed proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Frisket-Desktop-windows-signed-candidate-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 1
+          path: |
+            desktop/dist/*.exe
+            desktop/resources/build.json
+            desktop/resources/runtime.json
+
+  signed-installed-proof:
+    if: github.event_name == 'workflow_dispatch'
+    needs: signed-distribution
+    runs-on: windows-2022
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    outputs:
+      source_sha: ${{ steps.release-metadata.outputs.source_sha }}
+      python_package_version: ${{ steps.release-metadata.outputs.python_package_version }}
+      desktop_version: ${{ steps.release-metadata.outputs.desktop_version }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          version: '0.11.29'
+          enable-cache: false
+      - name: Install desktop test dependencies
+        run: npm --prefix desktop ci
+      - name: Download this run's signed candidate
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: Frisket-Desktop-windows-signed-candidate-${{ github.sha }}
+          path: desktop
+      - name: Install and verify the signed NSIS artifact for this user
+        shell: pwsh
+        env:
+          EXPECTED_PUBLISHER: ${{ needs.signed-distribution.outputs.publisher }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installers = @(Get-ChildItem desktop/dist -Filter '*.exe' -File)
+          if ($installers.Count -ne 1) { throw "Expected one NSIS installer, found $($installers.Count)." }
+          & desktop/scripts/verify-signature.ps1 -Paths @($installers[0].FullName) -PublisherName $env:EXPECTED_PUBLISHER
+          $build = Get-Content desktop/resources/build.json -Raw | ConvertFrom-Json
+          if ($build.revision -ne $env:GITHUB_SHA) { throw 'Signed artifact revision does not match this dispatch.' }
+          $installation = Start-Process -FilePath $installers[0].FullName -ArgumentList '/S' -Wait -PassThru
+          if ($installation.ExitCode -ne 0) {
+            throw "NSIS installer $($installers[0].Name) failed with exit code $($installation.ExitCode)."
+          }
+          # electron-builder uses package.name for the one-click per-user folder.
+          $app = Join-Path $env:LOCALAPPDATA 'Programs\frisket-desktop\Frisket Desktop.exe'
+          if (-not (Test-Path -LiteralPath $app -PathType Leaf)) {
+            throw "NSIS installer did not create expected per-user executable: $app"
+          }
+          & desktop/scripts/verify-signature.ps1 -Paths @($app) -PublisherName $env:EXPECTED_PUBLISHER
+          $installedBuild = Get-Content (Join-Path (Split-Path $app) 'resources/build.json') -Raw | ConvertFrom-Json
+          if ($installedBuild.revision -ne $env:GITHUB_SHA) { throw 'Installed application revision does not match this dispatch.' }
+          "FRISKET_DESKTOP_APP=$app" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "FRISKET_DESKTOP_PROFILE=$env:RUNNER_TEMP\frisket-desktop-profile" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Prepare download caches (networked setup)
+        run: node desktop/scripts/prewarm.mjs
+      - name: Installed signed app and native engines (no new external connections)
+        run: python desktop/scripts/test-installed.py
+      - name: Verify installed application signature after use
+        shell: pwsh
+        env:
+          EXPECTED_PUBLISHER: ${{ needs.signed-distribution.outputs.publisher }}
+        run: |
+          & desktop/scripts/verify-signature.ps1 -Paths @($env:FRISKET_DESKTOP_APP) -PublisherName $env:EXPECTED_PUBLISHER
+      - name: Record proof-approved release metadata
+        id: release-metadata
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $build = Get-Content desktop/resources/build.json -Raw | ConvertFrom-Json
+          if ($build.revision -ne $env:GITHUB_SHA) {
+            throw 'Verified installer revision does not match this dispatch.'
+          }
+          foreach ($name in @('pythonPackageVersion', 'version')) {
+            $value = [string]$build.$name
+            if ([string]::IsNullOrWhiteSpace($value) -or $value -match '[\r\n]') {
+              throw "Verified installer has invalid $name metadata."
+            }
+          }
+          if ([string]$build.version -notmatch '^\d+\.\d+\.\d+(-(alpha|beta|rc)\.\d+)?$') {
+            throw 'Verified installer has an unsupported desktop version.'
+          }
+          "source_sha=$($build.revision)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "python_package_version=$($build.pythonPackageVersion)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "desktop_version=$($build.version)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+      - name: Upload signed beta after installed proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Frisket-Desktop-windows-x64-signed-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: desktop/dist/*.exe
+      - name: Upload signed installed-app evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Frisket-desktop-windows-signed-evidence-${{ github.sha }}
+          if-no-files-found: ignore
+          retention-days: 14
+          path: |
+            desktop/playwright-report/
+            desktop/test-results/
+            desktop/resources/build.json
+            desktop/resources/runtime.json

@@ -51,3 +51,5 @@ jobs:
         # cannot be proven by the POSIX/macOS local suite alone (contract
         # §"Platform proof").
         run: uv run --no-sync pytest -q tests/engine/test_sandbox_cancellation.py tests/engine/test_sandbox_process.py
+      - name: Run headless private-runtime guardian proof
+        run: uv run --no-sync pytest -q tests/runtime/test_windows_guard.py

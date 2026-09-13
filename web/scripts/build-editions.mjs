@@ -2,8 +2,8 @@ import { spawnSync } from 'node:child_process';
 
 for (const edition of ['local', 'team']) {
   const result = spawnSync(
-    process.platform === 'win32' ? 'npx.cmd' : 'npx',
-    ['vite', 'build'],
+    process.platform === 'win32' ? (process.env.ComSpec || 'cmd.exe') : 'npx',
+    process.platform === 'win32' ? ['/d', '/s', '/c', 'npx.cmd vite build'] : ['vite', 'build'],
     {
       cwd: new URL('..', import.meta.url),
       env: { ...process.env, FRISKET_EDITION: edition },

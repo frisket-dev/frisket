@@ -1,4 +1,4 @@
-"""Stdlib POSIX guardian. Never reads or writes the target's protocol streams.
+"""Stdlib process guardian. Never reads or writes the target's protocol streams.
 
 This handles application crashes and ordinary process descendants. It is not
 a containment wall against a hostile program that deliberately changes session
@@ -19,8 +19,57 @@ def main() -> int:
         raise ValueError("invalid guardian configuration")
     parent_pid = int(sys.argv[1])
     grace = float(sys.argv[2])
-    if not 0 < grace <= 10:
+    if parent_pid < 1 or not 0 < grace <= 10:
         raise ValueError("invalid guardian configuration")
+    if sys.platform == "win32":
+        from pathlib import Path
+        import json
+        import tempfile
+
+        # Keep the existing argv interface for model setup/native checks. The
+        # PS Job owner watches both this wrapper and its application owner, so
+        # killing either cannot strand the native target or its descendants.
+        with tempfile.TemporaryDirectory(prefix="frisket-owned-") as directory:
+            root = Path(directory)
+            config = root / "launch.json"
+            config.write_text(
+                json.dumps(
+                    {
+                        "command": sys.argv[3],
+                        "args": sys.argv[4:],
+                        "parentPid": os.getpid(),
+                        "ownerPid": parent_pid,
+                        "stop": str(root / "stop"),
+                        "proof": str(root / "clean"),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            powershell = (
+                Path(os.environ["SYSTEMROOT"])
+                / "System32/WindowsPowerShell/v1.0/powershell.exe"
+            )
+            return subprocess.call(
+                [
+                    str(powershell),
+                    "-NoLogo",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(Path(__file__).with_name("_guard_windows.ps1")),
+                    "-Config",
+                    str(config),
+                ],
+                # CREATE_NO_WINDOW cannot rely on console inheritance for the
+                # protocol handles. Explicit redirection makes subprocess pass
+                # inheritable duplicates of these streams to the Job guardian.
+                stdin=sys.stdin if sys.stdin is not None else subprocess.DEVNULL,
+                stdout=sys.stdout if sys.stdout is not None else subprocess.DEVNULL,
+                stderr=sys.stderr if sys.stderr is not None else subprocess.DEVNULL,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
     stopped = False
 
     def stop(_signum, _frame):

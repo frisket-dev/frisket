@@ -34,6 +34,16 @@ Those were all done the old-fashioned hard-work way, though. No one has done *an
 
 Frisket requires Python 3.12.
 
+### Desktop beta
+
+For a desktop install without Python, use the signed installers on the
+[GitHub releases page](https://github.com/frisket-dev/frisket/releases).
+Download the matching `Frisket-Desktop-<version>-arm64-<revision>.dmg` for
+macOS 14 or newer on Apple Silicon, or
+`Frisket-Desktop-<version>-x64-<revision>.exe` for Windows 11 x64. Desktop
+updates are manual: quit the app, install the new package, and reopen it.
+Your workspace and downloaded caches stay in the app profile.
+
 ### Single-user
 
 If you just want to run Frisket on your own computer, use **solo mode**.

@@ -4,7 +4,9 @@ import { execFileSync } from 'node:child_process';
 import { constants as fsConstants, promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import nodeTest from 'node:test';
+// This fixture executes POSIX shebangs; Windows has native Job/artifact proof.
+const test = (name, fn) => nodeTest(name, { skip: process.platform === 'win32' }, fn);
 
 import { prepareRuntime } from '../src/provision.mjs';
 

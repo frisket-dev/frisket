@@ -1,6 +1,7 @@
 # Frisket Desktop beta
 
-macOS 14 or newer, Apple Silicon. Electron displays the ordinary local Frisket UI.
+Frisket Desktop runs on macOS 14 or newer with Apple Silicon and on Windows
+11 x64. Electron displays the ordinary local Frisket UI.
 First launch downloads a private Python interpreter, the locked standard Python
 dependencies, and Chromium for browser actions. It needs an internet connection.
 Whisper, VAD and RapidOCR model caches are included with the app. Parakeet stays
@@ -10,26 +11,24 @@ Python, Homebrew, Node, or terminal setup for an app user.
 
 ## Install or update the beta
 
-1. Open the successful desktop workflow run linked from the desktop pull request.
-   Download its `Frisket-Desktop-macos-arm64-<sha>` artifact from **Artifacts** (GitHub
-   sign-in required), then unzip the download.
-2. Open the included DMG, drag **Frisket Desktop** into **Applications**, and eject the DMG.
-3. Open Frisket Desktop from Applications. If macOS blocks it, open **System Settings →
+1. Open the [GitHub releases page](https://github.com/frisket-dev/frisket/releases) and
+   download the signed installer for your platform. Each Desktop release includes a
+   direct-download DMG, EXE, and `SHA256SUMS` file.
+2. On macOS, open the DMG, drag **Frisket Desktop** into **Applications**, and eject the
+   DMG. On Windows, run the EXE; it installs only for the current user.
+3. On macOS, open Frisket Desktop from Applications. If macOS blocks it, open **System Settings →
    Privacy & Security → Open Anyway**, authenticate, and choose **Open**.
 4. Leave Frisket Desktop open and connected to the internet while **Preparing Frisket**
    installs its runtime. Whisper and OCR are ready after setup. For Parakeet,
    open its engine details and choose **Download** before transcribing.
 
-To update, quit Frisket Desktop with **Cmd-Q** or close its last window, open the new DMG, drag Frisket Desktop into
-Applications, choose **Replace**, and reopen it. Your workspace and caches survive
-replacement; a dependency change may require another download. If your older beta
-is named `Frisket.app`, quit it and remove that old application bundle after
-installing `Frisket Desktop.app`; both use the same preserved workspace folder.
+Updates are manual. Quit Frisket Desktop, install the new DMG or EXE, then reopen it.
+Your workspace and caches survive replacement; a dependency change may require another
+download. If your older beta is named `Frisket.app`, quit it and remove that old
+application bundle after installing `Frisket Desktop.app`; both use the same preserved
+workspace folder. There is no signed update feed.
 
-Pull-request artifacts are ad-hoc signed test builds. A maintainer can manually
-dispatch the protected `desktop-signing` environment to produce a Developer ID
-signed and notarized DMG for the selected commit. Signed builds still update
-manually using the steps above; there is no signed update feed.
+Pull-request artifacts remain test-only; the GitHub release page is the distribution path.
 
 ## Signed macOS distribution
 
@@ -48,6 +47,24 @@ replacement can be used later. It also provides raw `APPLE_API_KEY_P8`,
 runner temporary directory with owner-only permissions and removed at the end
 of the signing step. `electron-builder` manages its own temporary certificate
 keychain.
+
+Windows signing uses GitHub OIDC in the same protected `desktop-signing`
+environment. Its required environment variables are `AZURE_CLIENT_ID`,
+`AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`,
+`FRISKET_WINDOWS_SIGNING_PUBLISHER_NAME`,
+`FRISKET_WINDOWS_SIGNING_ENDPOINT`, `FRISKET_WINDOWS_SIGNING_ACCOUNT`, and
+`FRISKET_WINDOWS_SIGNING_PROFILE`. They contain no client secret; the protected
+environment authorizes the immutable OIDC subject for this repository.
+
+## Publishing a desktop beta
+
+After the normal version bump reaches `main`, wait for the full `ci.yml` run for
+that exact revision to succeed, then dispatch **desktop-release** from `main`.
+It runs the signed macOS and Windows installed-app proofs for the same commit,
+then publishes `desktop-v<project.version>` with the two direct installers and
+`SHA256SUMS`. The normal `v*` wheel/server release workflow remains separate.
+The dispatcher refuses an existing Desktop tag or release and leaves an
+incomplete draft for inspection if publication fails.
 
 ## Build
 

@@ -3,8 +3,10 @@ import { promisify } from 'node:util';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { prepareRuntime } from '../src/provision.mjs';
+import { assertInstalledPlatform, installedResources } from '../e2e/installed-platform.mjs';
 
 const execFile = promisify(execFileCallback);
 const READY_MARKER = '.frisket-runtime-ready.json';
@@ -55,15 +57,16 @@ function parseJson(label, value) {
 
 async function checkMedia(resourcesPath, env, workspace) {
   const bin = path.join(resourcesPath, 'bin');
+  const executable = (name) => path.join(bin, process.platform === 'win32' ? `${name}.exe` : name);
   const movie = path.join(workspace, 'native-check.mp4');
-  await run('Bundled ffmpeg libx264/AAC transcode', path.join(bin, 'ffmpeg'), [
+  await run('Bundled ffmpeg libx264/AAC transcode', executable('ffmpeg'), [
     '-hide_banner', '-loglevel', 'error',
     '-f', 'lavfi', '-i', 'color=c=black:s=64x64:d=0.2',
     '-f', 'lavfi', '-i', 'sine=frequency=1000:duration=0.2',
     '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac',
     '-movflags', '+faststart', movie,
   ], { env });
-  const probe = await run('Bundled ffprobe stream inspection', path.join(bin, 'ffprobe'), [
+  const probe = await run('Bundled ffprobe stream inspection', executable('ffprobe'), [
     '-v', 'error', '-show_entries', 'stream=codec_type,codec_name', '-of', 'json', movie,
   ], { env });
   const streams = parseJson('Bundled ffprobe', probe.stdout).streams;
@@ -72,7 +75,7 @@ async function checkMedia(resourcesPath, env, workspace) {
     || !streams.some((stream) => stream.codec_type === 'audio' && stream.codec_name === 'aac')) {
     throw new Error('Bundled ffmpeg output is missing h264 video or AAC audio.');
   }
-  await run('Bundled Deno evaluation', path.join(bin, 'deno'), [
+  await run('Bundled Deno evaluation', executable('deno'), [
     'eval', 'if (!Deno.version.deno) Deno.exit(1);',
   ], { env });
 }
@@ -142,9 +145,14 @@ asyncio.run(main())
 
 async function checkAsr(resourcesPath, python, env, workspace) {
   const speech = path.join(workspace, 'native-check.wav');
-  await run('macOS speech synthesis', '/usr/bin/say', [
-    '-o', speech, '--data-format=LEI16@16000',
-    'the quick brown fox jumps over the lazy dog',
+  const fixture = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '../../src/frisket/sample_content/audio/ann-arbor-policy-committee-2022-04-19-excerpt.mp3',
+  );
+  const ffmpeg = path.join(resourcesPath, 'bin', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
+  await run('Bundled ffmpeg trims the checked-in council speech fixture', ffmpeg, [
+    '-hide_banner', '-loglevel', 'error', '-ss', '0', '-t', '12', '-i', fixture,
+    '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', speech,
   ], { env });
   const script = path.join(workspace, 'native-asr-check.py');
   await fs.writeFile(script, `
@@ -167,8 +175,8 @@ from frisket.sdk.ops.transcription.parakeet import (
 def checked_transcript(engine, result):
     text = result.get("text")
     normalized = "".join(character for character in str(text).lower() if character.isalnum())
-    if "quickbrownfox" not in normalized:
-        raise RuntimeError(f"{engine} did not recognize the speech sentinel")
+    if "lookingforward" not in normalized:
+        raise RuntimeError(f"{engine} missed the checked-in speech fixture sentinel")
     segments = result.get("segments")
     if not isinstance(segments, list) or not segments:
         raise RuntimeError(f"{engine} returned no timestamped segments")
@@ -231,12 +239,10 @@ asyncio.run(main())
 }
 
 async function main() {
-  if (process.platform !== 'darwin' || process.arch !== 'arm64') {
-    throw new Error('Native runtime proof requires macOS Apple Silicon.');
-  }
+  assertInstalledPlatform();
   const appPath = requiredAbsolute('FRISKET_DESKTOP_APP');
   const dataPath = requiredAbsolute('FRISKET_DESKTOP_PROFILE');
-  const resourcesPath = path.join(appPath, 'Contents', 'Resources');
+  const resourcesPath = installedResources(appPath);
   if (!await hasCompletedRuntime(dataPath)) {
     throw new Error('Installed UI journey did not produce a completed private runtime.');
   }
