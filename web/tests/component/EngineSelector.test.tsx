@@ -177,7 +177,7 @@ describe('EngineSelector', () => {
     }
   });
 
-  it('keeps recent ordering stable while open and refreshes it on the next opening', async () => {
+  it('places runnable choices ahead of recent setup choices after reopening', async () => {
     renderSelector();
     const trigger = screen.getByRole('button', { name: /parakeet/i });
     await userEvent.click(trigger);
@@ -189,7 +189,11 @@ describe('EngineSelector', () => {
     expect(choiceIds()).toEqual(['parakeet', 'whisper', 'legacy']);
     fireEvent(screen.getByTestId('engine-selector-dialog'), new Event('cancel', { cancelable: true }));
     await userEvent.click(trigger);
-    expect(choiceIds()).toEqual(['whisper', 'parakeet', 'legacy']);
+    expect(choiceIds()).toEqual(['parakeet', 'whisper', 'legacy']);
+    const dialog = screen.getByTestId('engine-selector-dialog');
+    dialog.querySelector<HTMLButtonElement>('[data-engine-selector-choice="parakeet"]')!.focus();
+    await userEvent.keyboard('{ArrowDown}');
+    expect(dialog.querySelector('[data-engine-selector-choice="whisper"]')).toHaveFocus();
   });
 
   it('uses searchboxes without native search Escape consumption and cancels with a populated query', async () => {
