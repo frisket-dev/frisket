@@ -82,3 +82,36 @@ def test_start_loads_cached_catalog_and_starts_only_once(tmp_path, monkeypatch):
 
     assert pricing.PRICES["fresh-model"] == (2.0, 4.0)
     assert len(starts) == 1
+
+
+def test_running_process_adopts_peer_cache_without_another_network_request(
+    tmp_path, monkeypatch
+):
+    (tmp_path / "pricing_data.json").write_bytes(_catalog(2.0))
+    attempt = tmp_path / "last_attempt"
+    attempt.touch()
+    os.utime(attempt, (100_000, 100_000))
+    monkeypatch.setattr(pricing_refresh.time, "time", lambda: 100_001)
+    monkeypatch.setattr(
+        pricing_refresh.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: pytest.fail("A peer already refreshed pricing"),
+    )
+    pauses = []
+
+    class Finished(Exception):
+        pass
+
+    def pause(seconds):
+        pauses.append(seconds)
+        if len(pauses) == 1:
+            assert pricing.model_pricing("fresh-model").price == (2.0, 4.0)
+            (tmp_path / "pricing_data.json").write_bytes(_catalog(3.0))
+        else:
+            assert pricing.model_pricing("fresh-model").price == (3.0, 6.0)
+            raise Finished
+
+    monkeypatch.setattr(pricing_refresh.time, "sleep", pause)
+    with pytest.raises(Finished):
+        pricing_refresh._refresh_loop(tmp_path)
+    assert all(0 < seconds <= 60 for seconds in pauses)
