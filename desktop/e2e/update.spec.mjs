@@ -43,7 +43,7 @@ async function launch(feed, testInfo) {
         return showMessageBox(...args);
       };
       if (origin) {
-        const { createRequire } = await import('node:module');
+        const { createRequire } = process.getBuiltinModule('module');
         const { autoUpdater } = createRequire(`${app.getAppPath()}/package.json`)('electron-updater');
         // Privileged harness setup, before the normal 30-second background check.
         // No production feed override, download mock, or installer replacement.
