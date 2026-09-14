@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Search } from 'lucide-react';
 import { listProjects, type ProjectInfo } from '../api/open';
-import { navigate, type SettingsRoute } from '../routes';
+import { navigate, returnToProjectFromSettings, type SettingsRoute } from '../routes';
 import { ChromeBarShell } from '../workbench/ChromeBar';
 import { PanelSelect } from '../components/PanelSelect';
 import { SectionFrame, SettingsSectionRenderer } from './SettingsSections';
@@ -69,7 +69,7 @@ function SettingsChromeBar({ navProject }: { navProject?: ProjectInfo | null }) 
           type="button"
           className="settings-chrome-back"
           data-testid="settings-return-project"
-          onClick={() => navigate({ kind: 'project', projectId: navProject.id })}
+          onClick={() => returnToProjectFromSettings(navProject.id)}
         >
           <ArrowLeft size={14} />
           <span>Back to {navProject.name}</span>

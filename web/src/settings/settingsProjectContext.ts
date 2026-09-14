@@ -2,8 +2,28 @@ import type { ProjectInfo } from '../api/open';
 
 const SETTINGS_LAST_PROJECT_KEY = 'frisket.settings.last_project.v1';
 const SETTINGS_ACTIVE_PROJECT_CONTEXT_KEY = 'frisket.settings.active_project.v1';
+const SETTINGS_PROJECT_RETURN_PATH_KEY = 'frisket.settings.project_return_path.v1';
+
+/** Canonical project pathname supplied and validated by the route owner. */
+export function writeSettingsProjectReturnPath(path: string | null): void {
+  try {
+    if (path === null) sessionStorage.removeItem(SETTINGS_PROJECT_RETURN_PATH_KEY);
+    else sessionStorage.setItem(SETTINGS_PROJECT_RETURN_PATH_KEY, path);
+  } catch {
+    // Settings still has its base-project fallback when storage is unavailable.
+  }
+}
+
+export function readSettingsProjectReturnPath(): string | null {
+  try {
+    return sessionStorage.getItem(SETTINGS_PROJECT_RETURN_PATH_KEY);
+  } catch {
+    return null;
+  }
+}
 
 export function clearSettingsProjectContext(): void {
+  writeSettingsProjectReturnPath(null);
   try {
     sessionStorage.removeItem(SETTINGS_ACTIVE_PROJECT_CONTEXT_KEY);
   } catch {
