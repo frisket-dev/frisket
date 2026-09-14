@@ -209,6 +209,7 @@ jobs:
           export FRISKET_DESKTOP_SIGNED_BUILD=1
           export APPLE_API_KEY="$api_key"
           npm --prefix desktop run package:mac
+          node desktop/scripts/package-update-baseline.mjs mac
           unset APPLE_API_KEY_P8 CSC_LINK CSC_KEY_PASSWORD
           image=(desktop/dist/*.dmg)
           app=(desktop/dist/mac-arm64/*.app)
@@ -224,20 +225,48 @@ jobs:
           mounted_app=("$mount_point"/*.app)
           test "${#mounted_app[@]}" -eq 1
           codesign --verify --deep --strict --verbose=2 "${mounted_app[0]}"
-          # Gatekeeper assesses our stapled DMG above. A standalone-app
-          # distribution check would require a separate, redundant app ticket.
+          xcrun stapler validate "${mounted_app[0]}"
+          spctl --assess --type execute --verbose=4 "${mounted_app[0]}"
           mkdir -p "$(dirname "$FRISKET_DESKTOP_APP")"
           ditto "${mounted_app[0]}" "$FRISKET_DESKTOP_APP"
           codesign --verify --deep --strict --verbose=2 "$FRISKET_DESKTOP_APP"
           hdiutil detach "$mount_point" -quiet
           rmdir "$mount_point"
           mount_point=''
+      - name: Verify signed updater ZIP and prepare immutable metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          archives=(desktop/dist/*.zip)
+          test "${#archives[@]}" -eq 1
+          extracted="$RUNNER_TEMP/frisket-update-zip"
+          ditto -x -k "${archives[0]}" "$extracted"
+          codesign --verify --deep --strict --verbose=4 "$extracted/Frisket Desktop.app"
+          xcrun stapler validate "$extracted/Frisket Desktop.app"
+          spctl --assess --type execute --verbose=4 "$extracted/Frisket Desktop.app"
+          rm -rf "$extracted"
+          node desktop/scripts/stage-update.mjs prepare mac desktop/dist desktop/resources/build.json
       - name: Prepare download caches (networked setup)
         run: node desktop/scripts/prewarm.mjs
       - name: Installed signed app and native engines (no new external connections)
         run: python3 desktop/scripts/test-installed.py
       - name: Verify installed app signature after use
         run: codesign --verify --deep --strict --verbose=4 "$FRISKET_DESKTOP_APP"
+      - name: Install signed baseline and prove the actual update and restart
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline="desktop/update-baseline/mac-arm64/Frisket Desktop.app"
+          codesign --verify --deep --strict --verbose=4 "$baseline"
+          xcrun stapler validate "$baseline"
+          rm -rf "$FRISKET_DESKTOP_APP"
+          ditto "$baseline" "$FRISKET_DESKTOP_APP"
+          export FRISKET_DESKTOP_UPDATE_TARGET_DIST="$PWD/desktop/dist"
+          export FRISKET_DESKTOP_UPDATE_TARGET_VERSION="$(node -p 'JSON.parse(require("fs").readFileSync("desktop/resources/build.json")).version')"
+          python3 desktop/scripts/test-installed.py --update
+          codesign --verify --deep --strict --verbose=4 "$FRISKET_DESKTOP_APP"
+          xcrun stapler validate "$FRISKET_DESKTOP_APP"
+          rm -rf desktop/update-baseline
       - name: Record proof-approved release metadata
         id: release-metadata
         shell: bash
@@ -272,7 +301,11 @@ jobs:
           name: Frisket-Desktop-macos-arm64-signed-${{ github.sha }}
           if-no-files-found: error
           retention-days: 14
-          path: desktop/dist/*.dmg
+          path: |
+            desktop/dist/*.dmg
+            desktop/dist/*.zip
+            desktop/dist/*.zip.blockmap
+            desktop/dist/latest-mac.yml
       - name: Upload signed installed-app evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -285,3 +318,5 @@ jobs:
             desktop/test-results/
             desktop/resources/build.json
             desktop/resources/runtime.json
+            desktop/update-test-results/
+            desktop/playwright-update-report/

@@ -15,8 +15,9 @@ macOS Apple Silicon beta checklist; installed-app evidence comes from the
 | Navigation and service access | Restrict app navigation/popups, send external HTTP(S) links to the OS browser, and inject the private loopback token only in the main process. Installed checks exercise clipboard, popup and unauthenticated HTTP rejection. [Protocol](https://www.electronjs.org/docs/latest/api/protocol) |
 | Framework updates | Pin Electron and review supported-version patch updates as part of releases. [Support policy](https://www.electronjs.org/docs/latest/tutorial/electron-timelines) |
 | Beta installation | Deliver one DMG. Pull-request builds use ad-hoc signatures; the protected release workflow signs with Developer ID, notarizes and staples the DMG, and validates the installed app. Manual replacement retains data outside the bundle. |
+| Automatic updates | Check on launch and daily; background download with explicit restart. Signed ZIP/NSIS payloads use immutable release URLs. Native update proof checks replacement, service cleanup and preserved project/cache data. [Updater](https://www.electron.build/v26/docs/features/auto-update/) |
 
-Remaining distribution work: a signed update channel and package-time fuse
+Remaining distribution work: package-time fuse
 hardening with installed-app validation.
 Disabling CLI inspection must be coordinated with the current Playwright
 Electron harness. [Code signing](https://www.electronjs.org/docs/latest/tutorial/code-signing),

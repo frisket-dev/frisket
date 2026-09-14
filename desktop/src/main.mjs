@@ -2,11 +2,14 @@ import { mkdir } from 'node:fs/promises';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { app, BrowserWindow, Menu, dialog, session, shell, protocol } from 'electron';
+import { app, BrowserWindow, Menu, Notification, dialog, session, shell, protocol } from 'electron';
+import electronUpdater from 'electron-updater';
 import { prepareRuntime } from './provision.mjs';
 import { appUrl, installProtocol, APP_ORIGIN, APP_SCHEME } from './protocol.mjs';
 import { startBackend } from './backend.mjs';
 import { CleanupError } from './errors.mjs';
+import { createUpdater } from './updater.mjs';
+import { createBackendStopper, shutdownDesktop } from './shutdown.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const desktopRoot = path.resolve(here, '..');
@@ -17,6 +20,12 @@ let provisioningController;
 let quitting = false;
 let recoveryTask;
 let cleanupFailed = false;
+let updates;
+const stopBackend = createBackendStopper(() => {
+  const current = backend;
+  backend = undefined;
+  return current;
+});
 
 // Keep the original beta's projects, caches and browser preferences across the rename.
 if (!app.commandLine.hasSwitch('user-data-dir')) {
@@ -132,7 +141,7 @@ async function launch() {
     onFailure: (error) => void recover(error),
   });
   if (quitting) {
-    await backend.stop();
+    await stopBackend();
     return;
   }
   installProtocol({ protocol }, backend);
@@ -145,9 +154,7 @@ async function recover(error) {
   recoveryTask = (async () => {
     if (quitting) return;
     if (backend) {
-      const old = backend;
-      backend = undefined;
-      try { await old.stop(); } catch (cleanup) {
+      try { await stopBackend(); } catch (cleanup) {
         cleanupFailed = true;
         error = cleanup;
       }
@@ -173,6 +180,7 @@ function startAttempt() {
       await showStartup(mainWindow);
       if (!quitting) await launch();
     } catch (error) {
+      if (quitting && error instanceof CleanupError) throw error;
       if (!quitting) await recover(error);
     } finally {
       startupTask = undefined;
@@ -182,21 +190,36 @@ function startAttempt() {
   return startupTask;
 }
 
-async function requestQuit() {
+async function requestQuit(installUpdate = false) {
   if (quitting) return;
   quitting = true;
-  provisioningController?.abort();
-  const cleanup = Promise.allSettled([backend?.stop(), startupTask].filter(Boolean));
-  let failed = cleanupFailed;
-  try {
-    const results = await Promise.race([
-      cleanup,
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Desktop shutdown timed out.')), 12_000)),
-    ]);
-    failed ||= results.some((result) => result.status === 'rejected');
-  } catch { failed = true; }
-  if (failed) process.stderr.write('Frisket could not prove local service cleanup.\n');
-  app.exit(failed ? 1 : 0);
+  return shutdownDesktop({
+    abortStartup: () => provisioningController?.abort(),
+    stopBackend,
+    startupTask,
+    cleanupFailed,
+    fail: async () => {
+      process.stderr.write('Frisket could not prove local service cleanup.\n');
+      if (installUpdate) await dialog.showMessageBox({
+        type: 'error', title: 'Update not installed', message: 'Frisket could not finish stopping its local services.',
+        detail: 'Reopen Frisket and try the update again.', buttons: ['OK'],
+      });
+      app.exit(1);
+    },
+    finish: () => {
+      if (!installUpdate) { app.exit(0); return; }
+      // The updater owns the final quit/relaunch; our before-quit handler must
+      // let it proceed now that Python and its workers have stopped.
+      electronUpdater.autoUpdater.once('error', async () => {
+        await dialog.showMessageBox({
+          type: 'error', title: 'Update not installed', message: 'Frisket could not install the update.',
+          detail: 'Reopen Frisket and try again, or download the latest installer from frisket.dev.', buttons: ['OK'],
+        });
+        app.exit(1);
+      });
+      electronUpdater.autoUpdater.quitAndInstall(false, true);
+    },
+  });
 }
 
 function installMenu() {
@@ -204,7 +227,37 @@ function installMenu() {
     { role: 'appMenu' },
     { label: 'File', submenu: [{ label: 'Open Data Folder', click: () => void shell.openPath(app.getPath('userData')) }, { type: 'separator' }, { label: 'Quit', accelerator: 'CmdOrCtrl+Q', click: () => void requestQuit() }] },
     { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
+    { role: 'help', submenu: [{
+      id: 'desktop-update', label: 'Check for Updates…', enabled: Boolean(updates),
+      click: () => void updates?.check({ manual: true }),
+    }] },
   ]));
+}
+
+function setupUpdates() {
+  if (!app.isPackaged || !['darwin', 'win32'].includes(process.platform)) return;
+  updates = createUpdater({
+    updater: electronUpdater.autoUpdater,
+    requestInstall: () => requestQuit(true),
+    message: async (options) => (await dialog.showMessageBox({
+      ...options, defaultId: options.buttons.length - 1, cancelId: options.buttons.length - 1,
+    })).response,
+    notify: (title, body, onClick) => {
+      if (!Notification.isSupported()) return;
+      const notification = new Notification({ title, body });
+      notification.once('click', onClick);
+      notification.show();
+    },
+    onState: ({ phase, percent }) => {
+      const item = Menu.getApplicationMenu()?.getMenuItemById('desktop-update');
+      if (!item) return;
+      item.label = phase === 'ready' ? 'Restart to update…'
+        : phase === 'checking' ? 'Checking for updates…'
+          : phase === 'downloading' ? `Downloading update${Number.isFinite(percent) ? ` (${Math.floor(percent)}%)` : ''}…`
+            : 'Check for Updates…';
+      item.enabled = !quitting && !['checking', 'downloading', 'installing'].includes(phase);
+    },
+  });
 }
 
 app.whenReady().then(async () => {
@@ -226,9 +279,11 @@ app.whenReady().then(async () => {
     mainWindow.show();
     mainWindow.focus();
   });
+  setupUpdates();
   installMenu();
   mainWindow = createWindow();
   await startAttempt();
+  if (!quitting) updates?.start();
 });
 
 app.on('window-all-closed', () => void requestQuit());
@@ -245,3 +300,4 @@ app.on('before-quit', (event) => {
   event.preventDefault();
   void requestQuit();
 });
+app.on('will-quit', () => updates?.dispose());
