@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { createRef } from 'react';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -194,6 +194,7 @@ describe('EngineSelector', () => {
     const choices = dialog.querySelector('.engine-selector__choices')!;
     expect(choices.firstElementChild).toHaveAttribute('data-engine-selector-choice', 'parakeet');
     expect(dialog.querySelector('[data-engine-selector-recent-divider]')).not.toBeInTheDocument();
+    await waitFor(() => expect(within(dialog).getByRole('searchbox', { name: 'Search Engine' })).toHaveFocus());
     dialog.querySelector<HTMLButtonElement>('[data-engine-selector-choice="parakeet"]')!.focus();
     await userEvent.keyboard('{ArrowDown}');
     expect(dialog.querySelector('[data-engine-selector-choice="whisper"]')).toHaveFocus();
