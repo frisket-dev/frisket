@@ -753,11 +753,13 @@ function GeneratedActionFormContents({
     const semanticControl = catalogEntry.ui_hints.semantic_controls[field.name];
     if (semanticControl === 'engine' || semanticControl === 'model') {
       const query = actionSelectorQuery(catalogEntry.kind, field.name, draft);
-      return <SelectorField projectId={projectId} label={field.label} query={query}
-        recentNamespace={`${projectId ?? 'none'}:action:${catalogEntry.kind}:${field.name}`}
-        testId={field.testid} disabled={running || !projectId}
-        onCurrentChoiceChange={(choice) => publishSelectorChoice(field.name, choice)}
-        onSelect={(choice) => updateSelectorSelection(field.name, choice)} />;
+      return <div data-tour="action-engine-selector">
+        <SelectorField projectId={projectId} label={field.label} query={query}
+          recentNamespace={`${projectId ?? 'none'}:action:${catalogEntry.kind}:${field.name}`}
+          testId={field.testid} disabled={running || !projectId}
+          onCurrentChoiceChange={(choice) => publishSelectorChoice(field.name, choice)}
+          onSelect={(choice) => updateSelectorSelection(field.name, choice)} />
+      </div>;
     }
     if (semanticControl === 'rich_source' || semanticControl === 'column_or_template') {
       const singleColumn = semanticControl === 'column_or_template';
