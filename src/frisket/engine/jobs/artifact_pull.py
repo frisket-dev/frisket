@@ -288,8 +288,13 @@ def _run_hf_snapshot_pull(
     HF's own hub cache layout, not ``model_cache`` -- under the directory
     ``huggingface_hub_cache()`` names (see the ``cache_dir=`` note below).
 
-    Trade-off of thin delegation: ``snapshot_download`` is one opaque call
-    with no per-chunk progress or cancel hook, so ``should_cancel`` is only
+    The Hub's optional byte progress bar reports downloaded/resumed bytes.
+    Its aggregate total grows as files start, so we keep the total unknown
+    rather than presenting it as the size of the whole snapshot. Older Hub
+    clients that report only file counts leave byte progress unknown.
+
+    Trade-off of thin delegation: there is no cooperative cancel hook, so
+    ``should_cancel`` is only
     checked BEFORE starting it, not while it runs -- a cooperative cancel
     requested mid-download is honored on the NEXT attempt, not immediately
     (unlike the streaming path's between-chunk checks).
@@ -308,39 +313,96 @@ def _run_hf_snapshot_pull(
         artifact_manifest_version=pinned.manifest_version,
     )
     model_pull_store.update_progress(
-        engine, pull_id, phase="downloading", total_bytes=None, completed_bytes=0
+        engine, pull_id, phase="downloading", total_bytes=None, completed_bytes=None
     )
     try:
+        import threading
+        import time
+
         from huggingface_hub import snapshot_download
+        from tqdm.auto import tqdm
 
         from frisket.engine._workers.parakeet_artifacts import huggingface_hub_cache
 
-        snapshot_download(
-            snapshot.repo_id,
-            revision=snapshot.revision,
-            # THE Hub cache, resolved by frisket's one resolver and PASSED IN
-            # -- never left to huggingface_hub to resolve for itself.
-            #
-            # Every surface that READS these bytes (the local-onnx liveness
-            # probe in execution/definitions.py, the Parakeet resolver child,
-            # the faster-whisper worker, operability/diagnostics) asks
-            # ``huggingface_hub_cache()``, which consults
-            # HF_HUB_CACHE -> HUGGINGFACE_HUB_CACHE -> HF_HOME/hub ->
-            # ~/.cache/huggingface/hub. The library's own default inserts
-            # XDG_CACHE_HOME under HF_HOME's fallback, so with XDG_CACHE_HOME
-            # set and no HF_* variable (a plain pip or bare install; the
-            # Docker image is safe because its Dockerfile pins HF_HUB_CACHE)
-            # the two answers DIVERGE: the pull downloaded ~600MB into the
-            # XDG path, marked the row done, and every reader kept looking in
-            # ~/.cache and reported the model not installed.
-            #
-            # Same defect class as sdk/ops/transcribe_engines.py's faster_whisper_env
-            # and _workers/parakeet_session.py's parakeet_inference_env, and
-            # the same fix those already carry: resolve once, pass the answer.
-            cache_dir=huggingface_hub_cache(),
-            allow_patterns=list(snapshot.files),
-            token=False,
-        )
+        progress_lock = threading.RLock()
+        observed_bytes: int | None = None
+        last_write: float | None = None
+
+        def publish_progress(*, force: bool = False) -> None:
+            nonlocal last_write
+            with progress_lock:
+                if observed_bytes is None:
+                    return
+                now = time.monotonic()
+                if (
+                    not force
+                    and last_write is not None
+                    and (now - last_write < _PROGRESS_WRITE_MIN_INTERVAL_SECONDS)
+                ):
+                    return
+                last_write = now
+                try:
+                    model_pull_store.update_progress(
+                        engine,
+                        pull_id,
+                        phase="downloading",
+                        total_bytes=None,
+                        completed_bytes=observed_bytes,
+                    )
+                except Exception as exc:
+                    # Optional reporting must not interrupt HF's download or
+                    # replace its original error with a progress-store error.
+                    LOG.debug("could not persist HF progress (%s)", type(exc).__name__)
+
+        class DurableByteProgress(tqdm):
+            def __init__(self, *args, **kwargs):
+                self._reports_bytes = kwargs.get("unit") == "B"
+                kwargs["disable"] = True  # Rendering is owned by the desktop UI.
+                super().__init__(*args, **kwargs)
+                if self._reports_bytes and self.n > 0:
+                    self.update(0)
+
+            def update(self, n=1):
+                nonlocal observed_bytes
+                if not self._reports_bytes:
+                    return
+                with progress_lock:
+                    # Disabled tqdm does not advance n. Maintain its counter
+                    # ourselves, including HF's negative HTTP retry rollbacks.
+                    self.n += n if n is not None else 1
+                    observed_bytes = max(0, int(self.n))
+                    publish_progress()
+
+        try:
+            snapshot_download(
+                snapshot.repo_id,
+                revision=snapshot.revision,
+                # THE Hub cache, resolved by frisket's one resolver and PASSED IN
+                # -- never left to huggingface_hub to resolve for itself.
+                #
+                # Every surface that READS these bytes (the local-onnx liveness
+                # probe in execution/definitions.py, the Parakeet resolver child,
+                # the faster-whisper worker, operability/diagnostics) asks
+                # ``huggingface_hub_cache()``, which consults
+                # HF_HUB_CACHE -> HUGGINGFACE_HUB_CACHE -> HF_HOME/hub ->
+                # ~/.cache/huggingface/hub. The library's own default inserts
+                # XDG_CACHE_HOME under HF_HOME's fallback, so with XDG_CACHE_HOME
+                # set and no HF_* variable (a plain pip or bare install; the
+                # Docker image is safe because its Dockerfile pins HF_HUB_CACHE)
+                # the two answers DIVERGE: the pull downloaded ~600MB into the
+                # XDG path, marked the row done, and every reader kept looking in
+                # ~/.cache and reported the model not installed.
+                #
+                # Same defect class as sdk/ops/transcribe_engines.py's faster_whisper_env
+                # and _workers/parakeet_session.py's parakeet_inference_env, and
+                # the same fix those already carry: resolve once, pass the answer.
+                cache_dir=huggingface_hub_cache(),
+                allow_patterns=list(snapshot.files),
+                token=False,
+                tqdm_class=DurableByteProgress,
+            )
+        finally:
+            publish_progress(force=True)
     except Exception as exc:  # huggingface_hub raises its own hierarchy
         raise _fail(
             engine,
