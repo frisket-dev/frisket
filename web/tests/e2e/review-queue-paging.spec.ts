@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { createProject, importCsv, openProject, uniqueName } from './helpers';
+import { openReviewRoute } from './reviewFixtures';
 
 type WireReviewBundle = {
   id: string;
@@ -155,9 +156,10 @@ test('review overlay pages bundles and refreshes global count after decisions', 
   });
   const reviewButton = page.getByTestId('review-queue-button');
   await expect(reviewButton.locator('.badge')).toHaveText(String(total));
+  await expect(reviewButton).toBeDisabled();
   expect(bundleRequests).toEqual([]);
 
-  await reviewButton.click();
+  await openReviewRoute(page, pid, sheetId);
   const queue = page.getByTestId('review-queue');
   await expect(queue).toBeVisible();
   await expect.poll(() => bundleRequests).toContain('offset=0&limit=25');

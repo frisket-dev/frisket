@@ -13,6 +13,7 @@ import {
   sheetData,
   uniqueName,
 } from './helpers';
+import { openReviewRoute } from './reviewFixtures';
 
 const routeRe = (path: string) => new RegExp(`${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\?|$)`);
 
@@ -96,7 +97,7 @@ test('browser back/forward restores sheets, drawers, review, and action deep lin
   await page.goBack();
   await expect(page.getByTestId('column-drawer')).toHaveCount(0);
 
-  await page.getByTestId('review-queue-button').click();
+  await openReviewRoute(page, pid, firstSheetId);
   await expect(page.getByTestId('review-queue')).toBeVisible();
   await expect(page).toHaveURL(routeRe(`/p/${pid}/s/${firstSheetId}/review`));
 
