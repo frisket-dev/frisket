@@ -5,8 +5,17 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
 const DESKTOP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+async function validateBuilderConfig(config) {
+  const require = createRequire(import.meta.url);
+  const builderRequire = createRequire(require.resolve('electron-builder/package.json'));
+  const { validateConfiguration } = builderRequire('app-builder-lib/out/util/config/config.js');
+  const { DebugLogger } = builderRequire('builder-util');
+  await validateConfiguration(config, new DebugLogger());
+}
 
 async function fixture() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'frisket-packaging-'));
@@ -71,6 +80,7 @@ test('Windows signing requires its own Artifact Signing metadata', async (t) => 
     certificateProfileName: 'profile',
   });
   assert.equal(config.mac.identity, '-');
+  await validateBuilderConfig(config);
 });
 
 test('macOS signing retains its separate credential gate', async (t) => {
@@ -80,4 +90,14 @@ test('macOS signing retains its separate credential gate', async (t) => {
   const result = loadConfig(root, { FRISKET_DESKTOP_SIGNED_BUILD: '1' });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Signed macOS packaging requires/);
+
+  const signed = loadConfig(root, {
+    FRISKET_DESKTOP_SIGNED_BUILD: '1',
+    CSC_LINK: 'fixture.p12',
+    APPLE_API_KEY: 'fixture.p8',
+    APPLE_API_KEY_ID: 'fixture-key',
+    APPLE_API_ISSUER: 'fixture-issuer',
+  });
+  assert.equal(signed.status, 0, signed.stderr);
+  await validateBuilderConfig(JSON.parse(signed.stdout));
 });

@@ -13,6 +13,7 @@ import { createBackendStopper, shutdownDesktop } from './shutdown.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const desktopRoot = path.resolve(here, '..');
+if (process.platform === 'win32') app.setAppUserModelId('dev.frisket.desktop');
 let mainWindow;
 let backend;
 let startupTask;

@@ -67,7 +67,6 @@ module.exports = {
     target: [{ target: 'nsis', arch: ['x64'] }],
     requestedExecutionLevel: 'asInvoker',
     signExecutable: signedWindowsBuild,
-    ...(signedWindowsBuild ? { publisherName: process.env.FRISKET_WINDOWS_SIGNING_PUBLISHER_NAME } : {}),
     ...(signedWindowsBuild ? { azureSignOptions: windowsAzureSignOptions() } : {}),
   },
   nsis: {
