@@ -233,7 +233,7 @@ export const LAWSUIT_DOCUMENT_WALKTHROUGH: WalkthroughDefinition = {
     {
       id: 'inspect-pdf',
       title: 'Inspect the source',
-      instruction: 'Read a page and notice the case number, parties, claims, and requested relief. These are allegations, not established facts.',
+      instruction: 'Read a page and notice the case number, parties, claims, and requested relief.',
       target: { kind: 'element', id: 'document-pdf' },
       advance: 'next-button',
     },
