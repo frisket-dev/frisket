@@ -37,6 +37,11 @@ module.exports = {
   appId: 'dev.frisket.desktop',
   productName: 'Frisket Desktop',
   extraMetadata: { version: build.version },
+  publish: {
+    provider: 'generic',
+    url: 'https://github.com/frisket-dev/frisket/releases/latest/download/',
+    channel: 'latest',
+  },
   asar: true,
   // A signed build must never silently fall back to an unsigned bundle.
   forceCodeSigning: signedMacBuild || signedWindowsBuild,
@@ -46,22 +51,23 @@ module.exports = {
   artifactName: `Frisket-Desktop-\${version}-\${arch}-${build.revision.slice(0, 8)}.\${ext}`,
   mac: {
     icon: 'ui/icon.svg',
-    target: [{ target: 'dmg', arch: ['arm64'] }],
+    target: [{ target: 'dmg', arch: ['arm64'] }, { target: 'zip', arch: ['arm64'] }],
     category: 'public.app-category.productivity',
     minimumSystemVersion: '14.0',
     // Ad-hoc signing cannot enforce a common Team ID across Electron frameworks.
     // The signed workflow supplies a Developer ID Application certificate.
-    // It notarizes the final DMG, rather than this intermediate app.
+    // Notarize and staple the app before archiving it for automatic updates.
     hardenedRuntime: signedMacBuild,
     entitlements: 'entitlements.mac.plist',
     entitlementsInherit: 'entitlements.mac.plist',
-    notarize: false,
+    notarize: signedMacBuild,
     identity: signedMacBuild ? undefined : '-',
   },
   win: {
     target: [{ target: 'nsis', arch: ['x64'] }],
     requestedExecutionLevel: 'asInvoker',
     signExecutable: signedWindowsBuild,
+    ...(signedWindowsBuild ? { publisherName: process.env.FRISKET_WINDOWS_SIGNING_PUBLISHER_NAME } : {}),
     ...(signedWindowsBuild ? { azureSignOptions: windowsAzureSignOptions() } : {}),
   },
   nsis: {

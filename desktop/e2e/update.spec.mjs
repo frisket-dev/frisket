@@ -8,7 +8,7 @@ import {
 import { serveUpdateFeed } from './update-feed.mjs';
 
 const require = createRequire(import.meta.url);
-const { extractFile } = require('@electron/asar'); // Already supplied by electron-builder.
+const { extractFile, uncache } = require('@electron/asar');
 const appPath = process.env.FRISKET_DESKTOP_APP;
 const profile = process.env.FRISKET_DESKTOP_PROFILE;
 const targetDist = process.env.FRISKET_DESKTOP_UPDATE_TARGET_DIST;
@@ -199,7 +199,10 @@ test('signed installed baseline updates through its native updater and preserves
     })), { timeout: 30_000 }).toEqual(oldPorts.map(() => false));
     const installedArchive = path.join(installedResources(appPath), 'app.asar');
     await expect.poll(() => {
-      try { return JSON.parse(extractFile(installedArchive, 'package.json').toString()).version; }
+      try {
+        uncache(installedArchive);
+        return JSON.parse(extractFile(installedArchive, 'package.json').toString()).version;
+      }
       catch { return null; } // Installer can replace the archive between reads.
     }, { timeout: 120_000 }).toBe(targetVersion);
     const updated = await launch(feed, testInfo);

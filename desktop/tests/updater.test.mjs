@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
-import { createUpdater, updaterTiming } from '../src/updater.mjs';
+import { createUpdater } from '../src/updater.mjs';
 
 class FakeUpdater extends EventEmitter {
   checks = 0;
@@ -52,17 +52,34 @@ test('configures automatic background downloads without install-on-quit or downg
   assert.equal(updater.allowDowngrade, false);
 });
 
-test('starts one delayed check and a six-hour recurring check', async () => {
+test('starts one delayed check and a daily recurring check', async () => {
   const { controller, updater, timers } = createHarness();
   controller.start();
   controller.start();
-  assert.deepEqual(timers.timeouts.map(({ delay }) => delay), [updaterTiming.STARTUP_DELAY_MS]);
-  assert.deepEqual(timers.intervals.map(({ delay }) => delay), [updaterTiming.CHECK_INTERVAL_MS]);
+  assert.deepEqual(timers.timeouts.map(({ delay }) => delay), [30_000]);
+  assert.deepEqual(timers.intervals.map(({ delay }) => delay), [24 * 60 * 60 * 1_000]);
   timers.timeouts[0].callback();
   await new Promise(setImmediate);
   timers.intervals[0].callback();
   await new Promise(setImmediate);
   assert.equal(updater.checks, 2);
+});
+
+test('coalesces overlapping checks and lets a manual click receive that check feedback', async () => {
+  const { controller, updater, messages } = createHarness();
+  let resolveCheck;
+  updater.checkForUpdates = () => {
+    updater.checks += 1;
+    return new Promise((resolve) => { resolveCheck = resolve; });
+  };
+  const background = controller.check();
+  const manual = controller.check({ manual: true });
+  await new Promise(setImmediate);
+  updater.emit('update-not-available');
+  resolveCheck({});
+  await Promise.all([background, manual]);
+  assert.equal(updater.checks, 1);
+  assert.equal(messages[0].title, 'Frisket is up to date');
 });
 
 test('publishes download progress and gives a ready notification whose click opens the install dialog', async () => {
@@ -77,6 +94,9 @@ test('publishes download progress and gives a ready notification whose click ope
   notifications[0].onClick();
   await new Promise(setImmediate);
   assert.deepEqual(messages[0].buttons, ['Restart to update', 'Later']);
+  await controller.check();
+  assert.equal(updater.checks, 0);
+  assert.equal(controller.state.phase, 'ready');
 });
 
 test('Later keeps an update ready and manual check opens its restart dialog', async () => {
@@ -111,7 +131,7 @@ test('manual checks report unavailable and download failures while background fa
   failed.updater.result = { downloadPromise: Promise.reject(new Error('offline')) };
   await failed.controller.check({ manual: true });
   assert.equal(failed.controller.state.phase, 'error');
-  assert.match(failed.messages[0].message, /offline/);
+  assert.match(failed.messages[0].message, /Check your internet connection/);
 
   const background = createHarness();
   background.updater.failure = new Error('offline');

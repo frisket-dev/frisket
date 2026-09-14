@@ -31,6 +31,22 @@ def interrupted(_signum, _frame):
 
 def run_installed_checks() -> None:
     env = {**os.environ, "UV_OFFLINE": "1"}
+    if sys.argv[1:] == ["--update"]:
+        subprocess.run(
+            command_argv(
+                "npm",
+                "exec",
+                "--",
+                "playwright",
+                "test",
+                "--config",
+                "playwright.update.config.mjs",
+            ),
+            cwd=ROOT / "desktop",
+            env=env,
+            check=True,
+        )
+        return
     ui = subprocess.run(
         command_argv("npm", "--prefix", "desktop", "run", "test:installed"),
         cwd=ROOT,

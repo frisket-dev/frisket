@@ -2,6 +2,7 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
+  testMatch: 'installed.spec.mjs',
   workers: 1,
   retries: 0,
   captureGitInfo: { commit: false, diff: false },

@@ -4,7 +4,7 @@ Frisket Desktop runs on macOS 14 or newer with Apple Silicon and on Windows
 11 x64. Electron displays the ordinary local Frisket UI.
 First launch downloads a private Python interpreter, the locked standard Python
 dependencies, and Chromium for browser actions. It needs an internet connection.
-Whisper, VAD and RapidOCR model caches are included with the app. Parakeet stays
+VAD and RapidOCR model caches are included with the app. Parakeet stays
 the default transcription engine; download its weights from the engine selector
 when needed. Downloaded models stay in the preserved cache across app updates. There is no system
 Python, Homebrew, Node, or terminal setup for an app user.
@@ -19,14 +19,19 @@ Python, Homebrew, Node, or terminal setup for an app user.
 3. On macOS, open Frisket Desktop from Applications. If macOS blocks it, open **System Settings →
    Privacy & Security → Open Anyway**, authenticate, and choose **Open**.
 4. Leave Frisket Desktop open and connected to the internet while **Preparing Frisket**
-   installs its runtime. Whisper and OCR are ready after setup. For Parakeet,
+   installs its runtime. OCR is ready after setup. For Parakeet or Whisper,
    open its engine details and choose **Download** before transcribing.
 
-Updates are manual. Quit Frisket Desktop, install the new DMG or EXE, then reopen it.
+Frisket checks for updates shortly after opening and daily while it stays open.
+Updates download in the background. Choose **Help → Restart to update** when you
+are ready; **Later** leaves the app open. **Help → Check for Updates** checks manually.
+Frisket stops its local services before installing and never restarts automatically.
+Versions through 0.1.1a77 need one manual upgrade to gain automatic updates: quit
+Frisket Desktop, install the new DMG or EXE, then reopen it.
 Your workspace and caches survive replacement; a dependency change may require another
 download. If your older beta is named `Frisket.app`, quit it and remove that old
 application bundle after installing `Frisket Desktop.app`; both use the same preserved
-workspace folder. There is no signed update feed.
+workspace folder.
 
 Pull-request artifacts remain test-only; the GitHub release page is the distribution path.
 
@@ -36,7 +41,8 @@ The dispatch-only signing job is the release-candidate path. It receives its
 certificate and App Store Connect API key only from the protected GitHub
 environment, never from pull requests. `electron-builder` signs the app with
 the Developer ID Application certificate, enables the hardened runtime, and
-signs the DMG container. The job notarizes and staples that final DMG once,
+notarizes and staples the app before making the updater ZIP, and signs the DMG
+container. The job notarizes and staples that final DMG once,
 then mounts it to verify the contained app with `codesign` and checks the
 distribution with `syspolicy_check`, `spctl`, and `xcrun stapler validate`.
 
@@ -66,12 +72,17 @@ workflow token does not receive that privilege.
 
 The workflow checks that the tag resolves to the dispatched main revision before
 building and again before publishing. It runs the signed macOS and Windows
-installed-app proofs, then publishes the two direct installers and `SHA256SUMS`.
+installed-app proofs and a signed version-to-version update preserving a project
+and cache, then publishes the direct installers, updater payloads, metadata, and
+`SHA256SUMS`.
 Published installers are named `Frisket-Desktop-arm64.dmg` and
 `Frisket-Desktop-x64.exe`; native proof artifacts retain their version and revision.
 Verified Desktop releases are normal GitHub releases marked Latest, even when the
 package version contains an alpha or beta suffix. Stable download links use
 `releases/latest/download/<installer-name>`.
+The updater reads `latest-mac.yml` or `latest.yml` from the same release. Payload
+URLs contain the immutable release tag, so a later publication cannot change an
+in-progress download. Electron Updater verifies payload hashes and code signatures.
 The normal `v*` wheel/server release workflow remains separate. The dispatcher
 refuses existing releases, including drafts, and leaves an incomplete draft for
 inspection if publication fails.
@@ -89,7 +100,7 @@ python3 desktop/scripts/prepare.py
 npm --prefix desktop run package:mac
 ```
 
-`desktop/dist/` contains the DMG installer. The tester artifact contains only that DMG. The resource builder uses the ordinary
+`desktop/dist/` contains the DMG installer and ZIP updater payload. The resource builder uses the ordinary
 Frisket wheel, checks executable package resources, exports the exact standard
 lock with hashes, and verifies every pinned native archive. See `THIRD_PARTY.md`.
 The CI desktop workflow builds and tests these same artifacts.

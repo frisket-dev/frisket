@@ -341,7 +341,7 @@ jobs:
           & desktop/scripts/verify-signature.ps1 -Paths @($env:FRISKET_DESKTOP_APP) -PublisherName $env:EXPECTED_PUBLISHER
           $env:FRISKET_DESKTOP_UPDATE_TARGET_DIST = Join-Path $PWD 'desktop/dist'
           $env:FRISKET_DESKTOP_UPDATE_TARGET_VERSION = (Get-Content desktop/resources/build.json -Raw | ConvertFrom-Json).version
-          node desktop/node_modules/@playwright/test/cli.js test --config desktop/playwright.update.config.mjs
+          python desktop/scripts/test-installed.py --update
           if ($LASTEXITCODE -ne 0) { throw 'Installed Windows update proof failed.' }
           & desktop/scripts/verify-signature.ps1 -Paths @($env:FRISKET_DESKTOP_APP) -PublisherName $env:EXPECTED_PUBLISHER
           Remove-Item -LiteralPath desktop/update-baseline -Recurse -Force

@@ -263,7 +263,7 @@ jobs:
           ditto "$baseline" "$FRISKET_DESKTOP_APP"
           export FRISKET_DESKTOP_UPDATE_TARGET_DIST="$PWD/desktop/dist"
           export FRISKET_DESKTOP_UPDATE_TARGET_VERSION="$(node -p 'JSON.parse(require("fs").readFileSync("desktop/resources/build.json")).version')"
-          node desktop/node_modules/@playwright/test/cli.js test --config desktop/playwright.update.config.mjs
+          python3 desktop/scripts/test-installed.py --update
           codesign --verify --deep --strict --verbose=4 "$FRISKET_DESKTOP_APP"
           xcrun stapler validate "$FRISKET_DESKTOP_APP"
           rm -rf desktop/update-baseline

@@ -1,5 +1,5 @@
 const STARTUP_DELAY_MS = 30_000;
-const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1_000;
+const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1_000;
 
 /**
  * Connect electron-updater to the desktop shell without giving it ownership of
@@ -72,10 +72,9 @@ export function createUpdater({
     if (failedAttempt) failedAttempt.failureShown = true;
     publish({ phase: 'error' });
     if (!failedAttempt?.manual) return;
-    const detail = error instanceof Error && error.message ? ` ${error.message}` : '';
     void Promise.resolve(message({
       title: 'Could not check for updates',
-      message: `Frisket Desktop could not check for updates.${detail}`,
+      message: 'Frisket Desktop could not check for or download an update. Check your internet connection and try again later.',
       buttons: ['OK'],
     })).catch(() => {});
   }
@@ -133,8 +132,11 @@ export function createUpdater({
 
   function check({ manual = false } = {}) {
     if (disposed) return Promise.resolve();
-    if (state.phase === 'ready' && manual) return showReadyDialog();
-    if (checkTask) return checkTask;
+    if (state.phase === 'ready') return manual ? showReadyDialog() : Promise.resolve();
+    if (checkTask) {
+      if (manual && attempt) attempt.manual = true;
+      return checkTask;
+    }
 
     attempt = { manual, failureShown: false, unavailableShown: false };
     publish({ phase: 'checking' });
@@ -187,5 +189,3 @@ export function createUpdater({
     get state() { return { ...state }; },
   };
 }
-
-export const updaterTiming = { STARTUP_DELAY_MS, CHECK_INTERVAL_MS };
