@@ -263,7 +263,14 @@ export function StatusBar({
         {reviewCount > 0 && (
           <>
             <span className="status-sep" />
-            <button type="button" className="status-btn" data-testid="review-queue-button" onClick={onOpenReview} title="Review queue">
+            <button
+              type="button"
+              className="status-btn"
+              data-testid="review-queue-button"
+              onClick={onOpenReview}
+              disabled
+              title="Review is not available yet."
+            >
               <Inbox size={13} /> Review
               <span className="badge">{reviewCount.toLocaleString()}</span>
             </button>

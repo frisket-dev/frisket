@@ -17,6 +17,8 @@ import { sheetMeta } from '../support/actionFormFixtures';
 import { completeCatalogPayload } from '../support/actionFormFixtures';
 import { syntheticActionCatalogEntry } from '../support/actionCatalogFixtures';
 import { aiMeta, columnDef } from '../support/domainFixtures';
+import { resolveWalkthroughTarget } from '../../src/walkthrough/targets';
+import { LAWSUIT_DOCUMENT_WALKTHROUGH } from '../../src/walkthrough/walkthroughs';
 
 type SelectorFixtureChoice = {
   authored_selection:
@@ -371,6 +373,13 @@ describe('GeneratedActionForm', () => {
     );
 
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
+    const filingModelStep = LAWSUIT_DOCUMENT_WALKTHROUGH.steps.find(
+      (step) => step.id === 'choose-filing-model',
+    );
+    expect(filingModelStep).toBeDefined();
+    expect(resolveWalkthroughTarget(filingModelStep!.target)).toBe(
+      screen.getByTestId('field-model').parentElement,
+    );
     fireEvent.click(screen.getByTestId('field-model'));
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
   });
@@ -439,6 +448,13 @@ describe('GeneratedActionForm', () => {
       />,
     );
 
+    const converterStep = LAWSUIT_DOCUMENT_WALKTHROUGH.steps.find(
+      (step) => step.id === 'choose-converter',
+    );
+    expect(converterStep).toBeDefined();
+    expect(resolveWalkthroughTarget(converterStep!.target)).toBe(
+      screen.getByTestId('field-engine').parentElement,
+    );
     act(() => selectorHarness.emitCurrent?.({
       authored_selection: { kind: 'engine', engine: 'markitdown' },
       can_run: true,

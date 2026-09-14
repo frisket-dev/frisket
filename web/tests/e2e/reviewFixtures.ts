@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
+import type { Page } from '@playwright/test';
 
 type ReviewClassifyField = {
   description?: string;
@@ -13,6 +14,14 @@ const REPO_ROOT =
   path.basename(process.cwd()) === 'web'
     ? path.resolve(process.cwd(), '..')
     : process.cwd();
+
+/** Enter the public review route without reloading the already-open workspace. */
+export async function openReviewRoute(page: Page, pid: string, sheetId: number): Promise<void> {
+  await page.evaluate(({ projectId, targetSheetId }) => {
+    window.history.pushState(null, '', `/p/${projectId}/s/${targetSheetId}/review`);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  }, { projectId: pid, targetSheetId: sheetId });
+}
 
 export function seedReviewClassifyRun({
   context,

@@ -7,7 +7,7 @@ import {
   sheetData,
   uniqueName,
 } from './helpers';
-import { seedReviewClassifyRun } from './reviewFixtures';
+import { openReviewRoute, seedReviewClassifyRun } from './reviewFixtures';
 
 const CSV = `story
 "Mayor met a lobbyist before the zoning vote."
@@ -73,8 +73,9 @@ test('review queue groups sibling outputs and resolves fields independently', as
   await openProject(page, pid, sheetId);
   const reviewButton = page.getByTestId('review-queue-button');
   await expect(reviewButton.locator('.badge')).toHaveText('2');
+  await expect(reviewButton).toBeDisabled();
 
-  await reviewButton.click();
+  await openReviewRoute(page, pid, sheetId);
   const queue = page.getByTestId('review-queue');
   await expect(queue).toContainText('2 pending');
   await expect(queue).toContainText('1 bundles');
@@ -165,7 +166,8 @@ test('Shift+R rejects and clears a focused result', async ({ page }) => {
     await route.continue();
   });
   await openProject(page, pid, sheetId);
-  await page.getByTestId('review-queue-button').click();
+  await expect(page.getByTestId('review-queue-button')).toBeDisabled();
+  await openReviewRoute(page, pid, sheetId);
   const clear = page.getByTestId('review-reject-clear');
   await expect(clear).toHaveAccessibleName('Reject and clear selected result');
   await expect(clear).toHaveAttribute('title', 'Reject and clear (Shift+R)');

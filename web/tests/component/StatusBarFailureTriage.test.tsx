@@ -184,13 +184,15 @@ describe('StatusBar review entry point', () => {
     expect(screen.queryByTestId('review-queue-button')).not.toBeInTheDocument();
   });
 
-  it('appears with its count when review work is pending', () => {
+  it('appears disabled with its count when review work is pending', () => {
     const onOpenReview = vi.fn();
     renderBar(finishedRun(), { reviewCount: 3, onOpenReview });
     const button = screen.getByTestId('review-queue-button');
     expect(button).toHaveTextContent('Review');
     expect(button).toHaveTextContent('3');
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('title', 'Review is not available yet.');
     fireEvent.click(button);
-    expect(onOpenReview).toHaveBeenCalledOnce();
+    expect(onOpenReview).not.toHaveBeenCalled();
   });
 });

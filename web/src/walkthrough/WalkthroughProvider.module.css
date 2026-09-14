@@ -1,4 +1,5 @@
 .sampleIntro {
+  --walkthrough-list-background: var(--bg-panel);
   width: min(680px, calc(100vw - 32px));
   max-height: min(560px, calc(100vh - 32px));
   padding: 0;
@@ -25,7 +26,15 @@ button.startOption:hover { border-color: var(--focus); background: var(--focus-b
 .sampleIntroList h3 { margin: 0 0 9px; font-size: 13px; }
 .introClose { position: absolute; top: 11px; right: 11px; display: grid; width: 28px; height: 28px; padding: 0; place-items: center; border: 0; border-radius: 5px; color: var(--text-mid); background: transparent; cursor: pointer; }
 .introClose:hover { color: var(--text); background: var(--bg-hover); }
-.compactChoices { display: grid; max-height: 410px; overflow: auto; }
+.compactChoices {
+  display: grid;
+  max-height: 410px;
+  overflow: auto;
+  /* The cover moves with the content, hiding the scroll hint at the bottom. */
+  background:
+    linear-gradient(transparent, var(--walkthrough-list-background, var(--bg)) 50%) center bottom / 100% 32px local no-repeat,
+    radial-gradient(farthest-side at 50% 100%, rgb(0 0 0 / 24%), transparent) center bottom / 100% 14px scroll no-repeat;
+}
 .compactChoice { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 9px 8px; border: 0; border-bottom: 1px solid var(--border); color: var(--text); background: transparent; text-align: left; font: inherit; cursor: pointer; }
 .compactChoice:last-child { border-bottom: 0; }
 .compactChoice:hover { background: var(--focus-bg); }

@@ -21,6 +21,10 @@
 import { useEffect, useState } from 'react';
 import { splitPathForRoute } from './routeContext';
 import {
+  readSettingsProjectReturnPath,
+  writeSettingsProjectReturnPath,
+} from './settings/settingsProjectContext';
+import {
   SETTINGS_DEFAULT_SECTIONS,
   type SettingsScope,
 } from './settings/settingsRegistry';
@@ -254,6 +258,16 @@ export function routePath(r: Route): string {
 const currentSearch = (): string => window.location.search;
 
 function commitRoute(r: Route, replace: boolean): void {
+  if (r.kind === 'settings') {
+    const current = parsePathname(window.location.pathname);
+    if (current.kind === 'project') {
+      writeSettingsProjectReturnPath(routePath(current));
+    } else if (current.kind !== 'settings') {
+      writeSettingsProjectReturnPath(null);
+    }
+  } else if (r.kind === 'picker') {
+    writeSettingsProjectReturnPath(null);
+  }
   const url = routePath(r) + currentSearch();
   if (replace) {
     window.history.replaceState(null, '', url);
@@ -266,6 +280,16 @@ function commitRoute(r: Route, replace: boolean): void {
 /** Navigate with a history entry (back returns to the previous screen). */
 export function navigate(r: Route): void {
   commitRoute(r, false);
+}
+
+/** Return to the project location that opened Settings, including its sheet/form. */
+export function returnToProjectFromSettings(projectId: string): void {
+  const path = readSettingsProjectReturnPath();
+  const saved = path === null ? null : parsePathname(path);
+  navigate(saved?.kind === 'project' && saved.projectId === projectId
+    && routePath(saved) === path
+    ? saved
+    : { kind: 'project', projectId });
 }
 
 /** Update the path without a history entry (sheet switches — avoids history spam). */
