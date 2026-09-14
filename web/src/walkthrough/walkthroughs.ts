@@ -261,7 +261,7 @@ export const LAWSUIT_DOCUMENT_WALKTHROUGH: WalkthroughDefinition = {
     {
       id: 'choose-converter',
       title: 'Choose an available converter',
-      instruction: 'Choose an available conversion engine. Searchable PDFs do not need OCR.',
+      instruction: "This will convert the PDF to the basic text format Markdown. Choose an available conversion engine. A scanned document might need OCR first (but these don't).",
       target: { kind: 'field', id: 'field-engine' },
       advance: 'next-button',
     },
