@@ -333,7 +333,7 @@ export const LAWSUIT_DOCUMENT_WALKTHROUGH: WalkthroughDefinition = {
     {
       id: 'name-case-number',
       title: 'Name the extracted value',
-      instruction: 'Set Save to to case_number.',
+      instruction: 'Set Result to case_number.',
       target: { kind: 'field', id: 'new-column-name' },
       advance: 'next-button',
     },
