@@ -21,3 +21,14 @@ export async function shutdownDesktop({ abortStartup, stopBackend, startupTask, 
   await finish();
   return true;
 }
+/** Keep recovery and application shutdown waiting on the same backend cleanup. */
+export function createBackendStopper(takeBackend) {
+  let stopping;
+  return () => {
+    const backend = takeBackend();
+    if (backend) {
+      stopping = Promise.all([stopping, Promise.resolve().then(() => backend.stop())]);
+    }
+    return stopping;
+  };
+}

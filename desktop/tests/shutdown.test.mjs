@@ -1,6 +1,34 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { shutdownDesktop } from '../src/shutdown.mjs';
+import { createBackendStopper, shutdownDesktop } from '../src/shutdown.mjs';
+import { CleanupError } from '../src/errors.mjs';
+
+for (const rejected of [false, true]) {
+  test(`restart waits for recovery's detached backend cleanup (${rejected ? 'failure' : 'success'})`, async () => {
+    let finishStop;
+    let rejectStop;
+    const stopped = new Promise((resolve, reject) => { finishStop = resolve; rejectStop = reject; });
+    let backend = { stop: () => stopped };
+    const stopBackend = createBackendStopper(() => {
+      const current = backend;
+      backend = undefined;
+      return current;
+    });
+    const recovery = stopBackend();
+    assert.equal(backend, undefined);
+    const events = [];
+    const shutdown = shutdownDesktop({
+      abortStartup() {}, stopBackend,
+      finish: () => events.push('install'), fail: () => events.push('failed'),
+    });
+    await new Promise(setImmediate);
+    assert.deepEqual(events, []);
+    if (rejected) rejectStop(new CleanupError('recovery cleanup failed'));
+    else finishStop();
+    await Promise.allSettled([recovery, shutdown]);
+    assert.deepEqual(events, [rejected ? 'failed' : 'install']);
+  });
+}
 
 test('installation waits for backend cleanup and in-progress setup', async () => {
   const events = [];

@@ -9,7 +9,7 @@ import { appUrl, installProtocol, APP_ORIGIN, APP_SCHEME } from './protocol.mjs'
 import { startBackend } from './backend.mjs';
 import { CleanupError } from './errors.mjs';
 import { createUpdater } from './updater.mjs';
-import { shutdownDesktop } from './shutdown.mjs';
+import { createBackendStopper, shutdownDesktop } from './shutdown.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const desktopRoot = path.resolve(here, '..');
@@ -21,6 +21,11 @@ let quitting = false;
 let recoveryTask;
 let cleanupFailed = false;
 let updates;
+const stopBackend = createBackendStopper(() => {
+  const current = backend;
+  backend = undefined;
+  return current;
+});
 
 // Keep the original beta's projects, caches and browser preferences across the rename.
 if (!app.commandLine.hasSwitch('user-data-dir')) {
@@ -136,7 +141,7 @@ async function launch() {
     onFailure: (error) => void recover(error),
   });
   if (quitting) {
-    await backend.stop();
+    await stopBackend();
     return;
   }
   installProtocol({ protocol }, backend);
@@ -149,9 +154,7 @@ async function recover(error) {
   recoveryTask = (async () => {
     if (quitting) return;
     if (backend) {
-      const old = backend;
-      backend = undefined;
-      try { await old.stop(); } catch (cleanup) {
+      try { await stopBackend(); } catch (cleanup) {
         cleanupFailed = true;
         error = cleanup;
       }
@@ -177,6 +180,7 @@ function startAttempt() {
       await showStartup(mainWindow);
       if (!quitting) await launch();
     } catch (error) {
+      if (quitting && error instanceof CleanupError) throw error;
       if (!quitting) await recover(error);
     } finally {
       startupTask = undefined;
@@ -191,7 +195,7 @@ async function requestQuit(installUpdate = false) {
   quitting = true;
   return shutdownDesktop({
     abortStartup: () => provisioningController?.abort(),
-    stopBackend: () => backend?.stop(),
+    stopBackend,
     startupTask,
     cleanupFailed,
     fail: async () => {
