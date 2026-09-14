@@ -93,3 +93,15 @@ export async function alivePids(pids) {
   const result = await powershellJson(script);
   return Array.isArray(result) ? result : [result];
 }
+
+export async function runningExecutable(executable) {
+  if (process.platform !== 'win32') return [];
+  if (!path.isAbsolute(executable)) throw new Error('Expected an absolute executable path.');
+  const literal = executable.replaceAll("'", "''");
+  const result = await powershellJson(`
+    @(Get-CimInstance -ClassName Win32_Process |
+      Where-Object { $_.ExecutablePath -eq '${literal}' } |
+      ForEach-Object { [int]$_.ProcessId }) | ConvertTo-Json -Compress
+  `);
+  return Array.isArray(result) ? result : [result];
+}

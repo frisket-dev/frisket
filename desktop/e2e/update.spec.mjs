@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import {
-  alivePids, assertInstalledPlatform, descendants, installedExecutable, installedResources, listeningPorts,
+  alivePids, assertInstalledPlatform, descendants, installedExecutable, installedResources, listeningPorts, runningExecutable,
 } from './installed-platform.mjs';
 import { serveUpdateFeed } from './update-feed.mjs';
 
@@ -53,14 +53,17 @@ async function launch(feed, testInfo) {
         // Let Playwright relaunch with the same explicit isolated profile after
         // the native installer finishes; normal releases launch automatically.
         autoUpdater.autoRunAppAfterInstall = false;
-        autoUpdater.on('update-downloaded', (info) => { proof.downloaded = info.version; });
+        autoUpdater.on('update-downloaded', (info) => {
+          proof.downloaded = info.version;
+          proof.installer = info.downloadedFile;
+        });
         autoUpdater.on('error', (error) => proof.errors.push(error.message));
       }
     }, feed?.origin);
     const page = await electron.firstWindow();
     const rendererErrors = [];
     page.on('pageerror', (error) => rendererErrors.push(error.message));
-    await page.waitForURL('frisket://app/**', { timeout: 300_000 });
+    await page.waitForURL('frisket://app/**', { waitUntil: 'commit', timeout: 300_000 });
     await expect(page.getByTestId('home-screen')).toBeVisible();
     const disclosure = page.getByTestId('product-telemetry-disclosure');
     if (await disclosure.isVisible()) {
@@ -71,6 +74,14 @@ async function launch(feed, testInfo) {
     return { electron, page, rendererErrors };
   } catch (error) {
     await testInfo.attach('update-startup-stderr', { body: stderr, contentType: 'text/plain' });
+    const state = await electron.evaluate(({ BrowserWindow }) => ({
+      proof: globalThis.__frisketUpdateProof,
+      windows: BrowserWindow.getAllWindows().map((window) => ({
+        url: window.webContents.getURL(), loading: window.webContents.isLoading(),
+      })),
+    })).catch(() => null);
+    await testInfo.attach('update-startup-state', { body: JSON.stringify(state), contentType: 'application/json' });
+    await electron.windows()[0]?.screenshot({ path: testInfo.outputPath('update-startup-failure.png') }).catch(() => {});
     await electron.close().catch(() => {});
     throw error;
   }
@@ -174,6 +185,8 @@ test('signed installed baseline updates through its native updater and preserves
     await mkdir(path.dirname(sentinel), { recursive: true });
     await writeFile(sentinel, sentinelValue);
     await expect.poll(async () => (await proofState(running)).downloaded, { timeout: 180_000 }).toBe(targetVersion);
+    const installer = (await proofState(running)).installer;
+    if (process.platform === 'win32') expect(path.isAbsolute(installer)).toBeTruthy();
     expect(feed.requests.some((request) => request.method === 'GET' && feed.artifacts.includes(request.name))).toBeTruthy();
     expect(await updateMenu(running)).toMatch(/Restart to update/);
     await expect.poll(async () => (await proofState(running)).prompts.length).toBe(1);
@@ -205,6 +218,11 @@ test('signed installed baseline updates through its native updater and preserves
       }
       catch { return null; } // Installer can replace the archive between reads.
     }, { timeout: 120_000 }).toBe(targetVersion);
+    // NSIS writes app.asar before it finishes the rest of the installation.
+    // Wait for the actual downloaded installer to exit before opening the app.
+    if (process.platform === 'win32') {
+      await expect.poll(() => runningExecutable(installer), { timeout: 120_000 }).toEqual([]);
+    }
     const updated = await launch(feed, testInfo);
     running = updated.electron;
     expect(await running.evaluate(({ app }) => app.getVersion())).toBe(targetVersion);
