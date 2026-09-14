@@ -8903,6 +8903,8 @@ dialog.modal-card::backdrop {
    scale (it isn't squeezed into a status-bar chip here). */
 .model-pull-progress {
   display: grid;
+  min-width: 0;
+  overflow-wrap: anywhere;
   gap: 6px;
   padding: 8px;
   border-radius: var(--radius-6);
@@ -8916,7 +8918,11 @@ dialog.modal-card::backdrop {
   font-weight: 650;
   color: var(--text);
 }
+.model-pull-progress-name {
+  min-width: 0;
+}
 .model-pull-progress-phase {
+  flex-shrink: 0;
   font-weight: 500;
   color: var(--text-mid);
 }

@@ -126,9 +126,9 @@ export function ModelPullProgress({
       : null;
 
   const sizeLabel =
-    total != null && completed != null
-      ? `${humanBytes(completed)} / ${humanBytes(total)}`
-      : completed != null
+    percent != null
+      ? `${percent}% · ${humanBytes(completed)} / ${humanBytes(total)}`
+      : completed != null && completed > 0
         ? humanBytes(completed)
         : null;
 
@@ -157,7 +157,7 @@ export function ModelPullProgress({
               style={percent !== null ? { width: `${percent}%` } : undefined}
             />
           </span>
-          <span className="model-pull-progress-size">{sizeLabel ?? 'starting…'}</span>
+          {sizeLabel && <span className="model-pull-progress-size">{sizeLabel}</span>}
           <button
             type="button"
             className="btn btn-compact"
