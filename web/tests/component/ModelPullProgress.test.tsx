@@ -69,6 +69,7 @@ describe('ModelPullProgress', () => {
     expect(screen.getByText('downloading')).toBeInTheDocument();
     const bar = screen.getByRole('progressbar');
     expect(bar).toHaveAttribute('aria-valuenow', '25');
+    expect(screen.getByText(/^25% ·/)).toBeInTheDocument();
   });
 
   it('renders an indeterminate bar when total_bytes is null', () => {
@@ -76,6 +77,19 @@ describe('ModelPullProgress', () => {
     const bar = screen.getByRole('progressbar');
     expect(bar).not.toHaveAttribute('aria-valuenow');
     expect(bar.className).toMatch(/indeterminate/);
+  });
+
+  it.each([null, 0])('omits the byte label when download progress is unknown (%s)', (completed) => {
+    const { container } = render(<ModelPullProgress pull={pull({ completed_bytes: completed })} />);
+    expect(container.querySelector('.model-pull-progress-size')).not.toBeInTheDocument();
+    expect(screen.getByRole('progressbar')).not.toHaveAttribute('aria-valuenow');
+  });
+
+  it('shows downloaded bytes without a percentage when the total is unknown', () => {
+    const { container } = render(<ModelPullProgress pull={pull({ completed_bytes: 250 })} />);
+    expect(container.querySelector('.model-pull-progress-size')).toHaveTextContent('250');
+    expect(container.querySelector('.model-pull-progress-size')).not.toHaveTextContent('%');
+    expect(screen.getByRole('progressbar')).not.toHaveAttribute('aria-valuenow');
   });
 
   it('Cancel button calls cancelModelPull and then disables itself once cancel_requested', async () => {

@@ -750,6 +750,8 @@ def test_hf_snapshot_delegates_to_snapshot_download(tmp_path, monkeypatch):
         # wrote where the readers read, so the divergence was invisible --
         # see test_hf_snapshot_pull_lands_where_the_liveness_probe_looks below,
         # which is the assertion that actually matters.
+        assert len(calls) == 1
+        assert callable(calls[0].pop("tqdm_class"))
         assert calls == [
             {
                 "repo_id": snapshot.repo_id,
@@ -768,6 +770,200 @@ def test_hf_snapshot_delegates_to_snapshot_download(tmp_path, monkeypatch):
         )
         # no model_cache install dir is created for a thin-delegated snapshot
         assert not model_cache.tmp_dir(pull_id, root=tmp_path / "cache").exists()
+    finally:
+        queue.close()
+
+
+@pytest.mark.parametrize(
+    "events", ["cached", "files", "bytes", "resumed", "concurrent", "hub"]
+)
+def test_hf_snapshot_durable_byte_progress(tmp_path, monkeypatch, events):
+    import importlib
+    from concurrent.futures import ThreadPoolExecutor
+    from types import SimpleNamespace
+
+    import huggingface_hub
+    from frisket.engine.jobs import artifact_pull
+
+    hf_progress = importlib.import_module("huggingface_hub.utils.tqdm")
+    hub_snapshot = importlib.import_module("huggingface_hub._snapshot_download")
+    original_snapshot_download = huggingface_hub.snapshot_download
+    monkeypatch.setattr(hf_progress, "HF_HUB_DISABLE_PROGRESS_BARS", True)
+    monkeypatch.setenv("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+    monkeypatch.setattr(artifact_pull, "_PROGRESS_WRITE_MIN_INTERVAL_SECONDS", 0)
+    queue = open_queue(workspace=tmp_path)
+    art, entry = _snapshot_ref_and_entry()
+    pull_id = _make_row(queue.engine, art.canonical)
+
+    def download(repo_id, *, tqdm_class, **kwargs):
+        row = store.get(queue.engine, pull_id)
+        assert row.completed_bytes is None and row.total_bytes is None
+        if events == "cached":
+            return str(tmp_path / "snapshot")
+        if events == "files":
+            with tqdm_class(range(3), total=3) as progress:
+                assert list(progress) == [0, 1, 2]
+                progress.update(3)
+            assert store.get(queue.engine, pull_id).completed_bytes is None
+            return str(tmp_path / "snapshot")
+        if events == "hub":
+            # Run the locked Hub's real aggregate wrapper and thread_map.
+            # Only metadata/file transfer boundaries are replaced; no weights
+            # or network are needed to prove byte callbacks reach the store.
+            snapshot = entry.hf_snapshot
+            metadata = SimpleNamespace(
+                sha=snapshot.revision,
+                siblings=[SimpleNamespace(rfilename=f) for f in snapshot.files],
+            )
+            monkeypatch.setattr(
+                hub_snapshot,
+                "HfApi",
+                lambda **_: SimpleNamespace(repo_info=lambda **_: metadata),
+            )
+
+            def download_file(repo_id, *, tqdm_class, **kwargs):
+                with tqdm_class(total=100, initial=40) as progress:
+                    progress.update(10)
+                return str(tmp_path / "file")
+
+            monkeypatch.setattr(hub_snapshot, "hf_hub_download", download_file)
+            return original_snapshot_download(repo_id, tqdm_class=tqdm_class, **kwargs)
+
+        # Exercise the actual Hub factory with globally disabled terminal bars.
+        progress = hf_progress._create_progress_bar(
+            cls=tqdm_class,
+            log_level=0,
+            name="huggingface_hub.snapshot_download",
+            desc="Downloading (incomplete total...)",
+            unit="B",
+            total=0,
+            initial=40 if events == "resumed" else 0,
+        )
+        assert progress.disable is True
+        progress.total += 100
+        progress.refresh()
+        if events == "concurrent":
+
+            def advance(_):
+                for _ in range(10):
+                    progress.update(1)
+
+            with ThreadPoolExecutor(max_workers=4) as workers:
+                list(workers.map(advance, range(4)))
+            expected = 40
+        elif events == "resumed":
+            assert store.get(queue.engine, pull_id).completed_bytes == 40
+            progress.update(20)
+            progress.update(-60)  # A server ignored the resumed Range.
+            progress.update(10)
+            expected = 10
+        else:
+            progress.update(100)
+            row = store.get(queue.engine, pull_id)
+            assert row.completed_bytes == 100 and row.total_bytes is None
+            progress.total += 900  # Next file expands the incomplete total.
+            progress.refresh()
+            progress.update(200)
+            expected = 300
+        row = store.get(queue.engine, pull_id)
+        assert row.completed_bytes == expected and row.total_bytes is None
+        progress.set_description("Download complete")
+        progress.close()
+        return str(tmp_path / "snapshot")
+
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", download)
+    try:
+        with _client(_transport({})) as client:
+            assert run_artifact_pull(
+                client,
+                engine=queue.engine,
+                pull_id=pull_id,
+                art=art,
+                should_cancel=_no_cancel,
+                is_final_attempt=False,
+                cache_root=tmp_path / "cache",
+            ) == {"status": "done"}
+        row = store.get(queue.engine, pull_id)
+        assert row.status == store.STATUS_DONE and row.total_bytes is None
+        assert (
+            row.completed_bytes
+            == {
+                "cached": None,
+                "files": None,
+                "bytes": 300,
+                "resumed": 10,
+                "concurrent": 40,
+                "hub": 50 * len(entry.hf_snapshot.files),
+            }[events]
+        )
+    finally:
+        queue.close()
+
+
+@pytest.mark.parametrize(
+    "store_error,download_error", [(False, False), (True, False), (True, True)]
+)
+def test_hf_snapshot_progress_throttles_and_flushes(
+    tmp_path, monkeypatch, store_error, download_error
+):
+    import huggingface_hub
+    from frisket.engine.jobs import artifact_pull
+    from frisket.engine.jobs.model_pull import ModelPullTerminalError
+
+    queue = open_queue(workspace=tmp_path)
+    art, entry = _snapshot_ref_and_entry()
+    pull_id = _make_row(queue.engine, art.canonical)
+    update = store.update_progress
+    writes = []
+
+    def write_progress(*args, **kwargs):
+        if kwargs["completed_bytes"] is not None:
+            writes.append(kwargs["completed_bytes"])
+            if store_error:
+                raise RuntimeError("optional progress store unavailable")
+        update(*args, **kwargs)
+
+    monkeypatch.setattr(store, "update_progress", write_progress)
+    monkeypatch.setattr(artifact_pull, "_PROGRESS_WRITE_MIN_INTERVAL_SECONDS", 3600)
+
+    def download(repo_id, *, tqdm_class, **kwargs):
+        progress = tqdm_class(unit="B", total=0, initial=0)
+        for _ in range(100):
+            progress.update(10)
+        assert writes == [10]
+        if not store_error:
+            assert store.get(queue.engine, pull_id).completed_bytes == 10
+        if download_error:
+            raise OSError("upstream failed")
+        return str(tmp_path / "snapshot")
+
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", download)
+    try:
+        with _client(_transport({})) as client:
+
+            def run():
+                return run_artifact_pull(
+                    client,
+                    engine=queue.engine,
+                    pull_id=pull_id,
+                    art=art,
+                    should_cancel=_no_cancel,
+                    is_final_attempt=False,
+                    cache_root=tmp_path / "cache",
+                )
+
+            if download_error:
+                with pytest.raises(
+                    ModelPullTerminalError, match=r"snapshot \(OSError\)"
+                ):
+                    run()
+            else:
+                assert run() == {"status": "done"}
+        assert writes == [10, 1000]
+        row = store.get(queue.engine, pull_id)
+        if not download_error:
+            assert row.status == store.STATUS_DONE
+        assert row.completed_bytes == (None if store_error else 1000)
     finally:
         queue.close()
 
