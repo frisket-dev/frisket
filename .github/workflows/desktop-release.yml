@@ -146,6 +146,14 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout the admitted revision for release staging
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.admission.outputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
       - name: Require matching proof metadata
         env:
           SOURCE_SHA: ${{ needs.admission.outputs.source_sha }}
@@ -181,33 +189,18 @@ jobs:
         with:
           name: Frisket-Desktop-windows-x64-signed-${{ needs.admission.outputs.source_sha }}
           path: downloaded/windows
-      - name: Stage only the expected native installers and checksums
+      - name: Stage verified installers and immutable updater metadata
         id: assets
         env:
           SOURCE_SHA: ${{ needs.admission.outputs.source_sha }}
           DESKTOP_VERSION: ${{ needs.admission.outputs.desktop_version }}
+          PYTHON_PACKAGE_VERSION: ${{ needs.admission.outputs.python_package_version }}
         run: |
           set -euo pipefail
-          short_sha="${SOURCE_SHA:0:8}"
-          expected_dmg="Frisket-Desktop-${DESKTOP_VERSION}-arm64-${short_sha}.dmg"
-          expected_exe="Frisket-Desktop-${DESKTOP_VERSION}-x64-${short_sha}.exe"
-          mapfile -t dmgs < <(find downloaded/macos -type f -name '*.dmg' -print)
-          mapfile -t exes < <(find downloaded/windows -type f -name '*.exe' -print)
-          [ "${#dmgs[@]}" -eq 1 ] || { echo '::error::expected exactly one macOS DMG'; exit 1; }
-          [ "${#exes[@]}" -eq 1 ] || { echo '::error::expected exactly one Windows EXE'; exit 1; }
-          [ "$(basename "${dmgs[0]}")" = "$expected_dmg" ] || { echo '::error::macOS installer name does not match version, architecture, and revision'; exit 1; }
-          [ "$(basename "${exes[0]}")" = "$expected_exe" ] || { echo '::error::Windows installer name does not match version, architecture, and revision'; exit 1; }
-          dmg_name="Frisket-Desktop-arm64.dmg"
-          exe_name="Frisket-Desktop-x64.exe"
-          mkdir -p desktop-release-assets
-          install -m 0644 "${dmgs[0]}" "desktop-release-assets/$dmg_name"
-          install -m 0644 "${exes[0]}" "desktop-release-assets/$exe_name"
-          (
-            cd desktop-release-assets
-            sha256sum "$dmg_name" "$exe_name" > SHA256SUMS
-          )
-          echo "dmg_name=$dmg_name" >> "$GITHUB_OUTPUT"
-          echo "exe_name=$exe_name" >> "$GITHUB_OUTPUT"
+          node desktop/scripts/stage-update.mjs release downloaded/macos downloaded/windows \
+            desktop-release-assets "$DESKTOP_VERSION" "$PYTHON_PACKAGE_VERSION" "$SOURCE_SHA"
+          echo 'dmg_name=Frisket-Desktop-arm64.dmg' >> "$GITHUB_OUTPUT"
+          echo 'exe_name=Frisket-Desktop-x64.exe' >> "$GITHUB_OUTPUT"
       - name: Recheck the tag and create a new draft release
         id: draft
         env:
@@ -245,7 +238,7 @@ jobs:
             "macOS 14+ (Apple Silicon): https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${DMG_NAME}" \
             "Windows 11 x64: https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${EXE_NAME}" \
             "Checksums: https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/SHA256SUMS" \
-            'Updates are manual: quit Frisket Desktop, install the new package, then reopen it. Your data and caches remain in the app profile.' \
+            'Frisket Desktop checks for updates and downloads them in the background. Choose Restart to update when ready. Existing older versions require one manual installation. Your data and caches remain in the app profile.' \
             '' \
             "Full CI: ${FULL_CI_URL}" \
             "Release workflow: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" > "$notes"
@@ -266,11 +259,7 @@ jobs:
           TAG: ${{ needs.admission.outputs.tag }}
         run: |
           set -euo pipefail
-          gh release upload "$TAG" \
-            "desktop-release-assets/${{ steps.assets.outputs.dmg_name }}" \
-            "desktop-release-assets/${{ steps.assets.outputs.exe_name }}" \
-            desktop-release-assets/SHA256SUMS \
-            --repo "$GITHUB_REPOSITORY"
+          gh release upload "$TAG" desktop-release-assets/* --repo "$GITHUB_REPOSITORY"
       - name: Verify uploaded bytes before publishing
         env:
           GH_TOKEN: ${{ github.token }}
@@ -289,7 +278,10 @@ jobs:
             echo '::error::draft release identity changed before verification'
             exit 1
           }
-          expected=("$DMG_NAME" "$EXE_NAME" SHA256SUMS)
+          expected=()
+          for local_file in desktop-release-assets/*; do
+            expected+=("$(basename "$local_file")")
+          done
           for name in "${expected[@]}"; do
             count="$(jq --arg name "$name" '[.assets[] | select(.name == $name)] | length' "$release_json")"
             [ "$count" -eq 1 ] || { echo "::error::draft has ${count} assets named ${name}"; exit 1; }

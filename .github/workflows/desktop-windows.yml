@@ -201,7 +201,12 @@ jobs:
           FRISKET_WINDOWS_SIGNING_ENDPOINT: ${{ vars.FRISKET_WINDOWS_SIGNING_ENDPOINT }}
           FRISKET_WINDOWS_SIGNING_ACCOUNT: ${{ vars.FRISKET_WINDOWS_SIGNING_ACCOUNT }}
           FRISKET_WINDOWS_SIGNING_PROFILE: ${{ vars.FRISKET_WINDOWS_SIGNING_PROFILE }}
-        run: npm --prefix desktop run package:win
+        shell: pwsh
+        run: |
+          npm --prefix desktop run package:win
+          if ($LASTEXITCODE -ne 0) { throw 'Target Windows packaging failed.' }
+          node desktop/scripts/package-update-baseline.mjs windows
+          if ($LASTEXITCODE -ne 0) { throw 'Baseline Windows packaging failed.' }
       - name: Remove Azure login before transferring the artifact
         if: always()
         shell: pwsh
@@ -227,6 +232,17 @@ jobs:
           $installers = @(Get-ChildItem desktop/dist -Filter '*.exe' -File)
           if ($installers.Count -ne 1) { throw "Expected one NSIS installer, found $($installers.Count)." }
           & desktop/scripts/verify-signature.ps1 -Paths @($installers[0].FullName, (Join-Path $PWD 'desktop/dist/win-unpacked/Frisket Desktop.exe')) -PublisherName $env:EXPECTED_PUBLISHER
+      - name: Verify updater signature policy and prepare immutable metadata
+        shell: pwsh
+        env:
+          EXPECTED_PUBLISHER: ${{ steps.signing-metadata.outputs.publisher }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node desktop/scripts/stage-update.mjs prepare windows desktop/dist desktop/resources/build.json "$env:EXPECTED_PUBLISHER"
+          if ($LASTEXITCODE -ne 0) { throw 'Windows updater metadata validation failed.' }
+          $baselines = @(Get-ChildItem desktop/update-baseline -Filter '*.exe' -File)
+          if ($baselines.Count -ne 1) { throw 'Expected exactly one signed baseline installer.' }
+          & desktop/scripts/verify-signature.ps1 -Paths @($baselines[0].FullName) -PublisherName $env:EXPECTED_PUBLISHER
       # This intermediate artifact is not a release. The fresh proof job below
       # has no OIDC permission and never receives an Azure login context.
       - name: Transfer signed candidate for installed proof
@@ -237,6 +253,9 @@ jobs:
           retention-days: 1
           path: |
             desktop/dist/*.exe
+            desktop/dist/*.exe.blockmap
+            desktop/dist/latest.yml
+            desktop/update-baseline/*.exe
             desktop/resources/build.json
             desktop/resources/runtime.json
 
@@ -308,6 +327,24 @@ jobs:
           EXPECTED_PUBLISHER: ${{ needs.signed-distribution.outputs.publisher }}
         run: |
           & desktop/scripts/verify-signature.ps1 -Paths @($env:FRISKET_DESKTOP_APP) -PublisherName $env:EXPECTED_PUBLISHER
+      - name: Install signed baseline and prove the actual update and restart
+        shell: pwsh
+        env:
+          EXPECTED_PUBLISHER: ${{ needs.signed-distribution.outputs.publisher }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $baselines = @(Get-ChildItem desktop/update-baseline -Filter '*.exe' -File)
+          if ($baselines.Count -ne 1) { throw 'Expected exactly one signed baseline installer.' }
+          & desktop/scripts/verify-signature.ps1 -Paths @($baselines[0].FullName) -PublisherName $env:EXPECTED_PUBLISHER
+          $installation = Start-Process -FilePath $baselines[0].FullName -ArgumentList '/S' -Wait -PassThru
+          if ($installation.ExitCode -ne 0) { throw 'Signed baseline installation failed.' }
+          & desktop/scripts/verify-signature.ps1 -Paths @($env:FRISKET_DESKTOP_APP) -PublisherName $env:EXPECTED_PUBLISHER
+          $env:FRISKET_DESKTOP_UPDATE_TARGET_DIST = Join-Path $PWD 'desktop/dist'
+          $env:FRISKET_DESKTOP_UPDATE_TARGET_VERSION = (Get-Content desktop/resources/build.json -Raw | ConvertFrom-Json).version
+          node desktop/node_modules/@playwright/test/cli.js test --config desktop/playwright.update.config.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Installed Windows update proof failed.' }
+          & desktop/scripts/verify-signature.ps1 -Paths @($env:FRISKET_DESKTOP_APP) -PublisherName $env:EXPECTED_PUBLISHER
+          Remove-Item -LiteralPath desktop/update-baseline -Recurse -Force
       - name: Record proof-approved release metadata
         id: release-metadata
         shell: pwsh
@@ -335,7 +372,10 @@ jobs:
           name: Frisket-Desktop-windows-x64-signed-${{ github.sha }}
           if-no-files-found: error
           retention-days: 14
-          path: desktop/dist/*.exe
+          path: |
+            desktop/dist/*.exe
+            desktop/dist/*.exe.blockmap
+            desktop/dist/latest.yml
       - name: Upload signed installed-app evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -348,3 +388,5 @@ jobs:
             desktop/test-results/
             desktop/resources/build.json
             desktop/resources/runtime.json
+            desktop/update-test-results/
+            desktop/playwright-update-report/
