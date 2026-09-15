@@ -147,6 +147,7 @@ def test_unconfirmed_million_row_join_validates_names_but_cannot_expand(
     assert result["diagnostics"] == {
         "output_names": {
             "ok": False,
+            "code": "value_error",
             "message": "final output names must be unique",
         }
     }
