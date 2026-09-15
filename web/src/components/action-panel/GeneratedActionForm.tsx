@@ -471,6 +471,10 @@ function GeneratedActionFormContents({
   const requestScope = useMemo(() => scopeFor(effectiveRunScope), [scopeFor, effectiveRunScope]);
   const [draft, setDraft] = useState<CanonicalDraft>(() =>
     initialParams(catalogEntry, actionTemplate, columns, initialSourceColumn, initialDraft, initialPrompt));
+  const latestDraft = useRef(draft);
+  useEffect(() => {
+    latestDraft.current = draft;
+  }, [draft]);
   // Display server defaults without adding omitted values to a saved request.
   // Custom bodies and serialization continue to receive the actual draft.
   const displayDraft = useMemo(() => {
@@ -753,10 +757,12 @@ function GeneratedActionFormContents({
     ));
   };
   const updateBodyParams = useCallback((params: CanonicalDraft) => {
-    const changed = Object.keys({ ...draft, ...params }).filter((name) => (
-      JSON.stringify(draft[name]) !== JSON.stringify(params[name])
+    const previous = latestDraft.current;
+    const changed = Object.keys({ ...previous, ...params }).filter((name) => (
+      JSON.stringify(previous[name]) !== JSON.stringify(params[name])
     ));
     changed.forEach(markFieldTouched);
+    latestDraft.current = params;
     setParamsEdited(true);
     setResolved((current) => ({
       ...current,
@@ -764,7 +770,7 @@ function GeneratedActionFormContents({
       problem: dynamicOutputs ? 'Resolving outputs…' : 'Validating fields…',
     }));
     setDraft(params);
-  }, [draft, dynamicOutputs, markFieldTouched]);
+  }, [dynamicOutputs, markFieldTouched]);
   const renderField = (field: ActionParamFieldPresentationProps): ReactNode | undefined => {
     const CustomField = customization?.fields?.[field.name];
     if (CustomField) {
