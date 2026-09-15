@@ -38,7 +38,7 @@ test('Classify keeps a fresh invalid form quiet, then places and clears the labe
   // A real nested Pydantic diagnostic arrives at fields -> [0, "labels"].
   // Whitespace makes the existing control touched without becoming a label.
   await labels.fill(' ');
-  await expect(labelsError).toHaveText('Add at least one category label.');
+  await expect(labelsError).toHaveText('Add at least one label.');
   await expect(labelsError).toHaveCount(1);
 
   await labels.fill('civic, transit, other');
