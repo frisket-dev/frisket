@@ -328,7 +328,7 @@ jobs:
     # Same trigger shape as deploy-smoke: any backend or frontend change; a
     # docs-only commit cannot alter these journeys, so it skips.
     if: ${{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true' }}
-    # Cassette-backed core e2e: four specs that create their own projects and
+    # Keyless core e2e: specs create their own projects and, when needed,
     # prime the committed-response LLM cache (ResponseCache) before running, so
     # every "model" call replays from the cassette. Keyless BY CONSTRUCTION,
     # twice over: --no-deps skips the chromium project's `seed` dependency, so
@@ -336,8 +336,8 @@ jobs:
     # FRISKET_CACHE_MODE=replay_strict pins the backend to the cache-only
     # posture — a cache miss raises typed CacheMiss instead of calling any
     # provider (`replay_strict_cannot_egress`, engine/runner/validation.py),
-    # so no run here can spend or egress. Exactly these four specs, exactly
-    # 9 tests; the full provider-backed suite stays local-only.
+    # so no run here can spend or egress. The validation form proof makes no
+    # model calls; the full provider-backed suite stays local-only.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -370,6 +370,7 @@ jobs:
           UV_NO_SYNC=1 FRISKET_E2E_MINIMAL_DEPS=1 FRISKET_CACHE_MODE=replay_strict
           npm run e2e --
           --project=chromium --no-deps --workers=1
+          action-validation-ux.spec.ts
           derive-object-list.spec.ts
           explain-cell.spec.ts
           golden-extract-people-search.spec.ts

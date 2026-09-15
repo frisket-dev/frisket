@@ -1996,7 +1996,12 @@ export interface RunEstimate {
  *  the error (regex compile errors carry it). */
 export interface ParamDiagnostic {
   ok: boolean;
+  /** Stable server classification for presentation; clients must not infer it
+   * from human-readable message text. */
+  code?: string;
   message?: string;
+  /** Location within the top-level param, for a nested owning control. */
+  path?: Array<string | number>;
   position?: number;
 }
 

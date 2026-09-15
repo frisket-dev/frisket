@@ -15,12 +15,13 @@ is validated by the same path with no per-plugin wiring.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from types import UnionType
+from typing import Annotated, Any, Union, get_args, get_origin
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from frisket.actions.registry import ACTION_REGISTRY, NEW_ACTION_IDS
-from frisket.actions.types import discover_references
+from frisket.actions.types import discover_references, source_kind
 from frisket.authoring.action_metadata import (
     action_available_in_edition,
     action_edition_unavailable_message,
@@ -39,6 +40,31 @@ ACTION_PARAM_VALIDATION_RESULT_SCHEMA_VERSION = (
 )
 _MODEL_DIAGNOSTIC = "__all__"
 
+_TYPED_ERROR_MESSAGES = {
+    "missing": "This field is required.",
+    "string_too_short": "Enter a value.",
+    "string_too_long": "Shorten this value.",
+    "string_type": "Enter text.",
+    "too_short": "Select at least one value.",
+    "too_long": "Choose fewer values.",
+    "list_type": "Select one or more values.",
+    "dict_type": "Enter a valid value.",
+    "model_type": "Enter a valid value.",
+    "literal_error": "Choose one of the available options.",
+    "int_type": "Enter a whole number.",
+    "int_parsing": "Enter a whole number.",
+    "float_type": "Enter a number.",
+    "float_parsing": "Enter a number.",
+    "bool_type": "Choose yes or no.",
+    "bool_parsing": "Choose yes or no.",
+    "extra_forbidden": "This value is not allowed.",
+    "category_labels_required": "Add at least one label.",
+    "category_labels_unique": "Category labels must be unique.",
+    "category_labels_forbidden": "Only category fields can declare labels.",
+    "category_label_descriptions_unknown": "Describe only declared category labels.",
+    "category_label_descriptions_required": "Category label descriptions cannot be blank.",
+}
+
 
 def _declared_validators(source: Mapping[str, Any]) -> dict[str, str]:
     hints = source.get("ui_hints")
@@ -53,15 +79,111 @@ def _declared_validators(source: Mapping[str, Any]) -> dict[str, str]:
     }
 
 
-def _typed_param_diagnostics(error: ValidationError) -> dict[str, dict[str, Any]]:
+def _unwrapped_annotation(annotation: Any) -> Any:
+    while get_origin(annotation) is Annotated:
+        annotation = get_args(annotation)[0]
+    return annotation
+
+
+def _union_members(annotation: Any) -> tuple[Any, ...]:
+    annotation = _unwrapped_annotation(annotation)
+    if get_origin(annotation) in (Union, UnionType):
+        return get_args(annotation)
+    return ()
+
+
+def _matches_submitted_shape(annotation: Any, value: Any) -> bool:
+    """Match a JSON value to a union branch without using its display name."""
+
+    annotation = _unwrapped_annotation(annotation)
+    origin = get_origin(annotation)
+    if origin is list:
+        return isinstance(value, list)
+    if origin is tuple:
+        return isinstance(value, (list, tuple))
+    if origin is dict or origin is Mapping:
+        return isinstance(value, Mapping)
+    if isinstance(annotation, type):
+        if issubclass(annotation, BaseModel):
+            return isinstance(value, Mapping)
+        return isinstance(value, annotation)
+    return False
+
+
+def _submitted_union_member(annotation: Any, value: Any) -> Any | None:
+    candidates = [
+        member
+        for member in _union_members(annotation)
+        if _matches_submitted_shape(member, value)
+    ]
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _union_member_shape(annotation: Any) -> str | None:
+    annotation = _unwrapped_annotation(annotation)
+    origin = get_origin(annotation)
+    if origin in (list, tuple, set, frozenset):
+        return "array"
+    if origin is dict or origin is Mapping:
+        return "object"
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return "object"
+    return None
+
+
+def _selected_union_detail(
+    details: list[dict[str, Any]], annotation: Any, value: Any
+) -> dict[str, Any] | None:
+    """Drop only direct shape mismatches from Pydantic's existing verdict."""
+
+    member = _submitted_union_member(annotation, value)
+    if member is None:
+        return None
+    shape = _union_member_shape(member)
+    mismatches = {
+        "array": frozenset({"model_type", "dict_type"}),
+        "object": frozenset({"list_type", "tuple_type", "set_type", "frozenset_type"}),
+    }.get(shape, frozenset())
+    for detail in details:
+        location = tuple(detail.get("loc", ()))
+        if len(location) == 2 and str(detail.get("type")) in mismatches:
+            continue
+        return detail
+    return None
+
+
+def _typed_error_message(detail: Mapping[str, Any], annotation: Any) -> str:
+    """Expose stable, actionable copy without leaking Pydantic type names."""
+
+    if detail.get("type") == "value_error":
+        return str(detail.get("msg") or "Enter a valid value.").removeprefix(
+            "Value error, "
+        )
+    if detail.get("type") == "too_short":
+        minimum = detail.get("ctx", {}).get("min_length")
+        if source_kind(annotation) in {"columns", "columns_or_template"}:
+            return "Choose at least one input column."
+        if isinstance(minimum, int) and minimum > 1:
+            return f"Choose at least {minimum} values."
+    return _TYPED_ERROR_MESSAGES.get(str(detail.get("type")), "Enter a valid value.")
+
+
+def _typed_param_diagnostics(
+    error: ValidationError,
+    *,
+    params_model: type[BaseModel],
+    raw_params: Mapping[str, Any],
+) -> dict[str, dict[str, Any]]:
     """Project Pydantic's canonical Params verdict onto form fields.
 
     Nested errors belong to their top-level control (for example ``routes``),
-    while model-level validators use one explicit form-wide key. Multiple
-    errors for one control are retained in Pydantic's deterministic order.
+    while model-level validators use one explicit form-wide key. A field gets
+    its first actionable error only. Union branch-shape mismatches are removed
+    from Pydantic's existing structured verdict, so a list never reports a
+    competing object branch (or its internal type name).
     """
 
-    messages: dict[str, list[str]] = {}
+    details_by_field: dict[str, list[dict[str, Any]]] = {}
     for detail in error.errors(include_url=False, include_input=False):
         location = detail.get("loc", ())
         field = (
@@ -69,18 +191,40 @@ def _typed_param_diagnostics(error: ValidationError) -> dict[str, dict[str, Any]
             if location and isinstance(location[0], str)
             else _MODEL_DIAGNOSTIC
         )
-        nested = location[1:] if field != _MODEL_DIAGNOSTIC else location
-        path = "".join(
-            f"[{part}]" if isinstance(part, int) else f".{part}" for part in nested
-        )
-        message = str(detail.get("msg") or "Invalid value")
-        if message.startswith("Value error, "):
-            message = message.removeprefix("Value error, ")
-        messages.setdefault(field, []).append(f"{path}: {message}" if path else message)
-    return {
-        field: {"ok": False, "message": "; ".join(field_messages)}
-        for field, field_messages in messages.items()
-    }
+        details_by_field.setdefault(field, []).append(detail)
+
+    diagnostics: dict[str, dict[str, Any]] = {}
+    for field, details in details_by_field.items():
+        model_field = params_model.model_fields.get(field)
+        selected = None
+        selected_union = False
+        if (
+            model_field is not None
+            and field in raw_params
+            and all(len(tuple(detail.get("loc", ()))) > 1 for detail in details)
+        ):
+            selected = _selected_union_detail(
+                details, model_field.annotation, raw_params[field]
+            )
+            selected_union = selected is not None
+        detail = selected or details[0]
+        location = tuple(detail.get("loc", ()))
+        if field == _MODEL_DIAGNOSTIC:
+            path = list(location)
+        elif selected_union:
+            path = list(location[2:])
+        else:
+            path = list(location[1:])
+        code = str(detail.get("type") or "value_error")
+        diagnostics[field] = {
+            "ok": False,
+            "message": _typed_error_message(
+                detail, model_field.annotation if model_field is not None else None
+            ),
+            "code": code,
+            **({"path": path} if path else {}),
+        }
+    return diagnostics
 
 
 def _typed_reference_diagnostics(params: Any, error: Any) -> dict[str, dict[str, Any]]:
@@ -416,7 +560,11 @@ class ActionParamValidationService:
                 # Forms submit partial Params while the user is still editing.
                 # Pydantic remains the one validation authority; dynamic
                 # outputs become available once the complete model is valid.
-                diagnostics = _typed_param_diagnostics(error)
+                diagnostics = _typed_param_diagnostics(
+                    error,
+                    params_model=terminal.params_model,
+                    raw_params=params,
+                )
             except (TypeError, ValueError) as error:
                 diagnostics = {_MODEL_DIAGNOSTIC: {"ok": False, "message": str(error)}}
             declarations: dict[str, str] = {}

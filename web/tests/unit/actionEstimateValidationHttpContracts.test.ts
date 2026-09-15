@@ -44,7 +44,7 @@ const validationWire = {
   action: { kind: 'map.regex_extract' },
   project_id: 'project/one',
   diagnostics: {
-    pattern: { ok: false, message: 'unbalanced parenthesis', position: 6 },
+    pattern: { ok: false, code: 'invalid_pattern', message: 'unbalanced parenthesis', path: ['expression'], position: 6 },
     template: { ok: true },
   },
   logical_outputs: [{ key: 'extracted', column_type: 'text' }],
@@ -212,7 +212,9 @@ describe('action estimate and parameter-validation HTTP contracts', () => {
       params: { input_columns: ['source'], pattern: '.+' },
     })).resolves.toEqual({
       diagnostics: {
-        pattern: { ok: false, message: 'unbalanced parenthesis', position: 6 },
+        pattern: {
+          ok: false, code: 'invalid_pattern', message: 'unbalanced parenthesis', path: ['expression'], position: 6,
+        },
         template: { ok: true },
       },
       logical_outputs: [{ key: 'extracted', column_type: 'text' }],

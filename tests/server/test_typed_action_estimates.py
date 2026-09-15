@@ -225,6 +225,7 @@ def test_typed_param_preflight_accepts_action_id_and_returns_pydantic_diagnostic
         "__all__": {
             "ok": False,
             "message": "latitude and longitude must come from different columns",
+            "code": "value_error",
         }
     }
 

@@ -127,7 +127,12 @@ def test_typed_web_search_preflight_uses_its_params_model():
         {"action_id": "research.web_search", "params": {"query": {"text": "   "}}},
     )
     assert invalid["diagnostics"] == {
-        "query": {"ok": False, "message": ".text: template must be non-empty"}
+        "query": {
+            "ok": False,
+            "message": "template must be non-empty",
+            "code": "value_error",
+            "path": ["text"],
+        }
     }
 
     valid = service.validate_params(
@@ -220,8 +225,16 @@ def test_validate_params_service_returns_per_param_diagnostics():
     assert result["schema_version"] == ACTION_PARAM_VALIDATION_RESULT_SCHEMA_VERSION
     assert result["action"] == {"kind": "map.regex_extract"}
     assert result["diagnostics"] == {
-        "input_columns": {"ok": False, "message": "Field required"},
-        "pattern": {"ok": False, "message": "invalid regex pattern"},
+        "input_columns": {
+            "ok": False,
+            "message": "This field is required.",
+            "code": "missing",
+        },
+        "pattern": {
+            "ok": False,
+            "message": "invalid regex pattern",
+            "code": "value_error",
+        },
     }
 
 
@@ -236,7 +249,11 @@ def test_validate_params_service_ok_when_pattern_valid_and_no_declared_params_ab
         {"kind": "map.regex_extract", "params": {"pattern": r"\d+"}},
     )
     assert result["diagnostics"] == {
-        "input_columns": {"ok": False, "message": "Field required"}
+        "input_columns": {
+            "ok": False,
+            "message": "This field is required.",
+            "code": "missing",
+        }
     }
     # A complete typed Params model produces no errors without needing a
     # parallel `param_validators` declaration.
@@ -285,7 +302,12 @@ def test_validate_params_service_projects_the_typed_research_template_verdict():
         },
     )
     assert blank["diagnostics"] == {
-        "question": {"ok": False, "message": ".text: template must be non-empty"}
+        "question": {
+            "ok": False,
+            "message": "template must be non-empty",
+            "code": "value_error",
+            "path": ["text"],
+        }
     }
 
 
@@ -309,8 +331,9 @@ def test_typed_preflight_projects_nested_and_model_pydantic_errors():
     assert nested["diagnostics"] == {
         "routes": {
             "ok": False,
-            "message": "[0].name: String should have at least 1 character; "
-            "[0].path: String should have at least 1 character",
+            "message": "Enter a value.",
+            "code": "string_too_short",
+            "path": [0, "name"],
         }
     }
 
@@ -328,5 +351,113 @@ def test_typed_preflight_projects_nested_and_model_pydantic_errors():
         "__all__": {
             "ok": False,
             "message": "latitude and longitude must come from different columns",
+            "code": "value_error",
+        }
+    }
+
+
+def test_typed_preflight_selects_the_entered_rich_source_branch_once():
+    """Union failures report the submitted shape, never competing branch names."""
+
+    from frisket.server.services.action_param_validation import (
+        ActionParamValidationService,
+    )
+
+    service = ActionParamValidationService(SimpleNamespace(edition="solo"))
+    result = service.validate_params(
+        "pid-ignored",
+        {
+            "action_id": "map.classify",
+            "params": {
+                "source": [],
+                "fields": [{"name": "topic", "labels": ["news"]}],
+            },
+        },
+    )
+    assert result["diagnostics"] == {
+        "source": {
+            "ok": False,
+            "message": "Choose at least one input column.",
+            "code": "too_short",
+        }
+    }
+
+    template = service.validate_params(
+        "pid-ignored",
+        {
+            "action_id": "map.classify",
+            "params": {
+                "source": {"text": "  "},
+                "fields": [{"name": "topic", "labels": ["news"]}],
+            },
+        },
+    )
+    assert template["diagnostics"] == {
+        "source": {
+            "ok": False,
+            "message": "template must be non-empty",
+            "code": "value_error",
+            "path": ["text"],
+        }
+    }
+
+
+def test_typed_preflight_reports_the_declared_minimum_for_other_short_lists():
+    from pydantic import BaseModel, Field, ValidationError
+
+    from frisket.server.services.action_param_validation import (
+        _typed_param_diagnostics,
+    )
+
+    class Params(BaseModel):
+        values: list[str] = Field(min_length=2)
+
+    with pytest.raises(ValidationError) as raised:
+        Params.model_validate({"values": ["one"]})
+    assert _typed_param_diagnostics(
+        raised.value,
+        params_model=Params,
+        raw_params={"values": ["one"]},
+    ) == {
+        "values": {
+            "ok": False,
+            "message": "Choose at least 2 values.",
+            "code": "too_short",
+        }
+    }
+
+
+@pytest.mark.parametrize(
+    ("labels", "code", "message"),
+    [
+        ([], "category_labels_required", "Add at least one label."),
+        (["news", "news"], "category_labels_unique", "Category labels must be unique."),
+        ([" "], "category_labels_required", "Add at least one label."),
+    ],
+)
+def test_typed_preflight_points_category_label_errors_at_the_nested_control(
+    labels, code, message
+):
+    from frisket.server.services.action_param_validation import (
+        ActionParamValidationService,
+    )
+
+    service = ActionParamValidationService(SimpleNamespace(edition="solo"))
+    result = service.validate_params(
+        "pid-ignored",
+        {
+            "action_id": "map.classify",
+            "params": {
+                "source": ["body"],
+                "fields": [{"name": "topic", "type": "category", "labels": labels}],
+            },
+        },
+    )
+    assert result["diagnostics"] == {
+        "fields": {
+            "ok": False,
+            "message": message,
+            "code": code,
+            "path": [0, "labels"],
         }
     }

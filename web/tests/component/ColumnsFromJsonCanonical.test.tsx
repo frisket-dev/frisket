@@ -131,9 +131,14 @@ describe('map.columns_from_json generated request drawer', () => {
     await user.click(screen.getByTestId('columns-from-json-add-route'));
 
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
-    await waitFor(() => expect(screen.getByTestId('generated-action-run')).toHaveAttribute(
-      'title', 'Every route needs a name and JSON path.',
-    ));
+    expect(await screen.findByTestId('field-routes-error')).toHaveTextContent(
+      'Every route needs a name and JSON path.',
+    );
+    expect(screen.getByTestId('generated-action-run')).toHaveAttribute(
+      'title', 'Complete the required fields.',
+    );
+    expect(screen.queryByText('Output names do not match the resolved action outputs.')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Every route needs a name and JSON path.')).toHaveLength(1);
     await user.click(screen.getByTestId('generated-action-run'));
     expect(onExecute).not.toHaveBeenCalled();
   });

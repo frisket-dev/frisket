@@ -53,8 +53,8 @@ afterEach(() => {
 // (src/frisket/actions/classify_types.py:30); the resolve endpoint projects
 // that Pydantic error onto the `fields` control with its nested path prefix
 // (src/frisket/server/services/action_param_validation.py:57-84), so the
-// diagnostic the form relays reads "[0]: category fields require non-empty labels".
-const CATEGORY_LABELS_REQUIRED = '[0]: category fields require non-empty labels';
+// diagnostic the form routes to the labels control by its structured path.
+const CATEGORY_LABELS_REQUIRED = 'Add at least one label.';
 
 interface ClassifyFieldParam {
   name: string;
@@ -66,11 +66,14 @@ interface ClassifyFieldParam {
  *  `fields`; otherwise every field is one logical output keyed by its name. */
 const resolveClassify: TypedResolveParams = async ({ params }) => {
   const fields = Array.isArray(params.fields) ? params.fields as ClassifyFieldParam[] : [];
-  const unlabeled = fields.some((field) => (
+  const unlabeledIndex = fields.findIndex((field) => (
     (field.type ?? 'category') === 'category' && !(field.labels?.length)
   ));
-  if (unlabeled) {
-    return { diagnostics: { fields: { ok: false, message: CATEGORY_LABELS_REQUIRED } }, logical_outputs: [] };
+  if (unlabeledIndex >= 0) {
+    return { diagnostics: { fields: {
+      ok: false, code: 'category_labels_required', message: CATEGORY_LABELS_REQUIRED,
+      path: [unlabeledIndex, 'labels'],
+    } }, logical_outputs: [] };
   }
   return {
     diagnostics: {},
@@ -124,7 +127,7 @@ beforeEach(() => {
 });
 
 describe('classify source binding', () => {
-  it('starts without labels or a destination and relays the label requirement before Run', async () => {
+  it('keeps untouched category labels clean, then routes their server error beside the labels control', async () => {
     const user = userEvent.setup();
     const { onExecute } = mountClassify({ sheet: summarySheet() });
 
@@ -132,13 +135,18 @@ describe('classify source binding', () => {
     expect(screen.queryByText('Housing')).not.toBeInTheDocument();
     // No destination is proposed until the server accepts the field set.
     expect(screen.queryByTestId(/^field-output-/)).not.toBeInTheDocument();
-    await waitFor(() => expect(screen.getByTestId('generated-action-run'))
-      .toHaveAttribute('title', CATEGORY_LABELS_REQUIRED));
+    await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeDisabled());
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
-    expect(screen.getAllByRole('alert').map((alert) => alert.textContent))
-      .toContain(CATEGORY_LABELS_REQUIRED);
+    expect(screen.queryByText(CATEGORY_LABELS_REQUIRED)).not.toBeInTheDocument();
+
+    fireEvent.focus(screen.getByTestId('classify-labels'));
+    fireEvent.change(screen.getByTestId('classify-labels'), { target: { value: ' ' } });
+    expect(await screen.findByTestId('classify-labels-error'))
+      .toHaveTextContent(CATEGORY_LABELS_REQUIRED);
+    expect(screen.getAllByText(CATEGORY_LABELS_REQUIRED)).toHaveLength(1);
 
     await user.type(screen.getByTestId('classify-labels'), 'housing, transit, other');
+    await waitFor(() => expect(screen.queryByTestId('classify-labels-error')).not.toBeInTheDocument());
     // The accepted field set derives the destination from the field name.
     await waitFor(() => expect(screen.getByTestId('field-output-category')).toHaveValue('category'));
     await screen.findByText('$0.02', {}, { timeout: 2000 });
@@ -156,6 +164,29 @@ describe('classify source binding', () => {
       output_names: { category: 'category' },
     });
     expect(onExecute.mock.calls[0][0].idempotency_key).toContain('map.classify');
+  });
+
+  it('anchors a nested labels diagnostic to the indexed remote field', async () => {
+    mountClassify({
+      sheet: summarySheet(),
+      initialDraft: {
+        action_id: 'map.classify', scope: { kind: 'sheet_rows', sheet_id: 7 }, output_names: {},
+        params: {
+          source: ['summary'], engine: 'llm',
+          fields: [
+            { name: 'section', type: 'category', labels: ['news'] },
+            { name: 'tone', type: 'category', labels: [] },
+          ],
+        },
+      },
+    });
+
+    const labels = await screen.findAllByTestId('classify-labels');
+    const error = await screen.findByTestId('classify-labels-error');
+    expect(labels).toHaveLength(2);
+    expect(labels[0]).not.toHaveAttribute('aria-describedby');
+    expect(labels[1]).toHaveAttribute('aria-describedby', error.id);
+    expect(error).toHaveTextContent(CATEGORY_LABELS_REQUIRED);
   });
 
   it('hydrates an omitted field description and derives the proposed destination', async () => {

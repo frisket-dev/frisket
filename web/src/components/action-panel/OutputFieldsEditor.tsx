@@ -216,7 +216,7 @@ export function OutputFieldsEditor({
   actionKind,
   usesFieldNameDestination,
   outputFieldsReadOnly,
-  onFieldsChange,
+  onFieldsChange, labelError, onLabelInteraction,
   onLabelsRawChange,
   fieldTypes = actionFieldTypes,
   maxFields,
@@ -234,6 +234,9 @@ export function OutputFieldsEditor({
   outputFieldsReadOnly: boolean;
   onFieldsChange(update: (previous: EditableOutputField[]) => EditableOutputField[]): void;
   onLabelsRawChange(update: (previous: Record<string, string>) => Record<string, string>): void;
+  /** Classify routes a nested server path to one labels textarea. */
+  labelError?: { fieldIndex: number; message: string };
+  onLabelInteraction?(fieldIndex: number): void;
   fieldTypes?: readonly string[];
   maxFields?: number;
   minFields?: number;
@@ -367,9 +370,11 @@ export function OutputFieldsEditor({
                   value={labelsRaw[f.uiId] ?? f.labels?.join(', ') ?? ''}
                   placeholder="labels, comma-separated (e.g. corruption, transit, other / unclear)"
                   aria-label={`Field ${i + 1} labels`}
+                  aria-describedby={labelError?.fieldIndex === i ? `classify-labels-error-${f.uiId}` : undefined}
                   rows={2}
                   ref={resizeTextareaToContent}
                   onInput={handleAutoResizeTextareaInput}
+                  onFocus={() => onLabelInteraction?.(i)}
                   onChange={(e) => {
                     const labels = parseCommaLabels(e.target.value);
                     const descriptions = Object.fromEntries(
@@ -379,6 +384,10 @@ export function OutputFieldsEditor({
                     setField(i, { labels, labelDescriptions: descriptions });
                   }}
                 />
+                {labelError?.fieldIndex === i && (
+                  <p className="form-error" role="alert" data-testid="classify-labels-error"
+                    id={`classify-labels-error-${f.uiId}`}>{labelError.message}</p>
+                )}
                 {actionKind === 'map.classify' && (f.labels?.length ?? 0) > 0 && (
                   <details
                     className="classify-label-details"

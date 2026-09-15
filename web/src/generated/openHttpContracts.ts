@@ -2038,8 +2038,10 @@ type HttpActionParamValidationResult_ActionLogicalOutput = ({
 });
 
 type HttpActionParamValidationResult_ActionParamDiagnostic = ({
+  "code"?: (((string)) | ((null)));
   "message"?: (((string)) | ((null)));
   "ok": (boolean);
+  "path"?: (((Array<(((string)) | ((number)))>)) | ((null)));
   "position"?: (((number)) | ((null)));
 });
 

@@ -59,6 +59,9 @@ interface GeneratedActionCustomizationBase {
   outputNamesReadOnly?: true;
   hiddenOutputNameKeys?: readonly string[];
   fields?: Readonly<Partial<Record<string, (props: GeneratedActionFieldProps) => ReactNode>>>;
+  /** Params whose custom body already renders their diagnostic beside a control.
+   * Other custom-body Params use the host footer as a safe fallback. */
+  inlineDiagnosticFields?: readonly string[] | ((params: CanonicalActionDraft) => readonly string[]);
   fieldOrder?: readonly string[];
   defaultOutputName?(key: string, draft: CanonicalActionDraft): string | undefined;
   outputLabel?(key: string): string | undefined;
@@ -87,11 +90,13 @@ interface StoredGeneratedActionCustomization extends GeneratedActionCustomizatio
 type GeneratedActionKey = keyof GeneratedActionParams;
 type GeneratedFieldName<K extends GeneratedActionKey> = Extract<keyof GeneratedActionParams[K], string>;
 type ExactGeneratedActionCustomization<K extends GeneratedActionKey> =
-  Omit<GeneratedActionCustomizationBase, 'fields' | 'fieldOrder' | 'initialParams'> & {
+  Omit<GeneratedActionCustomizationBase, 'fields' | 'fieldOrder' | 'initialParams' | 'inlineDiagnosticFields'> & {
     initialParams?: Partial<GeneratedActionParams[K]>;
     fields?: Readonly<Partial<Record<GeneratedFieldName<K>,
       (props: GeneratedActionFieldProps) => ReactNode>>>;
     fieldOrder?: readonly GeneratedFieldName<K>[];
+    inlineDiagnosticFields?: readonly GeneratedFieldName<K>[]
+      | ((params: CanonicalActionDraft) => readonly GeneratedFieldName<K>[]);
     body?: GeneratedActionParamsBody<K>;
   };
 type ExactGeneratedActionCustomizationMap = {
@@ -186,6 +191,7 @@ function GuidanceField({ id, testid, label, value, onChange }: GeneratedActionFi
 
 const EXACT_CUSTOMIZATIONS = {
   'web.capture_page': { body: PageCaptureParamsBody, primaryLabel: 'Capture pages',
+    inlineDiagnosticFields: ['source', 'max_bytes', 'timeout_ms'],
     defaultSheetName: 'Links', outputLabel: (key: string) => key === 'page' ? 'Snapshot' : undefined },
   'cluster.values': { body: ClusterParamsBody, primaryLabel: 'Write canonical values',
     primaryTestId: 'cluster-commit-button', defaultOutputName: (_key, draft) =>
@@ -201,29 +207,37 @@ const EXACT_CUSTOMIZATIONS = {
     defaultOutputName: (key: string) => key === 'audio' || key === 'video' ? 'media' : `media_${key}`,
   },
   'media.enclosure_materialize': { primaryLabel: 'Download enclosures' },
-  'temporal.extract_range': { body: TemporalExtractParamsBody, primaryLabel: 'Extract range' },
+  'temporal.extract_range': { body: TemporalExtractParamsBody, primaryLabel: 'Extract range',
+    inlineDiagnosticFields: ['source'] },
   'derive.temporal_segments': { body: MediaSegmentsParamsBody, primaryLabel: 'Split into segments',
     defaultSheetName: 'Segments' },
-  'media.fetch_url': { body: FetchUrlParamsBody, primaryLabel: 'Fetch URL' },
+  'media.fetch_url': { body: FetchUrlParamsBody, primaryLabel: 'Fetch URL', inlineDiagnosticFields: ['source'] },
   'media.video_frames': { body: VideoFramesParamsBody, initialParams: { max_dimension: 720 },
+    inlineDiagnosticFields: ['source', 'sampling', 'max_dimension'],
     primaryLabel: 'Extract frames' },
   'media.extract_pdf_tables': { body: PdfTablesParamsBody, primaryLabel: 'Extract PDF tables',
+    inlineDiagnosticFields: ['source', 'table_mode', 'extract_table'],
     outputLabel: () => 'Tables' },
-  'derive.transcript_segments': { body: TranscriptSegmentsParamsBody, primaryLabel: 'Create transcript segments' },
-  'derive.link_table': { body: LinkTableParamsBody, primaryLabel: 'Create link table' },
-  'map.find_topic_sections': { body: TopicSectionsParamsBody },
+  'derive.transcript_segments': { body: TranscriptSegmentsParamsBody, primaryLabel: 'Create transcript segments',
+    inlineDiagnosticFields: ['source'] },
+  'derive.link_table': { body: LinkTableParamsBody, primaryLabel: 'Create link table',
+    inlineDiagnosticFields: ['include_unmatched'] },
+  'map.find_topic_sections': { body: TopicSectionsParamsBody, inlineDiagnosticFields: ['source', 'engine', 'settings'] },
   'map.api_call': { body: ApiCallParamsBody, primaryLabel: 'Run API calls', outputLabel: () => 'Response' },
   'map.python': {
     body: PythonParamsBody,
+    inlineDiagnosticFields: ['input_columns', 'code', 'return_schema', 'output_routes'],
     fields: {
       code: ({ label, value, onChange, testid }) => <PythonCodeField
         param={{ name: 'code', label, input: 'textarea' }}
         value={typeof value === 'string' ? value : ''} onChange={onChange} testid={testid} />,
     },
   },
-  'enrich.geocode': { body: GeocodeParamsBody, freePublicApiLabel: 'Free public API request' },
+  'enrich.geocode': { body: GeocodeParamsBody, freePublicApiLabel: 'Free public API request',
+    inlineDiagnosticFields: ['source', 'engine'] },
   'enrich.census_demographics': {
     body: CensusParamsBody,
+    inlineDiagnosticFields: ['source', 'geography', 'include_moe'],
     fields: { geography: CensusGeographyField },
     freePublicApiLabel: 'US Census ACS enrichment',
   },
@@ -247,6 +261,7 @@ const EXACT_CUSTOMIZATIONS = {
   },
   'media.ocr': {
     body: OcrParamsBody,
+    inlineDiagnosticFields: ['source', 'engine', 'dpi', 'searchable_pdf'],
     defaultOutputName: (key) => key === 'text' ? 'ocr_text' : key === 'blocks' ? 'ocr_text_boxes' : key === 'pdf' ? 'searchable_pdf' : undefined,
     hiddenOutputNameKeys: ['text', 'blocks'],
     outputLabel: (key) => key === 'pdf' ? 'Searchable PDF' : undefined,
@@ -260,6 +275,7 @@ const EXACT_CUSTOMIZATIONS = {
   },
   'media.transcribe': {
     body: TranscribeParamsBody,
+    inlineDiagnosticFields: ['source', 'engine'],
     // Show defaults in controls, but only author options the user changes.
     // Explicit unsupported knobs (even false/null) correctly refuse server-side.
     initialParams: {
@@ -280,17 +296,25 @@ const EXACT_CUSTOMIZATIONS = {
   },
   'map.ner': {
     body: NerParamsBody,
+    inlineDiagnosticFields: ['source', 'engine', 'labels'],
     fields: { extra_instructions: GuidanceField },
     initialParams: { labels: [...RECOMMENDED_SPACY_TYPES] },
     outputLabel: () => 'Entities',
   },
   'map.classify': {
     body: ClassifyParamsBody,
+    inlineDiagnosticFields: (params): readonly GeneratedFieldName<'map.classify'>[] => [
+      'source', 'engine', 'fields', 'context',
+      ...((params.engine ?? 'local_semantic') === 'local_semantic'
+        ? [] : ['include_confidence', 'include_justification'] as const),
+    ],
     fields: { context: GuidanceField },
     initialParams: { fields: [{ name: 'category', type: 'category', labels: [], description: '' }] },
   },
   'map.extract': {
     body: ExtractParamsBody,
+    inlineDiagnosticFields: ['source', 'fields', 'instruction', 'model', 'include_confidence',
+      'source_document_columns', 'grounding', 'evidence_policy', 'context'],
     fields: { instruction: GuidanceField, context: GuidanceField },
     initialParams: { fields: [{ name: 'value', type: 'text', description: '' }] },
     initialPromptParams: (prompt) => {
@@ -300,15 +324,19 @@ const EXACT_CUSTOMIZATIONS = {
   },
   'map.mcp_extract': {
     body: McpExtractParamsBody,
+    inlineDiagnosticFields: ['source', 'fields', 'instruction', 'mcp_server_ids', 'model',
+      'include_confidence', 'context'],
     fields: { instruction: GuidanceField, context: GuidanceField },
     initialParams: {
       fields: [{ name: 'value', type: 'text', description: '' }],
       mcp_server_ids: [],
     },
   },
-  'map.find': { body: FindParamsBody, defaultSheetName: 'Findings', fields: { instruction: GuidanceField } },
+  'map.find': { body: FindParamsBody, defaultSheetName: 'Findings', fields: { instruction: GuidanceField },
+    inlineDiagnosticFields: ['source', 'instruction', 'fields', 'model'] },
   'map.translate': {
     body: TranslateParamsBody,
+    inlineDiagnosticFields: ['source', 'engine', 'language'],
     fields: { context: GuidanceField },
     initialParams: { engine: 'llm', target_language: 'English' },
     defaultOutputName: (key) => key === 'detected_language' ? 'translation_detected_language' : undefined,

@@ -52,14 +52,15 @@ export function paramValidationFromV1Wire(
   diagnostics: ActionParamValidationWire['diagnostics'],
 ): ParamValidationResult {
   return Object.fromEntries(
-    Object.entries(diagnostics).map(([name, diagnostic]) => [
-      name,
-      {
+    Object.entries(diagnostics).map(([name, diagnostic]) => {
+      return [name, {
         ok: diagnostic.ok,
+        ...(diagnostic.code == null ? {} : { code: diagnostic.code }),
         ...(diagnostic.message == null ? {} : { message: diagnostic.message }),
+        ...(diagnostic.path == null ? {} : { path: diagnostic.path }),
         ...(diagnostic.position == null ? {} : { position: diagnostic.position }),
-      },
-    ]),
+      }];
+    }),
   );
 }
 

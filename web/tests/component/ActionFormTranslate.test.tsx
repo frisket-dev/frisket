@@ -337,17 +337,17 @@ describe('opus_mt pair run-gating', () => {
 
   it('blocks Run until the selected pair is set, then allows it', async () => {
     const user = userEvent.setup();
-    // No pair installed: engine selectable, Run gated on the server's
-    // language verdict until a pair is chosen.
+    // No pair installed: engine selectable, while a fresh untouched pair
+    // remains quiet until the user interacts with its controls.
     const { onExecute } = mountTranslate({ engines: withInstalledPairs([]) });
     let form = screen.getByTestId('generated-action-form');
     await chooseFixedEngine('opus_mt');
     // the paired picker renders (engine WAS selectable despite zero pairs)
     expect(within(form).getByTestId('translate-pair-picker')).toBeInTheDocument();
     await waitFor(() => expect(within(form).getByTestId('generated-action-run'))
-      .toHaveAttribute('title', LANGUAGE_REQUIRED));
+      .toHaveAttribute('title', 'Complete the required fields.'));
     expect(within(form).getByTestId('generated-action-run')).toBeDisabled();
-    expect(within(form).getAllByText(LANGUAGE_REQUIRED).length).toBeGreaterThan(0);
+    expect(within(form).queryByText(LANGUAGE_REQUIRED)).not.toBeInTheDocument();
 
     await user.selectOptions(within(form).getByTestId('translate-pair-source'), 'en');
     await user.selectOptions(within(form).getByTestId('translate-pair-target'), 'es');

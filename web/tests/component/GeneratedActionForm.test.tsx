@@ -643,7 +643,7 @@ describe('GeneratedActionForm', () => {
     })).toBe(true);
   });
 
-  it('always asks the server to validate static typed Params and gates invalid fields', async () => {
+  it('keeps fresh server-invalid fields quiet until the control is edited, while Run stays disabled', async () => {
     const entry = generatedEntry('map.template');
     const resolveParams = vi.fn(async () => ({
       diagnostics: { template: { ok: false, message: 'Unknown template column.' } },
@@ -661,11 +661,67 @@ describe('GeneratedActionForm', () => {
       scope: { kind: 'sheet_rows', sheet_id: 7 },
       params: { template: { text: '{{name}}' } },
     }));
+    expect(screen.queryByTestId('field-template-error')).not.toBeInTheDocument();
+    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
+    fireEvent.change(screen.getByTestId('field-template'), {
+      target: { value: '{{missing}}' },
+    });
     expect(await screen.findByTestId('field-template-error'))
       .toHaveTextContent('Unknown template column.');
-    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
     fireEvent.click(screen.getByTestId('generated-action-run'));
     expect(onExecute).not.toHaveBeenCalled();
+  });
+
+  it('uses the rich-source empty state without repeating its server refusal', async () => {
+    const entry = syntheticActionCatalogEntry('map.decorate', {
+      title: 'Date-only source',
+      input_schema: {
+        type: 'object', required: ['source'],
+        properties: { source: { type: 'array', items: { type: 'string' } } },
+      },
+      ui_hints: {
+        form: 'generated', category: 'text', semantic_controls: { source: 'rich_source' },
+        source_requirements: [{
+          id: 'source', mode: 'columns', param: 'source', label: 'Date columns', min: 1,
+          accepted_column_types: ['date'], message: 'Add a date column to use this action.',
+        }],
+        logical_outputs: [],
+      },
+    }) as GeneratedActionCatalogEntry;
+    render(
+      <GeneratedActionForm catalogEntry={entry} actionTemplate={generatedTemplate(entry)}
+        sheet={SHEET} running={false}
+        resolveParams={async () => ({
+          diagnostics: { source: { ok: false, message: 'A date column is required.' } }, logical_outputs: [],
+        })}
+        onExecute={vi.fn()} onClose={vi.fn()} />,
+    );
+
+    expect(await screen.findByTestId('text-source-empty'))
+      .toHaveTextContent('Add a date column to use this action.');
+    await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeDisabled());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('keeps feedback visible for an invalid saved action', async () => {
+    const entry = generatedEntry('map.template');
+    render(
+      <GeneratedActionForm catalogEntry={entry} actionTemplate={generatedTemplate(entry)}
+        sheet={SHEET} running={false}
+        initialDraft={{
+          action_id: entry.kind, scope: { kind: 'sheet_rows', sheet_id: 7 },
+          params: { template: { text: '{{retired}}' } }, output_names: { rendered: 'result' },
+        }}
+        resolveParams={async () => ({
+          diagnostics: { template: { ok: false, message: 'Saved template uses a missing column.' } },
+          logical_outputs: [],
+        })}
+        onExecute={vi.fn()} onClose={vi.fn()} />,
+    );
+
+    expect(await screen.findByTestId('field-template-error'))
+      .toHaveTextContent('Saved template uses a missing column.');
+    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
   });
 
   it('opens an unlisted generated action without a frontend ID registration', async () => {
