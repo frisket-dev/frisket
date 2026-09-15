@@ -88,7 +88,16 @@ export async function alivePids(pids) {
   }
   const ids = pids.map(Number).join(',');
   const script = `
-    @(${ids}) | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue } | ConvertTo-Json -Compress
+    $alive = foreach ($id in @(${ids})) {
+      try {
+        $process = Get-Process -Id $id -ErrorAction Stop
+      } catch {
+        if ($_.FullyQualifiedErrorId -like 'NoProcessFoundForGivenId*') { continue }
+        throw
+      }
+      if (-not $process.HasExited) { [int]$process.Id }
+    }
+    @($alive) | ConvertTo-Json -Compress
   `;
   const result = await powershellJson(script);
   return Array.isArray(result) ? result : [result];
