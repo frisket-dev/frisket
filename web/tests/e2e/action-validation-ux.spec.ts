@@ -49,7 +49,7 @@ test('Classify gives a clear empty-source state without repeating the server ref
   page,
 }) => {
   const pid = await createProject(page.request, uniqueName('e2e-classify-source-empty'));
-  const sheetId = await importCsv(page.request, pid, 'places.csv', 'point\n\n');
+  const sheetId = await importCsv(page.request, pid, 'places.csv', 'point\n"40.7,-73.9"\n');
   const columns = await sheetColumns(page.request, pid, sheetId);
   const point = columns.find((column) => column.name === 'point');
   expect(point).toBeTruthy();
