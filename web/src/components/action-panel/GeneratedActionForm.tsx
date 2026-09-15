@@ -1,4 +1,4 @@
-import { createContext, Fragment, useCallback, useContext, useEffect, useMemo, useRef, useState,
+import { createContext, Fragment, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState,
   type ReactNode } from 'react';
 import { Eye } from 'lucide-react';
 import { PluginActionUIBoundary } from './PluginActionUIBoundary';
@@ -472,7 +472,7 @@ function GeneratedActionFormContents({
   const [draft, setDraft] = useState<CanonicalDraft>(() =>
     initialParams(catalogEntry, actionTemplate, columns, initialSourceColumn, initialDraft, initialPrompt));
   const latestDraft = useRef(draft);
-  useEffect(() => {
+  useLayoutEffect(() => {
     latestDraft.current = draft;
   }, [draft]);
   // Display server defaults without adding omitted values to a saved request.
@@ -928,7 +928,7 @@ function GeneratedActionFormContents({
       && selectedRowIds.every((rowId) => Number.isSafeInteger(Number(rowId)) && Number(rowId) > 0)));
   // Dynamic names can only be compared with a successfully resolved schema,
   // not the empty placeholder used while resolving or reporting a refusal.
-  const outputNameProblem = renameProblem ?? (dynamicOutputs && resolutionProblem
+  const outputNameProblem = renameProblem ?? (dynamicOutputs && (resolutionProblem || hasInvalidDiagnostic)
     ? null : validateOutputNames(catalogEntry, outputs, outputNames, createsSheet));
   const staleOutputNames = createsSheet && dynamicOutputs && !resolutionProblem && outputs.length
     ? Object.keys(outputNames).filter((key) => !outputs.some((output) => output.key === key)) : [];

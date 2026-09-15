@@ -95,6 +95,7 @@ describe('typed OCR/transcription forms', () => {
     const message = 'The selected source is no longer available.';
     form('media.ocr', { diagnostics: { source: { ok: false, message } } });
 
+    fireEvent.change(await screen.findByTestId('field-source'), { target: { value: 'scan' } });
     const sourceError = await screen.findByTestId('field-source-error');
     expect(sourceError).toHaveTextContent(message);
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
