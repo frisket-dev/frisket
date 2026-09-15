@@ -74,6 +74,8 @@ class ActionParamDiagnostic(WireModel):
     ok: bool
     message: str | None = None
     position: int | None = None
+    code: str | None = None
+    path: list[str | int] | None = None
 
 
 class ActionLogicalOutput(WireModel):
