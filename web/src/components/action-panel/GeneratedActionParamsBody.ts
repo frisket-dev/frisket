@@ -6,7 +6,7 @@ import type {
 } from '../../actions/canonicalActionDraft';
 import type { GeneratedActionDraft, SheetMeta } from '../../api/open';
 import type { GeneratedActionParams } from '../../generated/actionTypes';
-import type { EngineOption } from '../../api/types';
+import type { EngineOption, ParamValidationResult } from '../../api/types';
 
 interface GeneratedActionBodyContext {
   sheet: SheetMeta | null;
@@ -14,12 +14,16 @@ interface GeneratedActionBodyContext {
   engine?: Readonly<EngineOption>;
   /** Read-only authored request context; naming and scope setters stay in the host. */
   request: Readonly<Pick<GeneratedActionDraft, 'scope' | 'sheet_name' | 'output_names'>>;
+  /** A custom body can mark the exact top-level parameter it owns as touched. */
+  onParamInteraction?(name: string): void;
   onNavigateToAction?(actionKind: string, sourceColumn?: string): void;
   sampleColumnValues?(columnId: string): string[];
 }
 
 export type GeneratedActionParamsBodyProps<K extends keyof GeneratedActionParams> =
-  ActionBodyProps<GeneratedActionParams[K], GeneratedActionBodyContext>;
+  Omit<ActionBodyProps<GeneratedActionParams[K], GeneratedActionBodyContext>, 'errors'> & {
+    errors: ParamValidationResult;
+  };
 
 /** A custom action may own only its coordinated Params editor. The generated
  * host keeps the drawer, output naming, preview/run, cost, and lifecycle. */

@@ -6,7 +6,8 @@ import { makeEditableField, toOutputFields, type EditableOutputField } from './o
 
 /** UI-only ids and partially typed label text stay outside canonical Params. */
 export function StructuredFieldsEditor({
-  value, onChange, actionKind = 'map.extract', fieldTypes, maxFields, minFields,
+  value, onChange, actionKind = 'map.extract', fieldTypes, maxFields, minFields, error,
+  labelError, onLabelInteraction,
 }: {
   value: OutputField[];
   onChange(value: OutputField[]): void;
@@ -14,6 +15,10 @@ export function StructuredFieldsEditor({
   fieldTypes?: readonly string[];
   maxFields?: number;
   minFields?: number;
+  /** Nested server feedback belongs to this editor, rather than the footer. */
+  error?: string;
+  labelError?: { fieldIndex: number; message: string };
+  onLabelInteraction?(fieldIndex: number): void;
 }) {
   const [state, setState] = useState(() => ({
     signature: JSON.stringify(value), fields: value.map(makeEditableField),
@@ -46,8 +51,12 @@ export function StructuredFieldsEditor({
     setState({ signature: JSON.stringify(output), fields: next });
     onChange(output);
   };
-  return <OutputFieldsEditor fields={fields} labelsRaw={labelsRaw}
-    actionKind={actionKind} fieldTypes={fieldTypes} maxFields={maxFields} minFields={minFields}
-    usesFieldNameDestination={false} outputFieldsReadOnly={false}
-    onFieldsChange={update} onLabelsRawChange={setLabelsRaw} />;
+  return <>
+    <OutputFieldsEditor fields={fields} labelsRaw={labelsRaw}
+      actionKind={actionKind} fieldTypes={fieldTypes} maxFields={maxFields} minFields={minFields}
+      usesFieldNameDestination={false} outputFieldsReadOnly={false}
+      onFieldsChange={update} onLabelsRawChange={setLabelsRaw}
+      labelError={labelError} onLabelInteraction={onLabelInteraction} />
+    {error && <p className="form-error" role="alert">{error}</p>}
+  </>;
 }

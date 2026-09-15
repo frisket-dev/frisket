@@ -484,6 +484,12 @@ function GeneratedActionFormContents({
     return displayed;
   }, [catalogEntry.input_schema.properties, draft, renderedParams]);
   const [paramsEdited, setParamsEdited] = useState(false);
+  // Server validation remains authoritative from first render. Presentation is
+  // quieter for a fresh form: named errors appear after their control changes.
+  const [touchedFields, setTouchedFields] = useState<ReadonlySet<string>>(() => new Set());
+  const markFieldTouched = useCallback((name: string) => {
+    setTouchedFields((current) => current.has(name) ? current : new Set([...current, name]));
+  }, []);
   const [selectorCurrentChoice, setSelectorCurrentChoice] = useState<SelectorChoice | null>(null);
   const [richSourceEditors, setRichSourceEditors] = useState<
   Record<string, RichSourceEditorState>>(() => (
@@ -558,15 +564,17 @@ function GeneratedActionFormContents({
     problem: dynamicOutputs ? 'Resolving outputs…' : 'Validating fields…',
   });
   const { outputs, diagnostics, problem: resolutionProblem } = resolved;
-  // An empty required column picker already explains why it cannot be filled.
+  // An empty source picker already explains why it cannot be filled.
   // Keep the server refusal in state (so Run remains unavailable), but do not
   // repeat it beside the picker or below unrelated output controls. This is
   // based on the declared field and its eligible choices, never error copy.
   const unavailableRequiredColumnFields = new Set((actionTemplate.params ?? []).flatMap((param) => {
     const value = draft[param.name];
     const isEmpty = value === undefined || value === null
-      || (typeof value === 'string' && value.trim().length === 0);
-    if (!required.has(param.name) || catalogEntry.ui_hints.semantic_controls[param.name] !== 'column'
+      || (typeof value === 'string' && value.trim().length === 0)
+      || (Array.isArray(value) && value.length === 0);
+    const control = catalogEntry.ui_hints.semantic_controls[param.name];
+    if (!required.has(param.name) || !['column', 'columns', 'rich_source', 'column_or_template'].includes(control)
       || !isEmpty) {
       return [];
     }
@@ -575,19 +583,19 @@ function GeneratedActionFormContents({
     return requirement && compatibleSourceColumns(orderedSourceColumns(columns), requirement).length === 0
       ? [param.name] : [];
   }));
-  const displayedDiagnostics = Object.fromEntries(Object.entries(diagnostics).filter(([name]) => (
-    !unavailableRequiredColumnFields.has(name)
+  const renderedParamNames = new Set(renderedParams.map((param) => param.name));
+  const displayedDiagnostics = Object.fromEntries(Object.entries(diagnostics).filter(([name, diagnostic]) => (
+    !unavailableRequiredColumnFields.has(name) && (
+      name === '__all__' || !renderedParamNames.has(name) || diagnostic.ok
+      || Boolean(initialDraft) || touchedFields.has(name)
+    )
   )));
-  const firstDisplayedDiagnostic = displayedDiagnostics.__all__?.ok === false
-    ? displayedDiagnostics.__all__
-    : Object.values(displayedDiagnostics).find((diagnostic) => !diagnostic.ok);
-  const hasNamedDiagnostic = Object.entries(diagnostics).some(([name, diagnostic]) => (
-    name !== '__all__' && !diagnostic.ok
-  ));
-  const hasGlobalDiagnostic = diagnostics.__all__?.ok === false;
-  const showResolutionProblem = ParamsBody
-    ? !hasNamedDiagnostic || hasGlobalDiagnostic || Boolean(firstDisplayedDiagnostic)
-    : !hasNamedDiagnostic || hasGlobalDiagnostic;
+  const hasInvalidDiagnostic = Object.values(diagnostics).some((diagnostic) => !diagnostic.ok);
+  const globalDiagnostic = diagnostics.__all__?.ok === false ? diagnostics.__all__ : null;
+  const unownedDiagnostic = Object.entries(diagnostics).find(([name, diagnostic]) => (
+    name !== '__all__' && !unavailableRequiredColumnFields.has(name)
+      && !renderedParamNames.has(name) && !diagnostic.ok
+  ))?.[1] ?? null;
   const resolving = resolutionProblem === 'Resolving outputs…'
     || resolutionProblem === 'Validating fields…';
   useEffect(() => {
@@ -606,8 +614,8 @@ function GeneratedActionFormContents({
           const nextOutputs = dynamicOutputs
             ? resolution.logical_outputs : catalogEntry.ui_hints.logical_outputs;
           const nextCreatesSheet = resolution.creates_sheet ?? staticCreatesSheet;
-          let problem = diagnostic?.message ?? (diagnostic ? 'Correct the invalid fields.' : null);
-          if (!problem && dynamicOutputs && !nextCreatesSheet && initialDraft && !paramsEdited) {
+          let problem: string | null = null;
+          if (!diagnostic && dynamicOutputs && !nextCreatesSheet && initialDraft && !paramsEdited) {
             const logicalKeys = nextOutputs.map(({ key }) => key);
             const savedKeys = Object.keys(initialDraft.output_names);
             if (savedKeys.some((key) => !logicalKeys.includes(key))) {
@@ -617,10 +625,10 @@ function GeneratedActionFormContents({
               problem = 'The saved sheet destination does not match this action’s resolved output. Change its parameters or recreate the action.';
             }
           }
-          setResolved({ outputs: problem && dynamicOutputs ? [] : nextOutputs,
+          setResolved({ outputs: (problem || diagnostic) && dynamicOutputs ? [] : nextOutputs,
             diagnostics: resolution.diagnostics, problem });
-          if (!problem) setResolvedCreatesSheet(resolution.creates_sheet);
-          if (!problem && dynamicOutputs) {
+          if (!problem && !diagnostic) setResolvedCreatesSheet(resolution.creates_sheet);
+          if (!problem && !diagnostic && dynamicOutputs) {
             setOutputNames((names) => {
               if (nextCreatesSheet) {
                 // A successful current schema is authoritative after editing
@@ -668,6 +676,7 @@ function GeneratedActionFormContents({
     columns, sheetId]);
 
   const updateField = (name: string, value: CanonicalFieldValue) => {
+    markFieldTouched(name);
     setParamsEdited(true);
     setResolved((current) => ({
       ...current,
@@ -699,6 +708,7 @@ function GeneratedActionFormContents({
   const updateSelectorSelection = (field: string, choice: SelectorChoice) => {
     const updates = selectorUpdates(field, choice);
     if (!updates) return;
+    Object.keys(updates).forEach(markFieldTouched);
     setParamsEdited(true);
     setResolved((current) => ({
       ...current,
@@ -735,6 +745,10 @@ function GeneratedActionFormContents({
     ));
   };
   const updateBodyParams = useCallback((params: CanonicalDraft) => {
+    const changed = Object.keys({ ...draft, ...params }).filter((name) => (
+      JSON.stringify(draft[name]) !== JSON.stringify(params[name])
+    ));
+    changed.forEach(markFieldTouched);
     setParamsEdited(true);
     setResolved((current) => ({
       ...current,
@@ -742,13 +756,13 @@ function GeneratedActionFormContents({
       problem: dynamicOutputs ? 'Resolving outputs…' : 'Validating fields…',
     }));
     setDraft(params);
-  }, [dynamicOutputs]);
+  }, [draft, dynamicOutputs, markFieldTouched]);
   const renderField = (field: ActionParamFieldPresentationProps): ReactNode | undefined => {
     const CustomField = customization?.fields?.[field.name];
     if (CustomField) {
       return <CustomField name={field.name} label={field.label} id={field.id}
         testid={field.testid} value={draft[field.name]} sheet={sheet}
-        error={diagnostics[field.name]} onChange={(value) => updateField(field.name, value)} />;
+        error={displayedDiagnostics[field.name]} onChange={(value) => updateField(field.name, value)} />;
     }
     const semanticControl = catalogEntry.ui_hints.semantic_controls[field.name];
     if (semanticControl === 'engine' || semanticControl === 'model') {
@@ -905,7 +919,7 @@ function GeneratedActionFormContents({
   const staleOutputNames = createsSheet && dynamicOutputs && !resolutionProblem && outputs.length
     ? Object.keys(outputNames).filter((key) => !outputs.some((output) => output.key === key)) : [];
   const missingCredentials = actionTemplate.missingCredentials ?? [];
-  const canRun = catalogAccepted && missingCredentials.length === 0 && !resolutionProblem
+  const canRun = catalogAccepted && missingCredentials.length === 0 && !resolutionProblem && !hasInvalidDiagnostic
     && validIdentity && validParams && !outputNameProblem && !engineProblem && !editorProblem;
   const costSource = selectedEngine && selectedEngine !== 'auto'
     ? actionTemplate.costSourceOptions?.[selectedEngine] : actionTemplate.costSource;
@@ -1062,7 +1076,7 @@ function GeneratedActionFormContents({
               setEditorProblem={setEditorProblem}
               engine={selectedEngineInfo}
               request={{ scope: requestScope, sheet_name: estimateDraft.sheet_name,
-                output_names: estimateDraft.output_names }}
+                output_names: estimateDraft.output_names }} onParamInteraction={markFieldTouched}
               errors={displayedDiagnostics} Field={GeneratedField} onNavigateToAction={onNavigateToAction}
               sampleColumnValues={sampleColumnValues} />
           </GeneratedFieldContext.Provider>
@@ -1183,9 +1197,9 @@ function GeneratedActionFormContents({
           ))}>Remove unavailable output names</button>
       </div>}
 
-      {resolutionProblem && !resolving && showResolutionProblem && (
+      {((resolutionProblem && !resolving) || globalDiagnostic || unownedDiagnostic) && (
         <p className="form-error" role="alert">
-          {firstDisplayedDiagnostic?.message ?? resolutionProblem}
+          {globalDiagnostic?.message ?? unownedDiagnostic?.message ?? resolutionProblem}
         </p>
       )}
 

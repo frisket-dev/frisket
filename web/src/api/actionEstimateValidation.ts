@@ -48,18 +48,28 @@ export interface ActionEstimateValidationDomainApi {
 
 type ContractErrorFactory = (status: number, payload: unknown) => Error;
 
+/** The generated contract is refreshed by integration. This additive
+ * projection lets the UI consume structured diagnostic ownership facts while
+ * remaining compatible with the currently generated contract. */
+type ActionParamValidationDiagnosticWire = ActionParamValidationWire['diagnostics'][string] & {
+  code?: string | null;
+  path?: Array<string | number> | null;
+};
+
 export function paramValidationFromV1Wire(
   diagnostics: ActionParamValidationWire['diagnostics'],
 ): ParamValidationResult {
   return Object.fromEntries(
-    Object.entries(diagnostics).map(([name, diagnostic]) => [
-      name,
-      {
+    Object.entries(diagnostics).map(([name, wireDiagnostic]) => {
+      const diagnostic = wireDiagnostic as ActionParamValidationDiagnosticWire;
+      return [name, {
         ok: diagnostic.ok,
+        ...(diagnostic.code == null ? {} : { code: diagnostic.code }),
         ...(diagnostic.message == null ? {} : { message: diagnostic.message }),
+        ...(diagnostic.path == null ? {} : { path: diagnostic.path }),
         ...(diagnostic.position == null ? {} : { position: diagnostic.position }),
-      },
-    ]),
+      }];
+    }),
   );
 }
 
