@@ -16,6 +16,24 @@ async function run() {
 }
 
 describe('API request Params body within the generated host', () => {
+  it('surfaces a touched request diagnostic in the host footer when the custom body has no inline owner', async () => {
+    const resolveParams = vi.fn(async () => ({
+      diagnostics: { request: { ok: false, message: 'Enter a complete API request.' } },
+      logical_outputs: [],
+    }));
+    renderApiCallForm({ resolveParams });
+
+    await waitFor(() => expect(resolveParams).toHaveBeenCalled());
+    expect(screen.queryByText('Enter a complete API request.')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByTestId('api-call-url'), {
+      target: { value: 'https://api.example.test/search' },
+    });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Enter a complete API request.');
+    expect(screen.getAllByText('Enter a complete API request.')).toHaveLength(1);
+    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
+  });
+
   it('keeps an active body visible and editable when switching POST to GET', async () => {
     const onExecute = vi.fn();
     const request = { url: 'https://example.test', method: 'POST', body_mode: 'raw',

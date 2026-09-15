@@ -584,17 +584,25 @@ function GeneratedActionFormContents({
       ? [param.name] : [];
   }));
   const renderedParamNames = new Set(renderedParams.map((param) => param.name));
+  const configuredInlineDiagnosticFields = ParamsBody
+    ? typeof customization?.inlineDiagnosticFields === 'function'
+      ? customization.inlineDiagnosticFields(draft)
+      : customization?.inlineDiagnosticFields ?? []
+    : renderedParamNames;
+  const inlineDiagnosticFields = new Set(configuredInlineDiagnosticFields);
   const displayedDiagnostics = Object.fromEntries(Object.entries(diagnostics).filter(([name, diagnostic]) => (
     !unavailableRequiredColumnFields.has(name) && (
-      name === '__all__' || !renderedParamNames.has(name) || diagnostic.ok
-      || Boolean(initialDraft) || touchedFields.has(name)
+      name === '__all__' || (inlineDiagnosticFields.has(name) && (
+        diagnostic.ok || Boolean(initialDraft) || touchedFields.has(name)
+      ))
     )
   )));
   const hasInvalidDiagnostic = Object.values(diagnostics).some((diagnostic) => !diagnostic.ok);
   const globalDiagnostic = diagnostics.__all__?.ok === false ? diagnostics.__all__ : null;
   const unownedDiagnostic = Object.entries(diagnostics).find(([name, diagnostic]) => (
     name !== '__all__' && !unavailableRequiredColumnFields.has(name)
-      && !renderedParamNames.has(name) && !diagnostic.ok
+      && !inlineDiagnosticFields.has(name) && !diagnostic.ok
+      && (!renderedParamNames.has(name) || Boolean(initialDraft) || touchedFields.has(name))
   ))?.[1] ?? null;
   const resolving = resolutionProblem === 'Resolving outputs…'
     || resolutionProblem === 'Validating fields…';
@@ -1199,7 +1207,8 @@ function GeneratedActionFormContents({
 
       {((resolutionProblem && !resolving) || globalDiagnostic || unownedDiagnostic) && (
         <p className="form-error" role="alert">
-          {globalDiagnostic?.message ?? unownedDiagnostic?.message ?? resolutionProblem}
+          {globalDiagnostic?.message ?? unownedDiagnostic?.message ?? resolutionProblem
+            ?? 'Correct the invalid fields.'}
         </p>
       )}
 
