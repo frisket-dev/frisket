@@ -16,7 +16,9 @@ class ClassifyField(ActionParams):
         "category"
     )
     labels: list[str] = Field(default_factory=list, validate_default=True)
-    label_descriptions: dict[str, str] = Field(default_factory=dict, validate_default=True)
+    label_descriptions: dict[str, str] = Field(
+        default_factory=dict, validate_default=True
+    )
     description: str = ""
 
     @field_validator("name")
@@ -30,7 +32,8 @@ class ClassifyField(ActionParams):
         if info.data.get("type", "category") == "category":
             if not value or any(not label.strip() for label in value):
                 raise PydanticCustomError(
-                    "category_labels_required", "category fields require non-empty labels"
+                    "category_labels_required",
+                    "category fields require non-empty labels",
                 )
             if len(value) != len(set(value)):
                 raise PydanticCustomError(
