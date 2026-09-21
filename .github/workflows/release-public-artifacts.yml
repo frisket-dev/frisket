@@ -989,9 +989,15 @@ jobs:
         run: |
           set -euo pipefail
           gh release edit "$TAG" --repo "${{ github.repository }}" --draft=false --latest=false
-          gh api "repos/${{ github.repository }}/releases/tags/${TAG}" | \
+          PUBLISHED=$(gh api "repos/${{ github.repository }}/releases/tags/${TAG}")
+          if printf '%s' "$PUBLISHED" | jq -e '.immutable == false' >/dev/null; then
+            gh release edit "$TAG" --repo "${{ github.repository }}" --draft=true
+            echo "::error::release was mutable and has been returned to draft; enable repository release immutability before retrying"
+            exit 1
+          fi
+          printf '%s' "$PUBLISHED" | \
             jq -e '.draft == false and .immutable == true' >/dev/null || {
-              echo "::error::release is not immutable; enable release immutability in repository Settings before publishing"
+              echo "::error::could not verify published release immutability; inspect the release before retrying"
               exit 1
             }
 

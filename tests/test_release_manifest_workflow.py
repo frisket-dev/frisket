@@ -59,7 +59,7 @@ if args[0] == "api":
     else:
         raise SystemExit(f"unexpected gh api endpoint: {endpoint}")
 elif args[:2] == ["release", "edit"]:
-    state["draft"] = False
+    state["draft"] = "--draft=true" in args
     state_path.write_text(json.dumps(state), encoding="utf-8")
 elif args[:2] == ["release", "upload"]:
     source = Path(args[3])
@@ -357,3 +357,4 @@ def test_publish_requires_github_immutability(tmp_path: Path, immutable: bool):
         check=False,
     )
     assert (result.returncode == 0) is immutable
+    assert json.loads(state_path.read_text())["draft"] is (not immutable)
