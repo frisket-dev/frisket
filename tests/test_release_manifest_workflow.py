@@ -8,6 +8,7 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 
@@ -50,13 +51,16 @@ state = json.loads(state_path.read_text(encoding="utf-8"))
 
 if args[0] == "api":
     endpoint = args[1]
-    if endpoint.endswith(f"/releases/{state['id']}"):
+    if endpoint.endswith(f"/releases/{state['id']}") or endpoint.endswith(f"/releases/tags/{state['tag_name']}"):
         print(json.dumps(state))
     elif "/releases/assets/" in endpoint:
         asset_id = int(endpoint.rsplit("/", 1)[1])
         sys.stdout.buffer.write((asset_dir / str(asset_id)).read_bytes())
     else:
         raise SystemExit(f"unexpected gh api endpoint: {endpoint}")
+elif args[:2] == ["release", "edit"]:
+    state["draft"] = "--draft=true" in args
+    state_path.write_text(json.dumps(state), encoding="utf-8")
 elif args[:2] == ["release", "upload"]:
     source = Path(args[3])
     asset_id = max([asset["id"] for asset in state["assets"]], default=1000) + 1
@@ -318,6 +322,7 @@ def test_workflow_orders_manifest_after_payload_verification_and_before_publish(
     assert names.index("Generate resolved release manifest") < names.index(
         "Upload or recover release manifest last"
     )
+
     assert names.index(
         "Verify uploaded release manifest and record external digest"
     ) < names.index("Publish release (assets become immutable)")
@@ -336,3 +341,20 @@ def test_workflow_orders_manifest_after_payload_verification_and_before_publish(
             "run"
         ]
     )
+
+
+@pytest.mark.parametrize("immutable", [True, False])
+def test_publish_requires_github_immutability(tmp_path: Path, immutable: bool):
+    release_assets, state_path, fake_bin = _fixture(tmp_path)
+    state = json.loads(state_path.read_text())
+    state["immutable"] = immutable
+    state_path.write_text(json.dumps(state))
+    result = _run_step(
+        "Publish release (assets become immutable)",
+        release_assets=release_assets,
+        state_path=state_path,
+        fake_bin=fake_bin,
+        check=False,
+    )
+    assert (result.returncode == 0) is immutable
+    assert json.loads(state_path.read_text())["draft"] is (not immutable)
