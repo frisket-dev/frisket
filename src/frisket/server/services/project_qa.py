@@ -27,6 +27,7 @@ from frisket.engine.store.project_qa import (
     ProjectQAStore,
 )
 from frisket.server.services.project_qa_tools import validate_scope
+from frisket.server.services.project_qa_citations import resolve_citation
 from frisket.server.workspace import Workspace
 
 logger = logging.getLogger(__name__)
@@ -80,7 +81,7 @@ class ProjectQAService:
             "thread": store.get_thread(thread_id),
             "active_turn": store.get_active_turn(thread_id),
             "history": {
-                **store.recent_events(thread_id),
+                **self._project_page(project_id, store.recent_events(thread_id)),
                 "active_turn": store.get_active_turn(thread_id),
             },
         }
@@ -96,9 +97,28 @@ class ProjectQAService:
     ) -> dict:
         store = self.store(project_id)
         return {
-            **store.events(thread_id, after=after, before=before, limit=limit),
+            **self._project_page(
+                project_id,
+                store.events(thread_id, after=after, before=before, limit=limit),
+            ),
             "active_turn": store.get_active_turn(thread_id),
         }
+
+    def _project_page(self, project_id: str, page: dict) -> dict:
+        project = self.workspace.get(project_id)
+        events = []
+        for event in page["events"]:
+            ids = event["payload"].get("citation_ids", [])
+            citations = []
+            for citation_id in ids:
+                try:
+                    citations.append(
+                        resolve_citation(project, event["thread_id"], citation_id)
+                    )
+                except ProjectQANotFoundError:
+                    continue
+            events.append({**event, "citations": citations})
+        return {**page, "events": events}
 
     def submit(
         self,

@@ -36,6 +36,7 @@ def test_shared_history_revision_and_project_boundary(tmp_path):
         assert (
             client.get(detail + "/report").json()["markdown"].startswith("# New title")
         )
+        assert client.get(detail + "/events?typo=1").status_code == 422
         assert client.delete(detail).status_code == 204
         assert client.get(path).json() == []
 

@@ -112,7 +112,24 @@ class AskTurn(AskOptions):
     error_summary: str | None
 
 
+class AskCitationTarget(WireModel):
+    sheet_id: int
+    row_id: int
+    column_id: int
+
+
+class AskCitation(WireModel):
+    id: str
+    label: str
+    source_kind: str
+    excerpt: str | None
+    status: Literal["current", "changed", "unverified", "unavailable"]
+    message: str | None
+    target: AskCitationTarget | None
+
+
 class AskEvent(WireModel):
+    citations: list[AskCitation] = Field(default_factory=list)
     thread_id: str
     turn_id: str
     seq: int
@@ -131,6 +148,12 @@ class AskEvent(WireModel):
     created_at: str
 
 
+class AskEventsQuery(WireModel):
+    after: int = Field(default=0, ge=0)
+    before: int | None = Field(default=None, gt=0)
+    limit: int = Field(default=100, ge=1, le=200)
+
+
 class AskEventsPage(WireModel):
     events: list[AskEvent]
     cursor: int
@@ -146,19 +169,3 @@ class AskThreadDetail(WireModel):
 
 class AskReport(WireModel):
     markdown: str
-
-
-class AskCitationTarget(WireModel):
-    sheet_id: int
-    row_id: int
-    column_id: int
-
-
-class AskCitation(WireModel):
-    id: str
-    label: str
-    source_kind: str
-    excerpt: str | None
-    status: Literal["current", "changed", "unverified", "unavailable"]
-    message: str | None
-    target: AskCitationTarget | None

@@ -2783,7 +2783,24 @@ export type HttpAskCitation = ({
   "target": (((HttpAskCitation_AskCitationTarget)) | ((null)));
 });
 
+type HttpAskEventsPage_AskCitation = ({
+  "excerpt": (((string)) | ((null)));
+  "id": (string);
+  "label": (string);
+  "message": (((string)) | ((null)));
+  "source_kind": (string);
+  "status": ("current" | "changed" | "unverified" | "unavailable") & (string);
+  "target": (((HttpAskEventsPage_AskCitationTarget)) | ((null)));
+});
+
+type HttpAskEventsPage_AskCitationTarget = ({
+  "column_id": (number);
+  "row_id": (number);
+  "sheet_id": (number);
+});
+
 type HttpAskEventsPage_AskEvent = ({
+  "citations"?: (Array<(HttpAskEventsPage_AskCitation)>);
   "created_at": (string);
   "kind": ("question" | "assistant" | "tool_started" | "tool_completed" | "answer" | "result_suggestion" | "action_proposal" | "usage" | "status") & (string);
   "payload": ({
@@ -2917,7 +2934,24 @@ export type HttpAskThreadCreate = ({
   "web"?: (boolean);
 });
 
+type HttpAskThreadDetail_AskCitation = ({
+  "excerpt": (((string)) | ((null)));
+  "id": (string);
+  "label": (string);
+  "message": (((string)) | ((null)));
+  "source_kind": (string);
+  "status": ("current" | "changed" | "unverified" | "unavailable") & (string);
+  "target": (((HttpAskThreadDetail_AskCitationTarget)) | ((null)));
+});
+
+type HttpAskThreadDetail_AskCitationTarget = ({
+  "column_id": (number);
+  "row_id": (number);
+  "sheet_id": (number);
+});
+
 type HttpAskThreadDetail_AskEvent = ({
+  "citations"?: (Array<(HttpAskThreadDetail_AskCitation)>);
   "created_at": (string);
   "kind": ("question" | "assistant" | "tool_started" | "tool_completed" | "answer" | "result_suggestion" | "action_proposal" | "usage" | "status") & (string);
   "payload": ({

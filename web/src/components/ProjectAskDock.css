@@ -32,3 +32,18 @@
 .ask-citations button { border: 1px solid var(--border); border-radius: 5px; background: var(--bg-panel); color: var(--text-mid); font: inherit; font-size: 12px; padding: 3px 7px; cursor: pointer; }
 .ask-source-preview { padding: 12px; border: 1px solid var(--border); border-radius: 8px; margin-top: 8px; }
 .ask-source-preview > button { float: right; }
+
+.ask-scope { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ask-scope > .btn { margin-left: auto; font-size: 12px; }
+.ask-scope-chips { width: 100%; display: flex; flex-wrap: wrap; gap: 6px; }
+.ask-scope-chips > span { border: 1px solid var(--border); border-radius: 5px; padding: 3px 6px; font-size: 12px; }
+.ask-scope-chips button { border: 0; background: transparent; color: var(--text-mid); cursor: pointer; }
+.ask-source-picker { width: min(480px, 90vw); }
+.ask-source-picker h2 { font-size: 16px; margin-top: 0; }
+.ask-source-picker label { display: flex; gap: 8px; align-items: center; padding: 5px 0; overflow-wrap: anywhere; }
+.ask-source-options { max-height: 50vh; overflow-y: auto; margin: 12px 0; }
+.ask-source-sheet { display: flex; align-items: center; justify-content: space-between; }
+.ask-file-list { padding-left: 20px; }
+
+.ask-proposal, .ask-result { padding: 12px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px; }
+.ask-proposal p { color: var(--text-mid); margin: 6px 0 10px; font-size: 12px; }

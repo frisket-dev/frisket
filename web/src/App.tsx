@@ -902,7 +902,8 @@ function WorkspaceViewContent() {
 
 function WorkspaceAskRegion() {
   const { sheet, sheets } = useCurrentSheet();
-  const { chrome, selection } = useWorkspaceStores();
+  const { chrome, selection, detail } = useWorkspaceStores();
+  const { selectSheet } = useWorkspaceShell();
   const open = useSelector(chrome.store, (s) => s.copilotPopoverOpen);
   const selected = useSelector(selection.store, (s) => s.selectedRows);
   const scope = useMemo<AskScope>(() => {
@@ -912,7 +913,11 @@ function WorkspaceAskRegion() {
       ? [{ kind: 'rows', sheet_id: Number(sheet.id), row_ids: rows }]
       : [{ kind: 'sheet', sheet_id: Number(sheet.id) }] };
   }, [sheet, selected]);
-  return open ? <ProjectAskDock initialScope={scope} sheets={sheets} onClose={chrome.closeCopilotPopover} /> : null;
+  return open ? <ProjectAskDock initialScope={scope} sheets={sheets} onClose={chrome.closeCopilotPopover} onInspectProposal={(title, spec) => {
+    if (spec.scope.kind === 'sheet_rows') selectSheet(String(spec.scope.sheet_id));
+    chrome.openActionPanel();
+    detail.setProposalInspect({ seq: Date.now(), title, spec });
+  }} /> : null;
 }
 
 const WorkspaceChromeBarRegion = memo(function WorkspaceChromeBarRegion() {

@@ -10,6 +10,7 @@ from frisket.contracts.http.models import EmptyQuery
 from frisket.contracts.http.project_qa import (
     AskCitation,
     AskEventsPage,
+    AskEventsQuery,
     AskReport,
     AskThread,
     AskThreadCreate,
@@ -104,12 +105,14 @@ def register_project_qa_routes(app: FastAPI, *, service: ProjectQAService) -> No
         path + "/{thread_id}/events", response_model=AskEventsPage, responses=errors
     )
     async def qa_events(
+        request: Request,
         pid: str,
         thread_id: str,
         after: int = Query(default=0, ge=0),
         before: int | None = Query(default=None, gt=0),
         limit: int = Query(default=100, ge=1, le=200),
     ) -> AskEventsPage:
+        reject_unknown_query_parameters(request, AskEventsQuery)
         if after and before is not None:
             raise HTTPException(422, "Use either before or after, not both.")
         with _errors():

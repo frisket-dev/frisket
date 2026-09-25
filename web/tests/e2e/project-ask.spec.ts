@@ -42,7 +42,8 @@ test('Ask stays docked, keeps its draft, and reconnects to saved progress', asyn
       if (active && ++polls >= 2) {
         active = false;
         events.push({ thread_id: 'thread', turn_id: 'turn', seq: 2, kind: 'answer', payload: { text: 'The council approved the contract.', citation_ids: ['source-1'] }, created_at: '' });
-        events.push({ thread_id: 'thread', turn_id: 'turn', seq: 3, kind: 'status', payload: { status: 'completed' }, created_at: '' });
+        events.push({ thread_id: 'thread', turn_id: 'turn', seq: 3, kind: 'action_proposal', payload: { proposal: { kind: 'map', title: 'Add a note', spec: { action_id: 'map.template', scope: { kind: 'sheet_rows', sheet_id: sheetId }, params: { template: { text: 'note: {{story}}' } }, output_names: { rendered: 'note' } } } }, created_at: '' });
+        events.push({ thread_id: 'thread', turn_id: 'turn', seq: 4, kind: 'status', payload: { status: 'completed' }, created_at: '' });
       }
       return route.fulfill({ json: { events: events.filter((event) => event.seq > Number(url.searchParams.get('after') ?? 0)), cursor: events.length, has_more: false, active_turn: active ? turnWire() : null } });
     }
@@ -55,6 +56,11 @@ test('Ask stays docked, keeps its draft, and reconnects to saved progress', asyn
   await page.getByTestId('chrome-copilot-toggle').click();
   const dock = page.getByTestId('ask-dock');
   await expect(dock).toBeVisible();
+  await dock.getByRole('button', { name: 'Add sources', exact: true }).click();
+  const sourcePicker = page.getByRole('dialog', { name: 'Choose project sources' });
+  await expect(sourcePicker).toBeVisible();
+  await expect(sourcePicker.getByRole('checkbox', { name: 'Whole project', exact: true })).not.toBeChecked();
+  await sourcePicker.getByRole('button', { name: 'Use sources', exact: true }).click();
   await dock.getByRole('textbox', { name: 'Question', exact: true }).fill('What changed?');
   await dock.getByRole('button', { name: 'Collapse Ask' }).click();
   await expect(dock).not.toBeVisible();
@@ -69,5 +75,9 @@ test('Ask stays docked, keeps its draft, and reconnects to saved progress', asyn
   await expect(dock.getByText('The council approved the contract.', { exact: true })).toBeVisible();
   await dock.getByRole('button', { name: 'Source 1', exact: true }).click();
   await expect(dock.getByText('Stories · row 1 · story', { exact: true })).toBeVisible();
+  await dock.getByRole('button', { name: 'Open action', exact: true }).click();
+  await expect(page.getByTestId('action-panel')).toBeVisible();
+  await expect(page.getByTestId('action-form-title')).toContainText('Add a note');
+  await expect(dock).toBeVisible();
   await page.screenshot({ path: test.info().outputPath('ask-docked.png'), fullPage: true });
 });
