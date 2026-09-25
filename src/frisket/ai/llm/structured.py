@@ -495,6 +495,20 @@ class FrisketRouterModel(Model):
             details={"frisket_cost_usd_milli": int((resp.cost or 0.0) * 1000)},
         )
         data = resp.data
+        if mode == "tool" and params.output_tools:
+            # Schema-only output keeps its forced output-tool mapping even if
+            # an adapter also parsed provider tool-call metadata. Combined
+            # function/output tools use ``combined_tools`` below instead.
+            return ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        tool_name=params.output_tools[0].name,
+                        args=data,
+                    )
+                ],
+                usage=usage,
+                model_name=self.model_name,
+            )
         if resp.tool_calls:
             return ModelResponse(
                 parts=[
@@ -504,17 +518,6 @@ class FrisketRouterModel(Model):
                         tool_call_id=tc["id"],
                     )
                     for tc in resp.tool_calls
-                ],
-                usage=usage,
-                model_name=self.model_name,
-            )
-        if mode == "tool" and params.output_tools:
-            return ModelResponse(
-                parts=[
-                    ToolCallPart(
-                        tool_name=params.output_tools[0].name,
-                        args=data,
-                    )
                 ],
                 usage=usage,
                 model_name=self.model_name,

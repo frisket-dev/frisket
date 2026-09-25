@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from pydantic_ai.exceptions import UnexpectedModelBehavior
 
 from frisket.ai.llm import ModelRouter
+from frisket.ai.llm.structured import FrisketRouterModel
 from frisket.ai.llm.types import LLMRequest, LLMResponse
 from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAStore
@@ -24,8 +27,11 @@ from frisket.team.security.secrets import encrypt_secret, key_hint
 class _AskAdapter:
     """A deterministic tool agent: read, repair an unknown citation, answer."""
 
-    def __init__(self, project: Project) -> None:
+    def __init__(
+        self, project: Project, *, repeats_unknown_citation: bool = False
+    ) -> None:
         self.project = project
+        self.repeats_unknown_citation = repeats_unknown_citation
         self.requests: list[LLMRequest] = []
 
     async def complete(self, request: LLMRequest, client: Any) -> LLMResponse:
@@ -45,7 +51,7 @@ class _AskAdapter:
             )
             citation_id = (
                 "unknown-citation"
-                if len(self.requests) == 2
+                if len(self.requests) == 2 or self.repeats_unknown_citation
                 else self.project.db.execute(
                     "SELECT id FROM project_qa_citations ORDER BY created_at LIMIT 1"
                 ).fetchone()[0]
@@ -67,6 +73,28 @@ class _AskAdapter:
             model=request.model,
             tool_calls=[call],
         )
+
+
+def test_schema_only_output_keeps_forced_output_mapping_over_tool_metadata() -> None:
+    model = FrisketRouterModel(
+        ModelRouter(cache=None, cache_mode="off", use_env_keys=False), "anthropic/test"
+    )
+    response = model._to_model_response(  # noqa: SLF001 - regression at shim seam
+        LLMResponse(
+            content=None,
+            data={"text": "typed"},
+            tokens_in=1,
+            tokens_out=1,
+            cost=0.0,
+            model="anthropic/test",
+            tool_calls=[{"name": "read_rows", "args": {}, "id": "read-1"}],
+        ),
+        SimpleNamespace(output_tools=[SimpleNamespace(name="emit")]),
+        "tool",
+    )
+    [part] = response.parts
+    assert part.tool_name == "emit"
+    assert part.args_as_dict() == {"text": "typed"}
 
 
 def _project_turn(
@@ -115,8 +143,12 @@ def test_file_scope_exposes_only_the_selected_cell(tmp_path: Path) -> None:
         ] == ["Selected"]
         with pytest.raises(ProjectQAScopeError, match="file scope"):
             tools.read_rows(1, row_ids=[1], column_ids=[2])
+        with pytest.raises(ProjectQAScopeError, match="file scope"):
+            tools.read_rows(1, row_ids=[1], column_ids=[1, 2])
         with pytest.raises(ProjectQAScopeError, match="outside"):
             tools.read_rows(1, row_ids=[2])
+        with pytest.raises(ProjectQAScopeError, match="outside"):
+            tools.read_rows(999)
     finally:
         project.close()
 
@@ -219,6 +251,36 @@ def test_runner_combines_read_and_typed_output_repairs_citations_and_accounts(
         completed = store.finish_turn(turn["id"], status="completed")
         assert completed["usage"] == {"calls": 3, "tokens_in": 30, "tokens_out": 9}
         assert completed["cost_actual"] == pytest.approx(0.03)
+    finally:
+        project.close()
+
+
+def test_runner_refuses_an_answer_that_repeats_an_unknown_citation(
+    tmp_path: Path,
+) -> None:
+    scope = {
+        "kind": "sources",
+        "sources": [{"kind": "rows", "sheet_id": 1, "row_ids": [1]}],
+    }
+    project, store, turn = _project_turn(tmp_path, scope)
+    try:
+        router = ModelRouter(
+            keys={"anthropic": "test-key"},
+            key_sources={"anthropic": "platform_key"},
+            cache=None,
+            cache_mode="off",
+            use_env_keys=False,
+        )
+        adapter = _AskAdapter(project, repeats_unknown_citation=True)
+        router._adapters["anthropic"] = adapter  # noqa: SLF001
+
+        with pytest.raises(UnexpectedModelBehavior):
+            asyncio.run(run_turn(project, router, turn, store))
+        assert not [
+            event
+            for event in store.events(turn["thread_id"])["events"]
+            if event["kind"] == "answer"
+        ]
     finally:
         project.close()
 

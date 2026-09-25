@@ -45,17 +45,14 @@ def validate_scope(project: Project, scope: Mapping[str, Any]) -> None:
         source_kind = source.get("kind")
         if source_kind == "sheet":
             continue
-        visible_rows = set(project.visible_row_ids(sheet_id))
         if source_kind == "rows":
             row_ids = source.get("row_ids")
-            if (
-                not isinstance(row_ids, list)
-                or not all(
-                    isinstance(row_id, int) and not isinstance(row_id, bool)
-                    for row_id in row_ids
-                )
-                or not set(row_ids) <= visible_rows
+            if not isinstance(row_ids, list) or not all(
+                isinstance(row_id, int) and not isinstance(row_id, bool)
+                for row_id in row_ids
             ):
+                raise ProjectQAScopeError("scope references a hidden or missing row")
+            if set(project.visible_row_ids(sheet_id, row_ids)) != set(row_ids):
                 raise ProjectQAScopeError("scope references a hidden or missing row")
         elif source_kind == "file":
             row_id, column_id = source.get("row_id"), source.get("column_id")
@@ -67,9 +64,10 @@ def validate_scope(project: Project, scope: Mapping[str, Any]) -> None:
                 or not isinstance(row_id, int)
                 or isinstance(column_id, bool)
                 or not isinstance(column_id, int)
-                or row_id not in visible_rows
                 or column_id not in visible_columns
             ):
+                raise ProjectQAScopeError("scope references a hidden or missing cell")
+            if project.visible_row_ids(sheet_id, [row_id]) != [row_id]:
                 raise ProjectQAScopeError("scope references a hidden or missing cell")
         else:
             raise ProjectQAScopeError("scope source kind is unsupported")
@@ -150,7 +148,11 @@ class ProjectQATools:
         observation_truncated = False
         for row_id in selected_rows:
             selected_columns = self._columns_for_row(
-                requested_columns, row_id, allowed_rows, file_cells
+                requested_columns,
+                row_id,
+                allowed_rows,
+                file_cells,
+                explicit_columns=column_ids is not None,
             )
             cells: list[dict[str, Any]] = []
             for column_id in selected_columns:
@@ -211,6 +213,8 @@ class ProjectQATools:
     def _sheet_access(
         self, sheet_id: int
     ) -> tuple[set[int] | None, set[tuple[int, int]]]:
+        if sheet_id not in {int(sheet["id"]) for sheet in self.project.sheets()}:
+            raise ProjectQAScopeError("sheet is outside this turn's scope")
         if (
             self._allowed_sheets() is not None
             and sheet_id not in self._allowed_sheets()
@@ -306,6 +310,8 @@ class ProjectQATools:
         row_id: int,
         allowed_rows: set[int] | None,
         file_cells: set[tuple[int, int]],
+        *,
+        explicit_columns: bool,
     ) -> list[int]:
         """A file scope can widen only its one selected cell, never its row."""
 
@@ -314,6 +320,8 @@ class ProjectQATools:
         allowed_file_columns = {
             column_id for file_row_id, column_id in file_cells if file_row_id == row_id
         }
+        if explicit_columns and not set(requested_columns) <= allowed_file_columns:
+            raise ProjectQAScopeError("file scope may read only the selected file cell")
         selected = [
             column_id
             for column_id in requested_columns
