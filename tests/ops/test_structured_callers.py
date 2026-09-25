@@ -58,50 +58,6 @@ def _scripted_router(outcomes: list[Any], *, max_retries=3, provider="mock"):
     return router, adapter
 
 
-def test_copilot_chat_repairs_invalid_then_valid_via_completer(tmp_path):
-    # Program G: the copilot reply schema now also requires needs_import.
-    valid = {"reply": "here is your action", "needs_import": False, "proposals": []}
-    router, adapter = _scripted_router(
-        [_resp({"reply": "oops"}), _resp(valid)]  # 1st: missing needs_import/proposals
-    )
-    from frisket.authoring.copilot import copilot_chat
-    from frisket.engine.store import Project
-
-    project = Project.create(tmp_path / "copilot-repair.frisket")
-    try:
-        result = run(
-            copilot_chat(project, router, [{"role": "user", "content": "hi"}], "mock/m")
-        )
-        assert result["reply"] == "here is your action"
-        assert result["needs_import"] is False
-        assert result["schema_version"] == "frisket.copilot_reply.v1"
-        assert len(adapter.seen) == 2  # 1 bad + 1 corrective, per repair_attempts=1
-    finally:
-        project.close()
-
-
-def test_copilot_chat_exhausts_repair_and_raises(tmp_path):
-    router, _ = _scripted_router(
-        [_resp({"reply": "bad"}), _resp({"reply": "still bad"})]
-    )
-    from frisket.authoring.copilot import copilot_chat
-    from frisket.engine.store import Project
-
-    project = Project.create(tmp_path / "copilot-exhaustion.frisket")
-    try:
-        with pytest.raises(SchemaViolation):
-            run(
-                copilot_chat(
-                    project,
-                    router,
-                    [{"role": "user", "content": "hi"}],
-                    "mock/m",
-                )
-            )
-    finally:
-        project.close()
-
-
 # ---------------------------------------------------------------------------
 # ops/ocr.py's `_ocr_vlm`: repairs via the completer.
 # ---------------------------------------------------------------------------

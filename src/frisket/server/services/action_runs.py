@@ -881,7 +881,6 @@ def v1_action_result_http_status(result: V1ActionResult) -> int:
 
 def _v1_action_result_http_status(result: V1ActionResult) -> int:
     # Provider-key-refusal seats: run (this fallback) -> 400; preview -> 400;
-    # copilot -> deliberate 409 (server/routes/project_copilot.py:33).
     if result.status in {"completed", "queued", "running", "partial", "cancelled"}:
         return 200
     if result.status == "needs_confirmation":

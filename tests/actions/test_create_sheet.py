@@ -37,7 +37,7 @@ class SchemaParams(ActionParams):
 
 
 def test_create_sheet_is_not_a_row_scoped_copilot_proposal():
-    from frisket.contracts.http.copilot import CopilotRegisteredActionDraft
+    from frisket.authoring.project_ask import ProjectAskRegisteredActionDraft as CopilotRegisteredActionDraft
 
     with pytest.raises(ValueError, match="action_id"):
         CopilotRegisteredActionDraft.model_validate(

@@ -6,23 +6,13 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request
 
-from frisket.contracts.http.copilot import CopilotReply, CopilotRequest
 from frisket.contracts.http.history_review import ReviewBundlesPage, ReviewCount
-from frisket.contracts.http.models import EmptyQuery
 from frisket.contracts.http.project_search import ProjectSearchHits
 from frisket.contracts.http.run_provenance import ProvenanceManifest
-from frisket.engine.runner import ProviderKeyRefusal
 from frisket.server.paging import PageLimit100, PageOffset
-from frisket.server.route_errors import (
-    http_error_responses,
-    reject_unknown_query_parameters,
-)
+from frisket.server.route_errors import http_error_responses
 from frisket.server.services.project_backfill_activity import (
     ProjectBackfillActivityService,
-)
-from frisket.server.services.project_copilot import (
-    ProjectCopilotService,
-    ProjectCopilotUpstreamError,
 )
 from frisket.server.services.project_entity_review import (
     ProjectEntityReviewService,
@@ -119,41 +109,6 @@ def register_project_backfill_activity_routes(
             offset=offset,
             limit=limit,
         )
-
-
-def register_project_copilot_routes(
-    app: FastAPI,
-    *,
-    service: ProjectCopilotService,
-) -> None:
-    @app.post(
-        "/api/projects/{pid}/copilot",
-        response_model=CopilotReply,
-        responses=http_error_responses(401, 403, 404, 409, 422, 500, 502),
-    )
-    async def copilot_ep(
-        request: Request, pid: str, body: CopilotRequest
-    ) -> CopilotReply:
-        reject_unknown_query_parameters(request, EmptyQuery)
-        try:
-            reply = await service.chat(pid, body.model_dump(mode="json"))
-        except ProviderKeyRefusal as exc:
-            # See the refusal-seat table at action_runs._v1_action_result_http_status.
-            # Copilot chat is an explicit paid action, not the action-run 402
-            # consent protocol.  A project-key cap is therefore a typed state
-            # conflict: refuse before egress and name the exact settings knob
-            # instead of leaking the typed refusal through FastAPI as a 500.
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": exc.error_code,
-                    "message": exc.action_message(),
-                    "details": dict(exc.details),
-                },
-            ) from exc
-        except ProjectCopilotUpstreamError as exc:
-            raise HTTPException(502, exc.detail) from exc
-        return CopilotReply.model_validate(reply)
 
 
 def register_project_entity_review_routes(
