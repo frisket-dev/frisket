@@ -222,7 +222,7 @@ def test_providers_catalog_groups_by_provider_with_models(
         {
             "id": "openrouter/z-ai/glm-5.3-flash",
             "label": "GLM 5.3 Flash — open vision",
-            "price": {"input": 0.075, "output": 0.25},
+            "price": {"input": 0.045, "output": 0.14},
             "local": False,
         },
         {
