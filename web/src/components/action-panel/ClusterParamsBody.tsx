@@ -10,11 +10,11 @@ import '../cluster-review.css';
 type Params = GeneratedActionParams['cluster.values'];
 type Review = NonNullable<Params['review']>;
 const METHODS: { value: ClusterValuesMethod; label: string; hint: string }[] = [
-  { value: 'fingerprint', label: 'Fingerprint (token collision)',
+  { value: 'fingerprint', label: 'Fingerprint',
     hint: 'Groups values sharing the same normalized word set — “Jon Smith” / “Smith, Jon”.' },
-  { value: 'ngram_fingerprint', label: 'N-gram fingerprint (typos & spacing)',
-    hint: 'Character n-grams catch typos and spacing variants fingerprint misses — “Sao Paulo” / “SaoPaulo”.' },
-  { value: 'semantic', label: 'Semantic (meaning, needs embeddings)',
+  { value: 'ngram_fingerprint', label: 'N-gram fingerprint',
+    hint: 'Groups values with the same character fragments, ignoring spaces and punctuation — “Sao Paulo” / “SaoPaulo”.' },
+  { value: 'semantic', label: 'Semantic similarity',
     hint: 'Groups by meaning — “WHO” / “World Health Organization”. Requires an embedding backend.' },
 ];
 
@@ -170,19 +170,6 @@ function ClusterParamsBodyForSheet({ sheet, params, setParams, setEditorProblem 
         </PanelSelect>
       </label>
       <p className="form-hint" data-testid="cluster-method-hint">{METHODS.find((item) => item.value === method)?.hint}</p>
-      <details className="cluster-advanced" data-testid="cluster-advanced">
-        <summary>Advanced: cluster key</summary>
-        <label className="field-group"><span className="field-labels">Cluster key template</span>
-          <input className="form-input" data-testid="cluster-key-template" placeholder="{{value}}"
-            value={keyTemplate} disabled={busy} onChange={(event) => update({ key_template: event.target.value })} />
-          <p className="form-hint">Cluster on a transformed value while merging the original forms.
-            Example: <code>{'{{value|before:" of "}}'}</code> groups “President of Honduras” with “President”.</p>
-        </label>
-      </details>
-      <label className="field-group cluster-min-size"><span className="field-labels">Min forms</span>
-        <input className="form-input" type="number" data-testid="cluster-min-size" min={2} max={20}
-          value={minSize} disabled={busy} onChange={(event) => update({ min_size: Math.max(2, Number(event.target.value) || 2) })} />
-      </label>
       {method === 'semantic' && <label className="field-group" data-testid="cluster-threshold-field">
         <span className="field-labels">Similarity threshold</span>
         <input className="form-input" type="number" min={0} max={1} step={0.01} value={threshold}
@@ -190,9 +177,25 @@ function ClusterParamsBodyForSheet({ sheet, params, setParams, setEditorProblem 
       </label>}
       {method === 'ngram_fingerprint' && <label className="field-group" data-testid="cluster-ngram-size-field">
         <span className="field-labels">N-gram size</span>
-        <input className="form-input" type="number" min={1} max={6} value={ngramSize}
+        <input className="form-input" type="number" min={1} max={6} step={1} value={ngramSize}
           disabled={busy} onChange={(event) => update({ ngram_size: Number(event.target.value) })} />
       </label>}
+      <details className="action-advanced cluster-advanced" data-testid="cluster-advanced">
+        <summary>Advanced settings</summary>
+        <div className="action-advanced-body">
+          <label className="field-group"><span className="field-labels">Minimum distinct values</span>
+            <input className="form-input" type="number" data-testid="cluster-min-size" min={2} step={1}
+              value={minSize} disabled={busy} onChange={(event) => update({ min_size: Math.max(2, Number(event.target.value) || 2) })} />
+            <span className="form-hint">Only show groups with at least this many different values. Repeated rows of the same value count once.</span>
+          </label>
+          <label className="field-group"><span className="field-labels">Cluster key template</span>
+            <input className="form-input" data-testid="cluster-key-template" placeholder="{{value}}"
+              value={keyTemplate} disabled={busy} onChange={(event) => update({ key_template: event.target.value })} />
+            <p className="form-hint">Compare a transformed value while keeping the original values for review.
+              Example: <code>{'{{value|before:" of "}}'}</code> groups “President of Honduras” with “President”.</p>
+          </label>
+        </div>
+      </details>
     </div>
     {unavailable && <div className="form-error" data-testid="cluster-semantic-unavailable">
       {error} Choose Fingerprint or N-gram fingerprint to cluster without embeddings.
@@ -206,9 +209,9 @@ function ClusterParamsBodyForSheet({ sheet, params, setParams, setEditorProblem 
       {currentReview.clusters.map((cluster) => {
         const value = drafts[cluster.key] ?? cluster.canonical;
         return <div className="cluster-card" data-testid="cluster-card" key={cluster.key}>
-          <div className="cluster-card-top"><span>{cluster.size.toLocaleString()} mentions</span>
-            <span>{cluster.values.length.toLocaleString()} forms</span></div>
-          <label className="field-group"><span className="field-labels">Canonical</span>
+          <div className="cluster-card-top"><span>{cluster.size.toLocaleString()} rows</span>
+            <span>{cluster.values.length.toLocaleString()} distinct values</span></div>
+          <label className="field-group"><span className="field-labels">Combined value</span>
             <input className={value.trim() ? 'form-input' : 'form-input form-input-invalid'}
               data-testid="cluster-canonical-input" aria-invalid={!value.trim()} value={value}
               onChange={(event) => setDrafts((before) => ({ ...before, [cluster.key]: event.target.value }))} />

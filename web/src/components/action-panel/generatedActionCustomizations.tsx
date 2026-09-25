@@ -193,7 +193,7 @@ const EXACT_CUSTOMIZATIONS = {
   'web.capture_page': { body: PageCaptureParamsBody, primaryLabel: 'Capture pages',
     inlineDiagnosticFields: ['source', 'max_bytes', 'timeout_ms'],
     defaultSheetName: 'Links', outputLabel: (key: string) => key === 'page' ? 'Snapshot' : undefined },
-  'cluster.values': { body: ClusterParamsBody, primaryLabel: 'Write canonical values',
+  'cluster.values': { body: ClusterParamsBody, primaryLabel: 'Apply groups',
     primaryTestId: 'cluster-commit-button', defaultOutputName: (_key, draft) =>
       typeof draft.source === 'string' ? `${draft.source}_canonical` : 'canonical' },
   'join.semantic': { body: SemanticJoinParamsBody, primaryLabel: 'Match rows', defaultSheetName: 'Matches',
