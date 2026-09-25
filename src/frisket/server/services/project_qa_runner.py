@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import asyncio
+from contextlib import AbstractContextManager
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -15,8 +16,8 @@ from pydantic_ai.usage import UsageLimitExceeded, UsageLimits
 from frisket.ai.llm.structured import FrisketRouterModel
 from frisket.ai.llm.types import LLMRequest, LLMResponse, provider_from_model_id
 from frisket.ai.models.accounting import wire_accounting_meta
-from frisket.ai.research.row_answer import fetch_page, search_web as research_search_web
-from frisket.authoring.copilot import default_copilot_model
+from frisket.ai.research.row_answer import fetch_page, search_web_results
+from frisket.authoring.project_ask import default_project_ask_model
 from frisket.engine.runner.validation import assert_provider_spend_cap
 from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAConflictError, ProjectQAStore
@@ -39,6 +40,26 @@ class ProjectQAAnswer(BaseModel):
     citation_ids: list[str] = Field(default_factory=list, max_length=100)
 
 
+async def _complete_before_cancellation(awaitable: Awaitable[Any]) -> Any:
+    """Drain one durable fact plus its settlement before honouring cancellation."""
+
+    task = asyncio.create_task(awaitable)
+    cancelled = False
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        cancelled = True
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            cancelled = True
+    result = task.result()
+    if cancelled:
+        raise asyncio.CancelledError
+    return result
+
+
 async def run_turn(
     project: Project,
     router: Any,
@@ -46,12 +67,13 @@ async def run_turn(
     store: ProjectQAStore,
     *,
     on_call: Callable[[str], Awaitable[None]] | None = None,
+    call_scope: Callable[[], AbstractContextManager[None]] | None = None,
 ) -> dict[str, Any]:
     """Investigate one admitted turn; the caller owns terminalization."""
 
     tools = await await_thread_worker(ProjectQATools, project, turn, store)
     tool_lock = asyncio.Lock()
-    model_id = turn["model"] or default_copilot_model(router)
+    model_id = turn["model"] or default_project_ask_model(router)
     await await_thread_worker(
         store.append_event,
         turn["id"],
@@ -68,20 +90,23 @@ async def run_turn(
         accounting = wire_accounting_meta(model_id, [response])
         [call] = accounting["model_calls"]
         call_id = str(call["id"])
-        saved = await await_thread_worker(
-            store.record_usage,
-            turn["id"],
-            call_id=call_id,
-            calls=[call],
-            payload={
-                "call_id": call_id,
-                "tokens_in": accounting["tokens_in"],
-                "tokens_out": accounting["tokens_out"],
-                "cost": accounting["cost"],
-            },
-        )
-        if saved is not None and on_call is not None:
-            await on_call(call_id)
+        async def record_and_settle() -> None:
+            saved = await await_thread_worker(
+                store.record_usage,
+                turn["id"],
+                call_id=call_id,
+                calls=[call],
+                payload={
+                    "call_id": call_id,
+                    "tokens_in": accounting["tokens_in"],
+                    "tokens_out": accounting["tokens_out"],
+                    "cost": accounting["cost"],
+                },
+            )
+            if saved is not None and on_call is not None:
+                await on_call(call_id)
+
+        await _complete_before_cancellation(record_and_settle())
 
     model = FrisketRouterModel(
         router,
@@ -89,6 +114,7 @@ async def run_turn(
         recipe_version="project_qa.v1",
         before_request=before_request,
         on_response=on_response,
+        request_context=call_scope,
     )
 
     async def recent_history() -> str:
@@ -191,7 +217,7 @@ async def run_turn(
         await progress("search_web", "started")
         try:
             async with tool_lock:
-                result = await search_public_web(query, search=research_search_web)
+                result = await search_public_web(query, search=search_web_results)
                 observed = await await_thread_worker(tools.record_web_search, result)
         except ValueError as error:
             await progress("search_web", "completed", error="unavailable")

@@ -303,12 +303,12 @@ def model_call_accounting(engine: str, wire_calls: list[LLMResponse]) -> dict[st
     }
 
 
-async def search_web(
+async def search_web_results(
     query: str, *, timeout: float = FETCH_TIMEOUT_SECONDS
-) -> tuple[str, list[str]]:
-    """Returns (observation_text, result_urls)."""
+) -> list[dict[str, str]]:
+    """Return bounded structured DDGS records for callers that need receipts."""
     if not query.strip():
-        return "empty query", []
+        return []
     from ddgs import DDGS
 
     try:
@@ -316,13 +316,32 @@ async def search_web(
             lambda: DDGS(timeout=timeout).text(query, max_results=6)
         )
     except Exception as e:  # noqa: BLE001
-        return f"search failed: {e}", []
-    results = results or []
+        return [{"title": "Search unavailable", "url": "", "snippet": str(e)}]
+    return [
+        {
+            "title": str(result.get("title") or ""),
+            "url": str(result.get("href") or ""),
+            "snippet": str(result.get("body") or "")[:200],
+        }
+        for result in (results or [])
+        if isinstance(result, dict)
+    ]
+
+
+async def search_web(
+    query: str, *, timeout: float = FETCH_TIMEOUT_SECONDS
+) -> tuple[str, list[str]]:
+    """Returns the legacy research observation and its result URLs."""
+    results = await search_web_results(query, timeout=timeout)
+    if not results:
+        return ("empty query" if not query.strip() else "", [])
+    if results[0]["url"] == "" and results[0]["title"] == "Search unavailable":
+        return f"search failed: {results[0]['snippet']}", []
     text = "\n".join(
-        f"- {r.get('title')} | {r.get('href')}\n  {r.get('body', '')[:200]}"
-        for r in results
+        f"- {result['title']} | {result['url']}\n  {result['snippet']}"
+        for result in results
     )
-    urls = [r.get("href") for r in results if r.get("href")][:3]
+    urls = [result["url"] for result in results if result["url"]][:3]
     return text, urls
 
 

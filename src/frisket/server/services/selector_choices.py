@@ -15,10 +15,10 @@ from typing import Any, cast
 
 from frisket.authoring.action_metadata import action_available_in_edition
 from frisket.ai.embeddings.capabilities import resolve_embedding_capability
-from frisket.authoring.copilot import default_copilot_model
+from frisket.authoring.project_ask import default_project_ask_model
 from frisket.contracts.http.selector_choices import (
     ActionSelectorSubject,
-    CopilotSelectorSubject,
+    ProjectAskSelectorSubject,
     EmbeddingSelectorSubject,
     SelectorChoicesQuery,
     SelectorChoicesResponse,
@@ -141,8 +141,8 @@ class SelectorChoiceService:
                 subject=subject,
                 capabilities=capabilities,
             )
-        elif isinstance(subject, CopilotSelectorSubject):
-            payload = self._copilot_choices(
+        elif isinstance(subject, ProjectAskSelectorSubject):
+            payload = self._project_ask_choices(
                 project_id,
                 project=project,
                 router=router,
@@ -337,7 +337,7 @@ class SelectorChoiceService:
             default_selection=default_selection,
         )
 
-    def _copilot_choices(
+    def _project_ask_choices(
         self,
         project_id: str,
         *,
@@ -345,7 +345,7 @@ class SelectorChoiceService:
         router: Any,
         composition: ExecutionComposition,
         provider_catalog: dict[str, Any],
-        subject: CopilotSelectorSubject,
+        subject: ProjectAskSelectorSubject,
         capabilities: SelectorCapabilities,
     ) -> dict[str, Any]:
         del composition
@@ -358,11 +358,11 @@ class SelectorChoiceService:
         )
         return _response(
             project_id,
-            subject={"kind": "copilot"},
+            subject={"kind": "project_ask"},
             depends_on=[],
             choices=choices,
             current_selection=_model_selection(subject.model),
-            default_selection=_model_selection(default_copilot_model(router)),
+            default_selection=_model_selection(default_project_ask_model(router)),
         )
 
     def _embedding_choices(

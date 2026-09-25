@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -445,14 +446,14 @@ def test_web_reads_are_bounded_cited_and_projected_without_url_tokens(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> None:
-        async def fake_search(query: str, *, timeout: float) -> tuple[str, list[str]]:
+        async def fake_search(query: str, *, timeout: float) -> list[dict[str, str]]:
             assert query == "city budget"
             assert timeout > 0
-            return (
-                "- City record | https://public.example/report?article=budget\n"
-                "  Budget report summary",
-                ["https://public.example/report?article=budget"],
-            )
+            return [{
+                "title": "City record",
+                "url": "https://public.example/report?article=budget",
+                "snippet": "Budget report summary",
+            }]
 
         async def fake_fetch(url: str, http: object) -> str:
             assert url == "https://public.example/report?article=budget"
@@ -694,3 +695,63 @@ def test_runner_checks_project_key_spend_before_each_provider_request(
         assert adapter.requests == []
     finally:
         project.close()
+
+
+def test_runner_settles_a_durable_usage_call_before_stop_cancellation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scope = {
+        "kind": "sources",
+        "sources": [{"kind": "rows", "sheet_id": 1, "row_ids": [1]}],
+    }
+    project, store, turn = _project_turn(tmp_path, scope)
+    try:
+        router = ModelRouter(
+            keys={"anthropic": "test-key"},
+            key_sources={"anthropic": "platform_key"},
+            cache=None,
+            cache_mode="off",
+            use_env_keys=False,
+        )
+        router._adapters["anthropic"] = _AskAdapter(project)  # noqa: SLF001
+        entered, release = threading.Event(), threading.Event()
+        original = store.record_usage
+
+        def paused_record_usage(*args: Any, **kwargs: Any) -> Any:
+            entered.set()
+            assert release.wait(timeout=5)
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(store, "record_usage", paused_record_usage)
+        settled: list[str] = []
+
+        async def scenario() -> None:
+            task = asyncio.create_task(
+                run_turn(
+                    project,
+                    router,
+                    turn,
+                    store,
+                    on_call=lambda call_id: _append_call(settled, call_id),
+                )
+            )
+            await asyncio.wait_for(asyncio.to_thread(entered.wait), timeout=2)
+            task.cancel()
+            release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        asyncio.run(scenario())
+        usage = [
+            event
+            for event in store.events(turn["thread_id"])["events"]
+            if event["kind"] == "usage"
+        ]
+        assert len(usage) == len(settled) == 1
+        assert settled == [usage[0]["payload"]["call_id"]]
+    finally:
+        project.close()
+
+
+async def _append_call(target: list[str], call_id: str) -> None:
+    target.append(call_id)

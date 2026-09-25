@@ -22,7 +22,11 @@ def project_qa_safe_citation_projection(citation: dict[str, Any]) -> dict[str, A
             "url": url,
             "excerpt": safe_web_text(excerpt, limit=8_000) if excerpt else None,
         }
-    return {"label": label, "url": None, "excerpt": excerpt}
+    return {
+        "label": label,
+        "url": None,
+        "excerpt": safe_web_text(excerpt, limit=8_000) if excerpt else None,
+    }
 
 
 def resolve_citation(
@@ -158,7 +162,9 @@ def resolve_citation(
         }
     return {
         **result,
-        "label": f"{sheet['name']} · row {row_id} · {column['name']}",
+        "label": safe_web_text(
+            f"{sheet['name']} · row {row_id} · {column['name']}", limit=240
+        ),
         "status": status,
         "message": {
             "current": None,

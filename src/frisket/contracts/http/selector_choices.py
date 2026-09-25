@@ -27,8 +27,8 @@ class ActionSelectorSubject(WireModel):
     params: dict[str, JsonValue] = Field(default_factory=dict)
 
 
-class CopilotSelectorSubject(WireModel):
-    kind: Literal["copilot"]
+class ProjectAskSelectorSubject(WireModel):
+    kind: Literal["project_ask"]
     model: str | None = None
 
 
@@ -41,7 +41,7 @@ class EmbeddingSelectorSubject(WireModel):
 
 
 SelectorSubject = Annotated[
-    ActionSelectorSubject | CopilotSelectorSubject | EmbeddingSelectorSubject,
+    ActionSelectorSubject | ProjectAskSelectorSubject | EmbeddingSelectorSubject,
     Field(discriminator="kind"),
 ]
 
@@ -57,8 +57,8 @@ class NormalizedActionSelectorSubject(WireModel):
     field: str
 
 
-class NormalizedCopilotSelectorSubject(WireModel):
-    kind: Literal["copilot"]
+class NormalizedProjectAskSelectorSubject(WireModel):
+    kind: Literal["project_ask"]
 
 
 class NormalizedEmbeddingSelectorSubject(WireModel):
@@ -69,7 +69,7 @@ class NormalizedEmbeddingSelectorSubject(WireModel):
 
 NormalizedSelectorSubject = Annotated[
     NormalizedActionSelectorSubject
-    | NormalizedCopilotSelectorSubject
+    | NormalizedProjectAskSelectorSubject
     | NormalizedEmbeddingSelectorSubject,
     Field(discriminator="kind"),
 ]

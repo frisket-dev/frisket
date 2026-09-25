@@ -46,6 +46,7 @@ from __future__ import annotations
 import base64
 import json
 import re
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -275,6 +276,7 @@ class FrisketRouterModel(Model):
         trace: ModelTrace | None = None,
         before_request: Callable[[LLMRequest], Awaitable[None]] | None = None,
         on_response: Callable[[LLMResponse], Awaitable[None]] | None = None,
+        request_context: Callable[[], AbstractContextManager[None]] | None = None,
     ):
         self.router = router
         self._model_id = model_id
@@ -287,6 +289,7 @@ class FrisketRouterModel(Model):
         self._trace = trace
         self._before_request = before_request
         self._on_response = on_response
+        self._request_context = request_context
         # per-run receipt accumulator — every wire attempt incl. repairs.
         self.wire_calls: list[LLMResponse] = []
         # SchemaViolations the shim translated to ModelRetry (adapter-origin
@@ -350,11 +353,19 @@ class FrisketRouterModel(Model):
         if self._before_request is not None:
             await self._before_request(req)
         try:
-            resp = await self.router.complete_transport(
-                req,
-                recipe_version=self.recipe_version,
-                trace=self._trace,
-            )
+            if self._request_context is None:
+                resp = await self.router.complete_transport(
+                    req,
+                    recipe_version=self.recipe_version,
+                    trace=self._trace,
+                )
+            else:
+                with self._request_context():
+                    resp = await self.router.complete_transport(
+                        req,
+                        recipe_version=self.recipe_version,
+                        trace=self._trace,
+                    )
         except SchemaViolation as sv:
             # A raw SchemaViolation is invisible to pydantic-ai's retry loop
             # (it only retries ModelRetry / validation errors) — translate so

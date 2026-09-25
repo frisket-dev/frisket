@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import re
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from typing import Any
@@ -65,25 +64,21 @@ def _retrieved_at() -> str:
 async def search_web(
     query: str,
     *,
-    search: Callable[..., Awaitable[tuple[str, list[str]]]],
+    search: Callable[..., Awaitable[list[dict[str, str]]]],
     timeout: float = FETCH_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     """Return structured, bounded public search results with safe URLs only."""
 
     if not isinstance(query, str) or not query.strip() or len(query) > 500:
         raise ValueError("query must be a non-empty string up to 500 characters")
-    observation, urls = await asyncio.wait_for(search(query, timeout=timeout), timeout)
-    parsed: dict[str, tuple[str, str]] = {}
-    for title, url, snippet in re.findall(
-        r"(?m)^-\s*(.*?)\s*\|\s*(\S+)\s*\n\s*(.*)$", observation or ""
-    ):
-        parsed[url] = (title, snippet)
+    records = await asyncio.wait_for(search(query, timeout=timeout), timeout)
     results: list[dict[str, str]] = []
-    for raw_url in urls[:MAX_WEB_RESULTS]:
-        url = safe_web_url(raw_url)
+    for record in records[:MAX_WEB_RESULTS]:
+        url = safe_web_url(record.get("url"))
         if url is None or any(item["url"] == url for item in results):
             continue
-        title, snippet = parsed.get(raw_url, (urlsplit(url).hostname or "Web result", ""))
+        title = record.get("title") or (urlsplit(url).hostname or "Web result")
+        snippet = record.get("snippet") or ""
         results.append(
             {
                 "title": safe_web_text(title, limit=160) or (urlsplit(url).hostname or "Web result"),
