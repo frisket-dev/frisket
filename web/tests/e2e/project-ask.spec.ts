@@ -41,11 +41,12 @@ test('Ask stays docked, keeps its draft, and reconnects to saved progress', asyn
     if (tail === '/thread/events') {
       if (active && ++polls >= 2) {
         active = false;
-        events.push({ thread_id: 'thread', turn_id: 'turn', seq: 2, kind: 'answer', payload: { text: 'The council approved the contract.', citation_ids: [] }, created_at: '' });
+        events.push({ thread_id: 'thread', turn_id: 'turn', seq: 2, kind: 'answer', payload: { text: 'The council approved the contract.', citation_ids: ['source-1'] }, created_at: '' });
         events.push({ thread_id: 'thread', turn_id: 'turn', seq: 3, kind: 'status', payload: { status: 'completed' }, created_at: '' });
       }
       return route.fulfill({ json: { events: events.filter((event) => event.seq > Number(url.searchParams.get('after') ?? 0)), cursor: events.length, has_more: false, active_turn: active ? turnWire() : null } });
     }
+    if (tail === '/thread/citations/source-1') return route.fulfill({ json: { id: 'source-1', label: 'Stories · row 1 · story', source_kind: 'cell', excerpt: 'The council approved the contract.', status: 'current', message: null, target: { sheet_id: sheetId, row_id: 1, column_id: 1 } } });
     if (tail === '/thread') return route.fulfill({ json: { thread, active_turn: active ? turnWire() : null,
       history: { events, cursor: events.length, has_more: false, active_turn: active ? turnWire() : null } } });
     return route.fallback();
@@ -66,5 +67,7 @@ test('Ask stays docked, keeps its draft, and reconnects to saved progress', asyn
   await page.reload();
   if (!await dock.isVisible()) await page.getByTestId('chrome-copilot-toggle').click();
   await expect(dock.getByText('The council approved the contract.', { exact: true })).toBeVisible();
+  await dock.getByRole('button', { name: 'Source 1', exact: true }).click();
+  await expect(dock.getByText('Stories · row 1 · story', { exact: true })).toBeVisible();
   await page.screenshot({ path: test.info().outputPath('ask-docked.png'), fullPage: true });
 });

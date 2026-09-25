@@ -1219,6 +1219,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
+      "id": "tenant.qa_citation.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/qa/threads/{thread_id}/citations/{citation_id}",
+      "request": null
+    },
+    {
       "id": "tenant.qa_create_thread.post",
       "method": "POST",
       "path": "/api/projects/{pid}/qa/threads",
@@ -2759,6 +2765,22 @@ export type HttpArtifactPullRequest = ({
 export type HttpArtifactUninstallRequest = ({
   "ref": (string);
   [key: string]: JsonValue | (string);
+});
+
+type HttpAskCitation_AskCitationTarget = ({
+  "column_id": (number);
+  "row_id": (number);
+  "sheet_id": (number);
+});
+
+export type HttpAskCitation = ({
+  "excerpt": (((string)) | ((null)));
+  "id": (string);
+  "label": (string);
+  "message": (((string)) | ((null)));
+  "source_kind": (string);
+  "status": ("current" | "changed" | "unverified" | "unavailable") & (string);
+  "target": (((HttpAskCitation_AskCitationTarget)) | ((null)));
 });
 
 type HttpAskEventsPage_AskEvent = ({
@@ -4759,6 +4781,12 @@ export type HttpInline_120dda3b6fb473ac = ({
 
 export type HttpInline_1711c9a82655e546 = ({
   "run_id"?: (((number)) | ((null)));
+});
+
+export type HttpInline_1f4a92d17785b699 = ({
+  "citation_id": (string);
+  "pid": (string);
+  "thread_id": (string);
 });
 
 export type HttpInline_23cd5f2df57b1133 = ({
@@ -11719,6 +11747,20 @@ export type HttpContractOperationMap = {
       readonly "422": HttpError;
       readonly "500": HttpError;
       readonly "503": HttpError;
+    };
+  };
+  readonly "tenant.qa_citation.get": {
+    readonly pathParams: HttpInline_1f4a92d17785b699;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpAskCitation;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
     };
   };
   readonly "tenant.qa_create_thread.post": {

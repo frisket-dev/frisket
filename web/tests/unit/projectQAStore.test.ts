@@ -16,6 +16,7 @@ const turn: AskTurn = {
 const page = { events: [], cursor: 0, has_more: false, active_turn: null };
 function fixture(): ProjectQAApi {
   return {
+    citation: vi.fn(),
     list: vi.fn(async () => []), create: vi.fn(async () => thread),
     detail: vi.fn(async () => ({ thread, active_turn: turn, history: page })),
     update: vi.fn(async () => thread), delete: vi.fn(async () => {}),

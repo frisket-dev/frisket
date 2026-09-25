@@ -1,9 +1,10 @@
 import { httpContract } from './httpContract';
 import type {
-  HttpAskEventsPage, HttpAskReport, HttpAskThread, HttpAskThreadCreate,
+  HttpAskCitation, HttpAskEventsPage, HttpAskReport, HttpAskThread, HttpAskThreadCreate,
   HttpAskThreadDetail, HttpAskThreadUpdate, HttpAskTurn, HttpAskTurnRequest,
 } from '../generated/openHttpContracts';
 
+export type AskCitation = HttpAskCitation;
 export type AskThread = HttpAskThread;
 export type AskScope = AskThread['scope'];
 export type AskEvent = HttpAskEventsPage['events'][number];
@@ -13,6 +14,7 @@ export type AskThreadUpdate = HttpAskThreadUpdate;
 export type AskTurnRequest = HttpAskTurnRequest;
 
 export interface ProjectQAApi {
+  citation(threadId: string, citationId: string, signal?: AbortSignal): Promise<AskCitation>;
   list(signal?: AbortSignal): Promise<AskThread[]>;
   create(body: AskThreadCreate, signal?: AbortSignal): Promise<AskThread>;
   detail(threadId: string, signal?: AbortSignal): Promise<HttpAskThreadDetail>;
@@ -27,6 +29,9 @@ export interface ProjectQAApi {
 export function createProjectQAApi(projectId: () => string, errorFactory: (status: number, payload: unknown) => Error): ProjectQAApi {
   const path = (thread_id: string) => ({ pid: projectId(), thread_id });
   return {
+    citation: (threadId, citation_id, signal) => httpContract('tenant.qa_citation.get', {
+      pathParams: { ...path(threadId), citation_id }, query: {}, signal, errorFactory,
+    }),
     list: (signal) => httpContract('tenant.qa_threads.get', {
       pathParams: { pid: projectId() }, query: {}, signal, errorFactory,
     }),

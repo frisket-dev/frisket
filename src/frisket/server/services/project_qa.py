@@ -26,10 +26,11 @@ from frisket.engine.store.project_qa import (
     ProjectQANotFoundError,
     ProjectQAStore,
 )
+from frisket.server.services.project_qa_tools import validate_scope
 from frisket.server.workspace import Workspace
 
 logger = logging.getLogger(__name__)
-TurnRunner = Callable[[Project, Any, dict[str, Any], ProjectQAStore], Awaitable[None]]
+TurnRunner = Callable[[Project, Any, dict[str, Any], ProjectQAStore], Awaitable[Any]]
 
 
 class ProjectQAService:
@@ -60,12 +61,14 @@ class ProjectQAService:
     ) -> dict:
         values = body.model_dump()
         values["scope"] = body.scope.model_dump(exclude_none=True)
+        validate_scope(self.workspace.get(project_id), values["scope"])
         return self.store(project_id).create_thread(**values, created_by=actor)
 
     def update(self, project_id: str, thread_id: str, body: AskThreadUpdate) -> dict:
         values = body.model_dump(exclude_unset=True)
         if body.scope is not None:
             values["scope"] = body.scope.model_dump(exclude_none=True)
+            validate_scope(self.workspace.get(project_id), values["scope"])
         return self.store(project_id).update_thread(thread_id, **values)
 
     def delete(self, project_id: str, thread_id: str) -> None:
@@ -76,7 +79,10 @@ class ProjectQAService:
         return {
             "thread": store.get_thread(thread_id),
             "active_turn": store.get_active_turn(thread_id),
-            "history": self.events(project_id, thread_id),
+            "history": {
+                **store.recent_events(thread_id),
+                "active_turn": store.get_active_turn(thread_id),
+            },
         }
 
     def events(
@@ -110,6 +116,7 @@ class ProjectQAService:
         store = self.store(project_id)
         values = body.model_dump()
         values["scope"] = body.scope.model_dump(exclude_none=True)
+        validate_scope(project, values["scope"])
         turn = store.submit_turn(thread_id, **values, submitted_by=actor)
         key = (project, turn["id"])
         if turn["status"] == "running" and key not in self._tasks:

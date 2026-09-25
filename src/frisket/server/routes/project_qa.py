@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException, Query, Request, Response
 
 from frisket.contracts.http.models import EmptyQuery
 from frisket.contracts.http.project_qa import (
+    AskCitation,
     AskEventsPage,
     AskReport,
     AskThread,
@@ -26,12 +27,16 @@ from frisket.server.route_errors import (
     reject_unknown_query_parameters,
 )
 from frisket.server.services.project_qa import ProjectQAService
+from frisket.server.services.project_qa_tools import ProjectQAScopeError
+from frisket.server.services.project_qa_citations import resolve_citation
 
 
 @contextmanager
 def _errors():
     try:
         yield
+    except ProjectQAScopeError as exc:
+        raise HTTPException(422, str(exc)) from exc
     except ProjectQANotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc
     except ProjectQAConflictError as exc:
@@ -129,3 +134,17 @@ def register_project_qa_routes(app: FastAPI, *, service: ProjectQAService) -> No
         reject_unknown_query_parameters(request, EmptyQuery)
         with _errors():
             return AskReport.model_validate(service.report(pid, thread_id))
+
+    @app.get(
+        path + "/{thread_id}/citations/{citation_id}",
+        response_model=AskCitation,
+        responses=errors,
+    )
+    async def qa_citation(
+        request: Request, pid: str, thread_id: str, citation_id: str
+    ) -> AskCitation:
+        reject_unknown_query_parameters(request, EmptyQuery)
+        with _errors():
+            return AskCitation.model_validate(
+                resolve_citation(service.workspace.get(pid), thread_id, citation_id)
+            )

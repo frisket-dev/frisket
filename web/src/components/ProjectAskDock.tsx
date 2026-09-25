@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, Plus, Send, Square } from 'lucide-react';
 import type { SheetMeta } from '../api/types';
-import type { AskEvent, AskScope } from '../api/projectQA';
+import type { AskCitation, AskEvent, AskScope } from '../api/projectQA';
 import type { SelectorChoice } from '../api/selectorChoices';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { useSelector } from '../bind/useSelector';
@@ -13,15 +13,25 @@ import './ProjectAskDock.css';
 
 function EventContent({ event }: { event: AskEvent }) {
   const payload = event.payload;
+  const { qa } = useWorkspaceStores();
+  const [source, setSource] = useState<AskCitation | null>(null);
+  const [sourceError, setSourceError] = useState<string | null>(null);
   if (event.kind === 'question') return <div className="ask-question">{String(payload.question ?? '')}</div>;
-  if (event.kind === 'answer' || event.kind === 'assistant') return <MarkdownView source={String(payload.text ?? '')} />;
+  if (event.kind === 'answer' || event.kind === 'assistant') return <div className="ask-answer">
+    <MarkdownView source={String(payload.text ?? '')} />
+    {Array.isArray(payload.citation_ids) && <div className="ask-citations">{payload.citation_ids.filter((id): id is string => typeof id === 'string').map((id, index) =>
+      <button type="button" key={id} onClick={() => { setSourceError(null); void qa.citation(event.thread_id, id).then(setSource).catch(() => setSourceError('Could not open this source. Please try again.')); }}>Source {index + 1}</button>
+    )}</div>}
+    {sourceError && <p role="alert">{sourceError}</p>}
+    {source && <div className="ask-source-preview"><strong>{source.label}</strong><button type="button" aria-label="Close source preview" onClick={() => setSource(null)}>×</button>{source.message && <p>{source.message}</p>}<p>{source.excerpt}</p></div>}
+  </div>;
   if (event.kind === 'tool_started' || event.kind === 'tool_completed') return (
     <details className="ask-tool"><summary>{String(payload.summary ?? payload.tool ?? 'Reading sources')}</summary>
       <p>{String(payload.detail ?? payload.summary ?? '')}</p>
     </details>
   );
   if (event.kind === 'status' && ['stopped', 'interrupted', 'failed'].includes(String(payload.status))) return (
-    <p className="ask-status">{payload.status === 'stopped' ? 'Stopped. The work above is saved.' : payload.status === 'interrupted' ? 'Interrupted. Send a follow-up to continue.' : 'This question could not be completed.'}</p>
+    <p className="ask-status">{payload.status === 'stopped' ? 'Stopped. The work above is saved.' : payload.status === 'interrupted' ? 'Interrupted. Send a follow-up to continue.' : String(payload.error_summary ?? 'This question could not be completed.')}</p>
   );
   return null;
 }
@@ -61,6 +71,7 @@ export function ProjectAskDock({ initialScope, sheets, onClose }: {
       <option value="project">Whole project</option>
     </select></label></div>
     <div className="ask-history" ref={historyRef} aria-live="polite" aria-relevant="additions">
+      {state.hasEarlier && <button type="button" disabled={state.busy} onClick={() => void qa.loadEarlier()}>Load earlier messages</button>}
       {!state.events.length && <PanelEmpty>Ask a question about your sources, or explore what they contain.</PanelEmpty>}
       {state.events.map((event) => <EventContent key={event.seq} event={event} />)}
       {state.activeTurn && <div className="ask-status" role="status">{state.activeTurn.status === 'stopping' ? 'Stopping…' : 'Investigating…'}</div>}

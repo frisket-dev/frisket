@@ -146,3 +146,19 @@ class AskThreadDetail(WireModel):
 
 class AskReport(WireModel):
     markdown: str
+
+
+class AskCitationTarget(WireModel):
+    sheet_id: int
+    row_id: int
+    column_id: int
+
+
+class AskCitation(WireModel):
+    id: str
+    label: str
+    source_kind: str
+    excerpt: str | None
+    status: Literal["current", "changed", "unverified", "unavailable"]
+    message: str | None
+    target: AskCitationTarget | None
