@@ -45,7 +45,7 @@ test('workbench regions are populated by a resolved layout tree', async ({ page 
     await expect(region).toHaveAttribute('data-renderer', 'ResolvedWorkbenchLayoutRendererV1');
   }
 
-  // Search + Copilot left the leftSidebar stream for the palette/popover
+  // Search + Ask left the leftSidebar stream for the palette/popover
   // (workbench-ia-focus-v1); the Discover-hosted panels remain.
   await expect(leftSidebar).toHaveAttribute(
     'data-contribution-ids',

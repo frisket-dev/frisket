@@ -1,5 +1,5 @@
 /** Actions without a drawer: collection expansion remains available through
- * its URL handler, saved actions, and Copilot. */
+ * its URL handler, saved actions, and Ask. */
 export function hasNoActionDrawer(canonicalKind: string): boolean {
   return canonicalKind === 'derive.collection_expand';
 }

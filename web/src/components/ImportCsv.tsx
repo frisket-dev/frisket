@@ -2870,7 +2870,7 @@ function FeedSourceForm({
 /** Empty-project state: direct XLSX/generic drops still import files, while a
  *  CSV drop opens preview in the SINGLE global Import workspace. The dropzone no
  *  longer mounts its own ImportWorkspaceDialog — exactly one import workspace
- *  exists in the tree so the Copilot handoff cannot land on a duplicate. */
+ *  exists in the tree so the Ask handoff cannot land on a duplicate. */
 export function ImportDropzone(props: ImportHandlers & {
   onOpenWorkspace(): void;
   onOpenCsv(file: File, preview: ImportCsvPreview): void;

@@ -3,8 +3,6 @@ export {
   getProjectActionCatalog,
 } from './httpContractRoutes/catalog';
 export type { ActionCatalogContractOptions } from './httpContractRoutes/catalog';
-export { copilotChatContract } from './httpContractRoutes/copilot';
-export type { CopilotContractOptions } from './httpContractRoutes/copilot';
 export {
   createProjectContract,
   deleteProjectContract,

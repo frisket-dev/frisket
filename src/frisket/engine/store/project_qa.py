@@ -288,18 +288,22 @@ class ProjectQAStore:
 
         return self._write(write)
 
-    def list_threads(self, *, limit: int = 100) -> list[dict[str, Any]]:
+    def list_threads(
+        self, *, limit: int = 100, offset: int = 0
+    ) -> list[dict[str, Any]]:
         if (
             isinstance(limit, bool)
             or not isinstance(limit, int)
             or not 1 <= limit <= 200
         ):
             raise ValueError("limit must be between 1 and 200")
+        if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+            raise ValueError("offset must be non-negative")
         return [
             self._thread_record(row)
             for row in self.db.execute(
-                "SELECT * FROM project_qa_threads ORDER BY updated_at DESC, id DESC LIMIT ?",
-                (limit,),
+                "SELECT * FROM project_qa_threads ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?",
+                (limit, offset),
             )
         ]
 
@@ -718,9 +722,12 @@ class ProjectQAStore:
         return {
             "events": events,
             "cursor": (
-                events[0]["seq"] if before is not None and events
-                else events[-1]["seq"] if events
-                else before if before is not None
+                events[0]["seq"]
+                if before is not None and events
+                else events[-1]["seq"]
+                if events
+                else before
+                if before is not None
                 else after
             ),
             "has_more": has_more,
@@ -778,7 +785,9 @@ class ProjectQAStore:
                 db.rollback()
             raise
 
-    def detail_with_history(self, thread_id: str, *, limit: int = 100) -> dict[str, Any]:
+    def detail_with_history(
+        self, thread_id: str, *, limit: int = 100
+    ) -> dict[str, Any]:
         """Read thread preferences, newest history page, and active turn together."""
 
         db = self.db
@@ -787,7 +796,9 @@ class ProjectQAStore:
             db.execute("BEGIN")
         try:
             thread = self._thread_record(
-                db.execute("SELECT * FROM project_qa_threads WHERE id=?", (thread_id,)).fetchone()
+                db.execute(
+                    "SELECT * FROM project_qa_threads WHERE id=?", (thread_id,)
+                ).fetchone()
             )
             last_seq = int(
                 db.execute(
@@ -1004,13 +1015,17 @@ class ProjectQAStore:
         """Terminalize a runner result without racing a concurrent Stop."""
 
         if status not in TERMINAL_TURN_STATUSES - {"stopped"}:
-            raise ValueError("finalize status must be completed, failed, or interrupted")
+            raise ValueError(
+                "finalize status must be completed, failed, or interrupted"
+            )
         if error_summary is not None and not isinstance(error_summary, str):
             raise ValueError("error_summary must be a string or null")
 
         def write(db: sqlite3.Connection) -> dict[str, Any]:
             turn = self._turn_record(
-                db.execute("SELECT * FROM project_qa_turns WHERE id=?", (turn_id,)).fetchone()
+                db.execute(
+                    "SELECT * FROM project_qa_turns WHERE id=?", (turn_id,)
+                ).fetchone()
             )
             if turn["status"] in TERMINAL_TURN_STATUSES:
                 return turn
@@ -1022,12 +1037,25 @@ class ProjectQAStore:
                 (target, now, _json(usage), cost, error_summary, turn_id),
             )
             self._append_event(
-                db, thread_id=turn["thread_id"], turn_id=turn_id, kind="status",
-                payload={"status": target, **({"error_summary": error_summary} if error_summary else {})},
+                db,
+                thread_id=turn["thread_id"],
+                turn_id=turn_id,
+                kind="status",
+                payload={
+                    "status": target,
+                    **({"error_summary": error_summary} if error_summary else {}),
+                },
                 created_at=now,
             )
-            db.execute("UPDATE project_qa_threads SET updated_at=? WHERE id=?", (now, turn["thread_id"]))
-            return self._turn_record(db.execute("SELECT * FROM project_qa_turns WHERE id=?", (turn_id,)).fetchone())
+            db.execute(
+                "UPDATE project_qa_threads SET updated_at=? WHERE id=?",
+                (now, turn["thread_id"]),
+            )
+            return self._turn_record(
+                db.execute(
+                    "SELECT * FROM project_qa_turns WHERE id=?", (turn_id,)
+                ).fetchone()
+            )
 
         return self._write(write)
 

@@ -1,5 +1,5 @@
 import {
-  type CopilotActionSpec,
+  type GeneratedActionDraft,
   type ColumnDef,
   type GridFilterOperator,
 } from '../api/open';
@@ -30,7 +30,7 @@ export interface HeaderMenuState {
 export interface ProposalInspectState {
   seq: number;
   title: string;
-  spec: CopilotActionSpec;
+  spec: GeneratedActionDraft;
 }
 
 /** Global row heights, Google-Sheets-style: resizing applies to every row. */

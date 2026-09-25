@@ -27,7 +27,10 @@ from frisket.engine.store.project_qa import (
     ProjectQANotFoundError,
     ProjectQAStore,
 )
-from frisket.server.services.project_qa_citations import resolve_citation
+from frisket.server.services.project_qa_citations import (
+    resolve_citation,
+    project_qa_safe_citation_projection,
+)
 from frisket.server.services.project_qa_tools import validate_scope
 from frisket.server.thread_worker import await_thread_worker
 from frisket.server.workspace import Workspace
@@ -59,9 +62,11 @@ class ProjectQAService:
                 self._seen.add(project)
         return store
 
-    async def list(self, project_id: str) -> list[dict[str, Any]]:
+    async def list(
+        self, project_id: str, *, offset: int = 0, limit: int = 100
+    ) -> list[dict[str, Any]]:
         store = await self.store(project_id)
-        return await await_thread_worker(store.list_threads)
+        return await await_thread_worker(store.list_threads, offset=offset, limit=limit)
 
     async def create(
         self, project_id: str, body: AskThreadCreate, *, actor: str | None = None
@@ -247,16 +252,24 @@ class ProjectQAService:
                         call_id=call_id,
                     )
 
-            with runtime.call_scope(router) if runtime is not None else nullcontext():
-                async with budget:
-                    if self._runner is not None:
-                        result = await self._runner(project, router, turn, store)
-                    else:
-                        from frisket.server.services.project_qa_runner import run_turn
+            async with budget:
+                if self._runner is not None:
+                    result = await self._runner(project, router, turn, store)
+                else:
+                    from frisket.server.services.project_qa_runner import run_turn
 
-                        result = await run_turn(
-                            project, router, turn, store, on_call=settle_call
-                        )
+                    result = await run_turn(
+                        project,
+                        router,
+                        turn,
+                        store,
+                        on_call=settle_call,
+                        call_scope=lambda: (
+                            runtime.call_scope(router)
+                            if runtime is not None
+                            else nullcontext()
+                        ),
+                    )
             if isinstance(result, dict) and result.get("limited"):
                 error = "This investigation reached its limit. The work above is saved."
             else:
@@ -376,10 +389,17 @@ class ProjectQAService:
                     elif event["kind"] in {"answer", "assistant"}:
                         lines.extend([str(payload.get("text", "")), ""])
                         for citation_id in payload.get("citation_ids", []):
-                            citation = store.get_citation(citation_id)
+                            citation = project_qa_safe_citation_projection(
+                                store.get_citation(citation_id)
+                            )
                             lines.extend(
                                 [
-                                    f"- {citation['label']}: {citation['excerpt'] or ''}",
+                                    f"- {citation['label']}"
+                                    + (
+                                        f" — {citation['url']}"
+                                        if citation["url"]
+                                        else ""
+                                    ),
                                     "",
                                 ]
                             )

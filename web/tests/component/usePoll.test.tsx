@@ -2,7 +2,7 @@
 //
 // Unit coverage for the shared poll loop (src/hooks/usePoll.ts), the inventory's
 // named target for the usepoll surface. NOTE: usepoll-stale-target.spec.ts
-// itself stays KEEP-NON-CORE — its bug is cross-surface choreography (a Copilot
+// itself stays KEEP-NON-CORE — its bug is cross-surface choreography (a Ask
 // dual-proposal launch replacing jobStore's private run target while a stale
 // run-A tick is in flight), which belongs to the project job resource, not
 // usePoll. Here we pin usePoll's own guarantees: immediate lead tick,

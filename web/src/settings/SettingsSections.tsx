@@ -185,7 +185,7 @@ function memberKey(member: ProjectMember): string {
  *
  * Covered: LLM calls made through a project provider key, plus routed
  * transcribe/OCR work billed to one. NOT covered: spend on org or platform
- * keys, and LLM calls outside a run (copilot, preview translation, sandbox
+ * keys, and LLM calls outside a run (ask, preview translation, sandbox
  * broker) — those never reach the accrual seam.
  */
 function SpentCell({ row }: { row: ProjectProviderKeyInfo }): ReactNode {

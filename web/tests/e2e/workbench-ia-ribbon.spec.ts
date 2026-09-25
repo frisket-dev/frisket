@@ -77,9 +77,9 @@ test('chrome bar hosts the relocated project menu (no sidebar duplication)', asy
   await expect(page.locator('.sidebar')).toHaveCount(0);
   await expect(page.getByTestId('workbench-region-leftSidebar')).toHaveCount(0);
 
-  // Chrome pill + copilot toggle are present.
+  // Chrome pill + ask toggle are present.
   await expect(chrome.getByTestId('chrome-command-pill')).toBeVisible();
-  await expect(chrome.getByTestId('chrome-copilot-toggle')).toBeVisible();
+  await expect(chrome.getByTestId('chrome-ask-toggle')).toBeVisible();
 });
 
 test('ribbon renders actions from the live catalog, including a no-static-template kind', async ({

@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { createProjectApi } from '../../src/api/real';
-import type { CopilotProposal, RegisteredActionRequest } from '../../src/api/types';
+import type { ActionProposal, RegisteredActionRequest } from '../../src/api/types';
 import { actionTemplatesFromCatalog } from '../../src/actions/model';
 import {
   completeMappedActionCatalog,
@@ -82,8 +82,8 @@ describe('registered action transport', () => {
     expect(JSON.parse(String(calls[0]?.body))).toEqual(request);
   });
 
-  it('runs a Copilot registered draft directly with one stable execution key', async () => {
-    vi.stubGlobal('crypto', { randomUUID: () => 'copilot-request-id' });
+  it('runs a Ask registered draft directly with one stable execution key', async () => {
+    vi.stubGlobal('crypto', { randomUUID: () => 'ask-request-id' });
     const bodies: Array<Record<string, unknown>> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if ((init?.method ?? 'GET') === 'GET') {
@@ -97,7 +97,7 @@ describe('registered action transport', () => {
         errors: [],
       });
     }));
-    const proposal: CopilotProposal = {
+    const proposal: ActionProposal = {
       kind: 'map',
       title: 'Template greeting',
       spec: {
@@ -115,11 +115,11 @@ describe('registered action transport', () => {
     expect(bodies).toEqual([
       {
         ...proposal.spec,
-        idempotency_key: 'copilot-map.template:copilot-request-id',
+        idempotency_key: 'ask-map.template:ask-request-id',
       },
       {
         ...proposal.spec,
-        idempotency_key: 'copilot-map.template:copilot-request-id',
+        idempotency_key: 'ask-map.template:ask-request-id',
         confirmation: 'confirmation-hash',
       },
     ]);

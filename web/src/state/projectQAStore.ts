@@ -3,6 +3,7 @@ import type { AskEvent, AskScope, AskThread, AskTurn, AskTurnRequest, ProjectQAA
 
 interface AskState {
   threads: AskThread[];
+  hasMoreThreads: boolean;
   thread: AskThread | null;
   events: AskEvent[];
   hasEarlier: boolean;
@@ -18,7 +19,7 @@ interface AskState {
 }
 
 const initial = (): AskState => ({
-  threads: [], thread: null, events: [], hasEarlier: false, activeTurn: null, draft: '', scope: null,
+  threads: [], hasMoreThreads: false, thread: null, events: [], hasEarlier: false, activeTurn: null, draft: '', scope: null,
   model: null, web: false, suggestActions: true, busy: false, loaded: false, error: null,
 });
 
@@ -74,7 +75,47 @@ export function createProjectQAStore(api: ProjectQAApi) {
 
   return {
     store, open, refresh,
+    async loadMoreThreads() {
+      const current = generation;
+      try {
+        const threads = await api.list(controller.signal, store.get().threads.length);
+        if (current !== generation) return;
+        store.set((s) => ({ ...s, threads: [...new Map([...s.threads, ...threads].map((item) => [item.id, item])).values()], hasMoreThreads: threads.length === 100 }));
+      } catch (exc) { if (current === generation) store.set((s) => ({ ...s, error: error(exc) })); }
+    },
     citation: api.citation,
+    report: api.report,
+    async rename(title: string) {
+      const thread = store.get().thread;
+      if (!thread || !title.trim()) return false;
+      const current = generation;
+      try {
+        const latest = await api.detail(thread.id, controller.signal);
+        if (current !== generation) return false;
+        const updated = await api.update(thread.id, { title: title.trim(), expected_revision: latest.thread.revision }, controller.signal);
+        if (current !== generation) return false;
+        store.set((s) => ({ ...s, thread: updated, threads: s.threads.map((item) => item.id === updated.id ? updated : item), error: null }));
+        return true;
+      } catch (exc) {
+        if (current === generation) store.set((s) => ({ ...s, error: error(exc) }));
+        return false;
+      }
+    },
+    async deleteThread() {
+      const thread = store.get().thread;
+      if (!thread || store.get().activeTurn) return false;
+      const current = generation;
+      try {
+        await api.delete(thread.id, controller.signal);
+        if (current !== generation) return false;
+        generation += 1; controller.abort(); controller = new AbortController(); pending = null;
+        store.set((s) => ({ ...initial(), loaded: true, threads: s.threads.filter((item) => item.id !== thread.id), scope: s.scope, model: s.model }));
+        return true;
+      } catch (exc) {
+        if (current === generation) store.set((s) => ({ ...s, error: error(exc) }));
+        return false;
+      }
+    },
     async loadEarlier() {
       const current = generation;
       const snapshot = store.get();
@@ -96,7 +137,7 @@ export function createProjectQAStore(api: ProjectQAApi) {
       try {
         const threads = await api.list(controller.signal);
         if (current !== generation) return;
-        store.set((s) => ({ ...s, threads, loaded: true, busy: false }));
+        store.set((s) => ({ ...s, threads, hasMoreThreads: threads.length === 100, loaded: true, busy: false }));
         if (threads[0]) await open(threads[0].id);
       } catch (exc) {
         if (current === generation) store.set((s) => ({ ...s, busy: false, error: error(exc) }));
@@ -111,7 +152,7 @@ export function createProjectQAStore(api: ProjectQAApi) {
       controller.abort();
       controller = new AbortController();
       pending = null;
-      store.set((s) => ({ ...s, thread: null, events: [], hasEarlier: false, activeTurn: null, draft: '', scope, error: null, busy: false }));
+      store.set((s) => ({ ...s, thread: null, events: [], hasEarlier: false, activeTurn: null, draft: '', scope, web: false, suggestActions: true, error: null, busy: false }));
     },
     async send() {
       const snapshot = store.get();

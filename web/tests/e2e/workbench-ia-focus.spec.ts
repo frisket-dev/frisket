@@ -13,8 +13,8 @@ import {
 
 // workbench-ia-focus-v1 (Workbench IA increment 8): the ⌘K palette upgrade
 // (BEST MATCH / ACTIONS / GO TO / SEARCH + live filter + arrow-key nav +
-// configure-first ↵), the Copilot Focus popover, and the FULL retirement of the
-// left sidebar (Search → palette, Copilot → popover, Settings → project menu +
+// configure-first ↵), the Ask Focus popover, and the FULL retirement of the
+// left sidebar (Search → palette, Ask → popover, Settings → project menu +
 // palette command, Sidebar.tsx deleted).
 
 const STORY_CSV = [
@@ -170,69 +170,8 @@ test('the SEARCH section finds a seeded row and navigates to it', async ({ page 
   await expect(page.locator('.sheet-title')).toHaveText('stories');
 });
 
-test('the ✧ chrome toggle opens the Copilot popover (never a resident column) with a proposal card', async ({
-  page,
-}) => {
-  const pid = await createProject(page.request, uniqueName('e2e-focus-copilot'));
-  const sheetId = await importCsv(page.request, pid, 'stories.csv', STORY_CSV);
-  await page.route(`**/api/projects/${pid}/copilot`, async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        reply: 'I can add a news beat classifier.',
-        needs_import: false,
-        proposals: [
-          {
-            kind: 'map',
-            title: 'Add news beat classifier',
-            spec: {
-              action_kind: 'map.classify',
-              authoring_contract_version: 1,
-              params: {
-                sheet_id: sheetId,
-                input_columns: ['story'],
-                model: 'anthropic/claude-haiku-4-5',
-                context: 'Classify each story by news beat.',
-                fields: [{ name: 'beat', type: 'category', labels: ['transit', 'money', 'other'] }],
-              },
-            },
-          },
-        ],
-      }),
-    });
-  });
-  await openProject(page, pid, sheetId);
 
-  // Closed by default; the ✧ chrome toggle summons the popover.
-  await expect(page.getByTestId('copilot-popover')).toHaveCount(0);
-  await page.getByTestId('chrome-copilot-toggle').click();
-  const popover = page.getByTestId('copilot-popover');
-  await expect(popover).toBeVisible();
-  await expect(popover.getByTestId('copilot-panel')).toBeVisible();
-
-  // It is a floating overlay, not a resident sidebar column: the left sidebar
-  // region does not exist, and the popover is fixed-positioned bottom-right.
-  await expect(page.getByTestId('workbench-region-leftSidebar')).toHaveCount(0);
-  const box = await popover.boundingBox();
-  const viewport = page.viewportSize()!;
-  expect(box).not.toBeNull();
-  expect(box!.x + box!.width).toBeGreaterThan(viewport.width / 2);
-  expect(box!.y + box!.height).toBeGreaterThan(viewport.height / 2);
-
-  // A message yields a runnable proposal card.
-  await popover.getByTestId('copilot-input').fill('Classify each story by news beat.');
-  await popover.getByTestId('copilot-send').click();
-  const proposal = popover.getByTestId('copilot-proposal').first();
-  await expect(proposal).toBeVisible({ timeout: 30_000 });
-  await expect(proposal.getByTestId('copilot-run')).toBeVisible();
-
-  // Toggling ✧ again dismisses the popover.
-  await page.getByTestId('chrome-copilot-toggle').click();
-  await expect(page.getByTestId('copilot-popover')).toHaveCount(0);
-});
-
-test('the left sidebar is fully retired — no sidebar, no resident Search/Copilot', async ({
+test('the left sidebar is fully retired — no sidebar, no resident Search/Ask', async ({
   page,
 }) => {
   await seedStories(page);
@@ -240,9 +179,9 @@ test('the left sidebar is fully retired — no sidebar, no resident Search/Copil
   await expect(page.locator('.sidebar')).toHaveCount(0);
   await expect(page.getByTestId('workbench-region-leftSidebar')).toHaveCount(0);
   // The retired sidebar affordances are gone: the standalone Search trigger and
-  // the resident Copilot collapsed trigger no longer exist.
+  // the resident Ask collapsed trigger no longer exist.
   await expect(page.getByTestId('open-search')).toHaveCount(0);
-  await expect(page.getByTestId('copilot-toggle')).toHaveCount(0);
+  await expect(page.getByTestId('ask-toggle')).toHaveCount(0);
 });
 
 test('Import and Settings are reachable at their re-homes', async ({ page }) => {

@@ -192,7 +192,6 @@ import { ProjectAskDock } from './components/ProjectAskDock';
 import type { AskScope } from './api/projectQA';
 import { DiagnosticReportButton } from './workspace/DiagnosticReport';
 import {
-  COPILOT_CONTRIBUTION_ID,
   EMBEDDINGS_CONTRIBUTION_ID,
   FRIENDLY_FILTERS_CONTRIBUTION_ID,
   MENTIONS_CONTRIBUTION_ID,
@@ -924,7 +923,7 @@ function WorkspaceAskRegion() {
   const { sheet, sheets } = useCurrentSheet();
   const { chrome, selection, detail } = useWorkspaceStores();
   const { selectSheet, askNavigation } = useWorkspaceShell();
-  const open = useSelector(chrome.store, (s) => s.copilotPopoverOpen);
+  const open = useSelector(chrome.store, (s) => s.askOpen);
   const selected = useSelector(selection.store, (s) => s.selectedRows);
   const scope = useMemo<AskScope>(() => {
     if (!sheet) return { kind: 'project' };
@@ -933,7 +932,7 @@ function WorkspaceAskRegion() {
       ? [{ kind: 'rows', sheet_id: Number(sheet.id), row_ids: rows }]
       : [{ kind: 'sheet', sheet_id: Number(sheet.id) }] };
   }, [sheet, selected]);
-  return open ? <ProjectAskDock onOpenSource={askNavigation.open} initialScope={scope} sheets={sheets} onClose={chrome.closeCopilotPopover} onInspectProposal={(title, spec) => {
+  return open ? <ProjectAskDock onOpenSource={askNavigation.open} initialScope={scope} sheets={sheets} onClose={chrome.closeAsk} onInspectProposal={(title, spec) => {
     if (spec.scope.kind === 'sheet_rows') selectSheet(String(spec.scope.sheet_id));
     chrome.openActionPanel();
     detail.setProposalInspect({ seq: Date.now(), title, spec });
@@ -945,8 +944,8 @@ const WorkspaceChromeBarRegion = memo(function WorkspaceChromeBarRegion() {
   const { project, projectApi } = useWorkspaceShell();
   const { sheet, sheets } = useCurrentSheet();
   const chrome = useChromeHandle();
-  const copilotOpen = useSelector(chrome.store, (s) => s.copilotPopoverOpen);
-  const toggleCopilot = chrome.toggleCopilotPopover;
+  const askOpen = useSelector(chrome.store, (s) => s.askOpen);
+  const toggleAsk = chrome.toggleAsk;
   const openCommandPalette = chrome.openCommandPalette;
   const actSurface = useActSurfaceHandle();
   const actExportModal = useSelector(actSurface.store, (s) => s.actExportModal);
@@ -978,8 +977,8 @@ const WorkspaceChromeBarRegion = memo(function WorkspaceChromeBarRegion() {
         currentSheetExportOptions={currentSheetExportOptions}
         catalogExportTargets={catalogExportTargets}
         onOpenCommandPalette={openCommandPalette}
-        copilotOpen={copilotOpen}
-        onToggleCopilot={toggleCopilot}
+        askOpen={askOpen}
+        onToggleAsk={toggleAsk}
         walkthroughActive={walkthrough.active}
         walkthroughCanResume={walkthrough.canResume}
         walkthroughGuideSeen={walkthrough.guideSeen}
@@ -1247,7 +1246,6 @@ function SidebarContributionBody({ contribution }: { contribution: WorkbenchReso
 
 const NON_DISCOVER_LEFT_SIDEBAR_CONTRIBUTION_IDS = new Set<string>([
   SEARCH_CONTRIBUTION_ID,
-  COPILOT_CONTRIBUTION_ID,
 ]);
 
 const DISCOVER_TAB_CONTRIBUTION_IDS: Record<DiscoverTab, readonly string[]> = {

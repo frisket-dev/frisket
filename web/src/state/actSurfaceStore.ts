@@ -52,7 +52,7 @@ export interface ActSurfaceState {
   /** The entry-point mode an `openImportDialog(mode)` caller requested — e.g.
    *  the Sources panel's "Add source" forcing the dialog onto its Feed step
    *  (sources are for feeds). `null` for the
-   *  generic Import entry points (ribbon, ⌘K, Copilot handoff, AddSheetButton),
+   *  generic Import entry points (ribbon, ⌘K, Ask handoff, AddSheetButton),
    *  which must keep preserving whatever mode the user last had selected
    *  inside the dialog rather than forcing one. Cleared on close so it never
    *  leaks into a later generic open. */

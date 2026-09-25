@@ -16,6 +16,7 @@ from frisket.contracts.http.project_qa import (
     AskThreadCreate,
     AskThreadDetail,
     AskThreadUpdate,
+    AskThreadsQuery,
     AskTurn,
     AskTurnRequest,
 )
@@ -56,11 +57,17 @@ def register_project_qa_routes(app: FastAPI, *, service: ProjectQAService) -> No
     path = "/api/projects/{pid}/qa/threads"
 
     @app.get(path, response_model=list[AskThread], responses=errors)
-    async def qa_threads(request: Request, pid: str) -> list[AskThread]:
-        reject_unknown_query_parameters(request, EmptyQuery)
+    async def qa_threads(
+        request: Request,
+        pid: str,
+        offset: int = Query(default=0, ge=0),
+        limit: int = Query(default=100, ge=1, le=100),
+    ) -> list[AskThread]:
+        reject_unknown_query_parameters(request, AskThreadsQuery)
         with _errors():
             return [
-                AskThread.model_validate(item) for item in (await service.list(pid))
+                AskThread.model_validate(item)
+                for item in (await service.list(pid, offset=offset, limit=limit))
             ]
 
     @app.post(path, response_model=AskThread, responses=errors)

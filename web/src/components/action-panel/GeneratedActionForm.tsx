@@ -158,7 +158,7 @@ export interface GeneratedActionFormProps {
   projectId?: string | null;
   catalogEntry: GeneratedActionCatalogEntry;
   actionTemplate: ActionTemplate;
-  /** Saved/Copilot launches may give this run a more useful title than the
+  /** Saved/Ask launches may give this run a more useful title than the
    * catalog's generic action name. */
   title?: string;
   sheet: SheetMeta | null;

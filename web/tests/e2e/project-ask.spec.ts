@@ -54,7 +54,7 @@ test('Ask stays docked, keeps its draft, and reconnects to saved progress', asyn
     return route.fallback();
   });
   await page.goto(`/p/${pid}`);
-  await page.getByTestId('chrome-copilot-toggle').click();
+  await page.getByTestId('chrome-ask-toggle').click();
   const dock = page.getByTestId('ask-dock');
   await expect(dock).toBeVisible();
   await dock.getByRole('button', { name: 'Add sources', exact: true }).click();
@@ -65,14 +65,14 @@ test('Ask stays docked, keeps its draft, and reconnects to saved progress', asyn
   await dock.getByRole('textbox', { name: 'Question', exact: true }).fill('What changed?');
   await dock.getByRole('button', { name: 'Collapse Ask' }).click();
   await expect(dock).not.toBeVisible();
-  await page.getByTestId('chrome-copilot-toggle').click();
+  await page.getByTestId('chrome-ask-toggle').click();
   await expect(dock.getByRole('textbox', { name: 'Question', exact: true })).toHaveValue('What changed?');
   await dock.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(dock.getByRole('button', { name: 'Stop', exact: true })).toBeVisible();
   await expect(dock.getByText('The council approved the contract.', { exact: true })).toBeVisible();
   await expect(dock.getByRole('button', { name: 'Stop', exact: true })).not.toBeVisible();
   await page.reload();
-  if (!await dock.isVisible()) await page.getByTestId('chrome-copilot-toggle').click();
+  if (!await dock.isVisible()) await page.getByTestId('chrome-ask-toggle').click();
   await expect(dock.getByText('The council approved the contract.', { exact: true })).toBeVisible();
   const baseUrl = page.url();
   await dock.getByRole('button', { name: 'Source 1', exact: true }).click();

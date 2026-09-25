@@ -19,7 +19,7 @@ export function useAskNavigation(sheets: SheetMeta[]) {
 
   const open = useCallback((citation: AskCitation) => {
     const target = citation.target;
-    if (!target) return;
+    if (!target || target.kind === 'web') return;
     const sheet = sheets.find((item) => item.id === String(target.sheet_id));
     if (!sheet) return;
     if (!previous.current) previous.current = {

@@ -46,7 +46,7 @@ from __future__ import annotations
 import base64
 import json
 import re
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -353,19 +353,18 @@ class FrisketRouterModel(Model):
         if self._before_request is not None:
             await self._before_request(req)
         try:
-            if self._request_context is None:
+            # Pydantic schedules model calls in child tasks; enter authority in
+            # the actual request task rather than relying on inherited context.
+            with (
+                self._request_context()
+                if self._request_context is not None
+                else nullcontext()
+            ):
                 resp = await self.router.complete_transport(
                     req,
                     recipe_version=self.recipe_version,
                     trace=self._trace,
                 )
-            else:
-                with self._request_context():
-                    resp = await self.router.complete_transport(
-                        req,
-                        recipe_version=self.recipe_version,
-                        trace=self._trace,
-                    )
         except SchemaViolation as sv:
             # A raw SchemaViolation is invisible to pydantic-ai's retry loop
             # (it only retries ModelRetry / validation errors) — translate so

@@ -177,7 +177,7 @@ test('Detail + Discover widths persist across reload', async ({ page, request })
   expect(Math.abs((await page.getByTestId('row-drawer').boundingBox())!.width - widenedDetail)).toBeLessThan(2);
 });
 
-test('the left sidebar is retired; Search + Copilot re-homed to the palette + popover', async ({
+test('the left sidebar is retired; Search + Ask re-homed to the palette + popover', async ({
   page,
   request,
 }) => {
@@ -195,9 +195,9 @@ test('the left sidebar is retired; Search + Copilot re-homed to the palette + po
   await page.keyboard.press('Escape');
   await expect(palette).toBeHidden();
 
-  // Copilot re-homed to the ✧ Focus popover.
-  await page.getByTestId('chrome-copilot-toggle').click();
-  await expect(page.getByTestId('copilot-popover').getByTestId('copilot-panel')).toBeVisible();
+  // Ask re-homed to the ✧ Focus popover.
+  await page.getByTestId('chrome-ask-toggle').click();
+  await expect(page.getByTestId('ask-dock')).toBeVisible();
 });
 
 test('the » overflow menu OPENS and switches to a hidden tab (regression: clipped by overflow:hidden)', async ({

@@ -384,8 +384,8 @@ export function useWorkspaceModel({
   const {
     actionPanelOpen,
     clearDeleteRowsConfirm,
-    closeCopilotPopover,
-    copilotPopoverOpen,
+    closeAsk,
+    askOpen,
     closeEvidenceViewer,
     commandPaletteOpen,
     deleteRowsConfirm,
@@ -739,7 +739,6 @@ export function useWorkspaceModel({
     [actSurface, chrome, route, routeStateBase],
   );
 
-  const copilotOpen = copilotPopoverOpen;
 
   const commandPaletteQuery = useSelector(chrome.store, (s) => s.commandPaletteQuery);
   const setCommandPaletteQuery = chrome.setCommandPaletteQuery;
@@ -3867,8 +3866,8 @@ export function useWorkspaceModel({
       commandPaletteGotoItems,
       navigateToSearchHit,
       closeRowDrawer: detail.clearRowDrawer,
-      copilotOpen,
-      closeCopilotPopover,
+      askOpen,
+      closeAsk,
       runActionFromSurface,
       selectSheet,
       sheets,
@@ -3924,8 +3923,8 @@ export function useWorkspaceModel({
       commandPaletteGotoItems,
       navigateToSearchHit,
       detail,
-      copilotOpen,
-      closeCopilotPopover,
+      askOpen,
+      closeAsk,
       runActionFromSurface,
       selectSheet,
       sheets,

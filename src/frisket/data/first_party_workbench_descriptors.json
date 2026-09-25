@@ -153,41 +153,6 @@
     },
     {
       "schemaVersion": "frisket.workbench.panel.v1",
-      "id": "frisket.core.panel.copilot",
-      "kind": "panel",
-      "ownerPluginId": "frisket.core",
-      "title": "Copilot",
-      "icon": "Sparkles",
-      "placements": [
-        {
-          "host": "leftSidebar",
-          "mode": "panel",
-          "default": true,
-          "order": 95
-        },
-        {
-          "host": "rightInspector",
-          "mode": "panel",
-          "order": 60
-        }
-      ],
-      "requires": [
-        {
-          "kind": "hostCapability",
-          "id": "copilot.chat"
-        },
-        {
-          "kind": "hostCapability",
-          "id": "action.proposal.inspect"
-        },
-        {
-          "kind": "hostCapability",
-          "id": "action.proposal.run"
-        }
-      ]
-    },
-    {
-      "schemaVersion": "frisket.workbench.panel.v1",
       "id": "frisket.core.panel.notifications",
       "kind": "panel",
       "ownerPluginId": "frisket.core",

@@ -11,7 +11,6 @@
 
 import {
   cancelRunContract,
-  copilotChatContract,
   createProjectContract,
   deleteProjectContract,
   getActionJobContract,
@@ -294,9 +293,7 @@ import type {
   WorkbenchPluginLocalInstallExecution,
   WorkbenchPluginLocalInstallRequest,
   WorkbenchPluginRuntimeIndex,
-  CopilotChatMessageInput,
-  CopilotProposal,
-  CopilotReply,
+  ActionProposal,
 } from './types';
 
 // Arrow is a browser binary protocol, not a JSON contract. Keep its error
@@ -734,11 +731,7 @@ export function revokeProjectInvite(
   return projectCollaborationApi.revokeInvite(projectId, inviteId);
 }
 
-// Copilot: chat → runnable proposals, plus the needsImport decision. Types +
-// wire mapping live with the generated-contract adapter (httpContractRoutes);
-// the request flows through the declared POST /api/projects/{pid}/copilot
-// contract, never raw transport.
-export type { CopilotProposal, CopilotReply };
+export type { ActionProposal };
 
 export async function confirmImportRowsDraft(
   projectId: string,
@@ -1170,13 +1163,6 @@ class RealApi implements FrisketApi {
     return createProjectContract(name, apiErrorFromContract);
   }
 
-  copilotChat(
-    messages: CopilotChatMessageInput[],
-    model?: string | null,
-  ): Promise<CopilotReply> {
-    return copilotChatContract(this.requireProjectId(), messages, apiErrorFromContract, model);
-  }
-
   updateProject(
     projectId: string,
     patch: { name?: string; description?: string; starred?: boolean; archived?: boolean },
@@ -1513,7 +1499,7 @@ class RealApi implements FrisketApi {
   // ---- runs ---------------------------------------------------------------
 
   runProposal(
-    proposal: CopilotProposal,
+    proposal: ActionProposal,
     confirmed = false,
     consentedPromiseSetHash?: string,
     options?: RunActionInvocationOptions,

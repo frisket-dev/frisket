@@ -1,9 +1,9 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { createProjectApi } from '../../src/api/real';
-import type { CopilotProposal } from '../../src/api/types';
+import type { ActionProposal } from '../../src/api/types';
 
 afterEach(() => vi.restoreAllMocks());
-const proposal: CopilotProposal = { kind: 'derive', title: 'Expand playlist', spec: {
+const proposal: ActionProposal = { kind: 'derive', title: 'Expand playlist', spec: {
   action_id: 'derive.collection_expand', scope: { kind: 'project' },
   params: { source_sheet_id: 1, source_column_id: 4, source_row_id: 7 },
   sheet_name: 'Playlist videos', output_names: { url: 'Video URL' },
@@ -62,7 +62,7 @@ it('passes structured Params without alias projection or catalog reads', async (
   } });
   expect(runAction.mock.calls[0][0]).toEqual({ action_id: 'map.python',
     scope: { kind: 'sheet_rows', sheet_id: 1 }, params: before, output_names: { excerpt: 'Excerpt' },
-    idempotency_key: expect.stringContaining('copilot-map.python:') });
+    idempotency_key: expect.stringContaining('ask-map.python:') });
   expect(params).toEqual(before);
   expect(catalog).not.toHaveBeenCalled();
 });

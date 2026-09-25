@@ -11,14 +11,14 @@ import { useSelectorChoices, type SelectorChoicesLoader } from '../../src/engine
 
 const query = (model: string | null): HttpSelectorChoicesQuery => ({
   schema_version: 'frisket.selector_choices_query.v1',
-  subject: { kind: 'copilot', ...(model === null ? {} : { model }) },
+  subject: { kind: 'project_ask', ...(model === null ? {} : { model }) },
 });
 
 function response(choiceId: string): HttpSelectorChoicesResponse {
   return {
     schema_version: 'frisket.selector_choices.v1',
     project_id: 'project-a',
-    subject: { kind: 'copilot' },
+    subject: { kind: 'project_ask' },
     depends_on: [],
     current_choice_id: choiceId,
     default_choice_id: choiceId,
@@ -146,7 +146,7 @@ describe('useSelectorChoices', () => {
   it('does not expose a previous subject projection during the first render of a new scope', async () => {
     const nextSubject = deferred<HttpSelectorChoicesResponse>();
     const load = vi.fn<SelectorChoicesLoader>()
-      .mockResolvedValueOnce(response('copilot-choice'))
+      .mockResolvedValueOnce(response('ask-choice'))
       .mockReturnValueOnce(nextSubject.promise);
     const actionQuery: HttpSelectorChoicesQuery = {
       schema_version: 'frisket.selector_choices_query.v1',
@@ -156,10 +156,10 @@ describe('useSelectorChoices', () => {
       ({ request, queryKey }) => useSelectorChoices({
         projectId: 'project-a', query: request, queryKey, load,
       }),
-      { initialProps: { request: query(null), queryKey: 'copilot' } },
+      { initialProps: { request: query(null), queryKey: 'ask' } },
     );
 
-    await waitFor(() => expect(result.current.response?.current_choice_id).toBe('copilot-choice'));
+    await waitFor(() => expect(result.current.response?.current_choice_id).toBe('ask-choice'));
     rerender({ request: actionQuery, queryKey: 'action' });
 
     expect(result.current.response).toBeNull();

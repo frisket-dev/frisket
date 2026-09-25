@@ -1,5 +1,5 @@
 // With the OS in dark
-// mode, the copilot popover rendered ghost text — invisible message bubbles,
+// mode, the ask popover rendered ghost text — invisible message bubbles,
 // proposal titles, and header — while buttons with explicit colors survived.
 //
 // Mechanism: native top-layer [popover] elements carry the UA stylesheet's
@@ -11,7 +11,7 @@
 //
 // DONE means: with the APP THEME pinned LIGHT (the preference the bug needs —
 // theme=system correctly goes dark under a dark OS, where white text is
-// right) and the OS scheme emulated dark, text inside the copilot popover
+// right) and the OS scheme emulated dark, text inside the ask popover
 // (a native [popover] element) computes to the app's text color, never the
 // UA's white CanvasText. The fix: the :root/theme-attribute pair declares
 // `color-scheme` so UA system colors always track the ACTIVE app theme.
@@ -34,64 +34,17 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test('copilot popover text stays readable under a dark OS color scheme', async ({
+test('ask popover text stays readable under a dark OS color scheme', async ({
   page,
 }) => {
   const pid = await createProject(page.request, uniqueName('e2e-dark-popover'));
   await importCsv(page.request, pid, 'stories.csv', CSV);
-  await page.route(`**/api/projects/${pid}/copilot`, (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        schema_version: 'frisket.copilot_reply.v1',
-        reply: 'Here is a classifier.',
-        needs_import: false,
-        proposals: [
-          {
-            kind: 'map',
-            title: 'Classify stories',
-            spec: {
-              action_kind: 'map.classify',
-              authoring_contract_version: 1,
-              params: {
-                sheet_id: 1,
-                input_columns: ['story'],
-                model: 'anthropic/claude-haiku-4-5',
-                fields: [
-                  { name: 'beat', type: 'category', labels: ['a', 'b'] },
-                ],
-              },
-            },
-          },
-        ],
-        cost_usd: null,
-      }),
-    }),
-  );
   await page.goto(`/p/${pid}`);
 
-  await page.getByTestId('chrome-copilot-toggle').click();
-  const panel = page.getByTestId('copilot-panel');
+  await page.getByTestId('chrome-ask-toggle').click();
+  const panel = page.getByTestId('ask-dock');
   await expect(panel).toBeVisible();
-  await page.getByTestId('copilot-input').fill('classify these');
-  await page.getByTestId('copilot-send').click();
-  await expect(page.getByTestId('copilot-response-markdown')).toBeVisible();
-
-  const textColorOf = (locator: ReturnType<typeof page.locator>) =>
-    locator.evaluate((el) => getComputedStyle(el).color);
-
-  const headerColor = await textColorOf(panel.locator('.copilot-head span').first());
-  const bubbleColor = await textColorOf(page.getByTestId('copilot-response-markdown'));
-  const titleColor = await textColorOf(panel.locator('.copilot-proposal-title').first());
-
-  for (const [what, color] of [
-    ['header', headerColor],
-    ['assistant bubble', bubbleColor],
-    ['proposal title', titleColor],
-  ] as const) {
-    expect(color, `${what} must not resolve to the UA dark-scheme CanvasText`).not.toBe(
-      'rgb(255, 255, 255)',
-    );
-  }
+  const color = await panel.locator('.ask-header strong').evaluate((el) => getComputedStyle(el).color);
+  expect(color).not.toBe('rgb(255, 255, 255)');
+  await expect(panel.getByRole('textbox', { name: 'Question', exact: true })).toBeVisible();
 });

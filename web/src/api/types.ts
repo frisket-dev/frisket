@@ -1520,7 +1520,6 @@ export type GeneratedSemanticControl =
   | 'engine'
   | 'model';
 export type GeneratedActionRequest = RegisteredActionRequest;
-export type GeneratedActionDraft = CopilotRegisteredActionDraft;
 export interface PluginActionUIBinding {
   plugin_id: string;
   export_name: string;
@@ -4329,42 +4328,22 @@ export interface WorkbenchPluginInstallStateChange {
 // The API surface. The live implementation is composed in src/api/real.ts;
 // contract-backed transport is centralized in src/api/httpContract.ts.
 
-// Copilot chat domain types. `needsImport` is the model's import-prerequisite
-// decision; when true the reply carries no proposals and the UI surfaces the
-// import CTA instead of an invented action card.
-export interface CopilotChatMessageInput {
-  role: 'user' | 'assistant';
-  content: string;
-}
-export type CopilotProposalKind = 'map' | 'derive' | 'reduce' | 'resolve' | 'media' | 'enrich' | 'web' | 'research';
-export type CopilotParamValue =
-  | null
-  | string
-  | number
-  | boolean
-  | CopilotParamValue[]
-  | { [key: string]: CopilotParamValue };
-export type CopilotRegisteredActionDraft = RegisteredActionDraft<
-  CopilotParamValue,
+// Canonical action drafts shared by forms, saved actions, and Ask suggestions.
+export type ActionProposalKind = 'map' | 'derive' | 'reduce' | 'resolve' | 'media' | 'enrich' | 'web' | 'research';
+export type GeneratedActionDraft = RegisteredActionDraft<
+  JsonValue,
   RegisteredActionScope
 >;
-export type CopilotActionSpec = CopilotRegisteredActionDraft;
 
-export function isCopilotRegisteredActionDraft(
-  spec: CopilotActionSpec | Record<string, unknown>,
-): spec is CopilotRegisteredActionDraft {
+export function isGeneratedActionDraft(
+  spec: GeneratedActionDraft | Record<string, unknown>,
+): spec is GeneratedActionDraft {
   return hasRegisteredActionDraftShape(spec);
 }
-export interface CopilotProposal {
-  kind: CopilotProposalKind;
+export interface ActionProposal {
+  kind: ActionProposalKind;
   title: string;
-  spec: CopilotActionSpec;
-}
-export interface CopilotReply {
-  reply: string;
-  proposals: CopilotProposal[];
-  needsImport: boolean;
-  costUsd: number | null;
+  spec: GeneratedActionDraft;
 }
 
 export interface FrisketApi {
@@ -4585,7 +4564,7 @@ export interface FrisketApi {
     options?: RunActionInvocationOptions,
   ): Promise<RunActionLaunchResult>;
   runProposal(
-    proposal: CopilotProposal,
+    proposal: ActionProposal,
     confirmed?: boolean,
     consentedPromiseSetHash?: string,
     options?: RunActionInvocationOptions,
@@ -4764,10 +4743,6 @@ export interface FrisketApi {
   workLogExportUrl(format?: 'md' | 'html' | 'pdf'): string;
   listProjects(): Promise<ProjectInfo[]>;
   createProject(name: string): Promise<ProjectInfo>;
-  copilotChat(
-    messages: CopilotChatMessageInput[],
-    model?: string | null,
-  ): Promise<CopilotReply>;
   readonly qa: ProjectQAApi;
   updateProject(
     projectId: string,

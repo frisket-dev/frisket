@@ -21,7 +21,6 @@ const FIRST_PARTY_COMPONENT_BINDINGS: Readonly<Record<string, FirstPartyComponen
   'frisket.investigative.panel.mentions': { componentKey: 'core.panels.MentionsPanel' },
   'frisket.core.panel.sources': { componentKey: 'core.panels.SourcesPanel' },
   'frisket.core.panel.search': { componentKey: 'core.panels.SearchPanel' },
-  'frisket.core.panel.copilot': { componentKey: 'core.panels.CopilotPanel' },
   'frisket.core.panel.notifications': { componentKey: 'core.panels.NotificationsPanel' },
   'frisket.core.panel.saved_views': { componentKey: 'core.panels.SavedViewsPanel' },
   'frisket.core.panel.watches': { componentKey: 'core.panels.WatchesPanel' },

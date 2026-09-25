@@ -96,7 +96,7 @@ export interface ChromeState {
   projectionStatus: WorkbenchProjectionStatus | null;
   commandPaletteOpen: boolean;
   commandPaletteQuery: string;
-  copilotPopoverOpen: boolean;
+  askOpen: boolean;
   lastCommandAction: string;
   deleteRowsConfirm: DeleteRowsConfirmState | null;
   error: WorkspaceToastError | null;
@@ -125,7 +125,7 @@ export function createChromeState(
     projectionStatus: null,
     commandPaletteOpen: false,
     commandPaletteQuery: '',
-    copilotPopoverOpen: false,
+    askOpen: false,
     lastCommandAction: '',
     deleteRowsConfirm: null,
     error: null,
@@ -162,9 +162,9 @@ export function createChromeStore(
   setCommandPaletteQuery(query: string): void;
   closeCommandPaletteAndReset(): void;
 
-  openCopilotPopover(): void;
-  closeCopilotPopover(): void;
-  toggleCopilotPopover(): void;
+  openAsk(): void;
+  closeAsk(): void;
+  toggleAsk(): void;
 
   recordCommandAction(label: string): void;
 
@@ -233,14 +233,14 @@ export function createChromeStore(
       store.set((s) => ({ ...s, commandPaletteQuery: '', commandPaletteOpen: false }));
     },
 
-    openCopilotPopover() {
-      store.set((s) => (s.copilotPopoverOpen ? s : { ...s, copilotPopoverOpen: true }));
+    openAsk() {
+      store.set((s) => (s.askOpen ? s : { ...s, askOpen: true }));
     },
-    closeCopilotPopover() {
-      store.set((s) => (s.copilotPopoverOpen ? { ...s, copilotPopoverOpen: false } : s));
+    closeAsk() {
+      store.set((s) => (s.askOpen ? { ...s, askOpen: false } : s));
     },
-    toggleCopilotPopover() {
-      store.set((s) => ({ ...s, copilotPopoverOpen: !s.copilotPopoverOpen }));
+    toggleAsk() {
+      store.set((s) => ({ ...s, askOpen: !s.askOpen }));
     },
 
     recordCommandAction(label) {

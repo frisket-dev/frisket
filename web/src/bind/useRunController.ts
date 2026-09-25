@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import { useJobsHandle } from './useJobsHandle';
 import type {
-  CopilotProposal,
+  ActionProposal,
   ActionExecutionRequest,
   SheetMeta,
 } from '../api/open';
@@ -16,7 +16,7 @@ interface UseRunControllerArgs extends JobRunDeps {
 }
 
 export interface RunController {
-  startProposal(proposal: CopilotProposal, confirmed?: boolean): Promise<boolean>;
+  startProposal(proposal: ActionProposal, confirmed?: boolean): Promise<boolean>;
   startRun(req: ActionExecutionRequest): void;
 }
 
@@ -61,7 +61,7 @@ export function useRunController({
     [jobs, sheet],
   );
   const startProposal = useCallback(
-    (proposal: CopilotProposal, confirmed = false) => jobs.startProposal(proposal, confirmed),
+    (proposal: ActionProposal, confirmed = false) => jobs.startProposal(proposal, confirmed),
     [jobs],
   );
 

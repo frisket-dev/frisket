@@ -10,7 +10,6 @@ import { describe, expect, it } from 'vitest';
 import {
   MODEL_OPTIONS,
   defaultActionModel,
-  defaultCopilotModel,
   modelProviderId,
   providerIsUsable,
 } from '../../src/actions/model';
@@ -80,7 +79,7 @@ describe('defaultActionModel', () => {
     // even from the pre-fix bug (matching ollama by provider id alone,
     // never reading the live installed list -- the phantom-default D3
     // bug). llama3.1 here proves the fix reads `models` off the live
-    // catalog entry, mirroring defaultCopilotModel's ollama branch.
+    // catalog entry, mirroring the provider availability rule.
     const catalog = catalogOf([
       entry({ id: 'gemini', label: 'Gemini', kind: 'platform_api', configured: false }),
       entry({ id: 'anthropic', label: 'Anthropic', kind: 'platform_api', configured: false }),
@@ -119,7 +118,6 @@ describe('defaultActionModel', () => {
     ]);
 
     expect(defaultActionModel(catalog)).toBe('ollama/@local-a1b2c3d4e5f6/qwen');
-    expect(defaultCopilotModel(catalog)).toBe('ollama/@local-a1b2c3d4e5f6/qwen');
   });
 
   it('ollama-only but only qwen3:8b is NOT installed (llama3.1 is) -> never falls back to the static qwen3:8b id', () => {
@@ -137,7 +135,7 @@ describe('defaultActionModel', () => {
     expect(defaultActionModel(catalog)).toBe('ollama/@desktop/llama3.1');
   });
 
-  it('ollama reachable but with zero installed models is not usable (mirrors defaultCopilotModel\'s rule)', () => {
+  it('ollama reachable but with zero installed models is not usable (mirrors the provider availability rule)', () => {
     const catalog = catalogOf([
       entry({ id: 'gemini', label: 'Gemini', kind: 'platform_api', configured: false }),
       localEntry({ endpoint_id: 'desktop', label: 'Local server', reachable: true }),

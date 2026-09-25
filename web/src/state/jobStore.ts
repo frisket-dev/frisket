@@ -17,7 +17,7 @@ import {
   isDeriveCompositeRequest,
   type ActionExecutionRequest,
   type ActionJob,
-  type CopilotProposal,
+  type ActionProposal,
   type RunActionLaunchResult,
   type RunEstimate,
   type RunProgress,
@@ -136,7 +136,7 @@ export interface JobStoreHandle {
     dispose(): void;
   };
   startRun(req: ActionExecutionRequest, sheet: SheetMeta | null | undefined): void;
-  startProposal(proposal: CopilotProposal, confirmed?: boolean): Promise<boolean>;
+  startProposal(proposal: ActionProposal, confirmed?: boolean): Promise<boolean>;
   cancelCurrentRun(runId: string): void;
   afterBackfill(runId: string): void;
 
@@ -825,7 +825,7 @@ export function createJobStore(
   }
 
   function startConfirmedProposal(
-    proposal: CopilotProposal,
+    proposal: ActionProposal,
     deps: Pick<JobRunDeps, 'refreshSheets' | 'showError'>,
     consentedPromiseSetHash?: string,
   ): Promise<void> {
@@ -862,7 +862,7 @@ export function createJobStore(
 
   function openProposalCostGate(
     launch: ActionLaunch,
-    proposal: CopilotProposal,
+    proposal: ActionProposal,
     deps: Pick<JobRunDeps, 'refreshSheets' | 'showError'>,
     error: ConfirmationRequiredError,
   ): void {
@@ -888,7 +888,7 @@ export function createJobStore(
   }
 
   async function startProposalWithDeps(
-    proposal: CopilotProposal,
+    proposal: ActionProposal,
     deps: Pick<JobRunDeps, 'refreshSheets' | 'showError'>,
     confirmed = false,
   ): Promise<boolean> {
@@ -930,7 +930,7 @@ export function createJobStore(
   }
 
   function startProposal(
-    proposal: CopilotProposal,
+    proposal: ActionProposal,
     confirmed = false,
   ): Promise<boolean> {
     const deps = currentDeps;

@@ -15,7 +15,7 @@ export type AskTurnRequest = HttpAskTurnRequest;
 
 export interface ProjectQAApi {
   citation(threadId: string, citationId: string, signal?: AbortSignal): Promise<AskCitation>;
-  list(signal?: AbortSignal): Promise<AskThread[]>;
+  list(signal?: AbortSignal, offset?: number): Promise<AskThread[]>;
   create(body: AskThreadCreate, signal?: AbortSignal): Promise<AskThread>;
   detail(threadId: string, signal?: AbortSignal): Promise<HttpAskThreadDetail>;
   update(threadId: string, body: AskThreadUpdate, signal?: AbortSignal): Promise<AskThread>;
@@ -32,8 +32,8 @@ export function createProjectQAApi(projectId: () => string, errorFactory: (statu
     citation: (threadId, citation_id, signal) => httpContract('tenant.qa_citation.get', {
       pathParams: { ...path(threadId), citation_id }, query: {}, signal, errorFactory,
     }),
-    list: (signal) => httpContract('tenant.qa_threads.get', {
-      pathParams: { pid: projectId() }, query: {}, signal, errorFactory,
+    list: (signal, offset = 0) => httpContract('tenant.qa_threads.get', {
+      pathParams: { pid: projectId() }, query: { offset, limit: 100 }, signal, errorFactory,
     }),
     create: (body, signal) => httpContract('tenant.qa_create_thread.post', {
       pathParams: { pid: projectId() }, query: {}, body, signal, errorFactory,

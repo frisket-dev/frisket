@@ -1,20 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createProjectApi } from '../../src/api/real';
-import type { ActionCatalogEntry, CopilotProposal, CopilotRegisteredActionDraft } from '../../src/api/types';
-import type { HttpCopilotReply } from '../../src/generated/openHttpContracts';
+import type { ActionCatalogEntry, ActionProposal, GeneratedActionDraft } from '../../src/api/types';
 import { hasServedActionCatalogPython, servedActionCatalog } from '../support/servedActionCatalog';
 
-type WireSpec = HttpCopilotReply['proposals'][number]['spec'];
 const KINDS = [
   'map.classify', 'map.extract', 'map.ner', 'map.translate', 'reduce.group_summary',
   'map.find', 'map.mcp_extract', 'research.answer', 'map.find_topic_sections',
   'derive.link_table', 'map.python', 'derive.collection_expand', 'derive.table_from_list',
   'map.ask', 'map.clean_column', 'map.clean_dates', 'map.judge', 'map.regex_extract',
   'map.summarize', 'map.template', 'map.to_geo_point', 'map.find_visual_cuts',
-] as const satisfies readonly Extract<WireSpec, { action_id: string }>['action_id'][];
+] as const satisfies readonly GeneratedActionDraft['action_id'][];
 
-function proposalFor(entry: ActionCatalogEntry): CopilotProposal {
-  const example = entry.examples[0] as { params?: CopilotRegisteredActionDraft['params'] } | undefined;
+function proposalFor(entry: ActionCatalogEntry): ActionProposal {
+  const example = entry.examples[0] as { params?: GeneratedActionDraft['params'] } | undefined;
   if (!example?.params || entry.ui_hints.form !== 'generated') throw new Error(`Missing typed example for ${entry.kind}`);
   const params = structuredClone(example.params);
   const createsSheet = entry.ui_hints.typed_action?.creates_sheet === true;
@@ -56,7 +54,7 @@ function transport(projectId: string, challenge = false) {
 afterEach(() => vi.unstubAllGlobals());
 const describeServed = hasServedActionCatalogPython() || process.env.CI ? describe : describe.skip;
 const catalog = hasServedActionCatalogPython() || process.env.CI ? servedActionCatalog() : null;
-describeServed('Copilot typed direct-run wire', () => {
+describeServed('Ask typed direct-run wire', () => {
   it('posts typed proposals with scope, nested Params, and destinations unchanged', async () => {
     const api = createProjectApi('proposal-matrix');
     const posted = transport('proposal-matrix');
@@ -69,7 +67,7 @@ describeServed('Copilot typed direct-run wire', () => {
     expect(posted).toHaveLength(proposals.length);
     for (const [index, body] of posted.entries()) {
       expect(body).toEqual({ ...proposals[index].spec,
-        idempotency_key: expect.stringContaining(`copilot-${entries[index].kind}:`) });
+        idempotency_key: expect.stringContaining(`ask-${entries[index].kind}:`) });
     }
   });
 

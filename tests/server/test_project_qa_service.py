@@ -237,3 +237,117 @@ def test_runtime_release_may_retire_its_hosted_app(tmp_path):
         await asyncio.wait_for(closed.wait(), 2)
 
     asyncio.run(scenario())
+
+
+def test_actual_model_requests_keep_turn_authority_and_settle_durable_calls(tmp_path):
+    from contextlib import contextmanager
+    from contextvars import ContextVar
+    from frisket.ai.llm import ModelRouter
+    from frisket.ai.llm.types import LLMResponse
+
+    async def scenario():
+        authority = ContextVar("ask-authority", default=None)
+        settled = []
+        closed = asyncio.Event()
+
+        class Adapter:
+            async def complete(self, request, client):
+                assert authority.get() is asyncio.current_task()
+                return LLMResponse(
+                    content=None,
+                    data=None,
+                    model=request.model,
+                    tokens_in=2,
+                    tokens_out=3,
+                    cost=0.02,
+                    tool_calls=[
+                        {
+                            "name": "final_result",
+                            "id": "answer",
+                            "args": {
+                                "text": "No project sources were needed.",
+                                "citation_ids": [],
+                            },
+                        }
+                    ],
+                )
+
+        router = ModelRouter(
+            keys={"anthropic": "test"},
+            key_sources={"anthropic": "platform_key"},
+            cache=None,
+            cache_mode="off",
+            use_env_keys=False,
+        )
+        router._adapters["anthropic"] = Adapter()
+
+        class Runtime:
+            @contextmanager
+            def call_scope(self, _router):
+                token = authority.set(asyncio.current_task())
+                try:
+                    yield
+                finally:
+                    authority.reset(token)
+
+            def settle_call(self, *, project, turn_id, call_id):
+                assert project.db.execute(
+                    "SELECT 1 FROM project_qa_usage_calls WHERE turn_id=? AND call_id=?",
+                    (turn_id, call_id),
+                ).fetchone()
+                assert project.db.execute(
+                    "SELECT 1 FROM model_calls WHERE id=?", (call_id,)
+                ).fetchone()
+                settled.append(call_id)
+
+            async def aclose(self):
+                closed.set()
+
+        class Port:
+            async def prepare_turn(self, **kwargs):
+                return Runtime()
+
+        workspace = Workspace(
+            tmp_path / "ws", router=router, project_qa_runtime_port=Port()
+        )
+        pid = workspace.create("Ask")["id"]
+        service = ProjectQAService(workspace)
+        thread = await service.create(pid, AskThreadCreate(scope={"kind": "project"}))
+        turn = await service.submit(
+            pid,
+            thread["id"],
+            AskTurnRequest(
+                request_id="one",
+                question="Say hello",
+                scope={"kind": "project"},
+                model="anthropic/test",
+            ),
+        )
+        await asyncio.wait_for(closed.wait(), 5)
+        saved = ProjectQAStore(workspace.get(pid)).get_turn(turn["id"])
+        assert saved["status"] == "completed", saved["error_summary"]
+        assert len(settled) == 1
+        assert authority.get() is None
+        await service.shutdown()
+        await router.aclose()
+
+    asyncio.run(scenario())
+
+
+def test_conversation_list_pages_without_losing_old_threads(tmp_path):
+    async def scenario():
+        service = ProjectQAService(Workspace(tmp_path / "ws"))
+        pid = service.workspace.create("Ask")["id"]
+        first = await service.create(
+            pid, AskThreadCreate(title="First", scope={"kind": "project"})
+        )
+        second = await service.create(
+            pid, AskThreadCreate(title="Second", scope={"kind": "project"})
+        )
+        assert [row["id"] for row in await service.list(pid, limit=1)] == [second["id"]]
+        assert [row["id"] for row in await service.list(pid, limit=1, offset=1)] == [
+            first["id"]
+        ]
+        await service.shutdown()
+
+    asyncio.run(scenario())

@@ -54,7 +54,7 @@ export function useWorkspaceChromeState(projectId: string) {
   const activeBottomDockTab = useSelector(chrome.store, (s) => s.activeBottomDockTab);
   const projectionStatus = useSelector(chrome.store, (s) => s.projectionStatus);
   const commandPaletteOpen = useSelector(chrome.store, (s) => s.commandPaletteOpen);
-  const copilotPopoverOpen = useSelector(chrome.store, (s) => s.copilotPopoverOpen);
+  const askOpen = useSelector(chrome.store, (s) => s.askOpen);
   const lastCommandAction = useSelector(chrome.store, (s) => s.lastCommandAction);
   const deleteRowsConfirm = useSelector(chrome.store, (s) => s.deleteRowsConfirm);
   const error = useSelector(chrome.store, (s) => s.error);
@@ -87,9 +87,9 @@ export function useWorkspaceChromeState(projectId: string) {
   const openCommandPalette = useCallback(() => chrome.openCommandPalette(), [chrome]);
   const closeCommandPalette = useCallback(() => chrome.closeCommandPalette(), [chrome]);
 
-  const openCopilotPopover = useCallback(() => chrome.openCopilotPopover(), [chrome]);
-  const closeCopilotPopover = useCallback(() => chrome.closeCopilotPopover(), [chrome]);
-  const toggleCopilotPopover = useCallback(() => chrome.toggleCopilotPopover(), [chrome]);
+  const openAsk = useCallback(() => chrome.openAsk(), [chrome]);
+  const closeAsk = useCallback(() => chrome.closeAsk(), [chrome]);
+  const toggleAsk = useCallback(() => chrome.toggleAsk(), [chrome]);
 
   const recordCommandAction = useCallback(
     (label: string) => chrome.recordCommandAction(label),
@@ -182,7 +182,7 @@ export function useWorkspaceChromeState(projectId: string) {
     activeBottomDockTab,
     projectionStatus,
     commandPaletteOpen,
-    copilotPopoverOpen,
+    askOpen,
     lastCommandAction,
     deleteRowsConfirm,
     error,
@@ -207,9 +207,9 @@ export function useWorkspaceChromeState(projectId: string) {
     openDiscover,
     clearDeleteRowsConfirm,
     closeCommandPalette,
-    openCopilotPopover,
-    closeCopilotPopover,
-    toggleCopilotPopover,
+    openAsk,
+    closeAsk,
+    toggleAsk,
     closeEvidenceViewer,
     hideActionPanel,
     openActionPanel,

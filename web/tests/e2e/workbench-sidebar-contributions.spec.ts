@@ -17,7 +17,7 @@ async function openCommandPalette(page: Page) {
 
 // First-party data panels render through the resolved Discover contributions;
 // no hardcoded panel arrangement or portable-slot props decide what renders
-// where. Search lives in the ⌘K palette, Copilot in the ✧ popover, and the data
+// where. Search lives in the ⌘K palette, Ask in the ✧ popover, and the data
 // panels in Discover.
 
 test('the left sidebar is retired; re-homed panels live in Discover and chrome stays intact', async ({
@@ -28,7 +28,7 @@ test('the left sidebar is retired; re-homed panels live in Discover and chrome s
   const secondSheet = await importCsv(page.request, pid, 'beta.csv', 'name\nBeta\n');
   await openProject(page, pid, firstSheet);
 
-  // No sidebar shell, and no resident Search/Copilot contribution wrappers.
+  // No sidebar shell, and no resident Search/Ask contribution wrappers.
   await expect(page.locator('.sidebar')).toHaveCount(0);
   await expect(page.getByTestId('workbench-region-leftSidebar')).toHaveCount(0);
   await expect(page.locator('[data-testid^="sidebar-contribution-"]')).toHaveCount(0);

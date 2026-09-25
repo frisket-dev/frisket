@@ -69,7 +69,7 @@ const WORKBENCH_VISIBILITY_HOST_POLICIES: readonly WorkbenchVisibilityHostPolicy
     locationLabel: 'Left Sidebar',
     menuSectionTitle: 'Sidebar Panels',
     nonHideableContributionIds: [],
-    // Search + Copilot retired from the sidebar (they became the ⌘K palette
+    // Search + Ask retired from the sidebar (they became the ⌘K palette
     // SEARCH section and the ✧ Focus popover), so they are no longer
     // hideable left-sidebar targets. The remaining panels re-home into Discover.
     firstPartyVisibilityTargetIds: [

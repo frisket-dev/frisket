@@ -847,7 +847,7 @@ describe('GeneratedActionForm', () => {
     expect(onExecute).not.toHaveBeenCalled();
   });
 
-  it('inspects a Copilot draft with its exact params, outputs, and row scope', async () => {
+  it('inspects a Ask draft with its exact params, outputs, and row scope', async () => {
     const entry = generatedEntry('map.template');
     const catalog = completeCatalogPayload([entry]);
     const onRun = vi.fn();
@@ -897,7 +897,7 @@ describe('GeneratedActionForm', () => {
     }, 'run');
   });
 
-  it('refuses a Copilot draft whose output keys differ from its catalog', async () => {
+  it('refuses a Ask draft whose output keys differ from its catalog', async () => {
     const entry = generatedEntry('map.template');
     const catalog = completeCatalogPayload([entry]);
     stores = createWorkspaceStores('project-one', createProjectApi('project-one'));

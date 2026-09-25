@@ -1,5 +1,5 @@
 // Global chrome bar: the page-wide top strip carrying the app mark + project
-// switcher, a spacer, the Command palette pill, the Copilot toggle, and an
+// switcher, a spacer, the Command palette pill, the Ask toggle, and an
 // account affordance. It is the single home for the ProjectMenu — the sidebar no
 // longer renders it.
 
@@ -51,8 +51,8 @@ export function ChromeBar({
   currentSheetExportOptions,
   catalogExportTargets,
   onOpenCommandPalette,
-  copilotOpen,
-  onToggleCopilot,
+  askOpen,
+  onToggleAsk,
   walkthroughActive,
   walkthroughCanResume,
   walkthroughGuideSeen,
@@ -69,8 +69,8 @@ export function ChromeBar({
   currentSheetExportOptions?: SheetViewExportOptions | null;
   catalogExportTargets: ExportTarget[];
   onOpenCommandPalette(): void;
-  copilotOpen: boolean;
-  onToggleCopilot(): void;
+  askOpen: boolean;
+  onToggleAsk(): void;
   walkthroughActive: boolean;
   walkthroughCanResume: boolean;
   walkthroughGuideSeen: boolean;
@@ -138,11 +138,11 @@ export function ChromeBar({
       </button>
       <button
         type="button"
-        className={`chrome-copilot-btn${copilotOpen ? ' open' : ''}`}
-        data-testid="chrome-copilot-toggle"
-        aria-pressed={copilotOpen}
-        title="Copilot"
-        onClick={onToggleCopilot}
+        className={`chrome-ask-btn${askOpen ? ' open' : ''}`}
+        data-testid="chrome-ask-toggle"
+        aria-pressed={askOpen}
+        title="Ask"
+        onClick={onToggleAsk}
       >
         <Bot size={15} />
       </button>

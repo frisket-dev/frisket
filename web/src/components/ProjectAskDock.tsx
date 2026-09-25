@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, Plus, Send, Square } from 'lucide-react';
-import type { CopilotRegisteredActionDraft, SheetMeta } from '../api/types';
+import type { GeneratedActionDraft, SheetMeta } from '../api/types';
 import type { AskScope, AskCitation } from '../api/projectQA';
 import type { SelectorChoice } from '../api/selectorChoices';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
@@ -9,13 +9,14 @@ import { usePoll } from '../hooks/usePoll';
 import { SelectorField } from '../engine-selector/SelectorField';
 import { PanelEmpty } from './PanelPrimitives';
 import { AskEventContent } from './project-ask/AskEventContent';
+import { AskThreadControls } from './project-ask/AskThreadControls';
 import { AskSourcePicker } from './project-ask/AskSourcePicker';
 import './ProjectAskDock.css';
 
 
 export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposal, onOpenSource }: {
   onOpenSource(citation: AskCitation): void;
-  initialScope: AskScope; sheets: SheetMeta[]; onClose(): void; onInspectProposal(title: string, spec: CopilotRegisteredActionDraft): void;
+  initialScope: AskScope; sheets: SheetMeta[]; onClose(): void; onInspectProposal(title: string, spec: GeneratedActionDraft): void;
 }) {
   const { qa, chromePreferences: { projectId } } = useWorkspaceStores();
   const state = useSelector(qa.store, (s) => s);
@@ -45,7 +46,8 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
     <div className="ask-thread-picker"><select aria-label="Conversation" value={state.thread?.id ?? ''} onChange={(event) => { if (event.target.value) void qa.open(event.target.value); }}>
       <option value="">New conversation</option>
       {state.threads.map((thread) => <option key={thread.id} value={thread.id}>{thread.title}</option>)}
-    </select></div>
+    </select>{state.thread && <AskThreadControls key={state.thread.id} thread={state.thread} active={!!state.activeTurn} />}</div>
+    {state.hasMoreThreads && <button type="button" onClick={() => void qa.loadMoreThreads()}>More conversations</button>}
     <div className="ask-scope">
       <span>Sources</span><button type="button" className="btn" onClick={() => setSourcesOpen(true)}>Add sources</button>
       <div className="ask-scope-chips">{state.scope?.kind === 'project' ? <span>Whole project</span> : state.scope?.sources?.map((source, index) => <span key={JSON.stringify(source)}>{scopeLabel(source)}
@@ -64,7 +66,7 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
       {state.error && <p className="ask-error" role="alert">{state.error}</p>}
       {tooManyRows && <p className="ask-error">Choose up to 1,000 rows, or change the scope to the whole sheet.</p>}
       <SelectorField projectId={projectId} label="Model" recentNamespace={`${projectId}:ask`}
-        query={{ schema_version: 'frisket.selector_choices_query.v1', subject: { kind: 'copilot', ...(state.model ? { model: state.model } : {}) } }}
+        query={{ schema_version: 'frisket.selector_choices_query.v1', subject: { kind: 'project_ask', ...(state.model ? { model: state.model } : {}) } }}
         onCurrentChoiceChange={setChoice}
         onSelect={(selected) => { if (selected.authored_selection.kind === 'model') qa.setOptions({ model: selected.authored_selection.model }); }} />
       <div className="ask-compose-box">

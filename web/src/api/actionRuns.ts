@@ -17,8 +17,8 @@ import {
   type DeriveCompositeRequest,
   type ActionExecutionRequest,
   type BackfillResult,
-  type CopilotProposal,
-  type CopilotRegisteredActionDraft,
+  type ActionProposal,
+  type GeneratedActionDraft,
   type ProjectInvocationOptions,
   type RunActionInvocationOptions,
   type RunActionLaunchResult,
@@ -83,7 +83,7 @@ export class ActionRunsApi {
   /** Last run spec by project/sheet/column for AI column drawers. */
   private colRunInfo = new Map<string, ColumnRunInfo>();
   /** One execution key per in-memory proposal, stable across a 402 retry. */
-  private proposalIdempotencyKeys = new WeakMap<CopilotProposal, string>();
+  private proposalIdempotencyKeys = new WeakMap<ActionProposal, string>();
   private readonly dependencies: ActionRunsDependencies;
   private readonly defaultProjectId: string;
 
@@ -122,12 +122,12 @@ export class ActionRunsApi {
   }
 
   private registeredProposalRequest(
-    proposal: CopilotProposal,
-    spec: CopilotRegisteredActionDraft,
+    proposal: ActionProposal,
+    spec: GeneratedActionDraft,
     confirmation?: string,
   ): RegisteredActionRequest {
     const idempotencyKey = this.proposalIdempotencyKeys.get(proposal)
-      ?? `copilot-${spec.action_id}:${globalThis.crypto.randomUUID()}`;
+      ?? `ask-${spec.action_id}:${globalThis.crypto.randomUUID()}`;
     this.proposalIdempotencyKeys.set(proposal, idempotencyKey);
     return {
       action_id: spec.action_id,
@@ -140,9 +140,9 @@ export class ActionRunsApi {
     };
   }
 
-  /** Run the exact Copilot envelope through the current catalog execution owner. */
+  /** Run the exact Ask envelope through the current catalog execution owner. */
   async runProposal(
-    proposal: CopilotProposal,
+    proposal: ActionProposal,
     confirmed = false,
     consentedPromiseSetHash?: string,
     options?: RunActionInvocationOptions,

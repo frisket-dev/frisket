@@ -126,3 +126,25 @@ describe('saved Project Ask', () => {
     expect(handle.store.get().activeTurn).toBeNull();
   });
 });
+
+it('renames and deletes the saved conversation without executing an action', async () => {
+  const api = fixture();
+  vi.mocked(api.detail).mockResolvedValue({ thread, active_turn: null, history: page });
+  vi.mocked(api.update).mockResolvedValue({ ...thread, title: 'Renamed', revision: 2 });
+  const handle = createProjectQAStore(api);
+  await handle.open(thread.id);
+  expect(await handle.rename('Renamed')).toBe(true);
+  expect(api.update).toHaveBeenCalledWith(thread.id, { title: 'Renamed', expected_revision: 1 }, expect.any(AbortSignal));
+  expect(handle.store.get().thread?.title).toBe('Renamed');
+  expect(await handle.deleteThread()).toBe(true);
+  expect(handle.store.get().thread).toBeNull();
+  expect(api.submit).not.toHaveBeenCalled();
+});
+
+it('new conversations reset optional outside research', () => {
+  const handle = createProjectQAStore(fixture());
+  handle.setOptions({ web: true, suggestActions: false });
+  handle.newThread({ kind: 'project' });
+  expect(handle.store.get().web).toBe(false);
+  expect(handle.store.get().suggestActions).toBe(true);
+});

@@ -97,7 +97,7 @@ export interface WorkspaceStores {
   previewView: PreviewViewStoreHandle;
   /** In-memory watch/notification handoff; deliberately survives sheet changes. */
   watchRunLink: WatchRunLinkStoreHandle;
-  /** Chrome: action panel/command palette/copilot popover/discover/ribbon/
+  /** Chrome: action panel/command palette/ask popover/discover/ribbon/
    *  promoted views/open split/document view + the former
    *  workspaceUiReducer remnants. Constructed WITH
    *  projectId — its initial snapshot is synchronously hydrated from

@@ -1,7 +1,5 @@
 import type { ReactNode } from 'react';
-import type { CopilotProposal } from '../api/open';
 import { useActSurfaceHandle } from '../bind/useActSurfaceHandle';
-import { CopilotPanel } from '../components/CopilotPanel';
 import { EmbeddingsPanel, type EmbeddingsPanelProps } from '../components/EmbeddingsPanel';
 import { FriendlyFiltersPanel, type FriendlyFiltersPanelProps } from '../components/FriendlyFiltersPanel';
 import { HistoryPanel, type HistoryPanelProps } from '../components/HistoryPanel';
@@ -19,7 +17,6 @@ import {
 import {
   COLUMN_RUNS_SECTION_DESCRIPTOR,
   COLUMN_SETTINGS_SECTION_DESCRIPTOR,
-  COPILOT_DESCRIPTOR,
   COST_GATE_VIEW_DESCRIPTOR,
   EMBEDDINGS_DESCRIPTOR,
   ENTITY_CONNECTIONS_VIEW_DESCRIPTOR,
@@ -120,17 +117,6 @@ interface MentionsWorkbenchPanelProps extends MentionsPanelProps {
 
 interface SearchWorkbenchPanelProps extends SearchPanelProps {
   host?: WorkbenchRegionId;
-}
-
-interface CopilotWorkbenchPanelProps {
-  host?: WorkbenchRegionId;
-  onRunProposal(proposal: CopilotProposal): Promise<boolean>;
-  onInspectProposal(proposal: CopilotProposal): void;
-  onImportNeeded?(): void;
-  onClose?(): void;
-  /** Header-only strip state, owned by the popover host. */
-  collapsed?: boolean;
-  onCollapsedChange?(collapsed: boolean): void;
 }
 
 interface NotificationsWorkbenchPanelProps {
@@ -734,31 +720,6 @@ export function SearchWorkbenchPanel({
   );
 }
 
-export function CopilotWorkbenchPanel({
-  host = 'leftSidebar',
-  onRunProposal,
-  onInspectProposal,
-  onImportNeeded,
-  onClose,
-  collapsed,
-  onCollapsedChange,
-}: CopilotWorkbenchPanelProps) {
-  const descriptor = COPILOT_DESCRIPTOR;
-  const placement = placementForHost(descriptor, host);
-
-  return (
-    <WorkbenchContributionFrame descriptor={descriptor} host={placement.host} className="">
-      <CopilotPanel
-        onRunProposal={onRunProposal}
-        onInspectProposal={onInspectProposal}
-        onImportNeeded={onImportNeeded}
-        onClose={onClose}
-        collapsed={collapsed}
-        onCollapsedChange={onCollapsedChange}
-      />
-    </WorkbenchContributionFrame>
-  );
-}
 
 export function NotificationsWorkbenchPanel({
   host = 'leftSidebar',
@@ -852,7 +813,7 @@ export function SourcesWorkbenchPanel({
   // and core/commands/first-party/importOpen use
   // (ctx.actSurface.openImportDialog()). This entry point forces the dialog
   // onto the Feed step specifically ("sources should be feed, that's what
-  // sources are for") — the generic Import entry points (ribbon, ⌘K, Copilot
+  // sources are for") — the generic Import entry points (ribbon, ⌘K, Ask
   // handoff) call openImportDialog() with no mode and keep preserving
   // whatever mode the user last had selected.
   const actSurface = useActSurfaceHandle();
