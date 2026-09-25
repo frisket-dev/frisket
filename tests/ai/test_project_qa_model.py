@@ -6,11 +6,13 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from pydantic import BaseModel
+from pydantic_ai import Agent
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 
 from frisket.ai.llm import ModelRouter
 from frisket.ai.llm.structured import FrisketRouterModel
-from frisket.ai.llm.types import LLMRequest, LLMResponse
+from frisket.ai.llm.types import LLMRequest, LLMResponse, SchemaViolation
 from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.engine.runner import ProviderSpendCapExceeded
@@ -75,6 +77,18 @@ class _AskAdapter:
         )
 
 
+class _SchemaFaultRouter:
+    def __init__(self, receipt: LLMResponse) -> None:
+        self.receipt = receipt
+
+    async def complete_transport(self, *args: Any, **kwargs: Any) -> LLMResponse:
+        raise SchemaViolation("invalid provider output", wire_calls=[self.receipt])
+
+
+class _TypedOutput(BaseModel):
+    text: str
+
+
 def test_schema_only_output_keeps_forced_output_mapping_over_tool_metadata() -> None:
     model = FrisketRouterModel(
         ModelRouter(cache=None, cache_mode="off", use_env_keys=False), "anthropic/test"
@@ -95,6 +109,33 @@ def test_schema_only_output_keeps_forced_output_mapping_over_tool_metadata() -> 
     [part] = response.parts
     assert part.tool_name == "emit"
     assert part.args_as_dict() == {"text": "typed"}
+
+
+def test_schema_failure_accounts_attached_provider_receipt_once() -> None:
+    receipt = LLMResponse(
+        content="not typed output",
+        data=None,
+        tokens_in=11,
+        tokens_out=4,
+        cost=0.01,
+        model="anthropic/test",
+    )
+    accounted: list[LLMResponse] = []
+
+    async def on_response(response: LLMResponse) -> None:
+        accounted.append(response)
+
+    model = FrisketRouterModel(
+        _SchemaFaultRouter(receipt),  # type: ignore[arg-type]
+        "anthropic/test",
+        on_response=on_response,
+    )
+    agent = Agent(model, output_type=_TypedOutput, retries=0)
+    with pytest.raises(UnexpectedModelBehavior):
+        asyncio.run(agent.run("Return typed output"))
+    assert model.wire_calls == [receipt]
+    assert model.attempts == 1
+    assert accounted == [receipt]
 
 
 def _project_turn(

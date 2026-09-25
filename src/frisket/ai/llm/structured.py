@@ -296,10 +296,8 @@ class FrisketRouterModel(Model):
         self.translated: list[SchemaViolation] = []
         # ONE counter for every wire call this run makes — successes AND
         # adapter-origin schema-fault translations both hit the wire, so both
-        # count. `len(wire_calls)` alone undercounts: a translated fault never
-        # reaches `wire_calls` (it raises before that append), so a run with 1
-        # success + 1 translated fault previously reported attempts=1 for 2
-        # actual wire calls. `attempts` is the ONLY correct source for this.
+        # count. Structural schema faults may not carry a response envelope,
+        # so `attempts` is the ONLY correct source for every actual request.
         self.attempts: int = 0
         super().__init__(profile=self._profile_from_capability(capability))
 
@@ -362,7 +360,16 @@ class FrisketRouterModel(Model):
             # (it only retries ModelRetry / validation errors) — translate so
             # chaos/malformed-JSON faults compose with the repair loop.
             self.translated.append(sv)
-            self.attempts += 1  # this WAS a wire call — it just faulted.
+            attached = [
+                response
+                for response in sv.wire_calls
+                if all(response is not prior for prior in self.wire_calls)
+            ]
+            self.wire_calls.extend(attached)
+            self.attempts += max(1, len(attached))
+            if self._on_response is not None:
+                for response in attached:
+                    await self._on_response(response)
             raise ModelRetry(f"invalid structured output: {sv}") from sv
         self.wire_calls.append(resp)
         self.attempts += 1
