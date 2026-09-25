@@ -58,6 +58,10 @@ def test_connection_is_stable_and_child_receives_only_internal_credentials(
         "REQUESTS_CA_BUNDLE": "/certs/company.pem",
         "HF_HUB_OFFLINE": "1",
         "LANG": "en_US.UTF-8",
+        "HOME": "/normal/home",
+        "USERPROFILE": "C:/Users/reporter",
+        "APPDATA": "C:/Users/reporter/AppData/Roaming",
+        "LOCALAPPDATA": "C:/Users/reporter/AppData/Local",
     }
     process = _Process()
     launch = {}
@@ -80,7 +84,10 @@ def test_connection_is_stable_and_child_receives_only_internal_credentials(
     assert owned.url == url
     assert launch["env"][model_server.LOCAL_MODELS_TOKEN_ENV] == token
     assert launch["env"]["HF_HOME"] == str(tmp_path / "cache")
-    assert launch["env"]["HOME"] == str(tmp_path / "home")
+    assert launch["env"]["HOME"] == "/normal/home"
+    assert launch["env"]["USERPROFILE"] == "C:/Users/reporter"
+    assert launch["env"]["APPDATA"].endswith("AppData/Roaming")
+    assert launch["env"]["LOCALAPPDATA"].endswith("AppData/Local")
     assert launch["env"]["PYTHONNOUSERSITE"] == "1"
     assert launch["env"]["HTTPS_PROXY"] == "http://proxy.example"
     assert launch["env"]["REQUESTS_CA_BUNDLE"] == "/certs/company.pem"

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
+import shutil
 import signal
 import subprocess
+import tempfile
 
 from frisket.runtime.launch import PythonRuntime
 
@@ -52,17 +55,53 @@ def spawn_service(
         argv = guarded_argv(argv, grace_seconds=8)
     elif os.name == "nt":
         options["creationflags"] = subprocess.CREATE_NO_WINDOW
-        # Unlike sandbox subprocesses, app services do not have a separate
-        # ProcessTreeController. Route them through the existing PowerShell
-        # kill-on-close Job guardian rather than leaving descendants behind.
+        # Launch the existing kill-on-close Job guardian directly. Keeping its
+        # stop/proof directory lets stop_service wait for tree cleanup rather
+        # than merely observing an intermediate Python wrapper exit.
+        control = Path(tempfile.mkdtemp(prefix="frisket-owned-"))
+        config = control / "launch.json"
+        stop = control / "stop"
+        proof = control / "clean"
+        config.write_text(
+            json.dumps(
+                {
+                    "command": argv[0],
+                    "args": argv[1:],
+                    "parentPid": os.getpid(),
+                    "ownerPid": os.getpid(),
+                    "stop": str(stop),
+                    "proof": str(proof),
+                }
+            ),
+            encoding="utf-8",
+        )
+        selected_env = env if env is not None else os.environ
+        system_root = selected_env.get("SYSTEMROOT") or selected_env.get("SystemRoot")
+        if not system_root:
+            shutil.rmtree(control, ignore_errors=True)
+            raise RuntimeError("Windows service guardian requires SYSTEMROOT")
+        powershell = (
+            Path(system_root) / "System32/WindowsPowerShell/v1.0/powershell.exe"
+        )
         argv = [
-            str(PythonRuntime.current().executable),
-            "-I",
-            str(Path(__file__).with_name("_guard.py").resolve()),
-            str(os.getpid()),
-            "8",
-            *argv,
+            str(powershell),
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(Path(__file__).with_name("_guard_windows.ps1").resolve()),
+            "-Config",
+            str(config),
         ]
+        try:
+            process = subprocess.Popen(argv, **options)
+        except BaseException:
+            shutil.rmtree(control, ignore_errors=True)
+            raise
+        process._frisket_guard_control = (control, stop, proof)  # type: ignore[attr-defined]
+        return process
     return subprocess.Popen(argv, **options)
 
 
@@ -82,6 +121,26 @@ def stop_guard(process: subprocess.Popen, *, timeout: float = 1.0) -> None:
     def verify_exit() -> None:
         if os.name == "posix" and not guard_exit_proves_cleanup(process.returncode):
             raise RuntimeError("worker guardian was killed before proving shutdown")
+
+    control = getattr(process, "_frisket_guard_control", None)
+    if os.name == "nt" and control is not None:
+        directory, stop, proof = control
+        try:
+            if process.poll() is None:
+                stop.touch()
+            process.wait(timeout=timeout)
+            if not proof.is_file():
+                raise RuntimeError(
+                    "Windows service guardian exited without cleanup proof"
+                )
+            process._frisket_guard_control = None  # type: ignore[attr-defined]
+            return
+        except subprocess.TimeoutExpired:
+            process.terminate()
+            process.wait(timeout=1)
+            raise RuntimeError("Windows service guardian did not complete shutdown")
+        finally:
+            shutil.rmtree(directory, ignore_errors=True)
 
     if process.poll() is not None:
         verify_exit()

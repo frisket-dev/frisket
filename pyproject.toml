@@ -195,8 +195,8 @@ standard = [
 ]
 
 # Everything Frisket can install from Python metadata. This is intentionally
-# the large/platform-fragile tier: Docling pulls a torch-class model stack,
-# llama-cpp-python may build locally, and FollowTheMoney may build PyICU.
+# the large/platform-fragile tier: llama-cpp-python may build locally and
+# FollowTheMoney may build PyICU. Docling uses its separately managed runtime.
 complete = [
     # standard
     "spacy>=3.8,<3.9",
@@ -212,8 +212,7 @@ complete = [
     "playwright>=1.40",
     # hosted deployment tooling
     "modal>=1.4.0",
-    # models + translate-gguf + entities
-    "docling>=2.97.0",
+    # translate-gguf + entities
     "llama-cpp-python>=0.3",
     "followthemoney>=4.9.2",
 ]

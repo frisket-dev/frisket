@@ -120,9 +120,11 @@ def test_docling_engine_setup_waits_for_server_before_marking_done(
             is_final_attempt=True,
         )
         if readiness == "failed":
-            with pytest.raises(RuntimeError):
+            with pytest.raises(RuntimeError, match="model_server_start_failed"):
                 engine_setup.run_engine_setup(**kwargs)
-            assert store.get(queue.engine, row.id).status == store.STATUS_FAILED
+            failed = store.get(queue.engine, row.id)
+            assert failed.status == store.STATUS_FAILED
+            assert "Docling is installed" in failed.error_message
         else:
             result = engine_setup.run_engine_setup(**kwargs)
             expected = "done" if readiness == "ready" else "cancelled"

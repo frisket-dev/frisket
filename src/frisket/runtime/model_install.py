@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
 from pathlib import Path
 
@@ -18,10 +18,65 @@ from frisket.runtime.supervisor import spawn_service, stop_service
 
 _RUNTIME_DIR_ENV = "FRISKET_MODEL_RUNTIME_DIR"
 _READY_MARKER = ".ready"
+_CHILD_ENV_NAMES = frozenset(
+    {
+        "ALL_PROXY",
+        "APPDATA",
+        "CURL_CA_BUNDLE",
+        "COMSPEC",
+        "HOME",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "LOCALAPPDATA",
+        "NO_PROXY",
+        "PATH",
+        "PATHEXT",
+        "PYTHONUTF8",
+        "PYTHONIOENCODING",
+        "REQUESTS_CA_BUNDLE",
+        "SSL_CERT_DIR",
+        "SSL_CERT_FILE",
+        "SYSTEMROOT",
+        "TEMP",
+        "TMP",
+        "TMPDIR",
+        "TZ",
+        "USERPROFILE",
+        "WINDIR",
+        "all_proxy",
+        "http_proxy",
+        "https_proxy",
+        "no_proxy",
+        # Explicit offline controls used by the native model runtime.
+        "HF_DATASETS_OFFLINE",
+        "HF_HUB_DISABLE_TELEMETRY",
+        "HF_HUB_OFFLINE",
+        "TRANSFORMERS_OFFLINE",
+    }
+)
 
 
 class ModelInstallCancelled(Exception):
     """Raised after cancellation has stopped an active installer process."""
+
+
+def model_child_environment(
+    environ: Mapping[str, str] | None = None,
+    *,
+    installer: bool = False,
+) -> dict[str, str]:
+    """Return the narrow environment shared by installer and model children."""
+
+    source = os.environ if environ is None else environ
+    return {
+        name: value
+        for name, value in source.items()
+        if name in _CHILD_ENV_NAMES
+        or (installer and name.startswith("UV_") and not name.startswith("UV_PUBLISH_"))
+    }
 
 
 def runtime_dir() -> Path:
@@ -76,6 +131,7 @@ def _probe_install() -> bool:
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            env=model_child_environment(),
             check=False,
             timeout=60,
         )
@@ -125,6 +181,7 @@ def _run_uv(
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        env=model_child_environment(installer=True),
     )
     while process.poll() is None:
         if should_cancel():
@@ -191,6 +248,7 @@ __all__ = [
     "install_docling",
     "install_lock",
     "is_installed",
+    "model_child_environment",
     "runtime_dir",
     "runtime_python",
 ]

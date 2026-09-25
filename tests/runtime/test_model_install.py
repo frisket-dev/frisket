@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import subprocess
 from types import SimpleNamespace
 
 import pytest
@@ -27,6 +28,70 @@ def test_uv_command_uses_packaged_binary_when_path_has_none(monkeypatch) -> None
     )
 
     assert model_install._uv_command() == ["/package/bin/uv"]
+
+
+def test_model_child_environment_is_allowlisted() -> None:
+    child = model_install.model_child_environment(
+        {
+            "PATH": "/tools",
+            "UV_CACHE_DIR": "/cache",
+            "UV_OVERRIDE": "/override.txt",
+            "UV_PUBLISH_TOKEN": "publish-secret",
+            "HTTPS_PROXY": "http://proxy.test",
+            "SSL_CERT_FILE": "/ca.pem",
+            "HF_HUB_OFFLINE": "1",
+            "PYTHONPATH": "/untrusted",
+            "OPENAI_API_KEY": "provider-secret",
+            "FRISKET_LOCAL_MODELS_TOKEN": "managed-secret",
+            "DATABASE_URL": "app-secret",
+        },
+        installer=True,
+    )
+
+    assert child == {
+        "PATH": "/tools",
+        "UV_CACHE_DIR": "/cache",
+        "UV_OVERRIDE": "/override.txt",
+        "HTTPS_PROXY": "http://proxy.test",
+        "SSL_CERT_FILE": "/ca.pem",
+        "HF_HUB_OFFLINE": "1",
+    }
+
+
+def test_uv_and_probe_receive_only_allowlisted_environment(monkeypatch) -> None:
+    monkeypatch.setenv("UV_OVERRIDE", "/override.txt")
+    monkeypatch.setenv("OPENAI_API_KEY", "provider-secret")
+    monkeypatch.setenv("PYTHONPATH", "/untrusted")
+    seen: list[dict[str, str]] = []
+
+    class CompletedProcess:
+        returncode = 0
+
+        def poll(self):
+            return 0
+
+    def spawn(*_args, **kwargs):
+        seen.append(kwargs["env"])
+        return CompletedProcess()
+
+    def run(*_args, **kwargs):
+        seen.append(kwargs["env"])
+        return subprocess.CompletedProcess([], 0)
+
+    monkeypatch.setattr(model_install, "spawn_service", spawn)
+    monkeypatch.setattr(model_install.subprocess, "run", run)
+    model_install._run_uv(
+        ["uv", "--version"],
+        should_cancel=lambda: False,
+        progress=lambda _message: None,
+    )
+    assert model_install._probe_install() is True
+
+    assert len(seen) == 2
+    assert seen[0]["UV_OVERRIDE"] == "/override.txt"
+    assert "UV_OVERRIDE" not in seen[1]
+    assert all("OPENAI_API_KEY" not in env for env in seen)
+    assert all("PYTHONPATH" not in env for env in seen)
 
 
 def test_install_uses_isolated_runtime_and_current_models_extra(

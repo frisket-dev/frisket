@@ -14,7 +14,12 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable, MutableMapping
 
-from frisket.runtime.model_install import is_installed, runtime_dir, runtime_python
+from frisket.runtime.model_install import (
+    is_installed,
+    model_child_environment,
+    runtime_dir,
+    runtime_python,
+)
 from frisket.runtime.supervisor import spawn_service, stop_service
 
 LOCAL_MODELS_URL_ENV = "FRISKET_LOCAL_MODELS_URL"
@@ -25,53 +30,12 @@ _RETRY_SECONDS = 30.0
 
 logger = logging.getLogger(__name__)
 
-# Environment inherited by the trusted native model runtime. Provider keys,
-# app configuration, Python injection paths, and the user's general home are
-# intentionally absent. Proxy and CA configuration is needed for first-use
-# model downloads; offline flags let locked-down installations fail locally.
-_CHILD_ENV_ALLOWLIST = (
-    "PATH",
-    "SYSTEMROOT",
-    "WINDIR",
-    "COMSPEC",
-    "PATHEXT",
-    "TEMP",
-    "TMP",
-    "TMPDIR",
-    "LANG",
-    "LC_ALL",
-    "LC_CTYPE",
-    "TZ",
-    "PYTHONUTF8",
-    "PYTHONIOENCODING",
-    "HTTP_PROXY",
-    "HTTPS_PROXY",
-    "ALL_PROXY",
-    "NO_PROXY",
-    "http_proxy",
-    "https_proxy",
-    "all_proxy",
-    "no_proxy",
-    "SSL_CERT_FILE",
-    "SSL_CERT_DIR",
-    "REQUESTS_CA_BUNDLE",
-    "CURL_CA_BUNDLE",
-    "HF_HUB_OFFLINE",
-    "HF_DATASETS_OFFLINE",
-    "TRANSFORMERS_OFFLINE",
-    "HF_HUB_DISABLE_TELEMETRY",
-)
-
 
 def _child_environment(source: MutableMapping[str, str]) -> dict[str, str]:
     root = runtime_dir()
-    environment = {
-        name: source[name] for name in _CHILD_ENV_ALLOWLIST if name in source
-    }
+    environment = model_child_environment(source)
     environment.update(
         {
-            "HOME": str(root / "home"),
-            "USERPROFILE": str(root / "home"),
             "HF_HOME": str(root / "cache"),
             "PYTHONNOUSERSITE": "1",
         }
@@ -175,7 +139,7 @@ class LocalModelServer:
                     stderr=sys.stderr,
                     env=child_env,
                 )
-            except OSError:
+            except (OSError, RuntimeError):
                 logger.exception("local_model_server_start_failed")
                 self._next_attempt = time.monotonic() + _RETRY_SECONDS
                 return False
@@ -191,9 +155,13 @@ class LocalModelServer:
             if self._process is process:
                 self._process = None
             self._next_attempt = time.monotonic() + _RETRY_SECONDS
-        stop_service(process)
+        try:
+            stop_service(process)
+        except RuntimeError:
+            logger.exception("local_model_server_cleanup_failed")
         logger.error(
-            "local model server failed authenticated readiness; will retry",
+            "Local model server did not become ready; will retry. "
+            "If this persists, restart Frisket to choose a fresh port.",
             extra={"event": "local_model_server_start_failed", "url": self.url},
         )
         return False

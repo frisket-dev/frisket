@@ -163,3 +163,48 @@ def test_spawn_service_job_dies_with_application_parent(tmp_path):
                 )
         if parent.poll() is None:
             parent.kill()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="native Windows Job Objects")
+def test_stop_service_waits_for_job_tree_cleanup(tmp_path):
+    from frisket.runtime.supervisor import spawn_service, stop_service
+
+    pids = tmp_path / "stop-pids.json"
+    target = tmp_path / "stop-target.py"
+    target.write_text(
+        "import json,os,subprocess,sys,time\n"
+        "child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'])\n"  # subprocess-boundary: whole-tree teardown proof.
+        "open(sys.argv[1],'w').write(json.dumps([os.getpid(),child.pid]))\n"
+        "time.sleep(60)\n"
+    )
+    process = spawn_service(
+        [
+            sys.executable,  # subprocess-boundary: synchronous Windows Job teardown.
+            str(target),
+            str(pids),
+        ],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    owned_pids: list[int] = []
+    try:
+        deadline = time.monotonic() + 10
+        while not pids.exists():
+            if time.monotonic() >= deadline:
+                pytest.fail("guarded service did not start")
+            time.sleep(0.02)
+        owned_pids = json.loads(pids.read_text())
+        stop_service(process)
+        assert all(not _windows_pid_alive(pid) for pid in owned_pids)
+        stop_service(process)  # Repeated shutdown is harmless.
+    finally:
+        for pid in owned_pids:
+            if _windows_pid_alive(pid):
+                subprocess.run(
+                    ["taskkill", "/PID", str(pid), "/F", "/T"],
+                    capture_output=True,
+                    check=False,
+                )
+        if process.poll() is None:
+            process.kill()

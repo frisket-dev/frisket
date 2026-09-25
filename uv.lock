@@ -1582,7 +1582,6 @@ cloud = [
 complete = [
     { name = "av" },
     { name = "ctranslate2" },
-    { name = "docling" },
     { name = "faster-whisper" },
     { name = "followthemoney" },
     { name = "huggingface-hub" },
@@ -1660,7 +1659,6 @@ requires-dist = [
     { name = "ctranslate2", marker = "extra == 'translate'", specifier = ">=4" },
     { name = "dateparser", specifier = ">=1.4.0" },
     { name = "ddgs", specifier = ">=9.14.4" },
-    { name = "docling", marker = "extra == 'complete'", specifier = ">=2.97.0" },
     { name = "docling", marker = "extra == 'models'", specifier = ">=2.97.0" },
     { name = "fastapi", specifier = ">=0.136.3" },
     { name = "fastembed", specifier = ">=0.4" },

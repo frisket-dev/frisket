@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 STANDARD_COMPONENTS = ("ner-spacy", "asr", "translate", "pdf", "browser")
-COMPLETE_ADDITIONS = ("cloud", "models", "translate-gguf", "entities")
+COMPLETE_ADDITIONS = ("cloud", "translate-gguf", "entities")
 
 
 def _project() -> dict:
@@ -85,9 +85,9 @@ def test_complete_is_standard_plus_the_platform_fragile_components() -> None:
     }
 
     assert set(extras["complete"]) == expected
-    assert {"docling", "llama-cpp-python", "followthemoney"} <= _requirement_names(
-        extras["complete"]
-    )
+    names = _requirement_names(extras["complete"])
+    assert {"llama-cpp-python", "followthemoney"} <= names
+    assert "docling" not in names
 
 
 def test_base_runtime_modules_import_in_the_default_test_environment() -> None:

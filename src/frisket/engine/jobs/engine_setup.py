@@ -108,8 +108,10 @@ def _run_docling_setup(
     model_pull_store.update_progress(
         engine, pull_id, phase="provisioning", total_bytes=None, completed_bytes=0
     )
+    installed = False
     try:
         install_docling(should_cancel=should_cancel, progress=lambda _message: None)
+        installed = True
         url = os.environ.get(LOCAL_MODELS_URL_ENV)
         token = os.environ.get(LOCAL_MODELS_TOKEN_ENV)
         if not url or not token:
@@ -125,8 +127,15 @@ def _run_docling_setup(
         raise _fail(
             engine,
             pull_id,
-            error_code="engine_setup_unavailable",
-            message="could not install the native Docling model server",
+            error_code=(
+                "model_server_start_failed" if installed else "engine_setup_unavailable"
+            ),
+            message=(
+                "Docling is installed, but its local server did not start. "
+                "Restart Frisket and retry; check the local server log if it persists."
+                if installed
+                else "could not install the native Docling model server"
+            ),
             terminal=False,
             is_final_attempt=is_final_attempt,
         ) from exc
