@@ -536,7 +536,7 @@ export function useWorkspaceModel({
 
   const selectSheet = useCallback(
     (id: string) => {
-      askNavigation.commit();
+      askNavigation.back();
       writeRoute({
         projectId: project.id,
         sheetId: id,
@@ -545,7 +545,7 @@ export function useWorkspaceModel({
         panel: null,
       });
     },
-    [project.id, writeRoute, askNavigation.commit],
+    [project.id, writeRoute, askNavigation.back],
   );
 
   const sheet = sheets.find((candidate) => candidate.id === activeSheetId);
