@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 from fastapi.testclient import TestClient
 
 import frisket
+import frisket_models
 from frisket.server.app import create_app
 from frisket.server.static_serving import packaged_static_dir
 
@@ -69,6 +70,16 @@ def _assert_installed_import(checkout_root: Path) -> Path:
 
 def run_probe(*, checkout_root: Path, workspace: Path) -> None:
     package_path = _assert_installed_import(checkout_root)
+    model_server_path = Path(frisket_models.__file__).resolve()
+    _assert(
+        "site-packages" in model_server_path.parts,
+        f"model server import is not under site-packages: {model_server_path}",
+    )
+    _assert(
+        not model_server_path.is_relative_to(checkout_root.resolve()),
+        "model server imported from source checkout instead of installed wheel: "
+        f"{model_server_path}",
+    )
     static_dir = packaged_static_dir()
     _assert(static_dir is not None, "installed wheel has no packaged static directory")
     _assert(

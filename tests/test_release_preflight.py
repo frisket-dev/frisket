@@ -59,6 +59,7 @@ def test_distribution_name_keeps_frisket_import_module():
     assert project["tool"]["uv"]["build-backend"]["source-include"] == [
         "src/frisket/web_static/**"
     ]
+    assert project["tool"]["uv"]["build-backend"]["data"] == {"purelib": "sidecar/src"}
 
 
 def test_release_preflight_recognizes_only_the_explicit_frontend_host_package(

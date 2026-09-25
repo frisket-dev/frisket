@@ -67,7 +67,21 @@ Codex claims it requires Linux, Docker Engine, and Docker Compose. It installs F
 
 Frisket is split into a few parts, including a lightweight server and a heavier sidecar to optionally offload intensive work. As a result, different installs have slightly different features.
 
-For example, for OCR local/team installs can add [Surya 2](https://www.datalab.to/blog/surya-2) natively with the sidecar's `ocr` extra and an upstream-supported inference backend. The standard sidecar container and Cloud uses [dots.mocr](https://github.com/studio-dots-ai/dots.ocr) instead. **I haven't set the local sidecar up to easily publish yet** but I promise you can ask your agentic coding environment and it can walk you through the process.
+**Local Docling needs no Docker setup.** In Solo mode, choose Docling in the
+PDF-to-Markdown engine picker and click **Download and set up**. Frisket installs its CPU runtime
+in a private environment in your user cache, then starts the model server.
+Later launches start the installed server automatically; models load on first
+use, which may download model files and take longer. Documents stay on your
+machine. The server is shared by the app and its background jobs and stops when
+Frisket exits. Cancelling an action stops waiting and submitting further documents;
+a conversion already running on the server may finish, but its result is discarded.
+
+This managed installation currently covers Docling only. Existing native engines
+and operator-configured model servers still work as before. For example, for OCR
+local/team installs can add [Surya 2](https://www.datalab.to/blog/surya-2) with the
+sidecar's `ocr` extra and an upstream-supported inference backend. The standard
+sidecar container and Cloud use [dots.mocr](https://github.com/studio-dots-ai/dots.ocr)
+instead.
 
 For the models included in the standard sidecar container, build the image yourself by downloading the repo and running the following commands from the repo root.
 

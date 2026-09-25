@@ -108,7 +108,7 @@ function DownloadSetupPanel({ setup, activeOperation, onChanged }: {
   const matching = pull?.model === setup.setup_ref;
   const active = pull?.status === 'pending' || pull?.status === 'running';
   return <section className="selector-setup">
-    {!setup.can_mutate && <p className="settings-help">Only an authorized owner can start or cancel this download.</p>}
+    {!setup.can_mutate && <p className="settings-help">Only an authorized owner can start or cancel this setup operation.</p>}
     {pull && !matching && <p className="settings-help">Another setup operation is active.</p>}
     {pull && <ModelPullProgress key={`${pull.id}:${pull.status}`} pull={pull} readOnly={!setup.can_mutate} fetchPull={fetchPull} cancelPull={cancelPull}
       onDone={(fresh) => { if (mounted.current) { setPull(fresh); onChanged(); } }} onFailed={(fresh) => { if (mounted.current) { setPull(fresh); onChanged(); } }} />}

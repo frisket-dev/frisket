@@ -538,9 +538,11 @@ def _project_execution_composition_engines(
             use_gateway_declaration = (
                 declared_gateway_fallback and target.id == "models-gateway"
             )
+            use_managed_local_declaration = target.id == "local-models"
             if (
                 offering is not None
                 or use_gateway_declaration
+                or use_managed_local_declaration
                 or capability == "transcribe"
             ):
                 available, error = projected_liveness(target.id)
@@ -576,10 +578,12 @@ def _project_execution_composition_engines(
             use_gateway_declaration = (
                 declared_gateway_fallback and preferred_target.id == "models-gateway"
             )
+            use_managed_local_declaration = preferred_target.id == "local-models"
             if (
                 capability == "transcribe"
                 or preferred_offer is not None
                 or use_gateway_declaration
+                or use_managed_local_declaration
             ):
                 available, error = projected_liveness(preferred_target.id)
                 engine_update = {"available": available}

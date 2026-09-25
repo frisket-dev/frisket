@@ -71,6 +71,9 @@ dependencies = [
     "sqlalchemy>=2.0.50",
     "trafilatura>=2.1.0",
     "uvicorn[standard]>=0.49.0",
+    # Native optional-engine setup uses uv's Python-distributed binary when a
+    # desktop-bundled or operator-provided uv is not already on PATH.
+    "uv>=0.11.29",
     "yt-dlp[default]>=2026.1.1",
     "dateparser>=1.4.0",
     "feedparser>=6.0.12",
@@ -192,8 +195,8 @@ standard = [
 ]
 
 # Everything Frisket can install from Python metadata. This is intentionally
-# the large/platform-fragile tier: Docling pulls a torch-class model stack,
-# llama-cpp-python may build locally, and FollowTheMoney may build PyICU.
+# the large/platform-fragile tier: llama-cpp-python may build locally and
+# FollowTheMoney may build PyICU. Docling uses its separately managed runtime.
 complete = [
     # standard
     "spacy>=3.8,<3.9",
@@ -209,8 +212,7 @@ complete = [
     "playwright>=1.40",
     # hosted deployment tooling
     "modal>=1.4.0",
-    # models + translate-gguf + entities
-    "docling>=2.97.0",
+    # translate-gguf + entities
     "llama-cpp-python>=0.3",
     "followthemoney>=4.9.2",
 ]
@@ -222,6 +224,9 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 module-name = "frisket"
 source-include = ["src/frisket/web_static/**"]
+# Install the canonical lightweight native server source beside the core
+# package; its model dependencies remain opt-in through ``models``.
+data = { purelib = "sidecar/src" }
 
 [tool.uv]
 exclude-newer = "1 week"

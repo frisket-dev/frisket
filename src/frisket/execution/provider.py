@@ -24,6 +24,7 @@ implement it; ``resolve`` degrades gracefully when absent):
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from math import isfinite
@@ -545,6 +546,7 @@ def open_execution_composition(
     context: ExecutionCompositionContext,
     *,
     models_gateway_resolver: Callable[[], ModelsGatewayConnection | None] | None = None,
+    include_managed_local_models: bool | None = None,
 ) -> ExecutionComposition:
     """The open-edition production composition for one effective router.
 
@@ -553,7 +555,10 @@ def open_execution_composition(
     probe observes the same credential layer dispatch will use, including
     request-scoped project/org overlays.
     """
-    from frisket.execution.definitions import StaticExecutionTargetProvider
+    from frisket.execution.definitions import (
+        StaticExecutionTargetProvider,
+        managed_local_models_configured,
+    )
 
     del context  # Open composition has no edition-owned facts to consume.
 
@@ -567,6 +572,11 @@ def open_execution_composition(
             secrets=project,
             router=router,
             models_gateway_resolver=models_gateway_resolver,
+            include_managed_local_models=(
+                managed_local_models_configured(os.environ)
+                if include_managed_local_models is None
+                else include_managed_local_models
+            ),
         ),
         credential_use_context=CredentialUseContext.open(),
     )

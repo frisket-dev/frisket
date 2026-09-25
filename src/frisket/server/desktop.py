@@ -178,6 +178,7 @@ def _serve(config: DesktopLaunchConfig, *, ready_stdout: TextIO) -> int:
     secret_key = workspace / ".frisket" / "secrets" / "master.key"
     state = StandaloneRuntimeState()
     worker: subprocess.Popen | None = None
+    model_server = None
     watcher: threading.Thread | None = None
     sock: socket.socket | None = None
     lock = StandaloneLifetimeLock(workspace)
@@ -186,6 +187,9 @@ def _serve(config: DesktopLaunchConfig, *, ready_stdout: TextIO) -> int:
         os.environ["FRISKET_SECRETS_KEY_FILE"] = str(secret_key)
         configure_logging(stream=sys.stderr, force=True)
         start_pricing_refresh()
+        from frisket.runtime.model_server import LocalModelServer
+
+        model_server = LocalModelServer()
         app = create_app(workspace, static_dir=static_dir)
         app.state.standalone_runtime = state
         gated_app = DesktopTokenGate(app, config.token)
@@ -196,6 +200,7 @@ def _serve(config: DesktopLaunchConfig, *, ready_stdout: TextIO) -> int:
             stderr=sys.stderr,
         )
         state.worker_pid = worker.pid
+        model_server.start()
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(("127.0.0.1", 0))
@@ -246,12 +251,16 @@ def _serve(config: DesktopLaunchConfig, *, ready_stdout: TextIO) -> int:
             stop_service(worker)
         finally:
             try:
-                if watcher is not None:
-                    watcher.join(timeout=1)
-                if sock is not None:
-                    sock.close()
+                if model_server is not None:
+                    model_server.stop()
             finally:
-                lock.release()
+                try:
+                    if watcher is not None:
+                        watcher.join(timeout=1)
+                    if sock is not None:
+                        sock.close()
+                finally:
+                    lock.release()
 
 
 def main() -> int:

@@ -5,7 +5,11 @@ $ErrorActionPreference = 'Stop'
 # no application code can spawn descendants before it belongs to our Job.
 # Neither PowerShell nor C# reads the inherited target protocol streams.
 try {
-    $launch = Get-Content -LiteralPath $Config -Raw -Encoding UTF8 | ConvertFrom-Json
+    # Do not auto-discover modules from an inherited PSModulePath. Python may
+    # itself have been launched by PowerShell 7, whose modules are incompatible
+    # with this inbox Windows PowerShell 5.1 guardian.
+    Import-Module "$PSHOME\Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1"
+    $launch = [System.IO.File]::ReadAllText($Config) | ConvertFrom-Json
     Add-Type -TypeDefinition @'
 using System;
 using System.ComponentModel;
@@ -149,8 +153,9 @@ public static class FrisketWindowsGuard {
         ![System.IO.Path]::IsPathRooted($launch.stop) -or ![System.IO.Path]::IsPathRooted($launch.proof)) {
         throw 'invalid Windows runtime configuration'
     }
-    exit [FrisketWindowsGuard]::Run([string]$launch.command, [string[]]$launch.args,
+    $result = [FrisketWindowsGuard]::Run([string]$launch.command, [string[]]$launch.args,
         [uint32]$launch.parentPid, [uint32]$launch.ownerPid, [string]$launch.stop, [string]$launch.proof)
+    exit $result
 } catch {
     [Console]::Error.WriteLine('Windows runtime guardian failed: ' + $_.Exception.Message)
     exit 125
