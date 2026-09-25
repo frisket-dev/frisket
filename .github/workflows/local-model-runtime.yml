@@ -10,6 +10,7 @@ on:
       - 'src/frisket/runtime/_guard*'
       - 'sidecar/src/frisket_models/local.py'
       - 'sidecar/src/frisket_models/engines.py'
+      - 'sidecar/pyproject.toml'
       - 'scripts/smoke/local_model_server.py'
       - 'pyproject.toml'
 
@@ -53,11 +54,6 @@ jobs:
           subprocess.run(["uv", "venv", str(root / "app")], check=True)
           python = root / "app" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
           subprocess.run(["uv", "pip", "install", "--python", str(python), str(wheel)], check=True)
-          # Test the unpublished wheel, never an older PyPI artifact with the
-          # same version. This is uv's ordinary override, not product plumbing.
-          override = root / "override.txt"
-          override.write_text(f"frisket-data[models] @ {wheel.as_uri()}\n")
-          os.environ["UV_OVERRIDE"] = str(override)
           os.environ["FRISKET_MODEL_RUNTIME_DIR"] = str(root / "runtime")
           os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
           os.chdir(root)

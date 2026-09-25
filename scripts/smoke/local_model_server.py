@@ -14,8 +14,6 @@ import httpx
 from PIL import Image, ImageDraw
 from PIL import ImageFont
 
-from frisket_models.local import create_app
-
 
 def _scanned_pdf(path: Path) -> None:
     image = Image.new("RGB", (1400, 500), "white")
@@ -56,7 +54,11 @@ def main() -> None:
 
     server = None
     if args.lifecycle_install:
+        import importlib.util
+        import subprocess
+
         from frisket.runtime.model_install import install_docling
+        from frisket.runtime.model_install import runtime_python
         from frisket.runtime.model_server import LocalModelServer
 
         server = LocalModelServer(environ=os.environ)
@@ -64,6 +66,17 @@ def main() -> None:
         # after application startup; no browser-owned continuation is needed.
         server.start()
         install_docling(should_cancel=lambda: False, progress=print)
+        assert importlib.util.find_spec("frisket_models") is None
+        subprocess.run(
+            [
+                str(runtime_python()),
+                "-I",
+                "-c",
+                "import importlib.util; import frisket_models.local; "
+                "assert importlib.util.find_spec('frisket') is None",
+            ],
+            check=True,
+        )
         args.url = server.url
         args.token = os.environ["FRISKET_LOCAL_MODELS_TOKEN"]
         deadline = time.monotonic() + 30
@@ -93,6 +106,8 @@ def main() -> None:
             if args.url:
                 client_context = httpx.Client(base_url=args.url, timeout=120)
             else:
+                from frisket_models.local import create_app
+
                 os.environ["FRISKET_LOCAL_MODELS_TOKEN"] = token
                 client_context = TestClient(create_app())
             with client_context as client:

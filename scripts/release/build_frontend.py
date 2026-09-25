@@ -3,7 +3,7 @@
 
 `frisket <workspace>` is meant to be one command: a `pip`/`uvx` install must
 carry the built SPA so the local server can serve it (onboard-local-ui-serving-v1).
-uv_build (our build backend, pyproject.toml [build-system]) has no frontend
+Our build configuration (pyproject.toml) has no frontend
 build hook, so this script is the explicit "build the frontend first" step the
 release flow runs before `uv build`:
 

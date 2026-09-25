@@ -282,7 +282,7 @@ def main(argv: list[str] | None = None) -> int:
         if shutil.which("uv") is None:
             print("uv is required for --build", file=sys.stderr)
             return 2
-        # uv_build has no frontend hook; stage the SPA before building the wheel.
+        # Stage the SPA before building the wheel; there is no frontend hook.
         # --skip-web-build is valid only when the caller already staged it.
         if not args.skip_web_build:
             from build_frontend import stage_web_assets
