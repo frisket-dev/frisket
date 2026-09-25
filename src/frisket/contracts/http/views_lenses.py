@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import ConfigDict, JsonValue, RootModel, field_validator
+from pydantic import ConfigDict, Field, JsonValue, RootModel, field_validator
 
 from frisket.contracts.http.models import NamedCoerciveRequest, WireModel
 
@@ -114,6 +114,7 @@ class SavedViewCreateRequest(_ClosedRequest):
     sort: list[JsonValue] | None = None
     columns: list[JsonValue] | None = None
     column_groups: list[JsonValue] | None = None
+    scope_row_ids: list[int] | None = Field(default=None, max_length=1000)
 
     @field_validator("name")
     @classmethod
@@ -143,6 +144,7 @@ class SavedViewDefinitionReplaceRequest(_ClosedRequest):
     sort: list[JsonValue] | None
     columns: list[JsonValue] | None
     column_groups: list[JsonValue] | None
+    scope_row_ids: list[int] | None = Field(default=None, max_length=1000)
 
 
 class SavedLensCreateRequest(_CompatibleRequest):

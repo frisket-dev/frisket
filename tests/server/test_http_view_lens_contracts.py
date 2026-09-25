@@ -567,6 +567,7 @@ def test_view_lens_request_models_stay_coercive_and_track_provided_fields() -> N
         "sort": None,
         "columns": None,
         "column_groups": None,
+        "scope_row_ids": None,
     }
     for invalid in (
         {"name": "V", "sheet_id": 3},

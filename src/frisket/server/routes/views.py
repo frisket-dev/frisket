@@ -63,6 +63,7 @@ def register_view_lens_routes(
             sort=body.sort,
             columns=body.columns,
             column_groups=body.column_groups,
+            scope_row_ids=body.scope_row_ids,
         )
 
     # Typed and fenced. Typing a route does not project it: browser
@@ -104,6 +105,7 @@ def register_view_lens_routes(
             sort=body.sort,
             columns=body.columns,
             column_groups=body.column_groups,
+            scope_row_ids=body.scope_row_ids,
         )
 
     @app.delete(

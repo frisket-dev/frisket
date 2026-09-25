@@ -108,6 +108,23 @@ class SheetDataQuery(NonNullQueryWireModel):
     filter_: str | None = Field(default=None, alias="filter")
     sort: str | None = None
     row_ids: str | None = None
+    scope_row_ids: str | None = None
+
+
+class ColumnStatsQuery(NonNullQueryWireModel):
+    force: bool = False
+    parent_row_id: int | None = None
+    filter_: str | None = Field(default=None, alias="filter")
+    sort: str | None = None
+    scope_row_ids: str | None = None
+
+
+class SheetRowLocationQuery(NonNullQueryWireModel):
+    page_size: int = Field(default=500, ge=1, le=1000)
+    parent_row_id: int | None = None
+    filter_: str | None = Field(default=None, alias="filter")
+    sort: str | None = None
+    scope_row_ids: str | None = None
 
 
 class ActionRunRowsQuery(NonNullQueryWireModel):

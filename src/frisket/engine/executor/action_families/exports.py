@@ -1671,6 +1671,7 @@ def _google_sheets_tabs_for_source(
                 project,
                 int(sheet["id"]),
                 query=None,
+                scope_row_ids=None,
                 action_kind=action.kind,
                 query_field="params.source.query",
             )
@@ -1684,6 +1685,7 @@ def _google_sheets_tabs_for_source(
         project,
         params.source.sheet_id,
         query=params.source.query if params.source.kind == "current_view" else None,
+        scope_row_ids=params.source.scope_row_ids,
         action_kind=action.kind,
         query_field="params.source.query",
     )
@@ -1697,6 +1699,7 @@ def _google_sheets_tab_for_sheet(
     sheet_id: int,
     *,
     query: dict[str, Any] | None,
+    scope_row_ids: list[int] | None,
     action_kind: str,
     query_field: str,
 ) -> dict[str, Any] | ActionError:
@@ -1705,6 +1708,7 @@ def _google_sheets_tab_for_sheet(
             project,
             sheet_id,
             query=query,
+            scope_row_ids=scope_row_ids,
             media_policy="references",
             value_policy="typed",
             max_rows=MAX_FILTERED_SHEET_CSV_EXPORT_ROWS,
@@ -1738,6 +1742,8 @@ def _google_sheets_tab_for_sheet(
                 "query_evaluator": plan.evaluator,
             }
         )
+    if plan.scope_row_ids is not None:
+        tab["scope_row_ids"] = list(plan.scope_row_ids)
     return tab
 
 

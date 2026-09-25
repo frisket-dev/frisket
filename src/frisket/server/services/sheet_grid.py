@@ -60,10 +60,12 @@ class SheetGridService:
         filter_: str | None = None,
         sort: str | None = None,
         row_ids: str | None = None,
+        scope_row_ids: str | None = None,
     ) -> dict:
         project = self._workspace.get(project_id)
         visible_columns = _visible_sheet_columns(project, sheet_id)
         explicit_row_ids = _parse_row_ids_param(row_ids)
+        scoped_row_ids = _parse_row_ids_param(scope_row_ids)
         if explicit_row_ids is not None:
             cols = visible_columns
             if explicit_row_ids:
@@ -98,6 +100,7 @@ class SheetGridService:
                 parent_row_id=parent_row_id,
                 filter_=filter_,
                 sort=sort,
+                row_ids=scoped_row_ids,
             )
         )
         total = project.db.execute(
@@ -131,6 +134,7 @@ class SheetGridService:
         parent_row_id: int | None = None,
         filter_: str | None = None,
         sort: str | None = None,
+        scope_row_ids: str | None = None,
     ) -> dict[str, Any]:
         project = self._workspace.get(project_id)
         require_visible_sheet(project, sheet_id)
@@ -142,6 +146,7 @@ class SheetGridService:
             parent_row_id=parent_row_id,
             filter_=filter_,
             sort=sort,
+            scope_row_ids=_parse_row_ids_param(scope_row_ids),
         )
 
     def locate_sheet_row(
@@ -154,6 +159,7 @@ class SheetGridService:
         parent_row_id: int | None = None,
         filter_: str | None = None,
         sort: str | None = None,
+        scope_row_ids: str | None = None,
     ) -> dict[str, Any]:
         project = self._workspace.get(project_id)
         require_visible_sheet(project, sheet_id)
@@ -164,6 +170,7 @@ class SheetGridService:
                 parent_row_id=parent_row_id,
                 filter_=filter_,
                 sort=sort,
+                row_ids=_parse_row_ids_param(scope_row_ids),
             )
         )
         row = project.db.execute(
@@ -211,6 +218,7 @@ def _sheet_row_scope_query(
     parent_row_id: int | None = None,
     filter_: str | None = None,
     sort: str | None = None,
+    row_ids: list[int] | None = None,
 ) -> tuple[list[Any], str, list[Any], list[str], list[Any]]:
     try:
         return shared_sheet_row_scope_query(
@@ -219,6 +227,7 @@ def _sheet_row_scope_query(
             parent_row_id=parent_row_id,
             filter_=filter_,
             sort=sort,
+            row_ids=row_ids,
         )
     except SheetRowSetError as exc:
         raise SheetGridRouteError(400, str(exc)) from exc
@@ -404,6 +413,7 @@ def _column_stats_payload(
     parent_row_id: int | None = None,
     filter_: str | None = None,
     sort: str | None = None,
+    scope_row_ids: list[int] | None = None,
 ) -> dict[str, Any]:
     cols, where_sql, where_params, _order_parts, _order_params = _sheet_row_scope_query(
         project,
@@ -411,6 +421,7 @@ def _column_stats_payload(
         parent_row_id=parent_row_id,
         filter_=filter_,
         sort=sort,
+        row_ids=scope_row_ids,
     )
     column = next((c for c in cols if int(c["id"]) == column_id), None)
     if column is None:

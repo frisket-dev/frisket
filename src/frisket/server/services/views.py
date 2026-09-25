@@ -62,6 +62,7 @@ class ViewLensService:
         sort: list[Any] | None,
         columns: list[Any] | None,
         column_groups: list[Any] | None,
+        scope_row_ids: list[int] | None = None,
     ) -> dict[str, Any]:
         project = self._workspace.get(project_id)
         name = _required_name(name)
@@ -74,6 +75,7 @@ class ViewLensService:
                 sort=sort,
                 columns=columns,
                 column_groups=column_groups,
+                scope_row_ids=scope_row_ids,
             ),
             sheet_id=sheet_id,
         )
@@ -109,6 +111,7 @@ class ViewLensService:
         sort: list[Any] | None,
         columns: list[Any] | None,
         column_groups: list[Any] | None,
+        scope_row_ids: list[int] | None = None,
     ) -> dict[str, Any]:
         project = self._workspace.get(project_id)
         if project.get_view(view_id) is None:
@@ -122,6 +125,7 @@ class ViewLensService:
                 sort=sort,
                 columns=columns,
                 column_groups=column_groups,
+                scope_row_ids=scope_row_ids,
             ),
         )
         return _view_dict(project, project.get_view(view_id))
@@ -234,6 +238,7 @@ def _view_spec(
     sort: list[Any] | None,
     columns: list[Any] | None,
     column_groups: list[Any] | None,
+    scope_row_ids: list[int] | None = None,
 ) -> dict[str, Any]:
     spec: dict[str, Any] = {"filter": filter_}
     if sort is not None:
@@ -242,6 +247,17 @@ def _view_spec(
         spec["columns"] = columns
     if column_groups is not None:
         spec["column_groups"] = column_groups
+    if scope_row_ids is not None:
+        if len(scope_row_ids) > 1000:
+            raise ValueError("scope_row_ids may contain at most 1000 rows")
+        if not all(
+            isinstance(row_id, int) and not isinstance(row_id, bool) and row_id > 0
+            for row_id in scope_row_ids
+        ):
+            raise ValueError("scope_row_ids must contain positive integers")
+        if len(set(scope_row_ids)) != len(scope_row_ids):
+            raise ValueError("scope_row_ids must be unique")
+        spec["scope_row_ids"] = scope_row_ids
     return spec
 
 

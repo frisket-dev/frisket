@@ -92,6 +92,7 @@ class SheetExportPlan:
     query_hash: str | None
     query_total: int | None
     evaluator: dict[str, str] | None
+    scope_row_ids: list[int] | None
     media_policy: MediaPolicy
     value_policy: ValuePolicy
     schema_version: str = EXPORT_PLAN_SCHEMA_VERSION
@@ -143,6 +144,8 @@ def plan_receipt_payload(plan: SheetExportPlan, row_ids: list[int]) -> dict[str,
         payload["query_hash"] = plan.query_hash
         payload["query_total"] = plan.query_total
         payload["query_evaluator"] = plan.evaluator
+    if plan.scope_row_ids is not None:
+        payload["scope_row_ids"] = list(plan.scope_row_ids)
     return payload
 
 
@@ -157,6 +160,7 @@ def build_sheet_export_plan(
     max_rows: int | None = None,
     query_field: str = "params.query",
     streaming_rowset: bool = False,
+    scope_row_ids: list[int] | None = None,
 ) -> SheetExportPlan:
     columns = columns or ExportColumns()
     if columns.mode != "all_visible":
@@ -184,6 +188,7 @@ def build_sheet_export_plan(
         max_rows=max_rows,
         query_field=query_field,
         materialize_small=not streaming_rowset,
+        scope_row_ids=scope_row_ids,
     )
     export_columns = _build_export_columns(project, sheet_id, media_policy)
     return SheetExportPlan(
@@ -195,6 +200,7 @@ def build_sheet_export_plan(
         query_hash=resolved.query_hash,
         query_total=resolved.total,
         evaluator=resolved.evaluator,
+        scope_row_ids=scope_row_ids,
         media_policy=media_policy,
         value_policy=value_policy,
     )
