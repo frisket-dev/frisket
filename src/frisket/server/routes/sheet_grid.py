@@ -103,6 +103,7 @@ def register_sheet_grid_routes(
         parent_row_id: int | None = None,
         filter_: str | None = Query(default=None, alias="filter"),
         sort: str | None = None,
+        row_ids: str | None = None,
         scope_row_ids: str | None = None,
     ) -> SheetRowLocation:
         reject_unknown_query_parameters(request, SheetRowLocationQuery)
@@ -115,6 +116,7 @@ def register_sheet_grid_routes(
                 parent_row_id=parent_row_id,
                 filter_=filter_,
                 sort=sort,
+                row_ids=row_ids,
                 scope_row_ids=scope_row_ids,
             )
         )

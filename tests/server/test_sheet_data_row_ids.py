@@ -100,6 +100,45 @@ def test_empty_row_ids_yields_no_rows(tmp_path):
     assert body["total"] == 0
 
 
+def test_row_ids_locate_preserves_rank_and_drops_removed_members(tmp_path):
+    client = _client(tmp_path)
+    pid, project, sheet, col = _seed(client)
+    ids = _all_ids(client, pid, sheet)
+    ranked = [ids[3], ids[1], ids[0]]
+
+    located = client.get(
+        f"/api/projects/{pid}/sheets/{sheet}/rows/{ids[1]}/locate",
+        params={"row_ids": ",".join(str(row_id) for row_id in ranked), "page_size": 1},
+    )
+    assert located.status_code == 200, located.text
+    assert located.json() == {
+        "schema_version": "frisket.sheet_row_location.v1",
+        "sheet_id": sheet,
+        "row_id": ids[1],
+        "found": True,
+        "index": 1,
+        "page_offset": 1,
+        "page_size": 1,
+    }
+
+    # A ranked result may contain a row that has been deleted since it was saved.
+    project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (ids[1],))
+    project.db.commit()
+    removed = client.get(
+        f"/api/projects/{pid}/sheets/{sheet}/rows/{ids[1]}/locate",
+        params={"row_ids": ",".join(str(row_id) for row_id in ranked)},
+    )
+    assert removed.status_code == 200, removed.text
+    assert removed.json()["found"] is False
+
+    empty = client.get(
+        f"/api/projects/{pid}/sheets/{sheet}/rows/{ids[0]}/locate",
+        params={"row_ids": ""},
+    )
+    assert empty.status_code == 200, empty.text
+    assert empty.json()["found"] is False
+
+
 def test_row_ids_too_many_returns_typed_400(tmp_path):
     # An unbounded ``row_ids`` list must be rejected with a clear 400,
     # not parsed into an arbitrarily large set. The cap is MAX_EXPLICIT_ROW_IDS.

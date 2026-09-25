@@ -124,6 +124,7 @@ class SheetRowLocationQuery(NonNullQueryWireModel):
     parent_row_id: int | None = None
     filter_: str | None = Field(default=None, alias="filter")
     sort: str | None = None
+    row_ids: str | None = None
     scope_row_ids: str | None = None
 
 
