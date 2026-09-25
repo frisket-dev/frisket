@@ -194,6 +194,10 @@ class BulkPlanLifecycle:
                 lock_file.acquire(timeout=0)
             except Timeout:
                 continue
+            except FileNotFoundError:
+                # A claimed sibling can finish and remove its plan after the
+                # directory scan but before Windows opens its lock file.
+                continue
             try:
                 manifest = child / (
                     "manifest.json"

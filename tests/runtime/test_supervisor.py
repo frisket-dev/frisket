@@ -32,7 +32,10 @@ def _wait(predicate, seconds=8):
 def _live(pid):
     # Zombies cannot run or hold files; the OS's orphan reaper owns them.
     stat = Path(f"/proc/{pid}/stat")
-    if stat.exists() and stat.read_text().split(") ", 1)[1].startswith("Z"):
+    try:
+        if stat.exists() and stat.read_text().split(") ", 1)[1].startswith("Z"):
+            return False
+    except (FileNotFoundError, ProcessLookupError):
         return False
     try:
         os.kill(pid, 0)
