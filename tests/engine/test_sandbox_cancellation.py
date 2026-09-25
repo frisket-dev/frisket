@@ -92,8 +92,8 @@ time.sleep(300)
 
 _GRANDCHILD_NAP = 1.0  # a survivor writes its marker this soon after `started`
 _MARKER_WATCH_BOUND = 2.5  # ... so a > nap watch window catches a survivor
-# Timeout tests fire the wall well before the grandchild's nap ends, so the
-# kill lands with a comfortable margin (a survivor would still write at ~nap).
+# Timeout tests let the real wall expire, then gate teardown on the child's
+# readiness so slow process startup cannot turn cleanup into a vacuous proof.
 _TIMEOUT_WALL_SECONDS = 0.5
 # A TERM-ignoring grandchild is only reached by the KILL escalation, which lands
 # after the ~1s TERM grace, so its nap must clearly outlast that; the watch
@@ -236,19 +236,38 @@ def test_mid_run_cancellation_streaming_kills_tree(tmp_path):
     _assert_no_survivor(started, survived)
 
 
-def test_timeout_buffered_stays_timeout_and_kills_tree(tmp_path):
+async def _timeout_with_ready_tree(monkeypatch, runner, cfg, started):
+    # Hold the real timeout's teardown until the tree exists. Startup may take
+    # longer than the wall on Windows; that is not a cleanup failure. Reuse the
+    # teardown gate so the production deadline and timeout path stay untouched.
+    entered, release = _install_teardown_gate(monkeypatch)
+    task = asyncio.create_task(runner(cfg, wall=_TIMEOUT_WALL_SECONDS))
+    try:
+        await asyncio.wait_for(entered.wait(), 10)
+        await _await_marker(started)
+    finally:
+        release.set()
+        result = await task
+    return result
+
+
+def test_timeout_buffered_stays_timeout_and_kills_tree(tmp_path, monkeypatch):
     cfg, started, survived = _config(tmp_path)
-    result = asyncio.run(_run_buffered(cfg, wall=_TIMEOUT_WALL_SECONDS))
+    result = asyncio.run(
+        _timeout_with_ready_tree(monkeypatch, _run_buffered, cfg, started)
+    )
     # A timeout performs the same tree cleanup but stays classified a timeout,
     # never cancellation (invariant 3).
     assert result.timed_out and not result.cancelled and not result.ok
-    assert started.exists(), "the tree must have formed before the wall fired"
+    assert started.exists(), "the tree must have formed before teardown"
     _assert_no_survivor(started, survived)
 
 
-def test_timeout_streaming_stays_timeout_and_kills_tree(tmp_path):
+def test_timeout_streaming_stays_timeout_and_kills_tree(tmp_path, monkeypatch):
     cfg, started, survived = _config(tmp_path)
-    result = asyncio.run(_run_streaming(cfg, wall=_TIMEOUT_WALL_SECONDS))
+    result = asyncio.run(
+        _timeout_with_ready_tree(monkeypatch, _run_streaming, cfg, started)
+    )
     assert result.timed_out and not result.cancelled and not result.ok
     assert started.exists()
     _assert_no_survivor(started, survived)
