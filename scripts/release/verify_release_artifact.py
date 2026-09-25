@@ -24,6 +24,12 @@ HASHED_ASSET = re.compile(r".+-[A-Za-z0-9_-]{8,}\.[A-Za-z0-9]+$")
 # unexpected package that should never have been bundled into this artifact.
 IMPORT_PACKAGE_ROOT = "frisket"
 DISTRIBUTION_METADATA_PREFIX = "frisket_data-"
+MODEL_SERVER_FILES = (
+    "frisket/data/model-server/pyproject.toml",
+    "frisket/data/model-server/README.md",
+    "frisket/data/model-server/src/frisket_models/__init__.py",
+    "frisket/data/model-server/src/frisket_models/local.py",
+)
 
 
 class _IndexParser(HTMLParser):
@@ -126,6 +132,9 @@ def verify_wheel(path: str) -> list[str]:
             names = archive.namelist()
             static_index = "frisket/web_static/index.html"
             failures.extend(_inspect_index(archive, static_index))
+            for required in MODEL_SERVER_FILES:
+                if required not in names:
+                    failures.append(f"missing bundled model-server file: {required}")
     except (OSError, zipfile.BadZipFile) as exc:
         return [f"cannot read wheel {path}: {exc}"]
 

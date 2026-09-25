@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from scripts.release import probe_installed_release
-from scripts.release.verify_release_artifact import verify_wheel
+from scripts.release.verify_release_artifact import MODEL_SERVER_FILES, verify_wheel
 
 
 INDEX = b"""<!doctype html>
@@ -25,6 +25,7 @@ def _wheel(path: Path, files: dict[str, bytes]) -> Path:
 
 def _valid_files() -> dict[str, bytes]:
     return {
+        **{name: b"server resource" for name in MODEL_SERVER_FILES},
         "frisket/__init__.py": b"",
         "frisket/web_static/index.html": INDEX,
         "frisket/web_static/assets/index-AbCd1234.js": ASSET,
@@ -32,11 +33,21 @@ def _valid_files() -> dict[str, bytes]:
 
 
 def test_verify_release_wheel_requires_packaged_spa(tmp_path):
-    wheel = _wheel(tmp_path / "frisket.whl", {"frisket/__init__.py": b""})
+    files = _valid_files()
+    del files["frisket/web_static/index.html"]
+    wheel = _wheel(tmp_path / "frisket.whl", files)
 
     assert verify_wheel(str(wheel)) == [
         "missing required packaged SPA entry: frisket/web_static/index.html"
     ]
+
+
+@pytest.mark.parametrize("missing", MODEL_SERVER_FILES)
+def test_verify_release_wheel_requires_installable_model_source(tmp_path, missing):
+    files = _valid_files()
+    del files[missing]
+    wheel = _wheel(tmp_path / "frisket.whl", files)
+    assert verify_wheel(str(wheel)) == [f"missing bundled model-server file: {missing}"]
 
 
 def test_verify_release_wheel_rejects_empty_index(tmp_path):

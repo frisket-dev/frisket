@@ -136,9 +136,6 @@ asr = [
     # transitive dependency.
     "av>=11",
 ]
-models = [
-    "docling>=2.97.0",
-]
 cloud = [
     # Deployment tooling for the hosted gateway and its isolated workers.
     "modal>=1.4.0",
@@ -218,15 +215,24 @@ complete = [
 ]
 
 [build-system]
-requires = ["uv_build>=0.11.17,<0.12.0"]
-build-backend = "uv_build"
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
 
-[tool.uv.build-backend]
-module-name = "frisket"
-source-include = ["src/frisket/web_static/**"]
-# Install the canonical lightweight native server source beside the core
-# package; its model dependencies remain opt-in through ``models``.
-data = { purelib = "sidecar/src" }
+[tool.hatch.build]
+artifacts = ["src/frisket/web_static/**"]
+
+[tool.hatch.build.targets.sdist]
+only-include = ["src/frisket", "sidecar/src", "sidecar/pyproject.toml", "sidecar/README.md", "README.md", "LICENSE"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/frisket"]
+
+# Ship the existing standalone project as data, not an app import. Hatchling's
+# path mapping avoids generated copies, build hooks, and a second publication.
+[tool.hatch.build.targets.wheel.force-include]
+"sidecar/src" = "frisket/data/model-server/src"
+"sidecar/pyproject.toml" = "frisket/data/model-server/pyproject.toml"
+"sidecar/README.md" = "frisket/data/model-server/README.md"
 
 [tool.uv]
 exclude-newer = "1 week"

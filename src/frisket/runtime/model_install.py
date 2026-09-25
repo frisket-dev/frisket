@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.metadata
 import os
 import shutil
 import subprocess
@@ -100,6 +99,19 @@ def runtime_python() -> Path:
     if sys.platform == "win32":
         return runtime_dir() / "venv" / "Scripts" / "python.exe"
     return runtime_dir() / "venv" / "bin" / "python"
+
+
+def model_server_source() -> Path:
+    """Locate the standalone project in a wheel/Desktop bundle or checkout."""
+
+    package = Path(__file__).resolve().parents[1]
+    bundled = package / "data" / "model-server"
+    if (bundled / "pyproject.toml").is_file():
+        return bundled
+    checkout = package.parent.parent / "sidecar"
+    if (checkout / "pyproject.toml").is_file():
+        return checkout
+    raise RuntimeError("the bundled model-server source is missing; reinstall Frisket")
 
 
 def install_lock(*, timeout: float = -1) -> AbstractContextManager[FileLock]:
@@ -211,6 +223,7 @@ def install_docling(
         if is_installed():
             progress("Docling model server is already installed")
             return
+        source = model_server_source()
         root = runtime_dir()
         (root / _READY_MARKER).unlink(missing_ok=True)
         uv = _uv_command()
@@ -223,7 +236,6 @@ def install_docling(
             should_cancel=should_cancel,
             progress=progress,
         )
-        version = importlib.metadata.version("frisket-data")
         install_argv = [
             *uv,
             "pip",
@@ -233,7 +245,7 @@ def install_docling(
         ]
         if sys.platform in {"linux", "win32"}:
             install_argv.extend(["--torch-backend", "cpu"])
-        install_argv.append(f"frisket-data[models]=={version}")
+        install_argv.append(f"{source}[convert]")
         progress("Installing the CPU Docling runtime")
         _run_uv(install_argv, should_cancel=should_cancel, progress=progress)
         if not _probe_install():

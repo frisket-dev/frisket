@@ -70,6 +70,9 @@ Frisket is split into a few parts, including a lightweight server and a heavier 
 **Local Docling needs no Docker setup.** In Solo mode, choose Docling in the
 PDF-to-Markdown engine picker and click **Download and set up**. Frisket installs its CPU runtime
 in a private environment in your user cache, then starts the model server.
+The server source ships with Frisket; setup installs it locally with Docling's
+dependencies, not another copy of the Frisket app. No separate server release
+is needed, including when running from a source checkout.
 Later launches start the installed server automatically; models load on first
 use, which may download model files and take longer. Documents stay on your
 machine. The server is shared by the app and its background jobs and stops when

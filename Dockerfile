@@ -111,11 +111,10 @@ RUN uv run --no-sync python -c "import cv2" \
     && uv run --no-sync python -c "from fastembed.rerank.cross_encoder import TextCrossEncoder; \
     TextCrossEncoder('Xenova/ms-marco-MiniLM-L-6-v2')"
 COPY src/ src/
-# The root distribution packages ``frisket_models`` from this canonical
-# purelib tree. It must exist before the project-install sync below; copying
-# only ``src/`` leaves the declared package root missing in Docker builds.
+# Bundle the standalone model-server project as data with the core wheel.
 COPY sidecar/src/ sidecar/src/
-COPY README.md ./
+COPY sidecar/pyproject.toml sidecar/README.md sidecar/
+COPY README.md LICENSE ./
 RUN uv sync --frozen --no-dev $FRISKET_UV_EXTRAS
 COPY --from=web /build/dist /app/static
 

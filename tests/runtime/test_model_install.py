@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -94,16 +95,17 @@ def test_uv_and_probe_receive_only_allowlisted_environment(monkeypatch) -> None:
     assert all("PYTHONPATH" not in env for env in seen)
 
 
-def test_install_uses_isolated_runtime_and_current_models_extra(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("platform", ["linux", "win32", "darwin"])
+def test_install_uses_isolated_runtime_and_bundled_source(
+    tmp_path, monkeypatch, platform
 ) -> None:
     monkeypatch.setenv("FRISKET_MODEL_RUNTIME_DIR", str(tmp_path))
     monkeypatch.setattr(model_install, "is_installed", lambda: False)
     monkeypatch.setattr(model_install, "_probe_install", lambda: True)
     monkeypatch.setattr(model_install, "_uv_command", lambda: ["/bundled/uv"])
-    monkeypatch.setattr(
-        model_install.importlib.metadata, "version", lambda _name: "1.2.3"
-    )
+    monkeypatch.setattr(model_install.sys, "platform", platform)
+    source = tmp_path / "source with spaces"
+    monkeypatch.setattr(model_install, "model_server_source", lambda: source)
     calls: list[list[str]] = []
 
     class CompletedProcess:
@@ -136,9 +138,8 @@ def test_install_uses_isolated_runtime_and_current_models_extra(
         "install",
         "--python",
         str(model_install.runtime_python()),
-        "--torch-backend",
-        "cpu",
-        "frisket-data[models]==1.2.3",
+        *(["--torch-backend", "cpu"] if platform != "darwin" else []),
+        f"{source}[convert]",
     ]
     assert (tmp_path / ".ready").is_file()
     assert progress[-1] == "Docling model server installed"
@@ -197,7 +198,6 @@ def test_probe_happens_before_ready_marker_is_published(tmp_path, monkeypatch) -
     monkeypatch.setenv("FRISKET_MODEL_RUNTIME_DIR", str(tmp_path))
     monkeypatch.setattr(model_install, "is_installed", lambda: False)
     monkeypatch.setattr(model_install, "_uv_command", lambda: ["/bundled/uv"])
-    monkeypatch.setattr(model_install.importlib.metadata, "version", lambda _name: "1")
 
     class CompletedProcess:
         returncode = 0
@@ -234,25 +234,39 @@ def test_waiting_for_install_lock_can_be_cancelled(tmp_path, monkeypatch) -> Non
         held.release()
 
 
-def test_mac_install_does_not_request_linux_torch_index(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("FRISKET_MODEL_RUNTIME_DIR", str(tmp_path))
-    monkeypatch.setattr(model_install.sys, "platform", "darwin")
-    monkeypatch.setattr(model_install, "is_installed", lambda: False)
-    monkeypatch.setattr(model_install, "_probe_install", lambda: True)
-    monkeypatch.setattr(model_install, "_uv_command", lambda: ["/bundled/uv"])
-    monkeypatch.setattr(model_install.importlib.metadata, "version", lambda _name: "1")
-    calls = []
+def test_model_source_in_checkout() -> None:
+    assert (
+        model_install.model_server_source()
+        == Path(__file__).resolve().parents[2] / "sidecar"
+    )
 
-    class CompletedProcess:
-        returncode = 0
 
-        def poll(self):
-            return 0
+def test_model_source_in_installed_wheel_or_desktop(tmp_path, monkeypatch) -> None:
+    package = tmp_path / "frisket"
+    bundled = package / "data" / "model-server"
+    bundled.mkdir(parents=True)
+    (bundled / "pyproject.toml").touch()
+    monkeypatch.setattr(
+        model_install, "__file__", str(package / "runtime" / "model_install.py")
+    )
+    assert model_install.model_server_source() == bundled
 
+
+def test_missing_bundled_source_fails_before_creating_environment(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("FRISKET_MODEL_RUNTIME_DIR", str(tmp_path / "runtime"))
+    monkeypatch.setattr(
+        model_install,
+        "__file__",
+        str(tmp_path / "frisket" / "runtime" / "model_install.py"),
+    )
     monkeypatch.setattr(
         model_install,
         "spawn_service",
-        lambda argv, **_kwargs: calls.append(argv) or CompletedProcess(),
+        lambda *_a, **_kw: pytest.fail("must not start installer"),
     )
-    model_install.install_docling(should_cancel=lambda: False, progress=lambda _m: None)
-    assert "--torch-backend" not in calls[1]
+    with pytest.raises(RuntimeError, match="bundled model-server source is missing"):
+        model_install.install_docling(
+            should_cancel=lambda: False, progress=lambda _m: None
+        )
