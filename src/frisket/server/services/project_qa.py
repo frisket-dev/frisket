@@ -343,7 +343,16 @@ class ProjectQAService:
             for task in tasks:
                 task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
-        await asyncio.gather(*list(self._runtime_closers), return_exceptions=True)
+        # Releasing the last hosted app lease can itself trigger app shutdown.
+        # That cleanup task already owns its completion; never await itself.
+        await asyncio.gather(
+            *(
+                task
+                for task in self._runtime_closers
+                if task is not asyncio.current_task()
+            ),
+            return_exceptions=True,
+        )
         # A task cancelled before its first instruction cannot enter _run's
         # finally. Reconcile only after all workers have drained.
         for project in list(self._seen):

@@ -195,3 +195,45 @@ def test_cancelled_submit_still_owns_admitted_turn_and_runtime(tmp_path):
             await service.shutdown()
 
     asyncio.run(scenario())
+
+
+def test_runtime_release_may_retire_its_hosted_app(tmp_path):
+    from contextlib import nullcontext
+
+    async def scenario():
+        workspace = Workspace(tmp_path / "ws")
+        pid = workspace.create("Ask")["id"]
+        closed = asyncio.Event()
+
+        class Runtime:
+            def call_scope(self, router):
+                return nullcontext()
+
+            def settle_call(self, **kwargs):
+                pass
+
+            async def aclose(self):
+                await service.shutdown()
+                closed.set()
+
+        class Port:
+            async def prepare_turn(self, **kwargs):
+                return Runtime()
+
+        workspace.project_qa_runtime_port = Port()
+
+        async def runner(*args):
+            return {}
+
+        service = ProjectQAService(workspace, runner=runner)
+        thread = await service.create(pid, AskThreadCreate(scope={"kind": "project"}))
+        await service.submit(
+            pid,
+            thread["id"],
+            AskTurnRequest(
+                request_id="one", question="Read", scope={"kind": "project"}
+            ),
+        )
+        await asyncio.wait_for(closed.wait(), 2)
+
+    asyncio.run(scenario())
