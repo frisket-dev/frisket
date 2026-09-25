@@ -254,6 +254,7 @@ def test_sheet_inspection_query_scope_forwards_zero_json_and_default_page_size()
                 "parent_row_id": 0,
                 "filter_": filter_json,
                 "sort": sort_json,
+                "scope_row_ids": None,
             },
         )
     ]
@@ -265,15 +266,17 @@ def test_sheet_inspection_query_scope_forwards_zero_json_and_default_page_size()
                 "parent_row_id": 0,
                 "filter_": filter_json,
                 "sort": sort_json,
+                "row_ids": None,
+                "scope_row_ids": None,
             },
         )
     ]
 
-    ignored = client.get(
+    ranked = client.get(
         "/api/projects/project-1/sheets/7/rows/11/locate",
         params={"row_ids": "11"},
     )
-    assert ignored.status_code == 200
+    assert ranked.status_code == 200
     assert service.location_calls[-1] == (
         ("project-1", 7, 11),
         {
@@ -281,6 +284,8 @@ def test_sheet_inspection_query_scope_forwards_zero_json_and_default_page_size()
             "parent_row_id": None,
             "filter_": None,
             "sort": None,
+            "row_ids": "11",
+            "scope_row_ids": None,
         },
     )
 
