@@ -92,13 +92,13 @@ def build_price_table(
     for name, entry in litellm.items():
         if entry.get("mode") != "audio_transcription" or "/" in name:
             continue
-        if "input_cost_per_second" in entry:
-            audio[name] = {"per_second": entry["input_cost_per_second"]}
-        elif "input_cost_per_token" in entry and "output_cost_per_token" in entry:
+        if "input_cost_per_token" in entry and "output_cost_per_token" in entry:
             audio[name] = {
                 "input_per_token": entry["input_cost_per_token"],
                 "output_per_token": entry["output_cost_per_token"],
             }
+        elif "input_cost_per_second" in entry:
+            audio[name] = {"per_second": entry["input_cost_per_second"]}
 
     for name, override in MAINTAINED_AUDIO_OVERRIDES.items():
         audio[name] = {"per_second": override["per_second"]}

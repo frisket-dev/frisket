@@ -15,6 +15,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
 
 from frisket.contracts.http.models import ProjectList
+from frisket.engine.jobs import queue as job_queue
+from frisket.team import team_bootstrap
 from frisket.team.app import TeamConfig, create_team_app
 from frisket.team.bootstrap import PreSplitSchemaError
 from frisket.team.bootstrap import schema_marker
@@ -818,6 +820,39 @@ def test_concurrent_cold_boot_converges_to_one_org(tmp_path: Path) -> None:
         assert (
             cx.execute(sa.select(sa.func.count()).select_from(orgs)).scalar_one() == 1
         )
+
+
+@pytest.mark.parametrize("home_relative", [False, True])
+def test_team_and_queue_sqlite_bootstrap_share_one_process_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, home_relative: bool
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    database = Path("~/shared.db") if home_relative else tmp_path / "shared.db"
+    engine = sa.create_engine(f"sqlite:///{database}")
+    acquired: list[str] = []
+
+    class RecordingLock:
+        def __init__(self, path: str, *, timeout: int) -> None:
+            assert timeout == -1
+            acquired.append(path)
+
+        def __enter__(self) -> None:
+            return None
+
+        def __exit__(self, *_exc: object) -> None:
+            return None
+
+    monkeypatch.setattr(team_bootstrap, "FileLock", RecordingLock)
+    monkeypatch.setattr(job_queue, "FileLock", RecordingLock)
+
+    with team_bootstrap._sqlite_file_lock(engine):
+        pass
+    with job_queue._sqlite_initialization_lock(engine):
+        pass
+
+    assert len(acquired) == 2
+    assert acquired[0] == acquired[1]
 
 
 def test_independent_process_boots_converge_to_one_org(tmp_path: Path) -> None:

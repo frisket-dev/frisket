@@ -16,14 +16,18 @@ import sys
 SWING_FLAG = 0.5
 
 
-def _rates(doc: dict) -> dict[str, list[float]]:
-    out: dict[str, list[float]] = {}
+def _rates(doc: dict) -> dict[str, list[float] | dict[str, float]]:
+    out: dict[str, list[float] | dict[str, float]] = {}
     for section in ("text", "audio"):
         for model, rates in (doc.get(section) or {}).items():
-            out[f"{section}:{model}"] = (
-                list(rates) if isinstance(rates, list) else [rates]
-            )
+            out[f"{section}:{model}"] = rates
     return out
+
+
+def _named_rates(rates: list[float] | dict[str, float]) -> dict[str, float]:
+    if isinstance(rates, list):
+        return {f"rate[{index}]": rate for index, rate in enumerate(rates)}
+    return rates
 
 
 def main() -> int:
@@ -46,9 +50,14 @@ def main() -> int:
             lines.append(f"- **{key}**: REMOVED (was {b})")
             continue
         marks = []
-        for i, (x, y) in enumerate(zip(b, a)):
+        before_rates = _named_rates(b)
+        after_rates = _named_rates(a)
+        for rate_name in sorted(set(before_rates) & set(after_rates)):
+            x, y = before_rates[rate_name], after_rates[rate_name]
             if x and abs(y - x) / abs(x) > SWING_FLAG:
-                marks.append(f"rate[{i}] moved {x} -> {y} (>{int(SWING_FLAG * 100)}%)")
+                marks.append(
+                    f"{rate_name} moved {x} -> {y} (>{int(SWING_FLAG * 100)}%)"
+                )
         note = "  ⚠ " + "; ".join(marks) if marks else ""
         flagged = flagged or bool(marks)
         lines.append(f"- **{key}**: {b} -> {a}{note}")

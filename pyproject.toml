@@ -65,7 +65,7 @@ dependencies = [
     # binary wheel release so PDF conversion has no host Poppler prerequisite.
     "pypdfium2==5.9.0",
     # PDFium's bitmap adapter writes worker output through Pillow.
-    "pillow==12.2.0",
+    "pillow==12.3.0",
     "python-multipart>=0.0.32",
     "regex>=2026.5.9",
     "sqlalchemy>=2.0.50",

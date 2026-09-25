@@ -53,3 +53,24 @@ def test_maintained_mai_audio_rate_survives_an_openrouter_refresh() -> None:
     )
 
     assert output["audio"]["microsoft/mai-transcribe-2"] == {"per_second": 0.1 / 3600}
+
+
+def test_token_billed_audio_model_prefers_returned_usage_units() -> None:
+    updater = _pricing_updater()
+    litellm = {
+        "gpt-4o-transcribe": {
+            "mode": "audio_transcription",
+            "input_cost_per_second": 0.0001,
+            "input_cost_per_token": 2.5e-6,
+            "output_cost_per_token": 1e-5,
+        }
+    }
+
+    output = updater.build_price_table(
+        litellm, {"data": []}, catalog={"providers": {}}, updated=date(2026, 9, 25)
+    )
+
+    assert output["audio"]["gpt-4o-transcribe"] == {
+        "input_per_token": 2.5e-6,
+        "output_per_token": 1e-5,
+    }
