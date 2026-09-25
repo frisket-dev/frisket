@@ -118,7 +118,6 @@ from frisket.server.services.selector_choices import (
 )
 from frisket.server.routes.project_research import (
     register_project_backfill_activity_routes,
-    register_project_copilot_routes,
     register_project_entity_review_routes,
     register_project_provenance_routes,
     register_project_search_routes,
@@ -169,7 +168,6 @@ from frisket.server.services.map_points import MapPointsService
 from frisket.server.services.notifications import NotificationService
 from frisket.server.services.project_actions import ProjectActionUtilityService
 from frisket.server.services.project_blobs import ProjectBlobService
-from frisket.server.services.project_copilot import ProjectCopilotService
 from frisket.server.services.project_qa import ProjectQAService
 from frisket.server.routes.project_qa import register_project_qa_routes
 from frisket.server.services.project_entity_review import ProjectEntityReviewService
@@ -783,11 +781,6 @@ def create_app(
     register_project_entity_review_routes(
         app,
         service=ProjectEntityReviewService(ws),
-    )
-
-    register_project_copilot_routes(
-        app,
-        service=ProjectCopilotService(ws),
     )
 
     register_project_qa_routes(app, service=project_qa_service)
