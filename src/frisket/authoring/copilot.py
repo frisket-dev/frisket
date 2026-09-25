@@ -41,7 +41,7 @@ from frisket.contracts.http.copilot import (
     _WEB_ACTION_KINDS,
     _family_kinds,
 )
-from frisket.engine.runner.row_execution import _wire_accounting_meta
+from frisket.ai.models.accounting import wire_accounting_meta
 from frisket.engine.runner.validation import assert_provider_spend_cap
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
@@ -518,7 +518,7 @@ def _persist_copilot_wire_calls(
     repeated chat turns; fail safely and leave that bounded ambiguity explicit.
     """
 
-    accounting = _wire_accounting_meta(model, wire_calls)
+    accounting = wire_accounting_meta(model, wire_calls)
     calls = [
         call for call in accounting.get("model_calls", []) if isinstance(call, dict)
     ]

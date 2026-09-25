@@ -434,7 +434,7 @@ class ProjectQAStore:
         )
 
         def write(db: sqlite3.Connection) -> dict[str, Any]:
-            self._thread_record(
+            thread = self._thread_record(
                 db.execute(
                     "SELECT * FROM project_qa_threads WHERE id=?", (thread_id,)
                 ).fetchone()
@@ -497,10 +497,29 @@ class ProjectQAStore:
                 payload={"question": question},
                 created_at=now,
             )
-            db.execute(
-                "UPDATE project_qa_threads SET updated_at=? WHERE id=?",
-                (now, thread_id),
-            )
+            preferences_changed = (
+                thread["scope"],
+                thread["model"],
+                thread["web"],
+                thread["suggest_actions"],
+            ) != (saved_scope, saved_model, saved_web, saved_suggest)
+            if preferences_changed:
+                db.execute(
+                    "UPDATE project_qa_threads SET scope_json=?,model=?,web=?,suggest_actions=?,revision=revision+1,updated_at=? WHERE id=?",
+                    (
+                        _json(saved_scope),
+                        saved_model,
+                        int(saved_web),
+                        int(saved_suggest),
+                        now,
+                        thread_id,
+                    ),
+                )
+            else:
+                db.execute(
+                    "UPDATE project_qa_threads SET updated_at=? WHERE id=?",
+                    (now, thread_id),
+                )
             return self._turn_record(
                 db.execute(
                     "SELECT * FROM project_qa_turns WHERE id=?", (turn_id,)
@@ -567,6 +586,64 @@ class ProjectQAStore:
 
         return self._write(write)
 
+    def record_usage(
+        self,
+        turn_id: str,
+        *,
+        call_id: str,
+        payload: Mapping[str, Any],
+        calls: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        """Atomically persist one returned provider call and its turn event.
+
+        The association table closes the gap between the neutral ledger's
+        call-fact dedupe and this turn's aggregate: replaying this method for
+        the same returned call writes neither a duplicate event nor a second
+        aggregate contribution.
+        """
+
+        if not isinstance(call_id, str) or not call_id:
+            raise ValueError("call_id must be a non-empty string")
+        saved_payload = _json_object(payload, name="payload")
+        if saved_payload.get("call_id") != call_id:
+            raise ValueError("usage payload call_id must match call_id")
+        if (
+            len(calls) != 1
+            or not isinstance(calls[0], Mapping)
+            or calls[0].get("id") != call_id
+        ):
+            raise ValueError("usage must contain exactly the matching call fact")
+
+        def write(db: sqlite3.Connection) -> dict[str, Any] | None:
+            turn = self._turn_record(
+                db.execute(
+                    "SELECT * FROM project_qa_turns WHERE id=?", (turn_id,)
+                ).fetchone()
+            )
+            if turn["status"] in TERMINAL_TURN_STATUSES:
+                raise ProjectQAConflictError("cannot append usage to a terminal turn")
+            inserted = db.execute(
+                "INSERT INTO project_qa_usage_calls (turn_id,call_id) VALUES (?,?) "
+                "ON CONFLICT(turn_id,call_id) DO NOTHING",
+                (turn_id, call_id),
+            ).rowcount
+            if inserted == 0:
+                return None
+            from frisket.engine.store.runs import RunResultStore
+
+            RunResultStore(self._project).write_unscoped_model_calls(
+                calls, row_id=None, column_id=None, commit=False
+            )
+            return self._append_event(
+                db,
+                thread_id=turn["thread_id"],
+                turn_id=turn_id,
+                kind="usage",
+                payload=saved_payload,
+            )
+
+        return self._write(write)
+
     def events(
         self,
         thread_id: str,
@@ -619,6 +696,18 @@ class ProjectQAStore:
             "cursor": events[-1]["seq"] if events else after,
             "has_more": has_more,
         }
+
+    def recent_events(self, thread_id: str, *, limit: int = 100) -> dict[str, Any]:
+        """Return the newest bounded page in chronological order."""
+
+        self.get_thread(thread_id)
+        last_seq = int(
+            self.db.execute(
+                "SELECT COALESCE(MAX(seq),0) FROM project_qa_events WHERE thread_id=?",
+                (thread_id,),
+            ).fetchone()[0]
+        )
+        return self.events(thread_id, before=last_seq + 1, limit=limit)
 
     def add_citation(
         self,
@@ -724,15 +813,20 @@ class ProjectQAStore:
         *,
         status: str,
         usage: Mapping[str, Any] | None = None,
-        cost_actual: float | None = None,
+        cost_actual: float | None | object = _UNSET,
         error_summary: str | None = None,
     ) -> dict[str, Any]:
         if status not in TERMINAL_TURN_STATUSES:
             raise ValueError("status must be terminal")
         if usage is not None:
             _json_object(usage, name="usage")
-        if cost_actual is not None and (
-            isinstance(cost_actual, bool) or not isinstance(cost_actual, (int, float))
+        if (
+            cost_actual is not _UNSET
+            and cost_actual is not None
+            and (
+                isinstance(cost_actual, bool)
+                or not isinstance(cost_actual, (int, float))
+            )
         ):
             raise ValueError("cost_actual must be numeric or null")
         if error_summary is not None and not isinstance(error_summary, str):
@@ -753,13 +847,16 @@ class ProjectQAStore:
             if status != "stopped" and turn["status"] == "stopping":
                 raise ProjectQAConflictError("a stopping turn must become stopped")
             now = _now()
+            derived_usage, derived_cost = self._usage_summary(db, turn_id)
+            saved_usage = dict(usage) if usage is not None else derived_usage
+            saved_cost = derived_cost if cost_actual is _UNSET else cost_actual
             db.execute(
                 "UPDATE project_qa_turns SET status=?,finished_at=?,usage_json=?,cost_actual=?,error_summary=? WHERE id=?",
                 (
                     status,
                     now,
-                    _json(dict(usage)) if usage is not None else None,
-                    cost_actual,
+                    _json(saved_usage),
+                    saved_cost,
                     error_summary,
                     turn_id,
                 ),
@@ -769,7 +866,14 @@ class ProjectQAStore:
                 thread_id=turn["thread_id"],
                 turn_id=turn_id,
                 kind="status",
-                payload={"status": status},
+                payload={
+                    "status": status,
+                    **(
+                        {"error_summary": error_summary}
+                        if error_summary is not None
+                        else {}
+                    ),
+                },
                 created_at=now,
             )
             db.execute(
@@ -783,6 +887,33 @@ class ProjectQAStore:
             )
 
         return self._write(write)
+
+    @staticmethod
+    def _usage_summary(
+        db: sqlite3.Connection, turn_id: str
+    ) -> tuple[dict[str, Any], float | None]:
+        rows = db.execute(
+            "SELECT payload_json FROM project_qa_events WHERE turn_id=? AND kind='usage' "
+            "ORDER BY seq",
+            (turn_id,),
+        ).fetchall()
+        tokens_in = 0
+        tokens_out = 0
+        unknown_cost = False
+        total_cost = 0.0
+        for row in rows:
+            payload = json.loads(row["payload_json"])
+            tokens_in += int(payload.get("tokens_in", 0))
+            tokens_out += int(payload.get("tokens_out", 0))
+            cost = payload.get("cost")
+            if cost is None:
+                unknown_cost = True
+            else:
+                total_cost += float(cost)
+        return (
+            {"calls": len(rows), "tokens_in": tokens_in, "tokens_out": tokens_out},
+            None if unknown_cost else total_cost,
+        )
 
     def reconcile_abandoned_turns(self, *, live_turn_ids: Collection[str]) -> list[str]:
         live = frozenset(live_turn_ids)

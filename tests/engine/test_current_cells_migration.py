@@ -79,6 +79,7 @@ def _table_names(db: sqlite3.Connection) -> set[str]:
 def _drop_project_qa(db: sqlite3.Connection) -> None:
     """Restore the historical bundle fixtures after seeding with current DDL."""
 
+    db.execute("DROP TABLE project_qa_usage_calls")
     db.execute("DROP TABLE project_qa_citations")
     db.execute("DROP TABLE project_qa_events")
     db.execute("DROP TABLE project_qa_turns")

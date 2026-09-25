@@ -45,6 +45,8 @@ _CELL_VALIDITY_TO_DIGEST = "frisket.schema.v1:8120b7fe7102b3570ff0c8326bd62fa2"
 # digests.
 _PROJECT_QA_FROM_DIGEST = _CELL_VALIDITY_TO_DIGEST
 _PROJECT_QA_TO_DIGEST = "frisket.schema.v1:8b3f2adb68cf1c429e0958d1aae66bf5"
+_PROJECT_QA_USAGE_FROM_DIGEST = _PROJECT_QA_TO_DIGEST
+_PROJECT_QA_USAGE_TO_DIGEST = "frisket.schema.v1:b540a83f8325e5cbcd52fc3fac64eeb5"
 
 # The frontend fires hot read endpoints (/sheets, /review/queue) concurrently,
 # so two threads can open the same per-project DB at once. Both open-time
@@ -77,6 +79,7 @@ def open_bundle(project: Any) -> None:
         _migrate_current_cells(project.db)
         _migrate_cell_validity(project.db)
         _migrate_project_qa(project.db)
+        _migrate_project_qa_usage(project.db)
         require_current_schema(project.db, bundle_path=project.path)
         _reconcile_open_time_policy(project)
 
@@ -334,6 +337,35 @@ def _migrate_project_qa(db: sqlite3.Connection) -> None:
             db.execute(
                 "UPDATE meta SET value=? WHERE key=?",
                 (_PROJECT_QA_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
+            )
+        db.commit()
+    except BaseException:
+        db.rollback()
+        raise
+
+
+def _migrate_project_qa_usage(db: sqlite3.Connection) -> None:
+    """Associate provider responses with a turn exactly once."""
+
+    query = "SELECT value FROM meta WHERE key=?"
+    try:
+        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
+    except sqlite3.DatabaseError:
+        return
+    if row is None or row[0] != _PROJECT_QA_USAGE_FROM_DIGEST:
+        return
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
+        if row is not None and row[0] == _PROJECT_QA_USAGE_FROM_DIGEST:
+            db.execute(
+                "CREATE TABLE project_qa_usage_calls ("
+                "turn_id TEXT NOT NULL REFERENCES project_qa_turns(id) ON DELETE CASCADE,"
+                "call_id TEXT NOT NULL,PRIMARY KEY (turn_id, call_id)) WITHOUT ROWID"
+            )
+            db.execute(
+                "UPDATE meta SET value=? WHERE key=?",
+                (_PROJECT_QA_USAGE_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
             )
         db.commit()
     except BaseException:

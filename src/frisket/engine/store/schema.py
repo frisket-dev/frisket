@@ -1965,6 +1965,15 @@ CREATE TABLE IF NOT EXISTS project_qa_citations (
 );
 CREATE INDEX IF NOT EXISTS idx_project_qa_citations_turn
   ON project_qa_citations(turn_id, id);
+
+-- One association per returned provider call.  The neutral model-call ledger
+-- already deduplicates its facts; this prevents a retried accounting write
+-- from duplicating the turn's visible usage event or aggregate.
+CREATE TABLE IF NOT EXISTS project_qa_usage_calls (
+  turn_id TEXT NOT NULL REFERENCES project_qa_turns(id) ON DELETE CASCADE,
+  call_id TEXT NOT NULL,
+  PRIMARY KEY (turn_id, call_id)
+) WITHOUT ROWID;
 -- PROJECT_QA_END
 """
 

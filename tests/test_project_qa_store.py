@@ -4,6 +4,8 @@ import sqlite3
 
 import pytest
 
+from frisket.ai.llm.types import LLMResponse
+from frisket.ai.models.accounting import wire_accounting_meta
 from frisket.engine.store import Project
 from frisket.engine.store.project_qa import (
     ProjectQAActiveTurnError,
@@ -111,13 +113,15 @@ def test_submit_is_idempotent_freezes_turn_and_enforces_single_active_turn(
         assert turn["scope"] == params["scope"]
         assert turn["web"] is True
         assert store.submit_turn(thread["id"], **params) == turn
+        assert store.get_thread(thread["id"])["revision"] == 2
+        assert store.get_thread(thread["id"])["scope"] == params["scope"]
         assert store.get_active_turn(thread["id"])["id"] == turn["id"]
         with pytest.raises(ProjectQAConflictError, match="different content"):
             store.submit_turn(thread["id"], **{**params, "question": "Other"})
         with pytest.raises(ProjectQAActiveTurnError):
             store.submit_turn(thread["id"], **{**params, "request_id": "request-2"})
 
-        store.update_thread(thread["id"], expected_revision=1, web=False)
+        store.update_thread(thread["id"], expected_revision=2, web=False)
         assert store.get_turn(turn["id"])["web"] is True
         assert store.events(thread["id"])["events"] == [
             {
@@ -181,6 +185,9 @@ def test_events_citations_stop_terminalize_and_reconcile_only_unowned_turns(
         older = store.events(thread["id"], before=4, limit=2)
         assert [event["seq"] for event in older["events"]] == [2, 3]
         assert older["has_more"] is True
+        recent = store.recent_events(thread["id"], limit=2)
+        assert [event["seq"] for event in recent["events"]] == [4, 5]
+        assert recent["has_more"] is True
         assert store.request_stop(first["id"])["status"] == "stopped"
         with pytest.raises(ProjectQAConflictError, match="terminal"):
             store.append_event(first["id"], kind="answer", payload={"text": "late"})
@@ -196,6 +203,63 @@ def test_events_citations_stop_terminalize_and_reconcile_only_unowned_turns(
         project.close()
 
 
+def test_usage_is_deduped_and_terminalization_derives_it_with_failure_context(
+    tmp_path,
+) -> None:
+    project, store = _store(tmp_path)
+    try:
+        thread = store.create_thread(title="Ask")
+        turn = store.submit_turn(thread["id"], request_id="usage", question="One")
+        accounting = wire_accounting_meta(
+            "anthropic/test",
+            [
+                LLMResponse(
+                    content="ok",
+                    data=None,
+                    tokens_in=7,
+                    tokens_out=4,
+                    cost=None,
+                    model="anthropic/test",
+                    provider="anthropic",
+                )
+            ],
+        )
+        [call] = accounting["model_calls"]
+        payload = {
+            "call_id": call["id"],
+            "tokens_in": accounting["tokens_in"],
+            "tokens_out": accounting["tokens_out"],
+            "cost": accounting["cost"],
+        }
+        assert (
+            store.record_usage(
+                turn["id"], call_id=call["id"], payload=payload, calls=[call]
+            )["kind"]
+            == "usage"
+        )
+        assert (
+            store.record_usage(
+                turn["id"], call_id=call["id"], payload=payload, calls=[call]
+            )
+            is None
+        )
+        store.request_stop(turn["id"])
+        stopped = store.finish_turn(turn["id"], status="stopped")
+        assert stopped["usage"] == {"calls": 1, "tokens_in": 7, "tokens_out": 4}
+        assert stopped["cost_actual"] is None
+
+        failed = store.submit_turn(thread["id"], request_id="failed", question="Two")
+        store.finish_turn(
+            failed["id"], status="failed", error_summary="provider unavailable"
+        )
+        assert store.events(thread["id"])["events"][-1]["payload"] == {
+            "status": "failed",
+            "error_summary": "provider unavailable",
+        }
+    finally:
+        project.close()
+
+
 def test_schema_migration_preserves_existing_bundle_and_stamps_new_digest(
     tmp_path,
 ) -> None:
@@ -206,6 +270,7 @@ def test_schema_migration_preserves_existing_bundle_and_stamps_new_digest(
     project.close()
 
     with sqlite3.connect(path / "project.db") as db:
+        db.execute("DROP TABLE project_qa_usage_calls")
         db.execute("DROP TABLE project_qa_citations")
         db.execute("DROP TABLE project_qa_events")
         db.execute("DROP TABLE project_qa_turns")

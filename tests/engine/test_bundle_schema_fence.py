@@ -55,6 +55,7 @@ def _physically_remove_current_cells_foundation(db: sqlite3.Connection) -> None:
     """Restore the exact predecessor tables after seeding with today's facade."""
 
     db.execute("PRAGMA foreign_keys=OFF")
+    db.execute("DROP TABLE project_qa_usage_calls")
     db.execute("DROP TABLE project_qa_citations")
     db.execute("DROP TABLE project_qa_events")
     db.execute("DROP TABLE project_qa_turns")

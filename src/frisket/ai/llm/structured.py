@@ -47,6 +47,7 @@ import base64
 import json
 import re
 from dataclasses import dataclass, field
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from jsonschema import Draft202012Validator
@@ -272,6 +273,8 @@ class FrisketRouterModel(Model):
         reasoning_policy: ReasoningPolicy | None = None,
         capability: dict | None = None,
         trace: ModelTrace | None = None,
+        before_request: Callable[[LLMRequest], Awaitable[None]] | None = None,
+        on_response: Callable[[LLMResponse], Awaitable[None]] | None = None,
     ):
         self.router = router
         self._model_id = model_id
@@ -282,6 +285,8 @@ class FrisketRouterModel(Model):
         self._params = dict(params or {})
         self._reasoning_policy = reasoning_policy
         self._trace = trace
+        self._before_request = before_request
+        self._on_response = on_response
         # per-run receipt accumulator — every wire attempt incl. repairs.
         self.wire_calls: list[LLMResponse] = []
         # SchemaViolations the shim translated to ModelRetry (adapter-origin
@@ -344,6 +349,8 @@ class FrisketRouterModel(Model):
             tools=tools,
             reasoning_policy=self._reasoning_policy,
         )
+        if self._before_request is not None:
+            await self._before_request(req)
         try:
             resp = await self.router.complete_transport(
                 req,
@@ -359,6 +366,8 @@ class FrisketRouterModel(Model):
             raise ModelRetry(f"invalid structured output: {sv}") from sv
         self.wire_calls.append(resp)
         self.attempts += 1
+        if self._on_response is not None:
+            await self._on_response(resp)
         if schema is not None and resp.output_limited:
             raise OutputLimitReached(
                 "structured output stopped at the provider output limit",
@@ -433,6 +442,12 @@ class FrisketRouterModel(Model):
 
     @staticmethod
     def _resolve_schema(params: ModelRequestParameters) -> tuple[dict | None, str]:
+        if params.function_tools and params.output_tools:
+            # The final typed output becomes another auto-selected tool beside
+            # ordinary function tools.  Adapters already understand a multi-
+            # tool request; forcing the old schema `emit` tool would suppress
+            # reads before the model can produce its final answer.
+            return None, "combined_tools"
         mode = params.output_mode
         if params.output_tools:
             return params.output_tools[0].parameters_json_schema, "tool"
@@ -448,15 +463,26 @@ class FrisketRouterModel(Model):
         tool, resolved by ``_resolve_schema`` above) -- these are the tools a
         multi-step Agent dispatches mid-run (AgentRecipe search/fetch)."""
         if not params.function_tools:
-            return None
-        return [
-            {
-                "name": t.name,
-                "description": t.description or "",
-                "parameters": t.parameters_json_schema,
-            }
-            for t in params.function_tools
-        ]
+            tools: list[dict[str, Any]] = []
+        else:
+            tools = [
+                {
+                    "name": t.name,
+                    "description": t.description or "",
+                    "parameters": t.parameters_json_schema,
+                }
+                for t in params.function_tools
+            ]
+        if params.function_tools and params.output_tools:
+            tools.extend(
+                {
+                    "name": t.name,
+                    "description": t.description or "Return the final result.",
+                    "parameters": t.parameters_json_schema,
+                }
+                for t in params.output_tools
+            )
+        return tools or None
 
     def _to_model_response(
         self, resp: LLMResponse, params: ModelRequestParameters, mode: str
@@ -469,17 +495,6 @@ class FrisketRouterModel(Model):
             details={"frisket_cost_usd_milli": int((resp.cost or 0.0) * 1000)},
         )
         data = resp.data
-        if mode == "tool" and params.output_tools:
-            return ModelResponse(
-                parts=[
-                    ToolCallPart(
-                        tool_name=params.output_tools[0].name,
-                        args=data,
-                    )
-                ],
-                usage=usage,
-                model_name=self.model_name,
-            )
         if resp.tool_calls:
             return ModelResponse(
                 parts=[
@@ -489,6 +504,17 @@ class FrisketRouterModel(Model):
                         tool_call_id=tc["id"],
                     )
                     for tc in resp.tool_calls
+                ],
+                usage=usage,
+                model_name=self.model_name,
+            )
+        if mode == "tool" and params.output_tools:
+            return ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        tool_name=params.output_tools[0].name,
+                        args=data,
+                    )
                 ],
                 usage=usage,
                 model_name=self.model_name,
