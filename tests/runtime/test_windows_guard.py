@@ -5,8 +5,34 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 import pytest
+
+pytestmark = pytest.mark.realtime
+
+
+def _windows_pid_alive(pid: int) -> bool:
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, wintypes.LPDWORD]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    STILL_ACTIVE = 259
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return False
+    try:
+        code = wintypes.DWORD()
+        return bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(code))) and (
+            code.value == STILL_ACTIVE
+        )
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="native Windows console handles")
@@ -82,3 +108,53 @@ def test_headless_guard_preserves_binary_protocol_and_target_exit(tmp_path):
     assert result.returncode == 7, result.stderr
     assert result.stdout == payload
     assert result.stderr == payload[::-1]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="native Windows Job Objects")
+def test_spawn_service_job_dies_with_application_parent(tmp_path):
+    """The public service launcher must own descendants, not only its wrapper."""
+    from frisket.runtime import supervisor
+
+    source = Path(supervisor.__file__).resolve().parents[2]
+    pids = tmp_path / "pids.json"
+    target = tmp_path / "target.py"
+    target.write_text(
+        "import json,os,subprocess,sys,time\n"
+        "child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'])\n"
+        "open(sys.argv[1],'w').write(json.dumps([os.getpid(),child.pid]))\n"
+        "time.sleep(60)\n"
+    )
+    launcher = tmp_path / "launcher.py"
+    launcher.write_text(
+        "import os,subprocess,sys,time\nfrom pathlib import Path\n"
+        f"sys.path.insert(0,{str(source)!r})\n"
+        "from frisket.runtime.supervisor import spawn_service\n"
+        "spawn_service([sys.executable,sys.argv[1],sys.argv[2]],"
+        "stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\n"
+        "while not Path(sys.argv[2]).exists(): time.sleep(.02)\n"
+        "os._exit(0)\n"
+    )
+    parent = subprocess.Popen(
+        [sys.executable, str(launcher), str(target), str(pids)],
+        creationflags=subprocess.CREATE_NO_WINDOW,
+    )
+    owned_pids: list[int] = []
+    try:
+        assert parent.wait(timeout=15) == 0
+        owned_pids = json.loads(pids.read_text())
+        deadline = time.monotonic() + 15
+        while any(_windows_pid_alive(pid) for pid in owned_pids):
+            if time.monotonic() >= deadline:
+                pytest.fail("service Job survived its application parent")
+            time.sleep(0.05)
+    finally:
+        # TerminateProcess is only emergency test cleanup after a failed Job proof.
+        for pid in owned_pids:
+            if _windows_pid_alive(pid):
+                subprocess.run(
+                    ["taskkill", "/PID", str(pid), "/F", "/T"],
+                    capture_output=True,
+                    check=False,
+                )
+        if parent.poll() is None:
+            parent.kill()

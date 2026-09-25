@@ -493,6 +493,20 @@ def test_engine_setup_is_allowlisted_and_deduplicated(tmp_path) -> None:
     assert refused.json()["detail"]["code"] == "unknown_engine_setup"
 
 
+def test_docling_engine_setup_is_allowlisted_for_solo(tmp_path) -> None:
+    from frisket.engine.jobs.engine_setup import DOCLING_SETUP_REF
+
+    client = _client(tmp_path)
+    response = client.post(
+        "/api/providers/models/setup", json={"setup_ref": DOCLING_SETUP_REF}
+    )
+
+    assert response.status_code == 202, response.text
+    pull = response.json()["pull"]
+    assert pull["model"] == DOCLING_SETUP_REF
+    assert pull["operation_kind"] == "engine_setup"
+
+
 def test_artifact_pull_unpinned_hf_snapshot_rejected_at_parse(tmp_path) -> None:
     """The manifest allowlist is enforced at parse time: an arbitrary repo is
     invalid_model_ref (400), never unpinned_unacknowledged -- there is no

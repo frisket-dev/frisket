@@ -450,11 +450,44 @@ def _paddle_result_to_page(result: Any) -> dict:
     return {"text": text, "blocks": blocks}
 
 
-def load_docling() -> Callable[[str, bytes], dict]:
+def _docling_page_used_ocr(page: Any) -> bool:
+    """Read OCR provenance from Docling's assembled layout prediction.
+
+    Docling 2.108 leaves ``Page.cells`` empty after assembly. The cells that
+    contributed to exported markdown live on its layout clusters instead.
+    """
+
+    predictions = getattr(page, "predictions", None)
+    layout = getattr(predictions, "layout", None)
+    clusters = getattr(layout, "clusters", None) or []
+    return any(
+        getattr(cell, "from_ocr", False)
+        for cluster in clusters
+        for cell in (getattr(cluster, "cells", None) or [])
+    )
+
+
+def load_docling(*, device: str | None = None) -> Callable[[str, bytes], dict]:
     """Return markdown and per-page OCR provenance from Docling."""
     from docling.document_converter import DocumentConverter
 
-    converter = DocumentConverter()
+    if device is None:
+        converter = DocumentConverter()
+    else:
+        from docling.datamodel.accelerator_options import AcceleratorOptions
+        from docling.datamodel.base_models import InputFormat
+        from docling.datamodel.pipeline_options import PdfPipelineOptions
+        from docling.document_converter import ImageFormatOption, PdfFormatOption
+
+        options = PdfPipelineOptions(
+            accelerator_options=AcceleratorOptions(device=device)
+        )
+        converter = DocumentConverter(
+            format_options={
+                InputFormat.PDF: PdfFormatOption(pipeline_options=options),
+                InputFormat.IMAGE: ImageFormatOption(pipeline_options=options),
+            }
+        )
 
     def to_markdown(name: str, data: bytes) -> dict:
         # Docling requires a path and uses its suffix for format detection.
@@ -465,10 +498,10 @@ def load_docling() -> Callable[[str, bytes], dict]:
         try:
             result = converter.convert(scratch)
             markdown = result.document.export_to_markdown()
-            ocr_used = []
-            for page in getattr(result, "pages", None) or []:
-                cells = getattr(page, "cells", None) or []
-                ocr_used.append(any(getattr(c, "from_ocr", False) for c in cells))
+            ocr_used = [
+                _docling_page_used_ocr(page)
+                for page in (getattr(result, "pages", None) or [])
+            ]
             return {"markdown": markdown, "ocr_used": ocr_used}
         finally:
             os.unlink(scratch)

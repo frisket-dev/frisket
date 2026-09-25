@@ -83,6 +83,7 @@ from frisket.execution.targets import (
     DATALAB_TARGET_ID as DATALAB_TARGET_ID,
     DEEPL_TARGET_ID as DEEPL_TARGET_ID,
     GOOGLE_TRANSLATE_TARGET_ID as GOOGLE_TRANSLATE_TARGET_ID,
+    LOCAL_MODELS_TARGET_ID as LOCAL_MODELS_TARGET_ID,
     NOMINATIM_TARGET_ID as NOMINATIM_TARGET_ID,
     OPENCAGE_TARGET_ID as OPENCAGE_TARGET_ID,
     REMOTE_API_TARGET_ID_PREFIX as REMOTE_API_TARGET_ID_PREFIX,
@@ -118,6 +119,15 @@ CENSUS_API_KEY_ENV = "CENSUS_API_KEY"
 LOCAL_TARGET_ID = "local"
 LOCAL_ONNX_TARGET_ID = "local-onnx"
 MODELS_GATEWAY_TARGET_ID = "models-gateway"
+LOCAL_MODELS_URL_ENV = "FRISKET_LOCAL_MODELS_URL"
+LOCAL_MODELS_TOKEN_ENV = "FRISKET_LOCAL_MODELS_TOKEN"
+
+
+def managed_local_models_configured(env: Mapping[str, str]) -> bool:
+    """Whether this process was given the complete private managed endpoint."""
+    return bool((env.get(LOCAL_MODELS_URL_ENV) or "").strip()) and bool(
+        (env.get(LOCAL_MODELS_TOKEN_ENV) or "").strip()
+    )
 
 
 def _hf_snapshot_present(repo_id: str, revision: str, files: Sequence[str]) -> bool:
@@ -380,8 +390,22 @@ def _gateway_to_markdown_engines() -> tuple[TargetEngineSupport, ...]:
     )
 
 
-def build_static_targets() -> tuple[ExecutionTarget, ...]:
+def build_static_targets(
+    *,
+    include_managed_local_models: bool = False,
+    prefer_managed_local_models: bool = True,
+) -> tuple[ExecutionTarget, ...]:
     """Build code-owned targets in preference-free declaration order."""
+    managed_local_models = (
+        ExecutionTarget(
+            id=LOCAL_MODELS_TARGET_ID,
+            operator="self",
+            egress_class="none",
+            engines=(_to_markdown_support("docling", "sidecar.convert"),),
+        ),
+    )
+    if not include_managed_local_models:
+        managed_local_models = ()
     return (
         ExecutionTarget(
             id=LOCAL_TARGET_ID,
@@ -422,6 +446,7 @@ def build_static_targets() -> tuple[ExecutionTarget, ...]:
                 ),
             ),
         ),
+        *(managed_local_models if prefer_managed_local_models else ()),
         ExecutionTarget(
             id=MODELS_GATEWAY_TARGET_ID,
             operator="self",
@@ -451,6 +476,7 @@ def build_static_targets() -> tuple[ExecutionTarget, ...]:
                 *_gateway_to_markdown_engines(),
             ),
         ),
+        *(managed_local_models if not prefer_managed_local_models else ()),
         ExecutionTarget(
             id=DATALAB_TARGET_ID,
             operator="datalab",
@@ -570,13 +596,31 @@ class StaticExecutionTargetProvider:
         router: Any | None = None,
         models_gateway_resolver: Callable[[], ModelsGatewayConnection | None]
         | None = None,
+        include_managed_local_models: bool = False,
     ) -> None:
         self._env_override = env
         self._secrets = secrets
         # Use the request's effective key overlay when composition provides it.
         self._router = router
         self._models_gateway_resolver = models_gateway_resolver
-        self._targets = build_static_targets()
+        self._managed_local_models_installed = False
+        prefer_managed_local_models = False
+        if include_managed_local_models:
+            from frisket.runtime import model_install
+
+            self._managed_local_models_installed = model_install.is_installed()
+            # An explicitly configured external gateway retains its existing
+            # Docling route. The managed runtime is the Solo default only when
+            # no external gateway was configured.
+            prefer_managed_local_models = self._models_gateway_connection() is None
+        self._targets = build_static_targets(
+            include_managed_local_models=include_managed_local_models,
+            # An installed managed runtime is the Solo default. Until then an
+            # already configured external gateway retains its authored Docling
+            # selection; with no gateway, the managed choice stays visible so
+            # the selector can offer its install operation.
+            prefer_managed_local_models=prefer_managed_local_models,
+        )
         self._by_id = {target.id: target for target in self._targets}
         self.probe_counts: dict[str, int] = {}
 
@@ -597,6 +641,8 @@ class StaticExecutionTargetProvider:
             )
         if target_id == MODELS_GATEWAY_TARGET_ID:
             return self._models_gateway_connection()
+        if target_id == LOCAL_MODELS_TARGET_ID:
+            return self._managed_local_models_connection()
         if target_id == DATALAB_TARGET_ID:
             return self._datalab_connection()
         if target_id == NOMINATIM_TARGET_ID:
@@ -632,6 +678,8 @@ class StaticExecutionTargetProvider:
                 f"{MODELS_GATEWAY_TOKEN_ENV} to the gateway bearer secret to "
                 "enable models-gateway engines."
             )
+        if target_id == LOCAL_MODELS_TARGET_ID:
+            return "Install the local Docling engine before retrying."
         if target_id == DATALAB_TARGET_ID:
             return (
                 f"Set {DATALAB_API_KEY_ENV} (or add it under Settings > "
@@ -692,6 +740,27 @@ class StaticExecutionTargetProvider:
         return ConnectionConfig(
             base_url=gateway.origin,
             token=gateway.token,
+            timeout_seconds=self._float(
+                MODELS_GATEWAY_TIMEOUT_ENV, DEFAULT_MODELS_GATEWAY_TIMEOUT_SECONDS
+            ),
+            connect_timeout_seconds=MODELS_GATEWAY_CONNECT_TIMEOUT_SECONDS,
+        )
+
+    def _managed_local_models_connection(self) -> ConnectionConfig | None:
+        """Resolve the Solo-managed sidecar without probing its HTTP server."""
+        from frisket.runtime import model_install
+
+        if not self._managed_local_models_installed:
+            self._managed_local_models_installed = model_install.is_installed()
+            if not self._managed_local_models_installed:
+                return None
+        base_url = self._get(LOCAL_MODELS_URL_ENV)
+        token = self._get(LOCAL_MODELS_TOKEN_ENV)
+        if base_url is None or token is None:
+            return None
+        return ConnectionConfig(
+            base_url=base_url,
+            token=token,
             timeout_seconds=self._float(
                 MODELS_GATEWAY_TIMEOUT_ENV, DEFAULT_MODELS_GATEWAY_TIMEOUT_SECONDS
             ),

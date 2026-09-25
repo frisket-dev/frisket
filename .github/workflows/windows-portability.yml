@@ -36,7 +36,7 @@ jobs:
         run: uv run --no-sync frisket doctor
       - name: Run CSV and bulk-import portability contracts
         run: >-
-          uv run --no-sync pytest -q tests/test_cli_main.py tests/engine/test_blob_path_ingest.py tests/engine/test_import_csv_executor.py tests/engine/test_import_csv_typed_boundaries.py tests/server/test_server_import_bulk_routes.py tests/server/test_server_import_bulk_extensionless_email.py tests/server/test_server_import_bulk_email_parity.py
+          uv run --no-sync pytest -q tests/test_cli_main.py tests/runtime/test_model_server.py tests/engine/test_blob_path_ingest.py tests/engine/test_import_csv_executor.py tests/engine/test_import_csv_typed_boundaries.py tests/server/test_server_import_bulk_routes.py tests/server/test_server_import_bulk_extensionless_email.py tests/server/test_server_import_bulk_email_parity.py
       - name: Run core store, queue, and locking subset
         run: >-
           uv run --no-sync pytest -q tests/ai/test_store.py::TestBasics::test_create_open_roundtrip tests/ai/test_store.py::TestConcurrentOpen::test_a_knob_change_mints_one_successor_not_one_per_open tests/engine/test_store_leases.py tests/engine/test_job_queue.py tests/engine/test_queue_memory_engines.py tests/team/test_byo_keys.py tests/engine/test_server.py::TestProjects::test_saved_recipe_concurrent_writes_keep_all_entries tests/server/test_recipe_registry.py tests/team/test_team_entrypoint_hardening.py::test_independent_process_boots_converge_to_one_org tests/server/test_server_project_lifecycle_routes.py tests/engine/test_sandbox.py::TestBroker::test_sandboxed_op_completes_via_broker_without_keys

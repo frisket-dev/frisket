@@ -17,6 +17,7 @@ from fastapi import HTTPException, Request
 from filelock import FileLock
 
 from frisket.engine.executor import ExecutorDeps
+from frisket.execution.definitions import managed_local_models_configured
 from frisket.execution.provider import (
     ExecutionComposition,
     ExecutionCompositionContext,
@@ -524,6 +525,10 @@ class Workspace:
                 effective_router,
                 context,
                 models_gateway_resolver=self._models_gateway_connection_resolver,
+                include_managed_local_models=(
+                    self.edition == "solo"
+                    and managed_local_models_configured(os.environ)
+                ),
             )
         return self._execution_composition_factory(project, effective_router, context)
 

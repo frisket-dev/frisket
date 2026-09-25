@@ -27,8 +27,9 @@ from frisket.engine._workers.parakeet_artifacts import (
     parakeet_setup_ready,
     whisper_setup_ready,
 )
-from frisket.engine.jobs.engine_setup import PARAKEET_TDT_SETUP_REF
+from frisket.engine.jobs.engine_setup import DOCLING_SETUP_REF, PARAKEET_TDT_SETUP_REF
 from frisket.execution.definitions import (
+    LOCAL_MODELS_TARGET_ID,
     MODELS_GATEWAY_TARGET_ID,
     parakeet_runtime_present,
 )
@@ -809,6 +810,42 @@ class SelectorChoiceService:
                         "scope": "organization"
                         if self._edition != "solo"
                         else "workspace",
+                        "can_mutate": capabilities.manage_model_downloads,
+                        "can_start": capabilities.manage_model_downloads
+                        and operation is None
+                        and blocked is None,
+                        "blocked_by_operation": blocked or operation,
+                    }
+            elif (
+                self._edition == "solo"
+                and engine_id == "docling"
+                and active_target_id == LOCAL_MODELS_TARGET_ID
+            ):
+                operation, blocked = self._setup.model_pull_operations(
+                    DOCLING_SETUP_REF
+                )
+                if operation is not None or not available:
+                    status = "working" if operation is not None else "needs_setup"
+                    blocker = {
+                        "code": (
+                            "engine_setup_in_progress"
+                            if operation is not None
+                            else "engine_runtime_missing"
+                        ),
+                        "message": (
+                            "Local Docling setup is still in progress."
+                            if operation is not None
+                            else str(
+                                engine.get("error")
+                                or "Install the local Docling engine."
+                            )
+                        ),
+                        "field": None,
+                    }
+                    setup = {
+                        "kind": "engine_setup",
+                        "setup_ref": DOCLING_SETUP_REF,
+                        "scope": "workspace",
                         "can_mutate": capabilities.manage_model_downloads,
                         "can_start": capabilities.manage_model_downloads
                         and operation is None

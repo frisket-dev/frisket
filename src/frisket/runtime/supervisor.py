@@ -38,18 +38,32 @@ def spawn_service(
     stdin: int | None = None,
     stdout: int | None = None,
     stderr: int | None = None,
+    env: dict[str, str] | None = None,
 ) -> subprocess.Popen:
     """Spawn a guarded service with optional explicit standard streams."""
     options: dict[str, object] = {
         "stdin": stdin,
         "stdout": stdout,
         "stderr": stderr,
+        "env": env,
     }
     if os.name == "posix":
         options["start_new_session"] = True
+        argv = guarded_argv(argv, grace_seconds=8)
     elif os.name == "nt":
         options["creationflags"] = subprocess.CREATE_NO_WINDOW
-    return subprocess.Popen(guarded_argv(argv, grace_seconds=8), **options)
+        # Unlike sandbox subprocesses, app services do not have a separate
+        # ProcessTreeController. Route them through the existing PowerShell
+        # kill-on-close Job guardian rather than leaving descendants behind.
+        argv = [
+            str(PythonRuntime.current().executable),
+            "-I",
+            str(Path(__file__).with_name("_guard.py").resolve()),
+            str(os.getpid()),
+            "8",
+            *argv,
+        ]
+    return subprocess.Popen(argv, **options)
 
 
 def guard_exit_proves_cleanup(returncode: int | None) -> bool:

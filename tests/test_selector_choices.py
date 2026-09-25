@@ -62,6 +62,78 @@ def _choices(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return [choice for group in payload["groups"] for choice in group["choices"]]
 
 
+def test_solo_docling_offers_managed_runtime_setup_without_gateway_switch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FRISKET_LOCAL_MODELS_URL", "http://127.0.0.1:42117")
+    monkeypatch.setenv("FRISKET_LOCAL_MODELS_TOKEN", "private-token")
+    monkeypatch.setattr("frisket.runtime.model_install.is_installed", lambda: False)
+    client, workspace, project_id = _app(
+        tmp_path / "workspace",
+        capabilities_for=lambda _request, _pid: SelectorCapabilities(
+            may_author_actions=True,
+            may_run_actions=True,
+            manage_model_downloads=True,
+        ),
+    )
+
+    response = client.post(
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query(
+            {
+                "kind": "action",
+                "action_id": "media.to_markdown",
+                "field": "engine",
+                "params": {"engine": "docling"},
+            }
+        ),
+    )
+
+    assert response.status_code == 200, response.text
+    selected = next(
+        choice for choice in _choices(response.json()) if choice["is_current"]
+    )
+    assert selected["resolved_target"]["target_id"] == "local-models"
+    assert selected["status"] == "needs_setup"
+    assert selected["can_run"] is False
+    assert selected["setup"] == {
+        "kind": "engine_setup",
+        "setup_ref": "engine-setup:docling.local@1",
+        "scope": "workspace",
+        "can_mutate": True,
+        "can_start": True,
+        "blocked_by_operation": None,
+    }
+
+    pull, _created = model_pull_store.create_or_get_active(
+        workspace.queue.engine,
+        workspace_root=str(workspace.root),
+        model_ref="engine-setup:docling.local@1",
+    )
+    # The install marker may become valid before the supervised server passes
+    # its authenticated readiness check. The active durable operation remains
+    # selector authority during that window.
+    monkeypatch.setattr("frisket.runtime.model_install.is_installed", lambda: True)
+    during_readiness = client.post(
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query(
+            {
+                "kind": "action",
+                "action_id": "media.to_markdown",
+                "field": "engine",
+                "params": {"engine": "docling"},
+            }
+        ),
+    )
+    working = next(
+        choice for choice in _choices(during_readiness.json()) if choice["is_current"]
+    )
+    assert working["status"] == "working"
+    assert working["can_run"] is False
+    assert working["active_operation"]["id"] == pull.id
+    assert working["setup"]["blocked_by_operation"]["id"] == pull.id
+
+
 def test_sparse_transcription_options_refuse_on_active_target_without_retargeting(
     tmp_path: Path,
 ) -> None:

@@ -830,7 +830,10 @@ def test_org_artifact_pull_opus_mt_skips_daemon_and_audits(
 
 
 def test_org_engine_setup_requires_owner_deduplicates_and_audits(tmp_path) -> None:
-    from frisket.engine.jobs.engine_setup import PARAKEET_TDT_SETUP_REF
+    from frisket.engine.jobs.engine_setup import (
+        DOCLING_SETUP_REF,
+        PARAKEET_TDT_SETUP_REF,
+    )
 
     app = _app(tmp_path)
     owner = _owner(app)
@@ -852,6 +855,9 @@ def test_org_engine_setup_requires_owner_deduplicates_and_audits(tmp_path) -> No
     assert second.json()["deduplicated"] is True
     assert first.json()["pull"]["operation_kind"] == "engine_setup"
     assert "engine_setup_requested" in _audit_actions(app)
+    refused = owner.post("/api/org/models/setup", json={"setup_ref": DOCLING_SETUP_REF})
+    assert refused.status_code == 400
+    assert refused.json()["detail"]["code"] == "unknown_engine_setup"
 
 
 def test_org_completed_artifact_never_advertises_unowned_remove(tmp_path) -> None:

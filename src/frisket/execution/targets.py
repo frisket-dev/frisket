@@ -107,6 +107,11 @@ GOOGLE_TRANSLATE_TARGET_ID = "google-translate"
 OPENCAGE_TARGET_ID = "opencage"
 NOMINATIM_TARGET_ID = "nominatim"
 US_CENSUS_TARGET_ID = "us-census"
+#: Frisket-managed, loopback-only model service installed by the Solo app.
+#: This is deliberately distinct from ``models-gateway``: the latter is an
+#: operator-configured external service and must never silently inherit the
+#: managed server's credentials or readiness.
+LOCAL_MODELS_TARGET_ID = "local-models"
 
 _VALID_EGRESS_CLASSES: frozenset[str] = frozenset(get_args(EgressClass))
 # Every wire a target can speak, across capabilities. Each family keeps its own

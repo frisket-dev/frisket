@@ -6,6 +6,14 @@ the self-hosted sidecar. Larger dots.mocr, GLM-OCR, and MOSS deployments use
 isolated workers behind the same API. Frisket Cloud deliberately omits Surya 2;
 local/team operators can opt into Surya without adding it to the hosted bundle.
 
+Solo Frisket can also install and manage this server natively for **CPU Docling**:
+choose Docling in the conversion picker, then **Download and set up**. No Docker
+or manually configured URL/token is needed. This uses the same HTTP app and
+Docling adapter below, packaged in the `frisket-data` wheel with optional
+`models` dependencies in a separate environment. Models load on first use.
+An explicitly configured external server takes precedence. The container and
+Team/Cloud deployment paths remain operator-managed.
+
 Design:
 
 - **Stateless.** The app POSTs blob *bytes* (multipart) — this service may be

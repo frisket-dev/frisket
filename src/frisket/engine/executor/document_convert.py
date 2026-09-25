@@ -458,7 +458,11 @@ class _BoundDocumentConverter:
             op="convert",
             light_engine=LIGHT_ENGINE,
             connection=self._route_connection(),
+            should_cancel=self._owner._cancelled,
         )
+        # HTTP cancellation does not stop the shared server's current conversion.
+        # Do not publish a result returned after this action was cancelled/closed.
+        self._owner._check_active()
         docs = body.get("documents") or body.get("results")
         doc = docs[0] if docs else body
         return doc.get("markdown", ""), doc.get("ocr_used") or []
