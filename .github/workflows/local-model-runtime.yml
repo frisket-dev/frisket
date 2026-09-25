@@ -1,0 +1,68 @@
+name: local-model-runtime
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/local-model-runtime.yml'
+      - 'src/frisket/runtime/model_*.py'
+      - 'src/frisket/runtime/supervisor.py'
+      - 'src/frisket/runtime/_guard*'
+      - 'sidecar/src/frisket_models/local.py'
+      - 'sidecar/src/frisket_models/engines.py'
+      - 'scripts/smoke/local_model_server.py'
+      - 'pyproject.toml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docling:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      - run: uv build --wheel --out-dir dist
+      # This installed-product proof needs public package/model downloads,
+      # unlike the network-free unit suite. It receives no application secrets.
+      - name: Install the wheel and convert real text and scanned PDFs
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+          import subprocess
+
+          repo = Path.cwd()
+          wheel = next((repo / "dist").glob("*.whl"))
+          root = Path(os.environ["RUNNER_TEMP"]) / "docling-proof"
+          root.mkdir()
+          subprocess.run(["uv", "venv", str(root / "app")], check=True)
+          python = root / "app" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+          subprocess.run(["uv", "pip", "install", "--python", str(python), str(wheel)], check=True)
+          # Test the unpublished wheel, never an older PyPI artifact with the
+          # same version. This is uv's ordinary override, not product plumbing.
+          override = root / "override.txt"
+          override.write_text(f"frisket-data[models] @ {wheel.as_uri()}\n")
+          os.environ["UV_OVERRIDE"] = str(override)
+          os.environ["FRISKET_MODEL_RUNTIME_DIR"] = str(root / "runtime")
+          os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+          os.chdir(root)
+          subprocess.run([
+              str(python), "-I", str(repo / "scripts/smoke/local_model_server.py"),
+              "--lifecycle-install", "--text-pdf",
+              str(repo / "tests/fixtures/pdf_tables/simple_table.pdf"),
+          ], check=True)

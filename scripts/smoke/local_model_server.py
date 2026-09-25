@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import os
 import tempfile
+import time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -58,11 +59,30 @@ def main() -> None:
         from frisket.runtime.model_install import install_docling
         from frisket.runtime.model_server import LocalModelServer
 
-        install_docling(should_cancel=lambda: False, progress=print)
         server = LocalModelServer(environ=os.environ)
+        # Prove the running app's monitor notices an install that completes
+        # after application startup; no browser-owned continuation is needed.
         server.start()
+        install_docling(should_cancel=lambda: False, progress=print)
         args.url = server.url
         args.token = os.environ["FRISKET_LOCAL_MODELS_TOKEN"]
+        deadline = time.monotonic() + 30
+        while True:
+            try:
+                response = httpx.get(
+                    f"{args.url}/capabilities",
+                    headers={"Authorization": f"Bearer {args.token}"},
+                    timeout=1,
+                )
+                if response.status_code == 200:
+                    break
+            except httpx.TransportError:
+                pass
+            if time.monotonic() >= deadline:
+                raise RuntimeError(
+                    "local model server did not become ready after install"
+                )
+            time.sleep(0.1)
 
     token = args.token or "local-model-smoke-token"
 

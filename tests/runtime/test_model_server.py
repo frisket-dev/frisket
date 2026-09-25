@@ -252,7 +252,10 @@ def test_real_server_dies_with_its_application_parent(tmp_path):
     output_path = tmp_path / "parent.stdout"
     with output_path.open("wb") as output:
         parent = subprocess.Popen(
-            [sys.executable, str(launcher)],
+            [
+                sys.executable,  # subprocess-boundary: kill the application parent.
+                str(launcher),
+            ],  # subprocess-boundary: kill the application parent.
             env=environment,
             stdout=output,
             stderr=subprocess.DEVNULL,

@@ -56,12 +56,15 @@ def test_install_uses_isolated_runtime_and_current_models_extra(
 
     model_install.install_docling(should_cancel=lambda: False, progress=progress.append)
 
-    assert calls[0][:4] == [
-        "/bundled/uv",
-        "venv",
-        "--python",
-        model_install.sys.executable,
-    ]
+    assert (
+        calls[0][:4]
+        == [
+            "/bundled/uv",
+            "venv",
+            "--python",
+            model_install.sys.executable,  # subprocess-boundary: assert the venv's base interpreter.
+        ]
+    )
     assert calls[1] == [
         "/bundled/uv",
         "pip",

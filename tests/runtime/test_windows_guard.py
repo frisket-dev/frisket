@@ -120,7 +120,7 @@ def test_spawn_service_job_dies_with_application_parent(tmp_path):
     target = tmp_path / "target.py"
     target.write_text(
         "import json,os,subprocess,sys,time\n"
-        "child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'])\n"
+        "child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'])\n"  # subprocess-boundary: descendant cleanup proof.
         "open(sys.argv[1],'w').write(json.dumps([os.getpid(),child.pid]))\n"
         "time.sleep(60)\n"
     )
@@ -129,13 +129,18 @@ def test_spawn_service_job_dies_with_application_parent(tmp_path):
         "import os,subprocess,sys,time\nfrom pathlib import Path\n"
         f"sys.path.insert(0,{str(source)!r})\n"
         "from frisket.runtime.supervisor import spawn_service\n"
-        "spawn_service([sys.executable,sys.argv[1],sys.argv[2]],"
+        "spawn_service([sys.executable,sys.argv[1],sys.argv[2]],"  # subprocess-boundary: actual service ownership.
         "stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\n"
         "while not Path(sys.argv[2]).exists(): time.sleep(.02)\n"
         "os._exit(0)\n"
     )
     parent = subprocess.Popen(
-        [sys.executable, str(launcher), str(target), str(pids)],
+        [
+            sys.executable,  # subprocess-boundary: native Windows Job proof.
+            str(launcher),
+            str(target),
+            str(pids),
+        ],  # subprocess-boundary: native Windows Job proof.
         creationflags=subprocess.CREATE_NO_WINDOW,
     )
     owned_pids: list[int] = []
