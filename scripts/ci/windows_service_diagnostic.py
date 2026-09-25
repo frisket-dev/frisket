@@ -2,20 +2,73 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 import tempfile
 import time
 
 from frisket.runtime.model_install import model_child_environment
-from frisket.runtime.supervisor import spawn_service, stop_service
 
 
 def _stage(name: str) -> None:
     print(f"windows-service-diagnostic: {name}", flush=True)
+
+
+def _parser_matrix(
+    powershell: Path,
+    script: Path,
+    config: Path,
+    base: dict[str, str],
+    variants: dict[str, tuple[str, ...]],
+    *,
+    explicit_utility: bool = False,
+) -> dict[str, bool]:
+    processes: dict[str, subprocess.Popen] = {}
+    for name, additions in variants.items():
+        environment = dict(base)
+        environment.update(
+            {
+                variable: os.environ[variable]
+                for variable in additions
+                if variable in os.environ
+            }
+        )
+        processes[name] = subprocess.Popen(
+            [
+                str(powershell),
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-File",
+                str(script),
+                "-Config",
+                str(config),
+                *(["-ExplicitUtility"] if explicit_utility else []),
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=environment,
+        )
+    deadline = time.monotonic() + 8
+    while time.monotonic() < deadline and any(
+        process.poll() is None for process in processes.values()
+    ):
+        time.sleep(0.05)
+    results: dict[str, bool] = {}
+    for name, process in processes.items():
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+            _stage(f"parser-{name}-timeout")
+            results[name] = False
+        else:
+            _stage(f"parser-{name}-exit-{process.returncode}")
+            results[name] = process.returncode == 0
+    return results
 
 
 def main() -> int:
@@ -54,95 +107,62 @@ def main() -> int:
         _stage(f"raw-powershell-exit-{raw_result.returncode}")
         if raw_result.returncode:
             return 1
-
-        failures = 0
-
-        def run_trivial(name: str, stdout, stderr, child_environment=None) -> None:
-            nonlocal failures
-            _stage(f"guarded-trivial-{name}-start")
-            trace = root / f"{name}.trace"
-            selected_environment = dict(child_environment or environment)
-            selected_environment["FRISKET_GUARD_DIAGNOSTIC"] = str(trace)
-            process = spawn_service(
-                [
-                    sys.executable,
-                    "-I",
-                    "-c",
-                    "import sys; print('child-ok',file=sys.stderr)",
-                ],
-                stdin=subprocess.DEVNULL,
-                stdout=stdout,
-                stderr=stderr,
-                env=selected_environment,
-            )
-            control = getattr(process, "_frisket_guard_control", None)
-            try:
-                code = process.wait(timeout=20)
-                proof = bool(control and control[2].is_file())
-                _stage(f"guarded-trivial-{name}-exit-{code}-proof-{int(proof)}")
-                stop_service(process)
-                failures += int(bool(code) or not proof)
-            except subprocess.TimeoutExpired:
-                failures += 1
-                _stage(f"guarded-trivial-{name}-timeout")
-                process.kill()
-                process.wait(timeout=5)
-                if control:
-                    shutil.rmtree(control[0], ignore_errors=True)
-            stages = trace.read_text().splitlines() if trace.is_file() else []
-            _stage(f"guarded-trivial-{name}-stages-{'-'.join(stages) or 'none'}")
-
-        run_trivial(
-            "full-env-devnull", subprocess.DEVNULL, subprocess.DEVNULL, os.environ
+        config = root / "config.json"
+        config.write_text(json.dumps({"ok": True}))
+        parser = root / "parse-config.ps1"
+        parser.write_text(
+            "param([Parameter(Mandatory=$true)][string]$Config,"
+            "[switch]$ExplicitUtility)\n"
+            "$ErrorActionPreference = 'Stop'\n"
+            "if ($ExplicitUtility) {\n"
+            ' Import-Module "$PSHOME\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1"\n'
+            " $text = [System.IO.File]::ReadAllText($Config)\n"
+            "} else { $text = Get-Content -LiteralPath $Config -Raw -Encoding UTF8 }\n"
+            "$parsed = $text | ConvertFrom-Json\n"
+            "if ($parsed.ok -ne $true) { throw 'invalid parsed value' }\n"
+            "exit 0\n"
         )
-        run_trivial("filtered-devnull", subprocess.DEVNULL, subprocess.DEVNULL)
-        with (
-            (root / "stdout.log").open("wb") as stdout_file,
-            (root / "stderr.log").open("wb") as stderr_file,
-        ):
-            run_trivial("separate-files", stdout_file, stderr_file)
-        _stage(
-            "guarded-trivial-separate-files-bytes-"
-            f"{(root / 'stdout.log').stat().st_size}-"
-            f"{(root / 'stderr.log').stat().st_size}"
+        explicit_results = _parser_matrix(
+            powershell,
+            parser,
+            config,
+            environment,
+            {"explicit-utility": ()},
+            explicit_utility=True,
         )
-        run_trivial("same-stderr", sys.stderr, sys.stderr)
-
-        marker = root / "ready"
-        _stage("guarded-stop-start")
-        stop_trace = root / "stop.trace"
-        environment["FRISKET_GUARD_DIAGNOSTIC"] = str(stop_trace)
-        service = spawn_service(
-            [
-                sys.executable,
-                "-I",
-                "-c",
-                "from pathlib import Path; import sys,time; "
-                "Path(sys.argv[1]).write_text('ready'); time.sleep(60)",
-                str(marker),
-            ],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env=environment,
+        groups = {
+            "filtered": (),
+            "full": tuple(os.environ),
+            "program-paths": ("PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432"),
+            "shared-profile": ("PROGRAMDATA", "ALLUSERSPROFILE", "SYSTEMDRIVE"),
+            "machine-user": ("USERDOMAIN", "USERNAME", "COMPUTERNAME"),
+        }
+        group_results = _parser_matrix(powershell, parser, config, environment, groups)
+        candidates = {
+            variable
+            for name, variables in groups.items()
+            if name not in {"filtered", "full"} and group_results[name]
+            for variable in variables
+        }
+        if not candidates:
+            candidates = {
+                variable
+                for name, variables in groups.items()
+                if name not in {"filtered", "full"}
+                for variable in variables
+            }
+        individual_results = _parser_matrix(
+            powershell,
+            parser,
+            config,
+            environment,
+            {f"only-{name}": (name,) for name in sorted(candidates)},
         )
-        deadline = time.monotonic() + 15
-        while not marker.is_file():
-            if service.poll() is not None:
-                raise RuntimeError(
-                    f"stage-guarded-stop: guardian exited {service.returncode}"
-                )
-            if time.monotonic() >= deadline:
-                stages = (
-                    stop_trace.read_text().splitlines() if stop_trace.is_file() else []
-                )
-                _stage(f"guarded-stop-stages-{'-'.join(stages) or 'none'}")
-                raise RuntimeError("stage-guarded-stop: target did not start")
-            time.sleep(0.05)
-        _stage("guarded-stop-request")
-        stop_service(service)
-        _stage("guarded-stop-clean")
-    return int(bool(failures))
+    return (
+        0
+        if explicit_results["explicit-utility"] or any(individual_results.values())
+        else 1
+    )
 
 
 if __name__ == "__main__":

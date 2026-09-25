@@ -40,8 +40,6 @@ def test_model_child_environment_is_allowlisted() -> None:
             "HTTPS_PROXY": "http://proxy.test",
             "SSL_CERT_FILE": "/ca.pem",
             "HF_HUB_OFFLINE": "1",
-            "PSMODULEPATH": "C:/Windows/System32/WindowsPowerShell/v1.0/Modules",
-            "PSModulePath": "/mixed-case/module/path",
             "PYTHONPATH": "/untrusted",
             "OPENAI_API_KEY": "provider-secret",
             "FRISKET_LOCAL_MODELS_TOKEN": "managed-secret",
@@ -57,8 +55,6 @@ def test_model_child_environment_is_allowlisted() -> None:
         "HTTPS_PROXY": "http://proxy.test",
         "SSL_CERT_FILE": "/ca.pem",
         "HF_HUB_OFFLINE": "1",
-        "PSMODULEPATH": "C:/Windows/System32/WindowsPowerShell/v1.0/Modules",
-        "PSModulePath": "/mixed-case/module/path",
     }
 
 

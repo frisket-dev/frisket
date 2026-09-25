@@ -36,9 +36,6 @@ _CHILD_ENV_NAMES = frozenset(
         "PATHEXT",
         "PYTHONUTF8",
         "PYTHONIOENCODING",
-        # Required by the Windows Job guardian's standard PowerShell cmdlets.
-        "PSMODULEPATH",
-        "PSModulePath",
         "REQUESTS_CA_BUNDLE",
         "SSL_CERT_DIR",
         "SSL_CERT_FILE",
