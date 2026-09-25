@@ -194,6 +194,11 @@ class AskEventsQuery(WireModel):
     limit: int = Field(default=100, ge=1, le=200)
 
 
+class AskThreadsQuery(WireModel):
+    offset: int = Field(default=0, ge=0)
+    limit: int = Field(default=100, ge=1, le=100)
+
+
 class AskEventsPage(WireModel):
     events: list[AskEvent]
     cursor: int
