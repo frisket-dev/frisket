@@ -12,6 +12,40 @@ import pytest
 pytestmark = pytest.mark.realtime
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="native Windows PowerShell")
+def test_spawn_service_starts_with_filtered_environment():
+    from frisket.runtime.supervisor import spawn_service, stop_service
+
+    environment = {
+        name: os.environ[name]
+        for name in (
+            "COMSPEC",
+            "PATH",
+            "PATHEXT",
+            "SYSTEMROOT",
+            "TEMP",
+            "TMP",
+            "WINDIR",
+        )
+        if name in os.environ
+    }
+    assert "PSMODULEPATH" not in environment
+    process = spawn_service(
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            "raise SystemExit(0)",
+        ],  # subprocess-boundary: native guardian with a minimal OS environment.
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        env=environment,
+    )
+    assert process.wait(timeout=15) == 0
+    stop_service(process)
+
+
 def _windows_pid_alive(pid: int) -> bool:
     import ctypes
     from ctypes import wintypes

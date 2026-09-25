@@ -11,7 +11,6 @@ on:
       - 'sidecar/src/frisket_models/local.py'
       - 'sidecar/src/frisket_models/engines.py'
       - 'scripts/smoke/local_model_server.py'
-      - 'scripts/ci/windows_service_diagnostic.py'
       - 'pyproject.toml'
 
 permissions:
@@ -62,10 +61,6 @@ jobs:
           os.environ["FRISKET_MODEL_RUNTIME_DIR"] = str(root / "runtime")
           os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
           os.chdir(root)
-          if os.name == "nt":
-              subprocess.run([
-                  str(python), "-I", str(repo / "scripts/ci/windows_service_diagnostic.py"),
-              ], check=True)
           subprocess.run([
               str(python), "-I", str(repo / "scripts/smoke/local_model_server.py"),
               "--lifecycle-install", "--text-pdf",

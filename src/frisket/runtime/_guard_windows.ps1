@@ -1,18 +1,15 @@
 param([Parameter(Mandatory=$true)][string]$Config)
 $ErrorActionPreference = 'Stop'
 
-function Write-DiagnosticStage([string]$stage) {
-    $path = [Environment]::GetEnvironmentVariable('FRISKET_GUARD_DIAGNOSTIC')
-    if ($path) { [System.IO.File]::AppendAllText($path, $stage + [Environment]::NewLine) }
-}
-
 # The only Windows-specific ownership boundary. Create the target suspended so
 # no application code can spawn descendants before it belongs to our Job.
 # Neither PowerShell nor C# reads the inherited target protocol streams.
 try {
-    Write-DiagnosticStage 'script-start'
-    $launch = Get-Content -LiteralPath $Config -Raw -Encoding UTF8 | ConvertFrom-Json
-    Write-DiagnosticStage 'config-read'
+    # Do not auto-discover modules from an inherited PSModulePath. Python may
+    # itself have been launched by PowerShell 7, whose modules are incompatible
+    # with this inbox Windows PowerShell 5.1 guardian.
+    Import-Module "$PSHOME\Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1"
+    $launch = [System.IO.File]::ReadAllText($Config) | ConvertFrom-Json
     Add-Type -TypeDefinition @'
 using System;
 using System.ComponentModel;
@@ -82,11 +79,7 @@ public static class FrisketWindowsGuard {
         Check(QueryInformationJobObject(job, 1, out info, (uint)Marshal.SizeOf(typeof(Accounting)), IntPtr.Zero));
         return info.active;
     }
-    static void Trace(string path, string stage) {
-        if (!String.IsNullOrEmpty(path)) File.AppendAllText(path, stage + Environment.NewLine);
-    }
-    public static int Run(string command, string[] args, uint parentPid, uint ownerPid, string stop, string proof, string trace) {
-        Trace(trace, "run-open-parent");
+    public static int Run(string command, string[] args, uint parentPid, uint ownerPid, string stop, string proof) {
         IntPtr parent = OpenProcess(0x00100000, false, parentPid);
         if (parent == IntPtr.Zero) {
             // An already-dead parent cannot authorize a late target spawn.
@@ -96,7 +89,6 @@ public static class FrisketWindowsGuard {
         IntPtr owner = IntPtr.Zero;
         IntPtr job = IntPtr.Zero; ProcessInfo child = new ProcessInfo();
         try {
-            Trace(trace, "run-parent-opened");
             if (ownerPid != 0 && ownerPid != parentPid) {
                 owner = OpenProcess(0x00100000, false, ownerPid);
                 if (owner == IntPtr.Zero) {
@@ -109,7 +101,6 @@ public static class FrisketWindowsGuard {
             }
             job = CreateJobObjectW(IntPtr.Zero, null);
             Check(job != IntPtr.Zero);
-            Trace(trace, "run-job-created");
             var limits = new ExtendedLimits(); limits.basic.flags = 0x2000; // KILL_ON_JOB_CLOSE
             Check(SetInformationJobObject(job, 9, ref limits, (uint)Marshal.SizeOf(typeof(ExtendedLimits))));
             var startup = new Startup(); startup.cb = (uint)Marshal.SizeOf(typeof(Startup));
@@ -120,14 +111,11 @@ public static class FrisketWindowsGuard {
             // CREATE_SUSPENDED | CREATE_NO_WINDOW: a headless guardian does
             // not make its console-subsystem children headless automatically.
             Check(CreateProcessW(command, line, IntPtr.Zero, IntPtr.Zero, true, 4 | 0x08000000, IntPtr.Zero, null, ref startup, out child));
-            Trace(trace, "run-process-created");
             // Assignment failure leaves a suspended process. Terminate it in
             // finally; never let the target run outside the owned Job.
             Check(AssignProcessToJobObject(job, child.process));
-            Trace(trace, "run-process-assigned");
             if (!Exited(parent, 0) && (owner == IntPtr.Zero || !Exited(owner, 0)) && !File.Exists(stop)) {
                 Check(ResumeThread(child.thread) != 0xffffffff);
-                Trace(trace, "run-process-resumed");
             }
             uint code = 0;
             while (!Exited(child.process, 25)) {
@@ -161,16 +149,12 @@ public static class FrisketWindowsGuard {
     [DllImport("kernel32.dll", SetLastError=true)] static extern bool TerminateProcess(IntPtr process, uint code);
 }
 '@
-    Write-DiagnosticStage 'type-loaded'
     if (![System.IO.Path]::IsPathRooted($launch.command) -or $launch.parentPid -lt 1 -or
         ![System.IO.Path]::IsPathRooted($launch.stop) -or ![System.IO.Path]::IsPathRooted($launch.proof)) {
         throw 'invalid Windows runtime configuration'
     }
-    Write-DiagnosticStage 'run-enter'
     $result = [FrisketWindowsGuard]::Run([string]$launch.command, [string[]]$launch.args,
-        [uint32]$launch.parentPid, [uint32]$launch.ownerPid, [string]$launch.stop, [string]$launch.proof,
-        [Environment]::GetEnvironmentVariable('FRISKET_GUARD_DIAGNOSTIC'))
-    Write-DiagnosticStage ('run-exit-' + $result)
+        [uint32]$launch.parentPid, [uint32]$launch.ownerPid, [string]$launch.stop, [string]$launch.proof)
     exit $result
 } catch {
     [Console]::Error.WriteLine('Windows runtime guardian failed: ' + $_.Exception.Message)
