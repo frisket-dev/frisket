@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import Field, JsonValue, model_validator
+from pydantic import Field, JsonValue, field_validator, model_validator
 
 from frisket.contracts.http.models import WireModel
 
@@ -72,6 +72,13 @@ class AskThreadUpdate(WireModel):
     web: bool | None = None
     suggest_actions: bool | None = None
 
+    @field_validator("title", "model")
+    @classmethod
+    def nonblank(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("Enter a non-empty value.")
+        return value
+
 
 class AskTurnRequest(AskOptions):
     request_id: str = Field(min_length=1, max_length=100)
@@ -112,10 +119,35 @@ class AskTurn(AskOptions):
     error_summary: str | None
 
 
-class AskCitationTarget(WireModel):
+class AskCellTarget(WireModel):
+    kind: Literal["cell"] = "cell"
     sheet_id: int
     row_id: int
     column_id: int
+
+
+class AskEvidenceTarget(WireModel):
+    kind: Literal["evidence"] = "evidence"
+    sheet_id: int
+    row_id: int
+    column_id: int
+    evidence_link_id: str
+    artifact_id: str
+    span_id: str
+
+
+class AskQueryTarget(WireModel):
+    kind: Literal["query"] = "query"
+    sheet_id: int
+    row_ids: list[int] | None = None
+    filter: dict[str, JsonValue]
+    sort: list[dict[str, JsonValue]] | None = None
+    total: int
+
+
+AskCitationTarget = Annotated[
+    AskCellTarget | AskQueryTarget | AskEvidenceTarget, Field(discriminator="kind")
+]
 
 
 class AskCitation(WireModel):

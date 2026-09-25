@@ -2767,11 +2767,37 @@ export type HttpArtifactUninstallRequest = ({
   [key: string]: JsonValue | (string);
 });
 
-type HttpAskCitation_AskCitationTarget = ({
+type HttpAskCitation_AskCellTarget = ({
   "column_id": (number);
+  "kind"?: ("cell") & (string);
   "row_id": (number);
   "sheet_id": (number);
 });
+
+type HttpAskCitation_AskEvidenceTarget = ({
+  "artifact_id": (string);
+  "column_id": (number);
+  "evidence_link_id": (string);
+  "kind"?: ("evidence") & (string);
+  "row_id": (number);
+  "sheet_id": (number);
+  "span_id": (string);
+});
+
+type HttpAskCitation_AskQueryTarget = ({
+  "filter": ({
+  [key: string]: (HttpAskCitation_JsonValue);
+});
+  "kind"?: ("query") & (string);
+  "row_ids"?: (((Array<(number)>)) | ((null)));
+  "sheet_id": (number);
+  "sort"?: (((Array<({
+  [key: string]: (HttpAskCitation_JsonValue);
+})>)) | ((null)));
+  "total": (number);
+});
+
+type HttpAskCitation_JsonValue = JsonValue;
 
 export type HttpAskCitation = ({
   "excerpt": (((string)) | ((null)));
@@ -2780,7 +2806,14 @@ export type HttpAskCitation = ({
   "message": (((string)) | ((null)));
   "source_kind": (string);
   "status": ("current" | "changed" | "unverified" | "unavailable") & (string);
-  "target": (((HttpAskCitation_AskCitationTarget)) | ((null)));
+  "target": (((((HttpAskCitation_AskCellTarget)) | ((HttpAskCitation_AskQueryTarget)) | ((HttpAskCitation_AskEvidenceTarget)))) | ((null)));
+});
+
+type HttpAskEventsPage_AskCellTarget = ({
+  "column_id": (number);
+  "kind"?: ("cell") & (string);
+  "row_id": (number);
+  "sheet_id": (number);
 });
 
 type HttpAskEventsPage_AskCitation = ({
@@ -2790,13 +2823,7 @@ type HttpAskEventsPage_AskCitation = ({
   "message": (((string)) | ((null)));
   "source_kind": (string);
   "status": ("current" | "changed" | "unverified" | "unavailable") & (string);
-  "target": (((HttpAskEventsPage_AskCitationTarget)) | ((null)));
-});
-
-type HttpAskEventsPage_AskCitationTarget = ({
-  "column_id": (number);
-  "row_id": (number);
-  "sheet_id": (number);
+  "target": (((((HttpAskEventsPage_AskCellTarget)) | ((HttpAskEventsPage_AskQueryTarget)) | ((HttpAskEventsPage_AskEvidenceTarget)))) | ((null)));
 });
 
 type HttpAskEventsPage_AskEvent = ({
@@ -2811,11 +2838,34 @@ type HttpAskEventsPage_AskEvent = ({
   "turn_id": (string);
 });
 
+type HttpAskEventsPage_AskEvidenceTarget = ({
+  "artifact_id": (string);
+  "column_id": (number);
+  "evidence_link_id": (string);
+  "kind"?: ("evidence") & (string);
+  "row_id": (number);
+  "sheet_id": (number);
+  "span_id": (string);
+});
+
 type HttpAskEventsPage_AskFileSource = ({
   "column_id": (number);
   "kind": ("file") & (string);
   "row_id": (number);
   "sheet_id": (number);
+});
+
+type HttpAskEventsPage_AskQueryTarget = ({
+  "filter": ({
+  [key: string]: (HttpAskEventsPage_JsonValue);
+});
+  "kind"?: ("query") & (string);
+  "row_ids"?: (((Array<(number)>)) | ((null)));
+  "sheet_id": (number);
+  "sort"?: (((Array<({
+  [key: string]: (HttpAskEventsPage_JsonValue);
+})>)) | ((null)));
+  "total": (number);
 });
 
 type HttpAskEventsPage_AskRowsSource = ({
@@ -2934,6 +2984,13 @@ export type HttpAskThreadCreate = ({
   "web"?: (boolean);
 });
 
+type HttpAskThreadDetail_AskCellTarget = ({
+  "column_id": (number);
+  "kind"?: ("cell") & (string);
+  "row_id": (number);
+  "sheet_id": (number);
+});
+
 type HttpAskThreadDetail_AskCitation = ({
   "excerpt": (((string)) | ((null)));
   "id": (string);
@@ -2941,13 +2998,7 @@ type HttpAskThreadDetail_AskCitation = ({
   "message": (((string)) | ((null)));
   "source_kind": (string);
   "status": ("current" | "changed" | "unverified" | "unavailable") & (string);
-  "target": (((HttpAskThreadDetail_AskCitationTarget)) | ((null)));
-});
-
-type HttpAskThreadDetail_AskCitationTarget = ({
-  "column_id": (number);
-  "row_id": (number);
-  "sheet_id": (number);
+  "target": (((((HttpAskThreadDetail_AskCellTarget)) | ((HttpAskThreadDetail_AskQueryTarget)) | ((HttpAskThreadDetail_AskEvidenceTarget)))) | ((null)));
 });
 
 type HttpAskThreadDetail_AskEvent = ({
@@ -2969,11 +3020,34 @@ type HttpAskThreadDetail_AskEventsPage = ({
   "has_more": (boolean);
 });
 
+type HttpAskThreadDetail_AskEvidenceTarget = ({
+  "artifact_id": (string);
+  "column_id": (number);
+  "evidence_link_id": (string);
+  "kind"?: ("evidence") & (string);
+  "row_id": (number);
+  "sheet_id": (number);
+  "span_id": (string);
+});
+
 type HttpAskThreadDetail_AskFileSource = ({
   "column_id": (number);
   "kind": ("file") & (string);
   "row_id": (number);
   "sheet_id": (number);
+});
+
+type HttpAskThreadDetail_AskQueryTarget = ({
+  "filter": ({
+  [key: string]: (HttpAskThreadDetail_JsonValue);
+});
+  "kind"?: ("query") & (string);
+  "row_ids"?: (((Array<(number)>)) | ((null)));
+  "sheet_id": (number);
+  "sort"?: (((Array<({
+  [key: string]: (HttpAskThreadDetail_JsonValue);
+})>)) | ((null)));
+  "total": (number);
 });
 
 type HttpAskThreadDetail_AskRowsSource = ({

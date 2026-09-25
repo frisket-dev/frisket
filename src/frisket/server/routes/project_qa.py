@@ -29,7 +29,6 @@ from frisket.server.route_errors import (
 )
 from frisket.server.services.project_qa import ProjectQAService
 from frisket.server.services.project_qa_tools import ProjectQAScopeError
-from frisket.server.services.project_qa_citations import resolve_citation
 
 
 @contextmanager
@@ -42,6 +41,8 @@ def _errors():
         raise HTTPException(404, str(exc)) from exc
     except ProjectQAConflictError as exc:
         raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 def _actor(request: Request) -> str | None:
@@ -58,7 +59,9 @@ def register_project_qa_routes(app: FastAPI, *, service: ProjectQAService) -> No
     async def qa_threads(request: Request, pid: str) -> list[AskThread]:
         reject_unknown_query_parameters(request, EmptyQuery)
         with _errors():
-            return [AskThread.model_validate(item) for item in service.list(pid)]
+            return [
+                AskThread.model_validate(item) for item in (await service.list(pid))
+            ]
 
     @app.post(path, response_model=AskThread, responses=errors)
     async def qa_create_thread(
@@ -67,14 +70,14 @@ def register_project_qa_routes(app: FastAPI, *, service: ProjectQAService) -> No
         reject_unknown_query_parameters(request, EmptyQuery)
         with _errors():
             return AskThread.model_validate(
-                service.create(pid, body, actor=_actor(request))
+                await service.create(pid, body, actor=_actor(request))
             )
 
     @app.get(path + "/{thread_id}", response_model=AskThreadDetail, responses=errors)
     async def qa_thread(request: Request, pid: str, thread_id: str) -> AskThreadDetail:
         reject_unknown_query_parameters(request, EmptyQuery)
         with _errors():
-            return AskThreadDetail.model_validate(service.detail(pid, thread_id))
+            return AskThreadDetail.model_validate(await service.detail(pid, thread_id))
 
     @app.patch(path + "/{thread_id}", response_model=AskThread, responses=errors)
     async def qa_update_thread(
@@ -82,13 +85,13 @@ def register_project_qa_routes(app: FastAPI, *, service: ProjectQAService) -> No
     ) -> AskThread:
         reject_unknown_query_parameters(request, EmptyQuery)
         with _errors():
-            return AskThread.model_validate(service.update(pid, thread_id, body))
+            return AskThread.model_validate(await service.update(pid, thread_id, body))
 
     @app.delete(path + "/{thread_id}", status_code=204, responses=errors)
     async def qa_delete_thread(request: Request, pid: str, thread_id: str) -> Response:
         reject_unknown_query_parameters(request, EmptyQuery)
         with _errors():
-            service.delete(pid, thread_id)
+            await service.delete(pid, thread_id)
         return Response(status_code=204)
 
     @app.post(path + "/{thread_id}/turns", response_model=AskTurn, responses=errors)
@@ -98,7 +101,7 @@ def register_project_qa_routes(app: FastAPI, *, service: ProjectQAService) -> No
         reject_unknown_query_parameters(request, EmptyQuery)
         with _errors():
             return AskTurn.model_validate(
-                service.submit(pid, thread_id, body, actor=_actor(request))
+                await service.submit(pid, thread_id, body, actor=_actor(request))
             )
 
     @app.get(
@@ -117,7 +120,9 @@ def register_project_qa_routes(app: FastAPI, *, service: ProjectQAService) -> No
             raise HTTPException(422, "Use either before or after, not both.")
         with _errors():
             return AskEventsPage.model_validate(
-                service.events(pid, thread_id, after=after, before=before, limit=limit)
+                await service.events(
+                    pid, thread_id, after=after, before=before, limit=limit
+                )
             )
 
     @app.post(
@@ -130,13 +135,13 @@ def register_project_qa_routes(app: FastAPI, *, service: ProjectQAService) -> No
     ) -> AskTurn:
         reject_unknown_query_parameters(request, EmptyQuery)
         with _errors():
-            return AskTurn.model_validate(service.stop(pid, thread_id, turn_id))
+            return AskTurn.model_validate(await service.stop(pid, thread_id, turn_id))
 
     @app.get(path + "/{thread_id}/report", response_model=AskReport, responses=errors)
     async def qa_report(request: Request, pid: str, thread_id: str) -> AskReport:
         reject_unknown_query_parameters(request, EmptyQuery)
         with _errors():
-            return AskReport.model_validate(service.report(pid, thread_id))
+            return AskReport.model_validate(await service.report(pid, thread_id))
 
     @app.get(
         path + "/{thread_id}/citations/{citation_id}",
@@ -149,5 +154,5 @@ def register_project_qa_routes(app: FastAPI, *, service: ProjectQAService) -> No
         reject_unknown_query_parameters(request, EmptyQuery)
         with _errors():
             return AskCitation.model_validate(
-                resolve_citation(service.workspace.get(pid), thread_id, citation_id)
+                await service.citation(pid, thread_id, citation_id)
             )

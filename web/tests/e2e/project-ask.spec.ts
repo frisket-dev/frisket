@@ -47,7 +47,7 @@ test('Ask stays docked, keeps its draft, and reconnects to saved progress', asyn
       }
       return route.fulfill({ json: { events: events.filter((event) => event.seq > Number(url.searchParams.get('after') ?? 0)), cursor: events.length, has_more: false, active_turn: active ? turnWire() : null } });
     }
-    if (tail === '/thread/citations/source-1') return route.fulfill({ json: { id: 'source-1', label: 'Stories · row 1 · story', source_kind: 'cell', excerpt: 'The council approved the contract.', status: 'current', message: null, target: { sheet_id: sheetId, row_id: 1, column_id: 1 } } });
+    if (tail === '/thread/citations/source-1') return route.fulfill({ json: { id: 'source-1', label: 'Stories · row 1 · story', source_kind: 'cell', excerpt: 'The council approved the contract.', status: 'current', message: null, target: { kind: 'cell', sheet_id: sheetId, row_id: 1, column_id: 1 } } });
     if (tail === '/thread') return route.fulfill({ json: { thread, active_turn: active ? turnWire() : null,
       history: { events, cursor: events.length, has_more: false, active_turn: active ? turnWire() : null } } });
     return route.fallback();

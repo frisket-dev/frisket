@@ -1,7 +1,7 @@
 """Project Ask admission and ownership of bounded asynchronous turns.
 
-All entrypoints run on the serving event loop. Transactions never span an
-await; the project store serializes durable admission and event publication.
+The event loop owns task lifetimes. Blocking project reads/writes run through
+our cancellation-safe thread worker; SQLite owns durable admission and ordering.
 """
 
 from __future__ import annotations
@@ -26,8 +26,9 @@ from frisket.engine.store.project_qa import (
     ProjectQANotFoundError,
     ProjectQAStore,
 )
-from frisket.server.services.project_qa_tools import validate_scope
 from frisket.server.services.project_qa_citations import resolve_citation
+from frisket.server.services.project_qa_tools import validate_scope
+from frisket.server.thread_worker import await_thread_worker
 from frisket.server.workspace import Workspace
 
 logger = logging.getLogger(__name__)
@@ -40,53 +41,69 @@ class ProjectQAService:
         self._runner = runner
         self._seen: WeakSet[Project] = WeakSet()
         self._tasks: dict[tuple[Project, str], asyncio.Task[None]] = {}
+        self._started: set[tuple[Project, str]] = set()
+        self._admission = asyncio.Lock()
         self._closed = False
 
-    def store(self, project_id: str) -> ProjectQAStore:
-        project = self.workspace.get(project_id)
+    async def store(self, project_id: str) -> ProjectQAStore:
+        project = await await_thread_worker(self.workspace.get, project_id)
         store = ProjectQAStore(project)
-        if project not in self._seen:
-            store.reconcile_abandoned_turns(
-                live_turn_ids=[
-                    turn_id for (owner, turn_id) in self._tasks if owner is project
-                ]
-            )
-            self._seen.add(project)
+        async with self._admission:
+            if project not in self._seen:
+                await await_thread_worker(
+                    store.reconcile_abandoned_turns, live_turn_ids=[]
+                )
+                self._seen.add(project)
         return store
 
-    def list(self, project_id: str) -> list[dict[str, Any]]:
-        return self.store(project_id).list_threads()
+    async def list(self, project_id: str) -> list[dict[str, Any]]:
+        store = await self.store(project_id)
+        return await await_thread_worker(store.list_threads)
 
-    def create(
+    async def create(
         self, project_id: str, body: AskThreadCreate, *, actor: str | None = None
     ) -> dict:
-        values = body.model_dump()
-        values["scope"] = body.scope.model_dump(exclude_none=True)
-        validate_scope(self.workspace.get(project_id), values["scope"])
-        return self.store(project_id).create_thread(**values, created_by=actor)
+        store = await self.store(project_id)
 
-    def update(self, project_id: str, thread_id: str, body: AskThreadUpdate) -> dict:
-        values = body.model_dump(exclude_unset=True)
-        if body.scope is not None:
+        def create():
+            values = body.model_dump()
             values["scope"] = body.scope.model_dump(exclude_none=True)
             validate_scope(self.workspace.get(project_id), values["scope"])
-        return self.store(project_id).update_thread(thread_id, **values)
+            return store.create_thread(**values, created_by=actor)
 
-    def delete(self, project_id: str, thread_id: str) -> None:
-        self.store(project_id).delete_thread(thread_id)
+        return await await_thread_worker(create)
 
-    def detail(self, project_id: str, thread_id: str) -> dict:
-        store = self.store(project_id)
-        return {
-            "thread": store.get_thread(thread_id),
-            "active_turn": store.get_active_turn(thread_id),
-            "history": {
-                **self._project_page(project_id, store.recent_events(thread_id)),
-                "active_turn": store.get_active_turn(thread_id),
-            },
-        }
+    async def update(
+        self, project_id: str, thread_id: str, body: AskThreadUpdate
+    ) -> dict:
+        store = await self.store(project_id)
 
-    def events(
+        def update():
+            values = body.model_dump(exclude_unset=True)
+            if body.scope is not None:
+                values["scope"] = body.scope.model_dump(exclude_none=True)
+                validate_scope(self.workspace.get(project_id), values["scope"])
+            return store.update_thread(thread_id, **values)
+
+        return await await_thread_worker(update)
+
+    async def delete(self, project_id: str, thread_id: str) -> None:
+        store = await self.store(project_id)
+        await await_thread_worker(store.delete_thread, thread_id)
+
+    async def detail(self, project_id: str, thread_id: str) -> dict:
+        store = await self.store(project_id)
+
+        def read():
+            detail = store.detail_with_history(thread_id)
+            detail["history"] = self._project_page(
+                project_id, {**detail["history"], "active_turn": detail["active_turn"]}
+            )
+            return detail
+
+        return await await_thread_worker(read)
+
+    async def events(
         self,
         project_id: str,
         thread_id: str,
@@ -95,20 +112,25 @@ class ProjectQAService:
         before: int | None = None,
         limit: int = 100,
     ) -> dict:
-        store = self.store(project_id)
-        return {
-            **self._project_page(
-                project_id,
-                store.events(thread_id, after=after, before=before, limit=limit),
-            ),
-            "active_turn": store.get_active_turn(thread_id),
-        }
+        store = await self.store(project_id)
+
+        def read():
+            page = store.events_with_active(
+                thread_id, after=after, before=before, limit=limit
+            )
+            return self._project_page(project_id, page)
+
+        return await await_thread_worker(read)
 
     def _project_page(self, project_id: str, page: dict) -> dict:
         project = self.workspace.get(project_id)
         events = []
         for event in page["events"]:
-            ids = event["payload"].get("citation_ids", [])
+            ids = list(event["payload"].get("citation_ids", []))
+            if event["kind"] == "result_suggestion" and event["payload"].get(
+                "citation_id"
+            ):
+                ids.append(event["payload"]["citation_id"])
             citations = []
             for citation_id in ids:
                 try:
@@ -120,7 +142,13 @@ class ProjectQAService:
             events.append({**event, "citations": citations})
         return {**page, "events": events}
 
-    def submit(
+    async def citation(self, project_id: str, thread_id: str, citation_id: str) -> dict:
+        project = await await_thread_worker(self.workspace.get, project_id)
+        return await await_thread_worker(
+            resolve_citation, project, thread_id, citation_id
+        )
+
+    async def submit(
         self,
         project_id: str,
         thread_id: str,
@@ -128,112 +156,150 @@ class ProjectQAService:
         *,
         actor: str | None = None,
     ) -> dict:
-        if self._closed:
-            raise ProjectQAConflictError(
-                "Ask is shutting down. Try again after reconnecting."
-            )
-        project = self.workspace.get(project_id)
-        store = self.store(project_id)
-        values = body.model_dump()
-        values["scope"] = body.scope.model_dump(exclude_none=True)
-        validate_scope(project, values["scope"])
-        turn = store.submit_turn(thread_id, **values, submitted_by=actor)
-        key = (project, turn["id"])
-        if turn["status"] == "running" and key not in self._tasks:
-            task = asyncio.create_task(self._run(project, turn, store))
-            self._tasks[key] = task
-            task.add_done_callback(lambda completed: self._finished(key, completed))
-        return turn
+        store = await self.store(project_id)
+        project = await await_thread_worker(self.workspace.get, project_id)
+        async with self._admission:
+            if self._closed:
+                raise ProjectQAConflictError(
+                    "Ask is shutting down. Try again after reconnecting."
+                )
+
+            def admit():
+                values = body.model_dump()
+                values["scope"] = body.scope.model_dump(exclude_none=True)
+                validate_scope(project, values["scope"])
+                return store.submit_turn(thread_id, **values, submitted_by=actor)
+
+            turn = await await_thread_worker(admit)
+            key = (project, turn["id"])
+            if turn["status"] == "running" and key not in self._tasks:
+                task = asyncio.create_task(self._run(project, turn, store))
+                self._tasks[key] = task
+                task.add_done_callback(lambda completed: self._finished(key, completed))
+            return turn
 
     async def _run(self, project: Project, turn: dict, store: ProjectQAStore) -> None:
+        self._started.add((project, turn["id"]))
+        status = "interrupted"
+        error = None
+        budget = asyncio.timeout(180)
         try:
-            router = self.workspace.router_for(project)
+            if (await await_thread_worker(store.get_turn, turn["id"]))[
+                "status"
+            ] == "stopping":
+                return
+            router = await await_thread_worker(self.workspace.router_for, project)
             runner = self._runner
             if runner is None:
                 from frisket.server.services.project_qa_runner import run_turn
 
                 runner = run_turn
-            async with asyncio.timeout(180):
-                await runner(project, router, turn, store)
-            store.finish_turn(turn["id"], status="completed")
+            async with budget:
+                result = await runner(project, router, turn, store)
+            if isinstance(result, dict) and result.get("limited"):
+                error = "This investigation reached its limit. The work above is saved."
+            else:
+                status = "completed"
         except asyncio.CancelledError:
-            raise
+            # finalize_turn atomically maps a requested Stop to stopped.
+            pass
         except TimeoutError:
-            store.append_event(
-                turn["id"],
-                kind="assistant",
-                payload={
-                    "text": "This question reached its time limit. The work above is saved; you can ask a narrower follow-up.",
-                },
+            status = "interrupted" if budget.expired() else "failed"
+            error = (
+                "This question reached its time limit. The work above is saved; you can ask a narrower follow-up."
+                if budget.expired()
+                else "A source took too long to respond. Your conversation is saved; please try again."
             )
-            store.finish_turn(turn["id"], status="completed")
         except ProviderKeyRefusal as exc:
-            store.finish_turn(
-                turn["id"], status="failed", error_summary=exc.action_message()
-            )
+            status, error = "failed", exc.action_message()
         except LLMError as exc:
             model = turn["model"] or ""
-            message = classify_llm_error(
+            status = "failed"
+            error = classify_llm_error(
                 exc, provider=model.split("/", 1)[0], model=model
             ).message
-            store.finish_turn(turn["id"], status="failed", error_summary=message)
         except Exception:
             logger.exception("Project Ask turn failed")
-            store.finish_turn(
-                turn["id"],
-                status="failed",
-                error_summary="This question could not be completed. Your conversation is saved; please try again.",
+            status = "failed"
+            error = "This question could not be completed. Your conversation is saved; please try again."
+        finally:
+            await await_thread_worker(
+                store.finalize_turn, turn["id"], status=status, error_summary=error
             )
 
     def _finished(self, key: tuple[Project, str], task: asyncio.Task[None]) -> None:
+        self._started.discard(key)
+        if task.cancelled() or task.exception() is not None:
+            # Retain the task guard after failed finalization: a request replay
+            # must never repeat paid work. A fresh process reconciles the row.
+            logger.error(
+                "Project Ask finalization failed",
+                exc_info=None if task.cancelled() else task.exception(),
+            )
+            return
         self._tasks.pop(key, None)
-        project, turn_id = key
-        store = ProjectQAStore(project)
-        try:
-            turn = store.get_turn(turn_id)
-            if turn["status"] in {"running", "stopping"}:
-                store.finish_turn(
-                    turn_id,
-                    status="stopped" if turn["status"] == "stopping" else "interrupted",
-                )
-            if not task.cancelled() and task.exception() is not None:
-                logger.error("Project Ask cleanup failed", exc_info=task.exception())
-        except Exception:
-            logger.exception("Could not finalize Project Ask turn")
 
-    def stop(self, project_id: str, thread_id: str, turn_id: str) -> dict:
-        project = self.workspace.get(project_id)
-        store = self.store(project_id)
-        if store.get_turn(turn_id)["thread_id"] != thread_id:
-            raise ProjectQANotFoundError("Turn not found in this conversation.")
-        turn = store.request_stop(turn_id)
+    async def stop(self, project_id: str, thread_id: str, turn_id: str) -> dict:
+        store = await self.store(project_id)
+        project = await await_thread_worker(self.workspace.get, project_id)
+
+        def request_stop():
+            if store.get_turn(turn_id)["thread_id"] != thread_id:
+                raise ProjectQANotFoundError("Turn not found in this conversation.")
+            return store.request_stop(turn_id)
+
+        turn = await await_thread_worker(request_stop)
         task = self._tasks.get((project, turn_id))
-        if task is not None:
-            task.cancel()
+        if task is not None and not task.done():
+            if (project, turn_id) in self._started:
+                task.cancel()
         elif turn["status"] == "stopping":
-            turn = store.finish_turn(turn_id, status="stopped")
+            turn = await await_thread_worker(
+                store.finalize_turn, turn_id, status="stopped"
+            )
+            self._tasks.pop((project, turn_id), None)
         return turn
 
     async def shutdown(self) -> None:
-        self._closed = True
-        tasks = list(self._tasks.values())
-        for task in tasks:
-            task.cancel()
+        async with self._admission:
+            self._closed = True
+            tasks = list(self._tasks.values())
+            for task in tasks:
+                task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        # A task cancelled before its first instruction cannot enter _run's
+        # finally. Reconcile only after all workers have drained.
+        for project in list(self._seen):
+            await await_thread_worker(
+                ProjectQAStore(project).reconcile_abandoned_turns, live_turn_ids=[]
+            )
+        self._tasks.clear()
 
-    def report(self, project_id: str, thread_id: str) -> dict:
-        store = self.store(project_id)
-        lines = [f"# {store.get_thread(thread_id)['title']}", ""]
-        cursor = 0
-        while True:
-            page = store.events(thread_id, after=cursor, limit=200)
-            for event in page["events"]:
-                payload = event["payload"]
-                if event["kind"] == "question":
-                    lines.extend([f"## {payload['question']}", ""])
-                elif event["kind"] in {"answer", "assistant"}:
-                    lines.extend([str(payload.get("text", "")), ""])
-            if not page["has_more"]:
-                break
-            cursor = page["cursor"]
-        return {"markdown": "\n".join(lines)}
+    async def report(self, project_id: str, thread_id: str) -> dict:
+        store = await self.store(project_id)
+
+        def render():
+            lines = [f"# {store.get_thread(thread_id)['title']}", ""]
+            cursor = 0
+            while True:
+                page = store.events(thread_id, after=cursor, limit=200)
+                for event in page["events"]:
+                    payload = event["payload"]
+                    if event["kind"] == "question":
+                        lines.extend([f"## {payload.get('question', '')}", ""])
+                    elif event["kind"] in {"answer", "assistant"}:
+                        lines.extend([str(payload.get("text", "")), ""])
+                        for citation_id in payload.get("citation_ids", []):
+                            citation = store.get_citation(citation_id)
+                            lines.extend(
+                                [
+                                    f"- {citation['label']}: {citation['excerpt'] or ''}",
+                                    "",
+                                ]
+                            )
+                if not page["has_more"]:
+                    break
+                cursor = page["cursor"]
+            return {"markdown": "\n".join(lines)}
+
+        return await await_thread_worker(render)

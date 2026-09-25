@@ -310,7 +310,7 @@ class ProjectQATools:
             ):
                 continue
             _values, refs = self.project.get_values_with_refs(
-                sheet_id, column_id, row_ids=[row_id]
+                sheet_id, column_id, row_ids=[row_id], include_validity=True
             )
             citation = self.store.add_citation(
                 self.turn_id,
@@ -360,7 +360,7 @@ class ProjectQATools:
             [column_id], row_id, allowed_rows, file_cells, explicit_columns=True
         )
         values, current_refs = self.project.get_values_with_refs(
-            sheet_id, column_id, row_ids=[row_id]
+            sheet_id, column_id, row_ids=[row_id], include_validity=True
         )
         if row_id not in values:
             raise ProjectQAScopeError("source is no longer available")

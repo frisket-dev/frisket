@@ -137,7 +137,7 @@ export function createProjectQAStore(api: ProjectQAApi) {
         const turn = await api.submit(thread.id, pending.body, controller.signal);
         if (current !== generation) return;
         pending = null;
-        store.set((s) => ({ ...s, activeTurn: turn.status === 'running' || turn.status === 'stopping' ? turn : null, busy: false, draft: '' }));
+        store.set((s) => ({ ...s, activeTurn: turn.status === 'running' || turn.status === 'stopping' ? turn : null, busy: false, draft: ['failed', 'interrupted', 'stopped'].includes(turn.status) ? snapshot.draft : '', error: turn.error_summary }));
         await refresh();
       } catch (exc) {
         if (current === generation) store.set((s) => ({ ...s, busy: false, error: error(exc) }));
@@ -149,7 +149,7 @@ export function createProjectQAStore(api: ProjectQAApi) {
       const current = generation;
       try {
         const turn = await api.stop(thread.id, activeTurn.id, controller.signal);
-        if (current === generation) store.set((s) => ({ ...s, activeTurn: turn }));
+        if (current === generation) store.set((s) => ({ ...s, activeTurn: turn.status === 'running' || turn.status === 'stopping' ? turn : null }));
         await refresh();
       } catch (exc) {
         if (current === generation) store.set((s) => ({ ...s, error: error(exc) }));

@@ -44,7 +44,7 @@ describe('saved Project Ask', () => {
 
   it('drains terminal events before ceasing polling', async () => {
     const api = fixture();
-    vi.mocked(api.detail).mockResolvedValue({ thread, active_turn: null, history: page });
+    vi.mocked(api.detail).mockResolvedValue({ thread, active_turn: turn, history: page });
     vi.mocked(api.events).mockResolvedValueOnce({ events: [{
       thread_id: 'thread', turn_id: 'turn', seq: 1, kind: 'answer', payload: { text: 'Answer' }, created_at: '',
     }], cursor: 1, has_more: true, active_turn: null }).mockResolvedValueOnce({ events: [{
@@ -67,5 +67,62 @@ describe('saved Project Ask', () => {
     await loading;
     expect(handle.store.get().threads).toEqual([]);
     expect(api.detail).not.toHaveBeenCalled();
+  });
+  it('loads older history without replacing the latest answer', async () => {
+    const api = fixture();
+    const event = (seq: number) => ({ thread_id: 'thread', turn_id: 'turn', seq, kind: 'assistant' as const, payload: { text: String(seq) }, created_at: '' });
+    vi.mocked(api.detail).mockResolvedValue({ thread, active_turn: null, history: { ...page, events: [event(3)], cursor: 3, has_more: true } });
+    const handle = createProjectQAStore(api);
+    await handle.open('thread');
+    vi.mocked(api.events).mockResolvedValueOnce({ ...page, events: [event(1), event(2)], cursor: 2 });
+    await handle.loadEarlier();
+    expect(api.events).toHaveBeenLastCalledWith('thread', { before: 3, limit: 100 }, expect.any(AbortSignal));
+    expect(handle.store.get().events.map((item) => item.seq)).toEqual([1, 2, 3]);
+    expect(handle.store.get().hasEarlier).toBe(false);
+  });
+
+  it('ignores an older refresh after admitting a new turn', async () => {
+    const api = fixture();
+    const handle = createProjectQAStore(api);
+    await handle.open('thread');
+    let finish!: (value: typeof page) => void;
+    vi.mocked(api.events).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const oldRefresh = handle.refresh();
+    handle.setDraft('A new question');
+    vi.mocked(api.events).mockResolvedValueOnce({ ...page, active_turn: turn });
+    await handle.send();
+    finish(page);
+    await oldRefresh;
+    expect(handle.store.get().activeTurn?.id).toBe(turn.id);
+  });
+
+  it('keeps a failed replay question editable and loads its saved answer', async () => {
+    const api = fixture();
+    const handle = createProjectQAStore(api);
+    await handle.initialize({ kind: 'project' });
+    handle.setDraft('What changed?');
+    vi.mocked(api.submit).mockRejectedValueOnce(new Error('Lost connection'));
+    await handle.send();
+    vi.mocked(api.submit).mockResolvedValueOnce({ ...turn, status: 'failed', error_summary: 'Provider unavailable' });
+    vi.mocked(api.events).mockResolvedValueOnce({ ...page, events: [{ thread_id: 'thread', turn_id: 'turn', seq: 1, kind: 'question', payload: { question: 'What changed?' }, created_at: '' }] });
+    await handle.send();
+    expect(handle.store.get().draft).toBe('What changed?');
+    expect(handle.store.get().events).toHaveLength(1);
+    expect(handle.store.get().error).toBe('Provider unavailable');
+    expect(handle.store.get().activeTurn).toBeNull();
+    await handle.send();
+    const requests = vi.mocked(api.submit).mock.calls;
+    expect(requests[2][1].request_id).not.toBe(requests[1][1].request_id);
+  });
+
+  it('a terminal stop reply cannot leave the composer disabled', async () => {
+    const api = fixture();
+    vi.mocked(api.events).mockResolvedValueOnce({ ...page, active_turn: turn });
+    const handle = createProjectQAStore(api);
+    await handle.open('thread');
+    vi.mocked(api.stop).mockResolvedValueOnce({ ...turn, status: 'stopped' });
+    vi.mocked(api.events).mockRejectedValueOnce(new Error('Network interrupted'));
+    await handle.stop();
+    expect(handle.store.get().activeTurn).toBeNull();
   });
 });

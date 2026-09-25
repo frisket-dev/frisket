@@ -25,7 +25,36 @@ def resolve_citation(
         "target": None,
     }
     locator = citation["locator"]
-    if citation["source_kind"] != "cell":
+    if citation["source_kind"] == "query":
+        if not project.db.execute(
+            "SELECT 1 FROM sheets WHERE id=? AND hidden=0", (locator.get("sheet_id"),)
+        ).fetchone():
+            return result
+        from frisket.server.services.project_qa_query import evaluate_query
+
+        try:
+            current = evaluate_query(
+                project, locator["query"], locator["scope"], limit=0
+            )
+        except (ValueError, KeyError):
+            return result
+        changed = project.op_cursor != locator.get("source_op_cursor")
+        return {
+            **result,
+            "status": "changed" if changed else "current",
+            "message": "The project has changed since this query. These results use current data."
+            if changed
+            else None,
+            "target": {
+                "kind": "query",
+                "sheet_id": current["sheet_id"],
+                "row_ids": current["scope"].get("row_ids"),
+                "filter": current["query"].get("filter", {}),
+                "sort": current["query"].get("sort"),
+                "total": current["total"],
+            },
+        }
+    if citation["source_kind"] not in {"cell", "evidence"}:
         return result
     sheet_id, row_id, column_id = (
         locator.get(key) for key in ("sheet_id", "row_id", "column_id")
@@ -56,6 +85,42 @@ def resolve_citation(
         if saved_ref == refs.get(row_id)
         else "changed"
     )
+    target = {
+        "kind": "cell",
+        "sheet_id": sheet_id,
+        "row_id": row_id,
+        "column_id": column_id,
+    }
+    if citation["source_kind"] == "evidence":
+        from frisket.engine.store.evidence import resolve_evidence_viewer
+
+        try:
+            viewer = resolve_evidence_viewer(project, locator["evidence_link_id"])
+        except KeyError:
+            return result
+        span_exists = any(
+            artifact["stable_id"] == locator.get("artifact_id")
+            and any(
+                span["stable_id"] == locator.get("span_id")
+                for span in artifact["spans"]
+            )
+            for artifact in viewer["artifacts"]
+        )
+        if not span_exists:
+            return result
+        if (
+            viewer["link"]["status"] != "active"
+            or viewer["link"]["text_layer_hash_mismatch"]
+        ):
+            status = "changed"
+        target = {
+            **target,
+            "kind": "evidence",
+            **{
+                key: locator[key]
+                for key in ("evidence_link_id", "artifact_id", "span_id")
+            },
+        }
     return {
         **result,
         "label": f"{sheet['name']} · row {row_id} · {column['name']}",
@@ -65,5 +130,5 @@ def resolve_citation(
             "changed": "This value has changed since the answer was written.",
             "unverified": "The original value cannot be verified.",
         }[status],
-        "target": {"sheet_id": sheet_id, "row_id": row_id, "column_id": column_id},
+        "target": target,
     }

@@ -26,26 +26,27 @@ def test_replay_stop_reconnect_and_restart_do_not_repeat_paid_work(tmp_path):
             await asyncio.Event().wait()
 
         service = ProjectQAService(workspace, runner=runner)
-        thread = service.create(pid, AskThreadCreate(scope={"kind": "project"}))
+        thread = await service.create(pid, AskThreadCreate(scope={"kind": "project"}))
         request = AskTurnRequest(
             request_id="once", question="What changed?", scope={"kind": "project"}
         )
-        first = service.submit(pid, thread["id"], request)
+        first = await service.submit(pid, thread["id"], request)
         await started.wait()
-        assert service.submit(pid, thread["id"], request)["id"] == first["id"]
-        assert service.detail(pid, thread["id"])["active_turn"]["id"] == first["id"]
+        assert (await service.submit(pid, thread["id"], request))["id"] == first["id"]
+        assert (await service.detail(pid, thread["id"]))["active_turn"]["id"] == first[
+            "id"
+        ]
         with pytest.raises(ProjectQAConflictError):
-            service.delete(pid, thread["id"])
-        service.stop(pid, thread["id"], first["id"])
-        await asyncio.sleep(0)
-        await asyncio.sleep(0)
-        assert service.detail(pid, thread["id"])["active_turn"] is None
+            await service.delete(pid, thread["id"])
+        await service.stop(pid, thread["id"], first["id"])
+        await asyncio.gather(*list(service._tasks.values()))
+        assert (await service.detail(pid, thread["id"]))["active_turn"] is None
         assert (
             ProjectQAStore(workspace.get(pid)).get_turn(first["id"])["status"]
             == "stopped"
         )
         assert calls == [first["id"]]
-        service.submit(pid, thread["id"], request)
+        await service.submit(pid, thread["id"], request)
         await asyncio.sleep(0)
         assert calls == [first["id"]]
         await service.shutdown()
@@ -55,7 +56,7 @@ def test_replay_stop_reconnect_and_restart_do_not_repeat_paid_work(tmp_path):
             thread["id"], request_id="crashed", question="Again"
         )
         restarted = ProjectQAService(workspace, runner=runner)
-        assert restarted.detail(pid, thread["id"])["active_turn"] is None
+        assert (await restarted.detail(pid, thread["id"]))["active_turn"] is None
         assert store.get_turn(abandoned["id"])["status"] == "interrupted"
         assert calls == [first["id"]]
         await restarted.shutdown()
@@ -72,9 +73,9 @@ def test_shutdown_is_interrupted_and_cross_thread_stop_is_refused(tmp_path):
             await asyncio.Event().wait()
 
         service = ProjectQAService(workspace, runner=runner)
-        thread = service.create(pid, AskThreadCreate(scope={"kind": "project"}))
-        other = service.create(pid, AskThreadCreate(scope={"kind": "project"}))
-        turn = service.submit(
+        thread = await service.create(pid, AskThreadCreate(scope={"kind": "project"}))
+        other = await service.create(pid, AskThreadCreate(scope={"kind": "project"}))
+        turn = await service.submit(
             pid,
             thread["id"],
             AskTurnRequest(
@@ -84,11 +85,50 @@ def test_shutdown_is_interrupted_and_cross_thread_stop_is_refused(tmp_path):
             ),
         )
         with pytest.raises(LookupError):
-            service.stop(pid, other["id"], turn["id"])
+            await service.stop(pid, other["id"], turn["id"])
         await service.shutdown()
         assert (
             ProjectQAStore(workspace.get(pid)).get_turn(turn["id"])["status"]
             == "interrupted"
         )
+
+    asyncio.run(scenario())
+
+
+def test_storage_runs_off_event_loop_and_immediate_stop_drains(tmp_path, monkeypatch):
+    import threading
+
+    async def scenario():
+        loop_thread = threading.get_ident()
+        original = ProjectQAStore.create_thread
+
+        def checked_create(self, *args, **kwargs):
+            assert threading.get_ident() != loop_thread
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(ProjectQAStore, "create_thread", checked_create)
+        workspace = Workspace(tmp_path / "ws")
+        pid = workspace.create("Ask")["id"]
+        started = asyncio.Event()
+
+        async def runner(*args):
+            started.set()
+            await asyncio.Event().wait()
+
+        service = ProjectQAService(workspace, runner=runner)
+        thread = await service.create(pid, AskThreadCreate(scope={"kind": "project"}))
+        turn = await service.submit(
+            pid,
+            thread["id"],
+            AskTurnRequest(
+                request_id="one", question="Read", scope={"kind": "project"}
+            ),
+        )
+        await service.stop(pid, thread["id"], turn["id"])
+        await asyncio.gather(*list(service._tasks.values()))
+        detail = await service.detail(pid, thread["id"])
+        assert detail["active_turn"] is None
+        assert detail["history"]["events"][-1]["payload"]["status"] == "stopped"
+        await service.shutdown()
 
     asyncio.run(scenario())
