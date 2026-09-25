@@ -1157,6 +1157,50 @@ def test_concurrent_same_name_bulk_plans_allocate_inside_transaction(
     ]
 
 
+def test_purge_tolerates_plan_removed_before_claim_lock_opens(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / ".bulk_import_staging"
+    plan = root / "bulk-racing-plan"
+    plan.mkdir(parents=True)
+    manifest = plan / "manifest.json"
+    manifest.write_text('{"expires_at": 1}')
+
+    class DisappearingLock:
+        def acquire(self, *, timeout: int) -> None:
+            assert timeout == 0
+            manifest.unlink()
+            plan.rmdir()
+            raise FileNotFoundError(plan / ".claim.lock")
+
+        def release(self) -> None:
+            raise AssertionError("an unacquired lock must not be released")
+
+    monkeypatch.setattr(
+        import_bulk_plan, "open_lock_file", lambda _path: DisappearingLock()
+    )
+
+    import_bulk_plan.BulkPlanLifecycle(lambda: 2).purge(root)
+
+
+def test_purge_does_not_hide_claim_lock_permission_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / ".bulk_import_staging"
+    plan = root / "bulk-permission-error"
+    plan.mkdir(parents=True)
+
+    class DeniedLock:
+        def acquire(self, *, timeout: int) -> None:
+            assert timeout == 0
+            raise PermissionError(plan / ".claim.lock")
+
+    monkeypatch.setattr(import_bulk_plan, "open_lock_file", lambda _path: DeniedLock())
+
+    with pytest.raises(PermissionError):
+        import_bulk_plan.BulkPlanLifecycle(lambda: 2).purge(root)
+
+
 def test_concurrent_generic_file_plans_create_distinct_actual_outputs(
     tmp_path: Path,
 ) -> None:
