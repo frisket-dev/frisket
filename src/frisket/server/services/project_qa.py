@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from contextlib import nullcontext
 from typing import Any
 from weakref import WeakSet
 
@@ -30,6 +31,7 @@ from frisket.server.services.project_qa_citations import resolve_citation
 from frisket.server.services.project_qa_tools import validate_scope
 from frisket.server.thread_worker import await_thread_worker
 from frisket.server.workspace import Workspace
+from frisket.server.project_qa_runtime import ProjectQATurnRuntime
 
 logger = logging.getLogger(__name__)
 TurnRunner = Callable[[Project, Any, dict[str, Any], ProjectQAStore], Awaitable[Any]]
@@ -42,6 +44,7 @@ class ProjectQAService:
         self._seen: WeakSet[Project] = WeakSet()
         self._tasks: dict[tuple[Project, str], asyncio.Task[None]] = {}
         self._started: set[tuple[Project, str]] = set()
+        self._runtime_closers: set[asyncio.Task[None]] = set()
         self._admission = asyncio.Lock()
         self._closed = False
 
@@ -156,6 +159,25 @@ class ProjectQAService:
         *,
         actor: str | None = None,
     ) -> dict:
+        # Once durable admission starts, a disconnected HTTP caller must not
+        # strand a running row without its task or hosted runtime cleanup.
+        admission = asyncio.create_task(
+            self._submit_owned(project_id, thread_id, body, actor=actor)
+        )
+        try:
+            return await asyncio.shield(admission)
+        except asyncio.CancelledError:
+            await admission
+            raise
+
+    async def _submit_owned(
+        self,
+        project_id: str,
+        thread_id: str,
+        body: AskTurnRequest,
+        *,
+        actor: str | None,
+    ) -> dict:
         store = await self.store(project_id)
         project = await await_thread_worker(self.workspace.get, project_id)
         async with self._admission:
@@ -173,12 +195,38 @@ class ProjectQAService:
             turn = await await_thread_worker(admit)
             key = (project, turn["id"])
             if turn["status"] == "running" and key not in self._tasks:
-                task = asyncio.create_task(self._run(project, turn, store))
+                runtime = None
+                port = self.workspace.project_qa_runtime_port
+                try:
+                    if port is not None:
+                        runtime = await port.prepare_turn(
+                            project=project,
+                            project_id=project_id,
+                            turn_id=turn["id"],
+                            actor=actor,
+                        )
+                except Exception:
+                    await await_thread_worker(
+                        store.finalize_turn,
+                        turn["id"],
+                        status="failed",
+                        error_summary="This question could not be started. Please try again.",
+                    )
+                    raise
+                task = asyncio.create_task(self._run(project, turn, store, runtime))
                 self._tasks[key] = task
-                task.add_done_callback(lambda completed: self._finished(key, completed))
+                task.add_done_callback(
+                    lambda completed: self._finished(key, completed, runtime)
+                )
             return turn
 
-    async def _run(self, project: Project, turn: dict, store: ProjectQAStore) -> None:
+    async def _run(
+        self,
+        project: Project,
+        turn: dict,
+        store: ProjectQAStore,
+        runtime: ProjectQATurnRuntime | None = None,
+    ) -> None:
         self._started.add((project, turn["id"]))
         status = "interrupted"
         error = None
@@ -189,13 +237,26 @@ class ProjectQAService:
             ] == "stopping":
                 return
             router = await await_thread_worker(self.workspace.router_for, project)
-            runner = self._runner
-            if runner is None:
-                from frisket.server.services.project_qa_runner import run_turn
 
-                runner = run_turn
-            async with budget:
-                result = await runner(project, router, turn, store)
+            async def settle_call(call_id: str) -> None:
+                if runtime is not None:
+                    await await_thread_worker(
+                        runtime.settle_call,
+                        project=project,
+                        turn_id=turn["id"],
+                        call_id=call_id,
+                    )
+
+            with runtime.call_scope(router) if runtime is not None else nullcontext():
+                async with budget:
+                    if self._runner is not None:
+                        result = await self._runner(project, router, turn, store)
+                    else:
+                        from frisket.server.services.project_qa_runner import run_turn
+
+                        result = await run_turn(
+                            project, router, turn, store, on_call=settle_call
+                        )
             if isinstance(result, dict) and result.get("limited"):
                 error = "This investigation reached its limit. The work above is saved."
             else:
@@ -227,7 +288,22 @@ class ProjectQAService:
                 store.finalize_turn, turn["id"], status=status, error_summary=error
             )
 
-    def _finished(self, key: tuple[Project, str], task: asyncio.Task[None]) -> None:
+    async def _close_runtime(self, runtime: ProjectQATurnRuntime) -> None:
+        try:
+            await runtime.aclose()
+        except Exception:
+            logger.exception("Project Ask runtime cleanup failed")
+
+    def _finished(
+        self,
+        key: tuple[Project, str],
+        task: asyncio.Task[None],
+        runtime: ProjectQATurnRuntime | None = None,
+    ) -> None:
+        if runtime is not None:
+            cleanup = asyncio.create_task(self._close_runtime(runtime))
+            self._runtime_closers.add(cleanup)
+            cleanup.add_done_callback(self._runtime_closers.discard)
         self._started.discard(key)
         if task.cancelled() or task.exception() is not None:
             # Retain the task guard after failed finalization: a request replay
@@ -267,6 +343,7 @@ class ProjectQAService:
             for task in tasks:
                 task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        await asyncio.gather(*list(self._runtime_closers), return_exceptions=True)
         # A task cancelled before its first instruction cannot enter _run's
         # finally. Reconcile only after all workers have drained.
         for project in list(self._seen):

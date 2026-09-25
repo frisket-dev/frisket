@@ -132,3 +132,66 @@ def test_storage_runs_off_event_loop_and_immediate_stop_drains(tmp_path, monkeyp
         await service.shutdown()
 
     asyncio.run(scenario())
+
+
+def test_cancelled_submit_still_owns_admitted_turn_and_runtime(tmp_path):
+    from contextlib import nullcontext
+
+    async def scenario():
+        workspace = Workspace(tmp_path / "ws")
+        pid = workspace.create("Ask")["id"]
+        prepared = asyncio.Event()
+        release_prepare = asyncio.Event()
+        closed = asyncio.Event()
+        calls = []
+
+        class Runtime:
+            def call_scope(self, router):
+                return nullcontext()
+
+            def settle_call(self, **kwargs):
+                raise AssertionError("custom runner has no model calls")
+
+            async def aclose(self):
+                closed.set()
+
+        class Port:
+            async def prepare_turn(self, **kwargs):
+                calls.append(kwargs["turn_id"])
+                prepared.set()
+                await release_prepare.wait()
+                return Runtime()
+
+        workspace.project_qa_runtime_port = Port()
+
+        async def runner(*args):
+            await asyncio.Event().wait()
+
+        service = ProjectQAService(workspace, runner=runner)
+        thread = await service.create(pid, AskThreadCreate(scope={"kind": "project"}))
+        request = AskTurnRequest(
+            request_id="once", question="Read", scope={"kind": "project"}
+        )
+        submit = asyncio.create_task(service.submit(pid, thread["id"], request))
+        try:
+            await asyncio.wait_for(prepared.wait(), 2)
+            submit.cancel()
+            release_prepare.set()
+            with pytest.raises(asyncio.CancelledError):
+                await submit
+            replay = await service.submit(pid, thread["id"], request)
+            assert calls == [replay["id"]]
+            await service.shutdown()
+            assert closed.is_set()
+            assert (
+                ProjectQAStore(workspace.get(pid)).get_turn(replay["id"])["status"]
+                == "interrupted"
+            )
+        finally:
+            release_prepare.set()
+            if not submit.done():
+                submit.cancel()
+            await asyncio.gather(submit, return_exceptions=True)
+            await service.shutdown()
+
+    asyncio.run(scenario())

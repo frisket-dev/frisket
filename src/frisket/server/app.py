@@ -345,6 +345,7 @@ def create_app(
     direct_action_receipt_settlement_port: (
         server_workspace.DirectActionReceiptSettlementPort | None
     ) = None,
+    project_qa_runtime_port: server_workspace.ProjectQARuntimePort | None = None,
     plugin_composition_policy: PluginCompositionPolicy | None = None,
     auth_methods: Any | None = None,
     bulk_import_limits: BulkImportLimits | None = None,
@@ -473,6 +474,7 @@ def create_app(
         execution_router_factory=execution_router_factory,
         execution_composition_factory=execution_composition_factory,
         direct_action_receipt_settlement_port=(direct_action_receipt_settlement_port),
+        project_qa_runtime_port=project_qa_runtime_port,
         edition=edition,
     )
     stale_run_grace_seconds = (
