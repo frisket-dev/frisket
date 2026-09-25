@@ -219,7 +219,7 @@ async def run_turn(
             async with tool_lock:
                 result = await search_public_web(query, search=search_web_results)
                 observed = await await_thread_worker(tools.record_web_search, result)
-        except ValueError as error:
+        except (ValueError, TimeoutError) as error:
             await progress("search_web", "completed", error="unavailable")
             raise ModelRetry("That public web search was unavailable; try another query.") from error
         await progress("search_web", "completed", hits=len(observed["results"]))
@@ -232,7 +232,7 @@ async def run_turn(
             async with tool_lock:
                 page = await fetch_web_page(url, http=router.client, fetch=fetch_page)
                 observed = await await_thread_worker(tools.record_web_page, page)
-        except ValueError as error:
+        except (ValueError, TimeoutError) as error:
             await progress("open_web_page", "completed", error="unavailable")
             raise ModelRetry("That public page was unavailable; use another safe URL.") from error
         await progress("open_web_page", "completed")
