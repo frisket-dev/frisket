@@ -16,7 +16,7 @@ from frisket.server.services.action_runs import v1_action_result_http_status
 from frisket.server.workspace import Workspace
 from frisket.server.route_errors import RouteError
 from frisket.server.services.import_tabular import resolve_import_sheet_name
-from frisket.server.services.import_uploads import await_thread_worker
+from frisket.server.thread_worker import await_thread_worker
 
 
 @dataclass(frozen=True)

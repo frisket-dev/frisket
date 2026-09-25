@@ -48,10 +48,10 @@ from frisket.server.services.import_files import (
     ImportFilesUploadService,
 )
 from frisket.server.services.import_pdf import ImportPdfUploadService
+from frisket.server.thread_worker import await_thread_worker
 from frisket.server.services.import_uploads import (
     AdmittedUpload,
     admit_uploads,
-    await_thread_worker,
 )
 from frisket.server.services.import_urls import ImportUrlsService
 from frisket.server.services.import_xlsx import ImportXlsxUploadService

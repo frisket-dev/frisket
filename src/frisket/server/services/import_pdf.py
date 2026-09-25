@@ -10,9 +10,9 @@ from typing import Any
 from frisket.engine.executor import BoundLocalFile, ExecutorDeps, run_action_spec
 from frisket.engine.executor.import_sources import bind_import_sources
 from frisket.server.services.action_runs import v1_action_result_http_status
+from frisket.server.thread_worker import await_thread_worker
 from frisket.server.services.import_uploads import (
     AdmittedUpload,
-    await_thread_worker,
     upload_sheet_name,
 )
 from frisket.server.workspace import Workspace
