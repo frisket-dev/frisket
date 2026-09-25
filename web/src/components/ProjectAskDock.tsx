@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, Plus, Send, Square } from 'lucide-react';
 import type { CopilotRegisteredActionDraft, SheetMeta } from '../api/types';
-import type { AskScope } from '../api/projectQA';
+import type { AskScope, AskCitation } from '../api/projectQA';
 import type { SelectorChoice } from '../api/selectorChoices';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { useSelector } from '../bind/useSelector';
@@ -13,7 +13,8 @@ import { AskSourcePicker } from './project-ask/AskSourcePicker';
 import './ProjectAskDock.css';
 
 
-export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposal }: {
+export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposal, onOpenSource }: {
+  onOpenSource(citation: AskCitation): void;
   initialScope: AskScope; sheets: SheetMeta[]; onClose(): void; onInspectProposal(title: string, spec: CopilotRegisteredActionDraft): void;
 }) {
   const { qa, chromePreferences: { projectId } } = useWorkspaceStores();
@@ -56,7 +57,7 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
     <div className="ask-history" ref={historyRef} aria-live="polite" aria-relevant="additions">
       {state.hasEarlier && <button type="button" disabled={state.busy} onClick={() => void qa.loadEarlier()}>Load earlier messages</button>}
       {!state.events.length && <PanelEmpty>Ask a question about your sources, or explore what they contain.</PanelEmpty>}
-      {state.events.map((event) => <AskEventContent key={event.seq} event={event} onInspectProposal={onInspectProposal} />)}
+      {state.events.map((event) => <AskEventContent key={event.seq} event={event} onInspectProposal={onInspectProposal} onOpenSource={onOpenSource} />)}
       {state.activeTurn && <div className="ask-status" role="status">{state.activeTurn.status === 'stopping' ? 'Stopping…' : 'Investigating…'}</div>}
     </div>
     <div className="ask-composer">

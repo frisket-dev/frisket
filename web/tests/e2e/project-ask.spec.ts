@@ -32,7 +32,6 @@ test('Ask stays docked, keeps its draft, and reconnects to saved progress', asyn
     if (tail === '/thread/turns') {
       const body = request.postDataJSON();
       expect(body.scope).toEqual(thread.scope);
-      expect(body.messages).toBeUndefined();
       expect(body.question).toBe('What changed?');
       active = true;
       events.push({ thread_id: 'thread', turn_id: 'turn', seq: 1, kind: 'question', payload: { question: body.question }, created_at: '' });
@@ -43,11 +42,13 @@ test('Ask stays docked, keeps its draft, and reconnects to saved progress', asyn
         active = false;
         events.push({ thread_id: 'thread', turn_id: 'turn', seq: 2, kind: 'answer', payload: { text: 'The council approved the contract.', citation_ids: ['source-1'] }, created_at: '' });
         events.push({ thread_id: 'thread', turn_id: 'turn', seq: 3, kind: 'action_proposal', payload: { proposal: { kind: 'map', title: 'Add a note', spec: { action_id: 'map.template', scope: { kind: 'sheet_rows', sheet_id: sheetId }, params: { template: { text: 'note: {{story}}' } }, output_names: { rendered: 'note' } } } }, created_at: '' });
-        events.push({ thread_id: 'thread', turn_id: 'turn', seq: 4, kind: 'status', payload: { status: 'completed' }, created_at: '' });
+        events.push({ thread_id: 'thread', turn_id: 'turn', seq: 4, kind: 'result_suggestion', payload: { title: 'Council records', total: 1, citation_id: 'query-1' }, created_at: '' });
+        events.push({ thread_id: 'thread', turn_id: 'turn', seq: 5, kind: 'status', payload: { status: 'completed' }, created_at: '' });
       }
       return route.fulfill({ json: { events: events.filter((event) => event.seq > Number(url.searchParams.get('after') ?? 0)), cursor: events.length, has_more: false, active_turn: active ? turnWire() : null } });
     }
     if (tail === '/thread/citations/source-1') return route.fulfill({ json: { id: 'source-1', label: 'Stories · row 1 · story', source_kind: 'cell', excerpt: 'The council approved the contract.', status: 'current', message: null, target: { kind: 'cell', sheet_id: sheetId, row_id: 1, column_id: 1 } } });
+    if (tail === '/thread/citations/query-1') return route.fulfill({ json: { id: 'query-1', label: 'Council records', source_kind: 'query', excerpt: null, status: 'current', message: null, target: { kind: 'query', sheet_id: sheetId, row_ids: [1, 2], filter: { story: { contains: 'council' } }, sort: null, total: 1 } } });
     if (tail === '/thread') return route.fulfill({ json: { thread, active_turn: active ? turnWire() : null,
       history: { events, cursor: events.length, has_more: false, active_turn: active ? turnWire() : null } } });
     return route.fallback();
@@ -73,8 +74,19 @@ test('Ask stays docked, keeps its draft, and reconnects to saved progress', asyn
   await page.reload();
   if (!await dock.isVisible()) await page.getByTestId('chrome-copilot-toggle').click();
   await expect(dock.getByText('The council approved the contract.', { exact: true })).toBeVisible();
+  const baseUrl = page.url();
   await dock.getByRole('button', { name: 'Source 1', exact: true }).click();
   await expect(dock.getByText('Stories · row 1 · story', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Back to previous view', exact: true })).toBeVisible();
+  await expect(page.getByTestId('sheet-stats')).toContainText('1 row');
+  expect(page.url()).toBe(baseUrl);
+  await page.getByRole('button', { name: 'Back to previous view', exact: true }).click();
+  await expect(page.getByTestId('sheet-stats')).toContainText('2 rows');
+  await dock.getByRole('button', { name: 'Open results', exact: true }).click();
+  await expect(page.getByTestId('sheet-stats')).toContainText('1 row');
+  expect(page.url()).toBe(baseUrl);
+  await page.getByRole('button', { name: 'Back to previous view', exact: true }).click();
+  await expect(page.getByTestId('sheet-stats')).toContainText('2 rows');
   await dock.getByRole('button', { name: 'Open action', exact: true }).click();
   await expect(page.getByTestId('action-panel')).toBeVisible();
   await expect(page.getByTestId('action-form-title')).toContainText('Add a note');

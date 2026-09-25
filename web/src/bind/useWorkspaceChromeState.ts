@@ -38,7 +38,7 @@ import type { WorkbenchProjectionStatus } from '../workbench/WorkbenchBottomDock
 
 export function useWorkspaceChromeState(projectId: string) {
   const chrome = useChromeHandle();
-  const { chromePreferences } = useWorkspaceStores();
+  const { chromePreferences, route } = useWorkspaceStores();
   if (chromePreferences.projectId !== projectId) {
     throw new Error('workspace chrome preference scope does not match the mounted project');
   }
@@ -153,17 +153,17 @@ export function useWorkspaceChromeState(projectId: string) {
     [projectPreferences],
   );
   const setOpenSplit = useCallback(
-    (split: OpenSplitState | null) => sheetPreferences.setOpenSplit(split),
-    [sheetPreferences],
+    (split: OpenSplitState | null) => route.isTemporary() ? chrome.setTransientReader({ openSplit: split }) : sheetPreferences.setOpenSplit(split),
+    [sheetPreferences, route, chrome],
   );
   const setDocumentView = useCallback(
-    (documentView: DocumentViewState | null) => sheetPreferences.setDocumentView(documentView),
-    [sheetPreferences],
+    (documentView: DocumentViewState | null) => route.isTemporary() ? chrome.setTransientReader({ documentView }) : sheetPreferences.setDocumentView(documentView),
+    [sheetPreferences, route, chrome],
   );
   const setSheetAnnotationToggles = useCallback(
     (sheetId: string, disabledToggleKeys: readonly string[]) =>
       sheetPreferences.setSheetAnnotationToggles(sheetId, disabledToggleKeys),
-    [sheetPreferences],
+    [sheetPreferences, route, chrome],
   );
 
   const toggleDiscover = useCallback(() => {

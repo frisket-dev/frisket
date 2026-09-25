@@ -2769,7 +2769,7 @@ export type HttpArtifactUninstallRequest = ({
 
 type HttpAskCitation_AskCellTarget = ({
   "column_id": (number);
-  "kind"?: ("cell") & (string);
+  "kind": ("cell") & (string);
   "row_id": (number);
   "sheet_id": (number);
 });
@@ -2778,7 +2778,7 @@ type HttpAskCitation_AskEvidenceTarget = ({
   "artifact_id": (string);
   "column_id": (number);
   "evidence_link_id": (string);
-  "kind"?: ("evidence") & (string);
+  "kind": ("evidence") & (string);
   "row_id": (number);
   "sheet_id": (number);
   "span_id": (string);
@@ -2788,7 +2788,7 @@ type HttpAskCitation_AskQueryTarget = ({
   "filter": ({
   [key: string]: (HttpAskCitation_JsonValue);
 });
-  "kind"?: ("query") & (string);
+  "kind": ("query") & (string);
   "row_ids"?: (((Array<(number)>)) | ((null)));
   "sheet_id": (number);
   "sort"?: (((Array<({
@@ -2811,7 +2811,7 @@ export type HttpAskCitation = ({
 
 type HttpAskEventsPage_AskCellTarget = ({
   "column_id": (number);
-  "kind"?: ("cell") & (string);
+  "kind": ("cell") & (string);
   "row_id": (number);
   "sheet_id": (number);
 });
@@ -2842,7 +2842,7 @@ type HttpAskEventsPage_AskEvidenceTarget = ({
   "artifact_id": (string);
   "column_id": (number);
   "evidence_link_id": (string);
-  "kind"?: ("evidence") & (string);
+  "kind": ("evidence") & (string);
   "row_id": (number);
   "sheet_id": (number);
   "span_id": (string);
@@ -2859,7 +2859,7 @@ type HttpAskEventsPage_AskQueryTarget = ({
   "filter": ({
   [key: string]: (HttpAskEventsPage_JsonValue);
 });
-  "kind"?: ("query") & (string);
+  "kind": ("query") & (string);
   "row_ids"?: (((Array<(number)>)) | ((null)));
   "sheet_id": (number);
   "sort"?: (((Array<({
@@ -2986,7 +2986,7 @@ export type HttpAskThreadCreate = ({
 
 type HttpAskThreadDetail_AskCellTarget = ({
   "column_id": (number);
-  "kind"?: ("cell") & (string);
+  "kind": ("cell") & (string);
   "row_id": (number);
   "sheet_id": (number);
 });
@@ -3024,7 +3024,7 @@ type HttpAskThreadDetail_AskEvidenceTarget = ({
   "artifact_id": (string);
   "column_id": (number);
   "evidence_link_id": (string);
-  "kind"?: ("evidence") & (string);
+  "kind": ("evidence") & (string);
   "row_id": (number);
   "sheet_id": (number);
   "span_id": (string);
@@ -3041,7 +3041,7 @@ type HttpAskThreadDetail_AskQueryTarget = ({
   "filter": ({
   [key: string]: (HttpAskThreadDetail_JsonValue);
 });
-  "kind"?: ("query") & (string);
+  "kind": ("query") & (string);
   "row_ids"?: (((Array<(number)>)) | ((null)));
   "sheet_id": (number);
   "sort"?: (((Array<({
@@ -5013,13 +5013,6 @@ export type HttpInline_3e1cc7c95e01e7fa = ({
   "state"?: (string);
 });
 
-export type HttpInline_41983beb916cc4de = ({
-  "filter"?: (((string)) | ((null)));
-  "page_size"?: (number);
-  "parent_row_id"?: (((number)) | ((null)));
-  "sort"?: (((string)) | ((null)));
-});
-
 export type HttpInline_4790cdea41e01e69 = ({
   "pid": (string);
   "view_id": (number);
@@ -5101,6 +5094,16 @@ export type HttpInline_49df75d0f202244e = (((HttpInline_49df75d0f202244e_ActionE
 export type HttpInline_4b0663e5e5e7d871 = ({
   "pid": (string);
   "plan_id": (string);
+});
+
+export type HttpInline_4d4b7b353500ed59 = ({
+  "filter"?: (string);
+  "limit"?: (number);
+  "offset"?: (number);
+  "parent_row_id"?: (number);
+  "row_ids"?: (string);
+  "scope_row_ids"?: (string);
+  "sort"?: (string);
 });
 
 type HttpInline_524de52122d1c461_ActionError = ({
@@ -5684,15 +5687,6 @@ export type HttpInline_9e7b45d6a7a78694 = ({
   "offset"?: (number);
 });
 
-export type HttpInline_a21db596c839d248 = ({
-  "filter"?: (string);
-  "limit"?: (number);
-  "offset"?: (number);
-  "parent_row_id"?: (number);
-  "row_ids"?: (string);
-  "sort"?: (string);
-});
-
 type HttpInline_a49ce2f0046bf7fe_ActionError = ({
   "action_kind"?: (((string)) | ((null)));
   "code": (string);
@@ -5997,13 +5991,6 @@ export type HttpInline_cd5e2492515e7874 = ({
   "pid": (string);
 });
 
-export type HttpInline_d3b4022c4e941532 = ({
-  "filter"?: (((string)) | ((null)));
-  "force"?: (boolean);
-  "parent_row_id"?: (((number)) | ((null)));
-  "sort"?: (((string)) | ((null)));
-});
-
 export type HttpInline_d746974fa9afd5e9 = (Record<string, never>);
 
 type HttpInline_d89a2ac461d6e692_ActionError = ({
@@ -6103,6 +6090,14 @@ export type HttpInline_ea344a672c4198f0 = ({
   "node_size_column_id"?: (((number)) | ((null)));
 });
 
+export type HttpInline_eabc0e7195ba3d01 = ({
+  "filter"?: (((string)) | ((null)));
+  "force"?: (boolean);
+  "parent_row_id"?: (((number)) | ((null)));
+  "scope_row_ids"?: (((string)) | ((null)));
+  "sort"?: (((string)) | ((null)));
+});
+
 export type HttpInline_ecf7142947bec4dd = ({
   "channel_id"?: (((number)) | ((null)));
   "limit"?: (number);
@@ -6110,6 +6105,14 @@ export type HttpInline_ecf7142947bec4dd = ({
   "offset"?: (number);
   "route_id"?: (((number)) | ((null)));
   "status"?: (((string)) | ((null)));
+});
+
+export type HttpInline_ed227435f4ffc076 = ({
+  "filter"?: (((string)) | ((null)));
+  "page_size"?: (number);
+  "parent_row_id"?: (((number)) | ((null)));
+  "scope_row_ids"?: (((string)) | ((null)));
+  "sort"?: (((string)) | ((null)));
 });
 
 export type HttpInline_ed465fdc9da8ce19 = ({
@@ -8209,6 +8212,7 @@ export type HttpSavedViewCreateRequest = ({
   [key: string]: (HttpSavedViewCreateRequest_JsonValue);
 });
   "name": (string);
+  "scope_row_ids"?: (((Array<(number)>)) | ((null)));
   "sheet_id": (number);
   "sort"?: (((Array<(HttpSavedViewCreateRequest_JsonValue)>)) | ((null)));
 });
@@ -8221,6 +8225,7 @@ export type HttpSavedViewDefinitionReplaceRequest = ({
   "filter": ({
   [key: string]: (HttpSavedViewDefinitionReplaceRequest_JsonValue);
 });
+  "scope_row_ids"?: (((Array<(number)>)) | ((null)));
   "sort": (((Array<(HttpSavedViewDefinitionReplaceRequest_JsonValue)>)) | ((null)));
 });
 
@@ -10533,7 +10538,7 @@ export type HttpContractOperationMap = {
   };
   readonly "tenant.column_stats.get": {
     readonly pathParams: HttpInline_9b0ab189ab042a9c;
-    readonly query: HttpInline_d3b4022c4e941532;
+    readonly query: HttpInline_eabc0e7195ba3d01;
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpColumnStats;
@@ -11585,7 +11590,7 @@ export type HttpContractOperationMap = {
   };
   readonly "tenant.locate_sheet_row.get": {
     readonly pathParams: HttpInline_38aa6fedb0c0d4ef;
-    readonly query: HttpInline_41983beb916cc4de;
+    readonly query: HttpInline_ed227435f4ffc076;
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpSheetRowLocation;
@@ -12270,7 +12275,7 @@ export type HttpContractOperationMap = {
   };
   readonly "tenant.sheet_data.get": {
     readonly pathParams: HttpInline_fa1495952891aea0;
-    readonly query: HttpInline_a21db596c839d248;
+    readonly query: HttpInline_4d4b7b353500ed59;
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpSheetData;

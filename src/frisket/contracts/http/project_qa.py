@@ -120,14 +120,14 @@ class AskTurn(AskOptions):
 
 
 class AskCellTarget(WireModel):
-    kind: Literal["cell"] = "cell"
+    kind: Literal["cell"]
     sheet_id: int
     row_id: int
     column_id: int
 
 
 class AskEvidenceTarget(WireModel):
-    kind: Literal["evidence"] = "evidence"
+    kind: Literal["evidence"]
     sheet_id: int
     row_id: int
     column_id: int
@@ -137,7 +137,7 @@ class AskEvidenceTarget(WireModel):
 
 
 class AskQueryTarget(WireModel):
-    kind: Literal["query"] = "query"
+    kind: Literal["query"]
     sheet_id: int
     row_ids: list[int] | None = None
     filter: dict[str, JsonValue]

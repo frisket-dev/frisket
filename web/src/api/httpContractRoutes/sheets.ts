@@ -35,6 +35,7 @@ export interface SheetDataContractQuery {
   filter?: string;
   sort?: string;
   row_ids?: string;
+  scope_row_ids?: string;
 }
 
 export interface LocateSheetRowContractQuery {
@@ -43,6 +44,7 @@ export interface LocateSheetRowContractQuery {
   filter?: string;
   sort?: string;
   row_ids?: string;
+  scope_row_ids?: string;
 }
 
 function mapSheetList(wire: SheetListWire): SheetMeta[] {

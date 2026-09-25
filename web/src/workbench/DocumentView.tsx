@@ -429,6 +429,8 @@ export function DocumentView({
           onVideoFitChange={(videoFit) => setState({ videoFit })}
           textLayer={state.textLayer}
           onPageCount={recordPageCount}
+          initialPage={state.readerPage?.rowId === activeRowId ? state.readerPage.page : 1}
+          onPageChange={(page) => { if (activeRowId && (state.readerPage?.rowId !== activeRowId || state.readerPage.page !== page)) setState({ readerPage: { rowId: activeRowId, page } }); }}
           rowKey={activeRowId ?? 'none'}
           onOpenDetail={() => {
             if (activeRowId) onOpenDetail(activeRowId);

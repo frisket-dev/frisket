@@ -167,6 +167,7 @@ function sheetDataQuery(
 ): SheetDataContractQuery {
   const opts = options ?? {};
   const query: SheetDataContractQuery = { offset, limit };
+  if (opts.scopeRowIds != null) query.scope_row_ids = opts.scopeRowIds.join(',');
   if (opts.parentRowId != null) query.parent_row_id = Number(opts.parentRowId);
   if (opts.rowIds != null) {
     query.row_ids = opts.rowIds.join(',');
@@ -185,6 +186,7 @@ function locateSheetRowQuery(
 ): LocateSheetRowContractQuery {
   const opts = options ?? {};
   const query: LocateSheetRowContractQuery = { page_size: pageSize };
+  if (opts.scopeRowIds != null) query.scope_row_ids = opts.scopeRowIds.join(',');
   if (opts.parentRowId != null) query.parent_row_id = Number(opts.parentRowId);
   // A ranked row-id scope wins over filter/sort, including an explicit empty
   // scope. The server ignores the ids for locate but uses their presence to

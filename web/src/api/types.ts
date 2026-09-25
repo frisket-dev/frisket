@@ -2115,6 +2115,8 @@ export interface GridSortRule {
 export type GridSortSpec = GridSortRule[];
 
 export interface SheetDataOptions {
+  /** Exact row restriction, intersected with normal filter/sort. */
+  scopeRowIds?: number[] | null;
   parentRowId?: string | null;
   filter?: GridFilterSpec | null;
   sort?: GridSortSpec | null;
@@ -2124,7 +2126,7 @@ export interface SheetDataOptions {
   rowIds?: number[] | null;
 }
 
-export type SheetViewExportOptions = Pick<SheetDataOptions, 'filter' | 'sort'>;
+export type SheetViewExportOptions = Pick<SheetDataOptions, 'filter' | 'sort' | 'scopeRowIds'>;
 
 export interface SheetDatasetExportOptions {
   format: 'csv' | 'xlsx';
@@ -2540,6 +2542,7 @@ export interface SavedViewColumnGroup {
 /** The complete mutable definition of a Saved View.  It deliberately omits
  * its immutable identity, name, and sheet ownership. */
 export interface SavedViewDefinitionInput {
+  scope_row_ids?: number[] | null;
   filter: GridFilterSpec;
   sort: GridSortSpec | null;
   columns: string[] | null;

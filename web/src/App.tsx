@@ -538,6 +538,7 @@ function useRenderCount(region: string): void {
 }
 
 export interface WorkspaceShellHandle {
+  askNavigation: WorkspaceViewModel['askNavigation'];
   project: WorkspaceViewModel['project'];
   projectApi: WorkspaceViewModel['projectApi'];
 
@@ -745,6 +746,7 @@ function Workspace(props: WorkspaceProps) {
 function WorkspaceView({ model }: { model: WorkspaceViewModel }) {
   const shell = useMemo<WorkspaceShellHandle>(
     () => ({
+      askNavigation: model.askNavigation,
       project: model.project,
       projectApi: model.projectApi,
       runActCommand: model.runActCommand,
@@ -792,6 +794,7 @@ function WorkspaceView({ model }: { model: WorkspaceViewModel }) {
       hideContribution: model.hideContribution,
     }),
     [
+      model.askNavigation,
       model.project,
       model.projectApi,
       model.runActCommand,
@@ -884,6 +887,7 @@ function WorkspaceViewContent() {
           <WorkspaceAskRegion />
           <div className="workbench-content">
             <WorkspaceNavigateRegion />
+            <WorkspaceAskSourceBar />
             <div className="app-main workbench-main-row">
               <WorkspaceMainViewRegion />
               <WorkspaceInspectDetailRegion />
@@ -900,10 +904,26 @@ function WorkspaceViewContent() {
   );
 }
 
+function WorkspaceAskSourceBar() {
+  const { askNavigation } = useWorkspaceShell();
+  const { openNewSavedView } = useMainViewModel();
+  const { gridView } = useWorkspaceStores();
+  const applied = useSelector(gridView.store, (state) => state.applied);
+  if (!askNavigation.source) return null;
+  return <div className="ask-source-bar" aria-label="Source opened from Ask">
+    <button type="button" className="btn" onClick={askNavigation.back}>Back to previous view</button>
+    <span>{askNavigation.source.label}</span>
+    {askNavigation.source.message && <span role="status">{askNavigation.source.message}</span>}
+    {applied.scopeRowIds != null && <button type="button" className="ask-filter-chip" onClick={() => gridView.store.set((state) => ({ ...state, applied: { ...state.applied, scopeRowIds: null }, activeSavedViewId: null }))}>{applied.scopeRowIds.length === 1 ? 'Cited row' : `${applied.scopeRowIds.length} selected rows`} ×</button>}
+    {Object.entries(applied.filter ?? {}).map(([column, condition]) => <button type="button" key={column} className="ask-filter-chip" onClick={() => gridView.store.set((state) => { const filter = { ...state.applied.filter }; delete filter[column]; return { ...state, activeSavedViewId: null, applied: { ...state.applied, filter: Object.keys(filter).length ? filter : null } }; })}>{gridFilterLabel({ [column]: condition })} ×</button>)}
+    <button type="button" className="btn" onClick={() => openNewSavedView('Ask results')}>Save as view</button>
+  </div>;
+}
+
 function WorkspaceAskRegion() {
   const { sheet, sheets } = useCurrentSheet();
   const { chrome, selection, detail } = useWorkspaceStores();
-  const { selectSheet } = useWorkspaceShell();
+  const { selectSheet, askNavigation } = useWorkspaceShell();
   const open = useSelector(chrome.store, (s) => s.copilotPopoverOpen);
   const selected = useSelector(selection.store, (s) => s.selectedRows);
   const scope = useMemo<AskScope>(() => {
@@ -913,7 +933,7 @@ function WorkspaceAskRegion() {
       ? [{ kind: 'rows', sheet_id: Number(sheet.id), row_ids: rows }]
       : [{ kind: 'sheet', sheet_id: Number(sheet.id) }] };
   }, [sheet, selected]);
-  return open ? <ProjectAskDock initialScope={scope} sheets={sheets} onClose={chrome.closeCopilotPopover} onInspectProposal={(title, spec) => {
+  return open ? <ProjectAskDock onOpenSource={askNavigation.open} initialScope={scope} sheets={sheets} onClose={chrome.closeCopilotPopover} onInspectProposal={(title, spec) => {
     if (spec.scope.kind === 'sheet_rows') selectSheet(String(spec.scope.sheet_id));
     chrome.openActionPanel();
     detail.setProposalInspect({ seq: Date.now(), title, spec });
@@ -940,10 +960,11 @@ const WorkspaceChromeBarRegion = memo(function WorkspaceChromeBarRegion() {
   ));
   const gridView = useGridViewHandle();
   const activeGridFilter = useSelector(gridView.store, (s) => s.applied.filter);
+  const scopeRowIds = useSelector(gridView.store, (s) => s.applied.scopeRowIds ?? null);
   const activeGridSort = useSelector(gridView.store, (s) => s.applied.sort);
   const currentSheetExportOptions =
-    activeGridFilter || activeGridSort
-      ? { filter: activeGridFilter, sort: activeGridSort }
+    activeGridFilter || activeGridSort || scopeRowIds !== null
+      ? { filter: activeGridFilter, sort: activeGridSort, scopeRowIds }
       : null;
   const walkthrough = useWalkthrough();
   return (
@@ -3124,6 +3145,7 @@ function WorkspaceGridControls() {
   } = useMainViewModel();
   const gridView = useGridViewHandle();
   const activeGridFilter = useSelector(gridView.store, (s) => s.applied.filter);
+  const scopeRowIds = useSelector(gridView.store, (s) => s.applied.scopeRowIds ?? null);
 
   const activeGridFilterValueLabel = useSelector(
     gridView.store,
@@ -3148,8 +3170,9 @@ function WorkspaceGridControls() {
                 />
               )}
 
-              {(activeGridFilter || activeGridSort) && (
+              {(activeGridFilter || activeGridSort || scopeRowIds !== null) && (
                 <div className="grid-active-bar">
+                  {scopeRowIds !== null && <span className="active-grid-state">{scopeRowIds.length} selected rows <button type="button" className="mini-btn" onClick={() => gridView.store.set((state) => ({ ...state, activeSavedViewId: null, applied: { ...state.applied, scopeRowIds: null } }))}>Clear</button></span>}
                   {activeGridFilter && (
                     <span className="active-grid-state" data-testid="active-grid-filter">
                       Filter: {gridFilterLabel(activeGridFilter, activeGridFilterValueLabel)}
@@ -3424,6 +3447,7 @@ function WorkspacePrimarySurface() {
     [nerCatalogEntry, projectApi, sheet, showError, startRun],
   );
   const activeGridFilter = useSelector(gridView.store, (s) => s.applied.filter);
+  const scopeRowIds = useSelector(gridView.store, (s) => s.applied.scopeRowIds ?? null);
   const activeGridSort = useSelector(gridView.store, (s) => s.applied.sort);
   const splitResize = useResizable({
     storageKey: `frisket:work-split-w:${project.id}`,
@@ -3437,9 +3461,10 @@ function WorkspacePrimarySurface() {
     (args: { columnIds?: string[]; offset: number; limit: number }) =>
       projectApi.getSheetData(sheetIdForGallery, args.offset, args.limit, {
         filter: activeGridFilter,
+        scopeRowIds,
         sort: activeGridSort,
       }),
-    [activeGridFilter, activeGridSort, sheetIdForGallery],
+    [activeGridFilter, activeGridSort, sheetIdForGallery, scopeRowIds],
   );
   const showImageGalleryPane =
     !gridOnly &&
@@ -3450,6 +3475,10 @@ function WorkspacePrimarySurface() {
       imageGalleryAvailability.reason?.startsWith('missing_capability:') === true);
   const companionMainViewDescriptor =
     activeMainViewPluginViewDescriptor ?? (showImageGalleryPane ? IMAGE_GALLERY_VIEW_DESCRIPTOR : null);
+
+  const { askNavigation } = useWorkspaceShell();
+  const sourceTarget = askNavigation.source?.target;
+  if (sourceTarget?.kind === 'evidence') return <Suspense fallback={<PanelLoading label="Loading source…" />}><LazyEvidenceViewer key={askNavigation.source?.id} evidenceLinkId={sourceTarget.evidence_link_id} scopeSpanId={sourceTarget.span_id} highlight={askNavigation.source?.status === "current"} mode="pane" onClose={askNavigation.back} defaultShowDetails={false} /></Suspense>;
 
   if (activePreviewView?.result?.kind === 'table') return <>{gridContribution}</>;
 
@@ -3465,7 +3494,7 @@ function WorkspacePrimarySurface() {
         | 'asc'
         | 'desc'
         | undefined) ?? null;
-    const orderKey = `${JSON.stringify(activeGridFilter ?? null)}|${JSON.stringify(
+    const orderKey = `${JSON.stringify(scopeRowIds)}|${JSON.stringify(activeGridFilter ?? null)}|${JSON.stringify(
       activeGridSort ?? null,
     )}`;
     return (
@@ -3495,7 +3524,7 @@ function WorkspacePrimarySurface() {
   if (answersViewShowing && sheet) {
 
     const titleColumnOrder = visibleOrderedColumns.map((column) => column.name);
-    const orderKey = `${JSON.stringify(activeGridFilter ?? null)}|${JSON.stringify(
+    const orderKey = `${JSON.stringify(scopeRowIds)}|${JSON.stringify(activeGridFilter ?? null)}|${JSON.stringify(
       activeGridSort ?? null,
     )}`;
     return (
@@ -3643,15 +3672,17 @@ function WorkspacePromotedView() {
   } = useMainViewModel();
   const gridView = useGridViewHandle();
   const activeGridFilter = useSelector(gridView.store, (s) => s.applied.filter);
+  const scopeRowIds = useSelector(gridView.store, (s) => s.applied.scopeRowIds ?? null);
   const activeGridSort = useSelector(gridView.store, (s) => s.applied.sort);
   const sheetId = sheet?.id ?? '';
   const queryRows = useCallback(
     (args: { columnIds?: string[]; offset: number; limit: number }) =>
       projectApi.getSheetData(sheetId, args.offset, args.limit, {
         filter: activeGridFilter,
+        scopeRowIds,
         sort: activeGridSort,
       }),
-    [activeGridFilter, activeGridSort, sheetId],
+    [activeGridFilter, activeGridSort, sheetId, scopeRowIds],
   );
   if (!activePromotedView || !sheet) return <>{gridContribution}</>;
   const view = activePromotedView;
@@ -3970,6 +4001,7 @@ const WorkspaceActionDrawerRegion = memo(function WorkspaceActionDrawerRegion() 
     : null;
   const gridView = useGridViewHandle();
   const activeGridFilter = useSelector(gridView.store, (state) => state.applied.filter);
+  const scopeRowIds = useSelector(gridView.store, (state) => state.applied.scopeRowIds ?? null);
   const chrome = useChromeHandle();
   // Action-panel state must not reach localStorage.
 
@@ -3984,14 +4016,15 @@ const WorkspaceActionDrawerRegion = memo(function WorkspaceActionDrawerRegion() 
   const routeActionKind = useSelector(route.store, (s) => s.actionKind);
   const hasActionTarget = Boolean(routeActionKind || proposalInspect);
   const actionViewScopeKey = useMemo(() => (
-    sheetId !== null && (activeGridFilter || activeChildFilter)
+    sheetId !== null && (activeGridFilter || activeChildFilter || scopeRowIds !== null)
       ? JSON.stringify([
           sheetId,
           activeChildFilter?.parentRowId ?? null,
           activeGridFilter ?? null,
+          scopeRowIds,
         ])
       : null
-  ), [activeChildFilter, activeGridFilter, sheetId]);
+  ), [activeChildFilter, activeGridFilter, sheetId, scopeRowIds]);
   const [actionViewScope, setActionViewScope] = useState<{
     key: string;
     status: 'loading' | 'ready' | 'error';
@@ -4060,9 +4093,9 @@ const WorkspaceActionDrawerRegion = memo(function WorkspaceActionDrawerRegion() 
     });
     void (async () => {
       try {
-        const [scopeSheetId, parentRowId, filter] = JSON.parse(
+        const [scopeSheetId, parentRowId, filter, scopeRowIds] = JSON.parse(
           actionViewScopeKey,
-        ) as [string, string | null, typeof activeGridFilter];
+        ) as [string, string | null, typeof activeGridFilter, number[] | null];
         const rowIds: string[] = [];
         const pageSize = 1000;
         let expectedTotal: number | null = null;
@@ -4070,6 +4103,7 @@ const WorkspaceActionDrawerRegion = memo(function WorkspaceActionDrawerRegion() 
           const page = await projectApi.getSheetData(scopeSheetId, offset, pageSize, {
             parentRowId,
             filter,
+            scopeRowIds,
           });
           if (cancelled) return;
           if (expectedTotal === null) expectedTotal = page.total;

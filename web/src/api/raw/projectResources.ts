@@ -50,6 +50,7 @@ export function projectExportUrl(
 function sheetViewQuery(options: SheetViewExportOptions | null = {}): string {
   const opts = options ?? {};
   const params = new URLSearchParams();
+  if (options?.scopeRowIds != null) params.set('scope_row_ids', options.scopeRowIds.join(','));
   if (opts.filter && Object.keys(opts.filter).length > 0) {
     params.set('filter', JSON.stringify(opts.filter));
   }

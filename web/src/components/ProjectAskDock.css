@@ -47,3 +47,6 @@
 
 .ask-proposal, .ask-result { padding: 12px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px; }
 .ask-proposal p { color: var(--text-mid); margin: 6px 0 10px; font-size: 12px; }
+
+.ask-source-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; background: var(--bg-panel); border-bottom: 1px solid var(--border); font-size: 12px; }
+.ask-filter-chip { border: 1px solid var(--border); background: var(--bg-hover); border-radius: 6px; padding: 3px 7px; font: inherit; color: var(--text); cursor: pointer; }

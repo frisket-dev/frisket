@@ -4,11 +4,15 @@ import { isCopilotRegisteredActionDraft, type CopilotRegisteredActionDraft } fro
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 import { MarkdownView } from '../../markdown';
 
-export function AskEventContent({ event, onInspectProposal }: { event: AskEvent; onInspectProposal(title: string, spec: CopilotRegisteredActionDraft): void }) {
+export function AskEventContent({ event, onInspectProposal, onOpenSource }: { event: AskEvent; onOpenSource(citation: AskCitation): void; onInspectProposal(title: string, spec: CopilotRegisteredActionDraft): void }) {
   const payload = event.payload;
   const { qa } = useWorkspaceStores();
   const [source, setSource] = useState<AskCitation | null>(null);
   const [sourceError, setSourceError] = useState<string | null>(null);
+  const openSource = (id: string) => {
+    setSourceError(null);
+    void qa.citation(event.thread_id, id).then((citation) => { setSource(citation); onOpenSource(citation); }).catch(() => setSourceError('Could not open this source. Please try again.'));
+  };
   if (event.kind === 'action_proposal') {
     const proposal = payload.proposal;
     if (!proposal || typeof proposal !== 'object' || Array.isArray(proposal)) return null;
@@ -17,12 +21,12 @@ export function AskEventContent({ event, onInspectProposal }: { event: AskEvent;
     const title = String(proposal.title ?? 'Suggested action');
     return <div className="ask-proposal"><strong>{title}</strong><p>Review the settings before running this action.</p><button type="button" className="btn" onClick={() => onInspectProposal(title, spec)}>Open action</button></div>;
   }
-  if (event.kind === 'result_suggestion') return <div className="ask-result"><strong>{String(payload.title ?? 'Matching records')}</strong><p>{typeof payload.total === 'number' ? `${payload.total.toLocaleString()} matching rows` : 'Search results'}</p></div>;
+  if (event.kind === 'result_suggestion') return <div className="ask-result"><strong>{String(payload.title ?? 'Matching records')}</strong><p>{typeof payload.total === 'number' ? `${payload.total.toLocaleString()} matching rows` : 'Search results'}</p><button type="button" className="btn" onClick={() => typeof payload.citation_id === 'string' && openSource(payload.citation_id)}>Open results</button>{source?.message && <p>{source.message}</p>}{sourceError && <p role="alert">{sourceError}</p>}</div>;
   if (event.kind === 'question') return <div className="ask-question">{String(payload.question ?? '')}</div>;
   if (event.kind === 'answer' || event.kind === 'assistant') return <div className="ask-answer">
     <MarkdownView source={String(payload.text ?? '')} />
     {Array.isArray(payload.citation_ids) && <div className="ask-citations">{payload.citation_ids.filter((id): id is string => typeof id === 'string').map((id, index) =>
-      <button type="button" key={id} onClick={() => { setSourceError(null); void qa.citation(event.thread_id, id).then(setSource).catch(() => setSourceError('Could not open this source. Please try again.')); }}>{event.citations?.find((citation) => citation.id === id)?.label ?? `Source ${index + 1}`}</button>
+      <button type="button" key={id} onClick={() => openSource(id)}>{event.citations?.find((citation) => citation.id === id)?.label ?? `Source ${index + 1}`}</button>
     )}</div>}
     {sourceError && <p role="alert">{sourceError}</p>}
     {source && <div className="ask-source-preview"><strong>{source.label}</strong><button type="button" aria-label="Close source preview" onClick={() => setSource(null)}>×</button>{source.message && <p>{source.message}</p>}<p>{source.excerpt}</p></div>}

@@ -44,6 +44,7 @@ export type DocumentViewFit = 'width' | 'page';
 export type DocumentViewVideoFit = 'full' | 'fit-height';
 
 export interface DocumentViewState {
+  readerPage?: { rowId: string; page: number };
   sheetId: string;
   sourceColumnId: string | null;
   titleColumnId: string | null;
@@ -187,6 +188,7 @@ export function createChromeStore(
   setPromotedViews(views: PromotedView[]): void;
   setOpenSplit(split: OpenSplitState | null): void;
   setDocumentView(documentView: DocumentViewState | null): void;
+  setTransientReader(state: Partial<Pick<ChromeState, 'documentView' | 'openSplit'>>): void;
   setDocumentAnnotationPreferences(prefs: DocumentAnnotationPreferences): void;
 
   toggleProvenanceOpen(): void;
@@ -290,6 +292,9 @@ export function createChromeStore(
     },
     setOpenSplit(split) {
       store.set((s) => ({ ...s, openSplit: split }));
+    },
+    setTransientReader(reader) {
+      store.set((state) => ({ ...state, ...reader }));
     },
     setDocumentView(documentView) {
       store.set((s) => ({ ...s, documentView }));

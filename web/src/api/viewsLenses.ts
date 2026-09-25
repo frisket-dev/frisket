@@ -153,6 +153,7 @@ function toWireViewCreate(input: SavedViewCreateInput): SavedViewCreateBody {
     name: input.name,
     sheet_id: Number(input.sheetId),
     filter: toWireJsonObject(input.filter),
+    scope_row_ids: input.scope_row_ids ?? null,
     sort: input.sort === null ? null : input.sort.map(toWireJson),
     columns: input.columns === null ? null : input.columns.map(toWireJson),
     column_groups: input.column_groups === null
@@ -170,6 +171,7 @@ function toWireViewDefinitionReplace(
 ): SavedViewDefinitionReplaceBody {
   return {
     filter: toWireJsonObject(input.filter),
+    scope_row_ids: input.scope_row_ids ?? null,
     sort: input.sort === null ? null : input.sort.map(toWireJson),
     columns: input.columns === null ? null : input.columns.map(toWireJson),
     column_groups: input.column_groups === null

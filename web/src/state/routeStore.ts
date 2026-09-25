@@ -1,6 +1,6 @@
 // Canonical same-project route owner. URL/popstate projection and every command
-// mutation enter through exactly three writes: projectExternal, navigate, and
-// normalize. Raw Store.set remains closure-private.
+// mutation enter through this owner, including one disposable Ask view.
+// Raw Store.set remains closure-private.
 
 import { createStore } from '../core/store/createStore';
 import type { Store, Unsubscribe } from '../core/store/types';
@@ -29,6 +29,11 @@ export interface RouteStoreDependencies {
 
 export interface RouteStoreHandle {
   readonly store: RouteReadStore;
+  /** One disposable workspace projection; these never add browser history. */
+  beginTemporary(next: RouteState): void;
+  finishTemporary(mode: 'restore' | 'commit'): void;
+  isTemporary(): boolean;
+  baseRoute(): RouteState;
 
   /** Same-project URL/popstate projection. Never requests a history write. */
   projectExternal(next: RouteState): void;
@@ -71,6 +76,7 @@ export function createRouteStore(
     get: mutableStore.get,
     subscribe: mutableStore.subscribe,
   };
+  let temporaryBase: RouteState | null = null;
   let historyListener: ((command: RouteHistoryCommand) => void) | null = null;
   let sheetChangeTeardown: () => void = () => {};
 
@@ -96,7 +102,24 @@ export function createRouteStore(
 
   return {
     store: readStore,
+    baseRoute: () => temporaryBase ?? mutableStore.get(),
+    isTemporary: () => temporaryBase !== null,
+    beginTemporary(next) {
+      checked(next);
+      temporaryBase ??= mutableStore.get();
+      applyRoute(mutableStore.get(), next);
+    },
+    finishTemporary(mode) {
+      const base = temporaryBase;
+      if (!base) return;
+      temporaryBase = null;
+      const current = mutableStore.get();
+      if (mode === 'restore') applyRoute(current, base);
+      else if (!routeStatesEqual(base, current)) historyListener?.({ kind: 'navigate', prev: base, next: current });
+    },
     projectExternal(next) {
+      if (temporaryBase && routeStatesEqual(temporaryBase, next)) return;
+      temporaryBase = null;
       const prev = mutableStore.get();
       applyRoute(prev, checked(next));
     },
@@ -104,13 +127,13 @@ export function createRouteStore(
       const prev = mutableStore.get();
       const checkedNext = checked(next);
       if (!applyRoute(prev, checkedNext)) return;
-      historyListener?.({ kind: 'navigate', prev, next: checkedNext, historyMode });
+      if (!temporaryBase) historyListener?.({ kind: 'navigate', prev, next: checkedNext, historyMode });
     },
     normalize(next) {
       const prev = mutableStore.get();
       const checkedNext = checked(next);
       if (!applyRoute(prev, checkedNext)) return;
-      historyListener?.({ kind: 'normalize', prev, next: checkedNext });
+      if (!temporaryBase) historyListener?.({ kind: 'normalize', prev, next: checkedNext });
     },
     subscribeHistoryCommands(listener) {
       if (historyListener !== null) {
