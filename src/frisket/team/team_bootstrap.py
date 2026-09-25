@@ -91,7 +91,7 @@ def _sqlite_file_lock(engine: sa.Engine) -> Iterator[None]:
     # Share the queue initializer's lock: team and queue schemas can occupy
     # the same SQLite file, so separate locks would still permit concurrent
     # reflection and DDL from independent app boots.
-    path = Path(f"{Path(database).resolve()}.lock")
+    path = Path(f"{Path(database).expanduser().resolve()}.lock")
     path.parent.mkdir(parents=True, exist_ok=True)
     with FileLock(str(path), timeout=-1):
         yield

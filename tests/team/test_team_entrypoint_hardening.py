@@ -822,10 +822,14 @@ def test_concurrent_cold_boot_converges_to_one_org(tmp_path: Path) -> None:
         )
 
 
+@pytest.mark.parametrize("home_relative", [False, True])
 def test_team_and_queue_sqlite_bootstrap_share_one_process_lock(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, home_relative: bool
 ) -> None:
-    engine = sa.create_engine(f"sqlite:///{tmp_path / 'shared.db'}")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    database = Path("~/shared.db") if home_relative else tmp_path / "shared.db"
+    engine = sa.create_engine(f"sqlite:///{database}")
     acquired: list[str] = []
 
     class RecordingLock:
