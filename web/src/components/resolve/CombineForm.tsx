@@ -501,7 +501,7 @@ function CombineFormBody({
     ? null
     : buckets.length > 0
       ? `${buckets.length} ${buckets.length === 1 ? 'group' : 'groups'} · ${keptCount.toLocaleString()} left`
-      : `${preview.distinct.toLocaleString()} distinct · by freq`;
+      : `${preview.distinct.toLocaleString()} distinct values · sorted by frequency`;
 
   // ── per-bucket inline ⌕ add-value box (GroupCard children slot) ────────
   const renderAddValueBox = (bucket: Bucket) => {
@@ -565,24 +565,24 @@ function CombineFormBody({
   return (
     <div className="resolve-combine-form" data-testid="resolve-combine-form">
       <div className="resolve-combine-scope">
-        <div className="field-group resolve-combine-column">
+        <div className="resolve-combine-column">
           <Field name="source" testId="resolve-combine-column-select" />
         </div>
-        {scopeMeta && (
-          <span className="resolve-combine-scope-meta" data-testid="resolve-combine-scope-meta">
-            {scopeMeta}
-          </span>
-        )}
         {preview && (
-          <button
-            type="button"
-            className="btn resolve-combine-reload"
-            data-testid="resolve-combine-reload"
-            title="Re-fetch column values — keeps your groups; use after the source changed under a preview"
-            onClick={reload}
-          >
-            Reload values
-          </button>
+          <div className="resolve-combine-status">
+            <span className="resolve-combine-scope-meta" data-testid="resolve-combine-scope-meta">
+              {scopeMeta}
+            </span>
+            <button
+              type="button"
+              className="btn resolve-combine-reload"
+              data-testid="resolve-combine-reload"
+              title="Reload column values while keeping your groups"
+              onClick={reload}
+            >
+              Reload values
+            </button>
+          </div>
         )}
       </div>
 

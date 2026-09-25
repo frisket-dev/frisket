@@ -55,6 +55,10 @@ describe('generated cluster review', () => {
       .map((item) => item.textContent)).toEqual(['name', 'notes']);
     expect(await screen.findByTestId('field-output-canonical')).toHaveValue('name_canonical');
     expect(screen.getByTestId('cluster-commit-button')).toBeDisabled();
+    expect(screen.getByTestId('cluster-min-size')).not.toBeVisible();
+    await userEvent.click(screen.getByText('Advanced settings', { exact: true }));
+    expect(screen.getByRole('spinbutton', { name: /Minimum distinct values/ })).toHaveValue(2);
+    expect(screen.getByTestId('cluster-min-size')).toBeVisible();
   });
   it('writes the reviewed hash, canonical edits and exclusions over the whole column', async () => {
     const spy = vi.spyOn(api, 'clusterPreview').mockResolvedValue(PREVIEW);

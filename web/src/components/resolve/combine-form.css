@@ -7,12 +7,10 @@
    are NOT edited. */
 
 .resolve-combine-form {
-  /* Adopts ActionForm's `.action-form` drawer chrome (sticky pink header +
-     pinned footer, 18px side padding). height:100% bounds the form to the
-     scroll host so the inner `.resolve-combine-body` owns the scroll and the
-     SelectionBar sticks below the header rather than the drawer viewport. */
-  height: 100%;
-  gap: 10px;
+  /* The generated host owns the drawer; this body only spaces its sections. */
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 /* Section/field labels read as the app's sentence-case field labels. */
 .resolve-combine-form .field-labels {
@@ -21,21 +19,25 @@
 }
 .resolve-combine-scope {
   display: flex;
-  align-items: end;
+  flex-direction: column;
+  align-items: stretch;
   gap: 8px;
   flex-shrink: 0;
 }
 .resolve-combine-column {
-  flex: 1;
   min-width: 0;
 }
+.resolve-combine-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 8px;
+}
 .resolve-combine-scope-meta {
-  flex-shrink: 0;
-  padding-bottom: 6px;
   color: var(--text-light);
-  font-size: 10.5px;
+  font-size: var(--font-size-meta);
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
 }
 .resolve-combine-reload {
   flex-shrink: 0;
