@@ -1,5 +1,6 @@
 
 import type { GeneratedActionParams } from '../generated/actionTypes';
+import type { ProjectQAApi } from './projectQA';
 import type {
   HttpActionPreviewStatusResponse,
   HttpCellEvidenceResponse,
@@ -4764,6 +4765,7 @@ export interface FrisketApi {
     messages: CopilotChatMessageInput[],
     model?: string | null,
   ): Promise<CopilotReply>;
+  readonly qa: ProjectQAApi;
   updateProject(
     projectId: string,
     patch: { name?: string; description?: string; starred?: boolean; archived?: boolean },

@@ -188,8 +188,8 @@ import {
   loadColumnOrder,
   loadHiddenColumns,
 } from './workspace/gridColumnState';
-import { CopilotDialogPopover } from './workspace/popovers';
-import { beginCopilotImportHandoff } from './state/copilotImportTransition';
+import { ProjectAskDock } from './components/ProjectAskDock';
+import type { AskScope } from './api/projectQA';
 import { DiagnosticReportButton } from './workspace/DiagnosticReport';
 import {
   COPILOT_CONTRIBUTION_ID,
@@ -234,7 +234,6 @@ import { useShellIdentity } from './shellIdentity';
 import { useEditionModule } from './editions/module';
 import { focusCompareTabTransition } from './state/workspaceTransitions';
 
-let proposalInspectSeq = 0;
 
 const LazySignIn = lazy(() => (
   import('./components/SignIn').then(({ SignIn }) => ({ default: SignIn }))
@@ -290,11 +289,6 @@ const openAdminUnavailable = () => (
     </div>
   </div>
 );
-
-function nextProposalInspectSeq(): number {
-  proposalInspectSeq += 1;
-  return proposalInspectSeq;
-}
 
 export default function App() {
   const route = useRoute();
@@ -886,12 +880,17 @@ function WorkspaceViewContent() {
       <div className="workbench-shell" data-testid="workbench-shell">
         <WorkspaceChromeBarRegion />
         <WorkspaceActRegion />
-        <WorkspaceNavigateRegion />
-        <div className="app-main workbench-main-row">
-          <WorkspaceMainViewRegion />
-          <WorkspaceInspectDetailRegion />
-          <WorkspaceRightInspectorRegion />
-          <WorkspaceDiscoverRegion />
+        <div className="workbench-body">
+          <WorkspaceAskRegion />
+          <div className="workbench-content">
+            <WorkspaceNavigateRegion />
+            <div className="app-main workbench-main-row">
+              <WorkspaceMainViewRegion />
+              <WorkspaceInspectDetailRegion />
+              <WorkspaceRightInspectorRegion />
+              <WorkspaceDiscoverRegion />
+            </div>
+          </div>
         </div>
         <WorkspaceBottomDockRegion />
         <WorkspaceActionDrawerRegion />
@@ -899,6 +898,21 @@ function WorkspaceViewContent() {
       <WorkspaceOverlayRegion />
     </div>
   );
+}
+
+function WorkspaceAskRegion() {
+  const { sheet, sheets } = useCurrentSheet();
+  const { chrome, selection } = useWorkspaceStores();
+  const open = useSelector(chrome.store, (s) => s.copilotPopoverOpen);
+  const selected = useSelector(selection.store, (s) => s.selectedRows);
+  const scope = useMemo<AskScope>(() => {
+    if (!sheet) return { kind: 'project' };
+    const rows = selected.sheetId === sheet.id ? selected.rowIds.map(Number) : [];
+    return { kind: 'sources', sources: rows.length
+      ? [{ kind: 'rows', sheet_id: Number(sheet.id), row_ids: rows }]
+      : [{ kind: 'sheet', sheet_id: Number(sheet.id) }] };
+  }, [sheet, selected]);
+  return open ? <ProjectAskDock initialScope={scope} sheets={sheets} onClose={chrome.closeCopilotPopover} /> : null;
 }
 
 const WorkspaceChromeBarRegion = memo(function WorkspaceChromeBarRegion() {
@@ -4496,13 +4510,9 @@ const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
     commandPaletteGotoItems,
     navigateToSearchHit,
     closeRowDrawer,
-    copilotOpen,
-    closeCopilotPopover,
     runActionFromSurface,
     selectSheet,
     sheets,
-    startProposal,
-    openActionPanel,
     confirmDeleteRows,
     deleteRowsConfirm,
     dismissPluginPeek,
@@ -4528,7 +4538,6 @@ const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
     reviewCount,
     reviewOpen,
     reviewRunId,
-    setProposalInspect,
     sheet,
     commitReviewDecision,
     workbenchCommandEntries,
@@ -4569,17 +4578,6 @@ const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
   );
 
   const openDiagnosePanel = () => overlayChrome.openDiagnosePanel(project);
-
-  // Do not restore Copilot focus when Import takes ownership.
-
-  const beginImportFromCopilot = useCallback(() => {
-    const next = beginCopilotImportHandoff({
-      chrome: { copilotPopoverOpen: copilotOpen },
-      actSurface: { importDialogOpen: actSurfaceHandle.store.get().importDialogOpen },
-    });
-    if (!next.chrome.copilotPopoverOpen) closeCopilotPopover();
-    if (next.actSurface.importDialogOpen) actSurfaceHandle.openImportDialog();
-  }, [copilotOpen, closeCopilotPopover, actSurfaceHandle]);
 
   const renderColumnDetailContribution = useCallback(
     (contribution: WorkbenchResolvedLayoutContribution) => {
@@ -4666,22 +4664,6 @@ const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
         />
       )}
 
-      {copilotOpen && (
-        <CopilotDialogPopover
-          onRunProposal={startProposal}
-          onClose={closeCopilotPopover}
-          onImportNeeded={beginImportFromCopilot}
-          onInspectProposal={(proposal) => {
-
-            openActionPanel();
-            setProposalInspect({
-              seq: nextProposalInspectSeq(),
-              title: proposal.title,
-              spec: proposal.spec,
-            });
-          }}
-        />
-      )}
       {!error && <CompletedClusterResult onCreate={(receiptId) => {
         runActionFromSurface('resolve.entities', undefined, { actionDraft: entityTableDraft(receiptId) });
       }} />}

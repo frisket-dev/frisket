@@ -5,6 +5,7 @@
 // of constructing/disposing directly — see WorkspaceSessionLease below.
 
 import { createGridViewStore, type GridViewStoreHandle } from './gridViewStore';
+import { createProjectQAStore, type ProjectQAStoreHandle } from './projectQAStore';
 import { createJobStore, type JobStoreHandle } from './jobStore';
 import { createRouteStore, type RouteStoreHandle } from './routeStore';
 import { resetForRouteSheetChange } from './workspaceTransitions';
@@ -49,6 +50,7 @@ import {
 } from './workspaceResources';
 
 export interface WorkspaceStores {
+  qa: ProjectQAStoreHandle;
   gridView: GridViewStoreHandle;
   /** Route projection. A projection, not a URL owner: fed by a
    *  bind/ effect from App's route props; useRoute() stays the sole URL reader.
@@ -165,6 +167,7 @@ export function createWorkspaceStores(
   // are written by the bind-layer caller, not the store — see
   // gridViewStore.ts), so projectId is unused here.
   const gridView = createGridViewStore();
+  const qa = createProjectQAStore(projectApi.qa);
   // job is not project-scoped persistence either (run/poll state is
   // intentionally NOT carried across a project switch — a new project starts
   // with no in-flight run, matching today's behavior where switching projects
@@ -232,6 +235,7 @@ export function createWorkspaceStores(
   const pluginLayout = createPluginLayoutStore(workbenchApi, pluginsAvailable);
   const audioPlayback = createAudioPlaybackStore();
   function dispose(): void {
+    qa.dispose();
     pluginLayout.dispose();
     actionCatalog.dispose();
     projectData.dispose();
@@ -245,6 +249,7 @@ export function createWorkspaceStores(
   });
 
   return {
+    qa,
     gridView,
     route,
     job,

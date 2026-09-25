@@ -312,6 +312,10 @@ LOCAL_CONFIGURATION_ENDPOINT_IDS = (
 _TENANT_SPEND: tuple[RouteSpec, ...] = (("spend", "GET"),)
 
 _TENANT_VIEWER: tuple[RouteSpec, ...] = (
+    ("qa_threads", "GET"),
+    ("qa_thread", "GET"),
+    ("qa_events", "GET"),
+    ("qa_report", "GET"),
     ("action_describe_project", "GET"),
     ("action_export", "GET"),
     ("action_job_detail", "GET"),
@@ -572,6 +576,11 @@ _TENANT_ACTION_PREVIEW: tuple[RouteSpec, ...] = (("v1_action_preview_start", "PO
 _TENANT_COPILOT: tuple[RouteSpec, ...] = (("copilot_ep", "POST"),)
 
 _TENANT_EDITOR: tuple[RouteSpec, ...] = (
+    ("qa_create_thread", "POST"),
+    ("qa_update_thread", "PATCH"),
+    ("qa_delete_thread", "DELETE"),
+    ("qa_submit_turn", "POST"),
+    ("qa_stop_turn", "POST"),
     (
         "ack_notification",
         "POST",
@@ -734,6 +743,15 @@ _BROWSER_CLIENT_IDS = (
             "tenant.column_values_preview.post",
             "tenant.column_stats.get",
             "tenant.copilot_ep.post",
+            "tenant.qa_threads.get",
+            "tenant.qa_thread.get",
+            "tenant.qa_events.get",
+            "tenant.qa_report.get",
+            "tenant.qa_create_thread.post",
+            "tenant.qa_update_thread.patch",
+            "tenant.qa_delete_thread.delete",
+            "tenant.qa_submit_turn.post",
+            "tenant.qa_stop_turn.post",
             "tenant.create_lens.post",
             "tenant.create_notification_channel.post",
             "tenant.create_notification_route.post",

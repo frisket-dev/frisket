@@ -176,6 +176,7 @@ export interface ProjectApiPort extends
   listOAuthConnections: FrisketApi['listOAuthConnections'];
   googleOAuthStartUrl: FrisketApi['googleOAuthStartUrl'];
   copilotChat: FrisketApi['copilotChat'];
+  readonly qa: FrisketApi['qa'];
   getTextAnnotations: FrisketApi['getTextAnnotations'];
   entityMentionDocuments: FrisketApi['entityMentionDocuments'];
   entityMentionOccurrences: FrisketApi['entityMentionOccurrences'];

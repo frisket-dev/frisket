@@ -1,0 +1,29 @@
+.workbench-body { display: flex; flex: 1; min-height: 0; min-width: 0; }
+.workbench-content { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+.ask-dock { width: 400px; max-width: min(560px, 90vw); min-width: 280px; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border-strong); background: var(--bg); color: var(--text); font-size: 13px; }
+.ask-header { display: flex; align-items: center; gap: 8px; min-height: 42px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--border); background: var(--bg-panel); }
+.ask-header strong { margin-right: auto; font-size: 14px; }
+.ask-header button, .ask-compose-controls button { display: inline-flex; gap: 5px; align-items: center; border: 0; border-radius: 6px; padding: 6px; background: transparent; color: inherit; cursor: pointer; font: inherit; }
+.ask-header button:hover, .ask-compose-controls button:hover { background: var(--bg-hover); }
+.ask-thread-picker, .ask-scope { padding: 9px 16px; border-bottom: 1px solid var(--border); }
+.ask-thread-picker select { width: 100%; font-weight: 600; }
+.ask-dock select { background: var(--bg-hover); border: none; border-radius: 6px; color: var(--text); padding: 5px 8px; font: inherit; min-width: 0; max-width: 100%; }
+.ask-scope label { display: flex; align-items: center; gap: 8px; }
+.ask-scope select { flex: 1; background: transparent; }
+.ask-history { flex: 1; min-height: 0; overflow-y: auto; overflow-wrap: anywhere; display: flex; flex-direction: column; gap: 12px; padding: 16px; }
+.ask-question { align-self: flex-end; max-width: 90%; padding: 9px 12px; border-radius: 10px 10px 2px 10px; background: var(--bg-hover); font-size: 14px; white-space: pre-wrap; }
+.ask-history .markdown-body { font-size: 14px; line-height: 1.6; }
+.ask-history .markdown-body > :first-child { margin-top: 0; }
+.ask-history .markdown-body > :last-child { margin-bottom: 0; }
+.ask-tool, .ask-status { color: var(--text-mid); font-size: 12px; }
+.ask-tool summary { cursor: pointer; }
+.ask-composer { border-top: 1px solid var(--border); padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+.ask-compose-box { border: 1px solid var(--border-strong); border-radius: 12px; padding: 10px 12px 8px; }
+.ask-compose-box textarea { width: 100%; box-sizing: border-box; min-height: 60px; max-height: 180px; resize: vertical; border: 0; background: transparent; color: var(--text); font: inherit; }
+.ask-compose-controls { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.ask-compose-controls label { display: inline-flex; align-items: center; gap: 4px; }
+.ask-compose-controls input { margin: 0; }
+.ask-compose-controls button { margin-left: auto; }
+.ask-compose-controls button:disabled { opacity: .45; cursor: default; }
+.ask-error { color: var(--red); overflow-wrap: anywhere; margin: 0; }
+@media (max-width: 700px) { .ask-dock { position: absolute; inset: 0 auto 0 0; z-index: 20; width: min(400px, 90vw); box-shadow: var(--shadow-drawer); } .workbench-body { position: relative; } }

@@ -170,6 +170,8 @@ from frisket.server.services.notifications import NotificationService
 from frisket.server.services.project_actions import ProjectActionUtilityService
 from frisket.server.services.project_blobs import ProjectBlobService
 from frisket.server.services.project_copilot import ProjectCopilotService
+from frisket.server.services.project_qa import ProjectQAService
+from frisket.server.routes.project_qa import register_project_qa_routes
 from frisket.server.services.project_entity_review import ProjectEntityReviewService
 from frisket.server.services.previews import PreviewService
 from frisket.server.services.project_backfill_activity import (
@@ -495,6 +497,9 @@ def create_app(
             float(queue_timeout_seconds) if queue_timeout_seconds > 0 else None
         )
     app.state.workspace = ws
+    project_qa_service = ProjectQAService(ws)
+    app.state.project_qa_service = project_qa_service
+    app.router.add_event_handler("shutdown", project_qa_service.shutdown)
     action_preview_job_registry = ActionPreviewJobRegistry()
     app.state.action_preview_job_registry = action_preview_job_registry
     sidecar_capabilities_cache = _SidecarCapabilitiesCache(
@@ -782,6 +787,8 @@ def create_app(
         app,
         service=ProjectCopilotService(ws),
     )
+
+    register_project_qa_routes(app, service=project_qa_service)
 
     register_project_search_routes(
         app,

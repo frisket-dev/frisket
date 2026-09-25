@@ -1219,6 +1219,69 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
+      "id": "tenant.qa_create_thread.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/qa/threads",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.qa_delete_thread.delete",
+      "method": "DELETE",
+      "path": "/api/projects/{pid}/qa/threads/{thread_id}",
+      "request": null
+    },
+    {
+      "id": "tenant.qa_events.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/qa/threads/{thread_id}/events",
+      "request": null
+    },
+    {
+      "id": "tenant.qa_report.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/qa/threads/{thread_id}/report",
+      "request": null
+    },
+    {
+      "id": "tenant.qa_stop_turn.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/qa/threads/{thread_id}/turns/{turn_id}/stop",
+      "request": null
+    },
+    {
+      "id": "tenant.qa_submit_turn.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/qa/threads/{thread_id}/turns",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.qa_thread.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/qa/threads/{thread_id}",
+      "request": null
+    },
+    {
+      "id": "tenant.qa_threads.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/qa/threads",
+      "request": null
+    },
+    {
+      "id": "tenant.qa_update_thread.patch",
+      "method": "PATCH",
+      "path": "/api/projects/{pid}/qa/threads/{thread_id}",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "tenant.replace_rules_preview.post",
       "method": "POST",
       "path": "/api/projects/{pid}/replace-rules/v1/preview",
@@ -2696,6 +2759,331 @@ export type HttpArtifactPullRequest = ({
 export type HttpArtifactUninstallRequest = ({
   "ref": (string);
   [key: string]: JsonValue | (string);
+});
+
+type HttpAskEventsPage_AskEvent = ({
+  "created_at": (string);
+  "kind": ("question" | "assistant" | "tool_started" | "tool_completed" | "answer" | "result_suggestion" | "action_proposal" | "usage" | "status") & (string);
+  "payload": ({
+  [key: string]: (HttpAskEventsPage_JsonValue);
+});
+  "seq": (number);
+  "thread_id": (string);
+  "turn_id": (string);
+});
+
+type HttpAskEventsPage_AskFileSource = ({
+  "column_id": (number);
+  "kind": ("file") & (string);
+  "row_id": (number);
+  "sheet_id": (number);
+});
+
+type HttpAskEventsPage_AskRowsSource = ({
+  "kind": ("rows") & (string);
+  "row_ids": (Array<(number)>);
+  "sheet_id": (number);
+});
+
+type HttpAskEventsPage_AskScope = ({
+  "kind": ("project" | "sources") & (string);
+  "sources"?: (((Array<(((HttpAskEventsPage_AskSheetSource)) | ((HttpAskEventsPage_AskRowsSource)) | ((HttpAskEventsPage_AskFileSource)))>)) | ((null)));
+});
+
+type HttpAskEventsPage_AskSheetSource = ({
+  "kind": ("sheet") & (string);
+  "sheet_id": (number);
+});
+
+type HttpAskEventsPage_AskTurn = ({
+  "cost_actual": (((number)) | ((null)));
+  "error_summary": (((string)) | ((null)));
+  "finished_at": (((string)) | ((null)));
+  "id": (string);
+  "model"?: (((string)) | ((null)));
+  "question": (string);
+  "request_id": (string);
+  "scope": (HttpAskEventsPage_AskScope);
+  "started_at": (string);
+  "status": ("running" | "stopping" | "completed" | "stopped" | "failed" | "interrupted") & (string);
+  "submitted_by": (((string)) | ((null)));
+  "suggest_actions"?: (boolean);
+  "thread_id": (string);
+  "usage": ((({
+  [key: string]: (HttpAskEventsPage_JsonValue);
+})) | ((null)));
+  "web"?: (boolean);
+});
+
+type HttpAskEventsPage_JsonValue = JsonValue;
+
+export type HttpAskEventsPage = ({
+  "active_turn": (((HttpAskEventsPage_AskTurn)) | ((null)));
+  "cursor": (number);
+  "events": (Array<(HttpAskEventsPage_AskEvent)>);
+  "has_more": (boolean);
+});
+
+export type HttpAskReport = ({
+  "markdown": (string);
+});
+
+type HttpAskThread_AskFileSource = ({
+  "column_id": (number);
+  "kind": ("file") & (string);
+  "row_id": (number);
+  "sheet_id": (number);
+});
+
+type HttpAskThread_AskRowsSource = ({
+  "kind": ("rows") & (string);
+  "row_ids": (Array<(number)>);
+  "sheet_id": (number);
+});
+
+type HttpAskThread_AskScope = ({
+  "kind": ("project" | "sources") & (string);
+  "sources"?: (((Array<(((HttpAskThread_AskSheetSource)) | ((HttpAskThread_AskRowsSource)) | ((HttpAskThread_AskFileSource)))>)) | ((null)));
+});
+
+type HttpAskThread_AskSheetSource = ({
+  "kind": ("sheet") & (string);
+  "sheet_id": (number);
+});
+
+export type HttpAskThread = ({
+  "created_at": (string);
+  "created_by": (((string)) | ((null)));
+  "id": (string);
+  "model"?: (((string)) | ((null)));
+  "revision": (number);
+  "scope": (HttpAskThread_AskScope);
+  "suggest_actions"?: (boolean);
+  "title": (string);
+  "updated_at": (string);
+  "web"?: (boolean);
+});
+
+type HttpAskThreadCreate_AskFileSource = ({
+  "column_id": (number);
+  "kind": ("file") & (string);
+  "row_id": (number);
+  "sheet_id": (number);
+});
+
+type HttpAskThreadCreate_AskRowsSource = ({
+  "kind": ("rows") & (string);
+  "row_ids": (Array<(number)>);
+  "sheet_id": (number);
+});
+
+type HttpAskThreadCreate_AskScope = ({
+  "kind": ("project" | "sources") & (string);
+  "sources"?: (((Array<(((HttpAskThreadCreate_AskSheetSource)) | ((HttpAskThreadCreate_AskRowsSource)) | ((HttpAskThreadCreate_AskFileSource)))>)) | ((null)));
+});
+
+type HttpAskThreadCreate_AskSheetSource = ({
+  "kind": ("sheet") & (string);
+  "sheet_id": (number);
+});
+
+export type HttpAskThreadCreate = ({
+  "model"?: (((string)) | ((null)));
+  "scope": (HttpAskThreadCreate_AskScope);
+  "suggest_actions"?: (boolean);
+  "title"?: (string);
+  "web"?: (boolean);
+});
+
+type HttpAskThreadDetail_AskEvent = ({
+  "created_at": (string);
+  "kind": ("question" | "assistant" | "tool_started" | "tool_completed" | "answer" | "result_suggestion" | "action_proposal" | "usage" | "status") & (string);
+  "payload": ({
+  [key: string]: (HttpAskThreadDetail_JsonValue);
+});
+  "seq": (number);
+  "thread_id": (string);
+  "turn_id": (string);
+});
+
+type HttpAskThreadDetail_AskEventsPage = ({
+  "active_turn": (((HttpAskThreadDetail_AskTurn)) | ((null)));
+  "cursor": (number);
+  "events": (Array<(HttpAskThreadDetail_AskEvent)>);
+  "has_more": (boolean);
+});
+
+type HttpAskThreadDetail_AskFileSource = ({
+  "column_id": (number);
+  "kind": ("file") & (string);
+  "row_id": (number);
+  "sheet_id": (number);
+});
+
+type HttpAskThreadDetail_AskRowsSource = ({
+  "kind": ("rows") & (string);
+  "row_ids": (Array<(number)>);
+  "sheet_id": (number);
+});
+
+type HttpAskThreadDetail_AskScope = ({
+  "kind": ("project" | "sources") & (string);
+  "sources"?: (((Array<(((HttpAskThreadDetail_AskSheetSource)) | ((HttpAskThreadDetail_AskRowsSource)) | ((HttpAskThreadDetail_AskFileSource)))>)) | ((null)));
+});
+
+type HttpAskThreadDetail_AskSheetSource = ({
+  "kind": ("sheet") & (string);
+  "sheet_id": (number);
+});
+
+type HttpAskThreadDetail_AskThread = ({
+  "created_at": (string);
+  "created_by": (((string)) | ((null)));
+  "id": (string);
+  "model"?: (((string)) | ((null)));
+  "revision": (number);
+  "scope": (HttpAskThreadDetail_AskScope);
+  "suggest_actions"?: (boolean);
+  "title": (string);
+  "updated_at": (string);
+  "web"?: (boolean);
+});
+
+type HttpAskThreadDetail_AskTurn = ({
+  "cost_actual": (((number)) | ((null)));
+  "error_summary": (((string)) | ((null)));
+  "finished_at": (((string)) | ((null)));
+  "id": (string);
+  "model"?: (((string)) | ((null)));
+  "question": (string);
+  "request_id": (string);
+  "scope": (HttpAskThreadDetail_AskScope);
+  "started_at": (string);
+  "status": ("running" | "stopping" | "completed" | "stopped" | "failed" | "interrupted") & (string);
+  "submitted_by": (((string)) | ((null)));
+  "suggest_actions"?: (boolean);
+  "thread_id": (string);
+  "usage": ((({
+  [key: string]: (HttpAskThreadDetail_JsonValue);
+})) | ((null)));
+  "web"?: (boolean);
+});
+
+type HttpAskThreadDetail_JsonValue = JsonValue;
+
+export type HttpAskThreadDetail = ({
+  "active_turn": (((HttpAskThreadDetail_AskTurn)) | ((null)));
+  "history": (HttpAskThreadDetail_AskEventsPage);
+  "thread": (HttpAskThreadDetail_AskThread);
+});
+
+type HttpAskThreadUpdate_AskFileSource = ({
+  "column_id": (number);
+  "kind": ("file") & (string);
+  "row_id": (number);
+  "sheet_id": (number);
+});
+
+type HttpAskThreadUpdate_AskRowsSource = ({
+  "kind": ("rows") & (string);
+  "row_ids": (Array<(number)>);
+  "sheet_id": (number);
+});
+
+type HttpAskThreadUpdate_AskScope = ({
+  "kind": ("project" | "sources") & (string);
+  "sources"?: (((Array<(((HttpAskThreadUpdate_AskSheetSource)) | ((HttpAskThreadUpdate_AskRowsSource)) | ((HttpAskThreadUpdate_AskFileSource)))>)) | ((null)));
+});
+
+type HttpAskThreadUpdate_AskSheetSource = ({
+  "kind": ("sheet") & (string);
+  "sheet_id": (number);
+});
+
+export type HttpAskThreadUpdate = ({
+  "expected_revision": (number);
+  "model"?: (((string)) | ((null)));
+  "scope"?: (((HttpAskThreadUpdate_AskScope)) | ((null)));
+  "suggest_actions"?: (((boolean)) | ((null)));
+  "title"?: (((string)) | ((null)));
+  "web"?: (((boolean)) | ((null)));
+});
+
+type HttpAskTurn_AskFileSource = ({
+  "column_id": (number);
+  "kind": ("file") & (string);
+  "row_id": (number);
+  "sheet_id": (number);
+});
+
+type HttpAskTurn_AskRowsSource = ({
+  "kind": ("rows") & (string);
+  "row_ids": (Array<(number)>);
+  "sheet_id": (number);
+});
+
+type HttpAskTurn_AskScope = ({
+  "kind": ("project" | "sources") & (string);
+  "sources"?: (((Array<(((HttpAskTurn_AskSheetSource)) | ((HttpAskTurn_AskRowsSource)) | ((HttpAskTurn_AskFileSource)))>)) | ((null)));
+});
+
+type HttpAskTurn_AskSheetSource = ({
+  "kind": ("sheet") & (string);
+  "sheet_id": (number);
+});
+
+type HttpAskTurn_JsonValue = JsonValue;
+
+export type HttpAskTurn = ({
+  "cost_actual": (((number)) | ((null)));
+  "error_summary": (((string)) | ((null)));
+  "finished_at": (((string)) | ((null)));
+  "id": (string);
+  "model"?: (((string)) | ((null)));
+  "question": (string);
+  "request_id": (string);
+  "scope": (HttpAskTurn_AskScope);
+  "started_at": (string);
+  "status": ("running" | "stopping" | "completed" | "stopped" | "failed" | "interrupted") & (string);
+  "submitted_by": (((string)) | ((null)));
+  "suggest_actions"?: (boolean);
+  "thread_id": (string);
+  "usage": ((({
+  [key: string]: (HttpAskTurn_JsonValue);
+})) | ((null)));
+  "web"?: (boolean);
+});
+
+type HttpAskTurnRequest_AskFileSource = ({
+  "column_id": (number);
+  "kind": ("file") & (string);
+  "row_id": (number);
+  "sheet_id": (number);
+});
+
+type HttpAskTurnRequest_AskRowsSource = ({
+  "kind": ("rows") & (string);
+  "row_ids": (Array<(number)>);
+  "sheet_id": (number);
+});
+
+type HttpAskTurnRequest_AskScope = ({
+  "kind": ("project" | "sources") & (string);
+  "sources"?: (((Array<(((HttpAskTurnRequest_AskSheetSource)) | ((HttpAskTurnRequest_AskRowsSource)) | ((HttpAskTurnRequest_AskFileSource)))>)) | ((null)));
+});
+
+type HttpAskTurnRequest_AskSheetSource = ({
+  "kind": ("sheet") & (string);
+  "sheet_id": (number);
+});
+
+export type HttpAskTurnRequest = ({
+  "model"?: (((string)) | ((null)));
+  "question": (string);
+  "request_id": (string);
+  "scope": (HttpAskTurnRequest_AskScope);
+  "suggest_actions"?: (boolean);
+  "web"?: (boolean);
 });
 
 export type HttpBrowserAuthCompletePasswordRequest = ({
@@ -4252,6 +4640,12 @@ export type HttpImportXlsxResponse = ({
   "sheet_id": (number);
 });
 
+export type HttpInline_00e48418ac223a62 = ({
+  "pid": (string);
+  "thread_id": (string);
+  "turn_id": (string);
+});
+
 type HttpInline_08600a3f31630079_ActionError = ({
   "action_kind"?: (((string)) | ((null)));
   "code": (string);
@@ -4383,6 +4777,12 @@ export type HttpInline_263a59409cf94cc0 = ({
 export type HttpInline_2991c76573e07d46 = ({
   "limit"?: (number);
   "offset"?: (((number)) | ((null)));
+});
+
+export type HttpInline_2b03a251157ec92d = ({
+  "after"?: (number);
+  "before"?: (((number)) | ((null)));
+  "limit"?: (number);
 });
 
 type HttpInline_2d4c3a80110529b8_ActionError = ({
@@ -4813,6 +5213,49 @@ type HttpInline_60acf23e8e5e686f_HttpError = ({
 type HttpInline_60acf23e8e5e686f_JsonValue = JsonValue;
 
 export type HttpInline_60acf23e8e5e686f = (((HttpInline_60acf23e8e5e686f_HttpError)) | ((HttpInline_60acf23e8e5e686f_ActionError)));
+
+type HttpInline_64f1fc6f91179544_AskFileSource = ({
+  "column_id": (number);
+  "kind": ("file") & (string);
+  "row_id": (number);
+  "sheet_id": (number);
+});
+
+type HttpInline_64f1fc6f91179544_AskRowsSource = ({
+  "kind": ("rows") & (string);
+  "row_ids": (Array<(number)>);
+  "sheet_id": (number);
+});
+
+type HttpInline_64f1fc6f91179544_AskScope = ({
+  "kind": ("project" | "sources") & (string);
+  "sources"?: (((Array<(((HttpInline_64f1fc6f91179544_AskSheetSource)) | ((HttpInline_64f1fc6f91179544_AskRowsSource)) | ((HttpInline_64f1fc6f91179544_AskFileSource)))>)) | ((null)));
+});
+
+type HttpInline_64f1fc6f91179544_AskSheetSource = ({
+  "kind": ("sheet") & (string);
+  "sheet_id": (number);
+});
+
+type HttpInline_64f1fc6f91179544_AskThread = ({
+  "created_at": (string);
+  "created_by": (((string)) | ((null)));
+  "id": (string);
+  "model"?: (((string)) | ((null)));
+  "revision": (number);
+  "scope": (HttpInline_64f1fc6f91179544_AskScope);
+  "suggest_actions"?: (boolean);
+  "title": (string);
+  "updated_at": (string);
+  "web"?: (boolean);
+});
+
+export type HttpInline_64f1fc6f91179544 = (Array<(HttpInline_64f1fc6f91179544_AskThread)>);
+
+export type HttpInline_751e88b11b84ef2b = ({
+  "pid": (string);
+  "thread_id": (string);
+});
 
 export type HttpInline_756f1f7585dc30e8 = ({
   "invite_id": (number);
@@ -11276,6 +11719,132 @@ export type HttpContractOperationMap = {
       readonly "422": HttpError;
       readonly "500": HttpError;
       readonly "503": HttpError;
+    };
+  };
+  readonly "tenant.qa_create_thread.post": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpAskThreadCreate;
+    readonly responses: {
+      readonly "200": HttpAskThread;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.qa_delete_thread.delete": {
+    readonly pathParams: HttpInline_751e88b11b84ef2b;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "204": undefined;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.qa_events.get": {
+    readonly pathParams: HttpInline_751e88b11b84ef2b;
+    readonly query: HttpInline_2b03a251157ec92d;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpAskEventsPage;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.qa_report.get": {
+    readonly pathParams: HttpInline_751e88b11b84ef2b;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpAskReport;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.qa_stop_turn.post": {
+    readonly pathParams: HttpInline_00e48418ac223a62;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpAskTurn;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.qa_submit_turn.post": {
+    readonly pathParams: HttpInline_751e88b11b84ef2b;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpAskTurnRequest;
+    readonly responses: {
+      readonly "200": HttpAskTurn;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.qa_thread.get": {
+    readonly pathParams: HttpInline_751e88b11b84ef2b;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpAskThreadDetail;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.qa_threads.get": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpInline_64f1fc6f91179544;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.qa_update_thread.patch": {
+    readonly pathParams: HttpInline_751e88b11b84ef2b;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpAskThreadUpdate;
+    readonly responses: {
+      readonly "200": HttpAskThread;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
     };
   };
   readonly "tenant.replace_rules_preview.post": {

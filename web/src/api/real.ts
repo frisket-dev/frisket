@@ -27,6 +27,7 @@ import {
   updateProjectContract,
 } from './httpContractRoutes';
 import { ActionCatalogCache } from './actionCatalog';
+import { createProjectQAApi } from './projectQA';
 import { emitActionCatalogInvalidated } from './catalogEvents';
 import { emitRuntimeConfigChanged } from './runtimeConfigEvents';
 import {
@@ -772,6 +773,7 @@ const actionCatalogCache = new ActionCatalogCache({
 });
 
 class RealApi implements FrisketApi {
+  readonly qa = createProjectQAApi(() => this.requireProjectId(), apiErrorFromContract);
   private readonly projectId: string | null;
   private readonly mapPointsArrowApi: ReturnType<typeof createMapPointsArrowApi>;
   private readonly previewComparisonsApi: ReturnType<typeof createPreviewComparisonsApi>;

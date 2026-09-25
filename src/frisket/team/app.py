@@ -1071,6 +1071,8 @@ def create_team_app(
     app.state.control_engine = engine
     app.state.team_org_id = org_id
     app.state.workspace = core.state.workspace
+    app.state.project_qa_service = core.state.project_qa_service
+    app.router.add_event_handler("shutdown", core.state.project_qa_service.shutdown)
     app.state.product_telemetry = core.state.product_telemetry
     # Mounted ASGI applications do not receive the parent application's
     # lifespan events. Mirror the core preview registry onto the outer app and
