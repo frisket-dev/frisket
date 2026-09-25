@@ -55,11 +55,11 @@ def test_threads_keep_project_scope_preferences_creator_and_revision(tmp_path) -
         )
         assert changed["revision"] == 2
         assert changed["scope"]["sources"][0]["row_ids"] == [8, 9]
-        reset = store.update_thread(
+        unchanged_scope = store.update_thread(
             thread["id"], expected_revision=2, scope=None, model=None
         )
-        assert reset["scope"] == {"kind": "project"}
-        assert reset["model"] is None
+        assert unchanged_scope["scope"]["sources"][0]["row_ids"] == [8, 9]
+        assert unchanged_scope["model"] is None
         with pytest.raises(ProjectQAConflictError, match="revision"):
             store.update_thread(thread["id"], expected_revision=1, title="stale")
     finally:
@@ -184,6 +184,7 @@ def test_events_citations_stop_terminalize_and_reconcile_only_unowned_turns(
         assert events["has_more"] is True
         older = store.events(thread["id"], before=4, limit=2)
         assert [event["seq"] for event in older["events"]] == [2, 3]
+        assert older["cursor"] == 2
         assert older["has_more"] is True
         recent = store.recent_events(thread["id"], limit=2)
         assert [event["seq"] for event in recent["events"]] == [4, 5]
@@ -199,6 +200,9 @@ def test_events_citations_stop_terminalize_and_reconcile_only_unowned_turns(
         assert reconciled == [third["id"]]
         assert store.get_turn(second["id"])["status"] == "running"
         assert store.get_turn(third["id"])["status"] == "interrupted"
+        snapshot = store.events_with_active(thread["id"], recent=True, limit=2)
+        assert snapshot["active_turn"]["id"] == second["id"]
+        assert [event["seq"] for event in snapshot["events"]] == [5, 6]
     finally:
         project.close()
 
@@ -247,6 +251,18 @@ def test_usage_is_deduped_and_terminalization_derives_it_with_failure_context(
         stopped = store.finish_turn(turn["id"], status="stopped")
         assert stopped["usage"] == {"calls": 1, "tokens_in": 7, "tokens_out": 4}
         assert stopped["cost_actual"] is None
+        late_call = {**call, "id": "late-provider-call"}
+        late_payload = {**payload, "call_id": late_call["id"]}
+        assert (
+            store.record_usage(
+                turn["id"],
+                call_id=late_call["id"],
+                payload=late_payload,
+                calls=[late_call],
+            )
+            is not None
+        )
+        assert store.get_turn(turn["id"])["usage"]["calls"] == 2
 
         failed = store.submit_turn(thread["id"], request_id="failed", question="Two")
         store.finish_turn(

@@ -333,7 +333,9 @@ class ProjectQAStore:
             _bool(web, name="web")
         if suggest_actions is not None:
             _bool(suggest_actions, name="suggest_actions")
-        saved_scope = _scope(scope) if scope is not _UNSET else _UNSET
+        saved_scope = (
+            _scope(scope) if scope is not _UNSET and scope is not None else _UNSET
+        )
         saved_model = _model(model) if model is not _UNSET else _UNSET
 
         def write(db: sqlite3.Connection) -> dict[str, Any]:
@@ -620,8 +622,6 @@ class ProjectQAStore:
                     "SELECT * FROM project_qa_turns WHERE id=?", (turn_id,)
                 ).fetchone()
             )
-            if turn["status"] in TERMINAL_TURN_STATUSES:
-                raise ProjectQAConflictError("cannot append usage to a terminal turn")
             inserted = db.execute(
                 "INSERT INTO project_qa_usage_calls (turn_id,call_id) VALUES (?,?) "
                 "ON CONFLICT(turn_id,call_id) DO NOTHING",
@@ -634,13 +634,20 @@ class ProjectQAStore:
             RunResultStore(self._project).write_unscoped_model_calls(
                 calls, row_id=None, column_id=None, commit=False
             )
-            return self._append_event(
+            event = self._append_event(
                 db,
                 thread_id=turn["thread_id"],
                 turn_id=turn_id,
                 kind="usage",
                 payload=saved_payload,
             )
+            if turn["status"] in TERMINAL_TURN_STATUSES:
+                usage, cost = self._usage_summary(db, turn_id)
+                db.execute(
+                    "UPDATE project_qa_turns SET usage_json=?,cost_actual=? WHERE id=?",
+                    (_json(usage), cost, turn_id),
+                )
+            return event
 
         return self._write(write)
 
@@ -652,7 +659,24 @@ class ProjectQAStore:
         before: int | None = None,
         limit: int = 100,
     ) -> dict[str, Any]:
-        self.get_thread(thread_id)
+        return self._events_page(
+            self.db, thread_id, after=after, before=before, limit=limit
+        )
+
+    def _events_page(
+        self,
+        db: sqlite3.Connection,
+        thread_id: str,
+        *,
+        after: int,
+        before: int | None,
+        limit: int,
+    ) -> dict[str, Any]:
+        self._thread_record(
+            db.execute(
+                "SELECT * FROM project_qa_threads WHERE id=?", (thread_id,)
+            ).fetchone()
+        )
         if isinstance(after, bool) or not isinstance(after, int) or after < 0:
             raise ValueError("after must be a non-negative integer")
         if before is not None and (
@@ -668,13 +692,13 @@ class ProjectQAStore:
         ):
             raise ValueError("limit must be between 1 and 200")
         if before is None:
-            rows = self.db.execute(
+            rows = db.execute(
                 "SELECT * FROM project_qa_events WHERE thread_id=? AND seq>? ORDER BY seq LIMIT ?",
                 (thread_id, after, limit + 1),
             ).fetchall()
             returned, has_more = rows[:limit], len(rows) > limit
         else:
-            rows = self.db.execute(
+            rows = db.execute(
                 "SELECT * FROM project_qa_events WHERE thread_id=? AND seq<? "
                 "ORDER BY seq DESC LIMIT ?",
                 (thread_id, before, limit + 1),
@@ -693,7 +717,12 @@ class ProjectQAStore:
         ]
         return {
             "events": events,
-            "cursor": events[-1]["seq"] if events else after,
+            "cursor": (
+                events[0]["seq"] if before is not None and events
+                else events[-1]["seq"] if events
+                else before if before is not None
+                else after
+            ),
             "has_more": has_more,
         }
 
@@ -708,6 +737,79 @@ class ProjectQAStore:
             ).fetchone()[0]
         )
         return self.events(thread_id, before=last_seq + 1, limit=limit)
+
+    def events_with_active(
+        self,
+        thread_id: str,
+        *,
+        after: int = 0,
+        before: int | None = None,
+        limit: int = 100,
+        recent: bool = False,
+    ) -> dict[str, Any]:
+        """Read one event page and its active turn from one SQLite snapshot."""
+
+        db = self.db
+        owns = not db.in_transaction
+        if owns:
+            db.execute("BEGIN")
+        try:
+            if recent:
+                last_seq = int(
+                    db.execute(
+                        "SELECT COALESCE(MAX(seq),0) FROM project_qa_events WHERE thread_id=?",
+                        (thread_id,),
+                    ).fetchone()[0]
+                )
+                before, after = last_seq + 1, 0
+            page = self._events_page(
+                db, thread_id, after=after, before=before, limit=limit
+            )
+            row = db.execute(
+                "SELECT * FROM project_qa_turns WHERE thread_id=? AND status IN ('running','stopping') ORDER BY started_at DESC,id DESC LIMIT 1",
+                (thread_id,),
+            ).fetchone()
+            page["active_turn"] = self._turn_record(row) if row is not None else None
+            if owns:
+                db.commit()
+            return page
+        except Exception:
+            if owns:
+                db.rollback()
+            raise
+
+    def detail_with_history(self, thread_id: str, *, limit: int = 100) -> dict[str, Any]:
+        """Read thread preferences, newest history page, and active turn together."""
+
+        db = self.db
+        owns = not db.in_transaction
+        if owns:
+            db.execute("BEGIN")
+        try:
+            thread = self._thread_record(
+                db.execute("SELECT * FROM project_qa_threads WHERE id=?", (thread_id,)).fetchone()
+            )
+            last_seq = int(
+                db.execute(
+                    "SELECT COALESCE(MAX(seq),0) FROM project_qa_events WHERE thread_id=?",
+                    (thread_id,),
+                ).fetchone()[0]
+            )
+            history = self._events_page(
+                db, thread_id, after=0, before=last_seq + 1, limit=limit
+            )
+            row = db.execute(
+                "SELECT * FROM project_qa_turns WHERE thread_id=? AND status IN ('running','stopping') ORDER BY started_at DESC,id DESC LIMIT 1",
+                (thread_id,),
+            ).fetchone()
+            active = self._turn_record(row) if row is not None else None
+            if owns:
+                db.commit()
+            return {"thread": thread, "active_turn": active, "history": history}
+        except Exception:
+            if owns:
+                db.rollback()
+            raise
 
     def add_citation(
         self,
@@ -788,6 +890,10 @@ class ProjectQAStore:
                 db.execute(
                     "UPDATE project_qa_turns SET status='stopping' WHERE id=?",
                     (turn_id,),
+                )
+                db.execute(
+                    "UPDATE project_qa_threads SET updated_at=? WHERE id=?",
+                    (now, turn["thread_id"]),
                 )
                 self._append_event(
                     db,
@@ -888,6 +994,43 @@ class ProjectQAStore:
 
         return self._write(write)
 
+    def finalize_turn(
+        self,
+        turn_id: str,
+        *,
+        status: str,
+        error_summary: str | None = None,
+    ) -> dict[str, Any]:
+        """Terminalize a runner result without racing a concurrent Stop."""
+
+        if status not in TERMINAL_TURN_STATUSES - {"stopped"}:
+            raise ValueError("finalize status must be completed, failed, or interrupted")
+        if error_summary is not None and not isinstance(error_summary, str):
+            raise ValueError("error_summary must be a string or null")
+
+        def write(db: sqlite3.Connection) -> dict[str, Any]:
+            turn = self._turn_record(
+                db.execute("SELECT * FROM project_qa_turns WHERE id=?", (turn_id,)).fetchone()
+            )
+            if turn["status"] in TERMINAL_TURN_STATUSES:
+                return turn
+            target = "stopped" if turn["status"] == "stopping" else status
+            now = _now()
+            usage, cost = self._usage_summary(db, turn_id)
+            db.execute(
+                "UPDATE project_qa_turns SET status=?,finished_at=?,usage_json=?,cost_actual=?,error_summary=? WHERE id=?",
+                (target, now, _json(usage), cost, error_summary, turn_id),
+            )
+            self._append_event(
+                db, thread_id=turn["thread_id"], turn_id=turn_id, kind="status",
+                payload={"status": target, **({"error_summary": error_summary} if error_summary else {})},
+                created_at=now,
+            )
+            db.execute("UPDATE project_qa_threads SET updated_at=? WHERE id=?", (now, turn["thread_id"]))
+            return self._turn_record(db.execute("SELECT * FROM project_qa_turns WHERE id=?", (turn_id,)).fetchone())
+
+        return self._write(write)
+
     @staticmethod
     def _usage_summary(
         db: sqlite3.Connection, turn_id: str
@@ -934,6 +1077,10 @@ class ProjectQAStore:
                 db.execute(
                     "UPDATE project_qa_turns SET status=?,finished_at=? WHERE id=?",
                     (status, now, turn["id"]),
+                )
+                db.execute(
+                    "UPDATE project_qa_threads SET updated_at=? WHERE id=?",
+                    (now, turn["thread_id"]),
                 )
                 self._append_event(
                     db,
