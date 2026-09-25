@@ -292,12 +292,14 @@ class ProjectQATools:
         ):
             raise ValueError(f"limit must be between 1 and {MAX_READ_ROWS}")
         allowed_rows, file_cells = self._sheet_access(sheet_id)
-        search_rows = (
-            None
-            if allowed_rows is None
-            else sorted(allowed_rows | {row_id for row_id, _column_id in file_cells})
+        hits = search_cells_scoped(
+            self.project,
+            sheet_id,
+            query,
+            None if allowed_rows is None else sorted(allowed_rows),
+            file_cells,
+            limit,
         )
-        hits = search_cells_scoped(self.project, sheet_id, query, search_rows, limit)
         out = []
         for hit in hits:
             row_id, column_id = int(hit["row_id"]), int(hit["column_id"])
@@ -357,7 +359,7 @@ class ProjectQATools:
         self._columns_for_row(
             [column_id], row_id, allowed_rows, file_cells, explicit_columns=True
         )
-        values, _refs = self.project.get_values_with_refs(
+        values, current_refs = self.project.get_values_with_refs(
             sheet_id, column_id, row_ids=[row_id]
         )
         if row_id not in values:
@@ -399,7 +401,7 @@ class ProjectQATools:
                                 "sheet_id": sheet_id,
                                 "row_id": row_id,
                                 "column_id": column_id,
-                                "value_ref": locator.get("value_ref"),
+                                "value_ref": current_refs.get(row_id),
                                 "evidence_link_id": link["stable_id"],
                                 "artifact_id": artifact.get("stable_id"),
                                 "span_id": span.get("stable_id"),
@@ -482,6 +484,18 @@ class ProjectQATools:
         allowed_rows, file_cells = self._sheet_access(sheet_id)
         if allowed_rows is None:
             return {"kind": "sheet", "sheet_id": sheet_id}
+        file_rows = {row_id for row_id, _column_id in file_cells}
+        if file_cells and allowed_rows and not file_rows <= allowed_rows:
+            columns = {column_id for _row_id, column_id in file_cells}
+            if file_cells != {
+                (row_id, column_id) for row_id in file_rows for column_id in columns
+            }:
+                raise ProjectQAScopeError(
+                    "query cannot combine different file cells; read or search them instead"
+                )
+            raise ProjectQAScopeError(
+                "query cannot combine file cells with separate row selections"
+            )
         rows = allowed_rows | {row_id for row_id, _column_id in file_cells}
         if not rows:
             raise ProjectQAScopeError("query scope has no readable rows")
@@ -491,9 +505,14 @@ class ProjectQATools:
             "row_ids": sorted(rows),
         }
         if file_cells and not allowed_rows:
-            result["column_ids"] = sorted(
-                {column_id for _row_id, column_id in file_cells}
-            )
+            columns = {column_id for _row_id, column_id in file_cells}
+            if file_cells != {
+                (row_id, column_id) for row_id in rows for column_id in columns
+            }:
+                raise ProjectQAScopeError(
+                    "query requires the same selected file column for every selected row"
+                )
+            result["column_ids"] = sorted(columns)
         return result
 
     def _allowed_sheets(self) -> set[int] | None:

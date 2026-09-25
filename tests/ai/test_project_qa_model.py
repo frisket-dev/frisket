@@ -360,6 +360,64 @@ def test_file_scope_query_and_search_reject_unselected_columns(tmp_path: Path) -
             tools.query_rows(query)
         assert tools.search_cells("visible", 1)["hits"]
         assert not tools.search_cells("disclose", 1)["hits"]
+        nonrect_scope = {
+            "kind": "sources",
+            "sources": [
+                {"kind": "file", "sheet_id": 1, "row_id": 1, "column_id": 1},
+                {"kind": "file", "sheet_id": 1, "row_id": 2, "column_id": 2},
+            ],
+        }
+        thread = store.create_thread(title="Nonrect", scope=nonrect_scope)
+        nonrect_turn = store.submit_turn(
+            thread["id"],
+            request_id="nonrect",
+            question="Query",
+            scope=nonrect_scope,
+        )
+        with pytest.raises(ProjectQAScopeError, match="same selected file column"):
+            ProjectQATools(project, nonrect_turn, store).query_rows(
+                {
+                    "schema_version": "frisket.query.v1",
+                    "kind": "sheet.filter",
+                    "scope": {"kind": "sheet", "sheet_id": 1},
+                    "filter": {},
+                }
+            )
+    finally:
+        project.close()
+
+
+def test_file_search_filters_exact_cells_before_ranking(tmp_path: Path) -> None:
+    project = Project.create(tmp_path / "file-search.frisket", name="File search")
+    try:
+        sheet_id = project.add_sheet("Evidence")
+        selected = project.add_column(sheet_id, "Selected")
+        private = project.add_column(sheet_id, "Private")
+        [row_id] = project.add_rows(
+            sheet_id,
+            [{"Selected": "needle", "Private": "needle " * 100}],
+            {"Selected": selected, "Private": private},
+        )
+        scope = {
+            "kind": "sources",
+            "sources": [
+                {
+                    "kind": "file",
+                    "sheet_id": sheet_id,
+                    "row_id": row_id,
+                    "column_id": selected,
+                }
+            ],
+        }
+        store = ProjectQAStore(project)
+        thread = store.create_thread(title="File search", scope=scope)
+        turn = store.submit_turn(
+            thread["id"], request_id="file-search", question="Find", scope=scope
+        )
+        hits = ProjectQATools(project, turn, store).search_cells(
+            "needle", sheet_id, limit=1
+        )["hits"]
+        assert hits and hits[0]["column_id"] == selected
     finally:
         project.close()
 

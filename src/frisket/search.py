@@ -255,17 +255,26 @@ def search_cells_scoped(
     sheet_id: int,
     query: str,
     row_ids: list[int] | None,
+    cells: set[tuple[int, int]] | None = None,
     limit: int = 50,
 ) -> list[dict[str, Any]]:
-    """Lexically rank only already-authorized rows before applying ``limit``."""
-    if row_ids is not None and not row_ids:
+    """Lexically rank authorized rows/cells before applying ``limit``."""
+
+    if row_ids is not None and not row_ids and not cells:
         return []
     db = fresh_sidecar(project)
-    scope = (
-        ""
-        if row_ids is None
-        else " AND row_id IN (" + ",".join("?" for _ in row_ids) + ")"
-    )
+    authorized: list[str] = []
+    params: list[Any] = [query, sheet_id]
+    if row_ids:
+        authorized.append("row_id IN (" + ",".join("?" for _ in row_ids) + ")")
+        params.extend(row_ids)
+    if cells:
+        exact = []
+        for row_id, column_id in sorted(cells):
+            exact.append("(row_id=? AND column_id=?)")
+            params.extend((row_id, column_id))
+        authorized.append("(" + " OR ".join(exact) + ")")
+    scope = "" if not authorized else " AND (" + " OR ".join(authorized) + ")"
     sql = (
         "SELECT sheet_id,row_id,column_id,column_name,"
         "snippet(cell_fts, 0, '<b>', '</b>', '…', 12) AS snip "
@@ -274,11 +283,9 @@ def search_cells_scoped(
         + " ORDER BY rank LIMIT ?"
     )
     try:
-        rows = db.execute(sql, [query, sheet_id, *(row_ids or []), limit]).fetchall()
+        rows = db.execute(sql, [*params, limit]).fetchall()
     except sqlite3.OperationalError:
-        rows = db.execute(
-            sql, [f'"{query}"', sheet_id, *(row_ids or []), limit]
-        ).fetchall()
+        rows = db.execute(sql, [f'"{query}"', *params[1:], limit]).fetchall()
     db.close()
     return [dict(row) for row in rows]
 
