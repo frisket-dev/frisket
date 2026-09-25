@@ -6,6 +6,23 @@ from typing import Any
 
 from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQANotFoundError, ProjectQAStore
+from frisket.server.services.project_qa_web import safe_web_text, safe_web_url
+
+
+def project_qa_safe_citation_projection(citation: dict[str, Any]) -> dict[str, Any]:
+    """Return the safe label, URL, and excerpt shared by reports and clients."""
+
+    label = safe_web_text(citation.get("label"), limit=240)
+    excerpt = citation.get("excerpt")
+    if citation.get("source_kind") == "web":
+        locator = citation.get("locator")
+        url = safe_web_url(locator.get("url")) if isinstance(locator, dict) else None
+        return {
+            "label": label or "Web source",
+            "url": url,
+            "excerpt": safe_web_text(excerpt, limit=8_000) if excerpt else None,
+        }
+    return {"label": label, "url": None, "excerpt": excerpt}
 
 
 def resolve_citation(
@@ -15,16 +32,34 @@ def resolve_citation(
     citation = store.get_citation(citation_id)
     if store.get_turn(citation["turn_id"])["thread_id"] != thread_id:
         raise ProjectQANotFoundError("Source not found in this conversation.")
+    projected = project_qa_safe_citation_projection(citation)
     result = {
         "id": citation_id,
-        "label": citation["label"],
+        "label": projected["label"],
         "source_kind": citation["source_kind"],
-        "excerpt": citation["excerpt"],
+        "excerpt": projected["excerpt"],
         "status": "unavailable",
         "message": "This source is no longer available in the project.",
         "target": None,
     }
     locator = citation["locator"]
+    if citation["source_kind"] == "web":
+        url = projected["url"]
+        retrieved_at = locator.get("retrieved_at")
+        fetched = locator.get("fetched")
+        if not isinstance(url, str) or not isinstance(retrieved_at, str) or not isinstance(fetched, bool):
+            return result
+        return {
+            **result,
+            "status": "unverified",
+            "message": "This public-web source was retrieved at the recorded time and may have changed.",
+            "target": {
+                "kind": "web",
+                "url": url,
+                "retrieved_at": retrieved_at,
+                "fetched": fetched,
+            },
+        }
     if citation["source_kind"] == "query":
         if not project.db.execute(
             "SELECT 1 FROM sheets WHERE id=? AND hidden=0", (locator.get("sheet_id"),)

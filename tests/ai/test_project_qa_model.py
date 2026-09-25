@@ -19,12 +19,22 @@ from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.engine.runner import ProviderSpendCapExceeded
 from frisket.querysets import anchor_relative_date_filters
 from frisket.server.services.project_qa_runner import run_turn
+import frisket.server.services.project_qa_runner as project_qa_runner
+from frisket.server.services.project_qa_citations import (
+    project_qa_safe_citation_projection,
+    resolve_citation,
+)
 from frisket.server.services.project_qa_query import evaluate_query
 from frisket.server.services.project_qa_tools import (
     MAX_OBSERVATION_CHARS,
     ProjectQAScopeError,
     ProjectQATools,
     validate_scope,
+)
+from frisket.server.services.project_qa_web import (
+    fetch_web_page,
+    safe_web_url,
+    search_web,
 )
 from frisket.team.security.secrets import encrypt_secret, key_hint
 
@@ -33,10 +43,15 @@ class _AskAdapter:
     """A deterministic tool agent: read, repair an unknown citation, answer."""
 
     def __init__(
-        self, project: Project, *, repeats_unknown_citation: bool = False
+        self,
+        project: Project,
+        *,
+        repeats_unknown_citation: bool = False,
+        web: bool = False,
     ) -> None:
         self.project = project
         self.repeats_unknown_citation = repeats_unknown_citation
+        self.web = web
         self.requests: list[LLMRequest] = []
 
     async def complete(self, request: LLMRequest, client: Any) -> LLMResponse:
@@ -44,9 +59,11 @@ class _AskAdapter:
         self.requests.append(request)
         if len(self.requests) == 1:
             call = {
-                "name": "read_rows",
-                "args": {"sheet_id": 1, "row_ids": [1], "column_ids": [1]},
-                "id": "read-1",
+                "name": "search_web" if self.web else "read_rows",
+                "args": {"query": "public record"}
+                if self.web
+                else {"sheet_id": 1, "row_ids": [1], "column_ids": [1]},
+                "id": "web-1" if self.web else "read-1",
             }
         else:
             output_name = next(
@@ -61,6 +78,8 @@ class _AskAdapter:
                     "open_source",
                     "describe_action",
                     "propose_action",
+                    "search_web",
+                    "open_web_page",
                 }
             )
             citation_id = (
@@ -422,6 +441,65 @@ def test_file_search_filters_exact_cells_before_ranking(tmp_path: Path) -> None:
         project.close()
 
 
+def test_web_reads_are_bounded_cited_and_projected_without_url_tokens(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        async def fake_search(query: str, *, timeout: float) -> tuple[str, list[str]]:
+            assert query == "city budget"
+            assert timeout > 0
+            return (
+                "- City record | https://public.example/report?article=budget\n"
+                "  Budget report summary",
+                ["https://public.example/report?article=budget"],
+            )
+
+        async def fake_fetch(url: str, http: object) -> str:
+            assert url == "https://public.example/report?article=budget"
+            assert http is marker
+            return "The adopted budget is 42."
+
+        marker = object()
+        searched = await search_web("city budget", search=fake_search)
+        assert searched["results"] == [
+            {
+                "title": "City record",
+                "url": "https://public.example/report?article=budget",
+                "snippet": "Budget report summary",
+            }
+        ]
+        page = await fetch_web_page(
+            "https://public.example/report?article=budget", http=marker, fetch=fake_fetch
+        )
+        assert page["url"] == "https://public.example/report?article=budget"
+        assert page["text"] == "The adopted budget is 42."
+        assert safe_web_url("https://public.example/report?token=secret") is None
+
+        project, store, turn = _project_turn(tmp_path, {"kind": "project"})
+        try:
+            tools = ProjectQATools(project, turn, store)
+            saved = tools.record_web_search(searched)
+            citation_id = saved["results"][0]["citation_id"]
+            resolved = resolve_citation(project, turn["thread_id"], citation_id)
+            assert resolved["status"] == "unverified"
+            assert resolved["target"] == {
+                "kind": "web",
+                "url": "https://public.example/report?article=budget",
+                "retrieved_at": searched["retrieved_at"],
+                "fetched": False,
+            }
+            assert "secret" not in str(resolved)
+            assert project_qa_safe_citation_projection(store.get_citation(citation_id)) == {
+                "label": "City record",
+                "url": "https://public.example/report?article=budget",
+                "excerpt": "Budget report summary",
+            }
+        finally:
+            project.close()
+
+    asyncio.run(scenario())
+
+
 def test_runner_combines_read_and_typed_output_repairs_citations_and_accounts(
     tmp_path: Path,
 ) -> None:
@@ -440,8 +518,12 @@ def test_runner_combines_read_and_typed_output_repairs_citations_and_accounts(
         )
         adapter = _AskAdapter(project)
         router._adapters["anthropic"] = adapter  # noqa: SLF001
+        settled: list[str] = []
 
-        answer = asyncio.run(run_turn(project, router, turn, store))
+        async def on_call(call_id: str) -> None:
+            settled.append(call_id)
+
+        answer = asyncio.run(run_turn(project, router, turn, store, on_call=on_call))
 
         assert answer["text"] == "Only the selected cell is visible."
         assert answer["citation_ids"] != ["unknown-citation"]
@@ -469,6 +551,7 @@ def test_runner_combines_read_and_typed_output_repairs_citations_and_accounts(
         ]
         assert len(usage) == 3
         assert len({event["payload"]["call_id"] for event in usage}) == 3
+        assert settled == [event["payload"]["call_id"] for event in usage]
         assert any(
             event["kind"] == "tool_started" and event["payload"]["tool"] == "read_rows"
             for event in store.events(turn["thread_id"])["events"]
@@ -534,6 +617,49 @@ def test_runner_does_not_register_action_tools_when_suggestions_are_off(
         names = {tool["name"] for tool in adapter.requests[0].tools or []}
         assert "open_source" in names
         assert {"describe_action", "propose_action"}.isdisjoint(names)
+        assert {"search_web", "open_web_page"}.isdisjoint(names)
+    finally:
+        project.close()
+
+
+def test_runner_registers_web_tools_only_for_web_enabled_turns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scope = {"kind": "project"}
+    project, store, turn = _project_turn(tmp_path, scope)
+    try:
+        turn["web"] = True
+        router = ModelRouter(
+            keys={"anthropic": "test-key"},
+            key_sources={"anthropic": "platform_key"},
+            cache=None,
+            cache_mode="off",
+            use_env_keys=False,
+        )
+        adapter = _AskAdapter(project, web=True)
+        router._adapters["anthropic"] = adapter  # noqa: SLF001
+
+        async def fake_search(query: str, *, search: Any) -> dict[str, Any]:
+            assert query == "public record"
+            assert search is not None
+            return {
+                "query": query,
+                "results": [
+                    {
+                        "title": "Public record",
+                        "url": "https://public.example/record",
+                        "snippet": "A public fact.",
+                    }
+                ],
+                "retrieved_at": "2026-09-25T00:00:00+00:00",
+            }
+
+        monkeypatch.setattr(project_qa_runner, "search_public_web", fake_search)
+        answer = asyncio.run(run_turn(project, router, turn, store))
+        names = {tool["name"] for tool in adapter.requests[0].tools or []}
+        assert {"search_web", "open_web_page"} <= names
+        assert answer["citation_ids"]
+        assert store.get_citation(answer["citation_ids"][0])["source_kind"] == "web"
     finally:
         project.close()
 

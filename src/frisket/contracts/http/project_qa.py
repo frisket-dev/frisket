@@ -145,8 +145,16 @@ class AskQueryTarget(WireModel):
     total: int
 
 
+class AskWebTarget(WireModel):
+    kind: Literal["web"]
+    url: str
+    retrieved_at: str
+    fetched: bool
+
+
 AskCitationTarget = Annotated[
-    AskCellTarget | AskQueryTarget | AskEvidenceTarget, Field(discriminator="kind")
+    AskCellTarget | AskQueryTarget | AskEvidenceTarget | AskWebTarget,
+    Field(discriminator="kind"),
 ]
 
 

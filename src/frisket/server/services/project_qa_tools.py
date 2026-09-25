@@ -6,6 +6,7 @@ import hashlib
 import json
 from collections.abc import Mapping
 from typing import Any
+from urllib.parse import urlsplit
 
 from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAStore
@@ -18,6 +19,7 @@ from frisket.authoring.action_proposals import (
     proposal_action_ids,
     validate_action_proposals,
 )
+from frisket.server.services.project_qa_web import safe_web_text, safe_web_url
 
 
 MAX_READ_ROWS = 50
@@ -339,6 +341,86 @@ class ProjectQATools:
                 }
             )
         return {"query": query, "hits": out, "partial": True}
+
+    def record_web_search(self, search: Mapping[str, Any]) -> dict[str, Any]:
+        """Persist safe public-search snippets as answer-citable receipts."""
+
+        retrieved_at = search.get("retrieved_at")
+        results = search.get("results")
+        if not isinstance(retrieved_at, str) or not isinstance(results, list):
+            raise ValueError("web search result is malformed")
+        saved: list[dict[str, Any]] = []
+        for result in results:
+            if not isinstance(result, Mapping):
+                continue
+            url = safe_web_url(result.get("url"))
+            if url is None:
+                continue
+            title = safe_web_text(result.get("title"), limit=160) or "Web result"
+            snippet = safe_web_text(result.get("snippet"), limit=600)
+            citation = self._record_web_citation(
+                label=title,
+                url=url,
+                excerpt=snippet or None,
+                retrieved_at=retrieved_at,
+                fetched=False,
+            )
+            saved.append(
+                {
+                    "title": title,
+                    "url": url,
+                    "snippet": snippet,
+                    "citation_id": citation["id"],
+                }
+            )
+        return {
+            "query": search.get("query", ""),
+            "results": saved,
+            "retrieved_at": retrieved_at,
+        }
+
+    def record_web_page(self, page: Mapping[str, Any]) -> dict[str, Any]:
+        """Persist one bounded fetched public page as a citable receipt."""
+
+        url = safe_web_url(page.get("url"))
+        retrieved_at = page.get("retrieved_at")
+        if url is None or not isinstance(retrieved_at, str):
+            raise ValueError("web page result is malformed")
+        text = safe_web_text(page.get("text"), limit=MAX_SOURCE_CHARS)
+        citation = self._record_web_citation(
+            label=urlsplit(url).hostname or "Web page",
+            url=url,
+            excerpt=text or None,
+            retrieved_at=retrieved_at,
+            fetched=True,
+        )
+        return {
+            "url": url,
+            "text": text,
+            "citation_id": citation["id"],
+            "truncated": bool(page.get("truncated")),
+            "retrieved_at": retrieved_at,
+        }
+
+    def _record_web_citation(
+        self,
+        *,
+        label: str,
+        url: str,
+        excerpt: str | None,
+        retrieved_at: str,
+        fetched: bool,
+    ) -> dict[str, Any]:
+        citation = self.store.add_citation(
+            self.turn_id,
+            label=label,
+            source_kind="web",
+            locator={"url": url, "retrieved_at": retrieved_at, "fetched": fetched},
+            excerpt=excerpt,
+            metadata={"fetched": fetched},
+        )
+        self._citation_ids.add(citation["id"])
+        return citation
 
     def open_source(self, citation_id: str) -> dict[str, Any]:
         """Open bounded current cell and prepared-evidence passages for one handle."""

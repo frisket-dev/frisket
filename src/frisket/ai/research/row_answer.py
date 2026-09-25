@@ -303,14 +303,18 @@ def model_call_accounting(engine: str, wire_calls: list[LLMResponse]) -> dict[st
     }
 
 
-async def search_web(query: str) -> tuple[str, list[str]]:
+async def search_web(
+    query: str, *, timeout: float = FETCH_TIMEOUT_SECONDS
+) -> tuple[str, list[str]]:
     """Returns (observation_text, result_urls)."""
     if not query.strip():
         return "empty query", []
     from ddgs import DDGS
 
     try:
-        results = await asyncio.to_thread(lambda: DDGS().text(query, max_results=6))
+        results = await asyncio.to_thread(
+            lambda: DDGS(timeout=timeout).text(query, max_results=6)
+        )
     except Exception as e:  # noqa: BLE001
         return f"search failed: {e}", []
     results = results or []
