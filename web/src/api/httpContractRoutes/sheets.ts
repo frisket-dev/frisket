@@ -348,13 +348,13 @@ export function getColumnStatsContract(
   projectId: string,
   sheetId: number,
   columnId: number,
-  force: boolean,
+  query: Pick<SheetDataContractQuery, 'filter' | 'sort' | 'scope_row_ids' | 'parent_row_id'> & { force?: boolean },
   errorFactory: ContractErrorFactory,
   options: SheetGridContractOptions = {},
 ): Promise<ColumnStats> {
   return httpContract('tenant.column_stats.get', {
     pathParams: { pid: projectId, sheet_id: sheetId, column_id: columnId },
-    query: force ? { force: true } : {},
+    query,
     signal: options.signal,
     headers: options.headers,
     errorFactory,

@@ -78,7 +78,7 @@ export interface SheetGridDomainApi {
   getColumnStats(
     sheetId: string,
     columnId: string,
-    options?: { force?: boolean },
+    options?: SheetDataOptions & { force?: boolean },
   ): Promise<ColumnStats>;
   locateSheetRow(
     sheetId: string,
@@ -379,7 +379,13 @@ export function createSheetGridDomainApi(
         project.pathId,
         Number(sheetId),
         Number(columnId),
-        options.force === true,
+        {
+          ...(options.force ? { force: true } : {}),
+          ...(options.filter ? { filter: JSON.stringify(options.filter) } : {}),
+          ...(options.sort ? { sort: JSON.stringify(options.sort) } : {}),
+          ...(options.parentRowId != null ? { parent_row_id: Number(options.parentRowId) } : {}),
+          ...(options.scopeRowIds != null ? { scope_row_ids: options.scopeRowIds.join(',') } : {}),
+        },
         errorFactory,
       );
     },

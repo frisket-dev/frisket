@@ -1407,7 +1407,7 @@ class RealApi implements FrisketApi {
   async getColumnStats(
     sheetId: string,
     columnId: string,
-    opts: { force?: boolean } = {},
+    opts: SheetDataOptions & { force?: boolean } = {},
   ): Promise<ColumnStats> {
     return this.sheetGrid.getColumnStats(sheetId, columnId, opts);
   }

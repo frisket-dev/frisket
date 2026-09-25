@@ -4546,7 +4546,7 @@ export interface FrisketApi {
     confirmation?: string,
   ): Promise<SheetRefreshResult>;
   getSheetData(sheetId: string, offset: number, limit: number, options?: SheetDataOptions | null): Promise<SheetDataPage>;
-  getColumnStats(sheetId: string, columnId: string, opts?: { force?: boolean }): Promise<ColumnStats>;
+  getColumnStats(sheetId: string, columnId: string, opts?: SheetDataOptions & { force?: boolean }): Promise<ColumnStats>;
   locateSheetRow(sheetId: string, rowId: string, options?: SheetDataOptions | null, pageSize?: number): Promise<SheetRowLocation>;
   addRow(sheetId: string, cells?: Record<string, CellValue>): Promise<AddRowResult>;
   addColumn(

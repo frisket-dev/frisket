@@ -16,6 +16,7 @@ import {
   type ReviewPassRate,
   type RunEstimate,
 } from '../api/open';
+import { useSelector } from '../bind/useSelector';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import type { ProjectApiPort } from '../api/ports';
 import { backfillWithConfirmation } from '../api/backfillWithConfirmation';
@@ -313,7 +314,8 @@ function truncateStatValue(value: string): string {
 }
 
 function ColumnStatsSection({ column, sheetId }: { column: ColumnDef; sheetId: string }) {
-  const { projectApi } = useWorkspaceStores();
+  const { projectApi, gridView } = useWorkspaceStores();
+  const scope = useSelector(gridView.store, (state) => state.applied);
   const [state, setState] = useState<ColumnStatsState>({
     columnId: column.id,
     phase: 'loading',
@@ -326,7 +328,7 @@ function ColumnStatsSection({ column, sheetId }: { column: ColumnDef; sheetId: s
     statsRequestRef.current = requestId;
     setState({ columnId: column.id, phase: 'loading', force });
     void projectApi
-      .getColumnStats(sheetId, column.id, { force })
+      .getColumnStats(sheetId, column.id, { ...scope, force })
       .then((stats) => {
         if (statsRequestRef.current === requestId) {
           setState({ columnId: column.id, phase: 'ready', stats });
@@ -343,8 +345,9 @@ function ColumnStatsSection({ column, sheetId }: { column: ColumnDef; sheetId: s
     const requestId = statsRequestRef.current + 1;
     statsRequestRef.current = requestId;
     let alive = true;
+    setState({ columnId: column.id, phase: 'loading', force: false });
     void projectApi
-      .getColumnStats(sheetId, column.id)
+      .getColumnStats(sheetId, column.id, scope)
       .then((stats) => {
         if (alive && statsRequestRef.current === requestId) {
           setState({ columnId: column.id, phase: 'ready', stats });
@@ -358,7 +361,7 @@ function ColumnStatsSection({ column, sheetId }: { column: ColumnDef; sheetId: s
     return () => {
       alive = false;
     };
-  }, [column.id, sheetId]);
+  }, [column.id, sheetId, scope, projectApi]);
 
   const visibleState: ColumnStatsState =
     state.columnId === column.id ? state : { columnId: column.id, phase: 'loading', force: false };
