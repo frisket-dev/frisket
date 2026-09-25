@@ -43,10 +43,22 @@ def _without_current_cells_foundation(schema: str) -> str:
     return prior
 
 
+def _without_project_qa(schema: str) -> str:
+    """Reconstruct the predecessor DDL for the pinned a62/a64 fixtures."""
+
+    before, marked = schema.split("-- PROJECT_QA_BEGIN", 1)
+    _removed, after = marked.split("-- PROJECT_QA_END", 1)
+    return before + after
+
+
 def _physically_remove_current_cells_foundation(db: sqlite3.Connection) -> None:
     """Restore the exact predecessor tables after seeding with today's facade."""
 
     db.execute("PRAGMA foreign_keys=OFF")
+    db.execute("DROP TABLE project_qa_citations")
+    db.execute("DROP TABLE project_qa_events")
+    db.execute("DROP TABLE project_qa_turns")
+    db.execute("DROP TABLE project_qa_threads")
     db.execute("DROP TABLE current_cells")
     db.execute("DROP INDEX idx_cells_column")
     db.execute("ALTER TABLE cells DROP COLUMN producer_id")
@@ -57,7 +69,7 @@ def _a64_bundle(tmp_path):
     from frisket.engine.store.runs import RunResultStore
 
     prior_ddl = (
-        _without_current_cells_foundation(SCHEMA)
+        _without_project_qa(_without_current_cells_foundation(SCHEMA))
         .replace(
             "  edition_run_context TEXT,\n  consent_principal TEXT",
             "  edition_run_context TEXT",
@@ -175,7 +187,7 @@ def _a62_bundle(tmp_path):
     from frisket.engine.store.runs import RunResultStore
 
     prior_ddl = (
-        _without_current_cells_foundation(SCHEMA)
+        _without_project_qa(_without_current_cells_foundation(SCHEMA))
         .replace(
             "  edition_run_context TEXT,\n  consent_principal TEXT",
             "  edition_run_context TEXT",

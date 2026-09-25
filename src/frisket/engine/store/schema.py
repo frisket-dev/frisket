@@ -1897,6 +1897,75 @@ CREATE TABLE IF NOT EXISTS attempt_row_authorizations (
 CREATE INDEX IF NOT EXISTS idx_model_calls_epoch ON model_calls(epoch_id);
 -- The settlement join.
 CREATE INDEX IF NOT EXISTS idx_model_calls_attempt ON model_calls(attempt_id);
+
+-- Durable Project Ask history.  Scope and composer preferences are kept on
+-- threads; each turn snapshots them so later edits cannot alter work already
+-- admitted.  Event sequence is per thread because it is the polling cursor.
+-- PROJECT_QA_BEGIN
+CREATE TABLE IF NOT EXISTS project_qa_threads (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  scope_json TEXT NOT NULL,
+  model TEXT,
+  web INTEGER NOT NULL DEFAULT 0 CHECK (web IN (0,1)),
+  suggest_actions INTEGER NOT NULL DEFAULT 1 CHECK (suggest_actions IN (0,1)),
+  revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+  created_by TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_project_qa_threads_updated
+  ON project_qa_threads(updated_at DESC, id DESC);
+
+CREATE TABLE IF NOT EXISTS project_qa_turns (
+  id TEXT PRIMARY KEY,
+  thread_id TEXT NOT NULL REFERENCES project_qa_threads(id) ON DELETE CASCADE,
+  request_id TEXT NOT NULL,
+  question TEXT NOT NULL,
+  scope_json TEXT NOT NULL,
+  model TEXT,
+  web INTEGER NOT NULL CHECK (web IN (0,1)),
+  suggest_actions INTEGER NOT NULL CHECK (suggest_actions IN (0,1)),
+  status TEXT NOT NULL CHECK (status IN
+    ('running','stopping','completed','stopped','failed','interrupted')),
+  submitted_by TEXT,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  usage_json TEXT,
+  cost_actual REAL,
+  error_summary TEXT,
+  UNIQUE(thread_id, request_id)
+);
+CREATE INDEX IF NOT EXISTS idx_project_qa_turns_thread_started
+  ON project_qa_turns(thread_id, started_at DESC, id DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_project_qa_turns_one_active
+  ON project_qa_turns(thread_id) WHERE status IN ('running','stopping');
+
+CREATE TABLE IF NOT EXISTS project_qa_events (
+  thread_id TEXT NOT NULL REFERENCES project_qa_threads(id) ON DELETE CASCADE,
+  turn_id TEXT NOT NULL REFERENCES project_qa_turns(id) ON DELETE CASCADE,
+  seq INTEGER NOT NULL CHECK (seq > 0),
+  kind TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (thread_id, seq)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS idx_project_qa_events_turn
+  ON project_qa_events(turn_id, seq);
+
+CREATE TABLE IF NOT EXISTS project_qa_citations (
+  id TEXT PRIMARY KEY,
+  turn_id TEXT NOT NULL REFERENCES project_qa_turns(id) ON DELETE CASCADE,
+  label TEXT NOT NULL,
+  source_kind TEXT NOT NULL,
+  locator_json TEXT NOT NULL,
+  excerpt TEXT,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_project_qa_citations_turn
+  ON project_qa_citations(turn_id, id);
+-- PROJECT_QA_END
 """
 
 # The run queue (jobs + worker_heartbeats) lives in its OWN database, never a
