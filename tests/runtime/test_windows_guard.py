@@ -32,7 +32,7 @@ def test_spawn_service_starts_with_filtered_environment():
     assert "PSMODULEPATH" not in environment
     process = spawn_service(
         [
-            sys.executable,
+            sys.executable,  # subprocess-boundary: native guardian with a minimal OS environment.
             "-I",
             "-c",
             "raise SystemExit(0)",
