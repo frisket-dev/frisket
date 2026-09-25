@@ -35,14 +35,14 @@
     },
     "ffmpeg": {
       "version": "9.0.1",
-      "url": "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-9.0.1-essentials_build.zip",
+      "url": "https://github.com/GyanD/codexffmpeg/releases/download/9.0.1/ffmpeg-9.0.1-essentials_build.zip",
       "sha256": "fec81ae03971d9dd4be3ebe02e263bd2ec1d789483f931bdba5f5715e65da2e9",
       "member": "ffmpeg-9.0.1-essentials_build/bin/ffmpeg.exe",
       "destination": "ffmpeg.exe"
     },
     "ffprobe": {
       "version": "9.0.1",
-      "url": "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-9.0.1-essentials_build.zip",
+      "url": "https://github.com/GyanD/codexffmpeg/releases/download/9.0.1/ffmpeg-9.0.1-essentials_build.zip",
       "sha256": "fec81ae03971d9dd4be3ebe02e263bd2ec1d789483f931bdba5f5715e65da2e9",
       "member": "ffmpeg-9.0.1-essentials_build/bin/ffprobe.exe",
       "destination": "ffprobe.exe"
