@@ -88,9 +88,10 @@ def _sqlite_file_lock(engine: sa.Engine) -> Iterator[None]:
     if engine.dialect.name != "sqlite" or not database or database == ":memory:":
         yield
         return
-    path = (
-        Path(database).resolve().with_suffix(Path(database).suffix + ".team-init.lock")
-    )
+    # Share the queue initializer's lock: team and queue schemas can occupy
+    # the same SQLite file, so separate locks would still permit concurrent
+    # reflection and DDL from independent app boots.
+    path = Path(f"{Path(database).resolve()}.lock")
     path.parent.mkdir(parents=True, exist_ok=True)
     with FileLock(str(path), timeout=-1):
         yield
