@@ -36,6 +36,9 @@ _CHILD_ENV_NAMES = frozenset(
         "PATHEXT",
         "PYTHONUTF8",
         "PYTHONIOENCODING",
+        # Required by the Windows Job guardian's standard PowerShell cmdlets.
+        "PSMODULEPATH",
+        "PSModulePath",
         "REQUESTS_CA_BUNDLE",
         "SSL_CERT_DIR",
         "SSL_CERT_FILE",
@@ -188,6 +191,9 @@ def _run_uv(
             stop_service(process)
             raise ModelInstallCancelled
         time.sleep(0.05)
+    # Consume the Windows guardian's cleanup proof and remove its private
+    # control directory after normal installer completion.
+    stop_service(process)
     if process.returncode:
         raise RuntimeError(
             "model-server installation failed; retry after checking network "

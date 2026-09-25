@@ -198,13 +198,10 @@ def test_readiness_retries_until_authenticated_response(monkeypatch):
 def test_real_server_requires_token_and_is_stopped(tmp_path, monkeypatch):
     from frisket.runtime import model_server
     from frisket.runtime.launch import PythonRuntime
+    from frisket.runtime.model_install import model_child_environment
 
     _write_fake_factory(tmp_path)
-    environment = {
-        name: os.environ[name]
-        for name in ("SYSTEMROOT", "WINDIR", "TEMP", "TMP")
-        if name in os.environ
-    }
+    environment = model_child_environment(os.environ)
     environment["PATH"] = ""
     monkeypatch.setattr(model_server, "is_installed", lambda: True)
     monkeypatch.setattr(
@@ -231,6 +228,8 @@ def test_real_server_requires_token_and_is_stopped(tmp_path, monkeypatch):
 
 
 def test_real_server_dies_with_its_application_parent(tmp_path):
+    from frisket.runtime.model_install import model_child_environment
+
     _write_fake_factory(tmp_path)
     source_root = Path(__file__).resolve().parents[2] / "src"
     launcher = tmp_path / "launch.py"
@@ -250,11 +249,7 @@ def test_real_server_dies_with_its_application_parent(tmp_path):
         "os._exit(0)\n"
     )
     environment = {
-        **{
-            name: os.environ[name]
-            for name in ("SYSTEMROOT", "WINDIR", "TEMP", "TMP")
-            if name in os.environ
-        },
+        **model_child_environment(os.environ),
         "PATH": os.environ.get("PATH", ""),
         "PYTHONPATH": os.pathsep.join((str(source_root), str(tmp_path))),
     }
