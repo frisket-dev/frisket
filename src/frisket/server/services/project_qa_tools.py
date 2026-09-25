@@ -2,17 +2,28 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Mapping
 from typing import Any
 
 from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAStore
+from frisket.features.watchlists.specs import canonical_json
+from frisket.server.services.project_qa_query import evaluate_query
+from frisket.engine.store.evidence import list_cell_evidence, resolve_evidence_viewer
+from frisket.actions.system import root_action_catalog
+from frisket.search import search_cells_scoped
+from frisket.authoring.action_proposals import (
+    proposal_action_ids,
+    validate_action_proposals,
+)
 
 
 MAX_READ_ROWS = 50
 MAX_VALUE_CHARS = 2_000
 MAX_OBSERVATION_CHARS = 20_000
+MAX_SOURCE_CHARS = 8_000
 
 
 class ProjectQAScopeError(ValueError):
@@ -204,6 +215,287 @@ class ProjectQATools:
             "observation_truncated": observation_truncated,
         }
 
+    def query_rows(
+        self,
+        query: dict[str, Any],
+        limit: int = 50,
+        offset: int = 0,
+        count_by: int | None = None,
+    ) -> dict[str, Any]:
+        """Run a canonical sheet filter within the frozen source scope."""
+        if not isinstance(query, dict):
+            raise ProjectQAScopeError("query must be a frisket.query.v1 object")
+        if (
+            not isinstance(limit, int)
+            or isinstance(limit, bool)
+            or not 0 <= limit <= MAX_READ_ROWS
+        ):
+            raise ValueError(f"limit must be between 0 and {MAX_READ_ROWS}")
+        try:
+            evaluated = evaluate_query(
+                self.project,
+                query,
+                self._query_scope(query),
+                limit=limit,
+                offset=offset,
+                count_by=count_by,
+            )
+        except ValueError as exc:
+            raise ProjectQAScopeError(f"invalid canonical filter: {exc}") from exc
+        receipt = {
+            "sheet_id": evaluated["sheet_id"],
+            "query": evaluated["query"],
+            "scope": evaluated["scope"],
+            "source_op_cursor": self.project.op_cursor,
+            "total": evaluated["total"],
+        }
+        receipt["query_hash"] = hashlib.sha256(
+            canonical_json(receipt).encode()
+        ).hexdigest()
+        citation = self.store.add_citation(
+            self.turn_id,
+            label=f"Query on {self._sheet_name(evaluated['sheet_id'])}",
+            source_kind="query",
+            locator=receipt,
+            metadata={"complete": True},
+        )
+        self._citation_ids.add(citation["id"])
+        result: dict[str, Any] = {
+            **receipt,
+            "row_ids": evaluated["row_ids"],
+            "citation_id": citation["id"],
+            "complete": True,
+        }
+        if "count_by" in evaluated:
+            result["count_by"] = evaluated["count_by"]
+        self.store.append_event(
+            self.turn_id,
+            kind="result_suggestion",
+            payload={
+                "citation_id": citation["id"],
+                "title": citation["label"],
+                "total": evaluated["total"],
+            },
+        )
+        return result
+
+    def search_cells(
+        self, query: str, sheet_id: int, limit: int = 20
+    ) -> dict[str, Any]:
+        """Search scoped cells lexically; results are ranked examples, never counts."""
+        if not isinstance(query, str) or not query.strip() or len(query) > 500:
+            raise ValueError("query must be a non-empty string up to 500 characters")
+        if (
+            not isinstance(limit, int)
+            or isinstance(limit, bool)
+            or not 1 <= limit <= MAX_READ_ROWS
+        ):
+            raise ValueError(f"limit must be between 1 and {MAX_READ_ROWS}")
+        allowed_rows, file_cells = self._sheet_access(sheet_id)
+        search_rows = (
+            None
+            if allowed_rows is None
+            else sorted(allowed_rows | {row_id for row_id, _column_id in file_cells})
+        )
+        hits = search_cells_scoped(self.project, sheet_id, query, search_rows, limit)
+        out = []
+        for hit in hits:
+            row_id, column_id = int(hit["row_id"]), int(hit["column_id"])
+            if (
+                allowed_rows is not None
+                and row_id not in allowed_rows
+                and (row_id, column_id) not in file_cells
+            ):
+                continue
+            _values, refs = self.project.get_values_with_refs(
+                sheet_id, column_id, row_ids=[row_id]
+            )
+            citation = self.store.add_citation(
+                self.turn_id,
+                label=(
+                    f"Search hit · {self._sheet_name(sheet_id)} · row {row_id} "
+                    f"· {hit['column_name']}"
+                ),
+                source_kind="cell",
+                locator={
+                    "sheet_id": sheet_id,
+                    "row_id": row_id,
+                    "column_id": column_id,
+                    "value_ref": refs.get(row_id),
+                },
+                excerpt=str(hit["snip"]),
+                metadata={"search": query},
+            )
+            self._citation_ids.add(citation["id"])
+            out.append(
+                {
+                    "sheet_id": sheet_id,
+                    "row_id": row_id,
+                    "column_id": column_id,
+                    "snippet": hit["snip"],
+                    "citation_id": citation["id"],
+                }
+            )
+        return {"query": query, "hits": out, "partial": True}
+
+    def open_source(self, citation_id: str) -> dict[str, Any]:
+        """Open bounded current cell and prepared-evidence passages for one handle."""
+        citation = self.store.get_citation(citation_id)
+        if citation["turn_id"] != self.turn_id:
+            raise ProjectQAScopeError("source was not inspected in this turn")
+        if citation["source_kind"] != "cell":
+            return {
+                "citation_id": citation_id,
+                "excerpt": citation["excerpt"],
+                "available": True,
+            }
+        locator = citation["locator"]
+        sheet_id = int(locator["sheet_id"])
+        row_id = int(locator["row_id"])
+        column_id = int(locator["column_id"])
+        allowed_rows, file_cells = self._sheet_access(sheet_id)
+        self._columns_for_row(
+            [column_id], row_id, allowed_rows, file_cells, explicit_columns=True
+        )
+        values, _refs = self.project.get_values_with_refs(
+            sheet_id, column_id, row_ids=[row_id]
+        )
+        if row_id not in values:
+            raise ProjectQAScopeError("source is no longer available")
+        passages = [
+            {
+                "kind": "cell",
+                "text": self._bounded_text(values[row_id], MAX_SOURCE_CHARS),
+            }
+        ]
+        remaining = MAX_SOURCE_CHARS - len(passages[0]["text"])
+        if remaining > 0:
+            evidence = list_cell_evidence(
+                self.project,
+                sheet_id=sheet_id,
+                row_id=row_id,
+                column_id=column_id,
+            )
+            for link in evidence["links"]:
+                if remaining <= 0:
+                    break
+                viewer = resolve_evidence_viewer(self.project, link["stable_id"])
+                for artifact in viewer.get("artifacts", []):
+                    for span in artifact.get("spans", []):
+                        text = span.get("quote") or span.get("snippet")
+                        if not isinstance(text, str) or not text:
+                            continue
+                        clipped = self._bounded_text(text, remaining)
+                        artifact_label = (
+                            artifact.get("title")
+                            or artifact.get("filename")
+                            or self._sheet_name(sheet_id)
+                        )
+                        evidence_citation = self.store.add_citation(
+                            self.turn_id,
+                            label=f"Prepared evidence · {artifact_label}",
+                            source_kind="evidence",
+                            locator={
+                                "sheet_id": sheet_id,
+                                "row_id": row_id,
+                                "column_id": column_id,
+                                "value_ref": locator.get("value_ref"),
+                                "evidence_link_id": link["stable_id"],
+                                "artifact_id": artifact.get("stable_id"),
+                                "span_id": span.get("stable_id"),
+                            },
+                            excerpt=clipped,
+                        )
+                        self._citation_ids.add(evidence_citation["id"])
+                        passages.append(
+                            {
+                                "kind": "prepared_evidence",
+                                "citation_id": evidence_citation["id"],
+                                "evidence_link_id": link["stable_id"],
+                                "artifact_id": artifact.get("stable_id"),
+                                "span_id": span.get("stable_id"),
+                                "artifact": artifact.get("title")
+                                or artifact.get("filename"),
+                                "text": clipped,
+                            }
+                        )
+                        remaining -= len(clipped)
+                        if remaining <= 0:
+                            break
+                    if remaining <= 0:
+                        break
+        return {
+            "citation_id": citation_id,
+            "available": True,
+            "passages": passages,
+            "truncated": remaining <= 0,
+        }
+
+    def propose_action(
+        self, kind: str, title: str, spec: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Validate a canonical proposal only; Ask has no execution authority."""
+        if not self.turn["suggest_actions"]:
+            raise ProjectQAScopeError("action suggestions are disabled for this turn")
+        proposals = validate_action_proposals(
+            self.project,
+            [{"kind": kind, "title": title, "spec": spec}],
+            scope=self.turn["scope"],
+        )
+        if not proposals:
+            raise ProjectQAScopeError(
+                "proposal is not an available action for this project"
+            )
+        proposal = proposals[0]
+        self.store.append_event(
+            self.turn_id, kind="action_proposal", payload={"proposal": proposal}
+        )
+        return {"proposal": proposal}
+
+    def describe_action(self, action_id: str) -> dict[str, Any]:
+        """Return one registered action's compact parameter schema for a draft."""
+
+        if not isinstance(action_id, str) or not action_id:
+            raise ValueError("action_id must be a non-empty string")
+        if action_id not in proposal_action_ids():
+            raise ProjectQAScopeError("action is not available")
+        try:
+            entry = next(
+                item for item in root_action_catalog().actions if item.kind == action_id
+            )
+        except StopIteration as exc:
+            raise ProjectQAScopeError("action is not available") from exc
+        return {
+            "action_id": entry.kind,
+            "title": entry.title,
+            "description": entry.description,
+            "input_schema": entry.input_schema,
+        }
+
+    def _query_scope(self, query: Mapping[str, Any]) -> dict[str, Any]:
+        """Translate frozen sources into a replayable query constraint."""
+
+        scope = query.get("scope")
+        if not isinstance(scope, Mapping) or not isinstance(scope.get("sheet_id"), int):
+            raise ProjectQAScopeError("query scope must name a sheet")
+        sheet_id = int(scope["sheet_id"])
+        allowed_rows, file_cells = self._sheet_access(sheet_id)
+        if allowed_rows is None:
+            return {"kind": "sheet", "sheet_id": sheet_id}
+        rows = allowed_rows | {row_id for row_id, _column_id in file_cells}
+        if not rows:
+            raise ProjectQAScopeError("query scope has no readable rows")
+        result: dict[str, Any] = {
+            "kind": "rows",
+            "sheet_id": sheet_id,
+            "row_ids": sorted(rows),
+        }
+        if file_cells and not allowed_rows:
+            result["column_ids"] = sorted(
+                {column_id for _row_id, column_id in file_cells}
+            )
+        return result
+
     def _allowed_sheets(self) -> set[int] | None:
         scope = self.turn["scope"]
         if scope["kind"] == "project":
@@ -343,3 +635,8 @@ class ProjectQATools:
             "SELECT name FROM sheets WHERE id=?", (sheet_id,)
         ).fetchone()
         return str(row["name"]) if row is not None else f"Sheet {sheet_id}"
+
+    @staticmethod
+    def _bounded_text(value: Any, limit: int) -> str:
+        text = json.dumps(value, ensure_ascii=False, default=str)
+        return text[:limit] + ("…" if len(text) > limit else "")

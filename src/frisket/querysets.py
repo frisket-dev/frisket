@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from calendar import monthrange
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 import json
@@ -159,6 +160,7 @@ def sheet_row_scope_query(
     filter_: str | None = None,
     sort: str | None = None,
     reference_date: date | None = None,
+    row_ids: Sequence[int] | None = None,
 ) -> tuple[list[Any], str, list[Any], list[str], list[Any]]:
     """Return columns, WHERE SQL/params, and ORDER BY SQL/params for a sheet."""
 
@@ -195,6 +197,12 @@ def sheet_row_scope_query(
     if parent_row_id is not None:
         where.append("r.parent_row_id=?")
         where_params.append(parent_row_id)
+    if row_ids is not None:
+        if not row_ids:
+            where.append("0=1")
+        else:
+            where.append("r.id IN (" + ",".join("?" for _ in row_ids) + ")")
+            where_params.extend(row_ids)
     for filter_item in filters:
         if isinstance(filter_item, RuntimeSheetFilter):
             runtime_sql, runtime_params = _runtime_operator_where(
@@ -486,6 +494,7 @@ def resolve_sheet_filter_rows(
     limit: int = 500,
     offset: int = 0,
     reference_date: date | None = None,
+    row_ids: Sequence[int] | None = None,
 ) -> SheetFilterRowSet:
     _, where_sql, where_params, order_parts, order_params = sheet_row_scope_query(
         project,
@@ -494,6 +503,7 @@ def resolve_sheet_filter_rows(
         filter_=filter_,
         sort=sort,
         reference_date=reference_date,
+        row_ids=row_ids,
     )
     try:
         bounded_limit = max(0, int(limit))
@@ -527,6 +537,42 @@ def resolve_sheet_filter_rows(
         filter=filter_,
         sort=sort,
     )
+
+
+def count_sheet_filter_values(
+    project: Project,
+    sheet_id: int,
+    column_id: int,
+    *,
+    filter_: str | None = None,
+    sort: str | None = None,
+    row_ids: Sequence[int] | None = None,
+    limit: int = 100,
+    reference_date: date | None = None,
+) -> tuple[list[tuple[Any, int]], bool]:
+    """Exact filter-scoped value groups, capped only at the response edge."""
+    column = next(
+        (c for c in project.columns(sheet_id) if int(c["id"]) == column_id), None
+    )
+    if column is None:
+        raise SheetRowSetError("count_by column is not in sheet")
+    _, where_sql, where_params, _, _ = sheet_row_scope_query(
+        project,
+        sheet_id,
+        filter_=filter_,
+        sort=sort,
+        row_ids=row_ids,
+        reference_date=reference_date,
+    )
+    value_sql, value_params = sheet_live_value_sql("r", column)
+    rows = project.db.execute(
+        f"SELECT {value_sql} AS value, COUNT(*) AS count FROM rows r WHERE {where_sql} "
+        "GROUP BY value ORDER BY count DESC, value LIMIT ?",
+        [*value_params, *where_params, limit + 1],
+    ).fetchall()
+    return [(row["value"], int(row["count"])) for row in rows[:limit]], len(
+        rows
+    ) <= limit
 
 
 def validate_sheet_filter_sort(
@@ -726,6 +772,39 @@ def _validate_date_relative_value(column_name: str, value: Any) -> tuple[int, st
             f"relative date filter for {column_name} requires days, weeks, or months"
         )
     return amount, str(unit)
+
+
+def anchor_relative_date_filters(
+    filter_spec: dict[str, Any], *, reference_date: date
+) -> dict[str, Any]:
+    """Close clock-relative date predicates into replayable ``between`` bounds."""
+
+    anchored = deepcopy(filter_spec)
+    for column, condition in anchored.items():
+        if not isinstance(condition, dict):
+            continue
+        if "date_relative" in condition:
+            amount, unit = _validate_date_relative_value(
+                str(column), condition["date_relative"]
+            )
+            condition.clear()
+            condition["between"] = {
+                "start": _relative_date_start(reference_date, amount, unit).isoformat(),
+                "end": reference_date.isoformat(),
+            }
+        elif condition.get("date_this_year") == "true":
+            condition.clear()
+            condition["between"] = {
+                "start": date(reference_date.year, 1, 1).isoformat(),
+                "end": date(reference_date.year, 12, 31).isoformat(),
+            }
+        elif condition.get("date_ytd") == "true":
+            condition.clear()
+            condition["between"] = {
+                "start": date(reference_date.year, 1, 1).isoformat(),
+                "end": reference_date.isoformat(),
+            }
+    return anchored
 
 
 def _validate_date_part(column_name: str, operator: str, value: Any) -> int:

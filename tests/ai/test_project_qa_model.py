@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from datetime import date
 
 import pytest
 from pydantic import BaseModel
@@ -16,7 +17,9 @@ from frisket.ai.llm.types import LLMRequest, LLMResponse, SchemaViolation
 from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.engine.runner import ProviderSpendCapExceeded
+from frisket.querysets import anchor_relative_date_filters
 from frisket.server.services.project_qa_runner import run_turn
+from frisket.server.services.project_qa_query import evaluate_query
 from frisket.server.services.project_qa_tools import (
     MAX_OBSERVATION_CHARS,
     ProjectQAScopeError,
@@ -49,7 +52,16 @@ class _AskAdapter:
             output_name = next(
                 tool["name"]
                 for tool in request.tools or []
-                if tool["name"] not in {"inspect_sheets", "read_rows"}
+                if tool["name"]
+                not in {
+                    "inspect_sheets",
+                    "read_rows",
+                    "query_rows",
+                    "search_cells",
+                    "open_source",
+                    "describe_action",
+                    "propose_action",
+                }
             )
             citation_id = (
                 "unknown-citation"
@@ -136,6 +148,13 @@ def test_schema_failure_accounts_attached_provider_receipt_once() -> None:
     assert model.wire_calls == [receipt]
     assert model.attempts == 1
     assert accounted == [receipt]
+
+
+def test_relative_query_dates_are_saved_as_explicit_bounds() -> None:
+    assert anchor_relative_date_filters(
+        {"Published": {"date_relative": {"amount": 7, "unit": "days"}}},
+        reference_date=date(2026, 9, 25),
+    ) == {"Published": {"between": {"start": "2026-09-19", "end": "2026-09-25"}}}
 
 
 def _project_turn(
@@ -237,6 +256,114 @@ def test_read_observation_budget_and_scope_admission_are_bounded(
         project.close()
 
 
+def test_scoped_query_count_search_and_open_source_do_not_widen_rows(
+    tmp_path: Path,
+) -> None:
+    project = Project.create(tmp_path / "scoped-tools.frisket", name="Scoped tools")
+    try:
+        sheet_id = project.add_sheet("Evidence")
+        columns = {
+            "Text": project.add_column(sheet_id, "Text"),
+            "Group": project.add_column(sheet_id, "Group"),
+            "Private": project.add_column(sheet_id, "Private"),
+        }
+        row_ids = project.add_rows(
+            sheet_id,
+            [
+                {
+                    "Text": "visible alpha " + "x" * 9_000,
+                    "Group": "A",
+                    "Private": "private alpha",
+                },
+                {
+                    "Text": "visible beta",
+                    "Group": "B",
+                    "Private": "private beta",
+                },
+                {
+                    "Text": "visible gamma",
+                    "Group": "C",
+                    "Private": "private gamma",
+                },
+            ],
+            columns,
+        )
+        scope = {
+            "kind": "sources",
+            "sources": [{"kind": "rows", "sheet_id": sheet_id, "row_ids": row_ids[:2]}],
+        }
+        store = ProjectQAStore(project)
+        thread = store.create_thread(title="Scoped", scope=scope)
+        turn = store.submit_turn(
+            thread["id"], request_id="scoped", question="Read", scope=scope
+        )
+        tools = ProjectQATools(project, turn, store)
+        query = {
+            "schema_version": "frisket.query.v1",
+            "kind": "sheet.filter",
+            "scope": {"kind": "sheet", "sheet_id": sheet_id},
+            "filter": {"Text": {"contains": "visible"}},
+        }
+        result = tools.query_rows(query, limit=0, count_by=columns["Group"])
+        assert result["total"] == 2
+        assert result["row_ids"] == []
+        assert result["scope"]["row_ids"] == row_ids[:2]
+        assert result["count_by"] == {
+            "column_id": columns["Group"],
+            "values": [
+                {"value": '"A"', "count": 1},
+                {"value": '"B"', "count": 1},
+            ],
+            "complete": True,
+        }
+        assert result["query_hash"]
+        replayed = evaluate_query(project, result["query"], result["scope"], limit=0)
+        assert replayed["total"] == result["total"]
+        assert replayed["scope"] == result["scope"]
+        search = tools.search_cells("visible", sheet_id)
+        assert {hit["row_id"] for hit in search["hits"]} == set(row_ids[:2])
+        assert {hit["column_id"] for hit in search["hits"]} == {columns["Text"]}
+        read = tools.read_rows(sheet_id, [row_ids[0]], [columns["Text"]])
+        opened = tools.open_source(read["rows"][0]["cells"][0]["citation_id"])
+        assert len(opened["passages"][0]["text"]) > 2_000
+        assert opened["truncated"] is True
+        proposal = tools.propose_action(
+            "map",
+            "Copy text",
+            {
+                "action_kind": "map.template",
+                "sheet_id": sheet_id,
+                "template": {"text": "{{Text}}"},
+            },
+        )["proposal"]
+        assert proposal["spec"]["scope"]["row_ids"] == row_ids[:2]
+        assert store.events(thread["id"])["events"][-1]["kind"] == "action_proposal"
+    finally:
+        project.close()
+
+
+def test_file_scope_query_and_search_reject_unselected_columns(tmp_path: Path) -> None:
+    scope = {
+        "kind": "sources",
+        "sources": [{"kind": "file", "sheet_id": 1, "row_id": 1, "column_id": 1}],
+    }
+    project, store, turn = _project_turn(tmp_path, scope)
+    try:
+        tools = ProjectQATools(project, turn, store)
+        query = {
+            "schema_version": "frisket.query.v1",
+            "kind": "sheet.filter",
+            "scope": {"kind": "sheet", "sheet_id": 1},
+            "filter": {"Private": {"contains": "disclose"}},
+        }
+        with pytest.raises(ProjectQAScopeError, match="file scope"):
+            tools.query_rows(query)
+        assert tools.search_cells("visible", 1)["hits"]
+        assert not tools.search_cells("disclose", 1)["hits"]
+    finally:
+        project.close()
+
+
 def test_runner_combines_read_and_typed_output_repairs_citations_and_accounts(
     tmp_path: Path,
 ) -> None:
@@ -263,7 +390,7 @@ def test_runner_combines_read_and_typed_output_repairs_citations_and_accounts(
         assert len(adapter.requests) == 3
         assert all(request.schema is None for request in adapter.requests)
         assert all(
-            {"inspect_sheets", "read_rows"}
+            {"inspect_sheets", "read_rows", "query_rows", "search_cells"}
             <= {tool["name"] for tool in request.tools or []}
             for request in adapter.requests
         )
@@ -322,6 +449,33 @@ def test_runner_refuses_an_answer_that_repeats_an_unknown_citation(
             for event in store.events(turn["thread_id"])["events"]
             if event["kind"] == "answer"
         ]
+    finally:
+        project.close()
+
+
+def test_runner_does_not_register_action_tools_when_suggestions_are_off(
+    tmp_path: Path,
+) -> None:
+    scope = {
+        "kind": "sources",
+        "sources": [{"kind": "rows", "sheet_id": 1, "row_ids": [1]}],
+    }
+    project, store, turn = _project_turn(tmp_path, scope)
+    try:
+        turn["suggest_actions"] = False
+        router = ModelRouter(
+            keys={"anthropic": "test-key"},
+            key_sources={"anthropic": "platform_key"},
+            cache=None,
+            cache_mode="off",
+            use_env_keys=False,
+        )
+        adapter = _AskAdapter(project)
+        router._adapters["anthropic"] = adapter  # noqa: SLF001
+        asyncio.run(run_turn(project, router, turn, store))
+        names = {tool["name"] for tool in adapter.requests[0].tools or []}
+        assert "open_source" in names
+        assert {"describe_action", "propose_action"}.isdisjoint(names)
     finally:
         project.close()
 

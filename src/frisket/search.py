@@ -250,6 +250,39 @@ def search_sheet(
     return out
 
 
+def search_cells_scoped(
+    project: Project,
+    sheet_id: int,
+    query: str,
+    row_ids: list[int] | None,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """Lexically rank only already-authorized rows before applying ``limit``."""
+    if row_ids is not None and not row_ids:
+        return []
+    db = fresh_sidecar(project)
+    scope = (
+        ""
+        if row_ids is None
+        else " AND row_id IN (" + ",".join("?" for _ in row_ids) + ")"
+    )
+    sql = (
+        "SELECT sheet_id,row_id,column_id,column_name,"
+        "snippet(cell_fts, 0, '<b>', '</b>', '…', 12) AS snip "
+        "FROM cell_fts WHERE cell_fts MATCH ? AND sheet_id=?"
+        + scope
+        + " ORDER BY rank LIMIT ?"
+    )
+    try:
+        rows = db.execute(sql, [query, sheet_id, *(row_ids or []), limit]).fetchall()
+    except sqlite3.OperationalError:
+        rows = db.execute(
+            sql, [f'"{query}"', sheet_id, *(row_ids or []), limit]
+        ).fetchall()
+    db.close()
+    return [dict(row) for row in rows]
+
+
 def rrf_fuse(ranked_lists: list[list[int]], k: int = 60) -> list[tuple[int, float]]:
     """Reciprocal Rank Fusion of ranked id lists: ``score(id) = Σ 1/(k + rank)`` with a
     1-based rank; an id missing from a list contributes 0. Rank-based (NOT raw scores)
