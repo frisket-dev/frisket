@@ -57,9 +57,12 @@ def main() -> int:
 
         failures = 0
 
-        def run_trivial(name: str, stdout, stderr) -> None:
+        def run_trivial(name: str, stdout, stderr, child_environment=None) -> None:
             nonlocal failures
             _stage(f"guarded-trivial-{name}-start")
+            trace = root / f"{name}.trace"
+            selected_environment = dict(child_environment or environment)
+            selected_environment["FRISKET_GUARD_DIAGNOSTIC"] = str(trace)
             process = spawn_service(
                 [
                     sys.executable,
@@ -70,7 +73,7 @@ def main() -> int:
                 stdin=subprocess.DEVNULL,
                 stdout=stdout,
                 stderr=stderr,
-                env=environment,
+                env=selected_environment,
             )
             control = getattr(process, "_frisket_guard_control", None)
             try:
@@ -86,8 +89,13 @@ def main() -> int:
                 process.wait(timeout=5)
                 if control:
                     shutil.rmtree(control[0], ignore_errors=True)
+            stages = trace.read_text().splitlines() if trace.is_file() else []
+            _stage(f"guarded-trivial-{name}-stages-{'-'.join(stages) or 'none'}")
 
-        run_trivial("devnull", subprocess.DEVNULL, subprocess.DEVNULL)
+        run_trivial(
+            "full-env-devnull", subprocess.DEVNULL, subprocess.DEVNULL, os.environ
+        )
+        run_trivial("filtered-devnull", subprocess.DEVNULL, subprocess.DEVNULL)
         with (
             (root / "stdout.log").open("wb") as stdout_file,
             (root / "stderr.log").open("wb") as stderr_file,
@@ -102,6 +110,8 @@ def main() -> int:
 
         marker = root / "ready"
         _stage("guarded-stop-start")
+        stop_trace = root / "stop.trace"
+        environment["FRISKET_GUARD_DIAGNOSTIC"] = str(stop_trace)
         service = spawn_service(
             [
                 sys.executable,
@@ -123,6 +133,10 @@ def main() -> int:
                     f"stage-guarded-stop: guardian exited {service.returncode}"
                 )
             if time.monotonic() >= deadline:
+                stages = (
+                    stop_trace.read_text().splitlines() if stop_trace.is_file() else []
+                )
+                _stage(f"guarded-stop-stages-{'-'.join(stages) or 'none'}")
                 raise RuntimeError("stage-guarded-stop: target did not start")
             time.sleep(0.05)
         _stage("guarded-stop-request")

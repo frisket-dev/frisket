@@ -84,6 +84,8 @@ def test_connection_is_stable_and_child_receives_only_internal_credentials(
     assert owned.url == url
     assert launch["env"][model_server.LOCAL_MODELS_TOKEN_ENV] == token
     assert launch["env"]["HF_HOME"] == str(tmp_path / "cache")
+    assert launch["env"]["TORCH_HOME"] == str(tmp_path / "cache" / "torch")
+    assert launch["env"]["XDG_CACHE_HOME"] == str(tmp_path / "cache")
     assert launch["env"]["HOME"] == "/normal/home"
     assert launch["env"]["USERPROFILE"] == "C:/Users/reporter"
     assert launch["env"]["APPDATA"].endswith("AppData/Roaming")

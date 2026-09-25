@@ -34,9 +34,13 @@ logger = logging.getLogger(__name__)
 def _child_environment(source: MutableMapping[str, str]) -> dict[str, str]:
     root = runtime_dir()
     environment = model_child_environment(source)
+    # These are trusted native dependencies, not a filesystem sandbox. Keep
+    # the OS profile intact while directing model caches into our runtime.
     environment.update(
         {
             "HF_HOME": str(root / "cache"),
+            "TORCH_HOME": str(root / "cache" / "torch"),
+            "XDG_CACHE_HOME": str(root / "cache"),
             "PYTHONNOUSERSITE": "1",
         }
     )
