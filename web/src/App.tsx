@@ -2011,9 +2011,7 @@ const WorkspaceMainViewTabs = memo(function WorkspaceMainViewTabs() {
     sheet,
     hasActiveSheet,
   );
-  useEffect(() => {
-    if (overflowSheets.length === 0) setMoreTabsOpen(false);
-  }, [overflowSheets.length]);
+  if (moreTabsOpen && overflowSheets.length === 0) setMoreTabsOpen(false);
   useNativePopover(moreTabsMenuRef, () => setMoreTabsOpen(false), {
     enabled: moreTabsOpen,
     ignoreSelector: '[data-testid="workbench-mainView-more-tabs"]',
