@@ -149,7 +149,23 @@ class RuntimeSheetFilter:
     binding: Any
 
 
-SheetFilter = tuple[Any, str, Any] | RuntimeSheetFilter
+@dataclass(frozen=True)
+class GroupLocatorPredicate:
+    """One backend-produced group identity for ordinary row-query replay.
+
+    This is intentionally separate from model-authored filters: callers can
+    serialize only these closed predicates from an analytics result, never
+    SQL text or arbitrary expressions.
+    """
+
+    column_id: int
+    kind: str
+    value_json: str | None = None
+    bucket: str | None = None
+    value: str | None = None
+
+
+SheetFilter = tuple[Any, str, Any] | RuntimeSheetFilter | GroupLocatorPredicate
 
 
 def sheet_row_scope_query(
@@ -166,6 +182,7 @@ def sheet_row_scope_query(
 
     cols = project.columns(sheet_id)
     columns_by_name = {c["name"]: c for c in cols}
+    columns_by_id = {int(c["id"]): c for c in cols}
     filters = _parse_sheet_filter(filter_, columns_by_name, project)
     sorts = _parse_sheet_sort(sort, columns_by_name)
     generation_store = ResultGenerationStore(project)
@@ -214,6 +231,14 @@ def sheet_row_scope_query(
             )
             where.append(runtime_sql)
             where_params.extend(runtime_params)
+            continue
+        if isinstance(filter_item, GroupLocatorPredicate):
+            column = columns_by_id[filter_item.column_id]
+            predicate_sql, predicate_params = _group_locator_where(
+                "r", column, filter_item
+            )
+            where.append(predicate_sql)
+            where_params.extend(predicate_params)
             continue
         column, operator, value = filter_item
         if operator == "failed":
@@ -607,6 +632,94 @@ def sheet_live_value_sql(
     )
 
 
+def _parse_group_locator_predicate(column: Any, raw: Any) -> GroupLocatorPredicate:
+    """Validate the backend-produced ``group_eq`` filter value."""
+    if not isinstance(raw, dict):
+        raise SheetRowSetError("group_eq filter must be an object")
+    column_id = int(column["id"])
+    kind = raw.get("kind")
+    if kind in {"missing", "invalid"} and set(raw) == {"kind"}:
+        return GroupLocatorPredicate(column_id=column_id, kind=kind)
+    if kind == "value" and set(raw) == {"kind", "value_json"}:
+        value_json = raw.get("value_json")
+        if not isinstance(value_json, str):
+            raise SheetRowSetError("group value predicate requires value_json")
+        try:
+            value = json.loads(value_json)
+        except json.JSONDecodeError as exc:
+            raise SheetRowSetError("group value predicate has invalid JSON") from exc
+        if isinstance(value, (dict, list)) or value is None:
+            raise SheetRowSetError("group value predicate must be a scalar")
+        if json.dumps(value, ensure_ascii=False, separators=(",", ":")) != value_json:
+            raise SheetRowSetError("group value predicate must use canonical JSON")
+        return GroupLocatorPredicate(
+            column_id=column_id, kind="value", value_json=value_json
+        )
+    if kind == "date_bucket" and set(raw) == {"kind", "bucket", "value"}:
+        bucket, value = raw.get("bucket"), raw.get("value")
+        widths = {"year": 4, "month": 7, "day": 10}
+        if (
+            column["type"] != "date"
+            or bucket not in widths
+            or not isinstance(value, str)
+        ):
+            raise SheetRowSetError("invalid date group predicate")
+        date_value = {
+            "year": value + "-01-01",
+            "month": value + "-01",
+            "day": value,
+        }[bucket]
+        if (
+            len(value) != widths[bucket]
+            or normalize_utc_calendar_date(date_value) is None
+        ):
+            raise SheetRowSetError("invalid date group value")
+        return GroupLocatorPredicate(
+            column_id=column_id, kind="date_bucket", bucket=bucket, value=value
+        )
+    raise SheetRowSetError("invalid group predicate")
+
+
+def _group_locator_where(
+    row_alias: str, column: Any, predicate: GroupLocatorPredicate
+) -> tuple[str, list[Any]]:
+    value_sql, value_params = sheet_live_value_sql(
+        row_alias, column, preserve_invalid=True
+    )
+    validity_sql = (
+        "(SELECT live.validity FROM current_cells live "
+        f"WHERE live.column_id=? AND live.row_id={row_alias}.id)"
+    )
+    validity_params = [column["id"]]
+    if predicate.kind == "missing":
+        return (
+            f"({validity_sql}='missing' OR {validity_sql} IS NULL)",
+            [*validity_params, *validity_params],
+        )
+    if predicate.kind == "value":
+        return (
+            f"{validity_sql}='valid' AND {value_sql}=?",
+            [*validity_params, *value_params, predicate.value_json],
+        )
+    scalar = f"json_extract({value_sql}, '$')"
+    if predicate.kind == "invalid":
+        if column["type"] != "date":
+            return f"{validity_sql}='invalid'", validity_params
+        return (
+            f"({validity_sql}='invalid' OR ({validity_sql}='valid' "
+            f"AND frisket_utc_calendar_date({scalar}) IS NULL))",
+            [*validity_params, *validity_params, *value_params],
+        )
+    if predicate.kind == "date_bucket":
+        width = {"year": 4, "month": 7, "day": 10}[str(predicate.bucket)]
+        return (
+            f"{validity_sql}='valid' AND "
+            f"substr(frisket_utc_calendar_date({scalar}), 1, {width})=?",
+            [*validity_params, *value_params, predicate.value],
+        )
+    raise AssertionError(predicate.kind)
+
+
 def _like_contains_pattern(value: str) -> str:
     escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     return f"%{escaped}%"
@@ -714,7 +827,7 @@ def _relative_date_start(today: date, amount: int, unit: str) -> date:
     return _subtract_calendar_months(today, amount)
 
 
-_BUILTIN_FILTER_OPERATORS = (
+BUILTIN_FILTER_OPERATORS = (
     "eq",
     "in",
     "neq",
@@ -732,6 +845,7 @@ _BUILTIN_FILTER_OPERATORS = (
     "bbox",
     "entity_eq",
     "list_contains_any",
+    "group_eq",
     "failed",
 )
 
@@ -944,7 +1058,7 @@ def _parse_sheet_filter(
 
     out: list[SheetFilter] = []
     runtime_bindings = _runtime_operator_bindings(project)
-    allowed = {*_BUILTIN_FILTER_OPERATORS, *runtime_bindings}
+    allowed = {*BUILTIN_FILTER_OPERATORS, *runtime_bindings}
     for name, condition in spec.items():
         if not isinstance(name, str) or name not in columns_by_name:
             raise SheetRowSetError(f"unknown filter column: {name}")
@@ -955,7 +1069,7 @@ def _parse_sheet_filter(
             raise SheetRowSetError(f"unsupported filter for {name}")
         active = [
             (op, condition[op])
-            for op in (*_BUILTIN_FILTER_OPERATORS, *runtime_bindings)
+            for op in (*BUILTIN_FILTER_OPERATORS, *runtime_bindings)
             if op in condition and condition[op] is not None
         ]
         if len(active) != 1:
@@ -975,6 +1089,9 @@ def _parse_sheet_filter(
                     binding=binding,
                 )
             )
+            continue
+        if op == "group_eq":
+            out.append(_parse_group_locator_predicate(column, value))
             continue
         if op == "failed":
             # Failed-cell predicate ("show the rows that failed"), honored by

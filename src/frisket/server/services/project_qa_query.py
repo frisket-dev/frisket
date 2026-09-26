@@ -13,6 +13,30 @@ from frisket.querysets import (
     count_sheet_filter_values,
     resolve_sheet_filter_rows,
 )
+from frisket.server.services.project_qa_analytics import (
+    AnalyticsCancelled,
+    AnalyticsGroup,
+    AnalyticsHaving,
+    AnalyticsMetric,
+    AnalyticsRequest,
+    AnalyticsRequestError,
+    AnalyticsSort,
+    NumericOverflowError,
+    evaluate_analytics,
+)
+
+__all__ = [
+    "AnalyticsCancelled",
+    "AnalyticsGroup",
+    "AnalyticsHaving",
+    "AnalyticsMetric",
+    "AnalyticsRequest",
+    "AnalyticsRequestError",
+    "AnalyticsSort",
+    "NumericOverflowError",
+    "evaluate_analytics",
+    "evaluate_query",
+]
 
 
 MAX_COUNT_BY_GROUPS = 100

@@ -11,9 +11,18 @@ _WorkerResult = TypeVar("_WorkerResult")
 
 
 async def await_thread_worker(
-    worker: Callable[..., _WorkerResult], /, *args: Any, **kwargs: Any
+    worker: Callable[..., _WorkerResult],
+    /,
+    *args: Any,
+    on_cancel: Callable[[], None] | None = None,
+    **kwargs: Any,
 ) -> _WorkerResult:
-    """Keep caller-owned inputs alive until a cancelled worker has finished."""
+    """Keep caller-owned inputs alive until a cancelled worker has finished.
+
+    ``on_cancel`` is deliberately tiny: a query owner can set its own event
+    before this helper drains the worker, allowing SQLite's progress handler
+    to interrupt only that query's connection.
+    """
 
     future = asyncio.get_running_loop().run_in_executor(
         None, copy_context().run, partial(worker, *args, **kwargs)
@@ -21,6 +30,8 @@ async def await_thread_worker(
     try:
         return await asyncio.shield(future)
     except asyncio.CancelledError:
+        if on_cancel is not None:
+            on_cancel()
         while not future.done():
             try:
                 await asyncio.shield(future)
