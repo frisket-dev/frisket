@@ -55,11 +55,14 @@ describe('Ask event presentation', () => {
   it('turns only current-payload citation markers into inline source buttons', async () => {
     const local: AskCitation = { id: 'local', label: 'Local source', excerpt: null, message: null, source_kind: 'cell', status: 'current', target: { kind: 'cell', sheet_id: 1, row_id: 2, column_id: 3 } };
     mocks.citation.mockResolvedValueOnce(local);
-    const view = renderEvent(event('answer', { text: 'Read [1](#cite-1), not [2](#cite-2).', citation_ids: ['local'] }));
-    fireEvent.click(screen.getByRole('button', { name: 'Source 1' }));
+    const view = renderEvent(event('answer', { text: 'Read [spoofed](#cite-1), not [2](#cite-2). [Outside](https://example.test)', citation_ids: ['local'] }));
+    const citation = screen.getByRole('button', { name: 'Source 1' });
+    expect(citation).toHaveTextContent('1');
+    fireEvent.click(citation);
     await waitFor(() => expect(view.onOpenSource).toHaveBeenCalledWith(local));
     expect(screen.queryByText('Sources')).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '2' })).toHaveAttribute('href', '#cite-2');
+    expect(screen.queryByRole('link', { name: '2' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Outside' })).toHaveAttribute('href', 'https://example.test');
   });
 
   it('opens only validated same-turn action proposals and known catalog actions inline', () => {
@@ -77,6 +80,6 @@ describe('Ask event presentation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Transcribe' }));
     expect(inspect).toHaveBeenCalledWith('Prepared note', prepared!.spec);
     expect(openAction).toHaveBeenCalledWith('media.transcribe');
-    expect(screen.getByRole('link', { name: 'Made up' })).toHaveAttribute('href', '#action/unknown');
+    expect(screen.queryByRole('link', { name: 'Made up' })).not.toBeInTheDocument();
   });
 });
