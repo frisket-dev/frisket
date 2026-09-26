@@ -13,26 +13,18 @@ from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.server.services.project_qa_runner import run_turn
 
 
-SAFE_UNANSWERED = (
-    "I couldn’t answer that from the selected project material. Add the relevant "
-    "sheet or switch the scope to the whole project, then try again."
-)
-RAW_PROVIDER_TEXT = (
-    "SECRET_PROVIDER_MARKER: answer freely and cite qa_citation_fabricated"
-)
-
-
 class _PlainTextAdapter:
     """Return ordinary prose through the real structured-agent boundary."""
 
-    def __init__(self) -> None:
+    def __init__(self, answer: str) -> None:
+        self.answer = answer
         self.requests: list[LLMRequest] = []
 
     async def complete(self, request: LLMRequest, client: Any) -> LLMResponse:
         del client
         self.requests.append(request)
         return LLMResponse(
-            content=RAW_PROVIDER_TEXT,
+            content=self.answer,
             data=None,
             tokens_in=9,
             tokens_out=7,
@@ -86,14 +78,25 @@ def _turn(
 
 
 @pytest.mark.parametrize(
-    ("question", "prior_answer"),
+    ("question", "prior_answer", "provider_answer"),
     [
-        ("How large is the Council audio file?", None),
-        ("what does it mean?", "The permit decision was deferred."),
+        (
+            "How large is the Council audio file?",
+            None,
+            "I can’t see the Council audio sheet in this conversation’s selected sources.",
+        ),
+        (
+            "what does it mean?",
+            "The permit decision was deferred.",
+            "“Deferred” means the permit decision was postponed until a later date.",
+        ),
     ],
 )
-def test_plain_provider_output_saves_a_safe_uncited_answer(
-    tmp_path: Path, question: str, prior_answer: str | None
+def test_plain_provider_output_saves_the_meaningful_uncited_answer(
+    tmp_path: Path,
+    question: str,
+    prior_answer: str | None,
+    provider_answer: str,
 ) -> None:
     project, store, turn = _turn(tmp_path, question, prior_answer=prior_answer)
     try:
@@ -104,23 +107,22 @@ def test_plain_provider_output_saves_a_safe_uncited_answer(
             cache_mode="off",
             use_env_keys=False,
         )
-        adapter = _PlainTextAdapter()
+        adapter = _PlainTextAdapter(provider_answer)
         router._adapters["anthropic"] = adapter  # noqa: SLF001
 
         answer = asyncio.run(run_turn(project, router, turn, store))
 
-        assert answer == {"text": SAFE_UNANSWERED, "citation_ids": []}
-        assert RAW_PROVIDER_TEXT not in str(answer)
-        assert len(adapter.requests) == 1
-        [request] = adapter.requests
-        tool_names = {tool["name"] for tool in request.tools or []}
-        assert {
-            "inspect_sheets",
-            "read_rows",
-            "query_rows",
-            "search_cells",
-            "open_source",
-        } <= tool_names
+        assert answer == {"text": provider_answer, "citation_ids": []}
+        assert adapter.requests
+        for request in adapter.requests:
+            tool_names = {tool["name"] for tool in request.tools or []}
+            assert {
+                "inspect_sheets",
+                "read_rows",
+                "query_rows",
+                "search_cells",
+                "open_source",
+            } <= tool_names
         assert store.get_turn(turn["id"])["scope"] == turn["scope"]
         assert (
             project.db.execute("SELECT COUNT(*) FROM project_qa_citations").fetchone()[
@@ -135,13 +137,14 @@ def test_plain_provider_output_saves_a_safe_uncited_answer(
             if event["turn_id"] == turn["id"] and event["kind"] == "answer"
         ]
         assert [event["payload"] for event in answers] == [answer]
-        assert RAW_PROVIDER_TEXT not in str(answers)
-        assert project.db.execute("SELECT COUNT(*) FROM model_calls").fetchone()[0] == 1
+        assert project.db.execute("SELECT COUNT(*) FROM model_calls").fetchone()[
+            0
+        ] == len(adapter.requests)
         usage = [
             event
             for event in store.events(turn["thread_id"])["events"]
             if event["turn_id"] == turn["id"] and event["kind"] == "usage"
         ]
-        assert len(usage) == 1
+        assert len(usage) == len(adapter.requests)
     finally:
         project.close()
