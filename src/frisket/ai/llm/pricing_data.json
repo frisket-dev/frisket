@@ -3,7 +3,7 @@
     "litellm": "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json",
     "openrouter": "https://openrouter.ai/api/v1/models"
   },
-  "updated": "2026-09-25",
+  "updated": "2026-09-26",
   "text": {
     "claude-haiku-4-5": [
       1.0,
@@ -78,8 +78,8 @@
       0.416
     ],
     "z-ai/glm-5.3-flash": [
-      0.045,
-      0.14
+      0.04,
+      0.5
     ],
     "moonshotai/kimi-k3": [
       3.0,
@@ -116,10 +116,10 @@
       "output_per_token": 1e-05
     },
     "gpt-live-transcribe": {
-      "per_second": 0.0002833333333333333
+      "per_second": 0.000283333333333
     },
     "gpt-realtime-whisper": {
-      "per_second": 0.0002833333333333333
+      "per_second": 0.000283333333333
     },
     "gpt-transcribe": {
       "per_second": 7.5e-05
