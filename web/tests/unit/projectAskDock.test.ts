@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AskEvent } from '../../src/api/projectQA';
-import { compactAskToolEvents } from '../../src/components/project-ask/AskToolActivity';
+import { compactAskToolEvents } from '../../src/components/project-ask/activityEvents';
 
 function event(turn_id: string, seq: number, kind: AskEvent['kind'], tool: string): AskEvent {
   return { thread_id: 'thread', turn_id, seq, created_at: '', kind, payload: { tool } };

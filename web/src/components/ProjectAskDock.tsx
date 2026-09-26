@@ -14,7 +14,7 @@ import { PanelEmpty } from './PanelPrimitives';
 import { AskEventContent } from './project-ask/AskEventContent';
 import { AskThreadControls } from './project-ask/AskThreadControls';
 import { AskSourcePicker } from './project-ask/AskSourcePicker';
-import { compactAskToolEvents } from './project-ask/AskToolActivity';
+import { compactAskToolEvents } from './project-ask/activityEvents';
 import './ProjectAskDock.css';
 
 export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposal, onOpenSource }: {
