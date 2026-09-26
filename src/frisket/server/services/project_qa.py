@@ -35,6 +35,10 @@ from frisket.server.services.project_qa_citations import (
     project_qa_safe_citation_projection,
 )
 from frisket.server.services.project_qa_tools import validate_scope
+from frisket.server.services.project_qa_tracing import (
+    ProjectQATracing,
+    build_project_qa_tracing,
+)
 from frisket.server.thread_worker import await_thread_worker
 from frisket.server.workspace import Workspace
 from frisket.server.project_qa_runtime import ProjectQATurnRuntime
@@ -104,6 +108,7 @@ class ProjectQAService:
     def __init__(self, workspace: Workspace, *, runner: TurnRunner | None = None):
         self.workspace = workspace
         self._runner = runner
+        self._tracing: ProjectQATracing | None = build_project_qa_tracing()
         self._seen: WeakSet[Project] = WeakSet()
         self._tasks: dict[tuple[Project, str], asyncio.Task[None]] = {}
         self._started: set[tuple[Project, str]] = set()
@@ -351,6 +356,7 @@ class ProjectQAService:
                 return
             router = await await_thread_worker(self.workspace.router_for, project)
             model = model or default_project_ask_model(router)
+            tracing = self._tracing
 
             async def settle_call(call_id: str) -> None:
                 if runtime is not None:
@@ -377,6 +383,9 @@ class ProjectQAService:
                             runtime.call_scope(router)
                             if runtime is not None
                             else nullcontext()
+                        ),
+                        instrumentation=(
+                            tracing.instrumentation if tracing is not None else None
                         ),
                     )
             if isinstance(result, dict) and result.get("limited"):
@@ -485,27 +494,37 @@ class ProjectQAService:
     async def shutdown(self) -> None:
         async with self._admission:
             self._closed = True
+            tracing = self._tracing
+            self._tracing = None
             tasks = list(self._tasks.values())
             for task in tasks:
                 task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
-        # Releasing the last hosted app lease can itself trigger app shutdown.
-        # That cleanup task already owns its completion; never await itself.
-        await asyncio.gather(
-            *(
-                task
-                for task in self._runtime_closers
-                if task is not asyncio.current_task()
-            ),
-            return_exceptions=True,
-        )
-        # A task cancelled before its first instruction cannot enter _run's
-        # finally. Reconcile only after all workers have drained.
-        for project in list(self._seen):
-            await await_thread_worker(
-                ProjectQAStore(project).reconcile_abandoned_turns, live_turn_ids=[]
+        try:
+            await asyncio.gather(*tasks, return_exceptions=True)
+            # Releasing the last hosted app lease can itself trigger app shutdown.
+            # That cleanup task already owns its completion; never await itself.
+            await asyncio.gather(
+                *(
+                    task
+                    for task in self._runtime_closers
+                    if task is not asyncio.current_task()
+                ),
+                return_exceptions=True,
             )
-        self._tasks.clear()
+            # A task cancelled before its first instruction cannot enter _run's
+            # finally. Reconcile only after all workers have drained.
+            for project in list(self._seen):
+                await await_thread_worker(
+                    ProjectQAStore(project).reconcile_abandoned_turns,
+                    live_turn_ids=[],
+                )
+            self._tasks.clear()
+        finally:
+            if tracing is not None:
+                try:
+                    await asyncio.to_thread(tracing.shutdown)
+                except Exception:
+                    logger.error("Project Ask tracing shutdown failed")
 
     async def report(self, project_id: str, thread_id: str) -> dict:
         store = await self.store(project_id)

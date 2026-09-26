@@ -99,6 +99,9 @@ dependencies = [
     # Structured-output retry/dialect engine. Use slim core without provider
     # SDKs; Frisket owns transport, jsonschema validation, and pricing.
     "pydantic-ai-slim>=2.2.0",
+    # Project Ask can export its own Pydantic AI spans over standard OTLP/HTTP.
+    "opentelemetry-sdk>=1.43.0,<2",
+    "opentelemetry-exporter-otlp-proto-http>=1.43.0,<2",
 ]
 
 [project.scripts]

@@ -59,6 +59,7 @@ _DEPLOYMENT_ENV_NAMES: frozenset[str] = frozenset(
         "FRISKET_DATABASE_ADMIN_URL",
         "FRISKET_EMAIL_FROM_ADDRESS",
         "FRISKET_EMAIL_FROM_NAME",
+        "FRISKET_ASK_TRACE_CONTENT",
         "FRISKET_RUN_QUEUE_DATABASE_URL",
         "FRISKET_SECRETS_MASTER_KEY",
         "FRISKET_TEAM_DATABASE_URL",
@@ -72,6 +73,7 @@ _DEPLOYMENT_ENV_PREFIXES: tuple[str, ...] = (
     "GOOGLE_OAUTH_",
     "LITESTREAM_",
     "MODAL_TOKEN_",
+    "OTEL_",
 )
 
 # Credentials by SHAPE rather than by vendor list: the `.env` carries ~25

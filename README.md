@@ -63,6 +63,30 @@ If you're running Frisket on a server or want to support multiple users, go for 
 
 Codex claims it requires Linux, Docker Engine, and Docker Compose. It installs Frisket under `/srv/frisket`.
 
+#### Project Ask traces
+
+Project Ask can send its agent traces to Braintrust or another OTLP backend.
+Set a standard OTLP HTTP endpoint and headers on the Frisket app process:
+
+```sh
+export OTEL_EXPORTER_OTLP_ENDPOINT=https://api.braintrust.dev/otel
+export OTEL_EXPORTER_OTLP_HEADERS='Authorization=Bearer <API key>,x-bt-parent=project_id:<project id>'
+export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+```
+
+The generic endpoint gets `/v1/traces` appended. If you use
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, include the full trace path instead.
+`OTEL_SDK_DISABLED=true` or `OTEL_TRACES_EXPORTER=none` disables export.
+An unsupported protocol or malformed header also disables Ask tracing and logs
+a warning that names the invalid setting without logging its value.
+
+Only the Project Ask chatbot is instrumented. Prompt, completion, and tool
+payloads are excluded by default; traces still include model, token, timing,
+and tool-name metadata. Set `FRISKET_ASK_TRACE_CONTENT=true` to include those
+text payloads for debugging after confirming the destination may receive
+project content. Binary media is always excluded. Frisket does not export
+actions, workers, metrics, or logs through this integration.
+
 ### CAVEAT: The big, fancy parts
 
 Frisket is split into a few parts, including a lightweight server and a heavier sidecar to optionally offload intensive work. As a result, different installs have slightly different features.
