@@ -39,6 +39,7 @@ export type GridFilterOperator =
   | 'bbox'
   | 'entity_eq'
   | 'failed'
+  | 'group_eq'
   | 'list_contains_any';
 
 export interface GridFilterRangeValue {
@@ -66,6 +67,12 @@ export interface GridFilterEntityValue {
   fingerprint?: string;
 }
 
+/** Backend-produced analytics group identity, carried by the normal filter path. */
+export type GridFilterGroupValue =
+  | { kind: 'missing' | 'invalid' }
+  | { kind: 'value'; value_json: string }
+  | { kind: 'date_bucket'; bucket: 'day' | 'month' | 'year'; value: string };
+
 /** One server-authored member selector for a list-valued JSON-column filter. */
 export type GridFilterListSelector =
   | { kind: 'scalar'; value: string | number | boolean }
@@ -78,6 +85,7 @@ export type GridFilterValue =
   | GridFilterRelativeDateValue
   | GridFilterBboxValue
   | GridFilterEntityValue
+  | GridFilterGroupValue
   | GridFilterListSelector[];
 
 /** Column name to operator/value filters. */

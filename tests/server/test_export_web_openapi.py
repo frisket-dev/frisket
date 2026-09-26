@@ -383,8 +383,8 @@ def _case_local_team_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert mcp_local_only <= _operation_ids(document)
     assert "tenant.import_followthemoney.post" in _operation_ids(document)
     assert "tenant.import_paste_confirm.post" in _operation_ids(document)
-    assert len(BASE_ENDPOINT_CATALOG) == 272
-    assert len(members) == 206
+    assert len(BASE_ENDPOINT_CATALOG) == 281
+    assert len(members) == 215
     assert len(team_local_models) == 9
     assert team_browser_auth == {
         "outer.accept_project_invite.post",
@@ -393,8 +393,8 @@ def _case_local_team_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         "outer.request_link.post",
         "outer.logout.post",
     }
-    assert len(exporter.CANONICAL_OPERATION_IDS) == 215
-    assert len(_operation_ids(document)) == 220
+    assert len(exporter.CANONICAL_OPERATION_IDS) == 224
+    assert len(_operation_ids(document)) == 229
 
     discovery = _operation(document, "tenant.discover_local_endpoints.post")
     assert discovery["x-frisket-editions"] == ["local"]

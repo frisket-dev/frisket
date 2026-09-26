@@ -126,7 +126,6 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
             "column_values_preview",
             "POST",
         ): "tenant.column_values_preview.post",
-        ("tenant", "copilot_ep", "POST"): "tenant.copilot_ep.post",
         ("tenant", "qa_threads", "GET"): "tenant.qa_threads.get",
         ("tenant", "qa_thread", "GET"): "tenant.qa_thread.get",
         ("tenant", "qa_events", "GET"): "tenant.qa_events.get",

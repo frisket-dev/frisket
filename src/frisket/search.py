@@ -25,10 +25,10 @@ import os
 import sqlite3
 import threading
 from collections.abc import Callable, Iterator
-from contextlib import closing
 from typing import Any
 
 from frisket.engine.store import Project
+from frisket.engine.store.project import ProjectReadSnapshot
 
 # ~80MB onnx cross-encoder, downloads on first use into the SAME fastembed
 # cache as the semantic embedder (fastembed define_cache_dir: FASTEMBED_CACHE_PATH
@@ -40,6 +40,7 @@ FTS_INDEX_CONTENT_VERSION = "2"
 _rerank_model: Any = None  # lazy fastembed TextCrossEncoder singleton
 
 Scorer = Callable[[str, list[str]], list[float]]
+SearchProject = Project | ProjectReadSnapshot
 
 
 def local_reranker() -> Scorer | None:
@@ -112,7 +113,7 @@ CREATE TABLE IF NOT EXISTS cell_vec (key TEXT PRIMARY KEY, vec BLOB NOT NULL);
 """
 
 
-def _sidecar(project: Project) -> sqlite3.Connection:
+def _sidecar(project: SearchProject) -> sqlite3.Connection:
     db = sqlite3.connect(project.path / "project.search.db", check_same_thread=False)
     db.row_factory = sqlite3.Row
     db.executescript(SIDECAR_SCHEMA)
@@ -131,7 +132,7 @@ def _cancel_progress(cancel_event: threading.Event | None) -> Callable[[], int] 
 
 
 def rebuild_index(
-    project: Project, *, cancel_event: threading.Event | None = None
+    project: SearchProject, *, cancel_event: threading.Event | None = None
 ) -> int:
     """Publish a complete-cell index and watermark from one read snapshot.
 
@@ -139,14 +140,18 @@ def rebuild_index(
     untouched. A failed rebuild retains the previous committed index.
     """
     db = _sidecar(project)
+    owns_snapshot = isinstance(project, Project)
+    snapshot = project.read_snapshot() if owns_snapshot else project
+    snapshot_progress_installed = False
+    progress = _cancel_progress(cancel_event)
     try:
         _raise_if_cancelled(cancel_event)
-        progress = _cancel_progress(cancel_event)
         if progress is not None:
             db.set_progress_handler(progress, 1_000)
-        with closing(project.read_snapshot()) as snapshot:
-            if progress is not None:
+            if owns_snapshot:
                 snapshot.db.set_progress_handler(progress, 1_000)
+                snapshot_progress_installed = True
+        try:
             indexed_at_op = snapshot.op_cursor
             db.execute("BEGIN")
             db.execute("DELETE FROM cell_fts")
@@ -169,7 +174,9 @@ def rebuild_index(
                         )
                         for row in source_rows:
                             _raise_if_cancelled(cancel_event)
-                            stored = None if row["validity"] == "invalid" else row["value"]
+                            stored = (
+                                None if row["validity"] == "invalid" else row["value"]
+                            )
                             value = None if stored is None else json.loads(stored)
                             if value is None:
                                 continue
@@ -201,6 +208,9 @@ def rebuild_index(
                 )
             db.commit()
             return n
+        finally:
+            if snapshot_progress_installed:
+                snapshot.db.set_progress_handler(None, 0)
     except sqlite3.OperationalError:
         db.rollback()
         _raise_if_cancelled(cancel_event)
@@ -209,6 +219,10 @@ def rebuild_index(
         db.rollback()
         raise
     finally:
+        if owns_snapshot:
+            snapshot.close()
+        if progress is not None:
+            db.set_progress_handler(None, 0)
         db.close()
 
 
@@ -232,7 +246,7 @@ def fts_index_content_version(db: sqlite3.Connection) -> str | None:
 
 
 def fresh_sidecar(
-    project: Project, *, cancel_event: threading.Event | None = None
+    project: SearchProject, *, cancel_event: threading.Event | None = None
 ) -> sqlite3.Connection:
     """An FTS sidecar connection whose index is current for project.op_cursor.
 
@@ -240,15 +254,19 @@ def fresh_sidecar(
     used to be copy-pasted at every reader; it lives only here now."""
     _raise_if_cancelled(cancel_event)
     db = _sidecar(project)
-    if (
-        fts_indexed_at_op(db) != project.op_cursor
-        or fts_index_content_version(db) != FTS_INDEX_CONTENT_VERSION
-    ):
+    try:
+        if (
+            fts_indexed_at_op(db) != project.op_cursor
+            or fts_index_content_version(db) != FTS_INDEX_CONTENT_VERSION
+        ):
+            db.close()
+            rebuild_index(project, cancel_event=cancel_event)
+            db = _sidecar(project)
+        _raise_if_cancelled(cancel_event)
+        return db
+    except BaseException:
         db.close()
-        rebuild_index(project, cancel_event=cancel_event)
-        db = _sidecar(project)
-    _raise_if_cancelled(cancel_event)
-    return db
+        raise
 
 
 def column_ai_flags(project: Project) -> dict[int, bool]:

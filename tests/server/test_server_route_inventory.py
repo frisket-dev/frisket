@@ -153,12 +153,14 @@ def test_route_inventory_captures_query_aliases_and_defaults(tmp_path):
         "filter_": ("filter", None),
         "sort": ("sort", None),
         "row_ids": ("row_ids", None),
+        "scope_row_ids": ("scope_row_ids", None),
     }
     assert _query_defaults(_route(app, "/api/projects/{pid}/exports/sheets")) == {
         "sheet_ids": ("sheet_id", "<required>"),
         "format_": ("format", "<required>"),
         "filter_": ("filter", None),
         "sort": ("sort", None),
+        "scope_row_ids": ("scope_row_ids", None),
         "formula_policy": ("formula_policy", "escape"),
     }
     assert _query_defaults(_route(app, "/api/projects/{pid}/actions/v1/run")) == {}
