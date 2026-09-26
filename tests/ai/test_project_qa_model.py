@@ -70,18 +70,8 @@ class _AskAdapter:
             output_name = next(
                 tool["name"]
                 for tool in request.tools or []
-                if tool["name"]
-                not in {
-                    "inspect_sheets",
-                    "read_rows",
-                    "query_rows",
-                    "search_cells",
-                    "open_source",
-                    "describe_action",
-                    "propose_action",
-                    "search_web",
-                    "open_web_page",
-                }
+                if {"text", "citation_ids"}
+                <= set(tool["parameters"].get("properties", {}))
             )
             citation_id = (
                 "unknown-citation"
@@ -449,11 +439,13 @@ def test_web_reads_are_bounded_cited_and_projected_without_url_tokens(
         async def fake_search(query: str, *, timeout: float) -> list[dict[str, str]]:
             assert query == "city budget"
             assert timeout > 0
-            return [{
-                "title": "City record",
-                "url": "https://public.example/report?article=budget",
-                "snippet": "Budget report summary",
-            }]
+            return [
+                {
+                    "title": "City record",
+                    "url": "https://public.example/report?article=budget",
+                    "snippet": "Budget report summary",
+                }
+            ]
 
         async def fake_fetch(url: str, http: object) -> str:
             assert url == "https://public.example/report?article=budget"
@@ -470,7 +462,9 @@ def test_web_reads_are_bounded_cited_and_projected_without_url_tokens(
             }
         ]
         page = await fetch_web_page(
-            "https://public.example/report?article=budget", http=marker, fetch=fake_fetch
+            "https://public.example/report?article=budget",
+            http=marker,
+            fetch=fake_fetch,
         )
         assert page["url"] == "https://public.example/report?article=budget"
         assert page["text"] == "The adopted budget is 42."
@@ -490,7 +484,9 @@ def test_web_reads_are_bounded_cited_and_projected_without_url_tokens(
                 "fetched": False,
             }
             assert "secret" not in str(resolved)
-            assert project_qa_safe_citation_projection(store.get_citation(citation_id)) == {
+            assert project_qa_safe_citation_projection(
+                store.get_citation(citation_id)
+            ) == {
                 "label": "City record",
                 "url": "https://public.example/report?article=budget",
                 "excerpt": "Budget report summary",
@@ -755,3 +751,93 @@ def test_runner_settles_a_durable_usage_call_before_stop_cancellation(
 
 async def _append_call(target: list[str], call_id: str) -> None:
     target.append(call_id)
+
+
+def test_runner_searches_late_passage_then_continues_before_answering(tmp_path):
+    """Exercise the real agent/tool loop; only the provider transport is scripted."""
+    import json
+
+    project, store, turn = _project_turn(tmp_path, {"kind": "project"})
+    project.apply_edits(
+        [
+            {
+                "row_id": 1,
+                "column_id": 1,
+                "value": "preamble " * 9000
+                + "NEEDLE "
+                + "context " * 850
+                + "FINAL FACT",
+            }
+        ]
+    )
+
+    class ReaderAdapter:
+        def __init__(self):
+            self.calls = 0
+            self.citation = None
+
+        async def complete(self, request, client):
+            self.calls += 1
+            observations = [
+                json.loads(m["content"][len("Observation:\n") :])
+                for m in request.messages
+                if isinstance(m.get("content"), str)
+                and m["content"].startswith("Observation:\n")
+            ]
+            if self.calls == 1:
+                name, args = "search_cells", {"query": "NEEDLE", "sheet_id": 1}
+            elif self.calls == 2:
+                self.citation = observations[-1]["hits"][0]["citation_id"]
+                name, args = "open_source", {"citation_id": self.citation}
+            elif self.calls == 3:
+                observed = observations[-1]
+                assert observed["range"]["start"] > 50000
+                assert "FINAL FACT" not in observed["passages"][0]["text"]
+                assert observed["next_cursor"] is not None
+                name, args = (
+                    "open_source",
+                    {"citation_id": self.citation, "cursor": observed["next_cursor"]},
+                )
+            else:
+                observed = observations[-1]
+                assert "FINAL FACT" in observed["passages"][0]["text"]
+                assert observed["reached_end"] is True
+                name = next(
+                    t["name"]
+                    for t in request.tools
+                    if {"text", "citation_ids"}
+                    <= set(t["parameters"].get("properties", {}))
+                )
+                args = {
+                    "text": "The following passage ends with FINAL FACT.",
+                    "citation_ids": [observed["citation_id"]],
+                }
+            return LLMResponse(
+                content=None,
+                data=None,
+                tokens_in=10,
+                tokens_out=3,
+                cost=0.01,
+                model=request.model,
+                tool_calls=[{"name": name, "args": args, "id": f"read-{self.calls}"}],
+            )
+
+    router = ModelRouter(
+        keys={"anthropic": "test-key"}, cache=None, cache_mode="off", use_env_keys=False
+    )
+    adapter = ReaderAdapter()
+    router._adapters["anthropic"] = adapter
+    try:
+        answer = asyncio.run(run_turn(project, router, turn, store))
+        assert adapter.calls == 4
+        citation = store.get_citation(answer["citation_ids"][0])
+        assert "FINAL FACT" in citation["excerpt"]
+        completed = [
+            e
+            for e in store.events(turn["thread_id"])["events"]
+            if e["kind"] == "tool_completed" and e["payload"]["tool"] == "open_source"
+        ]
+        assert len(completed) == 2
+        assert completed[-1]["payload"]["reached_end"] is True
+    finally:
+        project.close()

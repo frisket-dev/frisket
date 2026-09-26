@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import threading
+from html import unescape
 from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlsplit
@@ -20,6 +23,10 @@ from frisket.authoring.action_proposals import (
     validate_action_proposals,
 )
 from frisket.server.services.project_qa_web import safe_web_text, safe_web_url
+from frisket.server.services.project_qa_sources import (
+    read_source_text,
+    find_source_text,
+)
 
 
 MAX_READ_ROWS = 50
@@ -97,6 +104,9 @@ class ProjectQATools:
         self.store = store
         self.turn_id = str(turn["id"])
         self._citation_ids: set[str] = set()
+        self._source_handles: dict[str, dict[str, Any]] = {}
+        self._source_chars = 0
+        self.cancel_event = threading.Event()
         validate_scope(project, self.turn["scope"])
 
     @property
@@ -311,9 +321,13 @@ class ProjectQATools:
                 and (row_id, column_id) not in file_cells
             ):
                 continue
-            _values, refs = self.project.get_values_with_refs(
-                sheet_id, column_id, row_ids=[row_id], include_validity=True
+            source = read_source_text(
+                self.project,
+                (sheet_id, row_id, column_id),
+                limit=1,
+                cancel=self.cancel_event,
             )
+            refs = {row_id: source["value_ref"]}
             citation = self.store.add_citation(
                 self.turn_id,
                 label=(
@@ -422,97 +436,297 @@ class ProjectQATools:
         self._citation_ids.add(citation["id"])
         return citation
 
-    def open_source(self, citation_id: str) -> dict[str, Any]:
-        """Open bounded current cell and prepared-evidence passages for one handle."""
+    def _source_citation(self, citation_id: str) -> dict[str, Any]:
         citation = self.store.get_citation(citation_id)
-        if citation["turn_id"] != self.turn_id:
-            raise ProjectQAScopeError("source was not inspected in this turn")
-        if citation["source_kind"] != "cell":
-            return {
-                "citation_id": citation_id,
-                "excerpt": citation["excerpt"],
-                "available": True,
-            }
+        if (
+            self.store.get_turn(citation["turn_id"])["thread_id"]
+            != self.turn["thread_id"]
+        ):
+            raise ProjectQAScopeError("source belongs to another conversation")
         locator = citation["locator"]
-        sheet_id = int(locator["sheet_id"])
-        row_id = int(locator["row_id"])
-        column_id = int(locator["column_id"])
-        allowed_rows, file_cells = self._sheet_access(sheet_id)
-        self._columns_for_row(
-            [column_id], row_id, allowed_rows, file_cells, explicit_columns=True
-        )
-        values, current_refs = self.project.get_values_with_refs(
-            sheet_id, column_id, row_ids=[row_id], include_validity=True
-        )
-        if row_id not in values:
-            raise ProjectQAScopeError("source is no longer available")
-        passages = [
-            {
-                "kind": "cell",
-                "text": self._bounded_text(values[row_id], MAX_SOURCE_CHARS),
-            }
-        ]
-        remaining = MAX_SOURCE_CHARS - len(passages[0]["text"])
-        if remaining > 0:
-            evidence = list_cell_evidence(
-                self.project,
-                sheet_id=sheet_id,
-                row_id=row_id,
-                column_id=column_id,
+        if citation["source_kind"] == "query":
+            self._query_scope(locator["query"])
+        elif citation["source_kind"] in {"cell", "evidence"}:
+            sheet_id, row_id, column_id = (
+                int(locator[key]) for key in ("sheet_id", "row_id", "column_id")
             )
-            for link in evidence["links"]:
-                if remaining <= 0:
-                    break
-                viewer = resolve_evidence_viewer(self.project, link["stable_id"])
-                for artifact in viewer.get("artifacts", []):
-                    for span in artifact.get("spans", []):
-                        text = span.get("quote") or span.get("snippet")
-                        if not isinstance(text, str) or not text:
-                            continue
-                        clipped = self._bounded_text(text, remaining)
-                        artifact_label = (
-                            artifact.get("title")
-                            or artifact.get("filename")
-                            or self._sheet_name(sheet_id)
-                        )
-                        evidence_citation = self.store.add_citation(
-                            self.turn_id,
-                            label=f"Prepared evidence · {artifact_label}",
-                            source_kind="evidence",
-                            locator={
-                                "sheet_id": sheet_id,
-                                "row_id": row_id,
-                                "column_id": column_id,
-                                "value_ref": current_refs.get(row_id),
-                                "evidence_link_id": link["stable_id"],
-                                "artifact_id": artifact.get("stable_id"),
-                                "span_id": span.get("stable_id"),
-                            },
-                            excerpt=clipped,
-                        )
-                        self._citation_ids.add(evidence_citation["id"])
-                        passages.append(
-                            {
-                                "kind": "prepared_evidence",
-                                "citation_id": evidence_citation["id"],
-                                "evidence_link_id": link["stable_id"],
-                                "artifact_id": artifact.get("stable_id"),
-                                "span_id": span.get("stable_id"),
-                                "artifact": artifact.get("title")
-                                or artifact.get("filename"),
-                                "text": clipped,
-                            }
-                        )
-                        remaining -= len(clipped)
-                        if remaining <= 0:
-                            break
-                    if remaining <= 0:
-                        break
+            allowed_rows, file_cells = self._sheet_access(sheet_id)
+            self._requested_columns(sheet_id, [column_id])
+            if not self._rows_for_read(sheet_id, [row_id], allowed_rows, file_cells, 1):
+                raise ProjectQAScopeError("source row is hidden or no longer available")
+            self._columns_for_row(
+                [column_id], row_id, allowed_rows, file_cells, explicit_columns=True
+            )
+        elif citation["source_kind"] != "web":
+            raise ProjectQAScopeError("source kind cannot be opened")
+        return citation
+
+    def _source_handle(
+        self,
+        *,
+        label: str,
+        source_kind: str,
+        locator: dict[str, Any],
+        excerpt: str | None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        key = canonical_json({"kind": source_kind, "locator": locator})
+        citation = self._source_handles.get(key)
+        if citation is None:
+            citation = self.store.add_citation(
+                self.turn_id,
+                label=label,
+                source_kind=source_kind,
+                locator=locator,
+                excerpt=excerpt,
+                metadata=metadata or {},
+            )
+            self._source_handles[key] = citation
+        self._citation_ids.add(citation["id"])
+        return citation
+
+    def list_sources(self, limit: int = 20, offset: int = 0) -> dict[str, Any]:
+        """Discover prior source handles without returning inaccessible labels."""
+        if not 1 <= limit <= 50 or offset < 0:
+            raise ValueError("source page requires limit 1–50 and a nonnegative offset")
+        candidates = self.project.db.execute(
+            "SELECT c.id FROM project_qa_citations c JOIN project_qa_turns t ON t.id=c.turn_id "
+            "WHERE t.thread_id=? ORDER BY c.created_at DESC,c.id DESC LIMIT ? OFFSET ?",
+            (self.turn["thread_id"], limit + 1, offset),
+        ).fetchall()
+        sources = []
+        for row in candidates[:limit]:
+            try:
+                citation = self._source_citation(row["id"])
+            except (ValueError, LookupError):
+                continue
+            sources.append(
+                {
+                    "citation_id": citation["id"],
+                    "label": citation["label"],
+                    "source_kind": citation["source_kind"],
+                }
+            )
         return {
-            "citation_id": citation_id,
+            "sources": sources,
+            "has_more": len(candidates) > limit,
+            "next_offset": offset + limit if len(candidates) > limit else None,
+        }
+
+    def open_source(
+        self, citation_id: str, cursor: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Read near a hit or continue it, including prior same-thread sources."""
+        citation = self._source_citation(citation_id)
+        locator = citation["locator"]
+        if citation["source_kind"] == "query":
+            result = self.query_rows(locator["query"])
+            result["scope_changed"] = locator.get("scope") != result["scope"]
+            return result
+        remaining = 64_000 - self._source_chars
+        if remaining <= 0:
+            return {
+                "available": True,
+                "passages": [],
+                "truncated": True,
+                "coverage": "source reading budget exhausted",
+            }
+        if citation["source_kind"] == "web":
+            text = str(citation["excerpt"] or "")[: min(MAX_SOURCE_CHARS, remaining)]
+            current = self._source_handle(
+                label=citation["label"],
+                source_kind="web",
+                locator=locator,
+                excerpt=text,
+                metadata={"previously_retrieved": True},
+            )
+            self._source_chars += len(text)
+            return {
+                "citation_id": current["id"],
+                "available": True,
+                "excerpt": text,
+                "previously_retrieved": True,
+                "passages": [{"kind": "web", "text": text}],
+            }
+        cell = tuple(int(locator[key]) for key in ("sheet_id", "row_id", "column_id"))
+        marked = re.search(r"<b>(.*?)</b>", str(citation["excerpt"] or ""), re.DOTALL)
+        anchor = unescape(marked.group(1)) if marked else None
+        start = int(locator.get("char_start", 0))
+        # Reserve room for grounded page/time evidence instead of always exhausting
+        # the complete read allowance on a cell prefix.
+        observed = read_source_text(
+            self.project,
+            cell,
+            cursor=cursor,
+            start=start,
+            anchor=anchor,
+            limit=min(6_000, remaining),
+            cancel=self.cancel_event,
+        )
+        text = observed["text"]
+        current_locator = {
+            **locator,
+            "value_ref": observed["value_ref"],
+            "char_start": observed["range"]["start"],
+            "char_end": observed["range"]["end"],
+            "source_version": observed["version"],
+        }
+        current = self._source_handle(
+            label=citation["label"],
+            source_kind="cell",
+            locator=current_locator,
+            excerpt=text,
+        )
+        passages = [{"kind": "cell", "text": text, "citation_id": current["id"]}]
+        room = min(MAX_SOURCE_CHARS, remaining) - len(text)
+        has_evidence = self.project.db.execute(
+            "SELECT 1 FROM evidence_links WHERE sheet_id=? AND row_id=? "
+            "AND column_id=? AND status='active' LIMIT 1",
+            cell,
+        ).fetchone()
+        evidence = (
+            list_cell_evidence(
+                self.project, sheet_id=cell[0], row_id=cell[1], column_id=cell[2]
+            )
+            if has_evidence
+            else {"links": []}
+        )
+        for link in evidence["links"]:
+            if room <= 0:
+                break
+            viewer = resolve_evidence_viewer(self.project, link["stable_id"])
+            if (
+                viewer["link"]["status"] != "active"
+                or viewer["link"]["text_layer_hash_mismatch"]
+            ):
+                continue
+            for artifact in viewer.get("artifacts", []):
+                for span in artifact.get("spans", []):
+                    quote = span.get("quote") or span.get("snippet")
+                    if not isinstance(quote, str) or not quote or room <= 0:
+                        continue
+                    if observed["length"] > MAX_SOURCE_CHARS and quote not in text:
+                        continue
+                    clipped = quote[:room]
+                    evidence_locator = {
+                        "sheet_id": cell[0],
+                        "row_id": cell[1],
+                        "column_id": cell[2],
+                        "value_ref": observed["value_ref"],
+                        "evidence_link_id": link["stable_id"],
+                        "artifact_id": artifact["stable_id"],
+                        "span_id": span["stable_id"],
+                    }
+                    prepared = self._source_handle(
+                        label=f"Prepared evidence · {artifact.get('title') or artifact.get('filename') or citation['label']}",
+                        source_kind="evidence",
+                        locator=evidence_locator,
+                        excerpt=clipped,
+                    )
+                    passages.append(
+                        {
+                            "kind": "prepared_evidence",
+                            "citation_id": prepared["id"],
+                            "text": clipped,
+                            **evidence_locator,
+                            **{
+                                key: span.get(key)
+                                for key in (
+                                    "page_start",
+                                    "page_end",
+                                    "start_ms",
+                                    "end_ms",
+                                    "bbox",
+                                )
+                            },
+                        }
+                    )
+                    room -= len(clipped)
+        self._source_chars += sum(len(part["text"]) for part in passages)
+        return {
+            "citation_id": current["id"],
             "available": True,
             "passages": passages,
-            "truncated": remaining <= 0,
+            "range": observed["range"],
+            "next_cursor": observed["next_cursor"],
+            "truncated": not observed["reached_end"],
+            "reached_end": observed["reached_end"],
+            "source_changed": locator.get("value_ref") != observed["value_ref"],
+            "remaining_read_chars": 64_000 - self._source_chars,
+        }
+
+    def find_in_source(
+        self, citation_id: str, literal: str, cursor: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        citation = self._source_citation(citation_id)
+        if citation["source_kind"] not in {"cell", "evidence"}:
+            raise ValueError("literal find requires a project text source")
+        if self._source_chars >= 64_000:
+            return {
+                "matches": [],
+                "reached_end": False,
+                "coverage": "source reading budget exhausted",
+            }
+        locator = citation["locator"]
+        cell = tuple(int(locator[key]) for key in ("sheet_id", "row_id", "column_id"))
+        result = find_source_text(
+            self.project, cell, literal, cursor=cursor, cancel=self.cancel_event
+        )
+        matches = []
+        for match in result["matches"]:
+            remaining = 64_000 - self._source_chars
+            if remaining <= 0:
+                result["reached_end"] = False
+                break
+            match = {**match, "text": match["text"][:remaining]}
+            current = self._source_handle(
+                label=citation["label"],
+                source_kind="cell",
+                locator={
+                    **locator,
+                    "value_ref": result["value_ref"],
+                    "source_version": result["version"],
+                    "char_start": match["start"],
+                    "char_end": match["end"],
+                },
+                excerpt=match["text"],
+            )
+            matches.append({**match, "citation_id": current["id"]})
+            self._source_chars += len(match["text"])
+        return {
+            "matches": matches,
+            "scanned_range": result["scanned_range"],
+            "reached_end": result["reached_end"],
+            "next_cursor": result["next_cursor"],
+        }
+
+    def search_actions(self, query: str, limit: int = 8) -> dict[str, Any]:
+        """Discover compact action descriptions; load a chosen schema separately."""
+        if not self.turn["suggest_actions"]:
+            raise ProjectQAScopeError("action suggestions are disabled for this turn")
+        if not query.strip() or len(query) > 500 or not 1 <= limit <= 20:
+            raise ValueError("use a short action query and limit 1–20")
+        terms = query.casefold().split()
+        allowed = proposal_action_ids()
+        ranked = []
+        for entry in root_action_catalog().actions:
+            if entry.kind not in allowed:
+                continue
+            text = f"{entry.kind} {entry.title} {entry.description}".casefold()
+            score = sum(term in text for term in terms)
+            if score:
+                ranked.append((score, entry))
+        ranked.sort(key=lambda item: (-item[0], item[1].kind))
+        return {
+            "actions": [
+                {
+                    "action_id": entry.kind,
+                    "title": entry.title,
+                    "description": entry.description,
+                }
+                for _, entry in ranked[:limit]
+            ],
+            "has_more": len(ranked) > limit,
         }
 
     def propose_action(
@@ -539,6 +753,8 @@ class ProjectQATools:
     def describe_action(self, action_id: str) -> dict[str, Any]:
         """Return one registered action's compact parameter schema for a draft."""
 
+        if not self.turn["suggest_actions"]:
+            raise ProjectQAScopeError("action suggestions are disabled for this turn")
         if not isinstance(action_id, str) or not action_id:
             raise ValueError("action_id must be a non-empty string")
         if action_id not in proposal_action_ids():
