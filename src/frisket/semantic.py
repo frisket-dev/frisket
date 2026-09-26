@@ -624,58 +624,13 @@ def semantic_passage_search(
     if cancel_event is not None:
         db.set_progress_handler(lambda: int(cancel_event.is_set()), 1_000)
     try:
-        where, params = ["sheet_id=?"], [sheet_id]
-        allowed: list[str] = []
-        allowed_columns = {
-            int(column["id"])
-            for column in project.columns(sheet_id)
-            if column["type"] in {"text", "category", "link"}
-        }
-        if not allowed_columns:
-            return fallback("no_text_cells")
-        where.append("column_id IN (" + ",".join("?" for _ in allowed_columns) + ")")
-        params.extend(sorted(allowed_columns))
-        if row_ids is not None:
-            if row_ids:
-                allowed.append("row_id IN (" + ",".join("?" for _ in row_ids) + ")")
-                params.extend(sorted(row_ids))
-            elif not file_cells:
-                return fallback("empty_scope")
-        if effective_cells:
-            allowed.append(
-                "("
-                + " OR ".join("(row_id=? AND column_id=?)" for _ in effective_cells)
-                + ")"
-            )
-            for row_id, column_id in sorted(effective_cells):
-                params.extend((row_id, column_id))
-        if allowed:
-            where.append("(" + " OR ".join(allowed) + ")")
-        scope = " AND ".join(where)
-        count = db.execute(
-            f"SELECT COALESCE(SUM((length(CAST(content AS BLOB))+?-1)/?),0) FROM cell_fts WHERE {scope}",
-            [PASSAGE_UTF8_BYTES, PASSAGE_UTF8_BYTES, *params],
-        ).fetchone()[0]
-        if int(count) > MAX_ASK_PASSAGES:
+        scoped = _passage_scope(project, sheet_id, row_ids, effective_cells)
+        if isinstance(scoped, str):
+            return fallback(scoped)
+        scope, params = scoped
+        passages = _collect_passages(db, scope, params)
+        if passages is None:
             return fallback("passage_limit")
-        rows = db.execute(
-            f"SELECT content,sheet_id,row_id,column_id,column_name FROM cell_fts WHERE {scope}",
-            params,
-        ).fetchall()
-        passages: list[dict[str, Any]] = []
-        for row in rows:
-            text = str(row["content"])
-            for start, end in _passage_ranges(text):
-                passages.append(
-                    {
-                        **dict(row),
-                        "text": text[start:end],
-                        "char_start": start,
-                        "char_end": end,
-                    }
-                )
-                if len(passages) > MAX_ASK_PASSAGES:
-                    return fallback("passage_limit")
     except sqlite3.OperationalError:
         if stopped():
             raise InterruptedError("search was stopped") from None
@@ -693,50 +648,28 @@ def semantic_passage_search(
 
     cache = _sidecar(project)
     try:
-        keys = [
-            _vec_key(f"{embed_id}\0{PASSAGE_POLICY}", passage["text"])
-            for passage in passages
-        ]
-        cached = _cached_vectors(cache, keys)
-        missing_by_key: dict[str, list[int]] = {}
-        for index, key in enumerate(keys):
-            if key not in cached:
-                missing_by_key.setdefault(key, []).append(index)
-        missing = [indices[0] for indices in missing_by_key.values()]
-        if len(missing) > min(remaining_embeddings, MAX_ASK_NEW_EMBEDDINGS):
-            return fallback("embedding_budget")
-        fresh_count = 0
-        for offset in range(0, len(missing), ASK_EMBED_BATCH):
-            if stopped():
-                return {
-                    "hits": [],
-                    "new_embeddings": fresh_count,
-                    "coverage": {
-                        "complete": False,
-                        "reason": "cancelled",
-                        "semantic": False,
-                    },
-                }
-            batch = missing[offset : offset + ASK_EMBED_BATCH]
-            try:
-                vectors = _embedding_vectors(
-                    embed([passages[index]["text"] for index in batch])
-                )
-            except Exception:
-                return fallback("embedding_failed", fresh_count)
-            _refuse_misaligned_batch(batch, vectors)
-            cache.executemany(
-                "INSERT OR REPLACE INTO cell_vec (key, vec) VALUES (?, ?)",
-                [
-                    (keys[index], array("f", vector).tobytes())
-                    for index, vector in zip(batch, vectors, strict=True)
-                ],
-            )
-            cache.commit()
-            for index, vector in zip(batch, vectors, strict=True):
-                for duplicate in missing_by_key[keys[index]]:
-                    cached[keys[duplicate]] = vector
-            fresh_count += len(batch)
+        cached, keys, fresh_count, embedding_error = _cache_passage_vectors(
+            cache,
+            passages,
+            embed,
+            embed_id,
+            remaining_embeddings,
+            stopped,
+        )
+        if embedding_error == "embedding_budget":
+            return fallback(embedding_error)
+        if embedding_error == "embedding_failed":
+            return fallback(embedding_error, fresh_count)
+        if embedding_error == "cancelled":
+            return {
+                "hits": [],
+                "new_embeddings": fresh_count,
+                "coverage": {
+                    "complete": False,
+                    "reason": "cancelled",
+                    "semantic": False,
+                },
+            }
         if stopped():
             return {
                 "hits": [],
@@ -760,31 +693,7 @@ def semantic_passage_search(
             return fallback("embedding_dimension_mismatch", fresh_count)
         if stopped():
             return fallback("cancelled", fresh_count)
-        scored = sorted(
-            ((_cosine(qvec, cached[key]), index) for index, key in enumerate(keys)),
-            reverse=True,
-        )
-        best: dict[tuple[int, int], tuple[float, int]] = {}
-        for score, index in scored:
-            passage = passages[index]
-            cell = (int(passage["row_id"]), int(passage["column_id"]))
-            best.setdefault(cell, (score, index))
-        hits = []
-        for score, index in sorted(best.values(), reverse=True)[:limit]:
-            passage = passages[index]
-            hits.append(
-                {
-                    "sheet_id": int(passage["sheet_id"]),
-                    "row_id": int(passage["row_id"]),
-                    "column_id": int(passage["column_id"]),
-                    "column_name": passage["column_name"],
-                    "char_start": passage["char_start"],
-                    "char_end": passage["char_end"],
-                    "text": passage["text"],
-                    "score": round(score, 4),
-                    "semantic": True,
-                }
-            )
+        hits = _rank_passages(passages, keys, cached, qvec, limit)
         if stopped():
             return fallback("cancelled", fresh_count)
         return {
@@ -794,6 +703,161 @@ def semantic_passage_search(
         }
     finally:
         cache.close()
+
+
+def _passage_scope(
+    project: Project,
+    sheet_id: int,
+    row_ids: set[int] | None,
+    effective_cells: set[tuple[int, int]],
+) -> tuple[str, list[Any]] | str:
+    """Build the FTS predicate for the requested Ask cells."""
+    allowed_columns = {
+        int(column["id"])
+        for column in project.columns(sheet_id)
+        if column["type"] in {"text", "category", "link"}
+    }
+    if not allowed_columns:
+        return "no_text_cells"
+
+    where = ["sheet_id=?"]
+    params: list[Any] = [sheet_id]
+    allowed: list[str] = []
+    where.append("column_id IN (" + ",".join("?" for _ in allowed_columns) + ")")
+    params.extend(sorted(allowed_columns))
+    if row_ids is not None:
+        if row_ids:
+            allowed.append("row_id IN (" + ",".join("?" for _ in row_ids) + ")")
+            params.extend(sorted(row_ids))
+        elif not effective_cells:
+            return "empty_scope"
+    if effective_cells:
+        allowed.append(
+            "("
+            + " OR ".join("(row_id=? AND column_id=?)" for _ in effective_cells)
+            + ")"
+        )
+        for row_id, column_id in sorted(effective_cells):
+            params.extend((row_id, column_id))
+    if allowed:
+        where.append("(" + " OR ".join(allowed) + ")")
+    return " AND ".join(where), params
+
+
+def _collect_passages(
+    db: sqlite3.Connection, scope: str, params: list[Any]
+) -> list[dict[str, Any]] | None:
+    """Split a bounded FTS scope into coordinate-bearing passages."""
+    count = db.execute(
+        f"SELECT COALESCE(SUM((length(CAST(content AS BLOB))+?-1)/?),0) FROM cell_fts WHERE {scope}",
+        [PASSAGE_UTF8_BYTES, PASSAGE_UTF8_BYTES, *params],
+    ).fetchone()[0]
+    if int(count) > MAX_ASK_PASSAGES:
+        return None
+    rows = db.execute(
+        f"SELECT content,sheet_id,row_id,column_id,column_name FROM cell_fts WHERE {scope}",
+        params,
+    ).fetchall()
+    passages: list[dict[str, Any]] = []
+    for row in rows:
+        text = str(row["content"])
+        for start, end in _passage_ranges(text):
+            passages.append(
+                {
+                    **dict(row),
+                    "text": text[start:end],
+                    "char_start": start,
+                    "char_end": end,
+                }
+            )
+            if len(passages) > MAX_ASK_PASSAGES:
+                return None
+    return passages
+
+
+def _cache_passage_vectors(
+    cache: sqlite3.Connection,
+    passages: list[dict[str, Any]],
+    embed: Embedder,
+    embed_id: str,
+    remaining_embeddings: int,
+    stopped: Callable[[], bool],
+) -> tuple[dict[str, list[float]], list[str], int, str | None]:
+    """Populate missing, deduplicated passage vectors in bounded batches."""
+    keys = [
+        _vec_key(f"{embed_id}\0{PASSAGE_POLICY}", passage["text"])
+        for passage in passages
+    ]
+    cached = _cached_vectors(cache, keys)
+    missing_by_key: dict[str, list[int]] = {}
+    for index, key in enumerate(keys):
+        if key not in cached:
+            missing_by_key.setdefault(key, []).append(index)
+    missing = [indices[0] for indices in missing_by_key.values()]
+    if len(missing) > min(remaining_embeddings, MAX_ASK_NEW_EMBEDDINGS):
+        return cached, keys, 0, "embedding_budget"
+
+    fresh_count = 0
+    for offset in range(0, len(missing), ASK_EMBED_BATCH):
+        if stopped():
+            return cached, keys, fresh_count, "cancelled"
+        batch = missing[offset : offset + ASK_EMBED_BATCH]
+        try:
+            vectors = _embedding_vectors(
+                embed([passages[index]["text"] for index in batch])
+            )
+        except Exception:
+            return cached, keys, fresh_count, "embedding_failed"
+        _refuse_misaligned_batch(batch, vectors)
+        cache.executemany(
+            "INSERT OR REPLACE INTO cell_vec (key, vec) VALUES (?, ?)",
+            [
+                (keys[index], array("f", vector).tobytes())
+                for index, vector in zip(batch, vectors, strict=True)
+            ],
+        )
+        cache.commit()
+        for index, vector in zip(batch, vectors, strict=True):
+            for duplicate in missing_by_key[keys[index]]:
+                cached[keys[duplicate]] = vector
+        fresh_count += len(batch)
+    return cached, keys, fresh_count, None
+
+
+def _rank_passages(
+    passages: list[dict[str, Any]],
+    keys: list[str],
+    cached: dict[str, list[float]],
+    qvec: list[float],
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Return each cell's best passage in descending semantic score order."""
+    scored = sorted(
+        ((_cosine(qvec, cached[key]), index) for index, key in enumerate(keys)),
+        reverse=True,
+    )
+    best: dict[tuple[int, int], tuple[float, int]] = {}
+    for score, index in scored:
+        passage = passages[index]
+        cell = (int(passage["row_id"]), int(passage["column_id"]))
+        best.setdefault(cell, (score, index))
+    hits = []
+    for score, index in sorted(best.values(), reverse=True)[:limit]:
+        passage = passages[index]
+        hits.append(
+            {
+                "sheet_id": int(passage["sheet_id"]),
+                "row_id": int(passage["row_id"]),
+                "column_id": int(passage["column_id"]),
+                "column_name": passage["column_name"],
+                "char_start": passage["char_start"],
+                "char_end": passage["char_end"],
+                "text": passage["text"],
+                "score": round(score, 4),
+                "semantic": True,
+            }
+        )
+    return hits
 
 
 def _passage_ranges(text: str) -> list[tuple[int, int]]:
