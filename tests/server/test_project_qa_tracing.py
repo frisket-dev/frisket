@@ -155,6 +155,7 @@ def test_actual_http_export_honors_content_opt_in(monkeypatch):
             pass
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    # realtime: receive actual OTLP HTTP requests; shutdown joins before assertions.
     thread = threading.Thread(target=server.serve_forever)
     thread.start()
     try:
@@ -180,11 +181,12 @@ def test_actual_http_export_honors_content_opt_in(monkeypatch):
         server.server_close()
         thread.join()
 
-    assert len(received) == 1
-    path, headers, body = received[0]
-    assert path == "/v1/traces"
-    assert headers["authorization"] == "Bearer local-test"
-    assert headers["content-type"] == "application/x-protobuf"
+    assert received
+    for path, headers, _ in received:
+        assert path == "/v1/traces"
+        assert headers["authorization"] == "Bearer local-test"
+        assert headers["content-type"] == "application/x-protobuf"
+    body = b"".join(body for _, _, body in received)
     assert b"private-content-question-sentinel" in body
     assert b"private-content-answer-sentinel" in body
 
