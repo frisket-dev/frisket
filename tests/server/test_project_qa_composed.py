@@ -20,10 +20,9 @@ def test_ask_calculation_opens_exact_underlying_records(tmp_path, monkeypatch):
         async def complete(self, request, client):
             self.calls += 1
             observations = [
-                json.loads(m["content"].removeprefix("Observation:\n"))
+                json.loads(m["content"])
                 for m in request.messages
-                if isinstance(m.get("content"), str)
-                and m["content"].startswith("Observation:\n")
+                if m.get("role") == "tool"
             ]
             if self.calls == 1:
                 name, args = (

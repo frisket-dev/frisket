@@ -579,10 +579,9 @@ def test_followup_history_reopens_prior_source_without_reusing_stale_citation(
                     <= set(tool["parameters"].get("properties", {}))
                 )
                 observations = [
-                    json.loads(message["content"][len("Observation:\n") :])
+                    json.loads(message["content"])
                     for message in request.messages
-                    if isinstance(message.get("content"), str)
-                    and message["content"].startswith("Observation:\n")
+                    if message.get("role") == "tool"
                 ]
                 if prior_citation in serialized and not observations:
                     name, args = (
@@ -931,10 +930,9 @@ def test_runner_searches_late_passage_then_continues_before_answering(tmp_path):
         async def complete(self, request, client):
             self.calls += 1
             observations = [
-                json.loads(m["content"][len("Observation:\n") :])
+                json.loads(m["content"])
                 for m in request.messages
-                if isinstance(m.get("content"), str)
-                and m["content"].startswith("Observation:\n")
+                if m.get("role") == "tool"
             ]
             if self.calls == 1:
                 name, args = "search_cells", {"query": "NEEDLE", "sheet_id": 1}
