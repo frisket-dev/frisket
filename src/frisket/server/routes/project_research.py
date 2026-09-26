@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, Query
 
 from frisket.contracts.http.history_review import ReviewBundlesPage, ReviewCount
 from frisket.contracts.http.project_search import ProjectSearchHits
@@ -35,7 +35,7 @@ def register_project_search_routes(
     def search_ep(
         pid: str,
         q: str,
-        limit: int = 50,
+        limit: PageLimit100 = 50,
         mode: str = "keyword",
         rerank: str = "auto",
     ) -> ProjectSearchHits:

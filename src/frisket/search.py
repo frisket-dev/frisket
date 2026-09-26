@@ -22,7 +22,8 @@ from __future__ import annotations
 
 import os
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import closing
 from typing import Any
 
 from frisket.engine.store import Project
@@ -117,51 +118,59 @@ def _sidecar(project: Project) -> sqlite3.Connection:
 
 
 def rebuild_index(project: Project) -> int:
-    """Atomically rebuild the complete-cell FTS index.
+    """Publish a complete-cell index and watermark from one read snapshot.
 
-    ``cell_vec`` intentionally stays outside this transaction: vector entries
-    are content-addressed and a lexical-index upgrade must not evict them.
+    Vector entries are content-addressed; rebuilding keyword search leaves them
+    untouched. A failed rebuild retains the previous committed index.
     """
     db = _sidecar(project)
     try:
-        db.execute("BEGIN")
-        db.execute("DELETE FROM cell_fts")
-        n = 0
-        for s in project.sheets():
-            if "(undone:" in s["name"]:
-                continue
-            for c in project.columns(s["id"]):
-                if c["type"] not in ("text", "category", "json", "link"):
+        with closing(project.read_snapshot()) as snapshot:
+            indexed_at_op = snapshot.op_cursor
+            db.execute("BEGIN")
+            db.execute("DELETE FROM cell_fts")
+            n = 0
+            for sheet in snapshot.sheets():
+                if "(undone:" in sheet["name"]:
                     continue
-                vals = project.get_values(s["id"], c["id"])
+                for column in snapshot.columns(sheet["id"]):
+                    if column["type"] not in ("text", "category", "json", "link"):
+                        continue
+                    values = snapshot.get_values(sheet["id"], column["id"])
 
-                def rows() -> Any:
-                    nonlocal n
-                    for rid, value in vals.items():
-                        if value is None:
-                            continue
-                        text = str(value)
-                        if not text.strip():
-                            continue
-                        n += 1
-                        yield text, s["id"], rid, c["id"], c["name"]
+                    def rows() -> Iterator[tuple[str, int, int, int, str]]:
+                        nonlocal n
+                        for row_id, value in values.items():
+                            if value is None:
+                                continue
+                            text = str(value)
+                            if not text.strip():
+                                continue
+                            n += 1
+                            yield (
+                                text,
+                                sheet["id"],
+                                row_id,
+                                column["id"],
+                                column["name"],
+                            )
 
-                db.executemany(
-                    "INSERT INTO cell_fts (content, sheet_id, row_id, column_id, "
-                    "column_name) VALUES (?,?,?,?,?)",
-                    rows(),
+                    db.executemany(
+                        "INSERT INTO cell_fts (content, sheet_id, row_id, column_id, "
+                        "column_name) VALUES (?,?,?,?,?)",
+                        rows(),
+                    )
+            for key, value in (
+                ("indexed_at_op", str(indexed_at_op)),
+                ("index_content_version", FTS_INDEX_CONTENT_VERSION),
+            ):
+                db.execute(
+                    "INSERT INTO fts_state (key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (key, value),
                 )
-        for key, value in (
-            ("indexed_at_op", str(project.op_cursor)),
-            ("index_content_version", FTS_INDEX_CONTENT_VERSION),
-        ):
-            db.execute(
-                "INSERT INTO fts_state (key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                (key, value),
-            )
-        db.commit()
-        return n
+            db.commit()
+            return n
     except BaseException:
         db.rollback()
         raise

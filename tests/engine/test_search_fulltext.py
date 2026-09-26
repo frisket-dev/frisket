@@ -8,6 +8,7 @@ import pytest
 
 import frisket.search as search_mod
 from frisket.engine.store import Project
+from frisket.engine.store.project import ProjectReadSnapshot
 from frisket.search import (
     _sidecar,
     fts_indexed_at_op,
@@ -130,7 +131,7 @@ def test_failed_rebuild_keeps_prior_committed_index(tmp_path, monkeypatch):
     def fail_values(*_args, **_kwargs):
         raise RuntimeError("source read failed")
 
-    monkeypatch.setattr(project, "get_values", fail_values)
+    monkeypatch.setattr(ProjectReadSnapshot, "get_values", fail_values)
     with pytest.raises(RuntimeError, match="source read failed"):
         rebuild_index(project)
 
@@ -165,3 +166,29 @@ def test_semantic_keeps_the_existing_prefix_input_and_cache_identity(tmp_path):
     assert all(NEEDLE not in text for text in corpus_inputs if len(text) > 1_000)
     assert all(hit["semantic_coverage"] == SEMANTIC_COVERAGE for hit in hits)
     project.close()
+
+
+def test_rebuild_watermark_belongs_to_the_indexed_snapshot(tmp_path, monkeypatch):
+    project = Project.create(tmp_path / "snapshot.frisket", name="snapshot")
+    sheet = project.add_sheet("documents")
+    column = project.add_column(sheet, "body")
+    project.add_rows(sheet, [{"body": "original"}], {"body": column})
+    original_op = project.op_cursor
+    original_read = ProjectReadSnapshot.get_values
+
+    def read_then_write(*args, **kwargs):
+        values = original_read(*args, **kwargs)
+        if project.op_cursor == original_op:
+            project.add_rows(sheet, [{"body": "concurrentneedle"}], {"body": column})
+        return values
+
+    monkeypatch.setattr(ProjectReadSnapshot, "get_values", read_then_write)
+    rebuild_index(project)
+    db = _sidecar(project)
+    try:
+        assert project.op_cursor > original_op
+        assert fts_indexed_at_op(db) == original_op
+        assert search_project(project, "concurrentneedle", rerank="off")
+    finally:
+        db.close()
+        project.close()
