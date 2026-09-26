@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from pydantic_ai import Agent, ModelRetry
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.messages import ModelRequest, UserPromptPart
+from pydantic_ai.models.instrumented import InstrumentationSettings
 from pydantic_ai.usage import UsageLimitExceeded, UsageLimits
 
 from frisket.ai.llm.structured import FrisketRouterModel
@@ -70,6 +71,7 @@ async def run_turn(
     *,
     on_call: Callable[[str], Awaitable[None]] | None = None,
     call_scope: Callable[[], AbstractContextManager[None]] | None = None,
+    instrumentation: InstrumentationSettings | None = None,
 ) -> dict[str, Any]:
     """Investigate one admitted turn; the caller owns terminalization."""
 
@@ -388,6 +390,7 @@ async def run_turn(
 
     agent = Agent(
         model,
+        name="project_ask",
         output_type=[ProjectQAAnswer, str],
         instructions=(
             "Answer the user's question using only the Project Ask tools. "
@@ -419,6 +422,8 @@ async def run_turn(
         ),
         retries=1,
     )
+    if instrumentation is not None:
+        agent.instrument = instrumentation
     agent.tool_plain(inspect_sheets, name="inspect_sheets")
     agent.tool_plain(read_rows, name="read_rows")
     agent.tool_plain(query_rows, name="query_rows")
