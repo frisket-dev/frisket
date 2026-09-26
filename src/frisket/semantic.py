@@ -39,6 +39,7 @@ from frisket.search import (
     column_ai_flags,
     fresh_sidecar,
     rerank_hits,
+    search_cells_scoped,
     search_project,
 )
 from frisket.engine.store import Project
@@ -51,6 +52,11 @@ Embedder = Callable[[list[str]], EmbeddingResult]
 # (a Spanish query ranks English cells and vice versa), 0.22GB.
 LOCAL_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 SEMANTIC_CELL_PREFIX_CHARS = 50_000
+PASSAGE_UTF8_BYTES = 320  # below FastEmbed's smallest installed 384-token window
+PASSAGE_POLICY = "passage-v1-utf8-320"
+MAX_ASK_PASSAGES = 10_000
+MAX_ASK_NEW_EMBEDDINGS = 64
+ASK_EMBED_BATCH = 16
 # Until passage embeddings exist, semantic ranking has only this prefix. The
 # public hit records carry the same fact so callers do not confuse it with the
 # complete lexical FTS coverage.
@@ -559,3 +565,206 @@ def semantic_search(
     top = scored[: max(limit, RERANK_POOL)]
     hits = rerank_hits(query, [h for _, h, _ in top], [c for _, _, c in top])
     return hits[:limit]
+
+
+def semantic_passage_search(
+    project: Project,
+    *,
+    sheet_id: int,
+    row_ids: set[int] | None,
+    file_cells: set[tuple[int, int]],
+    query: str,
+    limit: int,
+    embed: Embedder | None = None,
+    embed_id: str | None = None,
+    remaining_embeddings: int = MAX_ASK_NEW_EMBEDDINGS,
+    cancel_event: threading.Event | None = None,
+) -> dict[str, Any]:
+    """Meaning-rank complete, coordinate-bearing passages in an Ask scope."""
+
+    def stopped() -> bool:
+        return bool(cancel_event and cancel_event.is_set())
+
+    def fallback(reason: str) -> dict[str, Any]:
+        if stopped():
+            return {
+                "hits": [],
+                "new_embeddings": 0,
+                "coverage": {"complete": False, "reason": "cancelled"},
+            }
+        return {
+            "hits": search_cells_scoped(
+                project,
+                sheet_id,
+                query,
+                None if row_ids is None else sorted(row_ids),
+                file_cells,
+                limit,
+            ),
+            "new_embeddings": 0,
+            "coverage": {"complete": False, "reason": reason, "semantic": False},
+        }
+
+    if stopped():
+        return fallback("cancelled")
+    if embed is None:
+        resolved = resolve_embedder(allow_remote=False)
+        if resolved is None:
+            return fallback("semantic_unavailable")
+        embed, embed_id = resolved
+    if not embed_id:
+        return fallback("missing_embed_identity")
+    if not 1 <= limit <= 100 or remaining_embeddings < 0:
+        raise ValueError("invalid semantic passage bounds")
+
+    db = fresh_sidecar(project)
+    try:
+        where, params = ["sheet_id=?"], [sheet_id]
+        allowed: list[str] = []
+        if row_ids is not None:
+            if row_ids:
+                allowed.append("row_id IN (" + ",".join("?" for _ in row_ids) + ")")
+                params.extend(sorted(row_ids))
+            elif not file_cells:
+                return fallback("empty_scope")
+        if file_cells:
+            allowed.append(
+                "("
+                + " OR ".join("(row_id=? AND column_id=?)" for _ in file_cells)
+                + ")"
+            )
+            for row_id, column_id in sorted(file_cells):
+                params.extend((row_id, column_id))
+        if allowed:
+            where.append("(" + " OR ".join(allowed) + ")")
+        scope = " AND ".join(where)
+        count = db.execute(
+            f"SELECT COALESCE(SUM((length(CAST(content AS BLOB))+?-1)/?),0) FROM cell_fts WHERE {scope}",
+            [PASSAGE_UTF8_BYTES, PASSAGE_UTF8_BYTES, *params],
+        ).fetchone()[0]
+        if int(count) > MAX_ASK_PASSAGES:
+            return fallback("passage_limit")
+        rows = db.execute(
+            f"SELECT content,sheet_id,row_id,column_id,column_name FROM cell_fts WHERE {scope}",
+            params,
+        ).fetchall()
+        passages: list[dict[str, Any]] = []
+        for row in rows:
+            text = str(row["content"])
+            for start, end in _passage_ranges(text):
+                passages.append(
+                    {
+                        **dict(row),
+                        "text": text[start:end],
+                        "char_start": start,
+                        "char_end": end,
+                    }
+                )
+    finally:
+        db.close()
+    if stopped():
+        return fallback("cancelled")
+    if not passages:
+        return {
+            "hits": [],
+            "new_embeddings": 0,
+            "coverage": {"complete": True, "passages": 0, "semantic": True},
+        }
+
+    cache = _sidecar(project)
+    try:
+        keys = [
+            _vec_key(f"{embed_id}\0{PASSAGE_POLICY}", passage["text"])
+            for passage in passages
+        ]
+        cached = _cached_vectors(cache, keys)
+        missing = [index for index, key in enumerate(keys) if key not in cached]
+        if len(missing) > min(remaining_embeddings, MAX_ASK_NEW_EMBEDDINGS):
+            return fallback("embedding_budget")
+        fresh_count = 0
+        for offset in range(0, len(missing), ASK_EMBED_BATCH):
+            if stopped():
+                return {
+                    "hits": [],
+                    "new_embeddings": fresh_count,
+                    "coverage": {
+                        "complete": False,
+                        "reason": "cancelled",
+                        "semantic": False,
+                    },
+                }
+            batch = missing[offset : offset + ASK_EMBED_BATCH]
+            vectors = _embedding_vectors(
+                embed([passages[index]["text"] for index in batch])
+            )
+            _refuse_misaligned_batch(batch, vectors)
+            cache.executemany(
+                "INSERT OR REPLACE INTO cell_vec (key, vec) VALUES (?, ?)",
+                [
+                    (keys[index], array("f", vector).tobytes())
+                    for index, vector in zip(batch, vectors, strict=True)
+                ],
+            )
+            cache.commit()
+            for index, vector in zip(batch, vectors, strict=True):
+                cached[keys[index]] = vector
+            fresh_count += len(batch)
+        if stopped():
+            return {
+                "hits": [],
+                "new_embeddings": fresh_count,
+                "coverage": {
+                    "complete": False,
+                    "reason": "cancelled",
+                    "semantic": False,
+                },
+            }
+        qvec = _embedding_vectors(embed([query]))[0]
+        scored = sorted(
+            ((_cosine(qvec, cached[key]), index) for index, key in enumerate(keys)),
+            reverse=True,
+        )
+        best: dict[tuple[int, int], tuple[float, int]] = {}
+        for score, index in scored:
+            passage = passages[index]
+            cell = (int(passage["row_id"]), int(passage["column_id"]))
+            best.setdefault(cell, (score, index))
+        hits = []
+        for score, index in sorted(best.values(), reverse=True)[:limit]:
+            passage = passages[index]
+            hits.append(
+                {
+                    "sheet_id": int(passage["sheet_id"]),
+                    "row_id": int(passage["row_id"]),
+                    "column_id": int(passage["column_id"]),
+                    "column_name": passage["column_name"],
+                    "char_start": passage["char_start"],
+                    "char_end": passage["char_end"],
+                    "text": passage["text"],
+                    "score": round(score, 4),
+                    "semantic": True,
+                }
+            )
+        return {
+            "hits": hits,
+            "new_embeddings": fresh_count,
+            "coverage": {"complete": True, "semantic": True, "passages": len(passages)},
+        }
+    finally:
+        cache.close()
+
+
+def _passage_ranges(text: str) -> list[tuple[int, int]]:
+    """UTF-8-bound passages so a byte-level tokenizer cannot silently truncate."""
+    ranges: list[tuple[int, int]] = []
+    start = end = size = 0
+    for index, char in enumerate(text):
+        width = len(char.encode("utf-8"))
+        if size and size + width > PASSAGE_UTF8_BYTES:
+            ranges.append((start, end))
+            start, size = index, 0
+        size += width
+        end = index + 1
+    if start < end:
+        ranges.append((start, end))
+    return ranges
