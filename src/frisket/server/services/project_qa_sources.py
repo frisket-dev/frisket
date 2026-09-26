@@ -117,11 +117,12 @@ def read_source_text(
         meta = _metadata(db, cell)
         start = _start(meta, cursor, start)
         if cursor is None and anchor:
+            lead = min(500, limit // 2)
             located = db.execute(
                 f"SELECT instr({_TEXT},?) AS position" + _FROM, (anchor[:500], *cell)
             ).fetchone()["position"]
             if located:
-                start = max(0, located - 1 - 500)
+                start = max(0, located - 1 - lead)
         start = min(start, meta["length"])
         text = _text(db, cell, start, limit)
         end = start + len(text)
@@ -281,6 +282,26 @@ def resolve_prepared_source(
                 "prepared_version": prepared_meta["version"],
             }
     return None
+
+
+def read_source_with_prepared(
+    project: Project,
+    cell: tuple[int, int, int],
+    *,
+    evidence_link_id: str | None = None,
+    cancel: threading.Event | None = None,
+) -> tuple[tuple[int, int, int], dict[str, Any], dict[str, Any] | None]:
+    """Read a current source reference and follow its current prepared text."""
+
+    source = read_source_text(project, cell, limit=1, cancel=cancel)
+    prepared = resolve_prepared_source(
+        project,
+        cell,
+        expected_version=source["version"],
+        evidence_link_id=evidence_link_id,
+        cancel=cancel,
+    )
+    return (prepared["cell"] if prepared else cell), source, prepared
 
 
 def read_prepared_passages(

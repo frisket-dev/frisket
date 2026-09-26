@@ -212,6 +212,14 @@ def test_fts_anchor_ignores_raw_b_tags_before_the_actual_match(source):
     assert "ACTUALNEEDLE" in opened["passages"][0]["text"]
 
 
+def test_small_source_read_keeps_anchor_in_the_returned_text(source):
+    project, _, _, _, sheet, column, row = source
+
+    opened = read_source_text(project, (sheet, row, column), anchor="NEEDLE", limit=20)
+
+    assert "NEEDLE" in opened["text"]
+
+
 def test_keyword_result_reports_when_its_ranked_examples_hit_the_limit(source):
     project, store, _, turn, sheet, _, _ = source
 

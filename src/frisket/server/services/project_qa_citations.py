@@ -8,7 +8,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQANotFoundError, ProjectQAStore
 from frisket.server.services.project_qa_sources import (
     read_source_text,
-    resolve_prepared_source,
+    read_source_with_prepared,
 )
 from frisket.server.services.project_qa_web import safe_web_text, safe_web_url
 
@@ -33,15 +33,10 @@ def project_qa_safe_citation_projection(citation: dict[str, Any]) -> dict[str, A
     }
 
 
-def resolve_citation(
-    project: Project, thread_id: str, citation_id: str
+def _unavailable_result(
+    citation_id: str, citation: dict[str, Any], projected: dict[str, Any]
 ) -> dict[str, Any]:
-    store = ProjectQAStore(project)
-    citation = store.get_citation(citation_id)
-    if store.get_turn(citation["turn_id"])["thread_id"] != thread_id:
-        raise ProjectQANotFoundError("Source not found in this conversation.")
-    projected = project_qa_safe_citation_projection(citation)
-    result = {
+    return {
         "id": citation_id,
         "label": projected["label"],
         "source_kind": citation["source_kind"],
@@ -50,59 +45,143 @@ def resolve_citation(
         "message": "This source is no longer available in the project.",
         "target": None,
     }
-    locator = citation["locator"]
-    if citation["source_kind"] == "web":
-        url = projected["url"]
-        retrieved_at = locator.get("retrieved_at")
-        fetched = locator.get("fetched")
-        if (
-            not isinstance(url, str)
-            or not isinstance(retrieved_at, str)
-            or not isinstance(fetched, bool)
-        ):
-            return result
-        return {
-            **result,
-            "status": "unverified",
-            "message": "This public-web source was retrieved at the recorded time and may have changed.",
-            "target": {
-                "kind": "web",
-                "url": url,
-                "retrieved_at": retrieved_at,
-                "fetched": fetched,
-            },
-        }
-    if citation["source_kind"] == "query":
-        if not project.db.execute(
-            "SELECT 1 FROM sheets WHERE id=? AND hidden=0", (locator.get("sheet_id"),)
-        ).fetchone():
-            return result
-        from frisket.server.services.project_qa_query import evaluate_query
 
-        try:
-            current = evaluate_query(
-                project, locator["query"], locator["scope"], limit=0
-            )
-        except (ValueError, KeyError):
-            return result
-        changed = project.op_cursor != locator.get("source_op_cursor")
-        return {
-            **result,
-            "status": "changed" if changed else "current",
-            "message": "The project has changed since this query. These results use current data."
-            if changed
-            else None,
-            "target": {
-                "kind": "query",
-                "sheet_id": current["sheet_id"],
-                "row_ids": current["scope"].get("row_ids"),
-                "filter": current["query"].get("filter", {}),
-                "sort": current["query"].get("sort"),
-                "total": current["total"],
-            },
-        }
-    if citation["source_kind"] not in {"cell", "evidence"}:
+
+def _resolve_web_citation(
+    result: dict[str, Any], locator: dict[str, Any], url: object
+) -> dict[str, Any]:
+    retrieved_at = locator.get("retrieved_at")
+    fetched = locator.get("fetched")
+    if (
+        not isinstance(url, str)
+        or not isinstance(retrieved_at, str)
+        or not isinstance(fetched, bool)
+    ):
         return result
+    return {
+        **result,
+        "status": "unverified",
+        "message": "This public-web source was retrieved at the recorded time and may have changed.",
+        "target": {
+            "kind": "web",
+            "url": url,
+            "retrieved_at": retrieved_at,
+            "fetched": fetched,
+        },
+    }
+
+
+def _resolve_query_citation(
+    project: Project, result: dict[str, Any], locator: dict[str, Any]
+) -> dict[str, Any]:
+    if not project.db.execute(
+        "SELECT 1 FROM sheets WHERE id=? AND hidden=0", (locator.get("sheet_id"),)
+    ).fetchone():
+        return result
+    from frisket.server.services.project_qa_query import evaluate_query
+
+    try:
+        current = evaluate_query(project, locator["query"], locator["scope"], limit=0)
+    except (ValueError, KeyError):
+        return result
+    changed = project.op_cursor != locator.get("source_op_cursor")
+    return {
+        **result,
+        "status": "changed" if changed else "current",
+        "message": "The project has changed since this query. These results use current data."
+        if changed
+        else None,
+        "target": {
+            "kind": "query",
+            "sheet_id": current["sheet_id"],
+            "row_ids": current["scope"].get("row_ids"),
+            "filter": current["query"].get("filter", {}),
+            "sort": current["query"].get("sort"),
+            "total": current["total"],
+        },
+    }
+
+
+def _resolve_prepared_target(
+    project: Project,
+    source_cell: tuple[int, int, int],
+    locator: dict[str, Any],
+    target: dict[str, Any],
+    status: str,
+) -> tuple[dict[str, Any], str]:
+    prepared_cell = locator.get("prepared_cell")
+    prepared_ref = locator.get("prepared_value_ref")
+    prepared_link_id = locator.get("prepared_evidence_link_id")
+    if prepared_cell is None and prepared_ref is None and prepared_link_id is None:
+        return target, status
+    try:
+        expected_cell = tuple(
+            int(prepared_cell[key]) for key in ("sheet_id", "row_id", "column_id")
+        )
+        _cell, _source, prepared = read_source_with_prepared(
+            project,
+            source_cell,
+            evidence_link_id=str(prepared_link_id),
+        )
+    except (KeyError, TypeError, ValueError):
+        return target, "changed"
+    if (
+        prepared is None
+        or prepared["cell"] != expected_cell
+        or prepared["prepared_value_ref"] != prepared_ref
+        or (
+            locator.get("source_version") is not None
+            and locator["source_version"] != prepared["prepared_version"]
+        )
+    ):
+        return target, "changed"
+    return {
+        "kind": "cell",
+        "sheet_id": prepared["cell"][0],
+        "row_id": prepared["cell"][1],
+        "column_id": prepared["cell"][2],
+    }, status
+
+
+def _resolve_evidence_target(
+    project: Project,
+    locator: dict[str, Any],
+    target: dict[str, Any],
+    status: str,
+) -> tuple[dict[str, Any], str] | None:
+    from frisket.engine.store.evidence import resolve_evidence_viewer
+
+    try:
+        viewer = resolve_evidence_viewer(project, locator["evidence_link_id"])
+    except KeyError:
+        return None
+    span_exists = any(
+        artifact["stable_id"] == locator.get("artifact_id")
+        and any(
+            span["stable_id"] == locator.get("span_id") for span in artifact["spans"]
+        )
+        for artifact in viewer["artifacts"]
+    )
+    if not span_exists:
+        return None
+    if (
+        viewer["link"]["status"] != "active"
+        or viewer["link"]["text_layer_hash_mismatch"]
+    ):
+        status = "changed"
+    return {
+        **target,
+        "kind": "evidence",
+        **{key: locator[key] for key in ("evidence_link_id", "artifact_id", "span_id")},
+    }, status
+
+
+def _resolve_project_citation(
+    project: Project,
+    citation: dict[str, Any],
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    locator = citation["locator"]
     sheet_id, row_id, column_id = (
         locator.get(key) for key in ("sheet_id", "row_id", "column_id")
     )
@@ -145,75 +224,14 @@ def resolve_citation(
         "row_id": row_id,
         "column_id": column_id,
     }
-    prepared_cell = locator.get("prepared_cell")
-    prepared_ref = locator.get("prepared_value_ref")
-    prepared_link_id = locator.get("prepared_evidence_link_id")
-    if (
-        prepared_cell is not None
-        or prepared_ref is not None
-        or prepared_link_id is not None
-    ):
-        try:
-            expected_cell = tuple(
-                int(prepared_cell[key]) for key in ("sheet_id", "row_id", "column_id")
-            )
-            original = read_source_text(project, (sheet_id, row_id, column_id), limit=1)
-            prepared = resolve_prepared_source(
-                project,
-                (sheet_id, row_id, column_id),
-                expected_version=original["version"],
-                evidence_link_id=str(prepared_link_id),
-            )
-        except (KeyError, TypeError, ValueError):
-            prepared = None
-            expected_cell = None
-        if (
-            prepared is None
-            or prepared["cell"] != expected_cell
-            or prepared["prepared_value_ref"] != prepared_ref
-            or (
-                saved_version is not None
-                and saved_version != prepared["prepared_version"]
-            )
-        ):
-            status = "changed"
-        else:
-            target = {
-                "kind": "cell",
-                "sheet_id": prepared["cell"][0],
-                "row_id": prepared["cell"][1],
-                "column_id": prepared["cell"][2],
-            }
+    target, status = _resolve_prepared_target(
+        project, (sheet_id, row_id, column_id), locator, target, status
+    )
     if citation["source_kind"] == "evidence":
-        from frisket.engine.store.evidence import resolve_evidence_viewer
-
-        try:
-            viewer = resolve_evidence_viewer(project, locator["evidence_link_id"])
-        except KeyError:
+        evidence = _resolve_evidence_target(project, locator, target, status)
+        if evidence is None:
             return result
-        span_exists = any(
-            artifact["stable_id"] == locator.get("artifact_id")
-            and any(
-                span["stable_id"] == locator.get("span_id")
-                for span in artifact["spans"]
-            )
-            for artifact in viewer["artifacts"]
-        )
-        if not span_exists:
-            return result
-        if (
-            viewer["link"]["status"] != "active"
-            or viewer["link"]["text_layer_hash_mismatch"]
-        ):
-            status = "changed"
-        target = {
-            **target,
-            "kind": "evidence",
-            **{
-                key: locator[key]
-                for key in ("evidence_link_id", "artifact_id", "span_id")
-            },
-        }
+        target, status = evidence
     return {
         **result,
         "label": safe_web_text(
@@ -227,3 +245,22 @@ def resolve_citation(
         }[status],
         "target": target,
     }
+
+
+def resolve_citation(
+    project: Project, thread_id: str, citation_id: str
+) -> dict[str, Any]:
+    store = ProjectQAStore(project)
+    citation = store.get_citation(citation_id)
+    if store.get_turn(citation["turn_id"])["thread_id"] != thread_id:
+        raise ProjectQANotFoundError("Source not found in this conversation.")
+    projected = project_qa_safe_citation_projection(citation)
+    result = _unavailable_result(citation_id, citation, projected)
+    locator = citation["locator"]
+    if citation["source_kind"] == "web":
+        return _resolve_web_citation(result, locator, projected["url"])
+    if citation["source_kind"] == "query":
+        return _resolve_query_citation(project, result, locator)
+    if citation["source_kind"] in {"cell", "evidence"}:
+        return _resolve_project_citation(project, citation, result)
+    return result
