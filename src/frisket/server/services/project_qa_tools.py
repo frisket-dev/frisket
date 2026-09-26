@@ -31,6 +31,7 @@ from frisket.server.services.project_qa_sources import (
     read_source_text,
     find_source_text,
     read_prepared_passages,
+    resolve_prepared_source,
 )
 
 
@@ -589,6 +590,30 @@ class ProjectQATools:
         self._citation_ids.add(citation["id"])
         return citation
 
+    def _prepared_text_target(
+        self, citation: Mapping[str, Any]
+    ) -> tuple[tuple[int, int, int], dict[str, Any], dict[str, Any] | None]:
+        """Keep file-scope authorization on its source cell while reading text."""
+        locator = citation["locator"]
+        source_cell = tuple(
+            int(locator[key]) for key in ("sheet_id", "row_id", "column_id")
+        )
+        source = read_source_text(
+            self.project, source_cell, limit=1, cancel=self.cancel_event
+        )
+        prepared = resolve_prepared_source(
+            self.project,
+            source_cell,
+            expected_version=source["version"],
+            evidence_link_id=(
+                locator.get("evidence_link_id")
+                if citation["source_kind"] == "evidence"
+                else None
+            ),
+            cancel=self.cancel_event,
+        )
+        return (prepared["cell"] if prepared else source_cell), source, prepared
+
     def list_sources(self, limit: int = 20, offset: int = 0) -> dict[str, Any]:
         """Discover prior source handles without returning inaccessible labels."""
         if not 1 <= limit <= 50 or offset < 0:
@@ -652,7 +677,7 @@ class ProjectQATools:
                 "previously_retrieved": True,
                 "passages": [{"kind": "web", "text": text}],
             }
-        cell = tuple(int(locator[key]) for key in ("sheet_id", "row_id", "column_id"))
+        cell, source, prepared_source = self._prepared_text_target(citation)
         marked = re.search(r"<b>(.*?)</b>", str(citation["excerpt"] or ""), re.DOTALL)
         anchor = unescape(marked.group(1)) if marked else None
         start = int(locator.get("char_start", 0))
@@ -670,10 +695,23 @@ class ProjectQATools:
         text = observed["text"]
         current_locator = {
             **locator,
-            "value_ref": observed["value_ref"],
+            "value_ref": source["value_ref"],
             "char_start": observed["range"]["start"],
             "char_end": observed["range"]["end"],
             "source_version": observed["version"],
+            **(
+                {
+                    "prepared_cell": {
+                        "sheet_id": cell[0],
+                        "row_id": cell[1],
+                        "column_id": cell[2],
+                    },
+                    "prepared_value_ref": observed["value_ref"],
+                    "prepared_evidence_link_id": prepared_source["evidence_link_id"],
+                }
+                if prepared_source
+                else {}
+            ),
         }
         current = self._source_handle(
             label=citation["label"],
@@ -691,7 +729,11 @@ class ProjectQATools:
                 start=observed["range"]["start"],
                 end=observed["range"]["end"],
                 limit=room,
-                evidence_link_id=locator.get("evidence_link_id"),
+                evidence_link_id=(
+                    prepared_source["evidence_link_id"]
+                    if prepared_source
+                    else locator.get("evidence_link_id")
+                ),
                 span_id=locator.get("span_id"),
                 cancel=self.cancel_event,
             )
@@ -700,10 +742,7 @@ class ProjectQATools:
         )
         for span in prepared_passages:
             evidence_locator = {
-                "sheet_id": cell[0],
-                "row_id": cell[1],
-                "column_id": cell[2],
-                "value_ref": observed["value_ref"],
+                **current_locator,
                 **{
                     key: span[key]
                     for key in ("evidence_link_id", "artifact_id", "span_id")
@@ -742,9 +781,14 @@ class ProjectQATools:
             "next_cursor": observed["next_cursor"],
             "truncated": not observed["reached_end"],
             "reached_end": observed["reached_end"],
-            "source_changed": locator.get("value_ref") != observed["value_ref"],
+            "source_changed": locator.get("value_ref") != source["value_ref"]
+            or (
+                prepared_source is not None
+                and locator.get("prepared_value_ref") is not None
+                and locator["prepared_value_ref"] != observed["value_ref"]
+            ),
             "remaining_read_chars": 64_000 - self._source_chars,
-            "needs_preparation": observed["column_type"]
+            "needs_preparation": source["column_type"]
             in {"file", "pdf", "image", "audio", "video"}
             and not prepared_passages,
         }
@@ -762,7 +806,7 @@ class ProjectQATools:
                 "coverage": "source reading budget exhausted",
             }
         locator = citation["locator"]
-        cell = tuple(int(locator[key]) for key in ("sheet_id", "row_id", "column_id"))
+        cell, source, prepared_source = self._prepared_text_target(citation)
         result = find_source_text(
             self.project, cell, literal, cursor=cursor, cancel=self.cancel_event
         )
@@ -778,10 +822,25 @@ class ProjectQATools:
                 source_kind="cell",
                 locator={
                     **locator,
-                    "value_ref": result["value_ref"],
+                    "value_ref": source["value_ref"],
                     "source_version": result["version"],
                     "char_start": match["start"],
                     "char_end": match["end"],
+                    **(
+                        {
+                            "prepared_cell": {
+                                "sheet_id": cell[0],
+                                "row_id": cell[1],
+                                "column_id": cell[2],
+                            },
+                            "prepared_value_ref": result["value_ref"],
+                            "prepared_evidence_link_id": prepared_source[
+                                "evidence_link_id"
+                            ],
+                        }
+                        if prepared_source
+                        else {}
+                    ),
                 },
                 excerpt=match["text"],
             )

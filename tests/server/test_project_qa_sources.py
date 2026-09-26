@@ -230,6 +230,130 @@ def test_late_prepared_quote_keeps_timestamps_without_full_viewer_load(
     assert prepared["citation_id"] in tools.citation_ids
 
 
+def test_file_scope_reads_current_prepared_text_and_finds_it(tmp_path):
+    from frisket.engine.store.evidence import (
+        record_evidence_link,
+        record_source_artifact,
+        record_source_span,
+    )
+    from frisket.engine.store.media_blobs import media_cell
+
+    project = Project.create(tmp_path / "prepared-file.frisket", name="Prepared")
+    try:
+        sheet = project.add_sheet("Documents")
+        source_column = project.add_column(sheet, "Document", type="file")
+        text_column = project.add_column(sheet, "Text result")
+        blob = project.add_blob(
+            b"fixture pdf", filename="document.pdf", mime="application/pdf"
+        )
+        [row] = project.add_rows(
+            sheet,
+            [{"Document": media_cell(blob, filename="document.pdf")}],
+            {"Document": source_column},
+        )
+        project.apply_edits(
+            [
+                {
+                    "row_id": row,
+                    "column_id": text_column,
+                    "value": "Prepared text with NEEDLE evidence.",
+                }
+            ]
+        )
+        _, refs = project.get_values_with_refs(sheet, text_column, [row])
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="ocr_document",
+            media_type="application/pdf",
+            blob_hash=blob,
+            source_sheet_id=sheet,
+            source_row_id=row,
+            source_column_id=source_column,
+            title="document.pdf",
+        )
+        span = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="page",
+            quote="Prepared text with NEEDLE evidence.",
+            page_start=1,
+            page_end=1,
+        )
+        record_evidence_link(
+            project,
+            subject_kind="cell_value",
+            subject_ref=refs[row],
+            spans=[{"span_id": span["id"]}],
+            sheet_id=sheet,
+            row_id=row,
+            column_id=text_column,
+        )
+        store = ProjectQAStore(project)
+        thread = store.create_thread(title="Ask")
+        turn = store.submit_turn(
+            thread["id"],
+            request_id="file",
+            question="Read the document",
+            scope={
+                "kind": "sources",
+                "sources": [
+                    {
+                        "kind": "file",
+                        "sheet_id": sheet,
+                        "row_id": row,
+                        "column_id": source_column,
+                    }
+                ],
+            },
+        )
+        tools = ProjectQATools(project, turn, store)
+        source = tools.read_rows(sheet, [row], [source_column])
+        citation_id = source["rows"][0]["cells"][0]["citation_id"]
+
+        opened = tools.open_source(citation_id)
+
+        assert opened["needs_preparation"] is False
+        assert opened["passages"][0]["text"] == "Prepared text with NEEDLE evidence."
+        assert any(part["kind"] == "prepared_evidence" for part in opened["passages"])
+        found = tools.find_in_source(citation_id, "NEEDLE")
+        assert found["matches"][0]["text"] == "Prepared text with NEEDLE evidence."
+        with pytest.raises(ProjectQAScopeError, match="file scope"):
+            tools.read_rows(sheet, [row], [text_column])
+
+        project.apply_edits(
+            [{"row_id": row, "column_id": text_column, "value": "replacement"}]
+        )
+        stale_output = tools.open_source(citation_id)
+        assert stale_output["needs_preparation"] is True
+        assert all(
+            part["kind"] != "prepared_evidence" for part in stale_output["passages"]
+        )
+
+        project.apply_edits(
+            [
+                {
+                    "row_id": row,
+                    "column_id": source_column,
+                    "value": media_cell(
+                        project.add_blob(
+                            b"replacement pdf",
+                            filename="replacement.pdf",
+                            mime="application/pdf",
+                        ),
+                        filename="replacement.pdf",
+                    ),
+                }
+            ]
+        )
+        stale_file = tools.open_source(citation_id)
+        assert stale_file["needs_preparation"] is True
+        assert all(
+            part["kind"] != "prepared_evidence" for part in stale_file["passages"]
+        )
+    finally:
+        project.close()
+
+
 def test_semantic_hit_is_not_cited_with_new_reference_after_an_edit(
     source, monkeypatch
 ):

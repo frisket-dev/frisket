@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 import time
@@ -193,6 +194,84 @@ def find_source_text(
         }
 
 
+def resolve_prepared_source(
+    project: Project,
+    cell: tuple[int, int, int],
+    *,
+    expected_version: dict[str, Any],
+    evidence_link_id: str | None = None,
+    cancel: threading.Event | None = None,
+) -> dict[str, Any] | None:
+    """Resolve a current file cell to its active, current prepared text cell.
+
+    The caller continues to authorize ``cell``.  This only follows an evidence
+    link when its artifact names that exact source cell and its current blob,
+    and when the link still names the current derived cell value.
+    """
+    with _read(project, cancel) as (db, _deadline):
+        source_meta = _metadata(db, cell)
+        if source_meta["version"] != expected_version:
+            raise ValueError("source_changed: reopen this source before reading it")
+        blob_row = db.execute(
+            "SELECT CASE WHEN c.validity='valid' THEN json_extract(c.value,'$.blob') END AS blob"
+            + _FROM,
+            cell,
+        ).fetchone()
+        blob_hash = blob_row["blob"] if blob_row is not None else None
+        if not isinstance(blob_hash, str) or not blob_hash:
+            return None
+        conditions = [
+            "l.status='active'",
+            "l.sheet_id=?",
+            "l.row_id=?",
+            "a.source_sheet_id=?",
+            "a.source_row_id=?",
+            "a.source_column_id=?",
+            "a.blob_hash=?",
+        ]
+        params: list[Any] = [cell[0], cell[1], *cell, blob_hash]
+        if evidence_link_id:
+            conditions.append("l.stable_id=?")
+            params.append(evidence_link_id)
+        candidates = db.execute(
+            "SELECT l.stable_id,l.sheet_id,l.row_id,l.column_id,l.subject_ref_json "
+            "FROM evidence_links l JOIN evidence_link_spans ls ON ls.link_id=l.id "
+            "JOIN source_spans sp ON sp.id=ls.span_id "
+            "JOIN source_artifacts a ON a.id=sp.artifact_id WHERE "
+            + " AND ".join(conditions)
+            + " GROUP BY l.id ORDER BY l.id DESC LIMIT 32",
+            params,
+        ).fetchall()
+        for candidate in candidates:
+            if None in (
+                candidate["sheet_id"],
+                candidate["row_id"],
+                candidate["column_id"],
+            ):
+                continue
+            prepared_cell = tuple(
+                int(candidate[key]) for key in ("sheet_id", "row_id", "column_id")
+            )
+            prepared_meta = _metadata(db, prepared_cell)
+            if prepared_meta["value_ref"]["validity"] != "valid":
+                continue
+            prepared_ref = {
+                key: value
+                for key, value in prepared_meta["value_ref"].items()
+                if key != "validity"
+            }
+            if candidate["subject_ref_json"] != json.dumps(
+                prepared_ref, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+            ):
+                continue
+            return {
+                "cell": prepared_cell,
+                "evidence_link_id": str(candidate["stable_id"]),
+                "source_meta": source_meta,
+            }
+    return None
+
+
 def read_prepared_passages(
     project: Project,
     cell: tuple[int, int, int],
@@ -211,7 +290,6 @@ def read_prepared_passages(
     verification reads bounded SQL slices, rather than a whole Python cell.
     """
     import hashlib
-    import json
 
     with _read(project, cancel) as (db, deadline):
         meta = _metadata(db, cell)
