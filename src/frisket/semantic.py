@@ -691,7 +691,11 @@ def semantic_passage_search(
             for passage in passages
         ]
         cached = _cached_vectors(cache, keys)
-        missing = [index for index, key in enumerate(keys) if key not in cached]
+        missing_by_key: dict[str, list[int]] = {}
+        for index, key in enumerate(keys):
+            if key not in cached:
+                missing_by_key.setdefault(key, []).append(index)
+        missing = [indices[0] for indices in missing_by_key.values()]
         if len(missing) > min(remaining_embeddings, MAX_ASK_NEW_EMBEDDINGS):
             return fallback("embedding_budget")
         fresh_count = 0
@@ -723,7 +727,8 @@ def semantic_passage_search(
             )
             cache.commit()
             for index, vector in zip(batch, vectors, strict=True):
-                cached[keys[index]] = vector
+                for duplicate in missing_by_key[keys[index]]:
+                    cached[keys[duplicate]] = vector
             fresh_count += len(batch)
         if stopped():
             return {

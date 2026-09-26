@@ -115,3 +115,69 @@ def test_whole_sheet_ignores_file_narrowing_and_cache_identity(tmp_path):
     )
     assert isolated["new_embeddings"] == whole["new_embeddings"]
     project.close()
+
+
+def test_batches_are_bounded_and_partial_failure_keeps_first_batch_cached(tmp_path):
+    project = Project.create(tmp_path / "batches.frisket", name="p")
+    sheet = project.add_sheet("data")
+    text = project.add_column(sheet, "text")
+    project.add_rows(
+        sheet,
+        [{"text": "".join(f"{i:03d}" + "x" * 317 for i in range(20))}],
+        {"text": text},
+    )
+    rebuild_index(project)
+    batches: list[int] = []
+
+    def flaky(values):
+        batches.append(len(values))
+        if len(batches) == 2:
+            raise RuntimeError("offline")
+        return _embed(values)
+
+    result = semantic_passage_search(
+        project,
+        sheet_id=sheet,
+        row_ids=None,
+        file_cells=set(),
+        query="needle",
+        limit=2,
+        embed=flaky,
+        embed_id="stub/fail",
+    )
+    assert batches == [16, 4]
+    assert result["new_embeddings"] == 16
+    assert result["coverage"]["reason"] == "embedding_failed"
+    project.close()
+
+
+def test_unicode_ranges_and_cancel_after_completed_batch(tmp_path):
+    project = Project.create(tmp_path / "unicode.frisket", name="p")
+    sheet = project.add_sheet("data")
+    text = project.add_column(sheet, "text")
+    value = "界" * 110 + "needle" + "界" * 110
+    project.add_rows(sheet, [{"text": value}], {"text": text})
+    rebuild_index(project)
+    stop = threading.Event()
+    calls = []
+
+    def cancelling(values):
+        calls.append(len(values))
+        stop.set()
+        return _embed(values)
+
+    result = semantic_passage_search(
+        project,
+        sheet_id=sheet,
+        row_ids=None,
+        file_cells=set(),
+        query="needle",
+        limit=2,
+        embed=cancelling,
+        embed_id="stub/cancel",
+        cancel_event=stop,
+    )
+    assert calls == [3]
+    assert result["new_embeddings"] == 3
+    assert result["coverage"]["reason"] == "cancelled"
+    project.close()
