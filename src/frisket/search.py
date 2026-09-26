@@ -24,6 +24,7 @@ import json
 import os
 import sqlite3
 import threading
+import uuid
 from collections.abc import Callable, Iterator
 from typing import Any
 
@@ -366,6 +367,9 @@ def search_cells_scoped(
         return []
     db = fresh_sidecar(project, cancel_event=cancel_event)
     indexed_at_op = fts_indexed_at_op(db)
+    marker = uuid.uuid4().hex
+    anchor_start = f"__frisket_fts_{marker}_start__"
+    anchor_end = f"__frisket_fts_{marker}_end__"
     authorized: list[str] = []
     params: list[Any] = [query, sheet_id]
     if row_ids:
@@ -380,7 +384,7 @@ def search_cells_scoped(
     scope = "" if not authorized else " AND (" + " OR ".join(authorized) + ")"
     sql = (
         "SELECT sheet_id,row_id,column_id,column_name,"
-        "snippet(cell_fts, 0, '<b>', '</b>', '…', 12) AS snip "
+        "snippet(cell_fts, 0, ?, ?, '…', 12) AS snip "
         "FROM cell_fts WHERE cell_fts MATCH ? AND sheet_id=?"
         + scope
         + " ORDER BY rank LIMIT ?"
@@ -390,16 +394,31 @@ def search_cells_scoped(
         db.set_progress_handler(progress, 1_000)
     try:
         try:
-            rows = db.execute(sql, [*params, limit]).fetchall()
+            rows = db.execute(
+                sql, [anchor_start, anchor_end, *params, limit]
+            ).fetchall()
         except sqlite3.OperationalError:
             _raise_if_cancelled(cancel_event)
-            rows = db.execute(sql, [f'"{query}"', *params[1:], limit]).fetchall()
+            rows = db.execute(
+                sql,
+                [anchor_start, anchor_end, f'"{query}"', *params[1:], limit],
+            ).fetchall()
     except sqlite3.OperationalError:
         _raise_if_cancelled(cancel_event)
         raise
     finally:
         db.close()
-    return [{**dict(row), "_indexed_at_op": indexed_at_op} for row in rows]
+    hits = []
+    for row in rows:
+        hit = dict(row)
+        snippet = str(hit["snip"])
+        _, found, remainder = snippet.partition(anchor_start)
+        anchor, closed, _ = remainder.partition(anchor_end)
+        hit["snip"] = snippet.replace(anchor_start, "<b>").replace(anchor_end, "</b>")
+        if found and closed and anchor:
+            hit["fts_anchor"] = anchor
+        hits.append({**hit, "_indexed_at_op": indexed_at_op})
+    return hits
 
 
 def rrf_fuse(ranked_lists: list[list[int]], k: int = 60) -> list[tuple[int, float]]:

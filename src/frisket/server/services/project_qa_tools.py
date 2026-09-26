@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 import threading
 from collections.abc import Mapping
 from typing import Any, Literal
@@ -538,8 +537,11 @@ class ProjectQATools:
                 excerpt=snippet,
                 metadata={
                     "search": query,
-                    # Only SQLite FTS snippets use <b> as a match marker.
-                    "fts_snippet": not bool(hit.get("semantic")),
+                    **(
+                        {"fts_anchor": hit["fts_anchor"]}
+                        if isinstance(hit.get("fts_anchor"), str)
+                        else {}
+                    ),
                 },
             )
             self._citation_ids.add(citation["id"])
@@ -799,13 +801,9 @@ class ProjectQATools:
                 "passages": [{"kind": "web", "text": text}],
             }
         cell, source, prepared_source = self._prepared_text_target(citation)
-        marked = (
-            re.search(r"<b>(.*?)</b>", str(citation["excerpt"] or ""), re.DOTALL)
-            if "char_start" not in locator
-            and citation.get("metadata", {}).get("fts_snippet") is True
-            else None
-        )
-        anchor = marked.group(1) if marked else None
+        anchor = citation.get("metadata", {}).get("fts_anchor")
+        if not isinstance(anchor, str):
+            anchor = None
         start = int(locator.get("char_start", 0))
         # Reserve room for grounded page/time evidence instead of always exhausting
         # the complete read allowance on a cell prefix.
