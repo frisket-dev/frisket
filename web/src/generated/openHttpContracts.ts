@@ -508,15 +508,6 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
-      "id": "tenant.copilot_ep.post",
-      "method": "POST",
-      "path": "/api/projects/{pid}/copilot",
-      "request": {
-        "mediaType": "application/json",
-        "required": true
-      }
-    },
-    {
       "id": "tenant.create_lens.post",
       "method": "POST",
       "path": "/api/projects/{pid}/lenses",
@@ -2797,6 +2788,13 @@ type HttpAskCitation_AskQueryTarget = ({
   "total": (number);
 });
 
+type HttpAskCitation_AskWebTarget = ({
+  "fetched": (boolean);
+  "kind": ("web") & (string);
+  "retrieved_at": (string);
+  "url": (string);
+});
+
 type HttpAskCitation_JsonValue = JsonValue;
 
 export type HttpAskCitation = ({
@@ -2806,7 +2804,7 @@ export type HttpAskCitation = ({
   "message": (((string)) | ((null)));
   "source_kind": (string);
   "status": ("current" | "changed" | "unverified" | "unavailable") & (string);
-  "target": (((((HttpAskCitation_AskCellTarget)) | ((HttpAskCitation_AskQueryTarget)) | ((HttpAskCitation_AskEvidenceTarget)))) | ((null)));
+  "target": (((((HttpAskCitation_AskCellTarget)) | ((HttpAskCitation_AskQueryTarget)) | ((HttpAskCitation_AskEvidenceTarget)) | ((HttpAskCitation_AskWebTarget)))) | ((null)));
 });
 
 type HttpAskEventsPage_AskCellTarget = ({
@@ -2823,7 +2821,7 @@ type HttpAskEventsPage_AskCitation = ({
   "message": (((string)) | ((null)));
   "source_kind": (string);
   "status": ("current" | "changed" | "unverified" | "unavailable") & (string);
-  "target": (((((HttpAskEventsPage_AskCellTarget)) | ((HttpAskEventsPage_AskQueryTarget)) | ((HttpAskEventsPage_AskEvidenceTarget)))) | ((null)));
+  "target": (((((HttpAskEventsPage_AskCellTarget)) | ((HttpAskEventsPage_AskQueryTarget)) | ((HttpAskEventsPage_AskEvidenceTarget)) | ((HttpAskEventsPage_AskWebTarget)))) | ((null)));
 });
 
 type HttpAskEventsPage_AskEvent = ({
@@ -2902,6 +2900,13 @@ type HttpAskEventsPage_AskTurn = ({
   [key: string]: (HttpAskEventsPage_JsonValue);
 })) | ((null)));
   "web"?: (boolean);
+});
+
+type HttpAskEventsPage_AskWebTarget = ({
+  "fetched": (boolean);
+  "kind": ("web") & (string);
+  "retrieved_at": (string);
+  "url": (string);
 });
 
 type HttpAskEventsPage_JsonValue = JsonValue;
@@ -2998,7 +3003,7 @@ type HttpAskThreadDetail_AskCitation = ({
   "message": (((string)) | ((null)));
   "source_kind": (string);
   "status": ("current" | "changed" | "unverified" | "unavailable") & (string);
-  "target": (((((HttpAskThreadDetail_AskCellTarget)) | ((HttpAskThreadDetail_AskQueryTarget)) | ((HttpAskThreadDetail_AskEvidenceTarget)))) | ((null)));
+  "target": (((((HttpAskThreadDetail_AskCellTarget)) | ((HttpAskThreadDetail_AskQueryTarget)) | ((HttpAskThreadDetail_AskEvidenceTarget)) | ((HttpAskThreadDetail_AskWebTarget)))) | ((null)));
 });
 
 type HttpAskThreadDetail_AskEvent = ({
@@ -3097,6 +3102,13 @@ type HttpAskThreadDetail_AskTurn = ({
   [key: string]: (HttpAskThreadDetail_JsonValue);
 })) | ((null)));
   "web"?: (boolean);
+});
+
+type HttpAskThreadDetail_AskWebTarget = ({
+  "fetched": (boolean);
+  "kind": ("web") & (string);
+  "retrieved_at": (string);
+  "url": (string);
 });
 
 type HttpAskThreadDetail_JsonValue = JsonValue;
@@ -3738,138 +3750,6 @@ export type HttpColumnValuesPreviewResponse = ({
   "value_hash": (string);
   "values": (Array<(HttpColumnValuesPreviewResponse_ColumnValueCount)>);
   [key: string]: (HttpColumnValuesPreviewResponse_JsonValue) | (number) | (((HttpColumnValuesPreviewResponse_NumberColumnDistribution)) | ((HttpColumnValuesPreviewResponse_IntegerColumnDistribution)) | ((HttpColumnValuesPreviewResponse_DateColumnDistribution)) | ((null))) | (string) | (((HttpColumnValuesPreviewResponse_ListFacetPreview)) | ((null))) | ("frisket.column_values_preview.v1") & (string) | (((string)) | ((null))) | (boolean) | (Array<(HttpColumnValuesPreviewResponse_ColumnValueCount)>) | undefined;
-});
-
-type HttpCopilotReply_CopilotDeriveProposal = ({
-  "kind": ("derive") & (string);
-  "spec": (HttpCopilotReply_CopilotRegisteredActionDraft);
-  "title": (string);
-});
-
-type HttpCopilotReply_CopilotEnrichProposal = ({
-  "kind": ("enrich") & (string);
-  "spec": (HttpCopilotReply_CopilotRegisteredActionDraft);
-  "title": (string);
-});
-
-type HttpCopilotReply_CopilotMapProposal = ({
-  "kind": ("map") & (string);
-  "spec": (HttpCopilotReply_CopilotRegisteredActionDraft);
-  "title": (string);
-});
-
-type HttpCopilotReply_CopilotMediaProposal = ({
-  "kind": ("media") & (string);
-  "spec": (HttpCopilotReply_CopilotRegisteredActionDraft);
-  "title": (string);
-});
-
-type HttpCopilotReply_CopilotProposal = (((HttpCopilotReply_CopilotMapProposal)) | ((HttpCopilotReply_CopilotResolveProposal)) | ((HttpCopilotReply_CopilotDeriveProposal)) | ((HttpCopilotReply_CopilotReduceProposal)) | ((HttpCopilotReply_CopilotMediaProposal)) | ((HttpCopilotReply_CopilotEnrichProposal)) | ((HttpCopilotReply_CopilotWebProposal)) | ((HttpCopilotReply_CopilotResearchProposal)));
-
-type HttpCopilotReply_CopilotReduceProposal = ({
-  "kind": ("reduce") & (string);
-  "spec": (HttpCopilotReply_CopilotRegisteredActionDraft);
-  "title": (string);
-});
-
-type HttpCopilotReply_CopilotRegisteredActionDraft = ((({
-  "action_id"?: ("map.find" | "reduce.group_summary");
-  "output_names"?: JsonValue;
-  "params"?: JsonValue;
-  "scope"?: ({
-  "kind": ("sheet_rows");
-  "row_ids"?: JsonValue;
-  "sheet_id"?: JsonValue;
-});
-  "sheet_name": (string);
-})) | (({
-  "action_id"?: ("derive.link_table");
-  "output_names"?: JsonValue;
-  "params"?: JsonValue;
-  "scope"?: ({
-  "kind": ("sheet_rows");
-  "row_ids": (Array<JsonValue>);
-  "sheet_id"?: JsonValue;
-});
-  "sheet_name": (string);
-})) | (({
-  "action_id"?: ("derive.collection_expand" | "derive.link_table" | "derive.table_from_list");
-  "output_names"?: JsonValue;
-  "params"?: JsonValue;
-  "scope"?: ({
-  "kind": ("project");
-});
-  "sheet_name": (string);
-})) | (({
-  "action_id"?: ("enrich.census_demographics" | "enrich.geocode" | "map.api_call" | "map.ask" | "map.classify" | "map.clean_column" | "map.clean_dates" | "map.columns_from_json" | "map.extract" | "map.find_topic_sections" | "map.find_visual_cuts" | "map.judge" | "map.mcp_extract" | "map.ner" | "map.python" | "map.regex_extract" | "map.summarize" | "map.template" | "map.to_geo_point" | "map.translate" | "media.extract_faces" | "media.extract_metadata" | "media.extract_pdf_tables" | "media.fetch_url" | "media.ocr" | "media.to_markdown" | "media.transcribe" | "media.video_frames" | "media.ytdlp_download" | "research.answer" | "resolve.combine" | "resolve.fill_missing" | "resolve.replace" | "resolve.substitute" | "web.capture_screenshot");
-  "output_names"?: ({
-  [key: string]: (string);
-});
-  "params"?: JsonValue;
-  "scope"?: ({
-  "kind": ("sheet_rows");
-  "row_ids"?: JsonValue;
-  "sheet_id"?: JsonValue;
-});
-  "sheet_name"?: (null);
-}))) & ({
-  "action_id": ("derive.collection_expand" | "derive.link_table" | "derive.table_from_list" | "enrich.census_demographics" | "enrich.geocode" | "map.api_call" | "map.ask" | "map.classify" | "map.clean_column" | "map.clean_dates" | "map.columns_from_json" | "map.extract" | "map.find" | "map.find_topic_sections" | "map.find_visual_cuts" | "map.judge" | "map.mcp_extract" | "map.ner" | "map.python" | "map.regex_extract" | "map.summarize" | "map.template" | "map.to_geo_point" | "map.translate" | "media.extract_faces" | "media.extract_metadata" | "media.extract_pdf_tables" | "media.fetch_url" | "media.ocr" | "media.to_markdown" | "media.transcribe" | "media.video_frames" | "media.ytdlp_download" | "reduce.group_summary" | "research.answer" | "resolve.combine" | "resolve.fill_missing" | "resolve.replace" | "resolve.substitute" | "web.capture_screenshot") & (string);
-  "output_names"?: ({
-  [key: string]: (string);
-});
-  "params": ({
-  [key: string]: (HttpCopilotReply_JsonValue);
-});
-  "scope": (((HttpCopilotReply_ProjectScope)) | ((HttpCopilotReply_CopilotRegisteredSheetRowsScope)));
-  "sheet_name"?: (((string)) | ((null)));
-});
-
-type HttpCopilotReply_CopilotRegisteredSheetRowsScope = ({
-  "kind": ("sheet_rows") & (string);
-  "row_ids"?: (((Array<(number)>)) | ((null)));
-  "sheet_id": (number);
-});
-
-type HttpCopilotReply_CopilotResearchProposal = ({
-  "kind": ("research") & (string);
-  "spec": (HttpCopilotReply_CopilotRegisteredActionDraft);
-  "title": (string);
-});
-
-type HttpCopilotReply_CopilotResolveProposal = ({
-  "kind": ("resolve") & (string);
-  "spec": (HttpCopilotReply_CopilotRegisteredActionDraft);
-  "title": (string);
-});
-
-type HttpCopilotReply_CopilotWebProposal = ({
-  "kind": ("web") & (string);
-  "spec": (HttpCopilotReply_CopilotRegisteredActionDraft);
-  "title": (string);
-});
-
-type HttpCopilotReply_JsonValue = JsonValue;
-
-type HttpCopilotReply_ProjectScope = ({
-  "kind"?: ("project") & (string);
-});
-
-export type HttpCopilotReply = ({
-  "cost_usd"?: (((number)) | ((null)));
-  "needs_import": (boolean);
-  "proposals": (Array<(HttpCopilotReply_CopilotProposal)>);
-  "reply": (string);
-  "schema_version"?: ("frisket.copilot_reply.v1") & (string);
-});
-
-type HttpCopilotRequest_CopilotMessage = ({
-  "content": (string);
-  "role": ("user" | "assistant") & (string);
-});
-
-export type HttpCopilotRequest = ({
-  "messages": (Array<(HttpCopilotRequest_CopilotMessage)>);
-  "model"?: (((string)) | ((null)));
 });
 
 export type HttpCreateProjectInviteRequest = ({
@@ -5745,13 +5625,6 @@ export type HttpInline_a5c066f1e650ddc3 = ({
   "pid": (string);
 });
 
-export type HttpInline_a7757979c7328756 = ({
-  "limit"?: (number);
-  "mode"?: (string);
-  "q": (string);
-  "rerank"?: (string);
-});
-
 export type HttpInline_a84ebabaf698eacd = ({
   "include_stale"?: (boolean);
 });
@@ -5991,6 +5864,13 @@ export type HttpInline_cd5e2492515e7874 = ({
   "pid": (string);
 });
 
+export type HttpInline_d038fda6e4c7e695 = ({
+  "limit"?: (number);
+  "mode"?: (string);
+  "q": (string);
+  "rerank"?: (string);
+});
+
 export type HttpInline_d746974fa9afd5e9 = (Record<string, never>);
 
 type HttpInline_d89a2ac461d6e692_ActionError = ({
@@ -6074,6 +5954,11 @@ export type HttpInline_e581724f37bc5d5c = ({
   "pid": (string);
 });
 
+export type HttpInline_e8aaad66d2736f22 = ({
+  "limit"?: (number);
+  "offset"?: (number);
+});
+
 export type HttpInline_e8d8f1be94761d65 = ({
   "pid": (string);
   "row_id": (number);
@@ -6105,14 +5990,6 @@ export type HttpInline_ecf7142947bec4dd = ({
   "offset"?: (number);
   "route_id"?: (((number)) | ((null)));
   "status"?: (((string)) | ((null)));
-});
-
-export type HttpInline_ed227435f4ffc076 = ({
-  "filter"?: (((string)) | ((null)));
-  "page_size"?: (number);
-  "parent_row_id"?: (((number)) | ((null)));
-  "scope_row_ids"?: (((string)) | ((null)));
-  "sort"?: (((string)) | ((null)));
 });
 
 export type HttpInline_ed465fdc9da8ce19 = ({
@@ -6204,6 +6081,15 @@ export type HttpInline_f5786d802e3fc311 = ({
 export type HttpInline_f77fe33af308beb7 = ({
   "column_id": (number);
   "pid": (string);
+});
+
+export type HttpInline_f7cbd8861ad808a4 = ({
+  "filter"?: (((string)) | ((null)));
+  "page_size"?: (number);
+  "parent_row_id"?: (((number)) | ((null)));
+  "row_ids"?: (((string)) | ((null)));
+  "scope_row_ids"?: (((string)) | ((null)));
+  "sort"?: (((string)) | ((null)));
 });
 
 export type HttpInline_f8fd7cf5145f948b = ({
@@ -8267,11 +8153,6 @@ type HttpSelectorChoicesQuery_ActionSelectorSubject = ({
 });
 });
 
-type HttpSelectorChoicesQuery_CopilotSelectorSubject = ({
-  "kind": ("copilot") & (string);
-  "model"?: (((string)) | ((null)));
-});
-
 type HttpSelectorChoicesQuery_EmbeddingSelectorSubject = ({
   "kind": ("embedding") & (string);
   "modality"?: (((string)) | ((null)));
@@ -8282,9 +8163,14 @@ type HttpSelectorChoicesQuery_EmbeddingSelectorSubject = ({
 
 type HttpSelectorChoicesQuery_JsonValue = JsonValue;
 
+type HttpSelectorChoicesQuery_ProjectAskSelectorSubject = ({
+  "kind": ("project_ask") & (string);
+  "model"?: (((string)) | ((null)));
+});
+
 export type HttpSelectorChoicesQuery = ({
   "schema_version": ("frisket.selector_choices_query.v1") & (string);
-  "subject": (((HttpSelectorChoicesQuery_ActionSelectorSubject)) | ((HttpSelectorChoicesQuery_CopilotSelectorSubject)) | ((HttpSelectorChoicesQuery_EmbeddingSelectorSubject)));
+  "subject": (((HttpSelectorChoicesQuery_ActionSelectorSubject)) | ((HttpSelectorChoicesQuery_ProjectAskSelectorSubject)) | ((HttpSelectorChoicesQuery_EmbeddingSelectorSubject)));
 });
 
 type HttpSelectorChoicesResponse_ApiKeySetup = ({
@@ -8398,14 +8284,14 @@ type HttpSelectorChoicesResponse_NormalizedActionSelectorSubject = ({
   "kind": ("action") & (string);
 });
 
-type HttpSelectorChoicesResponse_NormalizedCopilotSelectorSubject = ({
-  "kind": ("copilot") & (string);
-});
-
 type HttpSelectorChoicesResponse_NormalizedEmbeddingSelectorSubject = ({
   "kind": ("embedding") & (string);
   "modality": (((string)) | ((null)));
   "source_column_type": (((string)) | ((null)));
+});
+
+type HttpSelectorChoicesResponse_NormalizedProjectAskSelectorSubject = ({
+  "kind": ("project_ask") & (string);
 });
 
 type HttpSelectorChoicesResponse_SelectorBlocker = ({
@@ -8493,7 +8379,7 @@ export type HttpSelectorChoicesResponse = ({
   "orphaned_current": (((HttpSelectorChoicesResponse_SelectorChoice)) | ((null)));
   "project_id": (string);
   "schema_version": ("frisket.selector_choices.v1") & (string);
-  "subject": (((HttpSelectorChoicesResponse_NormalizedActionSelectorSubject)) | ((HttpSelectorChoicesResponse_NormalizedCopilotSelectorSubject)) | ((HttpSelectorChoicesResponse_NormalizedEmbeddingSelectorSubject)));
+  "subject": (((HttpSelectorChoicesResponse_NormalizedActionSelectorSubject)) | ((HttpSelectorChoicesResponse_NormalizedProjectAskSelectorSubject)) | ((HttpSelectorChoicesResponse_NormalizedEmbeddingSelectorSubject)));
 });
 
 export type HttpSetProjectMemberRequest = ({
@@ -10577,21 +10463,6 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
-  readonly "tenant.copilot_ep.post": {
-    readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_d746974fa9afd5e9;
-    readonly request: HttpCopilotRequest;
-    readonly responses: {
-      readonly "200": HttpCopilotReply;
-      readonly "401": HttpError;
-      readonly "403": HttpError;
-      readonly "404": HttpError;
-      readonly "409": HttpError;
-      readonly "422": HttpError;
-      readonly "500": HttpError;
-      readonly "502": HttpError;
-    };
-  };
   readonly "tenant.create_lens.post": {
     readonly pathParams: HttpInline_87cacc773db826e7;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -11590,7 +11461,7 @@ export type HttpContractOperationMap = {
   };
   readonly "tenant.locate_sheet_row.get": {
     readonly pathParams: HttpInline_38aa6fedb0c0d4ef;
-    readonly query: HttpInline_ed227435f4ffc076;
+    readonly query: HttpInline_f7cbd8861ad808a4;
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpSheetRowLocation;
@@ -11976,7 +11847,7 @@ export type HttpContractOperationMap = {
   };
   readonly "tenant.qa_threads.get": {
     readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_e8aaad66d2736f22;
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpInline_64f1fc6f91179544;
@@ -12172,7 +12043,7 @@ export type HttpContractOperationMap = {
   };
   readonly "tenant.search_ep.get": {
     readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_a7757979c7328756;
+    readonly query: HttpInline_d038fda6e4c7e695;
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpProjectSearchHits;

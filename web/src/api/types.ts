@@ -2048,6 +2048,7 @@ export type GridFilterOperator =
   | 'bbox'
   | 'failed'
   | 'entity_eq'
+  | 'group_eq'
   /** At least one top-level member of a JSON list matches one selector. */
   | 'list_contains_any';
 
@@ -2093,6 +2094,12 @@ export type GridFilterListSelector =
   | { kind: 'scalar'; value: string | number | boolean }
   | { kind: 'entity'; type: string; text: string };
 
+/** Backend-produced analytics group identity, carried by the normal filter path. */
+export type GridFilterGroupValue =
+  | { kind: 'missing' | 'invalid' }
+  | { kind: 'value'; value_json: string }
+  | { kind: 'date_bucket'; bucket: 'day' | 'month' | 'year'; value: string };
+
 export type GridFilterValue =
   | string
   | string[]
@@ -2100,6 +2107,7 @@ export type GridFilterValue =
   | GridFilterRelativeDateValue
   | GridFilterBboxValue
   | GridFilterEntityValue
+  | GridFilterGroupValue
   | GridFilterListSelector[];
 
 export type GridFilterSpec = Record<string, Partial<Record<GridFilterOperator, GridFilterValue>>>;

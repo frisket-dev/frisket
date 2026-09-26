@@ -3,6 +3,7 @@ import type { AskCitation, AskEvent } from '../../api/projectQA';
 import { isGeneratedActionDraft, type GeneratedActionDraft } from '../../api/types';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 import { MarkdownView } from '../../markdown';
+import { AskToolActivity } from './AskToolActivity';
 
 export function AskEventContent({ event, onInspectProposal, onOpenSource }: { event: AskEvent; onOpenSource(citation: AskCitation): void; onInspectProposal(title: string, spec: GeneratedActionDraft): void }) {
   const payload = event.payload;
@@ -54,12 +55,7 @@ export function AskEventContent({ event, onInspectProposal, onOpenSource }: { ev
     </>}</div>}
     {event.kind === 'answer' && <div className="ask-answer-actions"><button type="button" onClick={() => void copy(false)}>Copy text</button><button type="button" onClick={() => void copy(true)}>Copy with sources</button>{copyStatus && <span role="status">{copyStatus}</span>}</div>}
   </div>;
-  const toolLabels: Record<string, string> = { inspect_sheets: 'Checking sources', read_rows: 'Reading records', query_rows: 'Checking matching records', search_cells: 'Searching project content', open_source: 'Reading a source', propose_action: 'Preparing an action suggestion', search_web: 'Searching the web', open_web_page: 'Reading a web page' };
-  if (event.kind === 'tool_started' || event.kind === 'tool_completed') return (
-    <details className="ask-tool"><summary>{String(payload.summary ?? toolLabels[String(payload.tool)] ?? 'Reading sources')}</summary>
-      <p>{String(payload.detail ?? payload.summary ?? '')}</p>
-    </details>
-  );
+  if (event.kind === 'tool_started' || event.kind === 'tool_completed') return <AskToolActivity event={event} />;
   if (event.kind === 'status' && ['stopped', 'interrupted', 'failed'].includes(String(payload.status))) return (
     <p className="ask-status">{payload.status === 'stopped' ? 'Stopped. The work above is saved.' : payload.status === 'interrupted' ? 'Interrupted. Send a follow-up to continue.' : String(payload.error_summary ?? 'This question could not be completed.')}</p>
   );

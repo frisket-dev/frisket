@@ -136,7 +136,9 @@ it('renames and deletes the saved conversation without executing an action', asy
   expect(await handle.rename('Renamed')).toBe(true);
   expect(api.update).toHaveBeenCalledWith(thread.id, { title: 'Renamed', expected_revision: 1 }, expect.any(AbortSignal));
   expect(handle.store.get().thread?.title).toBe('Renamed');
+  handle.store.set((s) => ({ ...s, hasMoreThreads: true }));
   expect(await handle.deleteThread()).toBe(true);
+  expect(handle.store.get().hasMoreThreads).toBe(true);
   expect(handle.store.get().thread).toBeNull();
   expect(api.submit).not.toHaveBeenCalled();
 });

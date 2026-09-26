@@ -380,3 +380,11 @@ describe('spliceColumnOrderBeside — insert-left/right lands beside its anchor'
     expect(input).toEqual(['alpha', 'beta']);
   });
 });
+
+
+it('preserves server group selectors through saved-view normalization and labels them', () => {
+  const filter: GridFilterSpec = { Status: { group_eq: { kind: 'missing' } } };
+  expect(normalizeGridFilterSpec(filter)).toEqual(filter);
+  expect(gridFilterLabel(filter)).toBe('Status is missing');
+  expect(normalizeGridFilterSpec({ Status: { group_eq: { kind: 'unknown' } } })).toEqual({ Status: { group_eq: { kind: 'value', value_json: '' } } });
+});

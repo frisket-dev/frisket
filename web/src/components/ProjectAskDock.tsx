@@ -59,7 +59,7 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
     <div className="ask-history" ref={historyRef} aria-live="polite" aria-relevant="additions">
       {state.hasEarlier && <button type="button" disabled={state.busy} onClick={() => void qa.loadEarlier()}>Load earlier messages</button>}
       {!state.events.length && <PanelEmpty>Ask a question about your sources, or explore what they contain.</PanelEmpty>}
-      {state.events.map((event) => <AskEventContent key={event.seq} event={event} onInspectProposal={onInspectProposal} onOpenSource={onOpenSource} />)}
+      {state.events.map((event) => <AskEventContent key={`${event.thread_id}:${event.seq}`} event={event} onInspectProposal={onInspectProposal} onOpenSource={onOpenSource} />)}
       {state.activeTurn && <div className="ask-status" role="status">{state.activeTurn.status === 'stopping' ? 'Stopping…' : 'Investigating…'}</div>}
     </div>
     <div className="ask-composer">

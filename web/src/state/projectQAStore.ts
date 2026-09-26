@@ -109,7 +109,7 @@ export function createProjectQAStore(api: ProjectQAApi) {
         await api.delete(thread.id, controller.signal);
         if (current !== generation) return false;
         generation += 1; controller.abort(); controller = new AbortController(); pending = null;
-        store.set((s) => ({ ...initial(), loaded: true, threads: s.threads.filter((item) => item.id !== thread.id), scope: s.scope, model: s.model }));
+        store.set((s) => ({ ...initial(), loaded: true, hasMoreThreads: s.hasMoreThreads, threads: s.threads.filter((item) => item.id !== thread.id), scope: s.scope, model: s.model }));
         return true;
       } catch (exc) {
         if (current === generation) store.set((s) => ({ ...s, error: error(exc) }));
