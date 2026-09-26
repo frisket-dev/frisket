@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal, Protocol, TypedDict, cast
+from typing import Any, Literal, NotRequired, Protocol, TypedDict, cast
 
 from frisket.ai.model_defaults import DEFAULT_MAX_OUTPUT_TOKENS
 
@@ -99,6 +99,9 @@ class LLMToolCall(TypedDict):
     name: str
     args: str | dict[str, Any]
     id: str
+    # Provider-owned metadata required when replaying this call in the next
+    # request.  Adapters admit only their narrow known wire extension here.
+    provider_details: NotRequired[dict[str, Any]]
 
 
 @dataclass
@@ -124,6 +127,10 @@ class LLMResponse:
     raw: dict[str, Any] = field(default_factory=dict)
     # Named tool_use/tool_calls blocks parsed from a tools-bearing request.
     tool_calls: list[LLMToolCall] | None = None
+    # A schema-bearing native tool response has a provider wire identity that
+    # differs from pydantic-ai's logical output tool. Preserve it for a repair
+    # turn without exposing it as an ordinary function-tool result.
+    output_tool_call: LLMToolCall | None = None
     # Wall time of the ACCEPTED adapter attempt, milliseconds, from the
     # monotonic clock ModelRouter._call_with_retry already runs for its health
     # stats — the one site that sees both ends of the wire call. None on a

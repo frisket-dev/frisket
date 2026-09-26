@@ -115,6 +115,8 @@ _MECH_TO_MODE = {
 # backtrack the way an unbounded {...} regex could (a ReDoS class) -- the
 # balanced-brace scan below is the one that must NOT be a regex.
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
+_WIRE_CONTENT = "frisket_wire_content"
+_WIRE_TOOL_CALL = "frisket_wire_tool_call"
 
 
 def _extract_prose_json(text: str) -> str:
@@ -414,6 +416,7 @@ class FrisketRouterModel(Model):
     # --- translation helpers ----------------------------------------------
     def _to_our_messages(self, messages: list[ModelMessage]) -> list[dict]:
         out: list[dict] = []
+        native_tool_call_ids: set[str] = set()
         # pydantic-ai repeats `m.instructions` on every ModelRequest; deduplicate
         # identical prompts to preserve message-history hygiene and cache determinism.
         last_instructions: str | None = None
@@ -432,29 +435,71 @@ class FrisketRouterModel(Model):
                     elif p.part_kind == "tool-return":
                         out.append(
                             {
-                                "role": "user",
-                                "content": f"Observation:\n{p.model_response_str()}",
+                                "role": "tool",
+                                "content": p.model_response_str(),
+                                "tool_name": p.tool_name,
+                                "tool_call_id": p.tool_call_id,
+                                "tool_error": False,
                             }
                         )
                     elif p.part_kind == "retry-prompt":
-                        out.append({"role": "user", "content": p.model_response()})
+                        if (
+                            p.tool_name is not None
+                            and p.tool_call_id in native_tool_call_ids
+                        ):
+                            out.append(
+                                {
+                                    "role": "tool",
+                                    "content": p.model_response(),
+                                    "tool_name": p.tool_name,
+                                    "tool_call_id": p.tool_call_id,
+                                    "tool_error": True,
+                                }
+                            )
+                        else:
+                            out.append({"role": "user", "content": p.model_response()})
                     else:
                         raise TypeError(f"unsupported request part: {p.part_kind}")
             else:
+                text_parts: list[str] = []
+                tool_calls: list[dict[str, Any]] = []
                 for p in m.parts:
                     if p.part_kind == "text":
-                        out.append({"role": "assistant", "content": p.content})
+                        text_parts.append(p.content)
                     elif p.part_kind == "tool-call":
-                        out.append(
-                            {
-                                "role": "assistant",
-                                "content": json.dumps(
-                                    {"tool": p.tool_name, "args": p.args_as_dict()}
-                                ),
-                            }
+                        details = (
+                            p.provider_details
+                            if isinstance(p.provider_details, dict)
+                            else {}
                         )
+                        wire_content = details.get(_WIRE_CONTENT)
+                        if isinstance(wire_content, str):
+                            text_parts.append(wire_content)
+                            continue
+                        wire_call = details.get(_WIRE_TOOL_CALL)
+                        if isinstance(wire_call, dict):
+                            call = dict(wire_call)
+                        else:
+                            call = {
+                                "name": p.tool_name,
+                                "args": p.args,
+                                "id": p.tool_call_id,
+                                **({"provider_details": details} if details else {}),
+                            }
+                        call_id = call.get("id")
+                        if not isinstance(call_id, str):
+                            raise TypeError("native tool call is missing its id")
+                        native_tool_call_ids.add(call_id)
+                        tool_calls.append(call)
                     else:
                         raise TypeError(f"unsupported response part: {p.part_kind}")
+                out.append(
+                    {
+                        "role": "assistant",
+                        "content": "\n".join(text_parts) if text_parts else None,
+                        **({"tool_calls": tool_calls} if tool_calls else {}),
+                    }
+                )
         return out
 
     @staticmethod
@@ -516,11 +561,24 @@ class FrisketRouterModel(Model):
             # Schema-only output keeps its forced output-tool mapping even if
             # an adapter also parsed provider tool-call metadata. Combined
             # function/output tools use ``combined_tools`` below instead.
+            provider_details: dict[str, Any] | None = None
+            tool_call_id: str | None = None
+            if resp.output_tool_call is not None:
+                provider_details = {_WIRE_TOOL_CALL: resp.output_tool_call}
+                tool_call_id = resp.output_tool_call["id"]
+            elif resp.content is not None:
+                provider_details = {_WIRE_CONTENT: resp.content}
             return ModelResponse(
                 parts=[
                     ToolCallPart(
                         tool_name=params.output_tools[0].name,
                         args=data,
+                        **(
+                            {"tool_call_id": tool_call_id}
+                            if tool_call_id is not None
+                            else {}
+                        ),
+                        provider_details=provider_details,
                     )
                 ],
                 usage=usage,
@@ -533,6 +591,7 @@ class FrisketRouterModel(Model):
                         tool_name=tc["name"],
                         args=tc["args"],
                         tool_call_id=tc["id"],
+                        provider_details=tc.get("provider_details"),
                     )
                     for tc in resp.tool_calls
                 ],
