@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 
 import pytest
 
@@ -128,10 +129,15 @@ def test_failed_rebuild_keeps_prior_committed_index(tmp_path, monkeypatch):
     rebuild_index(project)
     original_op = project.op_cursor
 
-    def fail_values(*_args, **_kwargs):
-        raise RuntimeError("source read failed")
+    checks = 0
 
-    monkeypatch.setattr(ProjectReadSnapshot, "get_values", fail_values)
+    def fail_during_read(_cancel_event):
+        nonlocal checks
+        checks += 1
+        if checks > 1:
+            raise RuntimeError("source read failed")
+
+    monkeypatch.setattr(search_mod, "_raise_if_cancelled", fail_during_read)
     with pytest.raises(RuntimeError, match="source read failed"):
         rebuild_index(project)
 
@@ -174,15 +180,15 @@ def test_rebuild_watermark_belongs_to_the_indexed_snapshot(tmp_path, monkeypatch
     column = project.add_column(sheet, "body")
     project.add_rows(sheet, [{"body": "original"}], {"body": column})
     original_op = project.op_cursor
-    original_read = ProjectReadSnapshot.get_values
+    checks = 0
 
-    def read_then_write(*args, **kwargs):
-        values = original_read(*args, **kwargs)
-        if project.op_cursor == original_op:
+    def read_then_write(_cancel_event):
+        nonlocal checks
+        checks += 1
+        if checks > 1 and project.op_cursor == original_op:
             project.add_rows(sheet, [{"body": "concurrentneedle"}], {"body": column})
-        return values
 
-    monkeypatch.setattr(ProjectReadSnapshot, "get_values", read_then_write)
+    monkeypatch.setattr(search_mod, "_raise_if_cancelled", read_then_write)
     rebuild_index(project)
     db = _sidecar(project)
     try:
@@ -192,3 +198,36 @@ def test_rebuild_watermark_belongs_to_the_indexed_snapshot(tmp_path, monkeypatch
     finally:
         db.close()
         project.close()
+
+
+def test_cancelled_rebuild_keeps_prior_index(tmp_path):
+    project = Project.create(tmp_path / "cancel.frisket", name="cancel")
+    sheet = project.add_sheet("documents")
+    column = project.add_column(sheet, "body")
+    project.add_rows(sheet, [{"body": "committedneedle"}], {"body": column})
+    rebuild_index(project)
+    cancel = threading.Event()
+    cancel.set()
+
+    with pytest.raises(InterruptedError):
+        rebuild_index(project, cancel_event=cancel)
+
+    assert search_project(project, "committedneedle", rerank="off")
+    project.close()
+
+
+def test_rebuild_streams_snapshot_rows_without_materializing_columns(
+    tmp_path, monkeypatch
+):
+    project = Project.create(tmp_path / "stream.frisket", name="stream")
+    sheet = project.add_sheet("documents")
+    column = project.add_column(sheet, "body")
+    project.add_rows(sheet, [{"body": "streamneedle"}], {"body": column})
+
+    def whole_column_read(*_args, **_kwargs):
+        pytest.fail("rebuild materialized a complete column")
+
+    monkeypatch.setattr(ProjectReadSnapshot, "get_values", whole_column_read)
+    assert rebuild_index(project) == 1
+    assert search_project(project, "streamneedle", rerank="off")
+    project.close()

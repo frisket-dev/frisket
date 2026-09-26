@@ -602,6 +602,7 @@ def semantic_passage_search(
                 None if row_ids is None else sorted(row_ids),
                 effective_cells,
                 limit,
+                cancel_event=cancel_event,
             ),
             "new_embeddings": fresh_count,
             "coverage": {"complete": False, "reason": reason, "semantic": False},
@@ -619,7 +620,9 @@ def semantic_passage_search(
     if not 1 <= limit <= 100 or remaining_embeddings < 0:
         raise ValueError("invalid semantic passage bounds")
 
-    db = fresh_sidecar(project)
+    db = fresh_sidecar(project, cancel_event=cancel_event)
+    if cancel_event is not None:
+        db.set_progress_handler(lambda: int(cancel_event.is_set()), 1_000)
     try:
         where, params = ["sheet_id=?"], [sheet_id]
         allowed: list[str] = []
@@ -673,6 +676,10 @@ def semantic_passage_search(
                 )
                 if len(passages) > MAX_ASK_PASSAGES:
                     return fallback("passage_limit")
+    except sqlite3.OperationalError:
+        if stopped():
+            raise InterruptedError("search was stopped") from None
+        raise
     finally:
         db.close()
     if stopped():

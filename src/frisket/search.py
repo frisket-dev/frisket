@@ -20,8 +20,10 @@ first-stage order instead of reordering on noise — RERANK_MIN_SPREAD below."""
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
+import threading
 from collections.abc import Callable, Iterator
 from contextlib import closing
 from typing import Any
@@ -117,7 +119,20 @@ def _sidecar(project: Project) -> sqlite3.Connection:
     return db
 
 
-def rebuild_index(project: Project) -> int:
+def _raise_if_cancelled(cancel_event: threading.Event | None) -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise InterruptedError("search was stopped")
+
+
+def _cancel_progress(cancel_event: threading.Event | None) -> Callable[[], int] | None:
+    if cancel_event is None:
+        return None
+    return lambda: int(cancel_event.is_set())
+
+
+def rebuild_index(
+    project: Project, *, cancel_event: threading.Event | None = None
+) -> int:
     """Publish a complete-cell index and watermark from one read snapshot.
 
     Vector entries are content-addressed; rebuilding keyword search leaves them
@@ -125,7 +140,13 @@ def rebuild_index(project: Project) -> int:
     """
     db = _sidecar(project)
     try:
+        _raise_if_cancelled(cancel_event)
+        progress = _cancel_progress(cancel_event)
+        if progress is not None:
+            db.set_progress_handler(progress, 1_000)
         with closing(project.read_snapshot()) as snapshot:
+            if progress is not None:
+                snapshot.db.set_progress_handler(progress, 1_000)
             indexed_at_op = snapshot.op_cursor
             db.execute("BEGIN")
             db.execute("DELETE FROM cell_fts")
@@ -136,11 +157,20 @@ def rebuild_index(project: Project) -> int:
                 for column in snapshot.columns(sheet["id"]):
                     if column["type"] not in ("text", "category", "json", "link"):
                         continue
-                    values = snapshot.get_values(sheet["id"], column["id"])
 
                     def rows() -> Iterator[tuple[str, int, int, int, str]]:
                         nonlocal n
-                        for row_id, value in values.items():
+                        source_rows = snapshot.db.execute(
+                            "SELECT r.id, c.value, COALESCE(c.validity, 'missing') AS validity "
+                            "FROM rows r LEFT JOIN current_cells c "
+                            "ON c.column_id=? AND c.row_id=r.id "
+                            "WHERE r.sheet_id=? AND r.hidden=0",
+                            (column["id"], sheet["id"]),
+                        )
+                        for row in source_rows:
+                            _raise_if_cancelled(cancel_event)
+                            stored = None if row["validity"] == "invalid" else row["value"]
+                            value = None if stored is None else json.loads(stored)
                             if value is None:
                                 continue
                             text = str(value)
@@ -150,7 +180,7 @@ def rebuild_index(project: Project) -> int:
                             yield (
                                 text,
                                 sheet["id"],
-                                row_id,
+                                int(row["id"]),
                                 column["id"],
                                 column["name"],
                             )
@@ -171,6 +201,10 @@ def rebuild_index(project: Project) -> int:
                 )
             db.commit()
             return n
+    except sqlite3.OperationalError:
+        db.rollback()
+        _raise_if_cancelled(cancel_event)
+        raise
     except BaseException:
         db.rollback()
         raise
@@ -197,19 +231,23 @@ def fts_index_content_version(db: sqlite3.Connection) -> str | None:
     return str(state["value"]) if state is not None else None
 
 
-def fresh_sidecar(project: Project) -> sqlite3.Connection:
+def fresh_sidecar(
+    project: Project, *, cancel_event: threading.Event | None = None
+) -> sqlite3.Connection:
     """An FTS sidecar connection whose index is current for project.op_cursor.
 
     The lazy pull-style staleness check (watermark != op_cursor -> rebuild)
     used to be copy-pasted at every reader; it lives only here now."""
+    _raise_if_cancelled(cancel_event)
     db = _sidecar(project)
     if (
         fts_indexed_at_op(db) != project.op_cursor
         or fts_index_content_version(db) != FTS_INDEX_CONTENT_VERSION
     ):
         db.close()
-        rebuild_index(project)
+        rebuild_index(project, cancel_event=cancel_event)
         db = _sidecar(project)
+    _raise_if_cancelled(cancel_event)
     return db
 
 
@@ -300,12 +338,16 @@ def search_cells_scoped(
     row_ids: list[int] | None,
     cells: set[tuple[int, int]] | None = None,
     limit: int = 50,
+    *,
+    cancel_event: threading.Event | None = None,
 ) -> list[dict[str, Any]]:
     """Lexically rank authorized rows/cells before applying ``limit``."""
 
+    _raise_if_cancelled(cancel_event)
     if row_ids is not None and not row_ids and not cells:
         return []
-    db = fresh_sidecar(project)
+    db = fresh_sidecar(project, cancel_event=cancel_event)
+    indexed_at_op = fts_indexed_at_op(db)
     authorized: list[str] = []
     params: list[Any] = [query, sheet_id]
     if row_ids:
@@ -325,12 +367,21 @@ def search_cells_scoped(
         + scope
         + " ORDER BY rank LIMIT ?"
     )
+    progress = _cancel_progress(cancel_event)
+    if progress is not None:
+        db.set_progress_handler(progress, 1_000)
     try:
-        rows = db.execute(sql, [*params, limit]).fetchall()
+        try:
+            rows = db.execute(sql, [*params, limit]).fetchall()
+        except sqlite3.OperationalError:
+            _raise_if_cancelled(cancel_event)
+            rows = db.execute(sql, [f'"{query}"', *params[1:], limit]).fetchall()
     except sqlite3.OperationalError:
-        rows = db.execute(sql, [f'"{query}"', *params[1:], limit]).fetchall()
-    db.close()
-    return [dict(row) for row in rows]
+        _raise_if_cancelled(cancel_event)
+        raise
+    finally:
+        db.close()
+    return [{**dict(row), "_indexed_at_op": indexed_at_op} for row in rows]
 
 
 def rrf_fuse(ranked_lists: list[list[int]], k: int = 60) -> list[tuple[int, float]]:

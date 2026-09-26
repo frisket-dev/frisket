@@ -386,6 +386,7 @@ class ProjectQATools:
                 None if allowed_rows is None else sorted(allowed_rows),
                 file_cells,
                 limit,
+                cancel_event=self.cancel_event,
             )
             coverage = {"semantic": False, "complete": True}
         else:
@@ -402,6 +403,10 @@ class ProjectQATools:
             snippet = str(hit.get("text", hit.get("snip", "")))
             start = int(hit.get("char_start", 0))
             size = max(1, int(hit.get("char_end", start + 1)) - start)
+            indexed_at_op = hit.get("_indexed_at_op")
+            if not hit.get("semantic") and indexed_at_op != self.project.op_cursor:
+                coverage = {**coverage, "complete": False, "reason": "source_changed"}
+                continue
             try:
                 source = read_source_text(
                     self.project,
@@ -411,6 +416,9 @@ class ProjectQATools:
                     cancel=self.cancel_event,
                 )
             except ValueError:
+                coverage = {**coverage, "complete": False, "reason": "source_changed"}
+                continue
+            if not hit.get("semantic") and indexed_at_op != self.project.op_cursor:
                 coverage = {**coverage, "complete": False, "reason": "source_changed"}
                 continue
             if hit.get("semantic") and source["text"] != snippet:
