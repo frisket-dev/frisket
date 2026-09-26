@@ -72,6 +72,7 @@ test('Ask stays docked, keeps its draft, and reconnects to saved progress', asyn
   const initialHeight = await question.evaluate((element) => element.getBoundingClientRect().height);
   const lineHeight = await question.evaluate((element) => Number.parseFloat(getComputedStyle(element).lineHeight));
   expect(initialHeight).toBeLessThan(lineHeight * 2);
+  await page.screenshot({ path: test.info().outputPath('ask-single-line.png'), fullPage: true });
   await question.fill('First line\nSecond line\nThird line');
   await expect.poll(() => question.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThan(initialHeight * 2);
   await question.fill('');
@@ -135,6 +136,8 @@ test('Ask stays docked, keeps its draft, and reconnects to saved progress', asyn
   await expect(page.getByTestId('action-form-title')).toContainText('Add a note');
   await expect(dock).toBeVisible();
   await page.screenshot({ path: test.info().outputPath('ask-docked.png'), fullPage: true });
+  await page.evaluate(() => { document.documentElement.dataset.frisketTheme = 'dark'; });
+  await page.screenshot({ path: test.info().outputPath('ask-dark.png'), fullPage: true });
 });
 
 
