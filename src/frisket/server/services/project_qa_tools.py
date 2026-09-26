@@ -24,6 +24,10 @@ from frisket.authoring.action_proposals import (
     proposal_action_ids,
     validate_action_proposals,
 )
+from frisket.authoring.project_ask import (
+    PROJECT_ASK_CREATE_SHEET_KINDS,
+    PROJECT_ASK_ROW_CREATE_SHEET_KINDS,
+)
 from frisket.server.services.project_qa_web import safe_web_text, safe_web_url
 from frisket.server.services.project_qa_sources import (
     read_source_text,
@@ -109,6 +113,7 @@ class ProjectQATools:
         self.store = store
         self.turn_id = str(turn["id"])
         self._citation_ids: set[str] = set()
+        self._action_references: set[str] = set()
         self._source_handles: dict[str, dict[str, Any]] = {}
         self._source_chars = 0
         self._new_embeddings = 0
@@ -118,6 +123,12 @@ class ProjectQATools:
     @property
     def citation_ids(self) -> frozenset[str]:
         return frozenset(self._citation_ids)
+
+    @property
+    def action_references(self) -> frozenset[str]:
+        """Markdown targets returned by action tools during this turn."""
+
+        return frozenset(self._action_references)
 
     def inspect_sheets(self) -> dict[str, Any]:
         """Return schema/count metadata for sheets the turn may inspect."""
@@ -1019,24 +1030,40 @@ class ProjectQATools:
             if score:
                 ranked.append((score, entry))
         ranked.sort(key=lambda item: (-item[0], item[1].kind))
-        return {
-            "actions": [
+        actions = []
+        for _, entry in ranked[:limit]:
+            target = f"#action/{entry.kind}"
+            self._action_references.add(target)
+            actions.append(
                 {
                     "action_id": entry.kind,
                     "title": entry.title,
                     "description": entry.description,
+                    "reference": f"[{entry.title}]({target})",
                 }
-                for _, entry in ranked[:limit]
-            ],
+            )
+        return {
+            "actions": actions,
             "has_more": len(ranked) > limit,
         }
 
     def propose_action(
         self, kind: str, title: str, spec: dict[str, Any]
     ) -> dict[str, Any]:
-        """Validate a canonical proposal only; Ask has no execution authority."""
+        """Validate and save a review-only flat proposal; Ask cannot execute it.
+
+        ``kind`` is the action-id prefix (for example ``media``). ``spec`` puts
+        ``action_kind``, its target (normally ``sheet_id``), and every action
+        parameter at the top level. It must not contain nested ``params`` or
+        execution authorization.
+        """
         if not self.turn["suggest_actions"]:
             raise ProjectQAScopeError("action suggestions are disabled for this turn")
+        title = " ".join(title.split())
+        if not title or len(title) > 80 or any(char in title for char in "[]"):
+            raise ValueError(
+                "proposal title must be concise plain text without Markdown brackets"
+            )
         proposals = validate_action_proposals(
             self.project,
             [{"kind": kind, "title": title, "spec": spec}],
@@ -1047,13 +1074,18 @@ class ProjectQATools:
                 "proposal is not an available action for this project"
             )
         proposal = proposals[0]
-        self.store.append_event(
+        event = self.store.append_event(
             self.turn_id, kind="action_proposal", payload={"proposal": proposal}
         )
-        return {"proposal": proposal}
+        target = f"#action-{event['seq']}"
+        self._action_references.add(target)
+        return {
+            "proposal": proposal,
+            "reference": f"[{proposal['title']}]({target})",
+        }
 
     def describe_action(self, action_id: str) -> dict[str, Any]:
-        """Return one registered action's compact parameter schema for a draft."""
+        """Return catalog facts and the flat review-only proposal contract."""
 
         if not self.turn["suggest_actions"]:
             raise ProjectQAScopeError("action suggestions are disabled for this turn")
@@ -1067,11 +1099,57 @@ class ProjectQATools:
             )
         except StopIteration as exc:
             raise ProjectQAScopeError("action is not available") from exc
+        properties = entry.input_schema.get("properties", {})
+        if not isinstance(properties, dict):
+            properties = {}
+        required_params = entry.input_schema.get("required", [])
+        if not isinstance(required_params, list):
+            required_params = []
+        required_params = [
+            name
+            for name in required_params
+            if isinstance(name, str) and name in properties
+        ]
+        defaults = {
+            name: schema["default"]
+            for name, schema in properties.items()
+            if isinstance(name, str)
+            and isinstance(schema, dict)
+            and "default" in schema
+        }
+        if entry.kind in PROJECT_ASK_CREATE_SHEET_KINDS:
+            target_fields = (
+                ["sheet_id", "sheet_name"]
+                if entry.kind in PROJECT_ASK_ROW_CREATE_SHEET_KINDS
+                else ["sheet_name"]
+            )
+        else:
+            target_fields = ["sheet_id"]
+        target = f"#action/{entry.kind}"
+        self._action_references.add(target)
         return {
             "action_id": entry.kind,
             "title": entry.title,
             "description": entry.description,
+            "reference": f"[{entry.title}]({target})",
             "input_schema": entry.input_schema,
+            "required_params": required_params,
+            "defaults": defaults,
+            "source_requirements": entry.ui_hints.get("source_requirements", []),
+            "proposal_contract": {
+                "kind": entry.kind.split(".", 1)[0],
+                "spec_format": "flat",
+                "fixed_fields": {"action_kind": entry.kind},
+                "required_fields": [
+                    "action_kind",
+                    *target_fields,
+                    *required_params,
+                ],
+                "optional_fields": [
+                    *[name for name in properties if name not in required_params],
+                    "output_names",
+                ],
+            },
         }
 
     def _query_scope(self, query: Mapping[str, Any]) -> dict[str, Any]:
