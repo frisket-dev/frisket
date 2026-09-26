@@ -101,6 +101,7 @@ import { useRouteRowFetch } from '../bind/useRouteRowFetch';
 import { useRouteSyncController } from '../bind/useRouteSyncController';
 import { routeStateToRoute, type RouteState } from '../core/route/RouteState';
 import { selectActiveSheetId } from '../state/routeStore';
+import type { EvidenceViewerFocus, EvidenceViewerHost } from '../state/chromeStore';
 import { previewViewForSheet } from '../state/previewViewStore';
 import type { CompareTabSession } from '../state/compareViewStore';
 import type { OcrCompareTarget } from '../actions/ocrCompare';
@@ -309,7 +310,6 @@ export function useWorkspaceModel({
   const routeActionKind = effectiveRoute.actionKind ?? undefined;
   const routeReview = effectiveRoute.review;
   const routePanel = effectiveRoute.panel ?? undefined;
-  const askNavigation = useAskNavigation(sheets);
   const writeRoute = useCallback((next: RouteState) => route.navigate(next), [route]);
   const draftSortColumn = useSelector(gridView.store, (s) => s.draft.sortColumn);
   const draftSortDirection = useSelector(gridView.store, (s) => s.draft.sortDirection);
@@ -416,6 +416,12 @@ export function useWorkspaceModel({
     documentAnnotationPreferences,
     setSheetAnnotationToggles,
   } = useWorkspaceChromeState(project.id);
+  const askNavigationCommands = useMemo(() => ({
+    openEvidenceViewer,
+    setDocumentView,
+    setOpenSplit,
+  }), [openEvidenceViewer, setDocumentView, setOpenSplit]);
+  const askNavigation = useAskNavigation(sheets, askNavigationCommands);
   const {
     hiddenContributionIds,
     hiddenContributionIdSet,
@@ -536,7 +542,6 @@ export function useWorkspaceModel({
 
   const selectSheet = useCallback(
     (id: string) => {
-      askNavigation.back();
       writeRoute({
         projectId: project.id,
         sheetId: id,
@@ -545,7 +550,7 @@ export function useWorkspaceModel({
         panel: null,
       });
     },
-    [project.id, writeRoute, askNavigation.back],
+    [project.id, writeRoute],
   );
 
   const sheet = sheets.find((candidate) => candidate.id === activeSheetId);
@@ -967,6 +972,7 @@ export function useWorkspaceModel({
     activeChildFilterParentRowId: activeChildFilter?.parentRowId ?? null,
     activeGridFilter,
     activeGridSort,
+    activeGridScopeRowIds: scopeRowIds,
     rowDrawerId: rowDrawer?.id ?? null,
     showError,
   });
@@ -1067,12 +1073,13 @@ export function useWorkspaceModel({
 
   const openEvidenceViewerForWorkspace = useCallback((
     linkId: string | number,
-    host: 'modalOrPeek' | 'mainView' = 'modalOrPeek',
+    host: EvidenceViewerHost = 'modalOrPeek',
+    focus?: EvidenceViewerFocus,
   ) => {
     if (host === 'mainView' && isContributionHidden(EVIDENCE_CONTRIBUTION_ID)) {
       return;
     }
-    openEvidenceViewer(linkId, host);
+    openEvidenceViewer(linkId, host, focus);
   }, [isContributionHidden, openEvidenceViewer]);
 
   const openRowById = useCallback(
@@ -1414,13 +1421,12 @@ export function useWorkspaceModel({
       .saveView(currentViewInput(name, sheet.id))
       .then((saved) => {
         savedViews.completeEditorMutation(ticket, saved);
-        askNavigation.commit();
       })
       .catch((e: Error) => {
         savedViews.failEditorMutation(ticket);
         showError(e.message);
       });
-  }, [currentViewInput, savedViews, sheet, showError, viewName, askNavigation.commit]);
+  }, [currentViewInput, savedViews, sheet, showError, viewName]);
 
   const renameSavedView = useCallback(() => {
     const name = viewName.trim();
@@ -3435,7 +3441,6 @@ export function useWorkspaceModel({
           rowDrawerOpen={rowDrawerOpen}
           frozenColumnCount={activeFrozenColumnCount}
           scopeRowIds={scopeRowIds}
-          citationColumnId={askNavigation.source?.status === "current" && askNavigation.source.target?.kind === "cell" && scopeRowIds ? String(askNavigation.source.target.column_id) : null}
           activeFilter={activeGridFilter}
           activeSort={activeGridSort}
           columnOrder={activeColumnOrder}
@@ -3489,7 +3494,6 @@ export function useWorkspaceModel({
       )}
     </GridWorkbenchViewFrame>
   ) : null, [
-    askNavigation.source,
     scopeRowIds,
     sheet,
     dataVersion,

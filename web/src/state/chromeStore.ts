@@ -16,6 +16,11 @@ const BOTTOM_DOCK_FALLBACK_TAB_PLACEMENT_ID = 'jobs';
 
 export type EvidenceViewerHost = 'modalOrPeek' | 'mainView';
 
+export interface EvidenceViewerFocus {
+  scopeSpanId?: string;
+  highlight?: boolean;
+}
+
 export type RibbonMode = 'ribbon' | 'menu';
 
 export type DiscoverTab =
@@ -73,7 +78,7 @@ export interface OpenSplitState {
   columnId?: string;
 }
 
-export interface EvidenceViewerState {
+export interface EvidenceViewerState extends EvidenceViewerFocus {
   linkId: string | number;
   host: EvidenceViewerHost;
 }
@@ -175,7 +180,11 @@ export function createChromeStore(
 
   openDiagnosePanel(project?: ProjectInfo | null): void;
 
-  openEvidenceViewer(linkId: string | number, host?: EvidenceViewerHost): void;
+  openEvidenceViewer(
+    linkId: string | number,
+    host?: EvidenceViewerHost,
+    focus?: EvidenceViewerFocus,
+  ): void;
   closeEvidenceViewer(): void;
 
   setRibbonMode(mode: RibbonMode): void;
@@ -188,7 +197,6 @@ export function createChromeStore(
   setPromotedViews(views: PromotedView[]): void;
   setOpenSplit(split: OpenSplitState | null): void;
   setDocumentView(documentView: DocumentViewState | null): void;
-  setTransientReader(state: Partial<Pick<ChromeState, 'documentView' | 'openSplit'>>): void;
   setDocumentAnnotationPreferences(prefs: DocumentAnnotationPreferences): void;
 
   toggleProvenanceOpen(): void;
@@ -263,8 +271,8 @@ export function createChromeStore(
       navigate({ kind: 'settings', scope: 'personal', section: 'diagnostics' });
     },
 
-    openEvidenceViewer(linkId, host = 'modalOrPeek') {
-      store.set((s) => ({ ...s, evidenceViewerState: { linkId, host } }));
+    openEvidenceViewer(linkId, host = 'modalOrPeek', focus) {
+      store.set((s) => ({ ...s, evidenceViewerState: { linkId, host, ...focus } }));
     },
     closeEvidenceViewer() {
       store.set((s) => (s.evidenceViewerState === null ? s : { ...s, evidenceViewerState: null }));
@@ -292,9 +300,6 @@ export function createChromeStore(
     },
     setOpenSplit(split) {
       store.set((s) => ({ ...s, openSplit: split }));
-    },
-    setTransientReader(reader) {
-      store.set((state) => ({ ...state, ...reader }));
     },
     setDocumentView(documentView) {
       store.set((s) => ({ ...s, documentView }));

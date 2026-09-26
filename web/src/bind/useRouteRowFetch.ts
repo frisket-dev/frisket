@@ -11,7 +11,8 @@
 // here, not the epoch pattern jobStore uses.
 
 import { useEffect } from 'react';
-import type { ColumnDef, GridFilterSpec, GridSortSpec } from '../api/open';
+import type { ColumnDef, GridFilterSpec, GridSortSpec, Row } from '../api/open';
+import type { GridApiPort } from '../api/ports';
 import { panelsEqual } from '../core/route/RouteState';
 import type { RouteStoreHandle } from '../state/routeStore';
 import type { DetailStoreHandle } from '../state/detailStore';
@@ -27,8 +28,50 @@ export interface RouteRowFetchDeps {
   activeChildFilterParentRowId: string | null;
   activeGridFilter: GridFilterSpec | null;
   activeGridSort: GridSortSpec | null;
+  activeGridScopeRowIds: number[] | null;
   rowDrawerId: string | null;
   showError: (message: string) => void;
+}
+
+interface RouteRowScope {
+  parentRowId: string | null;
+  filter: GridFilterSpec | null;
+  sort: GridSortSpec | null;
+  scopeRowIds: number[] | null;
+}
+
+async function fetchRowInScope(
+  api: Pick<GridApiPort, 'locateSheetRow' | 'getSheetData'>,
+  sheetId: string,
+  rowId: string,
+  scope: RouteRowScope | null,
+): Promise<Row | null> {
+  const location = await api.locateSheetRow(sheetId, rowId, scope);
+  if (!location.found || location.pageOffset === null) return null;
+  const page = await api.getSheetData(
+    sheetId,
+    location.pageOffset,
+    location.pageSize,
+    scope,
+  );
+  return page.rows.find((candidate) => candidate.id === rowId) ?? null;
+}
+
+/** Resolve a routed row in the current view, then fall back to its sheet.
+ * Deep links and citations must still open when an unrelated filter excludes
+ * the row, without rewriting the user's grid filters. */
+export async function fetchRouteRow(
+  api: Pick<GridApiPort, 'locateSheetRow' | 'getSheetData'>,
+  sheetId: string,
+  rowId: string,
+  scope: RouteRowScope,
+): Promise<Row | null> {
+  const scoped = await fetchRowInScope(api, sheetId, rowId, scope);
+  if (scoped) return scoped;
+  const hasRestrictiveScope = scope.parentRowId !== null
+    || Boolean(scope.filter && Object.keys(scope.filter).length > 0)
+    || scope.scopeRowIds !== null;
+  return hasRestrictiveScope ? fetchRowInScope(api, sheetId, rowId, null) : null;
 }
 
 export function useRouteRowFetch(deps: RouteRowFetchDeps): void {
@@ -41,6 +84,7 @@ export function useRouteRowFetch(deps: RouteRowFetchDeps): void {
     activeChildFilterParentRowId,
     activeGridFilter,
     activeGridSort,
+    activeGridScopeRowIds,
     rowDrawerId,
     showError,
   } = deps;
@@ -98,15 +142,9 @@ export function useRouteRowFetch(deps: RouteRowFetchDeps): void {
       parentRowId: activeChildFilterParentRowId,
       filter: activeGridFilter,
       sort: activeGridSort,
+      scopeRowIds: activeGridScopeRowIds,
     };
-    void api
-      .locateSheetRow(sheet.id, panel.rowId, scope)
-      .then((location) => {
-        if (!location.found || location.pageOffset === null) return null;
-        return api
-          .getSheetData(sheet.id, location.pageOffset, location.pageSize, scope)
-          .then((page) => page.rows.find((candidate) => candidate.id === panel.rowId) ?? null);
-      })
+    void fetchRouteRow(api, sheet.id, panel.rowId, scope)
       .then((row) => {
         if (alive) {
           detail.loadRow(row);
@@ -132,7 +170,9 @@ export function useRouteRowFetch(deps: RouteRowFetchDeps): void {
     activeChildFilterParentRowId,
     activeGridFilter,
     activeGridSort,
+    activeGridScopeRowIds,
     rowDrawerId,
     showError,
+    api,
   ]);
 }
