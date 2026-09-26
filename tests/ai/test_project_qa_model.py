@@ -321,8 +321,8 @@ def test_scoped_query_count_search_and_open_source_do_not_widen_rows(
         assert result["count_by"] == {
             "column_id": columns["Group"],
             "values": [
-                {"value": '"A"', "count": 1},
-                {"value": '"B"', "count": 1},
+                {"kind": "valid", "value": "A", "count": 1},
+                {"kind": "valid", "value": "B", "count": 1},
             ],
             "complete": True,
         }
