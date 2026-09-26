@@ -50,6 +50,14 @@ Embedder = Callable[[list[str]], EmbeddingResult]
 # Manosphere pattern won't stay English-only). ~50 languages, cross-lingual
 # (a Spanish query ranks English cells and vice versa), 0.22GB.
 LOCAL_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+SEMANTIC_CELL_PREFIX_CHARS = 50_000
+# Until passage embeddings exist, semantic ranking has only this prefix. The
+# public hit records carry the same fact so callers do not confuse it with the
+# complete lexical FTS coverage.
+SEMANTIC_COVERAGE = {
+    "kind": "prefix_characters",
+    "limit": SEMANTIC_CELL_PREFIX_CHARS,
+}
 PROVIDERLESS_CLASSIFY_MODEL = "BAAI/bge-small-en-v1.5"
 PROVIDERLESS_CLASSIFY_CAPABILITY = "providerless_classify"
 PROVIDERLESS_CLASSIFY_ENABLE_ENV = "FRISKET_ENABLE_PROVIDERLESS_CLASSIFY"
@@ -332,10 +340,12 @@ def _cosine(a: list[float], b: list[float]) -> float:
 
 
 def _corpus(project: Project) -> list[dict[str, Any]]:
-    """Indexed live text cells (reuses the rebuildable FTS sidecar)."""
+    """Prefix-limited semantic corpus over the complete-cell FTS sidecar."""
     db = fresh_sidecar(project)
     rows = db.execute(
-        "SELECT content, sheet_id, row_id, column_id, column_name FROM cell_fts"
+        "SELECT substr(content, 1, ?) AS content, sheet_id, row_id, column_id, "
+        "column_name FROM cell_fts",
+        (SEMANTIC_CELL_PREFIX_CHARS,),
     ).fetchall()
     db.close()
     ai_by_column = column_ai_flags(project)
@@ -538,6 +548,7 @@ def semantic_search(
                     "snip": r["content"][:200],
                     "score": round(score, 4),
                     "semantic": True,
+                    "semantic_coverage": dict(SEMANTIC_COVERAGE),
                 },
                 r["content"],
             )

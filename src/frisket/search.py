@@ -33,6 +33,7 @@ from frisket.engine.store import Project
 RERANK_MODEL = "Xenova/ms-marco-MiniLM-L-6-v2"
 RERANK_POOL = 50  # second stage runs over the top-50 first-stage candidates
 RERANK_MIN_SPREAD = 1.0  # logits; flatter than this = uninformative, keep stage-1
+FTS_INDEX_CONTENT_VERSION = "2"
 _rerank_model: Any = None  # lazy fastembed TextCrossEncoder singleton
 
 Scorer = Callable[[str, list[str]], list[float]]
@@ -116,36 +117,56 @@ def _sidecar(project: Project) -> sqlite3.Connection:
 
 
 def rebuild_index(project: Project) -> int:
-    """Full rebuild — the sidecar is rebuildable by contract."""
+    """Atomically rebuild the complete-cell FTS index.
+
+    ``cell_vec`` intentionally stays outside this transaction: vector entries
+    are content-addressed and a lexical-index upgrade must not evict them.
+    """
     db = _sidecar(project)
-    db.execute("DELETE FROM cell_fts")
-    n = 0
-    for s in project.sheets():
-        if "(undone:" in s["name"]:
-            continue
-        for c in project.columns(s["id"]):
-            if c["type"] not in ("text", "category", "json", "link"):
+    try:
+        db.execute("BEGIN")
+        db.execute("DELETE FROM cell_fts")
+        n = 0
+        for s in project.sheets():
+            if "(undone:" in s["name"]:
                 continue
-            vals = project.get_values(s["id"], c["id"])
-            rows = [
-                (str(v)[:50000], s["id"], rid, c["id"], c["name"])
-                for rid, v in vals.items()
-                if v is not None and str(v).strip()
-            ]
-            db.executemany(
-                "INSERT INTO cell_fts (content, sheet_id, row_id, column_id, "
-                "column_name) VALUES (?,?,?,?,?)",
-                rows,
+            for c in project.columns(s["id"]):
+                if c["type"] not in ("text", "category", "json", "link"):
+                    continue
+                vals = project.get_values(s["id"], c["id"])
+
+                def rows() -> Any:
+                    nonlocal n
+                    for rid, value in vals.items():
+                        if value is None:
+                            continue
+                        text = str(value)
+                        if not text.strip():
+                            continue
+                        n += 1
+                        yield text, s["id"], rid, c["id"], c["name"]
+
+                db.executemany(
+                    "INSERT INTO cell_fts (content, sheet_id, row_id, column_id, "
+                    "column_name) VALUES (?,?,?,?,?)",
+                    rows(),
+                )
+        for key, value in (
+            ("indexed_at_op", str(project.op_cursor)),
+            ("index_content_version", FTS_INDEX_CONTENT_VERSION),
+        ):
+            db.execute(
+                "INSERT INTO fts_state (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (key, value),
             )
-            n += len(rows)
-    db.execute(
-        "INSERT INTO fts_state (key, value) VALUES ('indexed_at_op', ?) "
-        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-        (str(project.op_cursor),),
-    )
-    db.commit()
-    db.close()
-    return n
+        db.commit()
+        return n
+    except BaseException:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 
 def fts_indexed_at_op(db: sqlite3.Connection) -> int | None:
@@ -159,13 +180,24 @@ def fts_indexed_at_op(db: sqlite3.Connection) -> int | None:
     return int(state["value"]) if state is not None else None
 
 
+def fts_index_content_version(db: sqlite3.Connection) -> str | None:
+    """Version of the cell content format stored in this FTS sidecar."""
+    state = db.execute(
+        "SELECT value FROM fts_state WHERE key='index_content_version'"
+    ).fetchone()
+    return str(state["value"]) if state is not None else None
+
+
 def fresh_sidecar(project: Project) -> sqlite3.Connection:
     """An FTS sidecar connection whose index is current for project.op_cursor.
 
     The lazy pull-style staleness check (watermark != op_cursor -> rebuild)
     used to be copy-pasted at every reader; it lives only here now."""
     db = _sidecar(project)
-    if fts_indexed_at_op(db) != project.op_cursor:
+    if (
+        fts_indexed_at_op(db) != project.op_cursor
+        or fts_index_content_version(db) != FTS_INDEX_CONTENT_VERSION
+    ):
         db.close()
         rebuild_index(project)
         db = _sidecar(project)
@@ -182,8 +214,9 @@ def column_ai_flags(project: Project) -> dict[int, bool]:
 
 
 _SEARCH_SQL = (
-    "SELECT sheet_id, row_id, column_id, column_name, content, "
-    "snippet(cell_fts, 0, '<b>', '</b>', '…', 12) AS snip "
+    "SELECT sheet_id, row_id, column_id, column_name, "
+    "snippet(cell_fts, 0, '<b>', '</b>', '…', 12) AS snip, "
+    "snippet(cell_fts, 0, '', '', '…', 64) AS rerank_text "
     "FROM cell_fts WHERE cell_fts MATCH ? ORDER BY rank LIMIT ?"
 )
 
@@ -205,8 +238,9 @@ def search_project(
         rows = db.execute(_SEARCH_SQL, (f'"{query}"', pool)).fetchall()
     out = [dict(r) for r in rows]
     db.close()
-    # full cell content feeds the cross-encoder but stays out of the response
-    texts = [h.pop("content") for h in out]
+    # A match-centred FTS excerpt is bounded to the FTS5 maximum (64 tokens),
+    # avoiding a full-cell Python copy while still letting a late match compete.
+    texts = [h.pop("rerank_text") for h in out]
     ai_by_column = column_ai_flags(project)
     for h in out:
         h["ai_generated"] = ai_by_column.get(int(h["column_id"]), False)
