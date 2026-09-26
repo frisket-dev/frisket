@@ -61,4 +61,3 @@ export function AskEventContent({ event, onInspectProposal, onOpenSource }: { ev
   );
   return null;
 }
-
