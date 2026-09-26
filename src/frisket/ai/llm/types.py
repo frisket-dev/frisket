@@ -65,6 +65,8 @@ class LLMRequest:
     ollama/@<endpoint-id>/...
     messages: [{"role": "user"|"system"|"assistant", "content": str | list[part]}]
     where part = {"type":"text","text":...} or {"type":"image","media_type":...,"data":<b64>}.
+    Assistant messages may carry tool_calls (LLMToolCall entries) with no text.
+    Tool results use role="tool", tool_name, tool_call_id, content, and tool_error.
     schema: JSON Schema, the provider-neutral structured-output contract.
     mechanism: the resolved wire strategy (llm/structured.py mechanism id) when a
         request is issued by the StructuredCompleter; None for direct callers
