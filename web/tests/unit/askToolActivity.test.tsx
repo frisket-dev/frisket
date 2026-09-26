@@ -30,4 +30,10 @@ describe('Ask activity coverage', () => {
     expect(render({ tool: 'search_cells', hits: 2, coverage: { semantic: false, complete: false, reason: 'embedding_budget' } })).toContain('keyword results are shown');
     expect(render({ tool: 'search_cells', hits: 2, coverage: { semantic: true, complete: true } })).not.toContain('keyword results are shown');
   });
+
+  it('does not render an empty disclosure for a completed step with no facts', () => {
+    const html = render({ tool: 'inspect_sheets' });
+    expect(html).toContain('Checking sources');
+    expect(html).not.toContain('<details');
+  });
 });
