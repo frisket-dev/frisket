@@ -10,6 +10,7 @@ interface AskState {
   activeTurn: AskTurn | null;
   draft: string;
   scope: AskScope | null;
+  scopeFollowsContext: boolean;
   model: string | null;
   web: boolean;
   suggestActions: boolean;
@@ -20,12 +21,13 @@ interface AskState {
 
 const initial = (): AskState => ({
   threads: [], hasMoreThreads: false, thread: null, events: [], hasEarlier: false, activeTurn: null, draft: '', scope: null,
-  model: null, web: false, suggestActions: true, busy: false, loaded: false, error: null,
+  scopeFollowsContext: true, model: null, web: false, suggestActions: true, busy: false, loaded: false, error: null,
 });
 
 export function createProjectQAStore(api: ProjectQAApi) {
   const store = createStore<AskState>(initial());
   let generation = 0;
+  let contextScope: AskScope | null = null;
   let controller = new AbortController();
   let pending: { threadId: string; body: AskTurnRequest } | null = null;
   const error = (value: unknown) => value instanceof Error ? value.message : 'Could not load this conversation.';
@@ -44,7 +46,7 @@ export function createProjectQAStore(api: ProjectQAApi) {
       pending = null;
       store.set((s) => ({ ...s, thread: detail.thread, events: detail.history.events,
         hasEarlier: detail.history.has_more,
-        activeTurn: detail.active_turn, scope: detail.thread.scope, model: detail.thread.model ?? null,
+        activeTurn: detail.active_turn, scope: detail.thread.scope, scopeFollowsContext: false, model: detail.thread.model ?? null,
         web: detail.thread.web ?? false, suggestActions: detail.thread.suggest_actions ?? true, busy: false,
       }));
       await refresh();
@@ -109,7 +111,7 @@ export function createProjectQAStore(api: ProjectQAApi) {
         await api.delete(thread.id, controller.signal);
         if (current !== generation) return false;
         generation += 1; controller.abort(); controller = new AbortController(); pending = null;
-        store.set((s) => ({ ...initial(), loaded: true, hasMoreThreads: s.hasMoreThreads, threads: s.threads.filter((item) => item.id !== thread.id), scope: s.scope, model: s.model }));
+        store.set((s) => ({ ...initial(), loaded: true, hasMoreThreads: s.hasMoreThreads, threads: s.threads.filter((item) => item.id !== thread.id), scope: contextScope ?? s.scope, model: s.model }));
         return true;
       } catch (exc) {
         if (current === generation) store.set((s) => ({ ...s, error: error(exc) }));
@@ -131,6 +133,7 @@ export function createProjectQAStore(api: ProjectQAApi) {
       }
     },
     async initialize(scope: AskScope) {
+      contextScope = scope;
       if (store.get().loaded || store.get().busy) return;
       const current = generation;
       store.set((s) => ({ ...s, scope: s.scope ?? scope, busy: true }));
@@ -143,16 +146,24 @@ export function createProjectQAStore(api: ProjectQAApi) {
         if (current === generation) store.set((s) => ({ ...s, busy: false, error: error(exc) }));
       }
     },
+    syncContextScope(scope: AskScope) {
+      contextScope = scope;
+      const state = store.get();
+      if (!state.thread && state.scopeFollowsContext && JSON.stringify(state.scope) !== JSON.stringify(scope)) {
+        store.set((s) => ({ ...s, scope }));
+      }
+    },
     setDraft(draft: string) { store.set((s) => ({ ...s, draft })); },
     setOptions(options: Partial<Pick<AskState, 'scope' | 'model' | 'web' | 'suggestActions'>>) {
-      store.set((s) => ({ ...s, ...options }));
+      store.set((s) => ({ ...s, ...options, scopeFollowsContext: options.scope !== undefined ? false : s.scopeFollowsContext }));
     },
     newThread(scope: AskScope) {
+      contextScope = scope;
       generation += 1;
       controller.abort();
       controller = new AbortController();
       pending = null;
-      store.set((s) => ({ ...s, thread: null, events: [], hasEarlier: false, activeTurn: null, draft: '', scope, web: false, suggestActions: true, error: null, busy: false }));
+      store.set((s) => ({ ...s, thread: null, events: [], hasEarlier: false, activeTurn: null, draft: '', scope, scopeFollowsContext: true, web: false, suggestActions: true, error: null, busy: false }));
     },
     async send() {
       const snapshot = store.get();
@@ -160,7 +171,7 @@ export function createProjectQAStore(api: ProjectQAApi) {
       const current = ++generation;
       controller.abort();
       controller = new AbortController();
-      store.set((s) => ({ ...s, busy: true, error: null }));
+      store.set((s) => ({ ...s, busy: true, error: null, scopeFollowsContext: false }));
       const options = { scope: snapshot.scope, model: snapshot.model, web: snapshot.web, suggest_actions: snapshot.suggestActions };
       try {
         let thread = snapshot.thread;
@@ -168,7 +179,7 @@ export function createProjectQAStore(api: ProjectQAApi) {
           const created = await api.create({ ...options, title: snapshot.draft.trim().slice(0, 100) }, controller.signal);
           if (current !== generation) return;
           thread = created;
-          store.set((s) => ({ ...s, thread: created, threads: [created, ...s.threads] }));
+          store.set((s) => ({ ...s, thread: created, scopeFollowsContext: false, threads: [created, ...s.threads] }));
         }
         const question = snapshot.draft.trim();
         if (!pending || pending.threadId !== thread.id || pending.body.question !== question

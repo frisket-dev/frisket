@@ -150,3 +150,55 @@ it('new conversations reset optional outside research', () => {
   expect(handle.store.get().web).toBe(false);
   expect(handle.store.get().suggestActions).toBe(true);
 });
+
+
+it('follows current selection only for untouched new conversations', async () => {
+  const handle = createProjectQAStore(fixture());
+  const dispatches = { kind: 'sources' as const, sources: [{ kind: 'sheet' as const, sheet_id: 1 }] };
+  const selection = { kind: 'sources' as const, sources: [{ kind: 'rows' as const, sheet_id: 2, row_ids: [7, 8] }] };
+  await handle.initialize(dispatches);
+  handle.setDraft('A question I am typing');
+  handle.syncContextScope(selection);
+  expect(handle.store.get().scope).toEqual(selection);
+  expect(handle.store.get().draft).toBe('A question I am typing');
+  handle.setOptions({ scope: { kind: 'project' } });
+  handle.syncContextScope(dispatches);
+  expect(handle.store.get().scope).toEqual({ kind: 'project' });
+  handle.newThread(selection);
+  handle.syncContextScope(dispatches);
+  expect(handle.store.get().scope).toEqual(dispatches);
+  await handle.open(thread.id);
+  handle.syncContextScope(selection);
+  expect(handle.store.get().scope).toEqual(thread.scope);
+});
+
+
+it('freezes context before creating a thread and preserves uncertain retry identity', async () => {
+  const api = fixture();
+  let created!: (thread: AskThread) => void;
+  vi.mocked(api.create).mockImplementationOnce(() => new Promise((resolve) => { created = resolve; }));
+  vi.mocked(api.submit).mockRejectedValueOnce(new Error('Connection lost'));
+  const handle = createProjectQAStore(api);
+  const original = { kind: 'sources' as const, sources: [{ kind: 'sheet' as const, sheet_id: 1 }] };
+  await handle.initialize(original);
+  handle.setDraft('Largest filing?');
+  const sending = handle.send();
+  handle.syncContextScope({ kind: 'sources', sources: [{ kind: 'sheet', sheet_id: 2 }] });
+  created({ ...thread, scope: original });
+  await sending;
+  expect(handle.store.get().scope).toEqual(original);
+  await handle.send();
+  const calls = vi.mocked(api.submit).mock.calls;
+  expect(calls[0][1]).toEqual(calls[1][1]);
+});
+
+it('deleting a conversation returns to the current workspace context', async () => {
+  const handle = createProjectQAStore(fixture());
+  await handle.open(thread.id);
+  const current = { kind: 'sources' as const, sources: [{ kind: 'sheet' as const, sheet_id: 9 }] };
+  handle.syncContextScope(current);
+  await handle.deleteThread();
+  expect(handle.store.get().scope).toEqual(current);
+  handle.syncContextScope({ kind: 'project' });
+  expect(handle.store.get().scope).toEqual({ kind: 'project' });
+});
