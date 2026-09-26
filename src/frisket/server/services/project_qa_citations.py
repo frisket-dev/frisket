@@ -125,13 +125,20 @@ def resolve_citation(
     if row_id not in values:
         return result
     saved_ref = locator.get("value_ref")
-    status = (
-        "unverified"
-        if saved_ref is None
-        else "current"
-        if saved_ref == refs.get(row_id)
-        else "changed"
-    )
+    saved_version = locator.get("source_version")
+    if saved_version is not None and locator.get("prepared_cell") is None:
+        current_version = read_source_text(
+            project, (sheet_id, row_id, column_id), limit=1
+        )["version"]
+        status = "current" if saved_version == current_version else "changed"
+    else:
+        status = (
+            "unverified"
+            if saved_ref is None
+            else "current"
+            if saved_ref == refs.get(row_id)
+            else "changed"
+        )
     target = {
         "kind": "cell",
         "sheet_id": sheet_id,
@@ -164,6 +171,10 @@ def resolve_citation(
             prepared is None
             or prepared["cell"] != expected_cell
             or prepared["prepared_value_ref"] != prepared_ref
+            or (
+                saved_version is not None
+                and saved_version != prepared["prepared_version"]
+            )
         ):
             status = "changed"
         else:

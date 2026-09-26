@@ -6,7 +6,6 @@ import hashlib
 import json
 import re
 import threading
-from html import unescape
 from collections.abc import Mapping
 from typing import Any, Literal
 from urllib.parse import urlsplit
@@ -198,7 +197,6 @@ class ProjectQATools:
                 rendered = json.dumps(cell_value, ensure_ascii=False, default=str)
                 allowed_chars = min(MAX_VALUE_CHARS, remaining)
                 truncated = len(rendered) > allowed_chars
-                observation_truncated = observation_truncated or truncated
                 excerpt = rendered[:allowed_chars] + ("…" if truncated else "")
                 remaining -= len(excerpt)
                 column = column_by_id[column_id]
@@ -398,7 +396,11 @@ class ProjectQATools:
                 limit,
                 cancel_event=self.cancel_event,
             )
-            coverage = {"semantic": False, "complete": True}
+            coverage = {
+                "semantic": False,
+                "complete": True,
+                "result_limit_reached": len(hits) >= limit,
+            }
         else:
             raise ValueError("search mode must be keyword or semantic")
         out = []
@@ -534,7 +536,11 @@ class ProjectQATools:
                     ),
                 },
                 excerpt=snippet,
-                metadata={"search": query},
+                metadata={
+                    "search": query,
+                    # Only SQLite FTS snippets use <b> as a match marker.
+                    "fts_snippet": not bool(hit.get("semantic")),
+                },
             )
             self._citation_ids.add(citation["id"])
             out.append(
@@ -793,8 +799,13 @@ class ProjectQATools:
                 "passages": [{"kind": "web", "text": text}],
             }
         cell, source, prepared_source = self._prepared_text_target(citation)
-        marked = re.search(r"<b>(.*?)</b>", str(citation["excerpt"] or ""), re.DOTALL)
-        anchor = unescape(marked.group(1)) if marked else None
+        marked = (
+            re.search(r"<b>(.*?)</b>", str(citation["excerpt"] or ""), re.DOTALL)
+            if "char_start" not in locator
+            and citation.get("metadata", {}).get("fts_snippet") is True
+            else None
+        )
+        anchor = marked.group(1) if marked else None
         start = int(locator.get("char_start", 0))
         # Reserve room for grounded page/time evidence instead of always exhausting
         # the complete read allowance on a cell prefix.
@@ -896,7 +907,14 @@ class ProjectQATools:
             "next_cursor": observed["next_cursor"],
             "truncated": not observed["reached_end"],
             "reached_end": observed["reached_end"],
-            "source_changed": locator.get("value_ref") != source["value_ref"]
+            "source_changed": (
+                locator.get("source_version") is not None
+                and locator["source_version"] != observed["version"]
+            )
+            or (
+                locator.get("source_version") is None
+                and locator.get("value_ref") != source["value_ref"]
+            )
             or (
                 locator.get("prepared_value_ref") is not None
                 and (

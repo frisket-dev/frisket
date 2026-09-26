@@ -72,6 +72,7 @@ def _metadata(db: sqlite3.Connection, cell: tuple[int, int, int]) -> dict[str, A
 
 
 def _start(meta: dict[str, Any], cursor: dict[str, Any] | None, start: int) -> int:
+    explicit_cursor = cursor is not None
     if cursor is not None:
         if not isinstance(cursor, dict) or set(cursor) != {"version", "start"}:
             raise ValueError("source cursor must contain version and start")
@@ -83,7 +84,8 @@ def _start(meta: dict[str, Any], cursor: dict[str, Any] | None, start: int) -> i
     if (
         isinstance(start, bool)
         or not isinstance(start, int)
-        or not 0 <= start <= meta["length"]
+        or start < 0
+        or (explicit_cursor and start > meta["length"])
     ):
         raise ValueError("source offset is outside the current text")
     return start
@@ -120,6 +122,7 @@ def read_source_text(
             ).fetchone()["position"]
             if located:
                 start = max(0, located - 1 - 500)
+        start = min(start, meta["length"])
         text = _text(db, cell, start, limit)
         end = start + len(text)
         return {

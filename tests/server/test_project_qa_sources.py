@@ -6,6 +6,8 @@ import pytest
 
 from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAStore
+from frisket.server.services.project_qa_citations import resolve_citation
+from frisket.server.services.project_qa_sources import read_source_text
 from frisket.server.services.project_qa_tools import ProjectQAScopeError, ProjectQATools
 
 
@@ -129,6 +131,103 @@ def test_continuation_survives_unrelated_edits_but_refuses_changed_source(source
     reopened = tools.open_source(cid)
     assert reopened["source_changed"] is True
     assert reopened["passages"][0]["text"] == "replacement text"
+
+
+def test_reopening_an_old_offset_after_a_shorter_edit_returns_current_source(source):
+    project, store, _, turn, sheet, column, row = source
+    original = read_source_text(project, (sheet, row, column), limit=1)
+    citation = store.add_citation(
+        turn["id"],
+        label="Late passage",
+        source_kind="cell",
+        locator={
+            "sheet_id": sheet,
+            "row_id": row,
+            "column_id": column,
+            "value_ref": original["value_ref"],
+            "source_version": original["version"],
+            "char_start": 80_000,
+        },
+        excerpt="NEEDLE decisive passage",
+    )
+    tools = ProjectQATools(project, turn, store)
+    opened = tools.open_source(citation["id"])
+    project.apply_edits(
+        [{"row_id": row, "column_id": column, "value": "replacement text"}]
+    )
+
+    with pytest.raises(ValueError, match="source_changed"):
+        tools.open_source(citation["id"], opened["next_cursor"])
+    reopened = tools.open_source(citation["id"])
+
+    assert reopened["source_changed"] is True
+    assert reopened["passages"][0]["text"] == ""
+    assert reopened["reached_end"] is True
+
+
+def test_source_text_cannot_override_an_explicit_citation_offset(source):
+    project, store, _, turn, sheet, column, row = source
+    text = "Methodology appears early. " + "x" * 10_000 + "<b>Methodology</b> late."
+    project.apply_edits([{"row_id": row, "column_id": column, "value": text}])
+    source_meta = read_source_text(project, (sheet, row, column), limit=1)
+    late_start = text.index("<b>Methodology</b>")
+    citation = store.add_citation(
+        turn["id"],
+        label="Late methodology",
+        source_kind="cell",
+        locator={
+            "sheet_id": sheet,
+            "row_id": row,
+            "column_id": column,
+            "value_ref": source_meta["value_ref"],
+            "source_version": source_meta["version"],
+            "char_start": late_start,
+        },
+        excerpt="<b>Methodology</b> late.",
+    )
+
+    opened = ProjectQATools(project, turn, store).open_source(citation["id"])
+
+    assert opened["range"]["start"] == late_start
+    assert "<b>Methodology</b> late." in opened["passages"][0]["text"]
+
+
+def test_keyword_result_reports_when_its_ranked_examples_hit_the_limit(source):
+    project, store, _, turn, sheet, _, _ = source
+
+    result = ProjectQATools(project, turn, store).search_cells("NEEDLE", sheet, limit=1)
+
+    assert len(result["hits"]) == 1
+    assert result["coverage"] == {
+        "semantic": False,
+        "complete": True,
+        "result_limit_reached": True,
+    }
+
+
+def test_citation_freshness_uses_the_saved_source_version(source):
+    project, store, thread, turn, sheet, column, row = source
+    source_meta = read_source_text(project, (sheet, row, column), limit=1)
+    citation = store.add_citation(
+        turn["id"],
+        label="Source",
+        source_kind="cell",
+        locator={
+            "sheet_id": sheet,
+            "row_id": row,
+            "column_id": column,
+            "value_ref": source_meta["value_ref"],
+            "source_version": {
+                **source_meta["version"],
+                "base_producer_id": -1,
+            },
+        },
+        excerpt="opening",
+    )
+
+    resolved = resolve_citation(project, thread["id"], citation["id"])
+
+    assert resolved["status"] == "changed"
 
 
 def test_literal_find_crosses_scan_boundary_and_preserves_unicode_offsets(source):
