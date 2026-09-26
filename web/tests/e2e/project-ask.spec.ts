@@ -37,15 +37,15 @@ test('Ask stays docked, keeps its draft, and reconnects to saved progress', asyn
       expect(body.question).toBe('What changed?');
       active = true;
       events.push({ thread_id: 'thread', turn_id: 'turn', seq: 1, kind: 'question', payload: { question: body.question }, created_at: '' });
+      events.push({ thread_id: 'thread', turn_id: 'turn', seq: 2, kind: 'tool_started', payload: { tool: 'inspect_sheets' }, created_at: '' });
       return route.fulfill({ json: turnWire() });
     }
     if (tail === '/thread/events') {
       if (active && ++polls >= 2) {
         active = false;
-        events.push({ thread_id: 'thread', turn_id: 'turn', seq: 2, kind: 'tool_started', payload: { tool: 'inspect_sheets' }, created_at: '' });
         events.push({ thread_id: 'thread', turn_id: 'turn', seq: 3, kind: 'tool_completed', payload: { tool: 'inspect_sheets', sheets: 1 }, created_at: '' });
-        events.push({ thread_id: 'thread', turn_id: 'turn', seq: 4, kind: 'answer', payload: { text: 'The council approved the contract.', citation_ids: ['source-1'] }, citations: [{ id: 'source-1', label: 'Stories · row 1 · story', source_kind: 'cell', excerpt: 'The council approved the contract.', status: 'current', message: null, target: { kind: 'cell', sheet_id: sheetId, row_id: 1, column_id: 1 } }], created_at: '' });
-        events.push({ thread_id: 'thread', turn_id: 'turn', seq: 5, kind: 'action_proposal', payload: { proposal: { kind: 'map', title: 'Add a note', spec: { action_id: 'map.template', scope: { kind: 'sheet_rows', sheet_id: sheetId }, params: { template: { text: 'note: {{story}}' } }, output_names: { rendered: 'note' } } } }, created_at: '' });
+        events.push({ thread_id: 'thread', turn_id: 'turn', seq: 4, kind: 'action_proposal', payload: { proposal: { kind: 'map', title: 'Add a note', spec: { action_id: 'map.template', scope: { kind: 'sheet_rows', sheet_id: sheetId }, params: { template: { text: 'note: {{story}}' } }, output_names: { rendered: 'note' } } } }, created_at: '' });
+        events.push({ thread_id: 'thread', turn_id: 'turn', seq: 5, kind: 'answer', payload: { text: 'The council approved the contract. [1](#cite-1)\n\nYou can [Summarize rows](#action/map.summarize), or use this prepared [Add a note](#action-4).', citation_ids: ['source-1'] }, citations: [{ id: 'source-1', label: 'Stories · row 1 · story', source_kind: 'cell', excerpt: 'The council approved the contract.', status: 'current', message: null, target: { kind: 'cell', sheet_id: sheetId, row_id: 1, column_id: 1 } }], created_at: '' });
         events.push({ thread_id: 'thread', turn_id: 'turn', seq: 6, kind: 'result_suggestion', payload: { title: 'Records analyzed in stories', sheet_name: 'stories', total: 1, citation_id: 'query-1' }, created_at: '' });
         events.push({ thread_id: 'thread', turn_id: 'turn', seq: 7, kind: 'status', payload: { status: 'completed' }, created_at: '' });
       }
@@ -87,27 +87,28 @@ test('Ask stays docked, keeps its draft, and reconnects to saved progress', asyn
   await expect(dock.getByRole('textbox', { name: 'Question', exact: true })).toHaveValue('What changed?');
   await dock.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(dock.getByRole('button', { name: 'Stop', exact: true })).toBeVisible();
+  const working = dock.locator('details').filter({ has: page.getByText('Working', { exact: true }) });
+  await expect(working).toHaveAttribute('open', '');
   await expect(question).toHaveValue('');
   await expect.poll(() => question.evaluate((element) => element.getBoundingClientRect().height)).toBe(initialHeight);
-  await expect(dock.getByText('The council approved the contract.', { exact: true })).toBeVisible();
+  await expect(dock.locator('.ask-answer')).toContainText('The council approved the contract.');
   await expect(dock.getByRole('button', { name: 'Stop', exact: true })).not.toBeVisible();
+  await expect(working).not.toHaveAttribute('open');
+  await working.getByText('Working', { exact: true }).click();
   await expect(dock.getByText('Checking sources', { exact: true })).toHaveCount(1);
+  await working.getByText('Working', { exact: true }).click();
   await page.reload();
   if (!await dock.isVisible()) await page.getByTestId('chrome-ask-toggle').click();
-  await expect(dock.getByText('The council approved the contract.', { exact: true })).toBeVisible();
-  const baseUrl = page.url();
-  await dock.getByRole('button', { name: 'Stories · row 1 · story', exact: true }).click();
-  await expect(dock.getByRole('button', { name: 'Close source preview' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Back to previous view', exact: true })).toBeVisible();
-  await expect(page.getByTestId('sheet-stats')).toContainText('1 row');
-  expect(page.url()).toBe(baseUrl);
-  await page.getByRole('button', { name: 'Back to previous view', exact: true }).click();
+  await expect(dock.locator('.ask-answer')).toContainText('The council approved the contract.');
+  await expect(dock.locator('.ask-answer')).toHaveCSS('padding-right', '0px');
+  await expect(dock.getByRole('button', { name: 'Copy answer text', exact: true }).locator('..')).toHaveCSS('position', 'absolute');
+  await dock.getByRole('button', { name: /^Source 1/ }).click();
+  await expect(page.getByTestId('row-drawer')).toBeVisible();
   await expect(page.getByTestId('sheet-stats')).toContainText('2 rows');
+  await expect(page.getByRole('button', { name: 'Back to previous view', exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('Source opened from Ask', { exact: true })).toHaveCount(0);
   await dock.getByRole('button', { name: '1 row in stories', exact: true }).click();
   await expect(page.getByTestId('sheet-stats')).toContainText('1 row');
-  expect(page.url()).toBe(baseUrl);
-  await page.getByRole('button', { name: 'Back to previous view', exact: true }).click();
-  await expect(page.getByTestId('sheet-stats')).toContainText('2 rows');
   await page.getByTestId(`workbench-mainView-tab-${otherSheetId}`).click();
   await expect(dock.getByText('Viewing council audio', { exact: true })).toBeVisible();
   await expect(dock.getByRole('button', { name: 'Remove stories', exact: true })).toBeVisible();
@@ -131,7 +132,9 @@ test('Ask stays docked, keeps its draft, and reconnects to saved progress', asyn
   await dock.getByTestId('ask-thread-menu-trigger').click();
   await expect(page.getByRole('menuitemradio', { name: 'What changed?', exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
-  await dock.getByRole('button', { name: 'Open action', exact: true }).click();
+  await dock.getByRole('button', { name: 'Summarize rows', exact: true }).click();
+  await expect(page.getByTestId('action-form-title')).toContainText('Summarize');
+  await dock.getByRole('button', { name: 'Add a note', exact: true }).click();
   await expect(page.getByTestId('action-panel')).toBeVisible();
   await expect(page.getByTestId('action-form-title')).toContainText('Add a note');
   await expect(dock).toBeVisible();
