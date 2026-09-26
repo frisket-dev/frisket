@@ -238,6 +238,15 @@ export function runActionFromSurfaceTransition(
   stores.route.navigate(nextRoute);
 }
 
+/** Opens the Action panel with an Ask proposal ready for inspection. */
+export function openAskProposalTransition(
+  stores: Pick<WorkspaceStores, 'chrome' | 'detail'>,
+  proposal: NonNullable<Parameters<WorkspaceStores['detail']['setProposalInspect']>[0]>,
+): void {
+  stores.chrome.openActionPanel();
+  stores.detail.setProposalInspect(proposal);
+}
+
 export function insertColumnBesideTransition(
   stores: Pick<WorkspaceStores, 'detail' | 'actSurface'>,
   prompt: AddColumnPrompt,

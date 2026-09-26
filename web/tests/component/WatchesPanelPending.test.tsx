@@ -4,6 +4,7 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProjectApiPort } from '../../src/api/ports';
+import type { ProjectQAApi } from '../../src/api/projectQA';
 import { ApiError, type WatchInfo, type WatchRunResult } from '../../src/api/open';
 import { WatchesPanel } from '../../src/components/WatchesPanel';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
@@ -20,6 +21,10 @@ const emptyNotificationSummary = {
   bySourceRef: [],
 };
 const notificationSetupGuidance = 'You do not have Slack or email notifications set up. Visit settings to set them up.';
+
+function projectQAFixture(): Pick<ProjectQAApi, 'citation' | 'report'> {
+  return { citation: vi.fn(), report: vi.fn() };
+}
 
 function watch(id: number, name: string): WatchInfo {
   return {
@@ -84,6 +89,7 @@ afterEach(() => {
 describe('WatchesPanel pending actions', () => {
   it('creates an independent Watch from the captured current grid and shows local notification guidance', async () => {
     const projectApi = {
+      qa: projectQAFixture(),
       listWatches: vi.fn().mockResolvedValue([]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       createWatch: vi.fn().mockResolvedValue(watch(10, 'Watch: Current')),
@@ -112,6 +118,7 @@ describe('WatchesPanel pending actions', () => {
 
   it('retains an independent Watch draft after a failed create', async () => {
     const projectApi = {
+      qa: projectQAFixture(),
       listWatches: vi.fn().mockResolvedValue([watch(1, 'Open rows')]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       createWatch: vi.fn().mockRejectedValue(new ApiError(500, 'Watch service unavailable')),
@@ -143,6 +150,7 @@ describe('WatchesPanel pending actions', () => {
     const alphaRun = deferred<WatchRunResult>();
     const betaRun = deferred<WatchRunResult>();
     const projectApi = {
+      qa: projectQAFixture(),
       listWatches: vi.fn().mockResolvedValue([alpha, beta]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       runWatch: vi.fn((watchId: number) => watchId === alpha.id ? alphaRun.promise : betaRun.promise),
@@ -179,6 +187,7 @@ describe('WatchesPanel pending actions', () => {
     const created = watch(3, 'View: Open rows');
     const create = deferred<WatchInfo>();
     const projectApi = {
+      qa: projectQAFixture(),
       listWatches: vi.fn().mockResolvedValue([]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       createWatch: vi.fn(() => create.promise),
@@ -205,6 +214,7 @@ describe('WatchesPanel pending actions', () => {
   it('retains a failed create outcome across remount', async () => {
     const create = deferred<WatchInfo>();
     const projectApi = {
+      qa: projectQAFixture(),
       listWatches: vi.fn().mockResolvedValue([]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       createWatch: vi.fn(() => create.promise),
@@ -227,6 +237,7 @@ describe('WatchesPanel pending actions', () => {
     const alpha = watch(1, 'Alpha');
     const run = deferred<WatchRunResult>();
     const projectApi = {
+      qa: projectQAFixture(),
       listWatches: vi.fn().mockResolvedValue([alpha]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       runWatch: vi.fn(() => run.promise),
@@ -254,6 +265,7 @@ describe('WatchesPanel pending actions', () => {
     const alpha = watch(1, 'Alpha');
     const run = deferred<WatchRunResult>();
     const projectApi = {
+      qa: projectQAFixture(),
       listWatches: vi.fn().mockResolvedValue([alpha]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       runWatch: vi.fn(() => run.promise),
@@ -285,6 +297,7 @@ describe('WatchesPanel pending actions', () => {
     const rename = deferred<WatchInfo>();
     let settled = false;
     const projectApi = {
+      qa: projectQAFixture(),
       listWatches: vi.fn(() => Promise.resolve(settled ? [renamed] : [alpha])),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       updateWatch: vi.fn(() => rename.promise),
@@ -314,6 +327,7 @@ describe('WatchesPanel pending actions', () => {
     const remove = deferred<void>();
     let settled = false;
     const projectApi = {
+      qa: projectQAFixture(),
       listWatches: vi.fn(() => Promise.resolve(settled ? [] : [alpha])),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       deleteWatch: vi.fn(() => remove.promise),
@@ -345,6 +359,7 @@ describe('WatchesPanel pending actions', () => {
     const staleList = deferred<WatchInfo[]>();
     const rename = deferred<WatchInfo>();
     const projectApi = {
+      qa: projectQAFixture(),
       listWatches: vi.fn()
         .mockResolvedValueOnce([alpha])
         .mockImplementationOnce(() => staleList.promise)

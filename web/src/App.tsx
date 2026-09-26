@@ -231,7 +231,7 @@ import { useLensViewHandle } from './bind/useLensViewHandle';
 import { useSelector } from './bind/useSelector';
 import { useShellIdentity } from './shellIdentity';
 import { useEditionModule } from './editions/module';
-import { focusCompareTabTransition } from './state/workspaceTransitions';
+import { focusCompareTabTransition, openAskProposalTransition } from './state/workspaceTransitions';
 
 
 const LazySignIn = lazy(() => (
@@ -934,8 +934,7 @@ function WorkspaceAskRegion() {
   }, [sheet, selected]);
   return open ? <ProjectAskDock onOpenSource={askNavigation.open} initialScope={scope} sheets={sheets} onClose={chrome.closeAsk} onInspectProposal={(title, spec) => {
     if (spec.scope.kind === 'sheet_rows') selectSheet(String(spec.scope.sheet_id));
-    chrome.openActionPanel();
-    detail.setProposalInspect({ seq: Date.now(), title, spec });
+    openAskProposalTransition({ chrome, detail }, { seq: Date.now(), title, spec });
   }} /> : null;
 }
 
