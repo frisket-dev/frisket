@@ -230,13 +230,15 @@ def test_late_prepared_quote_keeps_timestamps_without_full_viewer_load(
     assert prepared["citation_id"] in tools.citation_ids
 
 
-def test_file_scope_reads_current_prepared_text_and_finds_it(tmp_path):
+def test_file_scope_reads_current_prepared_text_and_finds_it(tmp_path, monkeypatch):
     from frisket.engine.store.evidence import (
         record_evidence_link,
         record_source_artifact,
         record_source_span,
     )
     from frisket.engine.store.media_blobs import media_cell
+    from frisket.server.services.project_qa_citations import resolve_citation
+    import frisket.server.services.project_qa_tools as tools_module
 
     project = Project.create(tmp_path / "prepared-file.frisket", name="Prepared")
     try:
@@ -251,12 +253,17 @@ def test_file_scope_reads_current_prepared_text_and_finds_it(tmp_path):
             [{"Document": media_cell(blob, filename="document.pdf")}],
             {"Document": source_column},
         )
+        prepared_text = (
+            "opening " * 10_000
+            + "NEEDLE decisive prepared evidence."
+            + " ending" * 2_000
+        )
         project.apply_edits(
             [
                 {
                     "row_id": row,
                     "column_id": text_column,
-                    "value": "Prepared text with NEEDLE evidence.",
+                    "value": prepared_text,
                 }
             ]
         )
@@ -275,7 +282,7 @@ def test_file_scope_reads_current_prepared_text_and_finds_it(tmp_path):
             project,
             artifact_id=artifact["id"],
             span_kind="page",
-            quote="Prepared text with NEEDLE evidence.",
+            quote="A grounded page quote outside this search passage.",
             page_start=1,
             page_end=1,
         )
@@ -307,16 +314,57 @@ def test_file_scope_reads_current_prepared_text_and_finds_it(tmp_path):
             },
         )
         tools = ProjectQATools(project, turn, store)
-        source = tools.read_rows(sheet, [row], [source_column])
-        citation_id = source["rows"][0]["cells"][0]["citation_id"]
+        [hit] = tools.search_cells("NEEDLE", sheet)["hits"]
+        assert hit["column_id"] == source_column
+        citation_id = hit["citation_id"]
 
         opened = tools.open_source(citation_id)
 
         assert opened["needs_preparation"] is False
-        assert opened["passages"][0]["text"] == "Prepared text with NEEDLE evidence."
-        assert any(part["kind"] == "prepared_evidence" for part in opened["passages"])
+        assert "NEEDLE decisive prepared evidence." in opened["passages"][0]["text"]
+        assert opened["range"]["start"] > 50_000
+        assert all(part["kind"] != "prepared_evidence" for part in opened["passages"])
         found = tools.find_in_source(citation_id, "NEEDLE")
-        assert found["matches"][0]["text"] == "Prepared text with NEEDLE evidence."
+        assert "NEEDLE decisive prepared evidence." in found["matches"][0]["text"]
+        resolved = resolve_citation(project, turn["thread_id"], citation_id)
+        assert resolved["status"] == "current"
+        assert resolved["target"] == {
+            "kind": "cell",
+            "sheet_id": sheet,
+            "row_id": row,
+            "column_id": text_column,
+        }
+
+        def semantic_prepared_hit(*args, **kwargs):
+            assert kwargs["file_cells"] == {(row, text_column)}
+            start = prepared_text.index("NEEDLE")
+            return {
+                "hits": [
+                    {
+                        "sheet_id": sheet,
+                        "row_id": row,
+                        "column_id": text_column,
+                        "column_name": "Text result",
+                        "char_start": start,
+                        "char_end": start + len("NEEDLE"),
+                        "text": "NEEDLE",
+                        "semantic": True,
+                    }
+                ],
+                "new_embeddings": 0,
+                "coverage": {"complete": True, "semantic": True},
+            }
+
+        monkeypatch.setattr(
+            tools_module, "semantic_passage_search", semantic_prepared_hit
+        )
+        [semantic_hit] = tools.search_cells("NEEDLE", sheet, mode="semantic")["hits"]
+        assert semantic_hit["column_id"] == source_column
+        semantic_opened = tools.open_source(semantic_hit["citation_id"])
+        assert (
+            "NEEDLE decisive prepared evidence."
+            in semantic_opened["passages"][0]["text"]
+        )
         with pytest.raises(ProjectQAScopeError, match="file scope"):
             tools.read_rows(sheet, [row], [text_column])
 
@@ -324,9 +372,14 @@ def test_file_scope_reads_current_prepared_text_and_finds_it(tmp_path):
             [{"row_id": row, "column_id": text_column, "value": "replacement"}]
         )
         stale_output = tools.open_source(citation_id)
+        assert stale_output["source_changed"] is True
         assert stale_output["needs_preparation"] is True
         assert all(
             part["kind"] != "prepared_evidence" for part in stale_output["passages"]
+        )
+        assert (
+            resolve_citation(project, turn["thread_id"], citation_id)["status"]
+            == "changed"
         )
 
         project.apply_edits(

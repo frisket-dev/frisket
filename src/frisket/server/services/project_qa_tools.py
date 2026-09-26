@@ -366,12 +366,19 @@ class ProjectQATools:
         ):
             raise ValueError(f"limit must be between 1 and {MAX_READ_ROWS}")
         allowed_rows, file_cells = self._sheet_access(sheet_id)
+        file_only_cells = (
+            set()
+            if allowed_rows is None
+            else {cell for cell in file_cells if cell[0] not in allowed_rows}
+        )
+        prepared_targets = self._prepared_file_targets(sheet_id, file_only_cells)
+        target_cells = {(target[1], target[2]) for target in prepared_targets}
         if mode == "semantic":
             searched = semantic_passage_search(
                 self.project,
                 sheet_id=sheet_id,
                 row_ids=allowed_rows,
-                file_cells=file_cells,
+                file_cells=target_cells,
                 query=query,
                 limit=limit,
                 remaining_embeddings=64 - self._new_embeddings,
@@ -385,7 +392,7 @@ class ProjectQATools:
                 sheet_id,
                 query,
                 None if allowed_rows is None else sorted(allowed_rows),
-                file_cells,
+                target_cells,
                 limit,
                 cancel_event=self.cancel_event,
             )
@@ -395,10 +402,16 @@ class ProjectQATools:
         out = []
         for hit in hits:
             row_id, column_id = int(hit["row_id"]), int(hit["column_id"])
+            prepared_target = prepared_targets.get((sheet_id, row_id, column_id))
+            source_cell = (
+                prepared_target["source_cell"]
+                if prepared_target is not None
+                else (sheet_id, row_id, column_id)
+            )
             if (
                 allowed_rows is not None
-                and row_id not in allowed_rows
-                and (row_id, column_id) not in file_cells
+                and source_cell[1] not in allowed_rows
+                and (source_cell[1], source_cell[2]) not in file_cells
             ):
                 continue
             snippet = str(hit.get("text", hit.get("snip", "")))
@@ -409,6 +422,33 @@ class ProjectQATools:
                 coverage = {**coverage, "complete": False, "reason": "source_changed"}
                 continue
             try:
+                original = read_source_text(
+                    self.project,
+                    source_cell,
+                    limit=1,
+                    cancel=self.cancel_event,
+                )
+                current_prepared = (
+                    resolve_prepared_source(
+                        self.project,
+                        source_cell,
+                        expected_version=original["version"],
+                        evidence_link_id=prepared_target["evidence_link_id"],
+                        cancel=self.cancel_event,
+                    )
+                    if prepared_target is not None
+                    else None
+                )
+                if prepared_target is not None and (
+                    current_prepared is None
+                    or current_prepared["cell"] != (sheet_id, row_id, column_id)
+                ):
+                    coverage = {
+                        **coverage,
+                        "complete": False,
+                        "reason": "source_changed",
+                    }
+                    continue
                 source = read_source_text(
                     self.project,
                     (sheet_id, row_id, column_id),
@@ -416,6 +456,35 @@ class ProjectQATools:
                     limit=min(size, MAX_SOURCE_CHARS),
                     cancel=self.cancel_event,
                 )
+                if (
+                    current_prepared is not None
+                    and source["version"] != current_prepared["prepared_version"]
+                ):
+                    coverage = {
+                        **coverage,
+                        "complete": False,
+                        "reason": "source_changed",
+                    }
+                    continue
+                if current_prepared is not None:
+                    confirmed_prepared = resolve_prepared_source(
+                        self.project,
+                        source_cell,
+                        expected_version=original["version"],
+                        evidence_link_id=current_prepared["evidence_link_id"],
+                        cancel=self.cancel_event,
+                    )
+                    if (
+                        confirmed_prepared is None
+                        or confirmed_prepared["cell"] != (sheet_id, row_id, column_id)
+                        or confirmed_prepared["prepared_version"] != source["version"]
+                    ):
+                        coverage = {
+                            **coverage,
+                            "complete": False,
+                            "reason": "source_changed",
+                        }
+                        continue
             except ValueError:
                 coverage = {**coverage, "complete": False, "reason": "source_changed"}
                 continue
@@ -434,11 +503,26 @@ class ProjectQATools:
                 ),
                 source_kind="cell",
                 locator={
-                    "sheet_id": sheet_id,
-                    "row_id": row_id,
-                    "column_id": column_id,
-                    "value_ref": source["value_ref"],
+                    "sheet_id": source_cell[0],
+                    "row_id": source_cell[1],
+                    "column_id": source_cell[2],
+                    "value_ref": original["value_ref"],
                     "source_version": source["version"],
+                    **(
+                        {
+                            "prepared_cell": {
+                                "sheet_id": sheet_id,
+                                "row_id": row_id,
+                                "column_id": column_id,
+                            },
+                            "prepared_value_ref": source["value_ref"],
+                            "prepared_evidence_link_id": current_prepared[
+                                "evidence_link_id"
+                            ],
+                        }
+                        if current_prepared is not None
+                        else {}
+                    ),
                     **(
                         {"char_start": hit["char_start"], "char_end": hit["char_end"]}
                         if hit.get("semantic")
@@ -451,15 +535,38 @@ class ProjectQATools:
             self._citation_ids.add(citation["id"])
             out.append(
                 {
-                    "sheet_id": sheet_id,
-                    "row_id": row_id,
-                    "column_id": column_id,
+                    "sheet_id": source_cell[0],
+                    "row_id": source_cell[1],
+                    "column_id": source_cell[2],
                     "snippet": snippet,
                     "semantic": bool(hit.get("semantic")),
                     "citation_id": citation["id"],
                 }
             )
         return {"query": query, "hits": out, "partial": True, "coverage": coverage}
+
+    def _prepared_file_targets(
+        self, sheet_id: int, file_cells: set[tuple[int, int]]
+    ) -> dict[tuple[int, int, int], dict[str, Any]]:
+        """Expose current OCR/transcript text to search without widening file scope."""
+        targets: dict[tuple[int, int, int], dict[str, Any]] = {}
+        for row_id, column_id in sorted(file_cells)[:MAX_READ_ROWS]:
+            source_cell = (sheet_id, row_id, column_id)
+            source = read_source_text(
+                self.project, source_cell, limit=1, cancel=self.cancel_event
+            )
+            prepared = resolve_prepared_source(
+                self.project,
+                source_cell,
+                expected_version=source["version"],
+                cancel=self.cancel_event,
+            )
+            if prepared is not None:
+                targets.setdefault(
+                    prepared["cell"],
+                    {"source_cell": source_cell, **prepared},
+                )
+        return targets
 
     def record_web_search(self, search: Mapping[str, Any]) -> dict[str, Any]:
         """Persist safe public-search snippets as answer-citable receipts."""
@@ -606,9 +713,12 @@ class ProjectQATools:
             source_cell,
             expected_version=source["version"],
             evidence_link_id=(
-                locator.get("evidence_link_id")
-                if citation["source_kind"] == "evidence"
-                else None
+                locator.get("prepared_evidence_link_id")
+                or (
+                    locator.get("evidence_link_id")
+                    if citation["source_kind"] == "evidence"
+                    else None
+                )
             ),
             cancel=self.cancel_event,
         )
@@ -783,14 +893,16 @@ class ProjectQATools:
             "reached_end": observed["reached_end"],
             "source_changed": locator.get("value_ref") != source["value_ref"]
             or (
-                prepared_source is not None
-                and locator.get("prepared_value_ref") is not None
-                and locator["prepared_value_ref"] != observed["value_ref"]
+                locator.get("prepared_value_ref") is not None
+                and (
+                    prepared_source is None
+                    or locator["prepared_value_ref"] != observed["value_ref"]
+                )
             ),
             "remaining_read_chars": 64_000 - self._source_chars,
             "needs_preparation": source["column_type"]
             in {"file", "pdf", "image", "audio", "video"}
-            and not prepared_passages,
+            and prepared_source is None,
         }
 
     def find_in_source(

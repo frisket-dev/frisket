@@ -252,8 +252,14 @@ def resolve_prepared_source(
             prepared_cell = tuple(
                 int(candidate[key]) for key in ("sheet_id", "row_id", "column_id")
             )
-            prepared_meta = _metadata(db, prepared_cell)
-            if prepared_meta["value_ref"]["validity"] != "valid":
+            try:
+                prepared_meta = _metadata(db, prepared_cell)
+            except ValueError:
+                continue
+            if (
+                prepared_meta["value_ref"]["validity"] != "valid"
+                or prepared_meta["column_type"] != "text"
+            ):
                 continue
             prepared_ref = {
                 key: value
@@ -268,6 +274,8 @@ def resolve_prepared_source(
                 "cell": prepared_cell,
                 "evidence_link_id": str(candidate["stable_id"]),
                 "source_meta": source_meta,
+                "prepared_value_ref": prepared_meta["value_ref"],
+                "prepared_version": prepared_meta["version"],
             }
     return None
 

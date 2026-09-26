@@ -6,6 +6,10 @@ from typing import Any
 
 from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQANotFoundError, ProjectQAStore
+from frisket.server.services.project_qa_sources import (
+    read_source_text,
+    resolve_prepared_source,
+)
 from frisket.server.services.project_qa_web import safe_web_text, safe_web_url
 
 
@@ -134,6 +138,41 @@ def resolve_citation(
         "row_id": row_id,
         "column_id": column_id,
     }
+    prepared_cell = locator.get("prepared_cell")
+    prepared_ref = locator.get("prepared_value_ref")
+    prepared_link_id = locator.get("prepared_evidence_link_id")
+    if (
+        prepared_cell is not None
+        or prepared_ref is not None
+        or prepared_link_id is not None
+    ):
+        try:
+            expected_cell = tuple(
+                int(prepared_cell[key]) for key in ("sheet_id", "row_id", "column_id")
+            )
+            original = read_source_text(project, (sheet_id, row_id, column_id), limit=1)
+            prepared = resolve_prepared_source(
+                project,
+                (sheet_id, row_id, column_id),
+                expected_version=original["version"],
+                evidence_link_id=str(prepared_link_id),
+            )
+        except (KeyError, TypeError, ValueError):
+            prepared = None
+            expected_cell = None
+        if (
+            prepared is None
+            or prepared["cell"] != expected_cell
+            or prepared["prepared_value_ref"] != prepared_ref
+        ):
+            status = "changed"
+        else:
+            target = {
+                "kind": "cell",
+                "sheet_id": prepared["cell"][0],
+                "row_id": prepared["cell"][1],
+                "column_id": prepared["cell"][2],
+            }
     if citation["source_kind"] == "evidence":
         from frisket.engine.store.evidence import resolve_evidence_viewer
 
