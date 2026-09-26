@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import type { AskEvent } from '../../api/projectQA';
 
 const labels: Record<string, string> = {
@@ -18,7 +19,7 @@ function qualityFacts(value: unknown): string[] {
 }
 
 /** Existing activity disclosure, with the facts needed to judge coverage. */
-export function AskToolActivity({ event }: { event: AskEvent }) {
+export function AskToolActivity({ event, asStep = false }: { event: AskEvent; asStep?: boolean }) {
   const p = event.payload;
   const range = record(p.range ?? p.scanned_range);
   const coverage = record(p.coverage);
@@ -55,5 +56,21 @@ export function AskToolActivity({ event }: { event: AskEvent }) {
     || typeof p.total === 'number' || typeof p.hits === 'number' || p.has_more === true || facts.length > 0 || denominators.length > 0
     || typeof p.coverage === 'string' || p.error !== undefined || (coverage?.semantic === false && coverage.complete === false);
   const label = <>{labels[String(p.tool)] ?? 'Reading sources'}{event.kind === 'tool_started' ? '…' : ''}</>;
+  if (asStep) return <li className="ask-tool"><span>{label}</span>{hasDetails && <div className="ask-tool-details">{body}</div>}</li>;
   return hasDetails ? <details className="ask-tool"><summary>{label}</summary>{body}</details> : <div className="ask-tool">{label}</div>;
+}
+
+/** One per-turn disclosure. It follows the live turn once, then remains user-controlled. */
+export function AskWorkingActivity({ events, active }: { events: readonly AskEvent[]; active: boolean }) {
+  const [open, setOpen] = useState(active);
+  const wasActive = useRef(active);
+  useEffect(() => {
+    if (active === wasActive.current) return;
+    wasActive.current = active;
+    setOpen(active);
+  }, [active]);
+  return <details className="ask-working" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+    <summary>Working</summary>
+    <ul>{events.map((event) => <AskToolActivity key={`${event.thread_id}:${event.seq}`} event={event} asStep />)}</ul>
+  </details>;
 }

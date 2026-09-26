@@ -32,30 +32,30 @@ if (!purifierGlobal.__frisketMarkdownLinkHookInstalled) {
  * survives HTML URL parsing). Keep the sanitizer, then translate its DOM
  * fragment into React nodes instead of injecting sanitized strings.
  */
-function renderMarkdown(src: string): ReactNode {
+function renderMarkdown(src: string, renderLink?: MarkdownViewProps['renderLink']): ReactNode {
   const html = marked.parse(src) as string;
-  return sanitizeToReact(html);
+  return sanitizeToReact(html, renderLink);
 }
 
 function renderHtml(src: string): ReactNode {
   return sanitizeToReact(src);
 }
 
-function sanitizeToReact(src: string): ReactNode {
+function sanitizeToReact(src: string, renderLink?: MarkdownViewProps['renderLink']): ReactNode {
   const fragment = DOMPurify.sanitize(src, {
     FORBID_TAGS: ['style', 'form'],
     FORCE_BODY: true,
     USE_PROFILES: { html: true },
     RETURN_DOM_FRAGMENT: true,
   });
-  return domNodesToReact(fragment.childNodes, 'root');
+  return domNodesToReact(fragment.childNodes, 'root', renderLink);
 }
 
-function domNodesToReact(nodes: NodeListOf<ChildNode>, keyPrefix: string): ReactNode[] {
-  return Array.from(nodes, (node, index) => domNodeToReact(node, `${keyPrefix}-${index}`));
+function domNodesToReact(nodes: NodeListOf<ChildNode>, keyPrefix: string, renderLink?: MarkdownViewProps['renderLink']): ReactNode[] {
+  return Array.from(nodes, (node, index) => domNodeToReact(node, `${keyPrefix}-${index}`, renderLink));
 }
 
-function domNodeToReact(node: ChildNode, key: string): ReactNode {
+function domNodeToReact(node: ChildNode, key: string, renderLink?: MarkdownViewProps['renderLink']): ReactNode {
   if (node.nodeType === Node.TEXT_NODE) {
     return node.textContent ?? '';
   }
@@ -66,7 +66,11 @@ function domNodeToReact(node: ChildNode, key: string): ReactNode {
   const element = node as Element;
   const tagName = element.localName;
   const props = attributesToReactProps(element);
-  const children = domNodesToReact(element.childNodes, key);
+  const children = domNodesToReact(element.childNodes, key, renderLink);
+  if (tagName === 'a' && renderLink && typeof props.href === 'string') {
+    const replacement = renderLink(props.href, children);
+    if (replacement !== undefined) return createElement('span', { key }, replacement);
+  }
 
   return createElement(tagName, { ...props, key }, children.length > 0 ? children : undefined);
 }
@@ -140,12 +144,14 @@ export interface MarkdownViewProps {
   className?: string;
   testId?: string;
   decodeEscapes?: boolean;
+  /** A trusted host may replace a recognized local anchor with a control. */
+  renderLink?(href: string, children: ReactNode): ReactNode | undefined;
 }
 
 /** Rendered markdown block (row drawer / detail surfaces). */
-export function MarkdownView({ source, className, testId, decodeEscapes }: MarkdownViewProps) {
+export function MarkdownView({ source, className, testId, decodeEscapes, renderLink }: MarkdownViewProps) {
   const renderedSource = decodeEscapes ? decodeEscapedText(source) : source;
-  const content = useMemo(() => renderMarkdown(renderedSource), [renderedSource]);
+  const content = useMemo(() => renderMarkdown(renderedSource, renderLink), [renderedSource, renderLink]);
   return (
     <div
       className={`markdown-body${className ? ` ${className}` : ''}`}
