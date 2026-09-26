@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronLeft, Plus, Send, Square } from 'lucide-react';
-import type { GeneratedActionDraft, SheetMeta } from '../api/types';
+import type { ActionCatalogEntry, GeneratedActionDraft, SheetMeta } from '../api/types';
 import type { AskScope, AskCitation } from '../api/projectQA';
 import type { SelectorChoice } from '../api/selectorChoices';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
@@ -8,21 +8,29 @@ import { useSelector } from '../bind/useSelector';
 import { usePoll } from '../hooks/usePoll';
 import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
 import { useNativePopover } from '../hooks/useNativePopover';
+import { useActionCatalogHandle } from '../bind/useActionCatalogHandle';
 import { SelectorField } from '../engine-selector/SelectorField';
 import { MenuPop } from './MenuPop';
 import { PanelEmpty } from './PanelPrimitives';
 import { AskEventContent } from './project-ask/AskEventContent';
+import { askActionProposal } from './project-ask/actionProposal';
 import { AskThreadControls } from './project-ask/AskThreadControls';
 import { AskSourcePicker } from './project-ask/AskSourcePicker';
 import { compactAskToolEvents } from './project-ask/activityEvents';
+import { AskWorkingActivity } from './project-ask/AskToolActivity';
 import './ProjectAskDock.css';
 
-export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposal, onOpenSource }: {
+export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposal, onOpenSource, onOpenAction }: {
   onOpenSource(citation: AskCitation): void;
   initialScope: AskScope; sheets: SheetMeta[]; onClose(): void; onInspectProposal(title: string, spec: GeneratedActionDraft): void;
+  onOpenAction?(actionId: string): void;
 }) {
   const { qa, chromePreferences: { projectId } } = useWorkspaceStores();
+  const actionCatalog = useActionCatalogHandle();
   const state = useSelector(qa.store, (s) => s);
+  const availableActions = useSelector(actionCatalog.store, (snapshot): readonly ActionCatalogEntry[] => (
+    snapshot.status === 'ready' ? snapshot.catalog?.actions ?? [] : []
+  ));
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [threadMenuOpen, setThreadMenuOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
@@ -73,6 +81,28 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
   const currentViewLabel = contextIsSelection ? 'current selection' : initialScope.kind === 'project' ? 'Entire project' : (initialScope.sources ?? []).map(scopeLabel).join(', ');
   const activeSources = state.scope?.kind === 'sources' ? state.scope.sources ?? [] : [];
   const visibleEvents = useMemo(() => compactAskToolEvents(state.events), [state.events]);
+  const actionProposals = useMemo(() => visibleEvents.flatMap((event) => {
+    const proposal = askActionProposal(event);
+    return proposal ? [proposal] : [];
+  }), [visibleEvents]);
+  const toolEventsByTurn = useMemo(() => visibleEvents.reduce((byTurn, event) => {
+    if (event.kind === 'tool_started' || event.kind === 'tool_completed') {
+      byTurn.set(event.turn_id, [...(byTurn.get(event.turn_id) ?? []), event]);
+    }
+    return byTurn;
+  }, new Map<string, typeof visibleEvents>()), [visibleEvents]);
+  const referencedProposalSeqs = useMemo(() => {
+    const referenced = new Set<number>();
+    for (const event of visibleEvents) {
+      if (event.kind !== 'answer' && event.kind !== 'assistant') continue;
+      const text = typeof event.payload.text === 'string' ? event.payload.text : '';
+      for (const match of text.matchAll(/\[[^\]]+\]\(#action-([1-9]\d*)\)/g)) {
+        const seq = Number(match[1]);
+        if (actionProposals.some((proposal) => proposal.event.turn_id === event.turn_id && proposal.event.seq === seq)) referenced.add(seq);
+      }
+    }
+    return referenced;
+  }, [actionProposals, visibleEvents]);
   const send = () => {
     scrollNextMessage.current = true;
     qa.setOptions({ model: requestModel });
@@ -117,8 +147,16 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
     <div className="ask-history" ref={historyRef} aria-live="polite" aria-relevant="additions">
       {state.hasEarlier && <button type="button" disabled={state.busy} onClick={() => void qa.loadEarlier()}>Load earlier messages</button>}
       {!state.events.length && <PanelEmpty>Ask a question about your sources, or explore what they contain.</PanelEmpty>}
-      {visibleEvents.map((event) => <AskEventContent key={`${event.thread_id}:${event.seq}`} event={event} onInspectProposal={onInspectProposal} onOpenSource={onOpenSource} />)}
-      {state.activeTurn && <div className="ask-status" role="status">{state.activeTurn.status === 'stopping' ? 'Stopping…' : 'Investigating…'}</div>}
+      {visibleEvents.map((event) => {
+        if (event.kind === 'tool_started' || event.kind === 'tool_completed') {
+          const turnEvents = toolEventsByTurn.get(event.turn_id) ?? [];
+          if (turnEvents[0] !== event) return null;
+          return <AskWorkingActivity key={`working:${event.thread_id}:${event.turn_id}`} events={turnEvents} active={state.activeTurn?.id === event.turn_id} />;
+        }
+        if (event.kind === 'action_proposal' && referencedProposalSeqs.has(event.seq)) return null;
+        return <AskEventContent key={`${event.thread_id}:${event.seq}`} event={event} actionProposals={actionProposals} actionCatalog={availableActions} onOpenAction={onOpenAction} onInspectProposal={onInspectProposal} onOpenSource={onOpenSource} />;
+      })}
+      {state.activeTurn && !toolEventsByTurn.has(state.activeTurn.id) && <AskWorkingActivity events={[]} active />}
     </div>
     <div className="ask-composer">
       {state.error && <p className="ask-error" role="alert">{state.error}</p>}

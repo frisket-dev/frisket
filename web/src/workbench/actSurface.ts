@@ -231,6 +231,11 @@ const RIBBON_LAYOUT: readonly RibbonTabLayout[] = [
   },
 ];
 
+/** User-facing tab label for a base-ribbon placement. */
+export function baseActTabLabel(tabId: string): string | null {
+  return RIBBON_LAYOUT.find((tab) => tab.id === tabId)?.label ?? null;
+}
+
 /** Permanent tab identities, derived from the layout that both Act surfaces render. */
 export const BASE_ACT_TAB_IDS: readonly string[] = RIBBON_LAYOUT.map((tab) => tab.id);
 

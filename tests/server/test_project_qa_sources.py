@@ -99,12 +99,66 @@ def test_literal_find_returns_exact_offsets_and_scan_coverage(source):
 
 
 def test_action_discovery_is_bounded_and_obeys_suggestions_setting(source):
-    project, store, _, turn, _, _, _ = source
+    project, store, _, turn, sheet, _, _ = source
     tools = ProjectQATools(project, turn, store)
     found = tools.search_actions("transcribe", limit=3)
     assert 0 < len(found["actions"]) <= 3
     assert all("input_schema" not in item for item in found["actions"])
-    assert tools.describe_action(found["actions"][0]["action_id"])["input_schema"]
+    transcribe = next(
+        item for item in found["actions"] if item["action_id"] == "media.transcribe"
+    )
+    assert transcribe["reference"] == "[Transcribe](#action/media.transcribe)"
+    described = tools.describe_action(transcribe["action_id"])
+    assert described["input_schema"]
+    assert described["reference"] == transcribe["reference"]
+    assert described["required_params"] == ["source"]
+    assert described["defaults"]["engine"] == "parakeet-tdt"
+    assert described["source_requirements"] == [
+        {
+            "id": "source",
+            "param": "source",
+            "label": "Source",
+            "mode": "column",
+            "min": 1,
+            "accepted_column_types": ["audio", "video", "file"],
+        }
+    ]
+    assert described["proposal_contract"] == {
+        "kind": "media",
+        "spec_format": "flat",
+        "fixed_fields": {"action_kind": "media.transcribe"},
+        "required_fields": ["action_kind", "sheet_id", "source"],
+        "optional_fields": [
+            "language",
+            "model_size",
+            "context",
+            "clean",
+            "vad",
+            "diarize",
+            "num_speakers",
+            "min_speakers",
+            "max_speakers",
+            "engine",
+            "output_names",
+        ],
+    }
+
+    project.add_column(sheet, "Council audio", type="audio")
+    prepared = tools.propose_action(
+        "media",
+        "Transcribe council audio",
+        {
+            "action_kind": "media.transcribe",
+            "sheet_id": sheet,
+            "source": "Council audio",
+        },
+    )
+    event = store.events(turn["thread_id"])["events"][-1]
+    assert event["kind"] == "action_proposal"
+    assert prepared["proposal"] == event["payload"]["proposal"]
+    assert prepared["reference"] == (
+        f"[Transcribe council audio](#action-{event['seq']})"
+    )
     disabled = ProjectQATools(project, {**turn, "suggest_actions": False}, store)
     with pytest.raises(ProjectQAScopeError):
         disabled.search_actions("transcribe")

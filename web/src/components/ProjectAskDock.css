@@ -15,10 +15,14 @@
 .ask-history .markdown-body { font-size: 14px; line-height: 1.6; }
 .ask-history .markdown-body > :first-child { margin-top: 0; }
 .ask-history .markdown-body > :last-child { margin-bottom: 0; }
-.ask-tool, .ask-status { color: var(--text-mid); font-size: 12px; }
+.ask-tool, .ask-status, .ask-working { color: var(--text-mid); font-size: 12px; }
 .ask-tool { line-height: 1.45; }
 .ask-tool summary { cursor: pointer; }
 .ask-tool p { margin: 6px 0 0 18px; }
+.ask-working summary { cursor: pointer; }
+.ask-working ul { display: grid; gap: 5px; margin: 7px 0 0 18px; padding-left: 14px; }
+.ask-working .ask-tool { padding-left: 1px; }
+.ask-tool-details p { margin: 4px 0 0; }
 .ask-failure-status p { margin: 0; }
 .ask-failure-details { margin-top: 5px; }
 .ask-failure-details summary { cursor: pointer; }
@@ -53,8 +57,14 @@
 .ask-error { color: var(--red); overflow-wrap: anywhere; margin: 0; }
 @media (max-width: 700px) { .ask-dock { position: absolute; inset: 0 auto 0 0; z-index: 20; width: min(400px, 90vw); box-shadow: var(--shadow-drawer); } .workbench-body { position: relative; } }
 
-.ask-citations { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.ask-citations button { border: 1px solid var(--border); border-radius: 5px; background: var(--bg-panel); color: var(--text-mid); font: inherit; font-size: 12px; padding: 3px 7px; cursor: pointer; }
+.ask-inline-citation { display: inline; border: 0; border-radius: 3px; padding: 0 2px; background: var(--accent-bg); color: var(--accent); font: inherit; font-size: .9em; line-height: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.ask-inline-citation:hover, .ask-inline-citation:focus-visible { background: color-mix(in srgb, var(--accent) 18%, var(--bg)); color: var(--text); }
+.ask-inline-action { display: inline-flex; align-items: center; gap: 3px; vertical-align: baseline; border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; background: var(--bg-panel); color: var(--text); font: inherit; font-size: .9em; line-height: 1.35; cursor: pointer; }
+.ask-inline-action:hover, .ask-inline-action:focus-visible { border-color: var(--accent); background: var(--accent-bg); }
+.ask-citation-sources { margin-top: 8px; color: var(--text-mid); font-size: 12px; }
+.ask-citation-sources summary { cursor: pointer; }
+.ask-citation-sources button { display: block; border: 0; padding: 3px 0; background: transparent; color: var(--text-mid); font: inherit; font-size: inherit; text-align: left; cursor: pointer; }
+.ask-citation-sources button:hover, .ask-citation-sources button[aria-pressed="true"] { color: var(--accent); text-decoration: underline; }
 .ask-source-preview { padding: 12px; border: 1px solid var(--border); border-radius: 8px; margin-top: 8px; }
 .ask-source-preview > button { float: right; }
 
@@ -74,9 +84,6 @@
 .ask-proposal { padding: 12px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px; }
 .ask-proposal p { color: var(--text-mid); margin: 6px 0 10px; font-size: 12px; }
 
-.ask-source-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; background: var(--bg-panel); border-bottom: 1px solid var(--border); font-size: 12px; }
-.ask-filter-chip { border: 1px solid var(--border); background: var(--bg-hover); border-radius: 6px; padding: 3px 7px; font: inherit; color: var(--text); cursor: pointer; }
-
 .ask-thread-actions { display: flex; gap: 2px; }
 .ask-thread-actions button { display: grid; place-items: center; border: 0; border-radius: var(--radius-5); background: transparent; color: var(--text-mid); padding: 5px; cursor: pointer; }
 .ask-thread-actions button:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
@@ -84,7 +91,7 @@
 .ask-thread-dialog { width: min(380px, 90vw); }
 .ask-thread-dialog h2 { font-size: 16px; margin-top: 0; }
 .ask-thread-dialog input { width: 100%; }
-.ask-answer { position: relative; padding-right: 58px; }
+.ask-answer { position: relative; }
 .ask-answer-actions { position: absolute; top: -2px; right: 0; display: flex; gap: 2px; opacity: 0; transition: opacity .12s ease; }
 .ask-answer:hover .ask-answer-actions, .ask-answer:focus-within .ask-answer-actions { opacity: 1; }
 .ask-answer-actions button { display: grid; place-items: center; width: 25px; height: 25px; border: 1px solid transparent; border-radius: var(--radius-5); background: var(--bg); color: var(--text-mid); padding: 0; cursor: pointer; }

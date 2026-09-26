@@ -889,7 +889,6 @@ function WorkspaceViewContent() {
           <WorkspaceAskRegion />
           <div className="workbench-content">
             <WorkspaceNavigateRegion />
-            <WorkspaceAskSourceBar />
             <div className="app-main workbench-main-row">
               <WorkspaceMainViewRegion />
               <WorkspaceInspectDetailRegion />
@@ -906,26 +905,11 @@ function WorkspaceViewContent() {
   );
 }
 
-function WorkspaceAskSourceBar() {
-  const { askNavigation } = useWorkspaceShell();
-  const { openNewSavedView } = useMainViewModel();
-  const { gridView } = useWorkspaceStores();
-  const applied = useSelector(gridView.store, (state) => state.applied);
-  if (!askNavigation.source) return null;
-  return <div className="ask-source-bar" aria-label="Source opened from Ask">
-    <button type="button" className="btn" onClick={askNavigation.back}>Back to previous view</button>
-    <span>{askNavigation.source.label}</span>
-    {askNavigation.source.message && <span role="status">{askNavigation.source.message}</span>}
-    {applied.scopeRowIds != null && <button type="button" className="ask-filter-chip" onClick={() => gridView.store.set((state) => ({ ...state, applied: { ...state.applied, scopeRowIds: null }, activeSavedViewId: null }))}>{applied.scopeRowIds.length === 1 ? 'Cited row' : `${applied.scopeRowIds.length} selected rows`} ×</button>}
-    {Object.entries(applied.filter ?? {}).map(([column, condition]) => <button type="button" key={column} className="ask-filter-chip" onClick={() => gridView.store.set((state) => { const filter = { ...state.applied.filter }; delete filter[column]; return { ...state, activeSavedViewId: null, applied: { ...state.applied, filter: Object.keys(filter).length ? filter : null } }; })}>{gridFilterLabel({ [column]: condition })} ×</button>)}
-    <button type="button" className="btn" onClick={() => openNewSavedView('Ask results')}>Save as view</button>
-  </div>;
-}
-
 function WorkspaceAskRegion() {
   const { sheet, sheets } = useCurrentSheet();
   const { chrome, selection, detail } = useWorkspaceStores();
   const { selectSheet, askNavigation } = useWorkspaceShell();
+  const { launchActionFromSurface } = useWorkspaceAct();
   const open = useSelector(chrome.store, (s) => s.askOpen);
   const selected = useSelector(selection.store, (s) => s.selectedRows);
   const scope = useMemo<AskScope>(() => {
@@ -935,7 +919,7 @@ function WorkspaceAskRegion() {
       ? [{ kind: 'rows', sheet_id: Number(sheet.id), row_ids: rows }]
       : [{ kind: 'sheet', sheet_id: Number(sheet.id) }] };
   }, [sheet, selected]);
-  return open ? <ProjectAskDock onOpenSource={askNavigation.open} initialScope={scope} sheets={sheets} onClose={chrome.closeAsk} onInspectProposal={(title, spec) => {
+  return open ? <ProjectAskDock onOpenSource={askNavigation.open} onOpenAction={launchActionFromSurface} initialScope={scope} sheets={sheets} onClose={chrome.closeAsk} onInspectProposal={(title, spec) => {
     if (spec.scope.kind === 'sheet_rows') selectSheet(String(spec.scope.sheet_id));
     openAskProposalTransition({ chrome, detail }, { seq: Date.now(), title, spec });
   }} /> : null;
@@ -3561,10 +3545,6 @@ function WorkspacePrimarySurface() {
   const companionMainViewDescriptor =
     activeMainViewPluginViewDescriptor ?? (showImageGalleryPane ? IMAGE_GALLERY_VIEW_DESCRIPTOR : null);
 
-  const { askNavigation } = useWorkspaceShell();
-  const sourceTarget = askNavigation.source?.target;
-  if (sourceTarget?.kind === 'evidence') return <Suspense fallback={<PanelLoading label="Loading source…" />}><LazyEvidenceViewer key={askNavigation.source?.id} evidenceLinkId={sourceTarget.evidence_link_id} scopeSpanId={sourceTarget.span_id} highlight={askNavigation.source?.status === "current"} mode="pane" onClose={askNavigation.back} defaultShowDetails={false} /></Suspense>;
-
   if (activePreviewView?.result?.kind === 'table') return <>{gridContribution}</>;
 
   if (documentViewShowing && documentView && sheet) {
@@ -3672,8 +3652,10 @@ function WorkspacePrimarySurface() {
         <EvidenceWorkbenchViewFrame host="mainView">
           <Suspense fallback={<PanelLoading className="grid-host" label="Loading evidence…" />}>
             <LazyEvidenceViewer
-              key={String(evidenceViewerState.linkId)}
+              key={`${String(evidenceViewerState.linkId)}:${evidenceViewerState.scopeSpanId ?? ''}`}
               evidenceLinkId={evidenceViewerState.linkId}
+              scopeSpanId={evidenceViewerState.scopeSpanId}
+              highlight={evidenceViewerState.highlight}
               mode="pane"
               onClose={closeEvidenceViewer}
             />
@@ -4923,12 +4905,17 @@ const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
             }
           >
             <LazyEvidenceViewer
-              key={String(evidenceViewerState.linkId)}
+              key={`${String(evidenceViewerState.linkId)}:${evidenceViewerState.scopeSpanId ?? ''}`}
               evidenceLinkId={evidenceViewerState.linkId}
+              scopeSpanId={evidenceViewerState.scopeSpanId}
+              highlight={evidenceViewerState.highlight}
               onClose={closeEvidenceViewer}
               onOpenCompanion={() => {
                 closeRowDrawer();
-                openEvidenceViewer(evidenceViewerState.linkId, 'mainView');
+                openEvidenceViewer(evidenceViewerState.linkId, 'mainView', {
+                  scopeSpanId: evidenceViewerState.scopeSpanId,
+                  highlight: evidenceViewerState.highlight,
+                });
               }}
             />
           </Suspense>

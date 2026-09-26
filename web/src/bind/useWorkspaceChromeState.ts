@@ -28,6 +28,7 @@ import { useSelector } from './useSelector';
 import {
   type DeleteRowsConfirmState,
   type DocumentViewState,
+  type EvidenceViewerFocus,
   type EvidenceViewerHost,
   type PromotedView,
   type OpenSplitState,
@@ -38,7 +39,7 @@ import type { WorkbenchProjectionStatus } from '../workbench/WorkbenchBottomDock
 
 export function useWorkspaceChromeState(projectId: string) {
   const chrome = useChromeHandle();
-  const { chromePreferences, route } = useWorkspaceStores();
+  const { chromePreferences } = useWorkspaceStores();
   if (chromePreferences.projectId !== projectId) {
     throw new Error('workspace chrome preference scope does not match the mounted project');
   }
@@ -126,8 +127,9 @@ export function useWorkspaceChromeState(projectId: string) {
   const openEvidenceViewer = useCallback((
     linkId: string | number,
     host: EvidenceViewerHost = 'modalOrPeek',
+    focus?: EvidenceViewerFocus,
   ) => {
-    chrome.openEvidenceViewer(linkId, host);
+    chrome.openEvidenceViewer(linkId, host, focus);
   }, [chrome]);
 
   const closeEvidenceViewer = useCallback(() => chrome.closeEvidenceViewer(), [chrome]);
@@ -153,17 +155,17 @@ export function useWorkspaceChromeState(projectId: string) {
     [projectPreferences],
   );
   const setOpenSplit = useCallback(
-    (split: OpenSplitState | null) => route.isTemporary() ? chrome.setTransientReader({ openSplit: split }) : sheetPreferences.setOpenSplit(split),
-    [sheetPreferences, route, chrome],
+    (split: OpenSplitState | null) => sheetPreferences.setOpenSplit(split),
+    [sheetPreferences],
   );
   const setDocumentView = useCallback(
-    (documentView: DocumentViewState | null) => route.isTemporary() ? chrome.setTransientReader({ documentView }) : sheetPreferences.setDocumentView(documentView),
-    [sheetPreferences, route, chrome],
+    (documentView: DocumentViewState | null) => sheetPreferences.setDocumentView(documentView),
+    [sheetPreferences],
   );
   const setSheetAnnotationToggles = useCallback(
     (sheetId: string, disabledToggleKeys: readonly string[]) =>
       sheetPreferences.setSheetAnnotationToggles(sheetId, disabledToggleKeys),
-    [sheetPreferences, route, chrome],
+    [sheetPreferences],
   );
 
   const toggleDiscover = useCallback(() => {

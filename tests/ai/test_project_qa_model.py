@@ -682,6 +682,9 @@ def test_runner_combines_read_and_typed_output_repairs_citations_and_accounts(
         assert "analytics" in instructions.split("Cite only", 1)[1].split(".", 1)[0]
         assert "call final_result" in instructions
         assert "Plain text is allowed" in instructions
+        assert "[1](#cite-1)" in instructions
+        assert "[Transcribe](#action/media.transcribe)" in instructions
+        assert "prepared action" in instructions
         observations = [
             str(message["content"])
             for request in adapter.requests[1:]
@@ -708,6 +711,79 @@ def test_runner_combines_read_and_typed_output_repairs_citations_and_accounts(
         completed = store.finish_turn(turn["id"], status="completed")
         assert completed["usage"] == {"calls": 3, "tokens_in": 30, "tokens_out": 9}
         assert completed["cost_actual"] == pytest.approx(0.03)
+    finally:
+        project.close()
+
+
+@pytest.mark.parametrize(
+    "bad_text",
+    [
+        "Evidence [2](#cite-2).",
+        "Evidence [1](#cite-1) and [invented](#action-999).",
+    ],
+)
+def test_runner_repairs_fabricated_inline_references(
+    tmp_path: Path, bad_text: str
+) -> None:
+    project, store, turn = _project_turn(tmp_path, {"kind": "project"})
+
+    class InlineReferenceAdapter:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def complete(self, request: LLMRequest, client: Any) -> LLMResponse:
+            del client
+            self.calls += 1
+            output_name = next(
+                tool["name"]
+                for tool in request.tools or []
+                if {"text", "citation_ids"}
+                <= set(tool["parameters"].get("properties", {}))
+            )
+            if self.calls == 1:
+                name, args = "read_rows", {"sheet_id": 1, "limit": 1}
+            else:
+                observations = [
+                    json.loads(message["content"])
+                    for message in request.messages
+                    if message.get("role") == "tool"
+                    and str(message.get("content", "")).startswith("{")
+                ]
+                citation_id = observations[0]["rows"][0]["cells"][0]["citation_id"]
+                if self.calls == 2:
+                    text = bad_text
+                else:
+                    text = "Evidence [1](#cite-1)."
+                name, args = (
+                    output_name,
+                    {
+                        "text": text,
+                        "citation_ids": [citation_id],
+                    },
+                )
+            return LLMResponse(
+                content=None,
+                data=None,
+                tokens_in=10,
+                tokens_out=3,
+                cost=0.01,
+                model=request.model,
+                tool_calls=[{"name": name, "args": args, "id": f"inline-{self.calls}"}],
+            )
+
+    router = ModelRouter(
+        keys={"anthropic": "test-key"},
+        cache=None,
+        cache_mode="off",
+        use_env_keys=False,
+    )
+    adapter = InlineReferenceAdapter()
+    router._adapters["anthropic"] = adapter
+    try:
+        answer = asyncio.run(run_turn(project, router, turn, store))
+        assert answer["text"] == "Evidence [1](#cite-1)."
+        assert len(answer["citation_ids"]) == 1
+        assert adapter.calls == 3
     finally:
         project.close()
 
