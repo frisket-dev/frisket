@@ -42,6 +42,23 @@ def test_search_opens_late_passage_and_continues_without_repeating_prefix(source
     assert continued["range"]["start"] == opened["range"]["end"]
 
 
+def test_exact_cell_scope_still_searches_its_original_text(source):
+    project, store, _, turn, sheet, column, row = source
+    turn = {
+        **turn,
+        "scope": {
+            "kind": "sources",
+            "sources": [
+                {"kind": "file", "sheet_id": sheet, "row_id": row, "column_id": column}
+            ],
+        },
+    }
+    tools = ProjectQATools(project, turn, store)
+    [hit] = tools.search_cells("NEEDLE", sheet)["hits"]
+    assert hit["column_id"] == column
+    assert "NEEDLE" in tools.open_source(hit["citation_id"])["passages"][0]["text"]
+
+
 def test_prior_sources_reopen_only_in_current_scope_and_metadata_is_filtered(source):
     project, store, thread, turn, sheet, column, row = source
     first = ProjectQATools(project, turn, store)
@@ -336,7 +353,7 @@ def test_file_scope_reads_current_prepared_text_and_finds_it(tmp_path, monkeypat
         }
 
         def semantic_prepared_hit(*args, **kwargs):
-            assert kwargs["file_cells"] == {(row, text_column)}
+            assert kwargs["file_cells"] == {(row, source_column), (row, text_column)}
             start = prepared_text.index("NEEDLE")
             return {
                 "hits": [

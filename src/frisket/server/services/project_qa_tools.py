@@ -372,7 +372,9 @@ class ProjectQATools:
             else {cell for cell in file_cells if cell[0] not in allowed_rows}
         )
         prepared_targets = self._prepared_file_targets(sheet_id, file_only_cells)
-        target_cells = {(target[1], target[2]) for target in prepared_targets}
+        target_cells = file_cells | {
+            (target[1], target[2]) for target in prepared_targets
+        }
         if mode == "semantic":
             searched = semantic_passage_search(
                 self.project,
@@ -506,7 +508,9 @@ class ProjectQATools:
                     "sheet_id": source_cell[0],
                     "row_id": source_cell[1],
                     "column_id": source_cell[2],
-                    "value_ref": original["value_ref"],
+                    "value_ref": original["value_ref"]
+                    if current_prepared is not None
+                    else source["value_ref"],
                     "source_version": source["version"],
                     **(
                         {
@@ -550,7 +554,8 @@ class ProjectQATools:
     ) -> dict[tuple[int, int, int], dict[str, Any]]:
         """Expose current OCR/transcript text to search without widening file scope."""
         targets: dict[tuple[int, int, int], dict[str, Any]] = {}
-        for row_id, column_id in sorted(file_cells)[:MAX_READ_ROWS]:
+        # Admission already bounds the source selection to 100 entries.
+        for row_id, column_id in sorted(file_cells):
             source_cell = (sheet_id, row_id, column_id)
             source = read_source_text(
                 self.project, source_cell, limit=1, cancel=self.cancel_event
