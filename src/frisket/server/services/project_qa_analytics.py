@@ -13,6 +13,7 @@ import sqlite3
 import sys
 import threading
 from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -21,6 +22,7 @@ from frisket.features.watchlists.specs import canonical_json
 from frisket.querysets import (
     BUILTIN_FILTER_OPERATORS,
     SheetRowSetError,
+    anchor_relative_date_filters,
     sheet_row_scope_query,
 )
 
@@ -160,6 +162,16 @@ def evaluate_analytics(
         if isinstance(request, AnalyticsRequest)
         else AnalyticsRequest.model_validate(request)
     )
+    try:
+        parsed = parsed.model_copy(
+            update={
+                "filter": anchor_relative_date_filters(
+                    parsed.filter, reference_date=datetime.now(UTC).date()
+                )
+            }
+        )
+    except SheetRowSetError as exc:
+        raise AnalyticsRequestError(str(exc)) from exc
     effective = _normalize_scope(scope, parsed.sheet_id)
     if cancel_event is not None and cancel_event.is_set():
         raise AnalyticsCancelled("analytics query was stopped")

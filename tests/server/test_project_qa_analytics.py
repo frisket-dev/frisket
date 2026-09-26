@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import threading
 
 import pytest
 
+import frisket.querysets as querysets
 from frisket.engine.store import Project
+from frisket.server.services import project_qa_analytics, project_qa_query
 from frisket.server.services.project_qa_query import (
     AnalyticsRequest,
     AnalyticsCancelled,
@@ -264,6 +267,78 @@ def test_date_bucket_and_missing_locator_are_backend_generated(tmp_path):
     )
     assert replay["total"] == result["groups"][0]["metrics"]["rows"]
     project.close()
+
+
+def test_relative_date_filter_is_anchored_for_results_and_group_replay(
+    tmp_path, monkeypatch
+):
+    class AprilTenth(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            current = cls(2026, 4, 10, tzinfo=UTC)
+            return current if tz is not None else current.replace(tzinfo=None)
+
+    class AprilEleventh(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            current = cls(2026, 4, 11, tzinfo=UTC)
+            return current if tz is not None else current.replace(tzinfo=None)
+
+    monkeypatch.setattr(querysets, "datetime", AprilTenth)
+    monkeypatch.setattr(project_qa_analytics, "datetime", AprilTenth, raising=False)
+    project = Project.create(tmp_path / "anchored-dates.frisket", name="anchored")
+    sheet = project.add_sheet("awards")
+    columns = {
+        "supplier": project.add_column(sheet, "supplier"),
+        "awarded": project.add_column(sheet, "awarded", type="date"),
+    }
+    rows = project.add_rows(
+        sheet,
+        [
+            {"supplier": "A", "awarded": "2026-04-03"},
+            {"supplier": "A", "awarded": "2026-04-04"},
+            {"supplier": "A", "awarded": "2026-04-10"},
+        ],
+        columns,
+    )
+    scope = {"kind": "sheet", "sheet_id": sheet}
+
+    try:
+        result = evaluate_analytics(
+            project,
+            {
+                "sheet_id": sheet,
+                "filter": {"awarded": {"date_relative": {"amount": 7, "unit": "days"}}},
+                "groups": [{"column_id": columns["supplier"]}],
+                "metrics": [{"id": "rows", "kind": "count"}],
+            },
+            scope,
+        )
+
+        anchored = {
+            "awarded": {"between": {"start": "2026-04-04", "end": "2026-04-10"}}
+        }
+        assert result["filter"] == anchored
+        assert result["row_count"] == 2
+        assert result["groups"][0]["metrics"]["rows"] == 2
+        locator_filter = result["groups"][0]["locator"]["filter"]
+        assert locator_filter["awarded"] == anchored["awarded"]
+
+        monkeypatch.setattr(project_qa_query, "datetime", AprilEleventh)
+        replayed = evaluate_query(
+            project,
+            {
+                "schema_version": "frisket.query.v1",
+                "kind": "sheet.filter",
+                "scope": scope,
+                "filter": locator_filter,
+            },
+            scope,
+        )
+        assert replayed["row_ids"] == rows[1:]
+        assert replayed["total"] == result["groups"][0]["metrics"]["rows"] == 2
+    finally:
+        project.close()
 
 
 def test_value_missing_and_invalid_locators_replay_through_ordinary_query(tmp_path):
