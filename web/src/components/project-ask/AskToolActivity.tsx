@@ -36,7 +36,7 @@ export function AskToolActivity({ event }: { event: AskEvent }) {
   return <details className="ask-tool">
     <summary>{labels[String(p.tool)] ?? 'Reading sources'}{event.kind === 'tool_started' ? '…' : ''}</summary>
     {typeof p.detail === 'string' && <p>{p.detail}</p>}
-    {p.query !== undefined && <p>Query: {typeof p.query === 'string' ? p.query : JSON.stringify(p.query)}</p>}
+    {typeof p.query === 'string' && <p>Query: {p.query}</p>}
     {range && <p>Characters {String(range.start)}–{String(range.end)}{p.reached_end === false ? '; more remains.' : '.'}</p>}
     {typeof p.row_count === 'number' && <p>{p.row_count.toLocaleString()} rows considered.</p>}
     {typeof p.total === 'number' && <p>{p.total.toLocaleString()} matching rows.</p>}

@@ -11,7 +11,13 @@ from pydantic import ValidationError
 from frisket.actions.core import ColumnTransform
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.system import root_action_catalog
-from frisket.actions.types import ColumnTransformContext, InputReference, ProjectScope, SheetRows, discover_references
+from frisket.actions.types import (
+    ColumnTransformContext,
+    InputReference,
+    ProjectScope,
+    SheetRows,
+    discover_references,
+)
 from frisket.authoring.project_ask import (
     PROJECT_ASK_ACTION_KINDS,
     PROJECT_ASK_CREATE_SHEET_KINDS,
@@ -23,16 +29,36 @@ from frisket.engine.store import Project
 logger = logging.getLogger("frisket.project_ask")
 
 WIRE_ACTION_FAMILIES = tuple(
-    (family, tuple(kind for kind in PROJECT_ASK_ACTION_KINDS if kind.startswith(f"{family}.")))
-    for family in ("map", "resolve", "derive", "reduce", "media", "enrich", "web", "research")
+    (
+        family,
+        tuple(
+            kind for kind in PROJECT_ASK_ACTION_KINDS if kind.startswith(f"{family}.")
+        ),
+    )
+    for family in (
+        "map",
+        "resolve",
+        "derive",
+        "reduce",
+        "media",
+        "enrich",
+        "web",
+        "research",
+    )
 )
-WIRE_ACTION_KINDS = frozenset(kind for _family, kinds in WIRE_ACTION_FAMILIES for kind in kinds)
+WIRE_ACTION_KINDS = frozenset(
+    kind for _family, kinds in WIRE_ACTION_FAMILIES for kind in kinds
+)
 _ACTION_CATALOG_BY_KIND = {entry.kind: entry for entry in root_action_catalog().actions}
 _SAVED_AUTHORIZATION_FIELDS = frozenset({"confirmed", "consented_promise_set_hash"})
-_FORBIDDEN_PROPOSAL_FIELDS = _SAVED_AUTHORIZATION_FIELDS | frozenset({"params", "authoring_contract_version", "idempotency_key", "confirmation"})
+_FORBIDDEN_PROPOSAL_FIELDS = _SAVED_AUTHORIZATION_FIELDS | frozenset(
+    {"params", "authoring_contract_version", "idempotency_key", "confirmation"}
+)
+
 
 def proposal_action_ids() -> frozenset[str]:
     return WIRE_ACTION_KINDS
+
 
 def _coerce_proposal(
     kind: Any, spec: dict[str, Any]
@@ -93,6 +119,7 @@ def _coerce_proposal(
     except Exception:
         return None
     return draft.model_dump(mode="json", exclude_none=True), references
+
 
 def _prune_native_fill(spec: dict[str, Any]) -> dict[str, Any]:
     """Remove union-schema filler without erasing typed action intent.
@@ -336,12 +363,16 @@ def validate_proposals(project: Project, data: dict[str, Any]) -> list[dict[str,
 
 
 def validate_action_proposals(
-    project: Project, proposals: list[dict[str, Any]], *, scope: Mapping[str, Any] | None = None
+    project: Project,
+    proposals: list[dict[str, Any]],
+    *,
+    scope: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     valid = validate_proposals(project, {"proposals": proposals})
     if scope is None or scope.get("kind") == "project":
         return valid
     return [proposal for proposal in valid if _restrict_scope(project, proposal, scope)]
+
 
 def _restrict_scope(
     project: Project, proposal: dict[str, Any], source_scope: Mapping[str, Any]

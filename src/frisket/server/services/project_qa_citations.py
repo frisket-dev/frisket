@@ -51,7 +51,11 @@ def resolve_citation(
         url = projected["url"]
         retrieved_at = locator.get("retrieved_at")
         fetched = locator.get("fetched")
-        if not isinstance(url, str) or not isinstance(retrieved_at, str) or not isinstance(fetched, bool):
+        if (
+            not isinstance(url, str)
+            or not isinstance(retrieved_at, str)
+            or not isinstance(fetched, bool)
+        ):
             return result
         return {
             **result,

@@ -114,13 +114,17 @@ def test_ask_calculation_opens_exact_underlying_records(tmp_path, monkeypatch):
             },
         )
         assert submitted.status_code == 200, submitted.text
-        deadline = time.monotonic() + 5
+        deadline = (
+            time.monotonic() + 5
+        )  # realtime: bound polling of the live HTTP background turn
         while True:
             page = client.get(path + "/events").json()
             if page["active_turn"] is None:
                 break
-            assert time.monotonic() < deadline, page
-            time.sleep(0.01)
+            assert time.monotonic() < deadline, (
+                page
+            )  # realtime: fail if the background turn stalls
+            time.sleep(0.01)  # realtime: yield while real worker threads finish
         answer = next(e for e in page["events"] if e["kind"] == "answer")
         citation = client.get(
             path + "/citations/" + answer["payload"]["citation_ids"][0]

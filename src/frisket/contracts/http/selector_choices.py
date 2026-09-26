@@ -265,7 +265,7 @@ __all__ = [
     "ApiKeySetup",
     "ArtifactDownloadSetup",
     "AuthoredSelection",
-    "CopilotSelectorSubject",
+    "ProjectAskSelectorSubject",
     "EmbeddingSelectorSubject",
     "EmbeddingSelection",
     "EngineModelSelection",

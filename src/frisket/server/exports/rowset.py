@@ -171,7 +171,9 @@ def resolve_rowset(
     row_ids: list[int] | None = None
     # Preserve the compact-plan compatibility contract for ordinary views.
     # Only a corpus-sized selected view takes the cursor-backed representation.
-    if (materialize_small or scope_row_ids is not None) and total <= MAX_EXPLICIT_EXPORT_ROW_IDS:
+    if (
+        materialize_small or scope_row_ids is not None
+    ) and total <= MAX_EXPLICIT_EXPORT_ROW_IDS:
         row_ids = resolve_sheet_filter_rows(
             project,
             sheet_id,

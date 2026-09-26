@@ -518,7 +518,9 @@ def test_action_and_project_ask_use_their_distinct_effective_routers(
     )
     assert action.status_code == project_ask.status_code == 200
     action_current = next(row for row in _choices(action.json()) if row["is_current"])
-    project_ask_current = next(row for row in _choices(project_ask.json()) if row["is_current"])
+    project_ask_current = next(
+        row for row in _choices(project_ask.json()) if row["is_current"]
+    )
     assert action_current["can_run"] is True
     assert project_ask_current["can_run"] is False
     assert project_ask_current["setup"]["kind"] == "api_key"
@@ -1071,7 +1073,8 @@ def test_model_choices_reuse_provider_setup_credential_and_spend_facts_within_re
         ),
     )
     response = client.post(
-        f"/api/projects/{project_id}/selector-choices", json=_query({"kind": "project_ask"})
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query({"kind": "project_ask"}),
     )
     assert response.status_code == 200, response.text
     models = _choices(response.json())
@@ -1088,7 +1091,8 @@ def test_model_choices_reuse_provider_setup_credential_and_spend_facts_within_re
     )
     assert spend_reads == Counter({"openai": 1})
     refreshed = client.post(
-        f"/api/projects/{project_id}/selector-choices", json=_query({"kind": "project_ask"})
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query({"kind": "project_ask"}),
     )
     assert refreshed.status_code == 200
     refreshed_openai = [

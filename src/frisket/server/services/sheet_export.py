@@ -79,7 +79,9 @@ class SheetDatasetExportService:
                 code="invalid_export_format",
             )
         scope = _parse_scope_row_ids(scope_row_ids)
-        if (filter_ is not None or sort is not None or scope is not None) and len(selected) != 1:
+        if (filter_ is not None or sort is not None or scope is not None) and len(
+            selected
+        ) != 1:
             raise SheetDatasetExportError(
                 400,
                 "current-view export requires exactly one selected sheet",
@@ -309,18 +311,24 @@ def _parse_scope_row_ids(raw: str | None) -> list[int] | None:
             row_id = int(token)
         except ValueError as exc:
             raise SheetDatasetExportError(
-                400, f"invalid scope_row_ids value: {token!r}", code="invalid_scope_row_ids"
+                400,
+                f"invalid scope_row_ids value: {token!r}",
+                code="invalid_scope_row_ids",
             ) from exc
         if row_id <= 0:
             raise SheetDatasetExportError(
-                400, "scope_row_ids must contain positive integers", code="invalid_scope_row_ids"
+                400,
+                "scope_row_ids must contain positive integers",
+                code="invalid_scope_row_ids",
             )
         if row_id not in seen:
             seen.add(row_id)
             values.append(row_id)
         if len(values) > 1000:
             raise SheetDatasetExportError(
-                400, "scope_row_ids may contain at most 1000 rows", code="invalid_scope_row_ids"
+                400,
+                "scope_row_ids may contain at most 1000 rows",
+                code="invalid_scope_row_ids",
             )
     return values
 

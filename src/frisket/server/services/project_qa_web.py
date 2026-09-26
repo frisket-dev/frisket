@@ -81,7 +81,8 @@ async def search_web(
         snippet = record.get("snippet") or ""
         results.append(
             {
-                "title": safe_web_text(title, limit=160) or (urlsplit(url).hostname or "Web result"),
+                "title": safe_web_text(title, limit=160)
+                or (urlsplit(url).hostname or "Web result"),
                 "url": url,
                 "snippet": safe_web_text(snippet, limit=MAX_WEB_SNIPPET_CHARS),
             }
@@ -100,7 +101,9 @@ async def fetch_web_page(
 
     safe_url = safe_web_url(url)
     if safe_url is None:
-        raise ValueError("Use a public result URL without credentials or sensitive query values")
+        raise ValueError(
+            "Use a public result URL without credentials or sensitive query values"
+        )
     text = await asyncio.wait_for(fetch(url, http), timeout)
     if text.startswith(("fetch failed:", "invalid url")):
         raise ValueError("The page could not be retrieved safely")

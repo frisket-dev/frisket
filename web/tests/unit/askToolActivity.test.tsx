@@ -8,6 +8,11 @@ function render(payload: AskEvent['payload']) {
 }
 
 describe('Ask activity coverage', () => {
+  it('shows search terms without exposing structured query JSON', () => {
+    expect(render({ tool: 'search_cells', query: 'awarded contracts' })).toContain('awarded contracts');
+    expect(render({ tool: 'query_rows', query: { filter: { '2': { eq: 'awarded' } } } })).not.toContain('Query:');
+  });
+
   it('shows analytics quality, paging and denominator facts in the existing disclosure', () => {
     const html = render({ tool: 'analytics', row_count: 1000000, has_more: true, excluded_null_groups: 3,
       quality: { '2': { present: 80, missing: 15, invalid: 5 } },

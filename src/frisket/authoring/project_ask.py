@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from frisket.ai.llm import ModelRouter
 
-from typing import Annotated, Any, Literal
+from typing import Literal
 
 from pydantic import ConfigDict, Field, JsonValue, model_validator
 
@@ -133,6 +133,7 @@ PROJECT_ASK_CREATE_SHEET_KINDS = _REGISTERED_CREATE_SHEET_KINDS
 PROJECT_ASK_ROW_CREATE_SHEET_KINDS = _REGISTERED_ROW_CREATE_SHEET_KINDS
 
 RegisteredActionKind = Literal[_REGISTERED_ACTION_KINDS]  # type: ignore[valid-type]
+
 
 class ProjectAskRegisteredSheetRowsScope(WireModel):
     """Request-level sheet scope saved without execution authorization."""
@@ -263,7 +264,9 @@ class ProjectAskRegisteredActionDraft(WireModel):
     )
 
     action_id: RegisteredActionKind
-    scope: ProjectScope | ProjectAskRegisteredSheetRowsScope = Field(discriminator="kind")
+    scope: ProjectScope | ProjectAskRegisteredSheetRowsScope = Field(
+        discriminator="kind"
+    )
     params: dict[str, JsonValue]
     output_names: dict[str, str] = Field(default_factory=dict)
     sheet_name: str | None = Field(
