@@ -77,7 +77,9 @@ describe('Ask event presentation', () => {
     render(<AskEventContent event={event('answer', { text: '[Prepared](#action-7) then [Transcribe](#action/media.transcribe), not [Made up](#action/unknown).' })}
       actionProposals={[prepared!]} actionCatalog={[{ kind: 'media.transcribe', title: 'Transcribe' } as never]} onInspectProposal={inspect} onOpenAction={openAction} onOpenSource={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: 'Prepared note' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Transcribe' }));
+    const transcribe = screen.getByRole('button', { name: 'Transcribe' });
+    expect(transcribe).toHaveAttribute('title', 'Media tab > Transcribe');
+    fireEvent.click(transcribe);
     expect(inspect).toHaveBeenCalledWith('Prepared note', prepared!.spec);
     expect(openAction).toHaveBeenCalledWith('media.transcribe');
     expect(screen.queryByRole('link', { name: 'Made up' })).not.toBeInTheDocument();

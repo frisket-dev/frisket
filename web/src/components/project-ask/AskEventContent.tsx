@@ -4,7 +4,8 @@ import type { AskCitation, AskEvent } from '../../api/projectQA';
 import type { ActionCatalogEntry, GeneratedActionDraft } from '../../api/types';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 import { MarkdownView } from '../../markdown';
-import { ACTION_ICON_BY_KIND } from '../../workbench/actSurface';
+import { ACTION_PLACEMENTS } from '../../actions/model';
+import { ACTION_ICON_BY_KIND, baseActTabLabel } from '../../workbench/actSurface';
 import { askActionProposal, type AskActionProposal } from './actionProposal';
 
 function hasPreview(citation: AskCitation): boolean {
@@ -21,6 +22,11 @@ function markerIndex(href: string, prefix: string): number | null {
 function hasInlineMarker(text: string, prefix: string, valid: (index: number) => boolean): boolean {
   return Array.from(text.matchAll(new RegExp(`\\[[^\\]]+\\]\\(#${prefix}([1-9]\\d*)\\)`, 'g')))
     .some((match) => valid(Number(match[1])));
+}
+
+function actionTooltip(kind: string, title: string): string {
+  const tab = ACTION_PLACEMENTS[kind] && baseActTabLabel(ACTION_PLACEMENTS[kind].tab);
+  return tab ? `${tab} tab > ${title}` : title;
 }
 
 export function AskEventContent({ event, onInspectProposal, onOpenSource, actionProposals = [], actionCatalog = [], onOpenAction }: {
@@ -92,14 +98,15 @@ export function AskEventContent({ event, onInspectProposal, onOpenSource, action
         const prepared = proposalsBySeq.get(proposal);
         if (prepared) {
           const Icon = ACTION_ICON_BY_KIND[prepared.spec.action_id];
-          return <button type="button" className="ask-inline-action" title={prepared.title} onClick={() => onInspectProposal(prepared.title, prepared.spec)}>{Icon && <Icon size={14} aria-hidden />}{prepared.title}</button>;
+          const title = catalogByKind.get(prepared.spec.action_id)?.title ?? prepared.title;
+          return <button type="button" className="ask-inline-action" title={actionTooltip(prepared.spec.action_id, title)} onClick={() => onInspectProposal(prepared.title, prepared.spec)}>{Icon && <Icon size={14} aria-hidden />}{prepared.title}</button>;
         }
       }
       const generic = /^#action\/([a-z][a-z0-9_.-]*)$/.exec(href)?.[1];
       const entry = generic ? catalogByKind.get(generic) : undefined;
       if (entry && onOpenAction) {
         const Icon = ACTION_ICON_BY_KIND[entry.kind];
-        return <button type="button" className="ask-inline-action" title={entry.title} onClick={() => onOpenAction(entry.kind)}>{Icon && <Icon size={14} aria-hidden />}{entry.title}</button>;
+        return <button type="button" className="ask-inline-action" title={actionTooltip(entry.kind, entry.title)} onClick={() => onOpenAction(entry.kind)}>{Icon && <Icon size={14} aria-hidden />}{entry.title}</button>;
       }
       return href.startsWith('#cite-') || href.startsWith('#action-') || href.startsWith('#action/') ? children : undefined;
     };
