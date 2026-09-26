@@ -585,11 +585,13 @@ def semantic_passage_search(
     def stopped() -> bool:
         return bool(cancel_event and cancel_event.is_set())
 
-    def fallback(reason: str) -> dict[str, Any]:
+    effective_cells = file_cells if row_ids is not None else set()
+
+    def fallback(reason: str, fresh_count: int = 0) -> dict[str, Any]:
         if stopped():
             return {
                 "hits": [],
-                "new_embeddings": 0,
+                "new_embeddings": fresh_count,
                 "coverage": {"complete": False, "reason": "cancelled"},
             }
         return {
@@ -598,10 +600,10 @@ def semantic_passage_search(
                 sheet_id,
                 query,
                 None if row_ids is None else sorted(row_ids),
-                file_cells,
+                effective_cells,
                 limit,
             ),
-            "new_embeddings": 0,
+            "new_embeddings": fresh_count,
             "coverage": {"complete": False, "reason": reason, "semantic": False},
         }
 
@@ -621,19 +623,28 @@ def semantic_passage_search(
     try:
         where, params = ["sheet_id=?"], [sheet_id]
         allowed: list[str] = []
+        allowed_columns = {
+            int(column["id"])
+            for column in project.columns(sheet_id)
+            if column["type"] in {"text", "category", "link"}
+        }
+        if not allowed_columns:
+            return fallback("no_text_cells")
+        where.append("column_id IN (" + ",".join("?" for _ in allowed_columns) + ")")
+        params.extend(sorted(allowed_columns))
         if row_ids is not None:
             if row_ids:
                 allowed.append("row_id IN (" + ",".join("?" for _ in row_ids) + ")")
                 params.extend(sorted(row_ids))
             elif not file_cells:
                 return fallback("empty_scope")
-        if file_cells:
+        if effective_cells:
             allowed.append(
                 "("
-                + " OR ".join("(row_id=? AND column_id=?)" for _ in file_cells)
+                + " OR ".join("(row_id=? AND column_id=?)" for _ in effective_cells)
                 + ")"
             )
-            for row_id, column_id in sorted(file_cells):
+            for row_id, column_id in sorted(effective_cells):
                 params.extend((row_id, column_id))
         if allowed:
             where.append("(" + " OR ".join(allowed) + ")")
@@ -660,6 +671,8 @@ def semantic_passage_search(
                         "char_end": end,
                     }
                 )
+                if len(passages) > MAX_ASK_PASSAGES:
+                    return fallback("passage_limit")
     finally:
         db.close()
     if stopped():
@@ -694,9 +707,12 @@ def semantic_passage_search(
                     },
                 }
             batch = missing[offset : offset + ASK_EMBED_BATCH]
-            vectors = _embedding_vectors(
-                embed([passages[index]["text"] for index in batch])
-            )
+            try:
+                vectors = _embedding_vectors(
+                    embed([passages[index]["text"] for index in batch])
+                )
+            except Exception:
+                return fallback("embedding_failed", fresh_count)
             _refuse_misaligned_batch(batch, vectors)
             cache.executemany(
                 "INSERT OR REPLACE INTO cell_vec (key, vec) VALUES (?, ?)",
@@ -719,7 +735,19 @@ def semantic_passage_search(
                     "semantic": False,
                 },
             }
-        qvec = _embedding_vectors(embed([query]))[0]
+        try:
+            query_vectors = _embedding_vectors(
+                embed([_utf8_prefix(query, PASSAGE_UTF8_BYTES)])
+            )
+        except Exception:
+            return fallback("embedding_failed", fresh_count)
+        if len(query_vectors) != 1 or not query_vectors[0]:
+            return fallback("embedding_failed", fresh_count)
+        qvec = query_vectors[0]
+        if any(len(vector) != len(qvec) for vector in cached.values()):
+            return fallback("embedding_dimension_mismatch", fresh_count)
+        if stopped():
+            return fallback("cancelled", fresh_count)
         scored = sorted(
             ((_cosine(qvec, cached[key]), index) for index, key in enumerate(keys)),
             reverse=True,
@@ -745,6 +773,8 @@ def semantic_passage_search(
                     "semantic": True,
                 }
             )
+        if stopped():
+            return fallback("cancelled", fresh_count)
         return {
             "hits": hits,
             "new_embeddings": fresh_count,
@@ -768,3 +798,15 @@ def _passage_ranges(text: str) -> list[tuple[int, int]]:
     if start < end:
         ranges.append((start, end))
     return ranges
+
+
+def _utf8_prefix(text: str, maximum: int) -> str:
+    end = 0
+    size = 0
+    for index, char in enumerate(text):
+        width = len(char.encode("utf-8"))
+        if size and size + width > maximum:
+            break
+        size += width
+        end = index + 1
+    return text[:end]

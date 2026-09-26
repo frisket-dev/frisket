@@ -82,3 +82,36 @@ def test_budget_and_cancellation_are_honest(tmp_path):
     )
     assert cancelled["coverage"]["reason"] == "cancelled"
     project.close()
+
+
+def test_whole_sheet_ignores_file_narrowing_and_cache_identity(tmp_path):
+    project = Project.create(tmp_path / "whole.frisket", name="p")
+    sheet = project.add_sheet("data")
+    text = project.add_column(sheet, "text")
+    rows = project.add_rows(
+        sheet, [{"text": "needle one"}, {"text": "needle two"}], {"text": text}
+    )
+    rebuild_index(project)
+    whole = semantic_passage_search(
+        project,
+        sheet_id=sheet,
+        row_ids=None,
+        file_cells={(rows[0], text)},
+        query="needle",
+        limit=5,
+        embed=_embed,
+        embed_id="stub/v3",
+    )
+    assert {hit["row_id"] for hit in whole["hits"]} == set(rows)
+    isolated = semantic_passage_search(
+        project,
+        sheet_id=sheet,
+        row_ids=None,
+        file_cells=set(),
+        query="needle",
+        limit=5,
+        embed=_embed,
+        embed_id="stub/v4",
+    )
+    assert isolated["new_embeddings"] == whole["new_embeddings"]
+    project.close()
