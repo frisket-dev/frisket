@@ -686,7 +686,7 @@ def test_runner_combines_read_and_typed_output_repairs_citations_and_accounts(
             str(message["content"])
             for request in adapter.requests[1:]
             for message in request.messages
-            if message["role"] == "user"
+            if message["role"] == "tool"
         ]
         assert "visible evidence" in "\n".join(observations)
         assert "do not disclose" not in "\n".join(observations)
