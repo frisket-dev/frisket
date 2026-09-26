@@ -274,9 +274,9 @@ export function ColumnDrawer({
 }
 
 type ColumnStatsState =
-  | { columnId: string; phase: 'loading'; force: boolean }
-  | { columnId: string; phase: 'ready'; stats: ColumnStats }
-  | { columnId: string; phase: 'error'; message: string };
+  | { requestKey: string; phase: 'loading'; force: boolean }
+  | { requestKey: string; phase: 'ready'; stats: ColumnStats }
+  | { requestKey: string; phase: 'error'; message: string };
 
 const STAT_NUMBER_FORMATTER = new Intl.NumberFormat(undefined, { maximumFractionDigits: 3 });
 const FILE_SIZE_FORMATTERS = [
@@ -316,8 +316,9 @@ function truncateStatValue(value: string): string {
 function ColumnStatsSection({ column, sheetId }: { column: ColumnDef; sheetId: string }) {
   const { projectApi, gridView } = useWorkspaceStores();
   const scope = useSelector(gridView.store, (state) => state.applied);
+  const statsRequestKey = JSON.stringify({ sheetId, columnId: column.id, scope });
   const [state, setState] = useState<ColumnStatsState>({
-    columnId: column.id,
+    requestKey: statsRequestKey,
     phase: 'loading',
     force: false,
   });
@@ -326,17 +327,17 @@ function ColumnStatsSection({ column, sheetId }: { column: ColumnDef; sheetId: s
   const loadStats = (force = false) => {
     const requestId = statsRequestRef.current + 1;
     statsRequestRef.current = requestId;
-    setState({ columnId: column.id, phase: 'loading', force });
+    setState({ requestKey: statsRequestKey, phase: 'loading', force });
     void projectApi
       .getColumnStats(sheetId, column.id, { ...scope, force })
       .then((stats) => {
         if (statsRequestRef.current === requestId) {
-          setState({ columnId: column.id, phase: 'ready', stats });
+          setState({ requestKey: statsRequestKey, phase: 'ready', stats });
         }
       })
       .catch((e: Error) => {
         if (statsRequestRef.current === requestId) {
-          setState({ columnId: column.id, phase: 'error', message: e.message });
+          setState({ requestKey: statsRequestKey, phase: 'error', message: e.message });
         }
       });
   };
@@ -345,26 +346,25 @@ function ColumnStatsSection({ column, sheetId }: { column: ColumnDef; sheetId: s
     const requestId = statsRequestRef.current + 1;
     statsRequestRef.current = requestId;
     let alive = true;
-    setState({ columnId: column.id, phase: 'loading', force: false });
     void projectApi
       .getColumnStats(sheetId, column.id, scope)
       .then((stats) => {
         if (alive && statsRequestRef.current === requestId) {
-          setState({ columnId: column.id, phase: 'ready', stats });
+          setState({ requestKey: statsRequestKey, phase: 'ready', stats });
         }
       })
       .catch((e: Error) => {
         if (alive && statsRequestRef.current === requestId) {
-          setState({ columnId: column.id, phase: 'error', message: e.message });
+          setState({ requestKey: statsRequestKey, phase: 'error', message: e.message });
         }
       });
     return () => {
       alive = false;
     };
-  }, [column.id, sheetId, scope, projectApi]);
+  }, [column.id, sheetId, scope, projectApi, statsRequestKey]);
 
   const visibleState: ColumnStatsState =
-    state.columnId === column.id ? state : { columnId: column.id, phase: 'loading', force: false };
+    state.requestKey === statsRequestKey ? state : { requestKey: statsRequestKey, phase: 'loading', force: false };
 
   return (
     <section className="column-stats" data-testid="column-stats-section">
