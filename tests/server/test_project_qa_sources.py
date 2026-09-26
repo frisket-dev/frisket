@@ -185,3 +185,78 @@ def test_hidden_source_is_omitted_before_returning_its_label(source):
     assert tools.list_sources()["sources"] == []
     with pytest.raises(ProjectQAScopeError, match="hidden"):
         tools.open_source(cid)
+
+
+def test_late_prepared_quote_keeps_timestamps_without_full_viewer_load(
+    source, monkeypatch
+):
+    from frisket.engine.store.evidence import (
+        record_evidence_link,
+        record_source_artifact,
+        record_source_span,
+    )
+
+    project, store, _, turn, sheet, column, row = source
+    _, refs = project.get_values_with_refs(sheet, column, [row])
+    artifact = record_source_artifact(
+        project, artifact_kind="audio", media_type="audio/wav", title="Interview"
+    )
+    span = record_source_span(
+        project,
+        artifact_id=artifact["id"],
+        span_kind="audio",
+        quote="NEEDLE decisive passage",
+        start_ms=12000,
+        end_ms=15000,
+    )
+    record_evidence_link(
+        project,
+        subject_kind="cell_value",
+        subject_ref=refs[row],
+        spans=[{"span_id": span["id"]}],
+        sheet_id=sheet,
+        row_id=row,
+        column_id=column,
+    )
+    tools = ProjectQATools(project, turn, store)
+    cid = tools.search_cells("NEEDLE", sheet)["hits"][0]["citation_id"]
+    monkeypatch.setattr(
+        project, "get_values_with_refs", lambda *a, **kw: pytest.fail("whole cell load")
+    )
+    opened = tools.open_source(cid)
+    [prepared] = [p for p in opened["passages"] if p["kind"] == "prepared_evidence"]
+    assert (prepared["start_ms"], prepared["end_ms"]) == (12000, 15000)
+    assert prepared["text"] == "NEEDLE decisive passage"
+    assert prepared["citation_id"] in tools.citation_ids
+
+
+def test_semantic_hit_is_not_cited_with_new_reference_after_an_edit(
+    source, monkeypatch
+):
+    import frisket.server.services.project_qa_tools as module
+
+    project, store, _, turn, sheet, column, row = source
+    tools = ProjectQATools(project, turn, store)
+
+    def racing_search(*args, **kwargs):
+        project.apply_edits([{"row_id": row, "column_id": column, "value": "changed"}])
+        return {
+            "hits": [
+                {
+                    "row_id": row,
+                    "column_id": column,
+                    "column_name": "Text",
+                    "char_start": 0,
+                    "char_end": 7,
+                    "text": "opening",
+                    "semantic": True,
+                }
+            ],
+            "new_embeddings": 1,
+            "coverage": {"complete": True, "semantic": True},
+        }
+
+    monkeypatch.setattr(module, "semantic_passage_search", racing_search)
+    result = tools.search_cells("needle", sheet, mode="semantic")
+    assert result["hits"] == []
+    assert result["coverage"]["reason"] == "source_changed"

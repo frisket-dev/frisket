@@ -1067,6 +1067,19 @@ def _parse_sheet_filter(
         unsupported = set(condition) - allowed
         if unsupported:
             raise SheetRowSetError(f"unsupported filter for {name}")
+        # A group identity narrows an existing column condition; retain both
+        # when a date range and its month bucket address the same column.
+        if "group_eq" in condition:
+            out.append(
+                _parse_group_locator_predicate(
+                    columns_by_name[name], condition["group_eq"]
+                )
+            )
+            condition = {
+                key: value for key, value in condition.items() if key != "group_eq"
+            }
+            if not condition:
+                continue
         active = [
             (op, condition[op])
             for op in (*BUILTIN_FILTER_OPERATORS, *runtime_bindings)
@@ -1089,9 +1102,6 @@ def _parse_sheet_filter(
                     binding=binding,
                 )
             )
-            continue
-        if op == "group_eq":
-            out.append(_parse_group_locator_predicate(column, value))
             continue
         if op == "failed":
             # Failed-cell predicate ("show the rows that failed"), honored by

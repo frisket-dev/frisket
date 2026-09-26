@@ -371,3 +371,35 @@ def test_analytics_file_scope_cannot_filter_or_metric_another_column(tmp_path):
             },
         )
     project.close()
+
+
+def test_group_drilldown_retains_filter_on_same_date_column(tmp_path):
+    project, sheet, columns, rows = _seed(tmp_path)
+    try:
+        scope = {"kind": "sheet", "sheet_id": sheet}
+        result = evaluate_analytics(
+            project,
+            {
+                "sheet_id": sheet,
+                "filter": {"awarded": {"gte": "2026-01-02"}},
+                "groups": [{"column_id": columns["awarded"], "bucket": "month"}],
+                "metrics": [{"id": "rows", "kind": "count"}],
+            },
+            scope,
+        )
+        january = next(
+            g for g in result["groups"] if g["group"][0].get("value") == "2026-01"
+        )
+        replayed = evaluate_query(
+            project,
+            {
+                "kind": "sheet.filter",
+                "scope": scope,
+                "filter": january["locator"]["filter"],
+            },
+            scope,
+        )
+        assert replayed["total"] == january["metrics"]["rows"] == 2
+        assert set(replayed["row_ids"]) == set(rows[1:3])
+    finally:
+        project.close()

@@ -6,7 +6,7 @@ import json
 import asyncio
 from contextlib import AbstractContextManager
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, ModelRetry
@@ -22,6 +22,7 @@ from frisket.engine.runner.validation import assert_provider_spend_cap
 from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAConflictError, ProjectQAStore
 from frisket.server.services.project_qa_tools import ProjectQATools
+from frisket.server.services.project_qa_query import AnalyticsRequest
 from frisket.server.services.project_qa_web import (
     fetch_web_page,
     search_web as search_public_web,
@@ -194,7 +195,12 @@ async def run_turn(
         try:
             async with tool_lock:
                 observed = await await_thread_worker(
-                    tools.query_rows, query, limit, offset, count_by
+                    tools.query_rows,
+                    query,
+                    limit,
+                    offset,
+                    count_by,
+                    on_cancel=tools.cancel_event.set,
                 )
         except ValueError as error:
             await progress("query_rows", "completed", error="unavailable")
@@ -205,20 +211,33 @@ async def run_turn(
         return observed
 
     async def search_cells(
-        query: str, sheet_id: int, limit: int = 20
+        query: str,
+        sheet_id: int,
+        limit: int = 20,
+        mode: Literal["keyword", "semantic"] = "keyword",
     ) -> dict[str, Any]:
         await progress("search_cells", "started", sheet_id=sheet_id, query=query)
         try:
             async with tool_lock:
                 observed = await await_thread_worker(
-                    tools.search_cells, query, sheet_id, limit
+                    tools.search_cells,
+                    query,
+                    sheet_id,
+                    limit,
+                    mode,
+                    on_cancel=tools.cancel_event.set,
                 )
         except ValueError as error:
             await progress("search_cells", "completed", error="unavailable")
             raise ModelRetry(
                 "That search was unavailable; use selected project material."
             ) from error
-        await progress("search_cells", "completed", hits=len(observed["hits"]))
+        await progress(
+            "search_cells",
+            "completed",
+            hits=len(observed["hits"]),
+            coverage=observed["coverage"],
+        )
         return observed
 
     async def search_web(query: str) -> dict[str, Any]:
@@ -268,7 +287,9 @@ async def run_turn(
         await progress(name, "started")
         try:
             async with tool_lock:
-                observed = await await_thread_worker(function, *args)
+                observed = await await_thread_worker(
+                    function, *args, on_cancel=tools.cancel_event.set
+                )
         except (ValueError, LookupError, InterruptedError) as error:
             await progress(name, "completed", error=str(error))
             raise ModelRetry(str(error)) from error
@@ -307,6 +328,42 @@ async def run_turn(
         """Discover earlier sources in this conversation that remain in the current scope."""
         return await source_tool("list_sources", tools.list_sources, limit, offset)
 
+    async def analytics(request: AnalyticsRequest) -> dict[str, Any]:
+        """Compute exact filtered counts, sum, mean, median, min/max, groups and percentages in SQL."""
+        await progress(
+            "analytics",
+            "started",
+            sheet_id=request.sheet_id,
+            detail=", ".join(metric.kind for metric in request.metrics),
+        )
+        try:
+            async with tool_lock:
+                observed = await await_thread_worker(
+                    tools.analytics, request, on_cancel=tools.cancel_event.set
+                )
+        except (ValueError, InterruptedError) as error:
+            await progress("analytics", "completed", error=str(error))
+            raise ModelRetry(str(error)) from error
+        await progress(
+            "analytics",
+            "completed",
+            **{
+                key: observed[key]
+                for key in (
+                    "row_count",
+                    "has_more",
+                    "excluded_null_groups",
+                    "denominators",
+                )
+            },
+            quality=observed.get("quality"),
+            groups=[
+                {"group": g["group"], "quality": g.get("quality", {})}
+                for g in observed["groups"]
+            ],
+        )
+        return observed
+
     async def search_actions(query: str, limit: int = 8) -> dict[str, Any]:
         """Discover available actions by purpose without loading all their schemas."""
         return await source_tool("search_actions", tools.search_actions, query, limit)
@@ -325,10 +382,15 @@ async def run_turn(
             "Do not guess source identifiers. Cite only citation IDs returned by read_rows, "
             "query_rows, search_cells, open_source, find_in_source, search_web, or open_web_page. "
             "Use list_sources to recover earlier conversation sources, then open them to get current citations. "
+            "Use search_cells mode semantic for concepts phrased differently; check its coverage/fallback reason. "
             "Search results are snippets: open_source reads the matching context and returns a cursor for more. "
             "Use find_in_source for literal terms inside a known source and continue incomplete scans. "
             "Respect reported ranges, remaining budgets and reached_end; never claim you read the whole "
             "document from a snippet or incomplete scan. If a cursor reports source_changed, reopen first. "
+            "Use analytics for counts, sums, mean or median, grouping, percentages and ranking over the entire filtered scope. "
+            "Never calculate totals from sampled rows. Name mean and median explicitly. "
+            "Use returned quality/denominator/has_more facts to qualify the result; null is not zero. "
+            "A group citation opens its actual underlying records. "
             "query_rows accepts canonical frisket.query.v1 "
             "sheet.filter objects, for example {'kind':'sheet.filter','scope':{'sheet_id':1},"
             "'filter':{'Status':{'eq':'open'}}}. Use search_actions to discover an action, "
@@ -345,6 +407,7 @@ async def run_turn(
     agent.tool_plain(inspect_sheets, name="inspect_sheets")
     agent.tool_plain(read_rows, name="read_rows")
     agent.tool_plain(query_rows, name="query_rows")
+    agent.tool_plain(analytics, name="analytics")
     agent.tool_plain(search_cells, name="search_cells")
     agent.tool_plain(open_source, name="open_source")
     agent.tool_plain(find_in_source, name="find_in_source")

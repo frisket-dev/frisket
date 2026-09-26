@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import sqlite3
+import threading
+
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
 from frisket.features.watchlists.specs import canonical_json, normalize_query_spec
 from frisket.querysets import (
+    BUILTIN_FILTER_OPERATORS,
     SheetRowSetError,
     anchor_relative_date_filters,
     count_sheet_filter_values,
@@ -50,6 +54,7 @@ def evaluate_query(
     limit: int = 50,
     offset: int = 0,
     count_by: int | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> dict[str, Any]:
     """Evaluate a saved ``frisket.query.v1`` against its explicit scope.
 
@@ -58,6 +63,33 @@ def evaluate_query(
     aggregation, so ``total`` and ``count_by`` are exact for the saved scope.
     """
 
+    with project.read_snapshot() as snapshot:
+        if cancel_event and cancel_event.is_set():
+            raise AnalyticsCancelled("query was stopped")
+        snapshot.db.set_progress_handler(
+            lambda: int(bool(cancel_event and cancel_event.is_set())), 1000
+        )
+        try:
+            return _evaluate_query(
+                snapshot, query, scope, limit=limit, offset=offset, count_by=count_by
+            )
+        except sqlite3.OperationalError as error:
+            if cancel_event and cancel_event.is_set():
+                raise AnalyticsCancelled("query was stopped") from error
+            raise
+        finally:
+            snapshot.db.set_progress_handler(None, 0)
+
+
+def _evaluate_query(
+    project: Any,
+    query: Mapping[str, Any],
+    scope: Mapping[str, Any],
+    *,
+    limit: int,
+    offset: int,
+    count_by: int | None,
+) -> dict[str, Any]:
     normalized = normalize_query_spec(dict(query), allow_row_cell=False)
     if normalized.get("kind") != "sheet.filter":
         raise ValueError("only canonical sheet filters are available")
@@ -71,6 +103,11 @@ def evaluate_query(
     normalized["filter"] = anchor_relative_date_filters(
         normalized.get("filter", {}), reference_date=datetime.now(UTC).date()
     )
+    for condition in normalized.get("filter", {}).values():
+        if isinstance(condition, Mapping) and set(condition) - set(
+            BUILTIN_FILTER_OPERATORS
+        ):
+            raise ValueError("Ask supports only built-in filter operators")
     _validate_file_query_columns(project, sheet_id, normalized, effective)
     filter_ = canonical_json(normalized.get("filter", {}))
     sort = canonical_json(normalized["sort"]) if "sort" in normalized else None
@@ -92,6 +129,7 @@ def evaluate_query(
         "scope": effective,
         "row_ids": rowset.row_ids,
         "total": rowset.total,
+        "source_op_cursor": project.op_cursor,
     }
     if count_by is not None:
         if isinstance(count_by, bool) or not isinstance(count_by, int):

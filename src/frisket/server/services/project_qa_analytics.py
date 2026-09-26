@@ -647,7 +647,9 @@ def _result_group(
     quality_columns: Sequence[int],
 ) -> dict[str, Any]:
     group: list[dict[str, Any]] = []
-    filter_: dict[str, Any] = {}
+    filter_: dict[str, Any] = {
+        name: dict(condition) for name, condition in request.filter.items()
+    }
     for index, spec in enumerate(request.groups):
         kind = str(row[f"g{index}_kind"])
         item: dict[str, Any] = {"column_id": spec.column_id, "kind": kind}
@@ -670,7 +672,8 @@ def _result_group(
                     "value": row[f"g{index}_value"],
                 }
         group.append(item)
-        filter_[str(columns[spec.column_id]["name"])] = {"group_eq": predicate}
+        name = str(columns[spec.column_id]["name"])
+        filter_[name] = {**filter_.get(name, {}), "group_eq": predicate}
     metrics = {
         metric.id: row[f"m{index}"] for index, metric in enumerate(request.metrics)
     }
@@ -685,6 +688,7 @@ def _result_group(
         }
     return {
         "group": group,
+        "row_count": int(row["row_count"]),
         "locator": {
             "version": "frisket.ask.group.v1",
             "sheet_id": request.sheet_id,

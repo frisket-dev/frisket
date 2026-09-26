@@ -8,16 +8,20 @@ import re
 import threading
 from html import unescape
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.features.watchlists.specs import canonical_json
-from frisket.server.services.project_qa_query import evaluate_query
-from frisket.engine.store.evidence import list_cell_evidence, resolve_evidence_viewer
+from frisket.server.services.project_qa_query import (
+    AnalyticsRequest,
+    evaluate_analytics,
+    evaluate_query,
+)
 from frisket.actions.system import root_action_catalog
 from frisket.search import search_cells_scoped
+from frisket.semantic import semantic_passage_search
 from frisket.authoring.action_proposals import (
     proposal_action_ids,
     validate_action_proposals,
@@ -26,6 +30,7 @@ from frisket.server.services.project_qa_web import safe_web_text, safe_web_url
 from frisket.server.services.project_qa_sources import (
     read_source_text,
     find_source_text,
+    read_prepared_passages,
 )
 
 
@@ -106,6 +111,7 @@ class ProjectQATools:
         self._citation_ids: set[str] = set()
         self._source_handles: dict[str, dict[str, Any]] = {}
         self._source_chars = 0
+        self._new_embeddings = 0
         self.cancel_event = threading.Event()
         validate_scope(project, self.turn["scope"])
 
@@ -251,6 +257,7 @@ class ProjectQATools:
                 limit=limit,
                 offset=offset,
                 count_by=count_by,
+                cancel_event=self.cancel_event,
             )
         except ValueError as exc:
             raise ProjectQAScopeError(f"invalid canonical filter: {exc}") from exc
@@ -258,7 +265,7 @@ class ProjectQATools:
             "sheet_id": evaluated["sheet_id"],
             "query": evaluated["query"],
             "scope": evaluated["scope"],
-            "source_op_cursor": self.project.op_cursor,
+            "source_op_cursor": evaluated["source_op_cursor"],
             "total": evaluated["total"],
         }
         receipt["query_hash"] = hashlib.sha256(
@@ -291,8 +298,62 @@ class ProjectQATools:
         )
         return result
 
+    def analytics(self, request: AnalyticsRequest) -> dict[str, Any]:
+        """Calculate across the full filtered scope; return ordinary query citations."""
+        scope = self._query_scope({"scope": {"sheet_id": request.sheet_id}})
+        result = evaluate_analytics(
+            self.project, request, scope, cancel_event=self.cancel_event
+        )
+
+        def citation(filter_: dict[str, Any], total: int, label: str) -> dict[str, Any]:
+            query = {
+                "schema_version": "frisket.query.v1",
+                "kind": "sheet.filter",
+                "scope": {"kind": "sheet", "sheet_id": request.sheet_id},
+                "filter": filter_,
+            }
+            return self._source_handle(
+                label=label,
+                source_kind="query",
+                excerpt=None,
+                locator={
+                    "sheet_id": request.sheet_id,
+                    "query": query,
+                    "scope": scope,
+                    "source_op_cursor": result["source_op_cursor"],
+                    "total": total,
+                },
+                metadata={"complete": True},
+            )
+
+        label = f"Records analyzed in {self._sheet_name(request.sheet_id)}"
+        population = citation(result["filter"], result["row_count"], label)
+        result["citation_id"] = population["id"]
+        for group in result["groups"]:
+            names = [str(part.get("value", part["kind"])) for part in group["group"]]
+            source = citation(
+                group["locator"]["filter"],
+                group["row_count"],
+                label + (" · " + ", ".join(names) if names else ""),
+            )
+            group["citation_id"] = source["id"]
+        self.store.append_event(
+            self.turn_id,
+            kind="result_suggestion",
+            payload={
+                "citation_id": population["id"],
+                "title": label,
+                "total": result["row_count"],
+            },
+        )
+        return result
+
     def search_cells(
-        self, query: str, sheet_id: int, limit: int = 20
+        self,
+        query: str,
+        sheet_id: int,
+        limit: int = 20,
+        mode: Literal["keyword", "semantic"] = "keyword",
     ) -> dict[str, Any]:
         """Search scoped cells lexically; results are ranked examples, never counts."""
         if not isinstance(query, str) or not query.strip() or len(query) > 500:
@@ -304,14 +365,31 @@ class ProjectQATools:
         ):
             raise ValueError(f"limit must be between 1 and {MAX_READ_ROWS}")
         allowed_rows, file_cells = self._sheet_access(sheet_id)
-        hits = search_cells_scoped(
-            self.project,
-            sheet_id,
-            query,
-            None if allowed_rows is None else sorted(allowed_rows),
-            file_cells,
-            limit,
-        )
+        if mode == "semantic":
+            searched = semantic_passage_search(
+                self.project,
+                sheet_id=sheet_id,
+                row_ids=allowed_rows,
+                file_cells=file_cells,
+                query=query,
+                limit=limit,
+                remaining_embeddings=64 - self._new_embeddings,
+                cancel_event=self.cancel_event,
+            )
+            self._new_embeddings += searched["new_embeddings"]
+            hits, coverage = searched["hits"], searched["coverage"]
+        elif mode == "keyword":
+            hits = search_cells_scoped(
+                self.project,
+                sheet_id,
+                query,
+                None if allowed_rows is None else sorted(allowed_rows),
+                file_cells,
+                limit,
+            )
+            coverage = {"semantic": False, "complete": True}
+        else:
+            raise ValueError("search mode must be keyword or semantic")
         out = []
         for hit in hits:
             row_id, column_id = int(hit["row_id"]), int(hit["column_id"])
@@ -321,13 +399,24 @@ class ProjectQATools:
                 and (row_id, column_id) not in file_cells
             ):
                 continue
-            source = read_source_text(
-                self.project,
-                (sheet_id, row_id, column_id),
-                limit=1,
-                cancel=self.cancel_event,
-            )
-            refs = {row_id: source["value_ref"]}
+            snippet = str(hit.get("text", hit.get("snip", "")))
+            start = int(hit.get("char_start", 0))
+            size = max(1, int(hit.get("char_end", start + 1)) - start)
+            try:
+                source = read_source_text(
+                    self.project,
+                    (sheet_id, row_id, column_id),
+                    start=start,
+                    limit=min(size, MAX_SOURCE_CHARS),
+                    cancel=self.cancel_event,
+                )
+            except ValueError:
+                coverage = {**coverage, "complete": False, "reason": "source_changed"}
+                continue
+            if hit.get("semantic") and source["text"] != snippet:
+                # Embedding may overlap an edit: never give old text a new value reference.
+                coverage = {**coverage, "complete": False, "reason": "source_changed"}
+                continue
             citation = self.store.add_citation(
                 self.turn_id,
                 label=(
@@ -339,9 +428,15 @@ class ProjectQATools:
                     "sheet_id": sheet_id,
                     "row_id": row_id,
                     "column_id": column_id,
-                    "value_ref": refs.get(row_id),
+                    "value_ref": source["value_ref"],
+                    "source_version": source["version"],
+                    **(
+                        {"char_start": hit["char_start"], "char_end": hit["char_end"]}
+                        if hit.get("semantic")
+                        else {}
+                    ),
                 },
-                excerpt=str(hit["snip"]),
+                excerpt=snippet,
                 metadata={"search": query},
             )
             self._citation_ids.add(citation["id"])
@@ -350,11 +445,12 @@ class ProjectQATools:
                     "sheet_id": sheet_id,
                     "row_id": row_id,
                     "column_id": column_id,
-                    "snippet": hit["snip"],
+                    "snippet": snippet,
+                    "semantic": bool(hit.get("semantic")),
                     "citation_id": citation["id"],
                 }
             )
-        return {"query": query, "hits": out, "partial": True}
+        return {"query": query, "hits": out, "partial": True, "coverage": coverage}
 
     def record_web_search(self, search: Mapping[str, Any]) -> dict[str, Any]:
         """Persist safe public-search snippets as answer-citable receipts."""
@@ -579,69 +675,56 @@ class ProjectQATools:
         )
         passages = [{"kind": "cell", "text": text, "citation_id": current["id"]}]
         room = min(MAX_SOURCE_CHARS, remaining) - len(text)
-        has_evidence = self.project.db.execute(
-            "SELECT 1 FROM evidence_links WHERE sheet_id=? AND row_id=? "
-            "AND column_id=? AND status='active' LIMIT 1",
-            cell,
-        ).fetchone()
-        evidence = (
-            list_cell_evidence(
-                self.project, sheet_id=cell[0], row_id=cell[1], column_id=cell[2]
+        prepared_passages = (
+            read_prepared_passages(
+                self.project,
+                cell,
+                expected_version=observed["version"],
+                start=observed["range"]["start"],
+                end=observed["range"]["end"],
+                limit=room,
+                evidence_link_id=locator.get("evidence_link_id"),
+                span_id=locator.get("span_id"),
+                cancel=self.cancel_event,
             )
-            if has_evidence
-            else {"links": []}
+            if room
+            else []
         )
-        for link in evidence["links"]:
-            if room <= 0:
-                break
-            viewer = resolve_evidence_viewer(self.project, link["stable_id"])
-            if (
-                viewer["link"]["status"] != "active"
-                or viewer["link"]["text_layer_hash_mismatch"]
-            ):
-                continue
-            for artifact in viewer.get("artifacts", []):
-                for span in artifact.get("spans", []):
-                    quote = span.get("quote") or span.get("snippet")
-                    if not isinstance(quote, str) or not quote or room <= 0:
-                        continue
-                    if observed["length"] > MAX_SOURCE_CHARS and quote not in text:
-                        continue
-                    clipped = quote[:room]
-                    evidence_locator = {
-                        "sheet_id": cell[0],
-                        "row_id": cell[1],
-                        "column_id": cell[2],
-                        "value_ref": observed["value_ref"],
-                        "evidence_link_id": link["stable_id"],
-                        "artifact_id": artifact["stable_id"],
-                        "span_id": span["stable_id"],
-                    }
-                    prepared = self._source_handle(
-                        label=f"Prepared evidence · {artifact.get('title') or artifact.get('filename') or citation['label']}",
-                        source_kind="evidence",
-                        locator=evidence_locator,
-                        excerpt=clipped,
-                    )
-                    passages.append(
-                        {
-                            "kind": "prepared_evidence",
-                            "citation_id": prepared["id"],
-                            "text": clipped,
-                            **evidence_locator,
-                            **{
-                                key: span.get(key)
-                                for key in (
-                                    "page_start",
-                                    "page_end",
-                                    "start_ms",
-                                    "end_ms",
-                                    "bbox",
-                                )
-                            },
-                        }
-                    )
-                    room -= len(clipped)
+        for span in prepared_passages:
+            evidence_locator = {
+                "sheet_id": cell[0],
+                "row_id": cell[1],
+                "column_id": cell[2],
+                "value_ref": observed["value_ref"],
+                **{
+                    key: span[key]
+                    for key in ("evidence_link_id", "artifact_id", "span_id")
+                },
+            }
+            prepared = self._source_handle(
+                label=f"Prepared evidence · {span['title'] or citation['label']}",
+                source_kind="evidence",
+                locator=evidence_locator,
+                excerpt=span["text"],
+            )
+            passages.append(
+                {
+                    "kind": "prepared_evidence",
+                    "citation_id": prepared["id"],
+                    "text": span["text"],
+                    **evidence_locator,
+                    **{
+                        key: span[key]
+                        for key in (
+                            "page_start",
+                            "page_end",
+                            "start_ms",
+                            "end_ms",
+                            "bbox",
+                        )
+                    },
+                }
+            )
         self._source_chars += sum(len(part["text"]) for part in passages)
         return {
             "citation_id": current["id"],
@@ -653,6 +736,9 @@ class ProjectQATools:
             "reached_end": observed["reached_end"],
             "source_changed": locator.get("value_ref") != observed["value_ref"],
             "remaining_read_chars": 64_000 - self._source_chars,
+            "needs_preparation": observed["column_type"]
+            in {"file", "pdf", "image", "audio", "video"}
+            and not prepared_passages,
         }
 
     def find_in_source(

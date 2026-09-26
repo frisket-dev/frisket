@@ -49,7 +49,7 @@ def _read(project: Project, cancel: threading.Event | None):
 def _metadata(db: sqlite3.Connection, cell: tuple[int, int, int]) -> dict[str, Any]:
     row = db.execute(
         f"SELECT length({_TEXT}) AS length, c.origin_kind,c.origin_op_id,"
-        "c.origin_run_id,c.base_producer_id,c.validity" + _FROM,
+        "c.origin_run_id,c.base_producer_id,c.validity,col.type AS column_type" + _FROM,
         cell,
     ).fetchone()
     if row is None:
@@ -64,6 +64,7 @@ def _metadata(db: sqlite3.Connection, cell: tuple[int, int, int]) -> dict[str, A
     }
     return {
         "length": row["length"] or 0,
+        "column_type": row["column_type"],
         "value_ref": ref,
         "version": {**ref, "base_producer_id": row["base_producer_id"]},
     }
@@ -190,3 +191,97 @@ def find_source_text(
             if reached_end
             else {"version": meta["version"], "start": next_start},
         }
+
+
+def read_prepared_passages(
+    project: Project,
+    cell: tuple[int, int, int],
+    *,
+    expected_version: dict[str, Any],
+    start: int,
+    end: int,
+    limit: int,
+    evidence_link_id: str | None = None,
+    span_id: str | None = None,
+    cancel: threading.Event | None = None,
+) -> list[dict[str, Any]]:
+    """Project bounded, current evidence quotes without building a media viewer.
+
+    Reuse the canonical evidence links/spans and their hash check. Even hash
+    verification reads bounded SQL slices, rather than a whole Python cell.
+    """
+    import hashlib
+    import json
+
+    with _read(project, cancel) as (db, deadline):
+        meta = _metadata(db, cell)
+        if meta["version"] != expected_version:
+            raise ValueError(
+                "source_changed: reopen this source before reading its evidence"
+            )
+        ref = {
+            key: value for key, value in meta["value_ref"].items() if key != "validity"
+        }
+        ref_json = json.dumps(
+            ref, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+        )
+        conditions = [
+            "l.sheet_id=?",
+            "l.row_id=?",
+            "l.column_id=?",
+            "l.status='active'",
+            "l.subject_ref_json=?",
+        ]
+        params: list[Any] = [*cell, ref_json]
+        if evidence_link_id:
+            conditions.append("l.stable_id=?")
+            params.append(evidence_link_id)
+        if span_id:
+            conditions.append("sp.stable_id=?")
+            params.append(span_id)
+        elif meta["length"] > MAX_SOURCE_CHARS:
+            # Character coordinates belong to their explicitly named text surface.
+            # Older page/time-only spans can still match the bounded passage quote.
+            conditions.append(
+                "((ts.value_ref_json=? AND sp.char_start < ? AND sp.char_end > ?) "
+                "OR instr(?, substr(coalesce(sp.quote,sp.snippet),1,80)) > 0)"
+            )
+            params.extend([ref_json, end, start, _text(db, cell, start, end - start)])
+        rows = db.execute(
+            "SELECT l.stable_id AS evidence_link_id, a.stable_id AS artifact_id, "
+            "sp.stable_id AS span_id, substr(coalesce(sp.quote,sp.snippet),1,?) AS text, "
+            "sp.text_layer_hash, sp.page_start,sp.page_end,sp.start_ms,sp.end_ms, "
+            "sp.bbox_json, substr(coalesce(a.title,a.filename,''),1,240) AS title "
+            "FROM evidence_links l JOIN evidence_link_spans ls ON ls.link_id=l.id "
+            "JOIN source_spans sp ON sp.id=ls.span_id JOIN source_artifacts a ON a.id=sp.artifact_id "
+            "LEFT JOIN text_surfaces ts ON ts.id=sp.text_surface_id WHERE "
+            + " AND ".join(conditions)
+            + " ORDER BY l.id,ls.rank,sp.id LIMIT 32",
+            [limit, *params],
+        ).fetchall()
+        current_hash = None
+        if any(row["text_layer_hash"] for row in rows):
+            digest = hashlib.sha256()
+            for offset in range(0, meta["length"], 65536):
+                if (cancel and cancel.is_set()) or time.monotonic() >= deadline:
+                    raise InterruptedError(
+                        "evidence read stopped or exceeded its time limit"
+                    )
+                digest.update(_text(db, cell, offset, 65536).encode("utf-8"))
+            current_hash = "sha256:" + digest.hexdigest()
+        passages = []
+        for row in rows:
+            if row["text_layer_hash"] and row["text_layer_hash"] != current_hash:
+                continue
+            text = str(row["text"] or "")[:limit]
+            if not text:
+                continue
+            passage = dict(row)
+            passage.pop("text_layer_hash")
+            passage["bbox"] = json.loads(passage.pop("bbox_json"))
+            passage["text"] = text
+            passages.append(passage)
+            limit -= len(text)
+            if limit <= 0:
+                break
+        return passages

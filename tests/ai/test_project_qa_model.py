@@ -841,3 +841,36 @@ def test_runner_searches_late_passage_then_continues_before_answering(tmp_path):
         assert completed[-1]["payload"]["reached_end"] is True
     finally:
         project.close()
+
+
+def test_action_proposals_cannot_escape_the_submitted_ask_scope(tmp_path):
+    scope = {
+        "kind": "sources",
+        "sources": [{"kind": "rows", "sheet_id": 1, "row_ids": [1]}],
+    }
+    project, store, turn = _project_turn(tmp_path, scope)
+    try:
+        tools = ProjectQATools(project, turn, store)
+        for draft in [
+            {
+                "action_id": "map.template",
+                "scope": {"kind": "sheet_rows", "sheet_id": 1, "row_ids": [2]},
+                "params": {"template": {"text": "{{Selected}}"}},
+                "output_names": {},
+            },
+            {
+                "action_id": "map.template",
+                "scope": {"kind": "sheet_rows", "sheet_id": project.add_sheet("Other")},
+                "params": {"template": {"text": "constant"}},
+                "output_names": {},
+            },
+        ]:
+            with pytest.raises(ProjectQAScopeError):
+                tools.propose_action("map", "Out of scope", draft)
+        assert not [
+            e
+            for e in store.events(turn["thread_id"])["events"]
+            if e["kind"] == "action_proposal"
+        ]
+    finally:
+        project.close()
