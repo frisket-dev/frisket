@@ -318,11 +318,8 @@ def test_ops_agent_unknown_tool_call_continues_until_step_limit():
     assert len(adapter.requests) == MAX_STEPS  # request_limit is the real cap
 
 
-def test_to_our_messages_dedupes_instructions_and_labels_tool_returns():
-    """`_to_our_messages` must not repeat `m.instructions` (pydantic-ai re-stamps
-    the Agent's system prompt onto every ModelRequest turn) and a tool return
-    must render as "Observation:\\n..." (the old loop's shape), not bare
-    content."""
+def test_to_our_messages_dedupes_instructions_and_preserves_tool_returns():
+    """Repeated instructions are deduplicated; tool results retain their call ID."""
     from pydantic_ai.messages import (
         ModelRequest,
         ModelResponse,
@@ -339,7 +336,13 @@ def test_to_our_messages_dedupes_instructions_and_labels_tool_returns():
     system = "You are a research agent. Never fabricate."
     messages = [
         ModelRequest(parts=[UserPromptPart(content="row")], instructions=system),
-        ModelResponse(parts=[ToolCallPart(tool_name="search", args={"query": "q1"})]),
+        ModelResponse(
+            parts=[
+                ToolCallPart(
+                    tool_name="search", args={"query": "q1"}, tool_call_id="c1"
+                )
+            ]
+        ),
         ModelRequest(
             parts=[
                 ToolReturnPart(
@@ -354,11 +357,15 @@ def test_to_our_messages_dedupes_instructions_and_labels_tool_returns():
     system_msgs = [m for m in out if m["role"] == "system"]
     assert len(system_msgs) == 1, "instructions must not repeat per turn"
 
-    tool_return_msgs = [
-        m for m in out if m["role"] == "user" and "result for q1" in str(m["content"])
-    ]
+    tool_return_msgs = [m for m in out if m["role"] == "tool"]
     assert tool_return_msgs == [
-        {"role": "user", "content": "Observation:\nresult for q1"}
+        {
+            "role": "tool",
+            "content": "result for q1",
+            "tool_name": "search",
+            "tool_call_id": "c1",
+            "tool_error": False,
+        }
     ]
 
 

@@ -8,13 +8,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from contextlib import nullcontext
 from typing import Any
 from weakref import WeakSet
 
 from frisket.ai.llm import LLMError
+from frisket.ai.llm.types import provider_from_model_id
 from frisket.ai.llm.remediation import classify_llm_error
+from frisket.authoring.project_ask import default_project_ask_model
 from frisket.contracts.http.project_qa import (
     AskThreadCreate,
     AskThreadUpdate,
@@ -35,9 +38,66 @@ from frisket.server.services.project_qa_tools import validate_scope
 from frisket.server.thread_worker import await_thread_worker
 from frisket.server.workspace import Workspace
 from frisket.server.project_qa_runtime import ProjectQATurnRuntime
+from frisket.redaction import safe_error
+from pydantic_ai.exceptions import UnexpectedModelBehavior
 
 logger = logging.getLogger(__name__)
 TurnRunner = Callable[[Project, Any, dict[str, Any], ProjectQAStore], Awaitable[Any]]
+_KNOWN_TOOLS = frozenset(
+    {
+        "analytics",
+        "describe_action",
+        "final_result",
+        "find_in_source",
+        "inspect_sheets",
+        "list_sources",
+        "open_source",
+        "open_web_page",
+        "propose_action",
+        "query_rows",
+        "read_rows",
+        "search_actions",
+        "search_cells",
+        "search_web",
+    }
+)
+_TOOL_RETRY_RE = re.compile(r"^Tool '([^']+)' exceeded max retries count of \d+$")
+_CITATION_RETRY = "Use only current-turn citation IDs returned by the tools; reopen prior sources first."
+
+
+def _model_failure_reason(error: UnexpectedModelBehavior) -> tuple[str, str | None]:
+    match = _TOOL_RETRY_RE.fullmatch(str(error))
+    if match:
+        tool = match.group(1)
+        return "tool_call_invalid", tool if tool in _KNOWN_TOOLS else None
+    seen: set[int] = set()
+    cause: BaseException | None = error
+    while cause is not None and id(cause) not in seen:
+        seen.add(id(cause))
+        if str(cause) == _CITATION_RETRY:
+            return "citation_invalid", None
+        if type(cause).__name__ in {"ToolRetryError", "ValidationError"}:
+            return "final_result_invalid", None
+        cause = cause.__cause__ or cause.__context__
+    return "output_failure", None
+
+
+def _last_turn_activity(
+    store: ProjectQAStore, turn: dict[str, Any]
+) -> tuple[str | None, str | None]:
+    events = store.recent_events(turn["thread_id"], limit=100)["events"]
+    current = [event for event in events if event["turn_id"] == turn["id"]]
+    last_event = current[-1]["kind"] if current else None
+    tool = next(
+        (
+            event["payload"].get("tool")
+            for event in reversed(current)
+            if event["kind"] in {"tool_started", "tool_completed"}
+            and event["payload"].get("tool") in _KNOWN_TOOLS
+        ),
+        None,
+    )
+    return last_event, tool
 
 
 class ProjectQAService:
@@ -50,6 +110,52 @@ class ProjectQAService:
         self._runtime_closers: set[asyncio.Task[None]] = set()
         self._admission = asyncio.Lock()
         self._closed = False
+
+    async def _failure_diagnostic(
+        self,
+        store: ProjectQAStore,
+        turn: dict[str, Any],
+        error: BaseException,
+        *,
+        code: str,
+        model: str | None,
+        reason: str | None = None,
+        tool: str | None = None,
+    ) -> dict[str, str]:
+        try:
+            last_event, observed_tool = await await_thread_worker(
+                _last_turn_activity, store, turn
+            )
+        except Exception:
+            last_event, observed_tool = None, None
+        tool = tool or observed_tool
+        diagnostic = {
+            "code": code,
+            "reference": turn["id"],
+            **({"reason": reason} if reason is not None else {}),
+            **({"last_event": last_event} if last_event is not None else {}),
+            **({"tool": tool} if tool is not None else {}),
+        }
+        safe = safe_error(code, error, include_frames=True)
+        logger.error(
+            "project_qa_turn_failed",
+            extra={
+                "event": "project_qa_turn_failed",
+                "error_code": code,
+                "reference": turn["id"],
+                "reason": reason,
+                "turn_id": turn["id"],
+                "thread_id": turn["thread_id"],
+                "model": model,
+                "provider": provider_from_model_id(model) if model else None,
+                "last_event": last_event,
+                "tool": tool,
+                "exception_type": safe.exception_type,
+                "exception_frames": safe.frames,
+            },
+            exc_info=False,
+        )
+        return diagnostic
 
     async def store(self, project_id: str) -> ProjectQAStore:
         project = await await_thread_worker(self.workspace.get, project_id)
@@ -235,6 +341,8 @@ class ProjectQAService:
         self._started.add((project, turn["id"]))
         status = "interrupted"
         error = None
+        diagnostic = None
+        model = turn["model"]
         budget = asyncio.timeout(180)
         try:
             if (await await_thread_worker(store.get_turn, turn["id"]))[
@@ -242,6 +350,7 @@ class ProjectQAService:
             ] == "stopping":
                 return
             router = await await_thread_worker(self.workspace.router_for, project)
+            model = model or default_project_ask_model(router)
 
             async def settle_call(call_id: str) -> None:
                 if runtime is not None:
@@ -287,18 +396,42 @@ class ProjectQAService:
         except ProviderKeyRefusal as exc:
             status, error = "failed", exc.action_message()
         except LLMError as exc:
-            model = turn["model"] or ""
             status = "failed"
             error = classify_llm_error(
-                exc, provider=model.split("/", 1)[0], model=model
+                exc, provider=(model or "").split("/", 1)[0], model=model or ""
             ).message
-        except Exception:
-            logger.exception("Project Ask turn failed")
+        except UnexpectedModelBehavior as exc:
             status = "failed"
-            error = "This question could not be completed. Your conversation is saved; please try again."
+            reason, tool = _model_failure_reason(exc)
+            diagnostic = await self._failure_diagnostic(
+                store,
+                turn,
+                exc,
+                code="invalid_model_response",
+                model=model,
+                reason=reason,
+                tool=tool,
+            )
+            error = (
+                "The selected model could not complete a valid Ask response after retrying. "
+                "Your conversation is saved; please try again."
+            )
+        except Exception as exc:
+            status = "failed"
+            diagnostic = await self._failure_diagnostic(
+                store, turn, exc, code="internal_error", model=model
+            )
+            error = (
+                "This question could not be completed. Your conversation is saved; "
+                "please try again."
+            )
         finally:
             await await_thread_worker(
-                store.finalize_turn, turn["id"], status=status, error_summary=error
+                store.finalize_turn,
+                turn["id"],
+                status=status,
+                error_summary=error,
+                diagnostic=diagnostic,
             )
 
     async def _close_runtime(self, runtime: ProjectQATurnRuntime) -> None:

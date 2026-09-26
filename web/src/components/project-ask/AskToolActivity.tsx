@@ -33,8 +33,7 @@ export function AskToolActivity({ event }: { event: AskEvent }) {
     }).join(', ') : '';
     facts.push(...qualityFacts(group.quality).map((fact) => label ? `${label} — ${fact}` : fact));
   }
-  return <details className="ask-tool">
-    <summary>{labels[String(p.tool)] ?? 'Reading sources'}{event.kind === 'tool_started' ? '…' : ''}</summary>
+  const body = <>
     {typeof p.detail === 'string' && <p>{p.detail}</p>}
     {typeof p.query === 'string' && <p>Query: {p.query}</p>}
     {range && <p>Characters {String(range.start)}–{String(range.end)}{p.reached_end === false ? '; more remains.' : '.'}</p>}
@@ -51,5 +50,10 @@ export function AskToolActivity({ event }: { event: AskEvent }) {
     {coverage?.semantic === false && coverage.complete === false && <p>Semantic coverage is incomplete; keyword results are shown.</p>}
     {typeof p.coverage === 'string' && <p>{p.coverage}</p>}
     {p.error !== undefined && <p>This step could not be completed. The assistant can try another query.</p>}
-  </details>;
+  </>;
+  const hasDetails = typeof p.detail === 'string' || typeof p.query === 'string' || !!range || typeof p.row_count === 'number'
+    || typeof p.total === 'number' || typeof p.hits === 'number' || p.has_more === true || facts.length > 0 || denominators.length > 0
+    || typeof p.coverage === 'string' || p.error !== undefined || (coverage?.semantic === false && coverage.complete === false);
+  const label = <>{labels[String(p.tool)] ?? 'Reading sources'}{event.kind === 'tool_started' ? '…' : ''}</>;
+  return hasDetails ? <details className="ask-tool"><summary>{label}</summary>{body}</details> : <div className="ask-tool">{label}</div>;
 }

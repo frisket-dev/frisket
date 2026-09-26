@@ -53,6 +53,10 @@ def _parse_structured(text: str, schema: dict | None) -> dict | None:
         ) from e
 
 
+def _tool_result_content(content: Any) -> str:
+    return content if isinstance(content, str) else json.dumps(content)
+
+
 class AnthropicAdapter:
     def __init__(
         self,
@@ -67,11 +71,7 @@ class AnthropicAdapter:
     async def complete(self, req: LLMRequest, client: httpx.AsyncClient) -> LLMResponse:
         model = req.model.split("/", 1)[-1]
         system_parts = [m["content"] for m in req.messages if m["role"] == "system"]
-        messages = [
-            {"role": m["role"], "content": self._content(m["content"])}
-            for m in req.messages
-            if m["role"] != "system"
-        ]
+        messages = self._messages(req.messages)
         body: dict[str, Any] = {
             "model": model,
             "max_tokens": req.max_tokens,
@@ -143,6 +143,7 @@ class AnthropicAdapter:
         tokens_out = _usage_count(usage, "output_tokens", self.api_key)
         data = None
         content = None
+        output_tool_call = None
         # Named (non-"emit") tool_use blocks round-trip to `tool_calls`
         # when this request carried `tools` -- collected as a list even though
         # today's callers dispatch one tool per turn, since Anthropic's wire
@@ -155,6 +156,12 @@ class AnthropicAdapter:
                 name = block["name"]
                 if req.schema is not None and name == "emit":
                     data = block["input"]
+                    if isinstance(block.get("id"), str):
+                        output_tool_call = {
+                            "name": name,
+                            "args": block["input"],
+                            "id": block["id"],
+                        }
                 elif tool_calls is not None:
                     tool_calls.append(
                         {
@@ -188,8 +195,56 @@ class AnthropicAdapter:
             cost_source=cost_source,
             raw={"id": out.get("id"), "stop_reason": stop_reason},
             tool_calls=tool_calls,
+            output_tool_call=output_tool_call,
             output_limited=stop_reason == "max_tokens",
         )
+
+    def _messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        tool_results: list[dict[str, Any]] = []
+
+        def flush_tool_results() -> None:
+            if tool_results:
+                out.append({"role": "user", "content": list(tool_results)})
+                tool_results.clear()
+
+        for message in messages:
+            role = message["role"]
+            if role == "system":
+                continue
+            if role == "tool":
+                result = {
+                    "type": "tool_result",
+                    "tool_use_id": message["tool_call_id"],
+                    "content": _tool_result_content(message.get("content")),
+                }
+                if message.get("tool_error") is True:
+                    result["is_error"] = True
+                tool_results.append(result)
+                continue
+            flush_tool_results()
+            calls = message.get("tool_calls")
+            if role == "assistant" and isinstance(calls, list) and calls:
+                content: list[dict[str, Any]] = []
+                if message.get("content") not in (None, ""):
+                    content.append({"type": "text", "text": message["content"]})
+                for call in calls:
+                    args = call["args"]
+                    if isinstance(args, str):
+                        args = json.loads(args)
+                    content.append(
+                        {
+                            "type": "tool_use",
+                            "id": call["id"],
+                            "name": call["name"],
+                            "input": args,
+                        }
+                    )
+                out.append({"role": "assistant", "content": content})
+            else:
+                out.append({"role": role, "content": self._content(message["content"])})
+        flush_tool_results()
+        return out
 
     @staticmethod
     def _content(content: Any) -> Any:
@@ -252,10 +307,7 @@ class OpenAICompatAdapter:
         cost_model: str | None = None,
     ) -> LLMResponse:
         model = req.model.split("/", 1)[-1]
-        messages = [
-            {"role": m["role"], "content": self._content(m["content"])}
-            for m in req.messages
-        ]
+        messages = self._messages(req.messages)
         body: dict[str, Any] = {
             "model": model,
             self.max_tokens_param: req.max_tokens,
@@ -350,13 +402,15 @@ class OpenAICompatAdapter:
             tool_calls = []
             for tc in message.get("tool_calls") or []:
                 fn = tc["function"]
-                tool_calls.append(
-                    {
-                        "name": fn["name"],
-                        "args": fn["arguments"],
-                        "id": tc["id"],
-                    }
-                )
+                call = {
+                    "name": fn["name"],
+                    "args": fn["arguments"],
+                    "id": tc["id"],
+                }
+                extra_content = tc.get("extra_content")
+                if isinstance(extra_content, dict):
+                    call["provider_details"] = {"extra_content": extra_content}
+                tool_calls.append(call)
             tool_calls = tool_calls or None
         cost, cost_source = cost_of_with_source(
             cost_model or req.model, tokens_in, tokens_out
@@ -376,6 +430,56 @@ class OpenAICompatAdapter:
             tool_calls=tool_calls,
             output_limited=choice.get("finish_reason") == "length",
         )
+
+    def _messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for message in messages:
+            role = message["role"]
+            if role == "tool":
+                out.append(
+                    {
+                        "role": "tool",
+                        "name": message["tool_name"],
+                        "tool_call_id": message["tool_call_id"],
+                        "content": _tool_result_content(message.get("content")),
+                    }
+                )
+                continue
+            wire = {
+                "role": role,
+                "content": (
+                    self._content(message["content"])
+                    if message.get("content") is not None
+                    else None
+                ),
+            }
+            calls = message.get("tool_calls")
+            if role == "assistant" and isinstance(calls, list) and calls:
+                wire_calls = []
+                for call in calls:
+                    args = call["args"]
+                    wire_call = {
+                        "id": call["id"],
+                        "type": "function",
+                        "function": {
+                            "name": call["name"],
+                            "arguments": (
+                                args if isinstance(args, str) else json.dumps(args)
+                            ),
+                        },
+                    }
+                    details = call.get("provider_details")
+                    extra_content = (
+                        details.get("extra_content")
+                        if isinstance(details, dict)
+                        else None
+                    )
+                    if isinstance(extra_content, dict):
+                        wire_call["extra_content"] = extra_content
+                    wire_calls.append(wire_call)
+                wire["tool_calls"] = wire_calls
+            out.append(wire)
+        return out
 
     async def embed(
         self, texts: list[str], model: str, client: httpx.AsyncClient

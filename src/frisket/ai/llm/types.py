@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal, Protocol, TypedDict, cast
+from typing import Any, Literal, NotRequired, Protocol, TypedDict, cast
 
 from frisket.ai.model_defaults import DEFAULT_MAX_OUTPUT_TOKENS
 
@@ -65,6 +65,8 @@ class LLMRequest:
     ollama/@<endpoint-id>/...
     messages: [{"role": "user"|"system"|"assistant", "content": str | list[part]}]
     where part = {"type":"text","text":...} or {"type":"image","media_type":...,"data":<b64>}.
+    Assistant messages may carry tool_calls (LLMToolCall entries) with no text.
+    Tool results use role="tool", tool_name, tool_call_id, content, and tool_error.
     schema: JSON Schema, the provider-neutral structured-output contract.
     mechanism: the resolved wire strategy (llm/structured.py mechanism id) when a
         request is issued by the StructuredCompleter; None for direct callers
@@ -99,6 +101,9 @@ class LLMToolCall(TypedDict):
     name: str
     args: str | dict[str, Any]
     id: str
+    # Provider-owned metadata required when replaying this call in the next
+    # request.  Adapters admit only their narrow known wire extension here.
+    provider_details: NotRequired[dict[str, Any]]
 
 
 @dataclass
@@ -124,6 +129,10 @@ class LLMResponse:
     raw: dict[str, Any] = field(default_factory=dict)
     # Named tool_use/tool_calls blocks parsed from a tools-bearing request.
     tool_calls: list[LLMToolCall] | None = None
+    # A schema-bearing native tool response has a provider wire identity that
+    # differs from pydantic-ai's logical output tool. Preserve it for a repair
+    # turn without exposing it as an ordinary function-tool result.
+    output_tool_call: LLMToolCall | None = None
     # Wall time of the ACCEPTED adapter attempt, milliseconds, from the
     # monotonic clock ModelRouter._call_with_retry already runs for its health
     # stats — the one site that sees both ends of the wire call. None on a

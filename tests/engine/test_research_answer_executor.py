@@ -892,7 +892,7 @@ _TOOL_JSON_LEAK = json.dumps(
 
 class _MalformedFinalAdapter:
     """Scripts the loop so its FINAL answer turn is tool-JSON emitted as plain
-    text. Keyed off request shape (tools present + whether an Observation was
+    text. Keyed off request shape (tools present + whether a tool result was
     already returned), so it is independent of per-row call ordering. The same
     tool-bearing agent corrects the answer only when ``retry_recovers``."""
 
@@ -904,7 +904,7 @@ class _MalformedFinalAdapter:
         self.requests.append(req)
         assert req.tools is not None
         messages = [str(message.get("content")) for message in req.messages]
-        observed = any("Observation:" in content for content in messages)
+        observed = any(message.get("role") == "tool" for message in req.messages)
         corrective = any(
             "Return the final answer as plain prose" in content for content in messages
         )
@@ -1050,10 +1050,7 @@ def test_tool_json_final_turn_is_corrected_by_output_validator(
         ]
         assert len(corrective) == 2
         assert all(
-            any(
-                "Observation:" in str(message.get("content"))
-                for message in req.messages
-            )
+            any(message.get("role") == "tool" for message in req.messages)
             for req in corrective
         )
     finally:
@@ -1130,7 +1127,7 @@ class _MemoryAnswerAdapter:
         self.requests.append(req)
         contents = [str(m.get("content")) for m in req.messages]
         nudged = any("verify your" in c for c in contents)
-        observed = any("Observation:" in c for c in contents)
+        observed = any(message.get("role") == "tool" for message in req.messages)
         corrective = any(
             "Return the final answer as plain prose" in c for c in contents
         )

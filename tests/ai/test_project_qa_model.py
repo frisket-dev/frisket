@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -536,6 +537,109 @@ def test_saved_source_quotes_remain_data_in_later_model_requests(
         project.close()
 
 
+def test_followup_history_reopens_prior_source_without_reusing_stale_citation(
+    tmp_path: Path,
+) -> None:
+    project, store, first_turn = _project_turn(tmp_path, {"kind": "project"})
+    try:
+        first_tools = ProjectQATools(project, first_turn, store)
+        prior_citation = first_tools.read_rows(1, [1], [1])["rows"][0]["cells"][0][
+            "citation_id"
+        ]
+        store.append_event(
+            first_turn["id"],
+            kind="answer",
+            payload={
+                "text": "The Japanese name is アレクサンドル・ペトロフ.",
+                "citation_ids": [prior_citation],
+            },
+        )
+        store.finish_turn(first_turn["id"], status="completed")
+        followup = store.submit_turn(
+            first_turn["thread_id"],
+            request_id="meaning",
+            question="What does it mean?",
+            scope={"kind": "project"},
+            model="anthropic/test",
+        )
+
+        class FollowupAdapter:
+            def __init__(self) -> None:
+                self.requests: list[LLMRequest] = []
+                self.current_citation: str | None = None
+
+            async def complete(self, request: LLMRequest, client: Any) -> LLMResponse:
+                del client
+                self.requests.append(request)
+                serialized = str(request.messages)
+                output_name = next(
+                    tool["name"]
+                    for tool in request.tools or []
+                    if {"text", "citation_ids"}
+                    <= set(tool["parameters"].get("properties", {}))
+                )
+                observations = [
+                    json.loads(message["content"])
+                    for message in request.messages
+                    if message.get("role") == "tool"
+                ]
+                if prior_citation in serialized and not observations:
+                    name, args = (
+                        output_name,
+                        {
+                            "text": "It is the katakana rendering of Aleksandr Petrov.",
+                            "citation_ids": [prior_citation],
+                        },
+                    )
+                elif len(self.requests) == 1:
+                    name, args = "list_sources", {}
+                elif "sources" in observations[-1]:
+                    name, args = (
+                        "open_source",
+                        {"citation_id": observations[-1]["sources"][0]["citation_id"]},
+                    )
+                else:
+                    self.current_citation = observations[-1]["citation_id"]
+                    name, args = (
+                        output_name,
+                        {
+                            "text": "It is the katakana rendering of Aleksandr Petrov.",
+                            "citation_ids": [self.current_citation],
+                        },
+                    )
+                return LLMResponse(
+                    content=None,
+                    data=None,
+                    model=request.model,
+                    tokens_in=10,
+                    tokens_out=3,
+                    cost=0.01,
+                    tool_calls=[
+                        {
+                            "name": name,
+                            "args": args,
+                            "id": f"follow-{len(self.requests)}",
+                        }
+                    ],
+                )
+
+        router = ModelRouter(
+            keys={"anthropic": "test-key"},
+            cache=None,
+            cache_mode="off",
+            use_env_keys=False,
+        )
+        adapter = FollowupAdapter()
+        router._adapters["anthropic"] = adapter
+        answer = asyncio.run(run_turn(project, router, followup, store))
+
+        assert answer["citation_ids"] == [adapter.current_citation]
+        assert prior_citation not in str(adapter.requests[0].messages)
+        assert "アレクサンドル・ペトロフ" in str(adapter.requests[0].messages)
+    finally:
+        project.close()
+
+
 def test_runner_combines_read_and_typed_output_repairs_citations_and_accounts(
     tmp_path: Path,
 ) -> None:
@@ -570,11 +674,19 @@ def test_runner_combines_read_and_typed_output_repairs_citations_and_accounts(
             <= {tool["name"] for tool in request.tools or []}
             for request in adapter.requests
         )
+        instructions = "\n".join(
+            str(message["content"])
+            for message in adapter.requests[0].messages
+            if message["role"] == "system"
+        )
+        assert "analytics" in instructions.split("Cite only", 1)[1].split(".", 1)[0]
+        assert "call final_result" in instructions
+        assert "Plain text is allowed" in instructions
         observations = [
             str(message["content"])
             for request in adapter.requests[1:]
             for message in request.messages
-            if message["role"] == "user"
+            if message["role"] == "tool"
         ]
         assert "visible evidence" in "\n".join(observations)
         assert "do not disclose" not in "\n".join(observations)
@@ -818,10 +930,9 @@ def test_runner_searches_late_passage_then_continues_before_answering(tmp_path):
         async def complete(self, request, client):
             self.calls += 1
             observations = [
-                json.loads(m["content"][len("Observation:\n") :])
+                json.loads(m["content"])
                 for m in request.messages
-                if isinstance(m.get("content"), str)
-                and m["content"].startswith("Observation:\n")
+                if m.get("role") == "tool"
             ]
             if self.calls == 1:
                 name, args = "search_cells", {"query": "NEEDLE", "sheet_id": 1}

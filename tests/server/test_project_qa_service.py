@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from pydantic_ai import ModelRetry
+from pydantic_ai.exceptions import UnexpectedModelBehavior
 
 from frisket.contracts.http.project_qa import AskThreadCreate, AskTurnRequest
 from frisket.engine.store.project_qa import ProjectQAConflictError, ProjectQAStore
@@ -348,6 +350,65 @@ def test_conversation_list_pages_without_losing_old_threads(tmp_path):
         assert [row["id"] for row in await service.list(pid, limit=1, offset=1)] == [
             first["id"]
         ]
+        await service.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_invalid_model_response_persists_safe_correlated_diagnostic(tmp_path, caplog):
+    async def scenario():
+        workspace = Workspace(tmp_path / "ws")
+        pid = workspace.create("Ask")["id"]
+
+        async def runner(*args):
+            try:
+                try:
+                    raise RuntimeError("api_key=do-not-log-this provider body")
+                except RuntimeError as secret_cause:
+                    raise ModelRetry(
+                        "Use only current-turn citation IDs returned by the tools; "
+                        "reopen prior sources first."
+                    ) from secret_cause
+            except ModelRetry as cause:
+                raise UnexpectedModelBehavior(
+                    "Exceeded maximum output retries (1)"
+                ) from cause
+
+        service = ProjectQAService(workspace, runner=runner)
+        thread = await service.create(pid, AskThreadCreate(scope={"kind": "project"}))
+        turn = await service.submit(
+            pid,
+            thread["id"],
+            AskTurnRequest(
+                request_id="invalid-output",
+                question="What is largest?",
+                scope={"kind": "project"},
+                model="gemini/test",
+            ),
+        )
+        await asyncio.gather(*list(service._tasks.values()))
+        detail = await service.detail(pid, thread["id"])
+        status = detail["history"]["events"][-1]
+        assert status["kind"] == "status"
+        assert status["payload"]["status"] == "failed"
+        assert status["payload"]["diagnostic"] == {
+            "code": "invalid_model_response",
+            "reference": turn["id"],
+            "reason": "citation_invalid",
+            "last_event": "question",
+        }
+        assert "do-not-log-this" not in str(status)
+        [record] = [
+            record
+            for record in caplog.records
+            if getattr(record, "event", None) == "project_qa_turn_failed"
+        ]
+        assert record.error_code == "invalid_model_response"
+        assert record.reason == "citation_invalid"
+        assert record.reference == turn["id"]
+        assert record.model == "gemini/test"
+        assert record.provider == "gemini"
+        assert "do-not-log-this" not in str(record.__dict__)
         await service.shutdown()
 
     asyncio.run(scenario())
