@@ -70,7 +70,7 @@
 .ask-source-sheet { display: flex; align-items: center; justify-content: space-between; }
 .ask-file-list { padding-left: 20px; }
 
-.ask-proposal, .ask-result { padding: 12px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px; }
+.ask-proposal { padding: 12px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px; }
 .ask-proposal p { color: var(--text-mid); margin: 6px 0 10px; font-size: 12px; }
 
 .ask-source-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; background: var(--bg-panel); border-bottom: 1px solid var(--border); font-size: 12px; }

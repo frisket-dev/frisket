@@ -14,8 +14,8 @@ import { PanelEmpty } from './PanelPrimitives';
 import { AskEventContent } from './project-ask/AskEventContent';
 import { AskThreadControls } from './project-ask/AskThreadControls';
 import { AskSourcePicker } from './project-ask/AskSourcePicker';
+import { compactAskToolEvents } from './project-ask/AskToolActivity';
 import './ProjectAskDock.css';
-
 
 export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposal, onOpenSource }: {
   onOpenSource(citation: AskCitation): void;
@@ -30,7 +30,7 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
   const historyRef = useRef<HTMLDivElement>(null);
   const threadMenuRef = useRef<HTMLDivElement>(null);
   const threadTriggerRef = useRef<HTMLButtonElement>(null);
-  const optionsMenuRef = useRef<HTMLDivElement>(null);
+  const optionsMenuRef = useRef<HTMLDivElement | null>(null);
   const optionsTriggerRef = useRef<HTMLButtonElement>(null);
   const scrollNextMessage = useRef(false);
   const setOptionsMenuRef = useCallback((node: HTMLDivElement | null) => {
@@ -67,14 +67,11 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
     const name = sheets.find((sheet) => Number(sheet.id) === source.sheet_id)?.name ?? 'Missing sheet';
     return source.kind === 'rows' ? `${name} · ${source.row_ids.length} rows` : source.kind === 'file' ? `${name} · file in row ${source.row_id}` : name;
   };
-  const contextIsSelection = initialScope.kind === 'sources' && initialScope.sources.some((source) => source.kind === 'rows');
+  const contextIsSelection = initialScope.kind === 'sources' && (initialScope.sources ?? []).some((source) => source.kind === 'rows');
   const scopeMatchesCurrentView = state.scope?.kind === 'project' || JSON.stringify(state.scope) === JSON.stringify(initialScope);
-  const currentViewLabel = contextIsSelection ? 'current selection' : initialScope.kind === 'project' ? 'Entire project' : initialScope.sources.map(scopeLabel).join(', ');
-  const visibleEvents = useMemo(() => state.events.filter((event, index, events) => {
-    if (event.kind !== 'tool_started') return true;
-    const tool = event.payload.tool;
-    return !events.slice(index + 1).some((next) => next.kind === 'tool_completed' && next.payload.tool === tool);
-  }), [state.events]);
+  const currentViewLabel = contextIsSelection ? 'current selection' : initialScope.kind === 'project' ? 'Entire project' : (initialScope.sources ?? []).map(scopeLabel).join(', ');
+  const activeSources = state.scope?.kind === 'sources' ? state.scope.sources ?? [] : [];
+  const visibleEvents = useMemo(() => compactAskToolEvents(state.events), [state.events]);
   const send = () => {
     scrollNextMessage.current = true;
     qa.setOptions({ model: requestModel });
@@ -106,7 +103,7 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
       {state.error && <p className="ask-error" role="alert">{state.error}</p>}
       {tooManyRows && <p className="ask-error">Choose up to 1,000 rows, or change the scope to the whole sheet.</p>}
       <div className="ask-composer-sources" aria-label="Question sources">
-        <div className="ask-scope-chips">{state.scope?.kind === 'sources' && state.scope.sources.length ? state.scope.sources.map((source, index) => <span key={JSON.stringify(source)}>{scopeLabel(source)}
+        <div className="ask-scope-chips">{activeSources.length ? activeSources.map((source, index) => <span key={JSON.stringify(source)}>{scopeLabel(source)}
           <button type="button" aria-label={`Remove ${scopeLabel(source)}`} onClick={() => { const sources = state.scope?.sources?.filter((_, i) => i !== index) ?? []; qa.setOptions({ scope: sources.length ? { kind: 'sources', sources } : { kind: 'project' } }); }}>×</button>
         </span>) : <span>Entire project</span>}</div>
         <button type="button" className="ask-source-add" aria-label="Add sources" title="Add sources" onClick={() => setSourcesOpen(true)}><Plus size={15} aria-hidden /></button>
