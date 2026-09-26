@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import type { AskThread, AskTurn } from '../../src/api/projectQA';
 import { createProject, importCsv, uniqueName } from './helpers';
 import { selectorChoicesResponse, stubSelectorChoices } from './selectorChoicesFixture';
 
@@ -11,16 +12,17 @@ test('Ask stays docked, keeps its draft, and reconnects to saved progress', asyn
         authoredSelection: { kind: 'model', model: 'ollama/test' } }],
     }],
   }));
-  const thread = { id: 'thread', title: 'What changed?', scope: { kind: 'sources', sources: [{ kind: 'sheet', sheet_id: sheetId }] },
+  const thread: AskThread = { id: 'thread', title: 'What changed?', scope: { kind: 'sources', sources: [{ kind: 'sheet', sheet_id: sheetId }] },
     model: 'ollama/test', web: false, suggest_actions: true, revision: 1, created_by: null, created_at: '', updated_at: '' };
   let exists = false;
   let active = false;
   let polls = 0;
   const events: { thread_id: string; turn_id: string; seq: number; kind: string; payload: object; created_at: string }[] = [];
-  const turnWire = () => ({
+  const turnWire = (): AskTurn => ({
     id: 'turn', thread_id: thread.id, request_id: 'request', question: 'What changed?',
     status: 'running', submitted_by: null, started_at: '', finished_at: null,
     usage: null, cost_actual: null, error_summary: null,
+    scope: thread.scope, model: thread.model, web: thread.web, suggest_actions: thread.suggest_actions,
   });
   await page.route(`**/api/projects/${pid}/qa/threads**`, async (route) => {
     const request = route.request();
