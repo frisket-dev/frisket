@@ -148,7 +148,10 @@ def _evaluate_query(
         )
         result["count_by"] = {
             "column_id": count_by,
-            "values": [{"value": value, "count": count} for value, count in values],
+            "values": [
+                {"kind": kind, "value": value, "count": count}
+                for kind, value, count in values
+            ],
             "complete": complete,
         }
     return result

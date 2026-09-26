@@ -380,6 +380,175 @@ def test_value_missing_and_invalid_locators_replay_through_ordinary_query(tmp_pa
     project.close()
 
 
+def test_group_locator_replays_non_ascii_value(tmp_path):
+    project = Project.create(tmp_path / "unicode-group.frisket", name="unicode-group")
+    sheet = project.add_sheet("contracts")
+    supplier = project.add_column(sheet, "supplier")
+    project.add_rows(
+        sheet,
+        [{"supplier": "Café Ltd"}, {"supplier": "Café Ltd"}],
+        {"supplier": supplier},
+    )
+
+    result = evaluate_analytics(
+        project,
+        {
+            "sheet_id": sheet,
+            "groups": [{"column_id": supplier}],
+            "metrics": [{"id": "rows", "kind": "count"}],
+        },
+        {"kind": "sheet", "sheet_id": sheet},
+    )
+    group = result["groups"][0]
+    replay = evaluate_query(
+        project,
+        {
+            "schema_version": "frisket.query.v1",
+            "kind": "sheet.filter",
+            "scope": {"kind": "sheet", "sheet_id": sheet},
+            "filter": group["locator"]["filter"],
+        },
+        {"kind": "sheet", "sheet_id": sheet},
+    )
+
+    assert group["group"][0]["value"] == "Café Ltd"
+    assert replay["total"] == 2
+    project.close()
+
+
+def test_numeric_groups_and_distinct_count_use_decoded_values(tmp_path):
+    project = Project.create(tmp_path / "numeric-groups.frisket", name="numeric-groups")
+    sheet = project.add_sheet("values")
+    amount = project.add_column(sheet, "amount", type="number")
+    project.add_rows(
+        sheet,
+        [{"amount": 1}, {"amount": 1.0}],
+        {"amount": amount},
+    )
+
+    result = evaluate_analytics(
+        project,
+        {
+            "sheet_id": sheet,
+            "groups": [{"column_id": amount}],
+            "metrics": [
+                {"id": "rows", "kind": "count"},
+                {"id": "distinct", "kind": "distinct_count", "column_id": amount},
+            ],
+        },
+        {"kind": "sheet", "sheet_id": sheet},
+    )
+
+    assert len(result["groups"]) == 1
+    assert result["groups"][0]["row_count"] == 2
+    assert result["groups"][0]["metrics"] == {"rows": 2, "distinct": 1}
+    replay = evaluate_query(
+        project,
+        {
+            "schema_version": "frisket.query.v1",
+            "kind": "sheet.filter",
+            "scope": {"kind": "sheet", "sheet_id": sheet},
+            "filter": result["groups"][0]["locator"]["filter"],
+        },
+        {"kind": "sheet", "sheet_id": sheet},
+    )
+    assert replay["total"] == 2
+    project.close()
+
+
+def test_distinct_count_preserves_json_scalar_types(tmp_path):
+    project = Project.create(tmp_path / "json-distinct.frisket", name="json-distinct")
+    sheet = project.add_sheet("values")
+    value = project.add_column(sheet, "value", type="json")
+    project.add_rows(
+        sheet,
+        [{"value": item} for item in (True, 1, False, 0, "1", 1.0)],
+        {"value": value},
+    )
+
+    result = evaluate_analytics(
+        project,
+        {
+            "sheet_id": sheet,
+            "metrics": [
+                {"id": "distinct", "kind": "distinct_count", "column_id": value}
+            ],
+        },
+        {"kind": "sheet", "sheet_id": sheet},
+    )
+
+    assert result["groups"][0]["metrics"]["distinct"] == 5
+    project.close()
+
+
+def test_count_by_decodes_values_and_keeps_invalid_distinct_from_missing(tmp_path):
+    project = Project.create(tmp_path / "count-by.frisket", name="count-by")
+    sheet = project.add_sheet("values")
+    amount = project.add_column(sheet, "amount", type="number")
+    project.add_rows(
+        sheet,
+        [{"amount": 2}, {}, {"amount": "not-a-number"}, {"amount": True}],
+        {"amount": amount},
+    )
+
+    result = evaluate_query(
+        project,
+        {
+            "schema_version": "frisket.query.v1",
+            "kind": "sheet.filter",
+            "scope": {"kind": "sheet", "sheet_id": sheet},
+        },
+        {"kind": "sheet", "sheet_id": sheet},
+        count_by=amount,
+    )
+
+    assert result["count_by"]["values"] == [
+        {"kind": "invalid", "value": None, "count": 2},
+        {"kind": "valid", "value": 2, "count": 1},
+        {"kind": "missing", "value": None, "count": 1},
+    ]
+    project.close()
+
+
+def test_boolean_group_values_and_locators_remain_boolean(tmp_path):
+    project = Project.create(tmp_path / "boolean-groups.frisket", name="boolean-groups")
+    sheet = project.add_sheet("values")
+    flag = project.add_column(sheet, "flag", type="boolean")
+    project.add_rows(
+        sheet,
+        [{"flag": True}, {"flag": True}, {"flag": False}],
+        {"flag": flag},
+    )
+
+    result = evaluate_analytics(
+        project,
+        {
+            "sheet_id": sheet,
+            "groups": [{"column_id": flag}],
+            "metrics": [{"id": "rows", "kind": "count"}],
+        },
+        {"kind": "sheet", "sheet_id": sheet},
+    )
+    groups = {group["group"][0]["value"]: group for group in result["groups"]}
+
+    assert all(type(value) is bool for value in groups)
+    assert groups[True]["row_count"] == 2
+    assert groups[False]["row_count"] == 1
+    for value, group in groups.items():
+        replay = evaluate_query(
+            project,
+            {
+                "schema_version": "frisket.query.v1",
+                "kind": "sheet.filter",
+                "scope": {"kind": "sheet", "sheet_id": sheet},
+                "filter": group["locator"]["filter"],
+            },
+            {"kind": "sheet", "sheet_id": sheet},
+        )
+        assert replay["total"] == (2 if value else 1)
+    project.close()
+
+
 def test_analytics_rejects_plugin_filter_and_non_numeric_sum(tmp_path):
     project, sheet, columns, _rows = _seed(tmp_path)
     bad_filter = AnalyticsRequest.model_validate(

@@ -418,13 +418,11 @@ def _base_ctes(
         )
         if group.bucket is None:
             prepared.append(f"CASE WHEN {valid} THEN {scalar} END AS g{index}_value")
-            prepared.append(f"CASE WHEN {valid} THEN v{pos} END AS g{index}_json")
         else:
             width = {"year": 4, "month": 7, "day": 10}[group.bucket]
             prepared.append(
                 f"CASE WHEN {valid} THEN substr({date_value}, 1, {width}) END AS g{index}_value"
             )
-            prepared.append("NULL AS g%d_json" % index)
     return [
         f"scoped AS (SELECT r.id AS row_id FROM rows r WHERE {where_sql})",
         "source AS (SELECT "
@@ -439,7 +437,7 @@ def _base_ctes(
 def _group_field_names(request: AnalyticsRequest) -> list[str]:
     fields: list[str] = []
     for index, _group in enumerate(request.groups):
-        fields.extend((f"g{index}_kind", f"g{index}_value", f"g{index}_json"))
+        fields.extend((f"g{index}_kind", f"g{index}_value"))
     return fields
 
 
@@ -490,8 +488,15 @@ def _aggregate_fields(
             )
         elif metric.kind == "distinct_count":
             pos = _column_pos(request, metric.column_id)
+            value_type = f"json_type(v{pos}, '$')"
+            value = f"json_extract(v{pos}, '$')"
+            distinct_key = (
+                f"CASE WHEN {value_type} IN ('integer', 'real') THEN {value} "
+                f"ELSE {value_type} || ':' || json_quote({value}) END"
+            )
             metric_fields.append(
-                f"COUNT(DISTINCT CASE WHEN {_valid_present(request, metric.column_id)} THEN v{pos} END) AS {alias}"
+                f"COUNT(DISTINCT CASE WHEN {_valid_present(request, metric.column_id)} "
+                f"THEN {distinct_key} END) AS {alias}"
             )
         elif metric.kind == "sum":
             metric_fields.append(
@@ -612,7 +617,6 @@ def _order_sql(request: AnalyticsRequest, group_fields: list[str]) -> str:
                 (
                     f"CASE a.g{index}_kind WHEN 'valid' THEN 0 WHEN 'missing' THEN 1 ELSE 2 END ASC",
                     f"a.g{index}_value {item.direction.upper()}",
-                    f"a.g{index}_json {item.direction.upper()}",
                 )
             )
     for index, _group in enumerate(request.groups):
@@ -620,7 +624,6 @@ def _order_sql(request: AnalyticsRequest, group_fields: list[str]) -> str:
             (
                 f"CASE a.g{index}_kind WHEN 'valid' THEN 0 WHEN 'missing' THEN 1 ELSE 2 END ASC",
                 f"a.g{index}_value ASC",
-                f"a.g{index}_json ASC",
             )
         )
     return ", ".join(parts) or "row_count DESC"
@@ -668,8 +671,13 @@ def _result_group(
         predicate: dict[str, Any] = {"kind": kind}
         if kind == "valid":
             if spec.bucket is None:
-                value_json = str(row[f"g{index}_json"])
-                item["value"] = json.loads(value_json)
+                value = row[f"g{index}_value"]
+                if str(columns[spec.column_id]["type"]) == "boolean":
+                    value = bool(value)
+                value_json = json.dumps(
+                    value, ensure_ascii=False, separators=(",", ":")
+                )
+                item["value"] = value
                 predicate = {
                     "kind": "value",
                     "value_json": value_json,

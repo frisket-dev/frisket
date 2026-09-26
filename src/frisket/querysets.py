@@ -574,7 +574,7 @@ def count_sheet_filter_values(
     row_ids: Sequence[int] | None = None,
     limit: int = 100,
     reference_date: date | None = None,
-) -> tuple[list[tuple[Any, int]], bool]:
+) -> tuple[list[tuple[str, Any, int]], bool]:
     """Exact filter-scoped value groups, capped only at the response edge."""
     column = next(
         (c for c in project.columns(sheet_id) if int(c["id"]) == column_id), None
@@ -589,15 +589,49 @@ def count_sheet_filter_values(
         row_ids=row_ids,
         reference_date=reference_date,
     )
-    value_sql, value_params = sheet_live_value_sql("r", column)
+    value_sql, value_params = sheet_live_value_sql("r", column, preserve_invalid=True)
+    validity_sql = (
+        "(SELECT live.validity FROM current_cells live "
+        "WHERE live.column_id=? AND live.row_id=r.id)"
+    )
+    validity_params = [column["id"]]
     rows = project.db.execute(
-        f"SELECT {value_sql} AS value, COUNT(*) AS count FROM rows r WHERE {where_sql} "
-        "GROUP BY value ORDER BY count DESC, value LIMIT ?",
-        [*value_params, *where_params, limit + 1],
+        "WITH count_values AS (SELECT "
+        f"{value_sql} AS value_json, {validity_sql} AS validity "
+        f"FROM rows r WHERE {where_sql}), "
+        "count_groups AS (SELECT CASE "
+        "WHEN validity='invalid' THEN 'invalid' "
+        "WHEN validity='valid' AND value_json IS NOT NULL THEN 'valid' "
+        "ELSE 'missing' END AS kind, value_json FROM count_values) "
+        "SELECT kind, CASE WHEN kind='valid' THEN CASE "
+        "WHEN json_type(value_json, '$') IN ('integer', 'real') THEN 'number' "
+        "ELSE json_type(value_json, '$') END END AS value_type, "
+        "CASE WHEN kind='valid' THEN json_extract(value_json, '$') END AS value, "
+        "COUNT(*) AS count "
+        "FROM count_groups GROUP BY kind, value_type, value "
+        "ORDER BY count DESC, CASE kind "
+        "WHEN 'valid' THEN 0 WHEN 'missing' THEN 1 ELSE 2 END, value LIMIT ?",
+        [*value_params, *validity_params, *where_params, limit + 1],
     ).fetchall()
-    return [(row["value"], int(row["count"])) for row in rows[:limit]], len(
-        rows
-    ) <= limit
+    values = [
+        (
+            str(row["kind"]),
+            _decode_grouped_json_value(row["value_type"], row["value"]),
+            int(row["count"]),
+        )
+        for row in rows[:limit]
+    ]
+    return values, len(rows) <= limit
+
+
+def _decode_grouped_json_value(value_type: str | None, value: Any) -> Any:
+    if value_type == "true":
+        return True
+    if value_type == "false":
+        return False
+    if value_type in {"array", "object"}:
+        return json.loads(value)
+    return value
 
 
 def validate_sheet_filter_sort(
@@ -650,8 +684,6 @@ def _parse_group_locator_predicate(column: Any, raw: Any) -> GroupLocatorPredica
             raise SheetRowSetError("group value predicate has invalid JSON") from exc
         if isinstance(value, (dict, list)) or value is None:
             raise SheetRowSetError("group value predicate must be a scalar")
-        if json.dumps(value, ensure_ascii=False, separators=(",", ":")) != value_json:
-            raise SheetRowSetError("group value predicate must use canonical JSON")
         return GroupLocatorPredicate(
             column_id=column_id, kind="value", value_json=value_json
         )
@@ -697,9 +729,10 @@ def _group_locator_where(
             [*validity_params, *validity_params],
         )
     if predicate.kind == "value":
+        value = json.loads(str(predicate.value_json))
         return (
-            f"{validity_sql}='valid' AND {value_sql}=?",
-            [*validity_params, *value_params, predicate.value_json],
+            f"{validity_sql}='valid' AND json_extract({value_sql}, '$')=?",
+            [*validity_params, *value_params, value],
         )
     scalar = f"json_extract({value_sql}, '$')"
     if predicate.kind == "invalid":
