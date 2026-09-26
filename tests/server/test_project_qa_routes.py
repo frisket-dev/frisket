@@ -199,6 +199,7 @@ def test_query_and_prepared_evidence_citations_reopen_current_sources(tmp_path):
         assert result["target"]["row_ids"] == [rows[0]]
         events = client.get(prefix + "/events").json()["events"]
         suggestion = next(e for e in events if e["kind"] == "result_suggestion")
+        assert suggestion["payload"]["sheet_name"] == "Evidence"
         assert suggestion["citations"][0]["target"]["kind"] == "query"
         project.apply_edits(
             [{"row_id": rows[0], "column_id": column, "value": "Changed"}]

@@ -292,6 +292,7 @@ class ProjectQATools:
             payload={
                 "citation_id": citation["id"],
                 "title": citation["label"],
+                "sheet_name": self._sheet_name(evaluated["sheet_id"]),
                 "total": evaluated["total"],
             },
         )
@@ -342,6 +343,7 @@ class ProjectQATools:
             payload={
                 "citation_id": population["id"],
                 "title": label,
+                "sheet_name": self._sheet_name(request.sheet_id),
                 "total": result["row_count"],
             },
         )

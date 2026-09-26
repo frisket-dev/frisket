@@ -1011,6 +1011,7 @@ class ProjectQAStore:
         *,
         status: str,
         error_summary: str | None = None,
+        diagnostic: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Terminalize a runner result without racing a concurrent Stop."""
 
@@ -1020,6 +1021,9 @@ class ProjectQAStore:
             )
         if error_summary is not None and not isinstance(error_summary, str):
             raise ValueError("error_summary must be a string or null")
+        saved_diagnostic = (
+            None if diagnostic is None else _json_object(diagnostic, name="diagnostic")
+        )
 
         def write(db: sqlite3.Connection) -> dict[str, Any]:
             turn = self._turn_record(
@@ -1044,6 +1048,11 @@ class ProjectQAStore:
                 payload={
                     "status": target,
                     **({"error_summary": error_summary} if error_summary else {}),
+                    **(
+                        {"diagnostic": saved_diagnostic}
+                        if saved_diagnostic is not None and target == "failed"
+                        else {}
+                    ),
                 },
                 created_at=now,
             )
