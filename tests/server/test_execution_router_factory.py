@@ -9,7 +9,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 import frisket.server.services.action_runs as action_runs_module
-import frisket.server.services.project_copilot as project_copilot_module
 from frisket.ai.llm import ChaosConfig, ModelRouter, ResponseCache
 from frisket.engine.store import Project
 from frisket.execution.provider import (
@@ -18,7 +17,6 @@ from frisket.execution.provider import (
 )
 from frisket.server.app import create_app
 from frisket.server.mcp.backends import LocalBackend
-from frisket.server.services.project_copilot import ProjectCopilotService
 
 
 @dataclass(frozen=True)
@@ -112,13 +110,6 @@ def test_non_action_consumers_never_resolve_the_execution_router(
     )
     workspace = app.state.workspace
 
-    async def fake_copilot_chat(project, router, messages, *, model):
-        del project, messages, model
-        assert router is ordinary_router
-        return {"reply": "ok", "needs_import": False, "proposals": []}
-
-    monkeypatch.setattr(project_copilot_module, "copilot_chat", fake_copilot_chat)
-
     class CompletedBackfill:
         def model_dump(self, *, mode: str) -> dict[str, Any]:
             assert mode == "json"
@@ -164,14 +155,6 @@ def test_non_action_consumers_never_resolve_the_execution_router(
                 json={"action": _classify_action(sheet_id)},
             )
             assert estimate.status_code == 200, estimate.text
-
-            result = asyncio.run(
-                ProjectCopilotService(workspace).chat(
-                    project_id,
-                    {"messages": [{"role": "user", "content": "plan"}]},
-                )
-            )
-            assert result["reply"] == "ok"
 
             backend = object.__new__(LocalBackend)
             backend.ws = workspace

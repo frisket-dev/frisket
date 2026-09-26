@@ -40,6 +40,12 @@ _CURRENT_CELLS_TO_DIGEST = "frisket.schema.v1:eb7a1342f9f42a48ba6b1ec3863b3a5a"
 _CELL_VALIDITY_FROM_DIGEST = _CURRENT_CELLS_TO_DIGEST
 _CELL_VALIDITY_TO_DIGEST = "frisket.schema.v1:8120b7fe7102b3570ff0c8326bd62fa2"
 
+# Project Ask durable history. This is an additive, data-preserving upgrade
+# from the exact preceding schema; the fence remains fail-closed for all other
+# digests.
+_PROJECT_QA_FROM_DIGEST = _CELL_VALIDITY_TO_DIGEST
+_PROJECT_QA_TO_DIGEST = "frisket.schema.v1:b540a83f8325e5cbcd52fc3fac64eeb5"
+
 # The frontend fires hot read endpoints (/sheets, /review/queue) concurrently,
 # so two threads can open the same per-project DB at once. Both open-time
 # reconciliations below are read-then-write with no CAS: two threads that both
@@ -70,6 +76,7 @@ def open_bundle(project: Any) -> None:
         _migrate_review_metadata(project.db)
         _migrate_current_cells(project.db)
         _migrate_cell_validity(project.db)
+        _migrate_project_qa(project.db)
         require_current_schema(project.db, bundle_path=project.path)
         _reconcile_open_time_policy(project)
 
@@ -254,6 +261,84 @@ def _migrate_cell_validity(db: sqlite3.Connection) -> None:
             db.execute(
                 "UPDATE meta SET value=? WHERE key=?",
                 (_CELL_VALIDITY_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
+            )
+        db.commit()
+    except BaseException:
+        db.rollback()
+        raise
+
+
+def _migrate_project_qa(db: sqlite3.Connection) -> None:
+    """Add durable Ask records without altering existing project content."""
+
+    query = "SELECT value FROM meta WHERE key=?"
+    try:
+        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
+    except sqlite3.DatabaseError:
+        return
+    if row is None or row[0] != _PROJECT_QA_FROM_DIGEST:
+        return
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
+        if row is not None and row[0] == _PROJECT_QA_FROM_DIGEST:
+            db.execute(
+                "CREATE TABLE project_qa_threads ("
+                "id TEXT PRIMARY KEY,title TEXT NOT NULL,scope_json TEXT NOT NULL,"
+                "model TEXT,web INTEGER NOT NULL DEFAULT 0 CHECK (web IN (0,1)),"
+                "suggest_actions INTEGER NOT NULL DEFAULT 1 CHECK (suggest_actions IN (0,1)),"
+                "revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),"
+                "created_by TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)"
+            )
+            db.execute(
+                "CREATE INDEX idx_project_qa_threads_updated "
+                "ON project_qa_threads(updated_at DESC, id DESC)"
+            )
+            db.execute(
+                "CREATE TABLE project_qa_turns ("
+                "id TEXT PRIMARY KEY,thread_id TEXT NOT NULL REFERENCES project_qa_threads(id) ON DELETE CASCADE,"
+                "request_id TEXT NOT NULL,question TEXT NOT NULL,scope_json TEXT NOT NULL,model TEXT,"
+                "web INTEGER NOT NULL CHECK (web IN (0,1)),"
+                "suggest_actions INTEGER NOT NULL CHECK (suggest_actions IN (0,1)),"
+                "status TEXT NOT NULL CHECK (status IN ('running','stopping','completed','stopped','failed','interrupted')),"
+                "submitted_by TEXT,started_at TEXT NOT NULL,finished_at TEXT,usage_json TEXT,"
+                "cost_actual REAL,error_summary TEXT,UNIQUE(thread_id, request_id))"
+            )
+            db.execute(
+                "CREATE INDEX idx_project_qa_turns_thread_started "
+                "ON project_qa_turns(thread_id, started_at DESC, id DESC)"
+            )
+            db.execute(
+                "CREATE UNIQUE INDEX uq_project_qa_turns_one_active ON project_qa_turns(thread_id) "
+                "WHERE status IN ('running','stopping')"
+            )
+            db.execute(
+                "CREATE TABLE project_qa_events ("
+                "thread_id TEXT NOT NULL REFERENCES project_qa_threads(id) ON DELETE CASCADE,"
+                "turn_id TEXT NOT NULL REFERENCES project_qa_turns(id) ON DELETE CASCADE,"
+                "seq INTEGER NOT NULL CHECK (seq > 0),kind TEXT NOT NULL,payload_json TEXT NOT NULL,"
+                "created_at TEXT NOT NULL,PRIMARY KEY (thread_id, seq)) WITHOUT ROWID"
+            )
+            db.execute(
+                "CREATE INDEX idx_project_qa_events_turn ON project_qa_events(turn_id, seq)"
+            )
+            db.execute(
+                "CREATE TABLE project_qa_citations ("
+                "id TEXT PRIMARY KEY,turn_id TEXT NOT NULL REFERENCES project_qa_turns(id) ON DELETE CASCADE,"
+                "label TEXT NOT NULL,source_kind TEXT NOT NULL,locator_json TEXT NOT NULL,excerpt TEXT,"
+                "metadata_json TEXT NOT NULL DEFAULT '{}',created_at TEXT NOT NULL)"
+            )
+            db.execute(
+                "CREATE INDEX idx_project_qa_citations_turn ON project_qa_citations(turn_id, id)"
+            )
+            db.execute(
+                "CREATE TABLE project_qa_usage_calls ("
+                "turn_id TEXT NOT NULL REFERENCES project_qa_turns(id) ON DELETE CASCADE,"
+                "call_id TEXT NOT NULL,PRIMARY KEY (turn_id, call_id)) WITHOUT ROWID"
+            )
+            db.execute(
+                "UPDATE meta SET value=? WHERE key=?",
+                (_PROJECT_QA_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
             )
         db.commit()
     except BaseException:

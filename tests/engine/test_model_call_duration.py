@@ -406,7 +406,7 @@ def test_row_execution_carries_the_router_measurement_onto_the_fact() -> None:
     """The middle link: the LLM row path must read ``wire.duration_ms`` rather
     than timing itself. This assembly point also covers rendering, schema
     repair and throttle decay, none of which the provider spent time on."""
-    from frisket.engine.runner.row_execution import _wire_accounting_meta
+    from frisket.ai.models.accounting import wire_accounting_meta
 
     live = LLMResponse(
         content="ok",
@@ -430,7 +430,7 @@ def test_row_execution_carries_the_router_measurement_onto_the_fact() -> None:
         cached=True,
         duration_ms=999,
     )
-    meta = _wire_accounting_meta("mock/model-a", [live, cached])
+    meta = wire_accounting_meta("mock/model-a", [live, cached])
     durations = [call["duration_ms"] for call in meta["model_calls"]]
     # The live call reports what the router measured; the cache hit reports
     # nothing, even though the replayed body still carried a stale number.

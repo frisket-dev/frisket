@@ -124,7 +124,7 @@ export async function stubActionSelectorChoices(
   });
 }
 
-/** Uses the same facade for a non-action host such as Copilot. */
+/** Uses the same facade for a non-action host such as Ask. */
 export async function stubSelectorChoices(
   page: Page,
   projectId: string,

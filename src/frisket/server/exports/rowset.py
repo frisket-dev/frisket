@@ -89,13 +89,36 @@ def resolve_rowset(
     max_rows: int | None,
     query_field: str = "params.query",
     materialize_small: bool = True,
+    scope_row_ids: list[int] | None = None,
 ) -> ResolvedRowset:
     """Resolve a current_sheet (query None) or current_view (query) rowset.
 
     ``max_rows`` is supplied by the caller so the historical cap stays
     monkeypatchable on the caller module (server app / export action family).
     """
+    scope_row_ids = _validated_scope_row_ids(scope_row_ids, query_field)
     if query_spec is None:
+        if scope_row_ids is not None:
+            try:
+                _, where_sql, where_params, _order_parts, _order_params = (
+                    sheet_row_scope_query(project, sheet_id, row_ids=scope_row_ids)
+                )
+                total = int(
+                    project.db.execute(
+                        f"SELECT COUNT(*) FROM rows r WHERE {where_sql}", where_params
+                    ).fetchone()[0]
+                    or 0
+                )
+                if max_rows is not None:
+                    _enforce_limit(total, max_rows, query_field)
+                row_ids = resolve_sheet_filter_rows(
+                    project, sheet_id, row_ids=scope_row_ids, limit=total
+                ).row_ids
+            except SheetRowSetError as exc:
+                raise ExportError(
+                    "invalid_query_filter", str(exc), field=query_field
+                ) from exc
+            return ResolvedRowset(row_ids, None, None, total, None)
         if max_rows is not None:
             total = int(
                 project.db.execute(
@@ -127,7 +150,11 @@ def resolve_rowset(
     sort_json = canonical_json(query["sort"]) if "sort" in query else None
     try:
         _, where_sql, where_params, _order_parts, _order_params = sheet_row_scope_query(
-            project, sheet_id, filter_=filter_json, sort=sort_json
+            project,
+            sheet_id,
+            filter_=filter_json,
+            sort=sort_json,
+            row_ids=scope_row_ids,
         )
         total = int(
             project.db.execute(
@@ -144,9 +171,16 @@ def resolve_rowset(
     row_ids: list[int] | None = None
     # Preserve the compact-plan compatibility contract for ordinary views.
     # Only a corpus-sized selected view takes the cursor-backed representation.
-    if materialize_small and total <= MAX_EXPLICIT_EXPORT_ROW_IDS:
+    if (
+        materialize_small or scope_row_ids is not None
+    ) and total <= MAX_EXPLICIT_EXPORT_ROW_IDS:
         row_ids = resolve_sheet_filter_rows(
-            project, sheet_id, filter_=filter_json, sort=sort_json, limit=total
+            project,
+            sheet_id,
+            filter_=filter_json,
+            sort=sort_json,
+            row_ids=scope_row_ids,
+            limit=total,
         ).row_ids
     return ResolvedRowset(
         # Query rowsets deliberately remain replayable specifications rather
@@ -158,6 +192,29 @@ def resolve_rowset(
         total=total,
         evaluator=dict(EXPORT_EVALUATOR),
     )
+
+
+def _validated_scope_row_ids(
+    scope_row_ids: list[int] | None, query_field: str
+) -> list[int] | None:
+    if scope_row_ids is None:
+        return None
+    if len(scope_row_ids) > 1000:
+        raise ExportError(
+            "invalid_scope_row_ids",
+            "scope_row_ids may contain at most 1000 rows",
+            field=query_field,
+        )
+    if not all(
+        isinstance(row_id, int) and not isinstance(row_id, bool) and row_id > 0
+        for row_id in scope_row_ids
+    ) or len(set(scope_row_ids)) != len(scope_row_ids):
+        raise ExportError(
+            "invalid_scope_row_ids",
+            "scope_row_ids must contain unique positive integers",
+            field=query_field,
+        )
+    return list(scope_row_ids)
 
 
 def _enforce_limit(total: int, max_rows: int, query_field: str) -> None:

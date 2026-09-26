@@ -124,6 +124,7 @@ export function computeRowCacheKey(
     JSON.stringify(o.filter ?? null),
     JSON.stringify(o.sort ?? null),
     JSON.stringify(o.rowIds ?? null),
+    ...(o.scopeRowIds != null ? [JSON.stringify(o.scopeRowIds)] : []),
   ].join(':');
 }
 
@@ -138,9 +139,11 @@ export function resolveRowCacheScope(input: {
   filter?: GridFilterSpec | null;
   sort?: GridSortSpec | null;
   lensRowIds?: number[] | null;
+  scopeRowIds?: number[] | null;
 }): SheetDataOptions {
   if (input.lensRowIds != null) return { rowIds: input.lensRowIds };
   return {
+    ...(input.scopeRowIds != null ? { scopeRowIds: input.scopeRowIds } : {}),
     parentRowId: input.parentRowId ?? null,
     filter: input.filter ?? null,
     sort: input.sort ?? null,

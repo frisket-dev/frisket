@@ -1,5 +1,6 @@
 
 import type { GeneratedActionParams } from '../generated/actionTypes';
+import type { ProjectQAApi } from './projectQA';
 import type {
   HttpActionPreviewStatusResponse,
   HttpCellEvidenceResponse,
@@ -1519,7 +1520,6 @@ export type GeneratedSemanticControl =
   | 'engine'
   | 'model';
 export type GeneratedActionRequest = RegisteredActionRequest;
-export type GeneratedActionDraft = CopilotRegisteredActionDraft;
 export interface PluginActionUIBinding {
   plugin_id: string;
   export_name: string;
@@ -2048,6 +2048,7 @@ export type GridFilterOperator =
   | 'bbox'
   | 'failed'
   | 'entity_eq'
+  | 'group_eq'
   /** At least one top-level member of a JSON list matches one selector. */
   | 'list_contains_any';
 
@@ -2093,6 +2094,12 @@ export type GridFilterListSelector =
   | { kind: 'scalar'; value: string | number | boolean }
   | { kind: 'entity'; type: string; text: string };
 
+/** Backend-produced analytics group identity, carried by the normal filter path. */
+export type GridFilterGroupValue =
+  | { kind: 'missing' | 'invalid' }
+  | { kind: 'value'; value_json: string }
+  | { kind: 'date_bucket'; bucket: 'day' | 'month' | 'year'; value: string };
+
 export type GridFilterValue =
   | string
   | string[]
@@ -2100,6 +2107,7 @@ export type GridFilterValue =
   | GridFilterRelativeDateValue
   | GridFilterBboxValue
   | GridFilterEntityValue
+  | GridFilterGroupValue
   | GridFilterListSelector[];
 
 export type GridFilterSpec = Record<string, Partial<Record<GridFilterOperator, GridFilterValue>>>;
@@ -2114,6 +2122,8 @@ export interface GridSortRule {
 export type GridSortSpec = GridSortRule[];
 
 export interface SheetDataOptions {
+  /** Exact row restriction, intersected with normal filter/sort. */
+  scopeRowIds?: number[] | null;
   parentRowId?: string | null;
   filter?: GridFilterSpec | null;
   sort?: GridSortSpec | null;
@@ -2123,7 +2133,7 @@ export interface SheetDataOptions {
   rowIds?: number[] | null;
 }
 
-export type SheetViewExportOptions = Pick<SheetDataOptions, 'filter' | 'sort'>;
+export type SheetViewExportOptions = Pick<SheetDataOptions, 'filter' | 'sort' | 'scopeRowIds'>;
 
 export interface SheetDatasetExportOptions {
   format: 'csv' | 'xlsx';
@@ -2539,6 +2549,7 @@ export interface SavedViewColumnGroup {
 /** The complete mutable definition of a Saved View.  It deliberately omits
  * its immutable identity, name, and sheet ownership. */
 export interface SavedViewDefinitionInput {
+  scope_row_ids?: number[] | null;
   filter: GridFilterSpec;
   sort: GridSortSpec | null;
   columns: string[] | null;
@@ -4325,42 +4336,22 @@ export interface WorkbenchPluginInstallStateChange {
 // The API surface. The live implementation is composed in src/api/real.ts;
 // contract-backed transport is centralized in src/api/httpContract.ts.
 
-// Copilot chat domain types. `needsImport` is the model's import-prerequisite
-// decision; when true the reply carries no proposals and the UI surfaces the
-// import CTA instead of an invented action card.
-export interface CopilotChatMessageInput {
-  role: 'user' | 'assistant';
-  content: string;
-}
-export type CopilotProposalKind = 'map' | 'derive' | 'reduce' | 'resolve' | 'media' | 'enrich' | 'web' | 'research';
-export type CopilotParamValue =
-  | null
-  | string
-  | number
-  | boolean
-  | CopilotParamValue[]
-  | { [key: string]: CopilotParamValue };
-export type CopilotRegisteredActionDraft = RegisteredActionDraft<
-  CopilotParamValue,
+// Canonical action drafts shared by forms, saved actions, and Ask suggestions.
+export type ActionProposalKind = 'map' | 'derive' | 'reduce' | 'resolve' | 'media' | 'enrich' | 'web' | 'research';
+export type GeneratedActionDraft = RegisteredActionDraft<
+  JsonValue,
   RegisteredActionScope
 >;
-export type CopilotActionSpec = CopilotRegisteredActionDraft;
 
-export function isCopilotRegisteredActionDraft(
-  spec: CopilotActionSpec | Record<string, unknown>,
-): spec is CopilotRegisteredActionDraft {
+export function isGeneratedActionDraft(
+  spec: GeneratedActionDraft | Record<string, unknown>,
+): spec is GeneratedActionDraft {
   return hasRegisteredActionDraftShape(spec);
 }
-export interface CopilotProposal {
-  kind: CopilotProposalKind;
+export interface ActionProposal {
+  kind: ActionProposalKind;
   title: string;
-  spec: CopilotActionSpec;
-}
-export interface CopilotReply {
-  reply: string;
-  proposals: CopilotProposal[];
-  needsImport: boolean;
-  costUsd: number | null;
+  spec: GeneratedActionDraft;
 }
 
 export interface FrisketApi {
@@ -4542,7 +4533,7 @@ export interface FrisketApi {
     confirmation?: string,
   ): Promise<SheetRefreshResult>;
   getSheetData(sheetId: string, offset: number, limit: number, options?: SheetDataOptions | null): Promise<SheetDataPage>;
-  getColumnStats(sheetId: string, columnId: string, opts?: { force?: boolean }): Promise<ColumnStats>;
+  getColumnStats(sheetId: string, columnId: string, opts?: SheetDataOptions & { force?: boolean }): Promise<ColumnStats>;
   locateSheetRow(sheetId: string, rowId: string, options?: SheetDataOptions | null, pageSize?: number): Promise<SheetRowLocation>;
   addRow(sheetId: string, cells?: Record<string, CellValue>): Promise<AddRowResult>;
   addColumn(
@@ -4581,7 +4572,7 @@ export interface FrisketApi {
     options?: RunActionInvocationOptions,
   ): Promise<RunActionLaunchResult>;
   runProposal(
-    proposal: CopilotProposal,
+    proposal: ActionProposal,
     confirmed?: boolean,
     consentedPromiseSetHash?: string,
     options?: RunActionInvocationOptions,
@@ -4760,10 +4751,7 @@ export interface FrisketApi {
   workLogExportUrl(format?: 'md' | 'html' | 'pdf'): string;
   listProjects(): Promise<ProjectInfo[]>;
   createProject(name: string): Promise<ProjectInfo>;
-  copilotChat(
-    messages: CopilotChatMessageInput[],
-    model?: string | null,
-  ): Promise<CopilotReply>;
+  readonly qa: ProjectQAApi;
   updateProject(
     projectId: string,
     patch: { name?: string; description?: string; starred?: boolean; archived?: boolean },

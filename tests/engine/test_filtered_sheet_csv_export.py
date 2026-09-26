@@ -108,6 +108,27 @@ def test_filtered_http_sheet_csv_export_matches_grid_rows(tmp_path: Path) -> Non
     ]
 
 
+def test_http_sheet_csv_export_applies_exact_scope_before_filter_and_sort(
+    tmp_path: Path,
+) -> None:
+    client = _client(tmp_path)
+    pid, sheet_id, rows, _columns = _seed_project(client)
+    response = client.get(
+        f"/api/projects/{pid}/exports/sheets",
+        params={
+            "sheet_id": sheet_id,
+            "format": "csv",
+            "scope_row_ids": f"{rows['a']},{rows['b']}",
+            "filter": json.dumps(_filter()),
+            "sort": json.dumps(_sort()),
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert _csv_rows(response.text) == [
+        {"title": "B done", "status": "done", "published": "2026-02-01"}
+    ]
+
+
 def test_filtered_sheet_csv_action_records_query_evidence_and_replays(
     tmp_path: Path,
 ) -> None:

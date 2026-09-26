@@ -46,7 +46,9 @@ from __future__ import annotations
 import base64
 import json
 import re
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from jsonschema import Draft202012Validator
@@ -272,6 +274,9 @@ class FrisketRouterModel(Model):
         reasoning_policy: ReasoningPolicy | None = None,
         capability: dict | None = None,
         trace: ModelTrace | None = None,
+        before_request: Callable[[LLMRequest], Awaitable[None]] | None = None,
+        on_response: Callable[[LLMResponse], Awaitable[None]] | None = None,
+        request_context: Callable[[], AbstractContextManager[None]] | None = None,
     ):
         self.router = router
         self._model_id = model_id
@@ -282,6 +287,9 @@ class FrisketRouterModel(Model):
         self._params = dict(params or {})
         self._reasoning_policy = reasoning_policy
         self._trace = trace
+        self._before_request = before_request
+        self._on_response = on_response
+        self._request_context = request_context
         # per-run receipt accumulator — every wire attempt incl. repairs.
         self.wire_calls: list[LLMResponse] = []
         # SchemaViolations the shim translated to ModelRetry (adapter-origin
@@ -291,10 +299,8 @@ class FrisketRouterModel(Model):
         self.translated: list[SchemaViolation] = []
         # ONE counter for every wire call this run makes — successes AND
         # adapter-origin schema-fault translations both hit the wire, so both
-        # count. `len(wire_calls)` alone undercounts: a translated fault never
-        # reaches `wire_calls` (it raises before that append), so a run with 1
-        # success + 1 translated fault previously reported attempts=1 for 2
-        # actual wire calls. `attempts` is the ONLY correct source for this.
+        # count. Structural schema faults may not carry a response envelope,
+        # so `attempts` is the ONLY correct source for every actual request.
         self.attempts: int = 0
         super().__init__(profile=self._profile_from_capability(capability))
 
@@ -344,21 +350,41 @@ class FrisketRouterModel(Model):
             tools=tools,
             reasoning_policy=self._reasoning_policy,
         )
+        if self._before_request is not None:
+            await self._before_request(req)
         try:
-            resp = await self.router.complete_transport(
-                req,
-                recipe_version=self.recipe_version,
-                trace=self._trace,
-            )
+            # Pydantic schedules model calls in child tasks; enter authority in
+            # the actual request task rather than relying on inherited context.
+            with (
+                self._request_context()
+                if self._request_context is not None
+                else nullcontext()
+            ):
+                resp = await self.router.complete_transport(
+                    req,
+                    recipe_version=self.recipe_version,
+                    trace=self._trace,
+                )
         except SchemaViolation as sv:
             # A raw SchemaViolation is invisible to pydantic-ai's retry loop
             # (it only retries ModelRetry / validation errors) — translate so
             # chaos/malformed-JSON faults compose with the repair loop.
             self.translated.append(sv)
-            self.attempts += 1  # this WAS a wire call — it just faulted.
+            attached = [
+                response
+                for response in sv.wire_calls
+                if all(response is not prior for prior in self.wire_calls)
+            ]
+            self.wire_calls.extend(attached)
+            self.attempts += max(1, len(attached))
+            if self._on_response is not None:
+                for response in attached:
+                    await self._on_response(response)
             raise ModelRetry(f"invalid structured output: {sv}") from sv
         self.wire_calls.append(resp)
         self.attempts += 1
+        if self._on_response is not None:
+            await self._on_response(resp)
         if schema is not None and resp.output_limited:
             raise OutputLimitReached(
                 "structured output stopped at the provider output limit",
@@ -433,6 +459,12 @@ class FrisketRouterModel(Model):
 
     @staticmethod
     def _resolve_schema(params: ModelRequestParameters) -> tuple[dict | None, str]:
+        if params.function_tools and params.output_tools:
+            # The final typed output becomes another auto-selected tool beside
+            # ordinary function tools.  Adapters already understand a multi-
+            # tool request; forcing the old schema `emit` tool would suppress
+            # reads before the model can produce its final answer.
+            return None, "combined_tools"
         mode = params.output_mode
         if params.output_tools:
             return params.output_tools[0].parameters_json_schema, "tool"
@@ -448,15 +480,26 @@ class FrisketRouterModel(Model):
         tool, resolved by ``_resolve_schema`` above) -- these are the tools a
         multi-step Agent dispatches mid-run (AgentRecipe search/fetch)."""
         if not params.function_tools:
-            return None
-        return [
-            {
-                "name": t.name,
-                "description": t.description or "",
-                "parameters": t.parameters_json_schema,
-            }
-            for t in params.function_tools
-        ]
+            tools: list[dict[str, Any]] = []
+        else:
+            tools = [
+                {
+                    "name": t.name,
+                    "description": t.description or "",
+                    "parameters": t.parameters_json_schema,
+                }
+                for t in params.function_tools
+            ]
+        if params.function_tools and params.output_tools:
+            tools.extend(
+                {
+                    "name": t.name,
+                    "description": t.description or "Return the final result.",
+                    "parameters": t.parameters_json_schema,
+                }
+                for t in params.output_tools
+            )
+        return tools or None
 
     def _to_model_response(
         self, resp: LLMResponse, params: ModelRequestParameters, mode: str
@@ -470,6 +513,9 @@ class FrisketRouterModel(Model):
         )
         data = resp.data
         if mode == "tool" and params.output_tools:
+            # Schema-only output keeps its forced output-tool mapping even if
+            # an adapter also parsed provider tool-call metadata. Combined
+            # function/output tools use ``combined_tools`` below instead.
             return ModelResponse(
                 parts=[
                     ToolCallPart(

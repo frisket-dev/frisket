@@ -2,21 +2,18 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 from collections.abc import Sequence
-from contextvars import copy_context
 from dataclasses import dataclass
-from functools import partial
-from typing import Any, BinaryIO, Callable, TypeVar
+from typing import Any, BinaryIO
 
 from fastapi import UploadFile
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.server.route_errors import RouteError
+from frisket.server.thread_worker import await_thread_worker
 
 
 _UPLOAD_CHUNK_BYTES = 1024 * 1024
-_WorkerResult = TypeVar("_WorkerResult")
 
 
 @dataclass(frozen=True)
@@ -104,32 +101,6 @@ def _admit_upload(file: UploadFile, *, max_bytes: int | None = None) -> Admitted
         )
     finally:
         file.file.seek(0)
-
-
-async def await_thread_worker(
-    worker: Callable[..., _WorkerResult], /, *args: Any, **kwargs: Any
-) -> _WorkerResult:
-    """Keep caller-owned inputs alive until a cancelled worker has finished."""
-
-    future = asyncio.get_running_loop().run_in_executor(
-        None, copy_context().run, partial(worker, *args, **kwargs)
-    )
-    try:
-        return await asyncio.shield(future)
-    except asyncio.CancelledError:
-        while not future.done():
-            try:
-                await asyncio.shield(future)
-            except asyncio.CancelledError:
-                continue
-            except BaseException:
-                break
-        if future.done():
-            try:
-                future.result()
-            except BaseException:
-                pass
-        raise
 
 
 def upload_sheet_name(

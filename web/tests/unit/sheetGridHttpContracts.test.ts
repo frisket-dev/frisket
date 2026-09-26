@@ -113,7 +113,7 @@ describe('sheet and grid HTTP contracts', () => {
       'tenant/project % snowman ☃',
       7,
       9,
-      false,
+      {},
       contractError,
       { headers: { 'X-Trace-Id': 'stats-1' } },
     );
@@ -140,10 +140,10 @@ describe('sheet and grid HTTP contracts', () => {
     expect(new Headers(requests[0]?.init?.headers).has('content-type')).toBe(false);
     expect(new Headers(requests[0]?.init?.headers).get('x-trace-id')).toBe('stats-1');
 
-    await getColumnStatsContract('project-1', 7, 9, true, contractError);
-    expect(requests[1]?.input).toBe(
-      '/api/projects/project-1/sheets/7/columns/9/stats?force=true',
-    );
+    await getColumnStatsContract('project-1', 7, 9, { force: true, scope_row_ids: '2,5', filter: '{"score":{"gt":4}}' }, contractError);
+    const statsUrl = new URL(String(requests[1]?.input), 'https://frisket.test');
+    expect(statsUrl.pathname).toBe('/api/projects/project-1/sheets/7/columns/9/stats');
+    expect(Object.fromEntries(statsUrl.searchParams)).toEqual({ force: 'true', scope_row_ids: '2,5', filter: '{"score":{"gt":4}}' });
   });
 
   it('preserves stats numeric bytes, explicit nulls, and optional field presence', async () => {
@@ -186,7 +186,7 @@ describe('sheet and grid HTTP contracts', () => {
       'project-1',
       7,
       9,
-      false,
+      {},
       contractError,
     )).resolves.toMatchObject({
       column: { id: '9', name: 'score', type: 'number', format: 'currency' },

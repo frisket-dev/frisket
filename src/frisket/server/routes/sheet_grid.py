@@ -5,9 +5,11 @@ from __future__ import annotations
 from fastapi import FastAPI, Query, Request
 
 from frisket.contracts.http.models import (
+    ColumnStatsQuery,
     ColumnStats,
     SheetData,
     SheetDataQuery,
+    SheetRowLocationQuery,
     SheetRowLocation,
 )
 from frisket.server.route_errors import (
@@ -38,6 +40,7 @@ def register_sheet_grid_routes(
         filter_: str = Query(default=None, alias="filter"),  # type: ignore[assignment]
         sort: str = None,  # type: ignore[assignment]
         row_ids: str = Query(default=None),  # type: ignore[assignment]
+        scope_row_ids: str = Query(default=None),  # type: ignore[assignment]
     ) -> SheetData:
         reject_unknown_query_parameters(request, SheetDataQuery)
         return SheetData.model_validate(
@@ -50,6 +53,7 @@ def register_sheet_grid_routes(
                 filter_=filter_,
                 sort=sort,
                 row_ids=row_ids,
+                scope_row_ids=scope_row_ids,
             )
         )
 
@@ -60,6 +64,7 @@ def register_sheet_grid_routes(
         responses=http_error_responses(400, 401, 403, 404, 422, 500),
     )
     def column_stats(
+        request: Request,
         pid: str,
         sheet_id: int,
         column_id: int,
@@ -67,7 +72,9 @@ def register_sheet_grid_routes(
         parent_row_id: int | None = None,
         filter_: str | None = Query(default=None, alias="filter"),
         sort: str | None = None,
+        scope_row_ids: str | None = None,
     ) -> ColumnStats:
+        reject_unknown_query_parameters(request, ColumnStatsQuery)
         return ColumnStats.model_validate(
             service.column_stats(
                 pid,
@@ -77,6 +84,7 @@ def register_sheet_grid_routes(
                 parent_row_id=parent_row_id,
                 filter_=filter_,
                 sort=sort,
+                scope_row_ids=scope_row_ids,
             )
         )
 
@@ -87,6 +95,7 @@ def register_sheet_grid_routes(
         responses=http_error_responses(400, 401, 403, 404, 422, 500),
     )
     def locate_sheet_row(
+        request: Request,
         pid: str,
         sheet_id: int,
         row_id: int,
@@ -94,7 +103,10 @@ def register_sheet_grid_routes(
         parent_row_id: int | None = None,
         filter_: str | None = Query(default=None, alias="filter"),
         sort: str | None = None,
+        row_ids: str | None = None,
+        scope_row_ids: str | None = None,
     ) -> SheetRowLocation:
+        reject_unknown_query_parameters(request, SheetRowLocationQuery)
         return SheetRowLocation.model_validate(
             service.locate_sheet_row(
                 pid,
@@ -104,5 +116,7 @@ def register_sheet_grid_routes(
                 parent_row_id=parent_row_id,
                 filter_=filter_,
                 sort=sort,
+                row_ids=row_ids,
+                scope_row_ids=scope_row_ids,
             )
         )

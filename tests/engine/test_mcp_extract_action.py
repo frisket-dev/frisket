@@ -484,7 +484,8 @@ def test_catalog_exposes_mcp_extract_only_in_solo(tmp_path) -> None:
     }
     assert "map.mcp_extract" in solo_kinds
     assert "map.mcp_extract" not in team_kinds
-    assert "map.mcp_extract" in json.dumps(team.get("/openapi.json").json())
+    # The removed Copilot response schema used to mention this action in OpenAPI
+    # incidentally. Edition availability is owned by the runtime catalog above.
 
 
 def test_team_refuses_crafted_mcp_extract_requests_and_stale_worker(

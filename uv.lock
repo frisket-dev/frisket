@@ -1251,7 +1251,7 @@ wheels = [
 
 [[package]]
 name = "frisket-data"
-version = "0.1.1a81"
+version = "0.1.1a82"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },

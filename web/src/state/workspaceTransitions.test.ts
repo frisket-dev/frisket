@@ -37,6 +37,7 @@ import {
   openColumnPanelTransition,
   openRowRefTransition,
   runActionFromSurfaceTransition,
+  openAskProposalTransition,
   closeRoutePanelTransition,
   confirmDeleteRowsTransition,
   applyLensTransition,
@@ -82,6 +83,17 @@ describe('route hydration exceptions', () => {
     });
     expect(openActionPanel).toHaveBeenCalledOnce();
     expect(navigate).toHaveBeenCalledWith(nextRoute);
+  });
+
+  it('opens the Action panel with the selected Ask proposal', () => {
+    const chrome = createChromeStore('p1');
+    const detail = createDetailStore();
+    const proposal = { seq: 1, title: 'Extract names', spec: {} } as never;
+
+    openAskProposalTransition({ chrome, detail }, proposal);
+
+    expect(chrome.store.get().actionPanelOpen).toBe(true);
+    expect(detail.store.get().proposalInspect).toBe(proposal);
   });
 });
 

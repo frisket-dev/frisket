@@ -188,11 +188,10 @@ import {
   loadColumnOrder,
   loadHiddenColumns,
 } from './workspace/gridColumnState';
-import { CopilotDialogPopover } from './workspace/popovers';
-import { beginCopilotImportHandoff } from './state/copilotImportTransition';
+import { ProjectAskDock } from './components/ProjectAskDock';
+import type { AskScope } from './api/projectQA';
 import { DiagnosticReportButton } from './workspace/DiagnosticReport';
 import {
-  COPILOT_CONTRIBUTION_ID,
   EMBEDDINGS_CONTRIBUTION_ID,
   FRIENDLY_FILTERS_CONTRIBUTION_ID,
   MENTIONS_CONTRIBUTION_ID,
@@ -232,9 +231,8 @@ import { useLensViewHandle } from './bind/useLensViewHandle';
 import { useSelector } from './bind/useSelector';
 import { useShellIdentity } from './shellIdentity';
 import { useEditionModule } from './editions/module';
-import { focusCompareTabTransition } from './state/workspaceTransitions';
+import { focusCompareTabTransition, openAskProposalTransition } from './state/workspaceTransitions';
 
-let proposalInspectSeq = 0;
 
 const LazySignIn = lazy(() => (
   import('./components/SignIn').then(({ SignIn }) => ({ default: SignIn }))
@@ -290,11 +288,6 @@ const openAdminUnavailable = () => (
     </div>
   </div>
 );
-
-function nextProposalInspectSeq(): number {
-  proposalInspectSeq += 1;
-  return proposalInspectSeq;
-}
 
 export default function App() {
   const route = useRoute();
@@ -544,6 +537,7 @@ function useRenderCount(region: string): void {
 }
 
 export interface WorkspaceShellHandle {
+  askNavigation: WorkspaceViewModel['askNavigation'];
   project: WorkspaceViewModel['project'];
   projectApi: WorkspaceViewModel['projectApi'];
 
@@ -751,6 +745,7 @@ function Workspace(props: WorkspaceProps) {
 function WorkspaceView({ model }: { model: WorkspaceViewModel }) {
   const shell = useMemo<WorkspaceShellHandle>(
     () => ({
+      askNavigation: model.askNavigation,
       project: model.project,
       projectApi: model.projectApi,
       runActCommand: model.runActCommand,
@@ -798,6 +793,7 @@ function WorkspaceView({ model }: { model: WorkspaceViewModel }) {
       hideContribution: model.hideContribution,
     }),
     [
+      model.askNavigation,
       model.project,
       model.projectApi,
       model.runActCommand,
@@ -886,12 +882,18 @@ function WorkspaceViewContent() {
       <div className="workbench-shell" data-testid="workbench-shell">
         <WorkspaceChromeBarRegion />
         <WorkspaceActRegion />
-        <WorkspaceNavigateRegion />
-        <div className="app-main workbench-main-row">
-          <WorkspaceMainViewRegion />
-          <WorkspaceInspectDetailRegion />
-          <WorkspaceRightInspectorRegion />
-          <WorkspaceDiscoverRegion />
+        <div className="workbench-body">
+          <WorkspaceAskRegion />
+          <div className="workbench-content">
+            <WorkspaceNavigateRegion />
+            <WorkspaceAskSourceBar />
+            <div className="app-main workbench-main-row">
+              <WorkspaceMainViewRegion />
+              <WorkspaceInspectDetailRegion />
+              <WorkspaceRightInspectorRegion />
+              <WorkspaceDiscoverRegion />
+            </div>
+          </div>
         </div>
         <WorkspaceBottomDockRegion />
         <WorkspaceActionDrawerRegion />
@@ -901,13 +903,48 @@ function WorkspaceViewContent() {
   );
 }
 
+function WorkspaceAskSourceBar() {
+  const { askNavigation } = useWorkspaceShell();
+  const { openNewSavedView } = useMainViewModel();
+  const { gridView } = useWorkspaceStores();
+  const applied = useSelector(gridView.store, (state) => state.applied);
+  if (!askNavigation.source) return null;
+  return <div className="ask-source-bar" aria-label="Source opened from Ask">
+    <button type="button" className="btn" onClick={askNavigation.back}>Back to previous view</button>
+    <span>{askNavigation.source.label}</span>
+    {askNavigation.source.message && <span role="status">{askNavigation.source.message}</span>}
+    {applied.scopeRowIds != null && <button type="button" className="ask-filter-chip" onClick={() => gridView.store.set((state) => ({ ...state, applied: { ...state.applied, scopeRowIds: null }, activeSavedViewId: null }))}>{applied.scopeRowIds.length === 1 ? 'Cited row' : `${applied.scopeRowIds.length} selected rows`} ×</button>}
+    {Object.entries(applied.filter ?? {}).map(([column, condition]) => <button type="button" key={column} className="ask-filter-chip" onClick={() => gridView.store.set((state) => { const filter = { ...state.applied.filter }; delete filter[column]; return { ...state, activeSavedViewId: null, applied: { ...state.applied, filter: Object.keys(filter).length ? filter : null } }; })}>{gridFilterLabel({ [column]: condition })} ×</button>)}
+    <button type="button" className="btn" onClick={() => openNewSavedView('Ask results')}>Save as view</button>
+  </div>;
+}
+
+function WorkspaceAskRegion() {
+  const { sheet, sheets } = useCurrentSheet();
+  const { chrome, selection, detail } = useWorkspaceStores();
+  const { selectSheet, askNavigation } = useWorkspaceShell();
+  const open = useSelector(chrome.store, (s) => s.askOpen);
+  const selected = useSelector(selection.store, (s) => s.selectedRows);
+  const scope = useMemo<AskScope>(() => {
+    if (!sheet) return { kind: 'project' };
+    const rows = selected.sheetId === sheet.id ? selected.rowIds.map(Number) : [];
+    return { kind: 'sources', sources: rows.length
+      ? [{ kind: 'rows', sheet_id: Number(sheet.id), row_ids: rows }]
+      : [{ kind: 'sheet', sheet_id: Number(sheet.id) }] };
+  }, [sheet, selected]);
+  return open ? <ProjectAskDock onOpenSource={askNavigation.open} initialScope={scope} sheets={sheets} onClose={chrome.closeAsk} onInspectProposal={(title, spec) => {
+    if (spec.scope.kind === 'sheet_rows') selectSheet(String(spec.scope.sheet_id));
+    openAskProposalTransition({ chrome, detail }, { seq: Date.now(), title, spec });
+  }} /> : null;
+}
+
 const WorkspaceChromeBarRegion = memo(function WorkspaceChromeBarRegion() {
   useRenderCount('chromeBar');
   const { project, projectApi } = useWorkspaceShell();
   const { sheet, sheets } = useCurrentSheet();
   const chrome = useChromeHandle();
-  const copilotOpen = useSelector(chrome.store, (s) => s.copilotPopoverOpen);
-  const toggleCopilot = chrome.toggleCopilotPopover;
+  const askOpen = useSelector(chrome.store, (s) => s.askOpen);
+  const toggleAsk = chrome.toggleAsk;
   const openCommandPalette = chrome.openCommandPalette;
   const actSurface = useActSurfaceHandle();
   const actExportModal = useSelector(actSurface.store, (s) => s.actExportModal);
@@ -921,10 +958,11 @@ const WorkspaceChromeBarRegion = memo(function WorkspaceChromeBarRegion() {
   ));
   const gridView = useGridViewHandle();
   const activeGridFilter = useSelector(gridView.store, (s) => s.applied.filter);
+  const scopeRowIds = useSelector(gridView.store, (s) => s.applied.scopeRowIds ?? null);
   const activeGridSort = useSelector(gridView.store, (s) => s.applied.sort);
   const currentSheetExportOptions =
-    activeGridFilter || activeGridSort
-      ? { filter: activeGridFilter, sort: activeGridSort }
+    activeGridFilter || activeGridSort || scopeRowIds !== null
+      ? { filter: activeGridFilter, sort: activeGridSort, scopeRowIds }
       : null;
   const walkthrough = useWalkthrough();
   return (
@@ -938,8 +976,8 @@ const WorkspaceChromeBarRegion = memo(function WorkspaceChromeBarRegion() {
         currentSheetExportOptions={currentSheetExportOptions}
         catalogExportTargets={catalogExportTargets}
         onOpenCommandPalette={openCommandPalette}
-        copilotOpen={copilotOpen}
-        onToggleCopilot={toggleCopilot}
+        askOpen={askOpen}
+        onToggleAsk={toggleAsk}
         walkthroughActive={walkthrough.active}
         walkthroughCanResume={walkthrough.canResume}
         walkthroughGuideSeen={walkthrough.guideSeen}
@@ -1207,7 +1245,6 @@ function SidebarContributionBody({ contribution }: { contribution: WorkbenchReso
 
 const NON_DISCOVER_LEFT_SIDEBAR_CONTRIBUTION_IDS = new Set<string>([
   SEARCH_CONTRIBUTION_ID,
-  COPILOT_CONTRIBUTION_ID,
 ]);
 
 const DISCOVER_TAB_CONTRIBUTION_IDS: Record<DiscoverTab, readonly string[]> = {
@@ -3105,6 +3142,7 @@ function WorkspaceGridControls() {
   } = useMainViewModel();
   const gridView = useGridViewHandle();
   const activeGridFilter = useSelector(gridView.store, (s) => s.applied.filter);
+  const scopeRowIds = useSelector(gridView.store, (s) => s.applied.scopeRowIds ?? null);
 
   const activeGridFilterValueLabel = useSelector(
     gridView.store,
@@ -3129,8 +3167,9 @@ function WorkspaceGridControls() {
                 />
               )}
 
-              {(activeGridFilter || activeGridSort) && (
+              {(activeGridFilter || activeGridSort || scopeRowIds !== null) && (
                 <div className="grid-active-bar">
+                  {scopeRowIds !== null && <span className="active-grid-state">{scopeRowIds.length} selected rows <button type="button" className="mini-btn" onClick={() => gridView.store.set((state) => ({ ...state, activeSavedViewId: null, applied: { ...state.applied, scopeRowIds: null } }))}>Clear</button></span>}
                   {activeGridFilter && (
                     <span className="active-grid-state" data-testid="active-grid-filter">
                       Filter: {gridFilterLabel(activeGridFilter, activeGridFilterValueLabel)}
@@ -3405,6 +3444,7 @@ function WorkspacePrimarySurface() {
     [nerCatalogEntry, projectApi, sheet, showError, startRun],
   );
   const activeGridFilter = useSelector(gridView.store, (s) => s.applied.filter);
+  const scopeRowIds = useSelector(gridView.store, (s) => s.applied.scopeRowIds ?? null);
   const activeGridSort = useSelector(gridView.store, (s) => s.applied.sort);
   const splitResize = useResizable({
     storageKey: `frisket:work-split-w:${project.id}`,
@@ -3418,9 +3458,10 @@ function WorkspacePrimarySurface() {
     (args: { columnIds?: string[]; offset: number; limit: number }) =>
       projectApi.getSheetData(sheetIdForGallery, args.offset, args.limit, {
         filter: activeGridFilter,
+        scopeRowIds,
         sort: activeGridSort,
       }),
-    [activeGridFilter, activeGridSort, sheetIdForGallery],
+    [activeGridFilter, activeGridSort, sheetIdForGallery, scopeRowIds],
   );
   const showImageGalleryPane =
     !gridOnly &&
@@ -3431,6 +3472,10 @@ function WorkspacePrimarySurface() {
       imageGalleryAvailability.reason?.startsWith('missing_capability:') === true);
   const companionMainViewDescriptor =
     activeMainViewPluginViewDescriptor ?? (showImageGalleryPane ? IMAGE_GALLERY_VIEW_DESCRIPTOR : null);
+
+  const { askNavigation } = useWorkspaceShell();
+  const sourceTarget = askNavigation.source?.target;
+  if (sourceTarget?.kind === 'evidence') return <Suspense fallback={<PanelLoading label="Loading source…" />}><LazyEvidenceViewer key={askNavigation.source?.id} evidenceLinkId={sourceTarget.evidence_link_id} scopeSpanId={sourceTarget.span_id} highlight={askNavigation.source?.status === "current"} mode="pane" onClose={askNavigation.back} defaultShowDetails={false} /></Suspense>;
 
   if (activePreviewView?.result?.kind === 'table') return <>{gridContribution}</>;
 
@@ -3446,7 +3491,7 @@ function WorkspacePrimarySurface() {
         | 'asc'
         | 'desc'
         | undefined) ?? null;
-    const orderKey = `${JSON.stringify(activeGridFilter ?? null)}|${JSON.stringify(
+    const orderKey = `${JSON.stringify(scopeRowIds)}|${JSON.stringify(activeGridFilter ?? null)}|${JSON.stringify(
       activeGridSort ?? null,
     )}`;
     return (
@@ -3476,7 +3521,7 @@ function WorkspacePrimarySurface() {
   if (answersViewShowing && sheet) {
 
     const titleColumnOrder = visibleOrderedColumns.map((column) => column.name);
-    const orderKey = `${JSON.stringify(activeGridFilter ?? null)}|${JSON.stringify(
+    const orderKey = `${JSON.stringify(scopeRowIds)}|${JSON.stringify(activeGridFilter ?? null)}|${JSON.stringify(
       activeGridSort ?? null,
     )}`;
     return (
@@ -3624,15 +3669,17 @@ function WorkspacePromotedView() {
   } = useMainViewModel();
   const gridView = useGridViewHandle();
   const activeGridFilter = useSelector(gridView.store, (s) => s.applied.filter);
+  const scopeRowIds = useSelector(gridView.store, (s) => s.applied.scopeRowIds ?? null);
   const activeGridSort = useSelector(gridView.store, (s) => s.applied.sort);
   const sheetId = sheet?.id ?? '';
   const queryRows = useCallback(
     (args: { columnIds?: string[]; offset: number; limit: number }) =>
       projectApi.getSheetData(sheetId, args.offset, args.limit, {
         filter: activeGridFilter,
+        scopeRowIds,
         sort: activeGridSort,
       }),
-    [activeGridFilter, activeGridSort, sheetId],
+    [activeGridFilter, activeGridSort, sheetId, scopeRowIds],
   );
   if (!activePromotedView || !sheet) return <>{gridContribution}</>;
   const view = activePromotedView;
@@ -3951,6 +3998,7 @@ const WorkspaceActionDrawerRegion = memo(function WorkspaceActionDrawerRegion() 
     : null;
   const gridView = useGridViewHandle();
   const activeGridFilter = useSelector(gridView.store, (state) => state.applied.filter);
+  const scopeRowIds = useSelector(gridView.store, (state) => state.applied.scopeRowIds ?? null);
   const chrome = useChromeHandle();
   // Action-panel state must not reach localStorage.
 
@@ -3965,14 +4013,15 @@ const WorkspaceActionDrawerRegion = memo(function WorkspaceActionDrawerRegion() 
   const routeActionKind = useSelector(route.store, (s) => s.actionKind);
   const hasActionTarget = Boolean(routeActionKind || proposalInspect);
   const actionViewScopeKey = useMemo(() => (
-    sheetId !== null && (activeGridFilter || activeChildFilter)
+    sheetId !== null && (activeGridFilter || activeChildFilter || scopeRowIds !== null)
       ? JSON.stringify([
           sheetId,
           activeChildFilter?.parentRowId ?? null,
           activeGridFilter ?? null,
+          scopeRowIds,
         ])
       : null
-  ), [activeChildFilter, activeGridFilter, sheetId]);
+  ), [activeChildFilter, activeGridFilter, sheetId, scopeRowIds]);
   const [actionViewScope, setActionViewScope] = useState<{
     key: string;
     status: 'loading' | 'ready' | 'error';
@@ -4041,9 +4090,9 @@ const WorkspaceActionDrawerRegion = memo(function WorkspaceActionDrawerRegion() 
     });
     void (async () => {
       try {
-        const [scopeSheetId, parentRowId, filter] = JSON.parse(
+        const [scopeSheetId, parentRowId, filter, scopeRowIds] = JSON.parse(
           actionViewScopeKey,
-        ) as [string, string | null, typeof activeGridFilter];
+        ) as [string, string | null, typeof activeGridFilter, number[] | null];
         const rowIds: string[] = [];
         const pageSize = 1000;
         let expectedTotal: number | null = null;
@@ -4051,6 +4100,7 @@ const WorkspaceActionDrawerRegion = memo(function WorkspaceActionDrawerRegion() 
           const page = await projectApi.getSheetData(scopeSheetId, offset, pageSize, {
             parentRowId,
             filter,
+            scopeRowIds,
           });
           if (cancelled) return;
           if (expectedTotal === null) expectedTotal = page.total;
@@ -4496,13 +4546,9 @@ const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
     commandPaletteGotoItems,
     navigateToSearchHit,
     closeRowDrawer,
-    copilotOpen,
-    closeCopilotPopover,
     runActionFromSurface,
     selectSheet,
     sheets,
-    startProposal,
-    openActionPanel,
     confirmDeleteRows,
     deleteRowsConfirm,
     dismissPluginPeek,
@@ -4528,7 +4574,6 @@ const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
     reviewCount,
     reviewOpen,
     reviewRunId,
-    setProposalInspect,
     sheet,
     commitReviewDecision,
     workbenchCommandEntries,
@@ -4569,17 +4614,6 @@ const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
   );
 
   const openDiagnosePanel = () => overlayChrome.openDiagnosePanel(project);
-
-  // Do not restore Copilot focus when Import takes ownership.
-
-  const beginImportFromCopilot = useCallback(() => {
-    const next = beginCopilotImportHandoff({
-      chrome: { copilotPopoverOpen: copilotOpen },
-      actSurface: { importDialogOpen: actSurfaceHandle.store.get().importDialogOpen },
-    });
-    if (!next.chrome.copilotPopoverOpen) closeCopilotPopover();
-    if (next.actSurface.importDialogOpen) actSurfaceHandle.openImportDialog();
-  }, [copilotOpen, closeCopilotPopover, actSurfaceHandle]);
 
   const renderColumnDetailContribution = useCallback(
     (contribution: WorkbenchResolvedLayoutContribution) => {
@@ -4666,22 +4700,6 @@ const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
         />
       )}
 
-      {copilotOpen && (
-        <CopilotDialogPopover
-          onRunProposal={startProposal}
-          onClose={closeCopilotPopover}
-          onImportNeeded={beginImportFromCopilot}
-          onInspectProposal={(proposal) => {
-
-            openActionPanel();
-            setProposalInspect({
-              seq: nextProposalInspectSeq(),
-              title: proposal.title,
-              spec: proposal.spec,
-            });
-          }}
-        />
-      )}
       {!error && <CompletedClusterResult onCreate={(receiptId) => {
         runActionFromSurface('resolve.entities', undefined, { actionDraft: entityTableDraft(receiptId) });
       }} />}

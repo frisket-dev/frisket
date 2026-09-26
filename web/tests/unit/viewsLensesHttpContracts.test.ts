@@ -497,6 +497,7 @@ describe("saved view and saved lens generated HTTP transport", () => {
             name: "V",
             sheet_id: 3,
             filter: { nested: { keep: true } },
+            scope_row_ids: null,
             sort: null,
             columns: null,
             column_groups: null,
@@ -507,6 +508,7 @@ describe("saved view and saved lens generated HTTP transport", () => {
           "tenant.replace_view_definition.put",
           {
             filter: { nested: { replacement: true } },
+            scope_row_ids: null,
             sort: null,
             columns: null,
             column_groups: null,

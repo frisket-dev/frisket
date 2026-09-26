@@ -27,6 +27,7 @@ export interface GridViewDraftState {
 }
 
 export interface GridViewAppliedState {
+  scopeRowIds?: number[] | null;
   filter: GridFilterSpec | null;
   sort: GridSortSpec | null;
   /** The spelling the applied filter's VALUE is known by, when the payload
@@ -119,6 +120,7 @@ export interface GridViewSortApplication {
  *  that stayed on the legacy reducer (that action also clears selectedRows/
  *  rowDrawer/columnDrawer — composed at the bind layer, not here). */
 export interface GridViewSavedViewApplication {
+  scopeRowIds?: number[] | null;
   viewId: number;
   sheetId: string;
   filter: GridFilterSpec | null;
@@ -218,7 +220,7 @@ export function createGridViewStore(): {
         // A saved view restores a filter SPEC and nothing else: the spelling
         // the user originally clicked was never persisted, so the chip falls
         // back to naming the type rather than carrying a stale one.
-        applied: { filter: grid.filter, sort: grid.sort, filterValueLabel: null },
+        applied: { filter: grid.filter, sort: grid.sort, filterValueLabel: null, ...(grid.scopeRowIds != null ? { scopeRowIds: grid.scopeRowIds } : {}) },
         columnOrderBySheet: { ...s.columnOrderBySheet, [grid.sheetId]: grid.columns },
         hiddenColumnsBySheet: { ...s.hiddenColumnsBySheet, [grid.sheetId]: grid.hiddenColumns },
         columnGroupSpecs: grid.columnGroupSpecs,

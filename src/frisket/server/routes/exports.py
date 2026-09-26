@@ -58,6 +58,7 @@ def register_sheet_dataset_export_route(
         filter_: str | None = Query(default=None, alias="filter"),
         sort: str | None = None,
         formula_policy: str = Query(default="escape"),
+        scope_row_ids: str | None = None,
     ) -> Response:
         """Export selected sheets through the shared dataset export plan.
 
@@ -74,6 +75,7 @@ def register_sheet_dataset_export_route(
                     sheet_ids,
                     filter_=filter_,
                     sort=sort,
+                    scope_row_ids=scope_row_ids,
                     formula_policy=formula_policy,
                 )
                 return _ClosingStreamingResponse(
@@ -90,6 +92,7 @@ def register_sheet_dataset_export_route(
                 format_=format_,
                 filter_=filter_,
                 sort=sort,
+                scope_row_ids=scope_row_ids,
                 formula_policy=formula_policy,
             )
         except SheetDatasetExportError as exc:

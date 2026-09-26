@@ -95,6 +95,7 @@ import {
 } from '../state/workspaceTransitions';
 import { useProjectDataResource, useRouteHandle } from '../bind/useRouteHandle';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
+import { useAskNavigation } from './useAskNavigation';
 import { useRouteProjection } from '../bind/useRouteProjection';
 import { useRouteRowFetch } from '../bind/useRouteRowFetch';
 import { useRouteSyncController } from '../bind/useRouteSyncController';
@@ -268,9 +269,9 @@ const NO_CITED_COLUMNS_RESOLVED: readonly ColumnDef[] = [];
 export function useWorkspaceModel({
   project,
   routeSheetId,
-  routeActionKind,
-  routeReview,
-  routePanel,
+  routeActionKind: externalActionKind,
+  routeReview: externalReview,
+  routePanel: externalPanel,
 }: {
   project: ProjectInfo;
   routeSheetId?: string;
@@ -304,11 +305,17 @@ export function useWorkspaceModel({
   // This is the sole browser-history writer.
   const route = useRouteHandle();
   const activeSheetId = useSelector(route.store, selectActiveSheetId);
+  const effectiveRoute = useSelector(route.store, (state) => state);
+  const routeActionKind = effectiveRoute.actionKind ?? undefined;
+  const routeReview = effectiveRoute.review;
+  const routePanel = effectiveRoute.panel ?? undefined;
+  const askNavigation = useAskNavigation(sheets);
   const writeRoute = useCallback((next: RouteState) => route.navigate(next), [route]);
   const draftSortColumn = useSelector(gridView.store, (s) => s.draft.sortColumn);
   const draftSortDirection = useSelector(gridView.store, (s) => s.draft.sortDirection);
   const activeGridFilter = useSelector(gridView.store, (s) => s.applied.filter);
   const activeGridSort = useSelector(gridView.store, (s) => s.applied.sort);
+  const scopeRowIds = useSelector(gridView.store, (s) => s.applied.scopeRowIds ?? null);
   const rowHeight = useSelector(gridView.store, (s) => s.rowHeight);
   const wrapText = useSelector(gridView.store, (s) => s.wrapText);
   const columnGroupSpecs = useSelector(gridView.store, (s) => s.columnGroupSpecs);
@@ -377,8 +384,8 @@ export function useWorkspaceModel({
   const {
     actionPanelOpen,
     clearDeleteRowsConfirm,
-    closeCopilotPopover,
-    copilotPopoverOpen,
+    closeAsk,
+    askOpen,
     closeEvidenceViewer,
     commandPaletteOpen,
     deleteRowsConfirm,
@@ -465,7 +472,7 @@ export function useWorkspaceModel({
       projectData
         .refresh('sheets')
         .then(() => {
-          const normalized = projectData.normalize(route.store.get());
+          const normalized = projectData.normalize(route.baseRoute());
           if (normalized) route.normalize(normalized);
         })
         .catch((e: Error) => showError(e.message)),
@@ -500,7 +507,7 @@ export function useWorkspaceModel({
     const initial = projectData.start();
     void initial.sheets
       .then(() => {
-        const normalized = projectData.normalize(route.store.get());
+        const normalized = projectData.normalize(route.baseRoute());
         if (normalized) route.normalize(normalized);
       })
       .catch((e: Error) => showError(e.message));
@@ -529,6 +536,7 @@ export function useWorkspaceModel({
 
   const selectSheet = useCallback(
     (id: string) => {
+      askNavigation.back();
       writeRoute({
         projectId: project.id,
         sheetId: id,
@@ -537,7 +545,7 @@ export function useWorkspaceModel({
         panel: null,
       });
     },
-    [project.id, writeRoute],
+    [project.id, writeRoute, askNavigation.back],
   );
 
   const sheet = sheets.find((candidate) => candidate.id === activeSheetId);
@@ -731,7 +739,6 @@ export function useWorkspaceModel({
     [actSurface, chrome, route, routeStateBase],
   );
 
-  const copilotOpen = copilotPopoverOpen;
 
   const commandPaletteQuery = useSelector(chrome.store, (s) => s.commandPaletteQuery);
   const setCommandPaletteQuery = chrome.setCommandPaletteQuery;
@@ -944,9 +951,9 @@ export function useWorkspaceModel({
     {
       projectId: project.id,
       routeSheetId: routeSheetId ?? null,
-      routeActionKind: routeActionKind ?? null,
-      routeReview: !!routeReview,
-      routePanel,
+      routeActionKind: externalActionKind ?? null,
+      routeReview: !!externalReview,
+      routePanel: externalPanel,
     },
     route,
     routeChrome,
@@ -1376,11 +1383,12 @@ export function useWorkspaceModel({
       name,
       sheetId,
       filter: activeGridFilter ?? {},
+      scope_row_ids: scopeRowIds,
       sort: activeGridSort ?? null,
       columns: currentViewColumns,
       column_groups: columnGroupSpecs.length > 0 ? columnGroupSpecs : null,
     }),
-    [activeGridFilter, activeGridSort, columnGroupSpecs, currentViewColumns],
+    [activeGridFilter, activeGridSort, columnGroupSpecs, currentViewColumns, scopeRowIds],
   );
 
   // Definition replacement is intentionally a complete capture.  Unlike
@@ -1389,11 +1397,12 @@ export function useWorkspaceModel({
   const currentViewDefinition = useCallback(
     () => ({
       filter: activeGridFilter ?? {},
+      scope_row_ids: scopeRowIds,
       sort: activeGridSort ?? null,
       columns: currentViewColumns,
       column_groups: columnGroupSpecs.length > 0 ? columnGroupSpecs : null,
     }),
-    [activeGridFilter, activeGridSort, columnGroupSpecs, currentViewColumns],
+    [activeGridFilter, activeGridSort, columnGroupSpecs, currentViewColumns, scopeRowIds],
   );
 
   const saveCurrentView = useCallback(() => {
@@ -1405,12 +1414,13 @@ export function useWorkspaceModel({
       .saveView(currentViewInput(name, sheet.id))
       .then((saved) => {
         savedViews.completeEditorMutation(ticket, saved);
+        askNavigation.commit();
       })
       .catch((e: Error) => {
         savedViews.failEditorMutation(ticket);
         showError(e.message);
       });
-  }, [currentViewInput, savedViews, sheet, showError, viewName]);
+  }, [currentViewInput, savedViews, sheet, showError, viewName, askNavigation.commit]);
 
   const renameSavedView = useCallback(() => {
     const name = viewName.trim();
@@ -1553,6 +1563,7 @@ export function useWorkspaceModel({
       applySavedViewTransition({ gridView, detail, selection }, sheet.id, {
         viewId: view.id,
         sheetId: sheet.id,
+        scopeRowIds: view.spec.scope_row_ids as number[] | undefined,
         filter,
         sort,
         draftSortColumn,
@@ -2153,7 +2164,7 @@ export function useWorkspaceModel({
               panel: null,
             });
           } else {
-            const normalized = projectData.normalize(route.store.get());
+            const normalized = projectData.normalize(route.baseRoute());
             if (normalized) route.normalize(normalized);
           }
         })
@@ -2720,8 +2731,9 @@ export function useWorkspaceModel({
         filter: activeGridFilter,
         sort: activeGridSort,
         lensRowIds: activeGridLensRowIds,
+        scopeRowIds,
       }),
-    [activeChildFilter?.parentRowId, activeGridFilter, activeGridSort, activeGridLensRowIds],
+    [activeChildFilter?.parentRowId, activeGridFilter, activeGridSort, activeGridLensRowIds, scopeRowIds],
   );
   const activeRowCacheKey = sheet
     ? computeRowCacheKey(sheet.id, dataVersion, activeRowCacheOptions)
@@ -3422,6 +3434,8 @@ export function useWorkspaceModel({
           }
           rowDrawerOpen={rowDrawerOpen}
           frozenColumnCount={activeFrozenColumnCount}
+          scopeRowIds={scopeRowIds}
+          citationColumnId={askNavigation.source?.status === "current" && askNavigation.source.target?.kind === "cell" && scopeRowIds ? String(askNavigation.source.target.column_id) : null}
           activeFilter={activeGridFilter}
           activeSort={activeGridSort}
           columnOrder={activeColumnOrder}
@@ -3475,6 +3489,8 @@ export function useWorkspaceModel({
       )}
     </GridWorkbenchViewFrame>
   ) : null, [
+    askNavigation.source,
+    scopeRowIds,
     sheet,
     dataVersion,
     run,
@@ -3850,8 +3866,8 @@ export function useWorkspaceModel({
       commandPaletteGotoItems,
       navigateToSearchHit,
       closeRowDrawer: detail.clearRowDrawer,
-      copilotOpen,
-      closeCopilotPopover,
+      askOpen,
+      closeAsk,
       runActionFromSurface,
       selectSheet,
       sheets,
@@ -3907,8 +3923,8 @@ export function useWorkspaceModel({
       commandPaletteGotoItems,
       navigateToSearchHit,
       detail,
-      copilotOpen,
-      closeCopilotPopover,
+      askOpen,
+      closeAsk,
       runActionFromSurface,
       selectSheet,
       sheets,
@@ -3948,7 +3964,7 @@ export function useWorkspaceModel({
   );
 
   return {
-
+    askNavigation,
     project,
     projectApi,
     runActCommand,

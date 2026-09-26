@@ -2,7 +2,6 @@
 // hook and the workspace region components, so they live in one module both
 // import.
 import {
-  COPILOT_DESCRIPTOR,
   EMBEDDINGS_DESCRIPTOR,
   FRIENDLY_FILTERS_DESCRIPTOR,
   EVIDENCE_VIEW_DESCRIPTOR,
@@ -23,7 +22,6 @@ export const SOURCE_HEALTH_CONTRIBUTION_ID = SOURCE_HEALTH_VIEW_DESCRIPTOR.id;
 // The leftSidebar panel contribution ids, split between the interim strip
 // and the Discover panel.
 export const SEARCH_CONTRIBUTION_ID = SEARCH_DESCRIPTOR.id;
-export const COPILOT_CONTRIBUTION_ID = COPILOT_DESCRIPTOR.id;
 export const FRIENDLY_FILTERS_CONTRIBUTION_ID = FRIENDLY_FILTERS_DESCRIPTOR.id;
 export const MENTIONS_CONTRIBUTION_ID = MENTIONS_DESCRIPTOR.id;
 export const SOURCES_CONTRIBUTION_ID = SOURCES_DESCRIPTOR.id;

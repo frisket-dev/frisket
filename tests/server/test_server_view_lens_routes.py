@@ -109,6 +109,7 @@ def test_view_lens_routes_bind_schema_query_and_map_service_errors() -> None:
             "sort": None,
             "columns": ["name"],
             "column_groups": None,
+            "scope_row_ids": [8, 4],
         },
     )
     assert replaced.status_code == 200
@@ -120,6 +121,7 @@ def test_view_lens_routes_bind_schema_query_and_map_service_errors() -> None:
         None,
         ["name"],
         None,
+        [8, 4],
     )
 
     missing_view = client.get("/api/projects/p/views/404")
@@ -168,6 +170,7 @@ class _FakeViewLensService:
         sort: list[Any] | None,
         columns: list[Any] | None,
         column_groups: list[Any] | None,
+        scope_row_ids: list[int] | None = None,
     ) -> dict:
         self.calls.append(
             (
@@ -179,6 +182,7 @@ class _FakeViewLensService:
                 sort,
                 columns,
                 column_groups,
+                scope_row_ids,
             )
         )
         return {**_row_payload(2, sheet_id=sheet_id), "name": name}
@@ -208,6 +212,7 @@ class _FakeViewLensService:
         sort: list[Any] | None,
         columns: list[Any] | None,
         column_groups: list[Any] | None,
+        scope_row_ids: list[int] | None = None,
     ) -> dict:
         self.calls.append(
             (
@@ -218,6 +223,7 @@ class _FakeViewLensService:
                 sort,
                 columns,
                 column_groups,
+                scope_row_ids,
             )
         )
         return _row_payload(view_id)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from calendar import monthrange
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 import json
@@ -148,7 +149,23 @@ class RuntimeSheetFilter:
     binding: Any
 
 
-SheetFilter = tuple[Any, str, Any] | RuntimeSheetFilter
+@dataclass(frozen=True)
+class GroupLocatorPredicate:
+    """One backend-produced group identity for ordinary row-query replay.
+
+    This is intentionally separate from model-authored filters: callers can
+    serialize only these closed predicates from an analytics result, never
+    SQL text or arbitrary expressions.
+    """
+
+    column_id: int
+    kind: str
+    value_json: str | None = None
+    bucket: str | None = None
+    value: str | None = None
+
+
+SheetFilter = tuple[Any, str, Any] | RuntimeSheetFilter | GroupLocatorPredicate
 
 
 def sheet_row_scope_query(
@@ -159,11 +176,13 @@ def sheet_row_scope_query(
     filter_: str | None = None,
     sort: str | None = None,
     reference_date: date | None = None,
+    row_ids: Sequence[int] | None = None,
 ) -> tuple[list[Any], str, list[Any], list[str], list[Any]]:
     """Return columns, WHERE SQL/params, and ORDER BY SQL/params for a sheet."""
 
     cols = project.columns(sheet_id)
     columns_by_name = {c["name"]: c for c in cols}
+    columns_by_id = {int(c["id"]): c for c in cols}
     filters = _parse_sheet_filter(filter_, columns_by_name, project)
     sorts = _parse_sheet_sort(sort, columns_by_name)
     generation_store = ResultGenerationStore(project)
@@ -195,6 +214,12 @@ def sheet_row_scope_query(
     if parent_row_id is not None:
         where.append("r.parent_row_id=?")
         where_params.append(parent_row_id)
+    if row_ids is not None:
+        if not row_ids:
+            where.append("0=1")
+        else:
+            where.append("r.id IN (" + ",".join("?" for _ in row_ids) + ")")
+            where_params.extend(row_ids)
     for filter_item in filters:
         if isinstance(filter_item, RuntimeSheetFilter):
             runtime_sql, runtime_params = _runtime_operator_where(
@@ -206,6 +231,14 @@ def sheet_row_scope_query(
             )
             where.append(runtime_sql)
             where_params.extend(runtime_params)
+            continue
+        if isinstance(filter_item, GroupLocatorPredicate):
+            column = columns_by_id[filter_item.column_id]
+            predicate_sql, predicate_params = _group_locator_where(
+                "r", column, filter_item
+            )
+            where.append(predicate_sql)
+            where_params.extend(predicate_params)
             continue
         column, operator, value = filter_item
         if operator == "failed":
@@ -486,6 +519,7 @@ def resolve_sheet_filter_rows(
     limit: int = 500,
     offset: int = 0,
     reference_date: date | None = None,
+    row_ids: Sequence[int] | None = None,
 ) -> SheetFilterRowSet:
     _, where_sql, where_params, order_parts, order_params = sheet_row_scope_query(
         project,
@@ -494,6 +528,7 @@ def resolve_sheet_filter_rows(
         filter_=filter_,
         sort=sort,
         reference_date=reference_date,
+        row_ids=row_ids,
     )
     try:
         bounded_limit = max(0, int(limit))
@@ -529,6 +564,76 @@ def resolve_sheet_filter_rows(
     )
 
 
+def count_sheet_filter_values(
+    project: Project,
+    sheet_id: int,
+    column_id: int,
+    *,
+    filter_: str | None = None,
+    sort: str | None = None,
+    row_ids: Sequence[int] | None = None,
+    limit: int = 100,
+    reference_date: date | None = None,
+) -> tuple[list[tuple[str, Any, int]], bool]:
+    """Exact filter-scoped value groups, capped only at the response edge."""
+    column = next(
+        (c for c in project.columns(sheet_id) if int(c["id"]) == column_id), None
+    )
+    if column is None:
+        raise SheetRowSetError("count_by column is not in sheet")
+    _, where_sql, where_params, _, _ = sheet_row_scope_query(
+        project,
+        sheet_id,
+        filter_=filter_,
+        sort=sort,
+        row_ids=row_ids,
+        reference_date=reference_date,
+    )
+    value_sql, value_params = sheet_live_value_sql("r", column, preserve_invalid=True)
+    validity_sql = (
+        "(SELECT live.validity FROM current_cells live "
+        "WHERE live.column_id=? AND live.row_id=r.id)"
+    )
+    validity_params = [column["id"]]
+    rows = project.db.execute(
+        "WITH count_values AS (SELECT "
+        f"{value_sql} AS value_json, {validity_sql} AS validity "
+        f"FROM rows r WHERE {where_sql}), "
+        "count_groups AS (SELECT CASE "
+        "WHEN validity='invalid' THEN 'invalid' "
+        "WHEN validity='valid' AND value_json IS NOT NULL THEN 'valid' "
+        "ELSE 'missing' END AS kind, value_json FROM count_values) "
+        "SELECT kind, CASE WHEN kind='valid' THEN CASE "
+        "WHEN json_type(value_json, '$') IN ('integer', 'real') THEN 'number' "
+        "ELSE json_type(value_json, '$') END END AS value_type, "
+        "CASE WHEN kind='valid' THEN json_extract(value_json, '$') END AS value, "
+        "COUNT(*) AS count "
+        "FROM count_groups GROUP BY kind, value_type, value "
+        "ORDER BY count DESC, CASE kind "
+        "WHEN 'valid' THEN 0 WHEN 'missing' THEN 1 ELSE 2 END, value LIMIT ?",
+        [*value_params, *validity_params, *where_params, limit + 1],
+    ).fetchall()
+    values = [
+        (
+            str(row["kind"]),
+            _decode_grouped_json_value(row["value_type"], row["value"]),
+            int(row["count"]),
+        )
+        for row in rows[:limit]
+    ]
+    return values, len(rows) <= limit
+
+
+def _decode_grouped_json_value(value_type: str | None, value: Any) -> Any:
+    if value_type == "true":
+        return True
+    if value_type == "false":
+        return False
+    if value_type in {"array", "object"}:
+        return json.loads(value)
+    return value
+
+
 def validate_sheet_filter_sort(
     project: Project,
     sheet_id: int,
@@ -559,6 +664,93 @@ def sheet_live_value_sql(
         f"WHERE live.column_id=? AND live.row_id={row_alias}.id)",
         [column["id"]],
     )
+
+
+def _parse_group_locator_predicate(column: Any, raw: Any) -> GroupLocatorPredicate:
+    """Validate the backend-produced ``group_eq`` filter value."""
+    if not isinstance(raw, dict):
+        raise SheetRowSetError("group_eq filter must be an object")
+    column_id = int(column["id"])
+    kind = raw.get("kind")
+    if kind in {"missing", "invalid"} and set(raw) == {"kind"}:
+        return GroupLocatorPredicate(column_id=column_id, kind=kind)
+    if kind == "value" and set(raw) == {"kind", "value_json"}:
+        value_json = raw.get("value_json")
+        if not isinstance(value_json, str):
+            raise SheetRowSetError("group value predicate requires value_json")
+        try:
+            value = json.loads(value_json)
+        except json.JSONDecodeError as exc:
+            raise SheetRowSetError("group value predicate has invalid JSON") from exc
+        if isinstance(value, (dict, list)) or value is None:
+            raise SheetRowSetError("group value predicate must be a scalar")
+        return GroupLocatorPredicate(
+            column_id=column_id, kind="value", value_json=value_json
+        )
+    if kind == "date_bucket" and set(raw) == {"kind", "bucket", "value"}:
+        bucket, value = raw.get("bucket"), raw.get("value")
+        widths = {"year": 4, "month": 7, "day": 10}
+        if (
+            column["type"] != "date"
+            or bucket not in widths
+            or not isinstance(value, str)
+        ):
+            raise SheetRowSetError("invalid date group predicate")
+        date_value = {
+            "year": value + "-01-01",
+            "month": value + "-01",
+            "day": value,
+        }[bucket]
+        if (
+            len(value) != widths[bucket]
+            or normalize_utc_calendar_date(date_value) is None
+        ):
+            raise SheetRowSetError("invalid date group value")
+        return GroupLocatorPredicate(
+            column_id=column_id, kind="date_bucket", bucket=bucket, value=value
+        )
+    raise SheetRowSetError("invalid group predicate")
+
+
+def _group_locator_where(
+    row_alias: str, column: Any, predicate: GroupLocatorPredicate
+) -> tuple[str, list[Any]]:
+    value_sql, value_params = sheet_live_value_sql(
+        row_alias, column, preserve_invalid=True
+    )
+    validity_sql = (
+        "(SELECT live.validity FROM current_cells live "
+        f"WHERE live.column_id=? AND live.row_id={row_alias}.id)"
+    )
+    validity_params = [column["id"]]
+    if predicate.kind == "missing":
+        return (
+            f"({validity_sql}='missing' OR {validity_sql} IS NULL)",
+            [*validity_params, *validity_params],
+        )
+    if predicate.kind == "value":
+        value = json.loads(str(predicate.value_json))
+        return (
+            f"{validity_sql}='valid' AND json_extract({value_sql}, '$')=?",
+            [*validity_params, *value_params, value],
+        )
+    scalar = f"json_extract({value_sql}, '$')"
+    if predicate.kind == "invalid":
+        if column["type"] != "date":
+            return f"{validity_sql}='invalid'", validity_params
+        return (
+            f"({validity_sql}='invalid' OR ({validity_sql}='valid' "
+            f"AND frisket_utc_calendar_date({scalar}) IS NULL))",
+            [*validity_params, *validity_params, *value_params],
+        )
+    if predicate.kind == "date_bucket":
+        width = {"year": 4, "month": 7, "day": 10}[str(predicate.bucket)]
+        return (
+            f"{validity_sql}='valid' AND "
+            f"substr(frisket_utc_calendar_date({scalar}), 1, {width})=?",
+            [*validity_params, *value_params, predicate.value],
+        )
+    raise AssertionError(predicate.kind)
 
 
 def _like_contains_pattern(value: str) -> str:
@@ -668,7 +860,7 @@ def _relative_date_start(today: date, amount: int, unit: str) -> date:
     return _subtract_calendar_months(today, amount)
 
 
-_BUILTIN_FILTER_OPERATORS = (
+BUILTIN_FILTER_OPERATORS = (
     "eq",
     "in",
     "neq",
@@ -686,6 +878,7 @@ _BUILTIN_FILTER_OPERATORS = (
     "bbox",
     "entity_eq",
     "list_contains_any",
+    "group_eq",
     "failed",
 )
 
@@ -726,6 +919,39 @@ def _validate_date_relative_value(column_name: str, value: Any) -> tuple[int, st
             f"relative date filter for {column_name} requires days, weeks, or months"
         )
     return amount, str(unit)
+
+
+def anchor_relative_date_filters(
+    filter_spec: dict[str, Any], *, reference_date: date
+) -> dict[str, Any]:
+    """Close clock-relative date predicates into replayable ``between`` bounds."""
+
+    anchored = deepcopy(filter_spec)
+    for column, condition in anchored.items():
+        if not isinstance(condition, dict):
+            continue
+        if "date_relative" in condition:
+            amount, unit = _validate_date_relative_value(
+                str(column), condition["date_relative"]
+            )
+            condition.clear()
+            condition["between"] = {
+                "start": _relative_date_start(reference_date, amount, unit).isoformat(),
+                "end": reference_date.isoformat(),
+            }
+        elif condition.get("date_this_year") == "true":
+            condition.clear()
+            condition["between"] = {
+                "start": date(reference_date.year, 1, 1).isoformat(),
+                "end": date(reference_date.year, 12, 31).isoformat(),
+            }
+        elif condition.get("date_ytd") == "true":
+            condition.clear()
+            condition["between"] = {
+                "start": date(reference_date.year, 1, 1).isoformat(),
+                "end": reference_date.isoformat(),
+            }
+    return anchored
 
 
 def _validate_date_part(column_name: str, operator: str, value: Any) -> int:
@@ -865,7 +1091,7 @@ def _parse_sheet_filter(
 
     out: list[SheetFilter] = []
     runtime_bindings = _runtime_operator_bindings(project)
-    allowed = {*_BUILTIN_FILTER_OPERATORS, *runtime_bindings}
+    allowed = {*BUILTIN_FILTER_OPERATORS, *runtime_bindings}
     for name, condition in spec.items():
         if not isinstance(name, str) or name not in columns_by_name:
             raise SheetRowSetError(f"unknown filter column: {name}")
@@ -874,9 +1100,22 @@ def _parse_sheet_filter(
         unsupported = set(condition) - allowed
         if unsupported:
             raise SheetRowSetError(f"unsupported filter for {name}")
+        # A group identity narrows an existing column condition; retain both
+        # when a date range and its month bucket address the same column.
+        if "group_eq" in condition:
+            out.append(
+                _parse_group_locator_predicate(
+                    columns_by_name[name], condition["group_eq"]
+                )
+            )
+            condition = {
+                key: value for key, value in condition.items() if key != "group_eq"
+            }
+            if not condition:
+                continue
         active = [
             (op, condition[op])
-            for op in (*_BUILTIN_FILTER_OPERATORS, *runtime_bindings)
+            for op in (*BUILTIN_FILTER_OPERATORS, *runtime_bindings)
             if op in condition and condition[op] is not None
         ]
         if len(active) != 1:

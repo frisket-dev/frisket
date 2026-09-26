@@ -39,6 +39,7 @@ from frisket.project_opener import (
 )
 from frisket.ai.llm import CacheMode, ModelRouter, ResponseCache
 from frisket.ai.models.gateway_config import ModelsGatewayConnection
+from frisket.server.project_qa_runtime import ProjectQARuntimePort
 from frisket.server.runtime_settings import (
     resolve_workspace_cache_mode,
     resolve_workspace_cost_preapproval_usd,
@@ -161,9 +162,15 @@ class Workspace:
         | None = None,
         direct_action_receipt_settlement_port: DirectActionReceiptSettlementPort
         | None = None,
+        project_qa_runtime_port: ProjectQARuntimePort | None = None,
         plugin_composition_policy: PluginCompositionPolicy | None = None,
         edition: str = "solo",
     ):
+        if project_qa_runtime_port is not None and not isinstance(
+            project_qa_runtime_port, ProjectQARuntimePort
+        ):
+            raise TypeError("project QA runtime port must satisfy ProjectQARuntimePort")
+        self.project_qa_runtime_port = project_qa_runtime_port
         self.root = root
         self.edition = str(edition).strip().lower()
         self.root.mkdir(parents=True, exist_ok=True)

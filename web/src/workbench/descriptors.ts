@@ -283,10 +283,6 @@ export const SEARCH_DESCRIPTOR: WorkbenchPanelDescriptor = firstPartyDescriptor(
   'frisket.core.panel.search',
 );
 
-export const COPILOT_DESCRIPTOR: WorkbenchPanelDescriptor = firstPartyDescriptor(
-  'frisket.core.panel.copilot',
-);
-
 export const NOTIFICATIONS_DESCRIPTOR: WorkbenchPanelDescriptor = firstPartyDescriptor(
   'frisket.core.panel.notifications',
 );

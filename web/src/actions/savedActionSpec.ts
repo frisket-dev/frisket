@@ -1,9 +1,9 @@
 import {
-  isCopilotRegisteredActionDraft,
+  isGeneratedActionDraft,
   isGeneratedActionCatalogEntry,
   type ActionCatalogEntry,
   type ActionCatalogPayload,
-  type CopilotRegisteredActionDraft,
+  type GeneratedActionDraft,
   type GeneratedActionCatalogEntry,
 } from '../api/types';
 
@@ -20,7 +20,7 @@ export class SavedActionSpecError extends Error {
 export type DecodedSavedActionSpec = {
   entry: GeneratedActionCatalogEntry;
   params: Record<string, unknown>;
-  registeredDraft: CopilotRegisteredActionDraft;
+  registeredDraft: GeneratedActionDraft;
 };
 
 function plainRecord(value: unknown): value is Record<string, unknown> {
@@ -48,13 +48,13 @@ export function decodeSavedActionSpec(
 ): DecodedSavedActionSpec {
   if (!plainRecord(candidate)) refuse();
   const draft = 'output_names' in candidate ? candidate : { ...candidate, output_names: {} };
-  if (!isCopilotRegisteredActionDraft(draft)) refuse();
+  if (!isGeneratedActionDraft(draft)) refuse();
   return decodeRegisteredDraft(catalog, draft);
 }
 
 function decodeRegisteredDraft(
   catalog: ActionCatalogPayload,
-  draft: CopilotRegisteredActionDraft,
+  draft: GeneratedActionDraft,
 ): DecodedSavedActionSpec {
   if (Object.keys(draft).some((key) => ![
     'action_id', 'scope', 'params', 'output_names', 'sheet_name',

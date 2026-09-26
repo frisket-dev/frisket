@@ -112,6 +112,7 @@ interface DocumentReaderProps {
    *  showing this page; callers remount it (via `key`) to re-target. Unused by
    *  the Document view, which drives page nav from its own header. */
   initialPage?: number | null;
+  onPageChange?(page: number): void;
 }
 
 /** The center reader. A thin header (title + media-type chip + PDF page
@@ -138,6 +139,7 @@ export function DocumentReader({
   selectionCount,
   timedTranscriptDocument = null,
   initialPage,
+  onPageChange,
 }: DocumentReaderProps) {
   // The view-options popover (Document view only; the OCR compare host passes
   // optionsOpen=false so the hook is inert there, and optionsPopover=null).
@@ -160,9 +162,10 @@ export function DocumentReader({
   // page/zoom state is per-document: the reader is remounted (keyed on rowKey by
   // the parent) when the active document changes, so this state starts fresh.
   const [pageCount, setPageCount] = useState(0);
-  const [currentPage, setCurrentPage] = useState(
+  const [currentPage, setCurrentPageValue] = useState(
     typeof initialPage === 'number' && initialPage > 0 ? initialPage : 1,
   );
+  const setCurrentPage = useCallback((page: number) => { setCurrentPageValue(page); onPageChange?.(page); }, [onPageChange]);
   const [zoom, setZoom] = useState(1);
   // `videoFit`/`onVideoFitChange` are lifted to the caller as chrome state —
   // sticky across this component's per-document remount and across reload —
@@ -179,12 +182,9 @@ export function DocumentReader({
 
   const goToPage = useCallback(
     (next: number) => {
-      setCurrentPage((prev) => {
-        const clamped = Math.min(Math.max(next, 1), Math.max(pageCount, 1));
-        return clamped === prev ? prev : clamped;
-      });
+      setCurrentPage(Math.min(Math.max(next, 1), Math.max(pageCount, 1)));
     },
-    [pageCount],
+    [pageCount, setCurrentPage],
   );
 
   const isPdf = mediaKind === 'pdf' && media !== null;

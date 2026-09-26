@@ -20,12 +20,16 @@ first-stage order instead of reordering on noise — RERANK_MIN_SPREAD below."""
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
-from collections.abc import Callable
+import threading
+import uuid
+from collections.abc import Callable, Iterator
 from typing import Any
 
 from frisket.engine.store import Project
+from frisket.engine.store.project import ProjectReadSnapshot
 
 # ~80MB onnx cross-encoder, downloads on first use into the SAME fastembed
 # cache as the semantic embedder (fastembed define_cache_dir: FASTEMBED_CACHE_PATH
@@ -33,9 +37,11 @@ from frisket.engine.store import Project
 RERANK_MODEL = "Xenova/ms-marco-MiniLM-L-6-v2"
 RERANK_POOL = 50  # second stage runs over the top-50 first-stage candidates
 RERANK_MIN_SPREAD = 1.0  # logits; flatter than this = uninformative, keep stage-1
+FTS_INDEX_CONTENT_VERSION = "2"
 _rerank_model: Any = None  # lazy fastembed TextCrossEncoder singleton
 
 Scorer = Callable[[str, list[str]], list[float]]
+SearchProject = Project | ProjectReadSnapshot
 
 
 def local_reranker() -> Scorer | None:
@@ -108,44 +114,117 @@ CREATE TABLE IF NOT EXISTS cell_vec (key TEXT PRIMARY KEY, vec BLOB NOT NULL);
 """
 
 
-def _sidecar(project: Project) -> sqlite3.Connection:
+def _sidecar(project: SearchProject) -> sqlite3.Connection:
     db = sqlite3.connect(project.path / "project.search.db", check_same_thread=False)
     db.row_factory = sqlite3.Row
     db.executescript(SIDECAR_SCHEMA)
     return db
 
 
-def rebuild_index(project: Project) -> int:
-    """Full rebuild — the sidecar is rebuildable by contract."""
+def _raise_if_cancelled(cancel_event: threading.Event | None) -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise InterruptedError("search was stopped")
+
+
+def _cancel_progress(cancel_event: threading.Event | None) -> Callable[[], int] | None:
+    if cancel_event is None:
+        return None
+    return lambda: int(cancel_event.is_set())
+
+
+def rebuild_index(
+    project: SearchProject, *, cancel_event: threading.Event | None = None
+) -> int:
+    """Publish a complete-cell index and watermark from one read snapshot.
+
+    Vector entries are content-addressed; rebuilding keyword search leaves them
+    untouched. A failed rebuild retains the previous committed index.
+    """
     db = _sidecar(project)
-    db.execute("DELETE FROM cell_fts")
-    n = 0
-    for s in project.sheets():
-        if "(undone:" in s["name"]:
-            continue
-        for c in project.columns(s["id"]):
-            if c["type"] not in ("text", "category", "json", "link"):
-                continue
-            vals = project.get_values(s["id"], c["id"])
-            rows = [
-                (str(v)[:50000], s["id"], rid, c["id"], c["name"])
-                for rid, v in vals.items()
-                if v is not None and str(v).strip()
-            ]
-            db.executemany(
-                "INSERT INTO cell_fts (content, sheet_id, row_id, column_id, "
-                "column_name) VALUES (?,?,?,?,?)",
-                rows,
-            )
-            n += len(rows)
-    db.execute(
-        "INSERT INTO fts_state (key, value) VALUES ('indexed_at_op', ?) "
-        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-        (str(project.op_cursor),),
-    )
-    db.commit()
-    db.close()
-    return n
+    owns_snapshot = isinstance(project, Project)
+    snapshot = project.read_snapshot() if owns_snapshot else project
+    snapshot_progress_installed = False
+    progress = _cancel_progress(cancel_event)
+    try:
+        _raise_if_cancelled(cancel_event)
+        if progress is not None:
+            db.set_progress_handler(progress, 1_000)
+            if owns_snapshot:
+                snapshot.db.set_progress_handler(progress, 1_000)
+                snapshot_progress_installed = True
+        try:
+            indexed_at_op = snapshot.op_cursor
+            db.execute("BEGIN")
+            db.execute("DELETE FROM cell_fts")
+            n = 0
+            for sheet in snapshot.sheets():
+                if "(undone:" in sheet["name"]:
+                    continue
+                for column in snapshot.columns(sheet["id"]):
+                    if column["type"] not in ("text", "category", "json", "link"):
+                        continue
+
+                    def rows() -> Iterator[tuple[str, int, int, int, str]]:
+                        nonlocal n
+                        source_rows = snapshot.db.execute(
+                            "SELECT r.id, c.value, COALESCE(c.validity, 'missing') AS validity "
+                            "FROM rows r LEFT JOIN current_cells c "
+                            "ON c.column_id=? AND c.row_id=r.id "
+                            "WHERE r.sheet_id=? AND r.hidden=0",
+                            (column["id"], sheet["id"]),
+                        )
+                        for row in source_rows:
+                            _raise_if_cancelled(cancel_event)
+                            stored = (
+                                None if row["validity"] == "invalid" else row["value"]
+                            )
+                            value = None if stored is None else json.loads(stored)
+                            if value is None:
+                                continue
+                            text = str(value)
+                            if not text.strip():
+                                continue
+                            n += 1
+                            yield (
+                                text,
+                                sheet["id"],
+                                int(row["id"]),
+                                column["id"],
+                                column["name"],
+                            )
+
+                    db.executemany(
+                        "INSERT INTO cell_fts (content, sheet_id, row_id, column_id, "
+                        "column_name) VALUES (?,?,?,?,?)",
+                        rows(),
+                    )
+            for key, value in (
+                ("indexed_at_op", str(indexed_at_op)),
+                ("index_content_version", FTS_INDEX_CONTENT_VERSION),
+            ):
+                db.execute(
+                    "INSERT INTO fts_state (key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (key, value),
+                )
+            db.commit()
+            return n
+        finally:
+            if snapshot_progress_installed:
+                snapshot.db.set_progress_handler(None, 0)
+    except sqlite3.OperationalError:
+        db.rollback()
+        _raise_if_cancelled(cancel_event)
+        raise
+    except BaseException:
+        db.rollback()
+        raise
+    finally:
+        if owns_snapshot:
+            snapshot.close()
+        if progress is not None:
+            db.set_progress_handler(None, 0)
+        db.close()
 
 
 def fts_indexed_at_op(db: sqlite3.Connection) -> int | None:
@@ -159,17 +238,36 @@ def fts_indexed_at_op(db: sqlite3.Connection) -> int | None:
     return int(state["value"]) if state is not None else None
 
 
-def fresh_sidecar(project: Project) -> sqlite3.Connection:
+def fts_index_content_version(db: sqlite3.Connection) -> str | None:
+    """Version of the cell content format stored in this FTS sidecar."""
+    state = db.execute(
+        "SELECT value FROM fts_state WHERE key='index_content_version'"
+    ).fetchone()
+    return str(state["value"]) if state is not None else None
+
+
+def fresh_sidecar(
+    project: SearchProject, *, cancel_event: threading.Event | None = None
+) -> sqlite3.Connection:
     """An FTS sidecar connection whose index is current for project.op_cursor.
 
     The lazy pull-style staleness check (watermark != op_cursor -> rebuild)
     used to be copy-pasted at every reader; it lives only here now."""
+    _raise_if_cancelled(cancel_event)
     db = _sidecar(project)
-    if fts_indexed_at_op(db) != project.op_cursor:
+    try:
+        if (
+            fts_indexed_at_op(db) != project.op_cursor
+            or fts_index_content_version(db) != FTS_INDEX_CONTENT_VERSION
+        ):
+            db.close()
+            rebuild_index(project, cancel_event=cancel_event)
+            db = _sidecar(project)
+        _raise_if_cancelled(cancel_event)
+        return db
+    except BaseException:
         db.close()
-        rebuild_index(project)
-        db = _sidecar(project)
-    return db
+        raise
 
 
 def column_ai_flags(project: Project) -> dict[int, bool]:
@@ -182,8 +280,9 @@ def column_ai_flags(project: Project) -> dict[int, bool]:
 
 
 _SEARCH_SQL = (
-    "SELECT sheet_id, row_id, column_id, column_name, content, "
-    "snippet(cell_fts, 0, '<b>', '</b>', '…', 12) AS snip "
+    "SELECT sheet_id, row_id, column_id, column_name, "
+    "snippet(cell_fts, 0, '<b>', '</b>', '…', 12) AS snip, "
+    "snippet(cell_fts, 0, '', '', '…', 64) AS rerank_text "
     "FROM cell_fts WHERE cell_fts MATCH ? ORDER BY rank LIMIT ?"
 )
 
@@ -205,8 +304,9 @@ def search_project(
         rows = db.execute(_SEARCH_SQL, (f'"{query}"', pool)).fetchall()
     out = [dict(r) for r in rows]
     db.close()
-    # full cell content feeds the cross-encoder but stays out of the response
-    texts = [h.pop("content") for h in out]
+    # A match-centred FTS excerpt is bounded to the FTS5 maximum (64 tokens),
+    # avoiding a full-cell Python copy while still letting a late match compete.
+    texts = [h.pop("rerank_text") for h in out]
     ai_by_column = column_ai_flags(project)
     for h in out:
         h["ai_generated"] = ai_by_column.get(int(h["column_id"]), False)
@@ -248,6 +348,77 @@ def search_sheet(
         if len(out) >= int(limit):
             break
     return out
+
+
+def search_cells_scoped(
+    project: Project,
+    sheet_id: int,
+    query: str,
+    row_ids: list[int] | None,
+    cells: set[tuple[int, int]] | None = None,
+    limit: int = 50,
+    *,
+    cancel_event: threading.Event | None = None,
+) -> list[dict[str, Any]]:
+    """Lexically rank authorized rows/cells before applying ``limit``."""
+
+    _raise_if_cancelled(cancel_event)
+    if row_ids is not None and not row_ids and not cells:
+        return []
+    db = fresh_sidecar(project, cancel_event=cancel_event)
+    indexed_at_op = fts_indexed_at_op(db)
+    marker = uuid.uuid4().hex
+    anchor_start = f"__frisket_fts_{marker}_start__"
+    anchor_end = f"__frisket_fts_{marker}_end__"
+    authorized: list[str] = []
+    params: list[Any] = [query, sheet_id]
+    if row_ids:
+        authorized.append("row_id IN (" + ",".join("?" for _ in row_ids) + ")")
+        params.extend(row_ids)
+    if cells:
+        exact = []
+        for row_id, column_id in sorted(cells):
+            exact.append("(row_id=? AND column_id=?)")
+            params.extend((row_id, column_id))
+        authorized.append("(" + " OR ".join(exact) + ")")
+    scope = "" if not authorized else " AND (" + " OR ".join(authorized) + ")"
+    sql = (
+        "SELECT sheet_id,row_id,column_id,column_name,"
+        "snippet(cell_fts, 0, ?, ?, '…', 12) AS snip "
+        "FROM cell_fts WHERE cell_fts MATCH ? AND sheet_id=?"
+        + scope
+        + " ORDER BY rank LIMIT ?"
+    )
+    progress = _cancel_progress(cancel_event)
+    if progress is not None:
+        db.set_progress_handler(progress, 1_000)
+    try:
+        try:
+            rows = db.execute(
+                sql, [anchor_start, anchor_end, *params, limit]
+            ).fetchall()
+        except sqlite3.OperationalError:
+            _raise_if_cancelled(cancel_event)
+            rows = db.execute(
+                sql,
+                [anchor_start, anchor_end, f'"{query}"', *params[1:], limit],
+            ).fetchall()
+    except sqlite3.OperationalError:
+        _raise_if_cancelled(cancel_event)
+        raise
+    finally:
+        db.close()
+    hits = []
+    for row in rows:
+        hit = dict(row)
+        snippet = str(hit["snip"])
+        _, found, remainder = snippet.partition(anchor_start)
+        anchor, closed, _ = remainder.partition(anchor_end)
+        hit["snip"] = snippet.replace(anchor_start, "<b>").replace(anchor_end, "</b>")
+        if found and closed and anchor:
+            hit["fts_anchor"] = anchor
+        hits.append({**hit, "_indexed_at_op": indexed_at_op})
+    return hits
 
 
 def rrf_fuse(ranked_lists: list[list[int]], k: int = 60) -> list[tuple[int, float]]:

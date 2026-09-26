@@ -56,6 +56,7 @@ function exportSource(input: GoogleSheetsExportInput): Record<string, unknown> {
     return {
       kind: 'current_view',
       sheet_id: sheetId,
+      ...(input.currentView?.scopeRowIds != null ? { scope_row_ids: input.currentView.scopeRowIds } : {}),
       query: {
         schema_version: 'frisket.query.v1',
         kind: 'sheet.filter',

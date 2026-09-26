@@ -12,7 +12,7 @@ import { createProjectApi } from '../api/real';
 import type {
   ActionJob,
   ActionCatalogPayload,
-  CopilotProposal,
+  ActionProposal,
   DeriveCompositeRequest,
   RegisteredActionRequest,
   RunActionLaunchResult,
@@ -1505,7 +1505,7 @@ describe('createJobStore — action-launch generation (WEB-03-4A)', () => {
       output_names: { rendered: 'result' },
       params: { template: { text: '{{source}}' } },
     },
-  } as CopilotProposal;
+  } as ActionProposal;
 
   it('aborts and identity-fences a superseded launch even when the old fake ignores its signal', async () => {
     const jobs = createJobStore('test-project', projectPort());
@@ -2219,7 +2219,7 @@ describe('createJobStore — action-launch generation (WEB-03-4A)', () => {
         output_names: { rendered: 'result' },
         params: { template: { text: '{{source}}' } },
       },
-    } as CopilotProposal;
+    } as ActionProposal;
 
     jobs.start({ ...noopDeps(), ...deps });
     const launched = jobs.startProposal(proposal);
@@ -2479,9 +2479,9 @@ describe('createJobStore — startRun / cost gate (parity with the pre-migration
     expect(jobs.store.get().costGate).toBeNull();
   });
 
-  it('Copilot proposal confirm echoes the 402 hash and a stale echo refreshes the modal', async () => {
+  it('Ask proposal confirm echoes the 402 hash and a stale echo refreshes the modal', async () => {
     const deps = noopDeps();
-    const proposal: CopilotProposal = {
+    const proposal: ActionProposal = {
       kind: 'map',
       title: 'Classify reporting risk',
       spec: {

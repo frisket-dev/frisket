@@ -376,7 +376,7 @@ describe('typed OCR/transcription forms', () => {
     expect(onExecute.mock.lastCall?.[0].params).toEqual({ source: 'clip', engine: 'parakeet-tdt' });
   });
 
-  it('roundtrips saved/Copilot canonical Params and custom output names without adding defaults', async () => {
+  it('roundtrips saved/Ask canonical Params and custom output names without adding defaults', async () => {
     const draft = saved('media.transcribe', { engine: 'faster_whisper', language: ['es'], vad: false },
       { text: 'Interview', segments: 'Timing', detected_language: 'Language' });
     expect(encodeSavedActionSpec(decodeSavedActionSpec(catalog, draft))).toEqual(draft);

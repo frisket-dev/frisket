@@ -60,26 +60,15 @@ class SheetGridService:
         filter_: str | None = None,
         sort: str | None = None,
         row_ids: str | None = None,
+        scope_row_ids: str | None = None,
     ) -> dict:
         project = self._workspace.get(project_id)
         visible_columns = _visible_sheet_columns(project, sheet_id)
         explicit_row_ids = _parse_row_ids_param(row_ids)
+        scoped_row_ids = _parse_row_ids_param(scope_row_ids)
         if explicit_row_ids is not None:
             cols = visible_columns
-            if explicit_row_ids:
-                placeholders = ",".join("?" * len(explicit_row_ids))
-                present = {
-                    int(r["id"])
-                    for r in project.db.execute(
-                        "SELECT id FROM rows "
-                        "WHERE sheet_id=? AND hidden=0 "
-                        f"AND id IN ({placeholders})",
-                        (sheet_id, *explicit_row_ids),
-                    ).fetchall()
-                }
-            else:
-                present = set()
-            ordered_ids = [rid for rid in explicit_row_ids if rid in present]
+            ordered_ids = _visible_ranked_row_ids(project, sheet_id, explicit_row_ids)
             # Lens views provide their own ranked row order. The grid keeps that
             # exact order and intentionally ignores filter/sort scope here.
             window_ids = ordered_ids[offset : offset + limit]
@@ -98,6 +87,7 @@ class SheetGridService:
                 parent_row_id=parent_row_id,
                 filter_=filter_,
                 sort=sort,
+                row_ids=scoped_row_ids,
             )
         )
         total = project.db.execute(
@@ -131,6 +121,7 @@ class SheetGridService:
         parent_row_id: int | None = None,
         filter_: str | None = None,
         sort: str | None = None,
+        scope_row_ids: str | None = None,
     ) -> dict[str, Any]:
         project = self._workspace.get(project_id)
         require_visible_sheet(project, sheet_id)
@@ -142,6 +133,7 @@ class SheetGridService:
             parent_row_id=parent_row_id,
             filter_=filter_,
             sort=sort,
+            scope_row_ids=_parse_row_ids_param(scope_row_ids),
         )
 
     def locate_sheet_row(
@@ -154,9 +146,24 @@ class SheetGridService:
         parent_row_id: int | None = None,
         filter_: str | None = None,
         sort: str | None = None,
+        row_ids: str | None = None,
+        scope_row_ids: str | None = None,
     ) -> dict[str, Any]:
         project = self._workspace.get(project_id)
         require_visible_sheet(project, sheet_id)
+        explicit_row_ids = _parse_row_ids_param(row_ids)
+        if explicit_row_ids is not None:
+            ordered_ids = _visible_ranked_row_ids(project, sheet_id, explicit_row_ids)
+            try:
+                index = ordered_ids.index(row_id)
+            except ValueError:
+                return _sheet_row_location_payload(sheet_id, row_id, page_size)
+            return _sheet_row_location_payload(
+                sheet_id,
+                row_id,
+                page_size,
+                index=index,
+            )
         _cols, where_sql, where_params, order_parts, order_params = (
             _sheet_row_scope_query(
                 project,
@@ -164,6 +171,7 @@ class SheetGridService:
                 parent_row_id=parent_row_id,
                 filter_=filter_,
                 sort=sort,
+                row_ids=_parse_row_ids_param(scope_row_ids),
             )
         )
         row = project.db.execute(
@@ -183,25 +191,9 @@ class SheetGridService:
             [*order_params, *where_params, row_id],
         ).fetchone()
         if row is None:
-            return {
-                "schema_version": "frisket.sheet_row_location.v1",
-                "sheet_id": sheet_id,
-                "row_id": row_id,
-                "found": False,
-                "index": None,
-                "page_offset": None,
-                "page_size": page_size,
-            }
+            return _sheet_row_location_payload(sheet_id, row_id, page_size)
         index = int(row["row_index"])
-        return {
-            "schema_version": "frisket.sheet_row_location.v1",
-            "sheet_id": sheet_id,
-            "row_id": row_id,
-            "found": True,
-            "index": index,
-            "page_offset": (index // page_size) * page_size,
-            "page_size": page_size,
-        }
+        return _sheet_row_location_payload(sheet_id, row_id, page_size, index=index)
 
 
 def _sheet_row_scope_query(
@@ -211,6 +203,7 @@ def _sheet_row_scope_query(
     parent_row_id: int | None = None,
     filter_: str | None = None,
     sort: str | None = None,
+    row_ids: list[int] | None = None,
 ) -> tuple[list[Any], str, list[Any], list[str], list[Any]]:
     try:
         return shared_sheet_row_scope_query(
@@ -219,6 +212,7 @@ def _sheet_row_scope_query(
             parent_row_id=parent_row_id,
             filter_=filter_,
             sort=sort,
+            row_ids=row_ids,
         )
     except SheetRowSetError as exc:
         raise SheetGridRouteError(400, str(exc)) from exc
@@ -247,6 +241,44 @@ def _parse_row_ids_param(raw: str | None) -> list[int] | None:
                 f"too many row_ids: at most {MAX_EXPLICIT_ROW_IDS} allowed per request",
             )
     return out
+
+
+def _visible_ranked_row_ids(
+    project: Project,
+    sheet_id: int,
+    row_ids: list[int],
+) -> list[int]:
+    """Keep a saved ranked lens order while dropping invisible or removed rows."""
+    if not row_ids:
+        return []
+    placeholders = ",".join("?" * len(row_ids))
+    present = {
+        int(row["id"])
+        for row in project.db.execute(
+            "SELECT id FROM rows WHERE sheet_id=? AND hidden=0 "
+            f"AND id IN ({placeholders})",
+            (sheet_id, *row_ids),
+        ).fetchall()
+    }
+    return [row_id for row_id in row_ids if row_id in present]
+
+
+def _sheet_row_location_payload(
+    sheet_id: int,
+    row_id: int,
+    page_size: int,
+    *,
+    index: int | None = None,
+) -> dict[str, int | str | bool | None]:
+    return {
+        "schema_version": "frisket.sheet_row_location.v1",
+        "sheet_id": sheet_id,
+        "row_id": row_id,
+        "found": index is not None,
+        "index": index,
+        "page_offset": None if index is None else (index // page_size) * page_size,
+        "page_size": page_size,
+    }
 
 
 def _visible_sheet_columns(project: Project, sheet_id: int) -> list[Any]:
@@ -404,6 +436,7 @@ def _column_stats_payload(
     parent_row_id: int | None = None,
     filter_: str | None = None,
     sort: str | None = None,
+    scope_row_ids: list[int] | None = None,
 ) -> dict[str, Any]:
     cols, where_sql, where_params, _order_parts, _order_params = _sheet_row_scope_query(
         project,
@@ -411,6 +444,7 @@ def _column_stats_payload(
         parent_row_id=parent_row_id,
         filter_=filter_,
         sort=sort,
+        row_ids=scope_row_ids,
     )
     column = next((c for c in cols if int(c["id"]) == column_id), None)
     if column is None:

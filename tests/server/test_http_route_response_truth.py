@@ -8,7 +8,6 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from frisket.contracts.action import ActionCatalog, Receipt
-from frisket.contracts.http.copilot import CopilotReply
 from frisket.contracts.http.models import (
     ActionJob,
     ActionJobsPage,
@@ -128,12 +127,6 @@ EXPECTED_ROUTE_TRUTH = {
         WorkbenchPluginRuntimeIndex,
         {401, 403, 404, 409, 500},
     ),
-    "copilot_ep": (
-        "POST",
-        "/api/projects/{pid}/copilot",
-        CopilotReply,
-        {401, 403, 404, 409, 422, 500, 502},
-    ),
 }
 
 
@@ -156,7 +149,7 @@ def test_current_18_stack_routes_declare_exact_response_truth(tmp_path: Path) ->
         if isinstance(route, APIRoute):
             routes_by_name.setdefault(route.name, []).append(route)
 
-    assert len(EXPECTED_ROUTE_TRUTH) == 19
+    assert len(EXPECTED_ROUTE_TRUTH) == 18
     for name, (method, path, model, statuses) in EXPECTED_ROUTE_TRUTH.items():
         assert len(routes_by_name.get(name, [])) == 1, name
         [route] = routes_by_name[name]
@@ -184,7 +177,6 @@ def test_action_catalogs_and_validation_owned_422_stay_distinct(
             "project_v1_action_catalog",
             "create_project",
             "action_job_detail",
-            "copilot_ep",
         }
     }
 
@@ -196,7 +188,7 @@ def test_action_catalogs_and_validation_owned_422_stay_distinct(
         409,
         500,
     }
-    for name in ("create_project", "action_job_detail", "copilot_ep"):
+    for name in ("create_project", "action_job_detail"):
         assert routes[name].responses[422] == {"model": HttpError}
 
     with TestClient(app) as client:

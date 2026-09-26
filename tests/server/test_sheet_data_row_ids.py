@@ -100,6 +100,45 @@ def test_empty_row_ids_yields_no_rows(tmp_path):
     assert body["total"] == 0
 
 
+def test_row_ids_locate_preserves_rank_and_drops_removed_members(tmp_path):
+    client = _client(tmp_path)
+    pid, project, sheet, col = _seed(client)
+    ids = _all_ids(client, pid, sheet)
+    ranked = [ids[3], ids[1], ids[0]]
+
+    located = client.get(
+        f"/api/projects/{pid}/sheets/{sheet}/rows/{ids[1]}/locate",
+        params={"row_ids": ",".join(str(row_id) for row_id in ranked), "page_size": 1},
+    )
+    assert located.status_code == 200, located.text
+    assert located.json() == {
+        "schema_version": "frisket.sheet_row_location.v1",
+        "sheet_id": sheet,
+        "row_id": ids[1],
+        "found": True,
+        "index": 1,
+        "page_offset": 1,
+        "page_size": 1,
+    }
+
+    # A ranked result may contain a row that has been deleted since it was saved.
+    project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (ids[1],))
+    project.db.commit()
+    removed = client.get(
+        f"/api/projects/{pid}/sheets/{sheet}/rows/{ids[1]}/locate",
+        params={"row_ids": ",".join(str(row_id) for row_id in ranked)},
+    )
+    assert removed.status_code == 200, removed.text
+    assert removed.json()["found"] is False
+
+    empty = client.get(
+        f"/api/projects/{pid}/sheets/{sheet}/rows/{ids[0]}/locate",
+        params={"row_ids": ""},
+    )
+    assert empty.status_code == 200, empty.text
+    assert empty.json()["found"] is False
+
+
 def test_row_ids_too_many_returns_typed_400(tmp_path):
     # An unbounded ``row_ids`` list must be rejected with a clear 400,
     # not parsed into an arbitrarily large set. The cap is MAX_EXPLICIT_ROW_IDS.
@@ -129,3 +168,48 @@ def test_row_ids_invalid_token_returns_typed_400(tmp_path):
     )
     assert resp.status_code == 400
     assert "invalid row_ids value" in resp.text
+
+
+def test_scope_row_ids_keeps_filter_sort_and_bounds_grid_stats_and_locate(tmp_path):
+    """A saved selection is a constraint, unlike ranked ``row_ids``."""
+    client = _client(tmp_path)
+    pid, project, sheet, col = _seed(client)
+    ids = _all_ids(client, pid, sheet)
+    scope = f"{ids[3]},{ids[1]},{ids[0]}"
+
+    data = client.get(
+        f"/api/projects/{pid}/sheets/{sheet}/data",
+        params={"scope_row_ids": scope, "filter": '{"headline":{"contains":"t"}}'},
+    )
+    assert data.status_code == 200, data.text
+    # Natural order remains in force inside the exact selected set.
+    assert [row["id"] for row in data.json()["rows"]] == [ids[0], ids[1]]
+    assert data.json()["total"] == 2
+
+    stats = client.get(
+        f"/api/projects/{pid}/sheets/{sheet}/columns/{col}/stats",
+        params={"scope_row_ids": scope},
+    )
+    assert stats.status_code == 200, stats.text
+    assert stats.json()["row_count"] == 3
+
+    located = client.get(
+        f"/api/projects/{pid}/sheets/{sheet}/rows/{ids[2]}/locate",
+        params={"scope_row_ids": scope},
+    )
+    assert located.status_code == 200, located.text
+    assert located.json()["found"] is False
+
+
+def test_scope_row_ids_is_bounded_separately_from_ranked_row_ids(tmp_path):
+    client = _client(tmp_path)
+    pid, project, sheet, col = _seed(client)
+    from frisket.server.services.sheet_grid import MAX_EXPLICIT_ROW_IDS
+
+    too_many = ",".join(str(i) for i in range(1, MAX_EXPLICIT_ROW_IDS + 2))
+    response = client.get(
+        f"/api/projects/{pid}/sheets/{sheet}/data",
+        params={"scope_row_ids": too_many},
+    )
+    assert response.status_code == 400
+    assert "too many row_ids" in response.text

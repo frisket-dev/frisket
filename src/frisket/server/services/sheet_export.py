@@ -67,6 +67,7 @@ class SheetDatasetExportService:
         filter_: str | None,
         sort: str | None,
         formula_policy: str,
+        scope_row_ids: str | None = None,
     ) -> SheetDatasetArtifact:
         project = self._workspace.get(project_id)
         self._validate_formula_policy(formula_policy)
@@ -77,7 +78,10 @@ class SheetDatasetExportService:
                 "format must be 'csv' or 'xlsx'",
                 code="invalid_export_format",
             )
-        if (filter_ is not None or sort is not None) and len(selected) != 1:
+        scope = _parse_scope_row_ids(scope_row_ids)
+        if (filter_ is not None or sort is not None or scope is not None) and len(
+            selected
+        ) != 1:
             raise SheetDatasetExportError(
                 400,
                 "current-view export requires exactly one selected sheet",
@@ -89,6 +93,7 @@ class SheetDatasetExportService:
                 sheet_id,
                 filter_=filter_ if len(selected) == 1 else None,
                 sort=sort if len(selected) == 1 else None,
+                scope_row_ids=scope if len(selected) == 1 else None,
             )
             for sheet_id in selected
         ]
@@ -112,11 +117,13 @@ class SheetDatasetExportService:
         filter_: str | None,
         sort: str | None,
         formula_policy: str,
+        scope_row_ids: str | None = None,
     ) -> SheetDatasetStream:
         """Plan a single CSV eagerly, but defer every row read to iteration."""
         project = self._workspace.get(project_id)
         self._validate_formula_policy(formula_policy)
         selected = _unique_sheet_ids(sheet_ids)
+        scope = _parse_scope_row_ids(scope_row_ids)
         if len(selected) != 1:
             raise SheetDatasetExportError(
                 400,
@@ -130,6 +137,7 @@ class SheetDatasetExportService:
                 selected[0],
                 filter_=filter_,
                 sort=sort,
+                scope_row_ids=scope,
                 streaming_rowset=True,
             )
             filename = download_filename(plan.sheet_name, ".csv")
@@ -217,6 +225,7 @@ class SheetDatasetExportService:
         *,
         filter_: str | None,
         sort: str | None,
+        scope_row_ids: list[int] | None = None,
         streaming_rowset: bool = False,
     ) -> SheetExportPlan:
         query: dict[str, Any] | None = None
@@ -247,6 +256,7 @@ class SheetDatasetExportService:
                 max_rows=self._limits.max_rows,
                 query_field="filter",
                 streaming_rowset=streaming_rowset,
+                scope_row_ids=scope_row_ids,
             )
         except ExportError as exc:
             if exc.code == "invalid_sheet_ref":
@@ -286,6 +296,41 @@ def _unique_sheet_ids(sheet_ids: list[int]) -> list[int]:
             code="missing_sheet_selection",
         )
     return selected
+
+
+def _parse_scope_row_ids(raw: str | None) -> list[int] | None:
+    if raw is None:
+        return None
+    values: list[int] = []
+    seen: set[int] = set()
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            row_id = int(token)
+        except ValueError as exc:
+            raise SheetDatasetExportError(
+                400,
+                f"invalid scope_row_ids value: {token!r}",
+                code="invalid_scope_row_ids",
+            ) from exc
+        if row_id <= 0:
+            raise SheetDatasetExportError(
+                400,
+                "scope_row_ids must contain positive integers",
+                code="invalid_scope_row_ids",
+            )
+        if row_id not in seen:
+            seen.add(row_id)
+            values.append(row_id)
+        if len(values) > 1000:
+            raise SheetDatasetExportError(
+                400,
+                "scope_row_ids may contain at most 1000 rows",
+                code="invalid_scope_row_ids",
+            )
+    return values
 
 
 def _render_plan_csv(

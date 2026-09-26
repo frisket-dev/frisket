@@ -868,6 +868,16 @@ class ProjectLifecycleService:
                 "op log are removed from disk) — type the project name exactly "
                 "to confirm"
             )
+        if (
+            self._workspace.get(project_id)
+            .db.execute(
+                "SELECT 1 FROM project_qa_turns WHERE status IN ('running','stopping') LIMIT 1"
+            )
+            .fetchone()
+        ):
+            raise ProjectDeletionBlocked(
+                "Stop the active Ask conversation before deleting this project."
+            )
         self._cancel_unstarted_project_jobs(project_id)
         if self._project_has_runs_in_flight(project_id):
             raise ProjectDeletionBlocked(

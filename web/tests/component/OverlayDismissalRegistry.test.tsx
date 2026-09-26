@@ -11,7 +11,7 @@
 //
 // useEscapeDismiss's own contract (top-layer defer + opt-in typing guard) is
 // exercised directly against a harness, rather than re-mounting the five+ full
-// call sites (ActionDrawer, MultiColumnPicker, AddColumnPopover, the copilot
+// call sites (ActionDrawer, MultiColumnPicker, AddColumnPopover, the ask
 // popover, ...) each of which requires its own large surface -- this is the
 // shared mechanism all of them delegate to, so proving IT is correct proves
 // what all four specs actually asserted. CascadeConfirmDialog (LineagePanel.tsx)

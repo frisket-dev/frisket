@@ -160,7 +160,7 @@ test('render-counts: open sheet -> apply filter -> open drawer -> toggle theme s
   //   - navigate    reads sheet tabs only -> BOTH the filter apply (gridView
   //                 write) AND the drawer open (detail/selection/route write)
   //                 must not re-render it (the strongest isolation in the suite)
-  //   - chromeBar   reads grid filter/sort + copilot/export -> the drawer open
+  //   - chromeBar   reads grid filter/sort + ask/export -> the drawer open
   //                 (a detail/selection/route store write) must not re-render
   //                 it. This is THE proof the 7b shell split landed: pre-split
   //                 the shared shell churned on drawer open and drove chromeBar

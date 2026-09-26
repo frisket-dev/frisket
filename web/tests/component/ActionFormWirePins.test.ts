@@ -244,7 +244,7 @@ afterEach(() => {
 });
 
 describe('ActionForm dispatch-routed whole-envelope wire pins', () => {
-  it('preserves a Copilot-authored Translate language and non-default engine through Inspect', async () => {
+  it('preserves a Ask-authored Translate language and non-default engine through Inspect', async () => {
     const body = await postedBodyFromDispatch({
       actionKind: 'map.translate',
       wireId: 'proposal-translate-inspect-wire-pin',
@@ -275,7 +275,7 @@ describe('ActionForm dispatch-routed whole-envelope wire pins', () => {
     });
   });
 
-  it('preserves exact Copilot NER label arrays through Inspect', async () => {
+  it('preserves exact Ask NER label arrays through Inspect', async () => {
     const body = await postedBodyFromDispatch({
       actionKind: 'map.ner',
       wireId: 'proposal-ner-labels-inspect-wire-pin',
@@ -307,7 +307,7 @@ describe('ActionForm dispatch-routed whole-envelope wire pins', () => {
     });
   });
 
-  it('preserves an exact Copilot grouped-summary through Inspect', async () => {
+  it('preserves an exact Ask grouped-summary through Inspect', async () => {
     const body = await postedBodyFromDispatch({
       actionKind: 'reduce.group_summary',
       wireId: 'proposal-reduce-group-inspect-wire-pin',

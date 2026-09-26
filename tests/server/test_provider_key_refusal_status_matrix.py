@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from dataclasses import dataclass
 from typing import Any
 
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from starlette.requests import Request
 
 from frisket.contracts.action import ActionResult
 from frisket.contracts.http.action_estimate_validation import ActionRunRequest
-from frisket.contracts.http.copilot import CopilotRequest
 from frisket.engine.runner import (
     MissingProviderKey,
     ProviderKeyRefusal,
@@ -23,7 +21,6 @@ from frisket.engine.runner import (
 from frisket.execution.provider import ExecutionCompositionContext
 from frisket.server.action_enqueue import provider_key_refusal_error
 from frisket.server.routes.action_runs import register_action_run_routes
-from frisket.server.routes.project_research import register_project_copilot_routes
 from frisket.server.services import action_preview_runs
 from frisket.server.services.action_preview_runs import ActionPreviewRunService
 from frisket.server.services.action_runs import (
@@ -98,14 +95,6 @@ class _PreviewWorkspace:
         return ExecutionCompositionContext.direct()
 
 
-class _CopilotService:
-    def __init__(self, refusal: ProviderKeyRefusal) -> None:
-        self.refusal = refusal
-
-    async def chat(self, _: str, __: dict[str, Any]) -> dict[str, Any]:
-        raise self.refusal
-
-
 def _request(path: str) -> Request:
     return Request(
         {
@@ -148,23 +137,6 @@ def _preview_seat(
         "project", {"kind": "map.prompt"}
     )
     return response.status_code, response.payload["error"]
-
-
-def _copilot_seat(refusal: ProviderKeyRefusal) -> tuple[int, dict[str, Any]]:
-    path = "/api/projects/{pid}/copilot"
-    app = FastAPI()
-    register_project_copilot_routes(  # type: ignore[arg-type]
-        app, service=_CopilotService(refusal)
-    )
-    with pytest.raises(HTTPException) as caught:
-        asyncio.run(
-            _endpoint(app, path)(
-                _request(path),
-                "project",
-                CopilotRequest(messages=[{"role": "user", "content": "help"}]),
-            )
-        )
-    return caught.value.status_code, caught.value.detail
 
 
 def test_provider_key_refusal_status_and_value_fidelity_across_http_seats(
@@ -212,7 +184,6 @@ def test_provider_key_refusal_status_and_value_fidelity_across_http_seats(
     seats = (
         ("run", 400, lambda refusal: _run_seat(refusal)),
         ("preview", 400, lambda refusal: _preview_seat(monkeypatch, refusal)),
-        ("copilot", 409, lambda refusal: _copilot_seat(refusal)),
     )
 
     for case in cases:

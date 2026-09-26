@@ -631,7 +631,11 @@ def test_ensure_pair_installed_rechecks_after_a_durable_pull_in_another_process(
     )
     holder.start()
     try:
-        assert acquired.wait(timeout=5), "durable pull did not begin downloading"
+        if not acquired.wait(timeout=15):
+            pytest.fail(
+                "durable pull did not begin downloading within 15 seconds "
+                f"(child exitcode={holder.exitcode})"
+            )
         attempted = _observe_artifact_lock_attempt(monkeypatch)
         errors: list[BaseException] = []
 

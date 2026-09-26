@@ -365,3 +365,45 @@ describe('applyRoute fixed six-class matrix', () => {
     expect(harness.detail.store.get().childFilter).toBe(carriedIntent);
   });
 });
+
+describe('temporary source navigation', () => {
+  it('keeps one base route without URL writes across repeated sources and action inspection', () => {
+    const route = createRouteStore('p1');
+    const write = vi.fn();
+    createRouteSyncController({ routeStore: route, write });
+    route.projectExternal(base);
+    route.beginTemporary({ ...base, sheetId: 's2' });
+    route.projectExternal(base); // unchanged URL projection must not erase it
+    expect(route.store.get().sheetId).toBe('s2');
+    route.navigate({ ...base, sheetId: 's2', actionKind: 'map.summarize' });
+    route.beginTemporary({ ...base, sheetId: 's3' });
+    expect(route.baseRoute()).toEqual(base);
+    expect(write).not.toHaveBeenCalled();
+    route.finishTemporary('restore');
+    expect(route.store.get()).toEqual(base);
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it('commits a saved source view through the existing history writer', () => {
+    const route = createRouteStore('p1');
+    const write = vi.fn();
+    createRouteSyncController({ routeStore: route, write });
+    route.projectExternal(base);
+    const target = { ...base, sheetId: 's2' };
+    route.beginTemporary(target);
+    route.finishTemporary('commit');
+    expect(route.isTemporary()).toBe(false);
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(write.mock.calls[0][0]).toEqual(target);
+  });
+
+  it('leaving the base URL clears the temporary projection', () => {
+    const route = createRouteStore('p1');
+    route.projectExternal(base);
+    route.beginTemporary({ ...base, sheetId: 's2' });
+    const external = { ...base, sheetId: 's3' };
+    route.projectExternal(external);
+    expect(route.isTemporary()).toBe(false);
+    expect(route.store.get()).toEqual(external);
+  });
+});

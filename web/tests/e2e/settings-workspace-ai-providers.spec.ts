@@ -8,7 +8,7 @@
 // - /settings/personal/ai-providers renders the workspace provider panel:
 //   per-provider key rows (add/test/save) AND the Ollama URL editor with the
 //   reachability badge — the exact surface the picker's inline pane held.
-// - Copilot's model selector is an authoritative project-scoped dialog, not an
+// - Ask's model selector is an authoritative project-scoped dialog, not an
 //   inline provider configuration view.
 // - The remediation copy's "Settings → AI Providers" is thereby literal.
 
@@ -22,15 +22,15 @@ import { createProject, importCsv, uniqueName } from './helpers';
 
 const CSV = 'story\n"City council approved a paving contract."\n';
 
-function copilotSelectorResponse(
+function askSelectorResponse(
   pid: string,
-  subject: Extract<SelectorSubject, { kind: 'copilot' }>,
+  subject: Extract<SelectorSubject, { kind: 'project_ask' }>,
 ): HttpSelectorChoicesResponse {
   const current = subject.model === 'ollama/qwen' ? 'ollama-qwen' : 'local-semantic';
   return {
     schema_version: 'frisket.selector_choices.v1',
     project_id: pid,
-    subject: { kind: 'copilot' },
+    subject: { kind: 'project_ask' },
     depends_on: [],
     current_choice_id: current,
     default_choice_id: 'local-semantic',
@@ -70,27 +70,27 @@ test('workspace AI-providers settings page renders keys + ollama URL editor', as
   await expect(section.getByTestId('ollama-reachability-badge')).toBeVisible();
 });
 
-test('copilot model selector opens an authoritative dialog without an inline configuration pane', async ({
+test('ask model selector opens an authoritative dialog without an inline configuration pane', async ({
   page,
 }) => {
   const pid = await createProject(page.request, uniqueName('e2e-provider-nav'));
   await importCsv(page.request, pid, 'stories.csv', CSV);
   await page.route(`**/api/projects/${pid}/selector-choices`, async (route) => {
     const body = route.request().postDataJSON() as HttpSelectorChoicesQuery;
-    if (body.subject.kind !== 'copilot') {
+    if (body.subject.kind !== 'ask') {
       await route.fallback();
       return;
     }
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(copilotSelectorResponse(pid, body.subject)),
+      body: JSON.stringify(askSelectorResponse(pid, body.subject)),
     });
   });
   await page.goto(`/p/${pid}`);
 
-  await page.getByTestId('chrome-copilot-toggle').click();
-  const panel = page.getByTestId('copilot-panel');
+  await page.getByTestId('chrome-ask-toggle').click();
+  const panel = page.getByTestId('ask-panel');
   await expect(panel).toBeVisible();
   const trigger = panel.locator('.engine-selector__trigger');
   await trigger.click();

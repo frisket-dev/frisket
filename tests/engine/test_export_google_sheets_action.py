@@ -197,6 +197,7 @@ def test_export_google_sheets_uses_fake_client_receipts_and_idempotency(
 
     project = Project(project_path)
     try:
+        ada_row_id = project.visible_row_ids(sheet_id)[0]
         action = _google_export_action(
             sheet_id=sheet_id,
             source={
@@ -209,6 +210,7 @@ def test_export_google_sheets_uses_fake_client_receipts_and_idempotency(
                     "filter": {"status": {"eq": "ready"}},
                     "sort": [{"column": "name", "dir": "asc"}],
                 },
+                "scope_row_ids": [ada_row_id],
             },
         )
         result = run_action_spec(

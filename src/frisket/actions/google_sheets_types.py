@@ -11,6 +11,7 @@ class GoogleSheetsSource(ActionParams):
     kind: Literal["current_sheet", "current_view", "all_sheets"]
     sheet_id: int | None = Field(default=None, ge=1, strict=True)
     query: dict[str, Any] | None = None
+    scope_row_ids: list[int] | None = Field(default=None, max_length=1000)
 
     @model_validator(mode="after")
     def _source(self) -> "GoogleSheetsSource":
@@ -18,6 +19,12 @@ class GoogleSheetsSource(ActionParams):
             raise ValueError("invalid_sheet_ref")
         if (self.kind == "current_view") != (self.query is not None):
             raise ValueError("invalid_query_spec")
+        if self.scope_row_ids is not None:
+            if not all(
+                isinstance(row_id, int) and not isinstance(row_id, bool) and row_id > 0
+                for row_id in self.scope_row_ids
+            ) or len(set(self.scope_row_ids)) != len(self.scope_row_ids):
+                raise ValueError("invalid_scope_row_ids")
         return self
 
 

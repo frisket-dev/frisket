@@ -205,3 +205,32 @@ describe('EvidenceViewer JSON leaves', () => {
     );
   });
 });
+
+
+describe('Ask evidence locations', () => {
+  function citedPagePayload(): EvidenceViewerPayload {
+    const source = structuredClone(jsonLeafPayload.artifacts[0]);
+    source.spans[0].selector = { page_start: 2, page_end: 2 };
+    source.pages = [
+      { ...source.pages[0], page: 1, regions: [] },
+      { ...source.pages[0], page: 2, regions: [{ ...source.pages[0].regions[0], stable_id: source.spans[0].stable_id }] },
+    ];
+    return { ...jsonLeafPayload, artifacts: [source] };
+  }
+
+  it('opens the cited page and highlights only its supporting region', async () => {
+    getEvidenceViewer.mockResolvedValue(citedPagePayload());
+    render(<EvidenceViewer evidenceLinkId="evidence-link:1" scopeSpanId="evidence_span:page" mode="pane" defaultShowDetails={false} onClose={() => {}} />);
+    expect(await screen.findByText('Page 2', { exact: true })).toBeVisible();
+    expect(screen.queryByText('Page 1', { exact: true })).not.toBeInTheDocument();
+    expect(screen.getAllByTestId('evidence-region-highlight')).toHaveLength(1);
+  });
+
+  it('shows the source without old highlights when the cited value has changed', async () => {
+    getEvidenceViewer.mockResolvedValue(citedPagePayload());
+    render(<EvidenceViewer evidenceLinkId="evidence-link:1" scopeSpanId="evidence_span:page" highlight={false} mode="pane" defaultShowDetails={false} onClose={() => {}} />);
+    expect(await screen.findByText('Page 2', { exact: true })).toBeVisible();
+    expect(screen.getByText('Page 1', { exact: true })).toBeVisible();
+    expect(screen.queryByTestId('evidence-region-highlight')).not.toBeInTheDocument();
+  });
+});

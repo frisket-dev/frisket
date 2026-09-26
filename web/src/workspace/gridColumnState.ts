@@ -5,6 +5,7 @@ import { entityTypeName } from '../components/action-panel/nerLabelModel';
 import { failureOutcomeLabel } from '../runFailureTaxonomy';
 import type {
   GridFilterEntityValue,
+  GridFilterGroupValue,
   GridFilterListSelector,
   GridFilterOperator,
   GridFilterRangeValue,
@@ -137,6 +138,21 @@ export function entityFilterValue(raw: unknown): GridFilterEntityValue | null {
   return { type };
 }
 
+function groupFilterValue(raw: unknown): GridFilterGroupValue | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const value = raw as Record<string, unknown>;
+  const keys = Object.keys(value).sort().join(',');
+  if ((value.kind === 'missing' || value.kind === 'invalid') && keys === 'kind') return { kind: value.kind };
+  if (value.kind === 'value' && keys === 'kind,value_json' && typeof value.value_json === 'string') {
+    try { JSON.parse(value.value_json); return { kind: 'value', value_json: value.value_json }; } catch { return null; }
+  }
+  if (value.kind === 'date_bucket' && keys === 'bucket,kind,value' && typeof value.value === 'string'
+      && (value.bucket === 'day' || value.bucket === 'month' || value.bucket === 'year')) {
+    return { kind: 'date_bucket', bucket: value.bucket, value: value.value };
+  }
+  return null;
+}
+
 export function filterConditionFromDraft(
   operator: GridFilterOperator,
   rawValue: string,
@@ -148,7 +164,7 @@ export function filterConditionFromDraft(
   // applied, passes no validation, and silently answers a different question.
   // Unreachable in production (filterOperatorOptions never offers entity_eq),
   // so a throw is a programming-error alarm, not a user-facing path.
-  if (operator === 'entity_eq' || operator === 'list_contains_any') {
+  if (operator === 'entity_eq' || operator === 'list_contains_any' || operator === 'group_eq') {
     throw new Error(
       `${operator} is a programmatic filter and cannot be built from the scalar filter draft`,
     );
@@ -317,6 +333,7 @@ export function normalizeGridFilterSpec(value: unknown): GridFilterSpec | null {
       'bbox',
       'failed',
       'entity_eq',
+      'group_eq',
       'list_contains_any',
     ] as const) {
       const raw = (operators as Partial<Record<GridFilterOperator, unknown>>)[operator];
@@ -388,6 +405,9 @@ export function normalizeGridFilterSpec(value: unknown): GridFilterSpec | null {
           && values.length === raw.length
           && values.length <= 100;
         out[column] = { in: valid ? [...new Set(values)] : INVALID_IN_FILTER_VALUE };
+      } else if (operator === 'group_eq') {
+        // Fail closed on malformed selectors instead of widening a saved view.
+        out[column] = { ...out[column], group_eq: groupFilterValue(raw) ?? { kind: 'value', value_json: '' } };
       } else if (operator === 'entity_eq') {
         // The structured branch. Without it the catch-all below would write
         // the string "[object Object]" back into the saved view and into the
@@ -468,6 +488,10 @@ function gridFilterConditionLabel(
   operators: Partial<Record<GridFilterOperator, GridFilterValue>>,
   valueLabel?: string | null,
 ): string {
+  if (operators.group_eq && Object.keys(operators).length > 1) {
+    const { group_eq, ...rest } = operators;
+    return `${gridFilterConditionLabel(column, rest)} · ${gridFilterConditionLabel(column, { group_eq })}`;
+  }
   const [operator, value] = Object.entries(operators ?? {})[0] ?? ['eq', ''];
   if (operator === 'between' && isGridFilterRangeValue(value)) {
     return `${column} between ${value.start} and ${value.end}`;
@@ -498,6 +522,13 @@ function gridFilterConditionLabel(
     return value === 'any'
       ? `${column} failed cells`
       : `${column} failed: ${failureOutcomeLabel(String(value))}`;
+  }
+  if (operator === 'group_eq') {
+    const group = groupFilterValue(value);
+    if (!group) return `${column} invalid group filter`;
+    if (group.kind === 'missing' || group.kind === 'invalid') return `${column} is ${group.kind}`;
+    if (group.kind === 'date_bucket') return `${column} in ${group.value}`;
+    if (group.kind === 'value') return `${column} is ${group.value_json.slice(0, 120)}`;
   }
   if (operator === 'entity_eq') {
     return entityFilterLabel(column, value, valueLabel);

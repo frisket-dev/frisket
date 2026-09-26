@@ -271,6 +271,8 @@ export interface ParentRowFilter {
 }
 
 export interface SheetGridProps {
+  scopeRowIds?: number[] | null;
+  citationColumnId?: string | null;
   sheet: SheetMeta;
   /** Bump to hard-invalidate the cache (undo/redo, review edits). */
   dataVersion: number;
@@ -1144,7 +1146,7 @@ interface SheetGridController {
 
 function useSheetGridController({
   sheet, dataVersion, liveRun, rowHeight, wrapText, childSheet, parentRowFilter,
-  activeFilter, activeSort, columnOrder, lensRowIds, lensScores,
+  activeFilter, activeSort, columnOrder, lensRowIds, lensScores, scopeRowIds, citationColumnId,
   previewColumns, previewCells,
   rowDrawerOpen = false, frozenColumnCount = 1, columnGroupsStorageScope, columnGroupsVersion,
   hiddenColumnNames = EMPTY_COLUMN_NAMES, userHiddenColumnNames = EMPTY_COLUMN_NAMES,
@@ -1178,10 +1180,11 @@ function useSheetGridController({
       resolveRowCacheScope({
         parentRowId: parentRowFilter?.parentRowId,
         filter: activeFilter,
+        scopeRowIds,
         sort: activeSort,
         lensRowIds: lensActive ? (lensRowIdsKey ? lensRowIdsKey.split(',').map(Number) : []) : null,
       }),
-    [activeFilter, activeSort, parentRowFilter?.parentRowId, lensActive, lensRowIdsKey],
+    [activeFilter, activeSort, parentRowFilter?.parentRowId, lensActive, lensRowIdsKey, scopeRowIds],
   );
   const fallbackRowCacheStore = useMemo(() => createRowCacheStore(), []);
   const cache = useRowCache(
@@ -1413,7 +1416,7 @@ function useSheetGridController({
         pendingColIds.has(def.id) &&
         (pendingRowIds === null || (row !== undefined && pendingRowIds.has(row.id)));
       const entityMentionCellKey = row ? JSON.stringify([row.id, def.id]) : null;
-      const cell = withOneClickFacetCursor(
+      let cell = withOneClickFacetCursor(
         buildCell(def, row, {
           projectId,
           wrap: wrapText,
@@ -1427,6 +1430,7 @@ function useSheetGridController({
         def,
         row,
       );
+      if (def.id === citationColumnId) cell = { ...cell, themeOverride: { ...cell.themeOverride, bgCell: gridTheme.bgSearchResult ?? "#fff1cf" } };
       const media = audioMedia(cell);
       if (!media || !row) return cell;
       const source = createAudioPlaybackSource({
@@ -1455,6 +1459,8 @@ function useSheetGridController({
       previewAt,
       projectId,
       gridCellPalette,
+      citationColumnId,
+      gridTheme.bgSearchResult,
       sheet.id,
       audioPlaybackState,
       expandedEntityMentionCells,

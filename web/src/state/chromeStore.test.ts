@@ -200,15 +200,15 @@ describe('createChromeStore', () => {
     expect(store.get().lastCommandAction).toBe('Opened Sources');
   });
 
-  it('openCopilotPopover/closeCopilotPopover/toggleCopilotPopover', () => {
-    const { store, openCopilotPopover, closeCopilotPopover, toggleCopilotPopover } =
+  it('openAsk/closeAsk/toggleAsk', () => {
+    const { store, openAsk, closeAsk, toggleAsk } =
       createChromeStore(PROJECT_ID);
-    openCopilotPopover();
-    expect(store.get().copilotPopoverOpen).toBe(true);
-    closeCopilotPopover();
-    expect(store.get().copilotPopoverOpen).toBe(false);
-    toggleCopilotPopover();
-    expect(store.get().copilotPopoverOpen).toBe(true);
+    openAsk();
+    expect(store.get().askOpen).toBe(true);
+    closeAsk();
+    expect(store.get().askOpen).toBe(false);
+    toggleAsk();
+    expect(store.get().askOpen).toBe(true);
   });
 
   it('setOpenSplit/setDocumentView/setPromotedViews are plain in-memory setters (no persistence call is this store\'s concern)', () => {

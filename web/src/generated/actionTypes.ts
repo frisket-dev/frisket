@@ -369,6 +369,7 @@ type GoogleSheetsExportRequest_GoogleSheetsSource = ({
   "query"?: ((({
   [key: string]: JsonValue;
 })) | ((null)));
+  "scope_row_ids"?: (((Array<(number)>)) | ((null)));
 });
 
 export type GoogleSheetsExportRequest = ({

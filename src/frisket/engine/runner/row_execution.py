@@ -25,9 +25,8 @@ from frisket.ai.llm import (
     classify_llm_error,
     classify_resumable_provider_error,
 )
-from frisket.local_model_ids import bare_model_name
+from frisket.ai.models.accounting import wire_accounting_meta
 from frisket.ops.integrations.hosted_error import HostedEngineError
-from frisket.ai.models.metadata import ModelCallMeta
 from frisket.ops.base import OpContext, Recipe, RecipeInvocationHalt
 from frisket.redaction import safe_error
 from frisket.engine.runner import validation
@@ -366,7 +365,7 @@ async def execute_row(
         paid_wire_calls = list(getattr(e, "wire_calls", []) or [])
         if paid_wire_calls and field_names:
             failed[field_names[0]].update(
-                _wire_accounting_meta(model_name, paid_wire_calls)
+                wire_accounting_meta(model_name, paid_wire_calls)
             )
         elif meta is not None and field_names:
             # Validation/postprocessing happens after a successful transport;
@@ -416,61 +415,5 @@ async def llm_row(
     return row_data or {}, {
         "tokens_in": resp.tokens_in,
         "tokens_out": resp.tokens_out,
-        **_wire_accounting_meta(model_name, fact_responses),
-    }
-
-
-def _wire_accounting_meta(
-    model_name: str, wire_responses: list[LLMResponse]
-) -> dict[str, Any]:
-    """Build the run-cost and neutral fact payload for completed transports.
-
-    Used by both successful rows and schema-exhausted rows: validation failure
-    changes the cell outcome, not whether the provider call happened.
-    """
-
-    model_id = bare_model_name(model_name)
-    calls: list[dict[str, Any]] = []
-    for wire in wire_responses:
-        units = {"tokens_in": wire.tokens_in, "tokens_out": wire.tokens_out}
-        if wire.output_limited:
-            units["output_limited"] = True
-        if wire.cached:
-            call = ModelCallMeta.cache_hit(
-                capability="llm.complete",
-                engine=model_name,
-                provider=wire.provider,
-                provider_kind="chat_api",
-                model_ids=[model_id or model_name],
-                units=units,
-                warnings=[],
-            ).as_dict()
-        else:
-            call = ModelCallMeta.provider_call(
-                capability="llm.complete",
-                engine=model_name,
-                provider=wire.provider,
-                provider_kind="chat_api",
-                model_ids=[model_id or model_name],
-                credential_source=wire.credential_source,
-                provider_reported_cost_usd=wire.cost,
-                provider_cost_usd=wire.cost,
-                units=units,
-                cost_source=wire.cost_source,
-                warnings=[],
-                duration_ms=wire.duration_ms,
-            ).as_dict()
-        calls.append(call)
-    live_calls = [wire for wire in wire_responses if not wire.cached]
-    if not live_calls:
-        cost: float | None = 0.0
-    elif any(wire.cost is None for wire in live_calls):
-        cost = None
-    else:
-        cost = sum(wire.cost for wire in live_calls)
-    return {
-        "tokens_in": sum(wire.tokens_in for wire in wire_responses),
-        "tokens_out": sum(wire.tokens_out for wire in wire_responses),
-        "cost": cost,
-        "model_calls": calls,
+        **wire_accounting_meta(model_name, fact_responses),
     }

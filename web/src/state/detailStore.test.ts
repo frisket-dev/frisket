@@ -229,7 +229,7 @@ describe('createDetailStore', () => {
     expect(store.get().columnDrawer).toEqual(column('c2'));
   });
 
-  it('setProposalInspect sets/clears the Copilot proposal-inspect state', () => {
+  it('setProposalInspect sets/clears the Ask proposal-inspect state', () => {
     const { store, setProposalInspect } = createDetailStore();
     const proposal = {
       seq: 1,

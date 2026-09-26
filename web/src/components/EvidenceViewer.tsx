@@ -19,6 +19,8 @@ export interface EvidenceViewerProps {
   onOpenCompanion?(): void;
   /** A no-match row scope falls back to all source artifacts. */
   scopeRowId?: string | null;
+  scopeSpanId?: string;
+  highlight?: boolean;
   defaultShowDetails?: boolean;
 }
 
@@ -33,6 +35,8 @@ export function EvidenceViewer({
   onClose,
   onOpenCompanion,
   scopeRowId = null,
+  scopeSpanId,
+  highlight = true,
   defaultShowDetails = true,
 }: EvidenceViewerProps) {
   const { projectApi } = useWorkspaceStores();
@@ -84,6 +88,8 @@ export function EvidenceViewer({
         <EvidencePayloadView
           payload={state.payload}
           scopeRowId={scopeRowId}
+          scopeSpanId={scopeSpanId}
+          highlight={highlight}
           defaultShowDetails={defaultShowDetails}
         />
       )}
@@ -160,19 +166,37 @@ function EvidenceViewerHeader({
 function EvidencePayloadView({
   payload,
   scopeRowId = null,
+  scopeSpanId,
+  highlight = true,
   defaultShowDetails = true,
 }: {
   payload: EvidenceViewerPayload;
   scopeRowId?: string | null;
+  scopeSpanId?: string;
+  highlight?: boolean;
   defaultShowDetails?: boolean;
 }) {
+  const focusedArtifacts = useMemo(() => {
+    if (!scopeSpanId) return payload.artifacts;
+    return payload.artifacts.filter((artifact) => artifact.spans.some((span) => span.stable_id === scopeSpanId)).map((artifact) => ({
+      ...artifact,
+      spans: highlight ? artifact.spans.filter((span) => span.stable_id === scopeSpanId) : [],
+      runs: highlight ? artifact.runs.filter((run) => run.span_ids.includes(scopeSpanId)) : [],
+      pages: artifact.pages.filter((page) => {
+        const span = artifact.spans.find((item) => item.stable_id === scopeSpanId);
+        const first = span ? selectorNumber(span, 'page_start') : null;
+        const last = span ? selectorNumber(span, 'page_end') ?? first : null;
+        return !highlight || first === null || (page.page >= first && page.page <= (last ?? first));
+      }).map((page) => ({ ...page, regions: highlight ? page.regions.filter((region) => region.stable_id === scopeSpanId) : [] })),
+    }));
+  }, [payload.artifacts, scopeSpanId, highlight]);
   const orderedArtifacts = useMemo(() => {
-    if (scopeRowId === null) return payload.artifacts;
-    const scoped = payload.artifacts.filter(
+    if (scopeRowId === null) return focusedArtifacts;
+    const scoped = focusedArtifacts.filter(
       (artifact) => String(artifact.source_cell?.row_id ?? '') === scopeRowId,
     );
-    return scoped.length > 0 ? scoped : payload.artifacts;
-  }, [payload.artifacts, scopeRowId]);
+    return scoped.length > 0 ? scoped : focusedArtifacts;
+  }, [focusedArtifacts, scopeRowId]);
   const [showDetails, setShowDetails] = useState(defaultShowDetails);
   return (
     <div
@@ -191,7 +215,7 @@ function EvidencePayloadView({
           </div>
         ) : (
           orderedArtifacts.map((artifact) => (
-            <ArtifactSource key={artifact.stable_id} artifact={artifact} />
+            <ArtifactSource key={`${artifact.stable_id}:${scopeSpanId ?? ''}:${highlight}`} artifact={artifact} />
           ))
         )}
         <button

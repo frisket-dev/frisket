@@ -313,7 +313,7 @@ def test_provider_setup_carries_backend_owned_scopes_and_never_key_material(
     )
     response = client.post(
         f"/api/projects/{project_id}/selector-choices",
-        json=_query({"kind": "copilot", "model": None}),
+        json=_query({"kind": "project_ask", "model": None}),
     )
     assert response.status_code == 200, response.text
     anthropic = next(
@@ -347,7 +347,7 @@ def test_configured_provider_is_runnable_only_with_run_capability(
     )
     response = client.post(
         f"/api/projects/{project_id}/selector-choices",
-        json=_query({"kind": "copilot", "model": "openai/gpt-5.6-terra"}),
+        json=_query({"kind": "project_ask", "model": "openai/gpt-5.6-terra"}),
     )
     assert response.status_code == 200, response.text
     selected = next(
@@ -477,7 +477,7 @@ def test_configured_local_endpoint_discovery_is_called_once_and_preserves_model_
     )
     response = client.post(
         f"/api/projects/{project_id}/selector-choices",
-        json=_query({"kind": "copilot", "model": "ollama/@lab/acme/nested-model"}),
+        json=_query({"kind": "project_ask", "model": "ollama/@lab/acme/nested-model"}),
     )
     assert response.status_code == 200, response.text
     assert calls == [workspace.root]
@@ -488,7 +488,7 @@ def test_configured_local_endpoint_discovery_is_called_once_and_preserves_model_
     assert selected["can_run"] is True
 
 
-def test_action_and_copilot_use_their_distinct_effective_routers(
+def test_action_and_project_ask_use_their_distinct_effective_routers(
     tmp_path: Path,
 ) -> None:
     ordinary = ModelRouter(keys={"anthropic": "ordinary-key"}, use_env_keys=False)
@@ -512,22 +512,24 @@ def test_action_and_copilot_use_their_distinct_effective_routers(
             }
         ),
     )
-    copilot = client.post(
+    project_ask = client.post(
         f"/api/projects/{project_id}/selector-choices",
-        json=_query({"kind": "copilot", "model": "openai/gpt-5.6-terra"}),
+        json=_query({"kind": "project_ask", "model": "openai/gpt-5.6-terra"}),
     )
-    assert action.status_code == copilot.status_code == 200
+    assert action.status_code == project_ask.status_code == 200
     action_current = next(row for row in _choices(action.json()) if row["is_current"])
-    copilot_current = next(row for row in _choices(copilot.json()) if row["is_current"])
+    project_ask_current = next(
+        row for row in _choices(project_ask.json()) if row["is_current"]
+    )
     assert action_current["can_run"] is True
-    assert copilot_current["can_run"] is False
-    assert copilot_current["setup"]["kind"] == "api_key"
+    assert project_ask_current["can_run"] is False
+    assert project_ask_current["setup"]["kind"] == "api_key"
 
 
 @pytest.mark.parametrize(
     "subject",
     [
-        {"kind": "copilot", "model": "ollama/@org/owner/nested-model"},
+        {"kind": "project_ask", "model": "ollama/@org/owner/nested-model"},
         {
             "kind": "action",
             "action_id": "map.ask",
@@ -1071,7 +1073,8 @@ def test_model_choices_reuse_provider_setup_credential_and_spend_facts_within_re
         ),
     )
     response = client.post(
-        f"/api/projects/{project_id}/selector-choices", json=_query({"kind": "copilot"})
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query({"kind": "project_ask"}),
     )
     assert response.status_code == 200, response.text
     models = _choices(response.json())
@@ -1088,7 +1091,8 @@ def test_model_choices_reuse_provider_setup_credential_and_spend_facts_within_re
     )
     assert spend_reads == Counter({"openai": 1})
     refreshed = client.post(
-        f"/api/projects/{project_id}/selector-choices", json=_query({"kind": "copilot"})
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query({"kind": "project_ask"}),
     )
     assert refreshed.status_code == 200
     refreshed_openai = [

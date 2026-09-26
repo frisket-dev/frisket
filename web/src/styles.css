@@ -289,7 +289,7 @@ kbd {
 .workbench-region { min-height: 0; min-width: 0; }
 .workbench-resolved-layout-region { display: contents; }
 /* The left sidebar region is retired (workbench-ia-focus-v1): Search folded
-   into the ⌘K palette, Copilot into the ✧ popover, the rest re-homed to
+   into the ⌘K palette, Ask into the ✧ popover, the rest re-homed to
    Discover. Its shell rules are gone; the panel-body classes (.sidebar-sources,
    .sidebar-facets, …) survive because those panels now render in Discover. */
 .workbench-main-view {
@@ -2216,39 +2216,6 @@ kbd {
   font-size: 10px;
 }
 
-/* Copilot Focus popover: a floating card anchored
-   bottom-right, never a resident column. It is a native [popover] element, so
-   the UA's default popover chrome (a thick solid border, canvas background and
-   padding) must be reset here — otherwise it draws a second rounded frame
-   around .copilot-panel's own border. The panel's border is the single frame. */
-.copilot-popover {
-  position: fixed;
-  right: 18px;
-  bottom: 42px;
-  z-index: 72;
-  width: 322px;
-  max-width: calc(100vw - 32px);
-  max-height: min(560px, calc(100vh - 96px));
-  display: flex;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  overflow: visible;
-  border-radius: 12px;
-  box-shadow: var(--shadow-modal);
-}
-/* The panel arrives wrapped in a WorkbenchContributionFrame section (rendered
-   with an empty class), so stretch the popover's direct child too — otherwise
-   the card is content-sized and the popover's 322px shadow box outgrows it. */
-.copilot-popover > * {
-  flex: 1;
-  min-width: 0;
-}
-.copilot-popover .workbench-contribution,
-.copilot-popover .copilot-panel {
-  width: 100%;
-  border-radius: 12px;
-}
 .workbench-modal-or-peek {
   position: fixed;
   inset: auto;
@@ -3373,7 +3340,7 @@ li.panel-empty { list-style: none; }
 
 /* ---- action panel calm-hierarchy overrides --------------------------------
    The redesign lives scoped under .action-panel so other .form-input surfaces
-   (settings, sources, copilot) keep their density until they adopt it. */
+   (settings, sources, ask) keep their density until they adopt it. */
 .action-panel .action-form { padding: 0 18px 16px; }
 .action-panel .form-label,
 .action-panel .form-label-row .form-label {
@@ -3411,7 +3378,7 @@ li.panel-empty { list-style: none; }
    form. Textareas and other multi-line widgets (code editor, template
    composer, chip inputs) opt out by simply not wrapping in .param-row.
    Extends the existing .form-label-row/.form-row-pair single-row precedents;
-   scoped to .action-panel so settings/sources/copilot keep their own stacked
+   scoped to .action-panel so settings/sources/ask keep their own stacked
    .form-input layout. */
 .action-panel .param-row {
   display: grid;
@@ -9343,95 +9310,6 @@ dialog.modal-card::backdrop {
   }
 }
 
-/* ---- copilot panel ---------------------------------------------------------- */
-
-/* .copilot-panel is now the body of the ✧ Focus popover (its resident-strip
-   trigger + margins retired in workbench-ia-focus-v1); the .copilot-popover
-   container owns placement + sizing. */
-.copilot-panel {
-  display: flex; flex-direction: column;
-  flex: 1;
-  min-height: 0; max-height: 100%;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--bg);
-  overflow: hidden;
-}
-.copilot-head {
-  display: flex; align-items: center; gap: 7px;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--border);
-  font-size: 12px; font-weight: 650;
-}
-/* Two header controls now (collapse chevron + ×): the auto margin moves to a
-   wrapper so the pair stays flush right as a unit. */
-.copilot-head .copilot-head-actions {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-}
-/* Collapsed (copilot-collapse-v1): a header-only strip — thread + compose are
-   unmounted, so the head's own bottom border would double as a stray line
-   above the panel's rounded bottom edge. */
-.copilot-panel[data-collapsed='true'] .copilot-head { border-bottom: 0; }
-.copilot-thread {
-  flex: 1; min-height: 0; overflow-y: auto;
-  padding: 10px;
-  display: flex; flex-direction: column; gap: 10px;
-}
-.copilot-hint { font-size: 11.5px; color: var(--text-light); line-height: 1.45; margin: 0; }
-.copilot-bubble { font-size: 12.5px; line-height: 1.45; white-space: pre-wrap; }
-.copilot-user .copilot-bubble { font-weight: 600; }
-.copilot-proposal {
-  display: flex; align-items: center; gap: 8px;
-  margin-top: 6px;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-7);
-  background: var(--bg-panel);
-}
-.copilot-proposal-title { flex: 1; min-width: 0; font-size: 12px; }
-.copilot-run { gap: 5px; flex-shrink: 0; }
-.copilot-error {
-  color: var(--red);
-  background: var(--red-bg);
-  border-radius: var(--radius-6);
-  padding: 7px 8px;
-  font-size: 12px;
-}
-.copilot-model-row {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 8px 0;
-  border-top: 1px solid var(--border);
-}
-.copilot-model-label {
-  font-size: 11px; color: var(--text-light);
-  flex: 0 0 auto;
-}
-.copilot-model-row > div { flex: 1; min-width: 0; }
-.copilot-compose {
-  display: flex; gap: 6px;
-  padding: 8px;
-}
-.copilot-compose textarea {
-  flex: 1; min-width: 0;
-  resize: none;
-  font: inherit; font-size: 12px; line-height: 1.35;
-  color: var(--text);
-  background: var(--bg);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-6);
-  padding: 6px 8px;
-}
-.copilot-compose textarea:focus { outline: 2px solid var(--accent-bg); border-color: var(--accent); }
-.copilot-send-button {
-  flex: 0 0 42px;
-  min-width: 42px;
-  justify-content: center;
-  padding-inline: 0;
-}
-
 /* ---- account/funding tables ------------------------------------------------ */
 
 .account-note { font-size: 11.5px; color: var(--text-light); line-height: 1.55; margin: 12px 0 0; }
@@ -11134,13 +11012,13 @@ dialog.modal-card::backdrop {
   font-size: 11.5px;
 }
 .chrome-guide-resume:hover { filter: brightness(0.97); }
-.chrome-copilot-btn, .chrome-account-btn {
+.chrome-ask-btn, .chrome-account-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 30px; height: 30px; border-radius: var(--radius-8);
   color: var(--text-mid); background: transparent;
 }
-.chrome-copilot-btn:hover, .chrome-account-btn:hover { background: var(--bg-hover); }
-.chrome-copilot-btn.open { background: var(--focus-bg); color: var(--focus); }
+.chrome-ask-btn:hover, .chrome-account-btn:hover { background: var(--bg-hover); }
+.chrome-ask-btn.open { background: var(--focus-bg); color: var(--focus); }
 
 /* ---- Guided walkthrough --------------------------------------------------- */
 .walkthrough-target-box {
@@ -12417,19 +12295,6 @@ dialog.modal-card::backdrop {
 .pdf-tables-picker-foot .form-label { margin: 0 0 4px; }
 .pdf-tables-picker-foot .form-input { flex: 1 1 180px; }
 
-/* Copilot proposal kind chip. */
-.copilot-proposal-kind {
-  flex: none;
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1.4;
-  padding: 1px 6px;
-  border-radius: var(--radius-999);
-  border: 1px solid var(--border);
-  background: var(--bg-hover);
-  color: var(--text-light);
-  white-space: nowrap;
-}
 
 /* Topic Segmentation Compare uses the established compare shell colors and
    layout, but its result grammar is transcript sections and boundary keys —
@@ -12714,3 +12579,5 @@ dialog.modal-card::backdrop {
   font: inherit; color: var(--accent); cursor: pointer;
   text-decoration: underline;
 }
+
+.workbench-body { display: flex; flex: 1; min-height: 0; min-width: 0; }

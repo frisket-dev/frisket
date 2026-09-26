@@ -83,6 +83,30 @@ def _protect(
 
 
 @pytest.mark.parametrize(
+    ("method", "path", "required"),
+    (
+        ("GET", "/api/projects/proof/qa/threads", "viewer"),
+        ("GET", "/api/projects/proof/qa/threads/thread/events", "viewer"),
+        ("GET", "/api/projects/proof/qa/threads/thread/report", "viewer"),
+        ("POST", "/api/projects/proof/qa/threads", "editor"),
+        ("POST", "/api/projects/proof/qa/threads/thread/turns", "editor"),
+        ("POST", "/api/projects/proof/qa/threads/thread/turns/turn/stop", "editor"),
+        ("PATCH", "/api/projects/proof/qa/threads/thread", "editor"),
+        ("DELETE", "/api/projects/proof/qa/threads/thread", "editor"),
+    ),
+)
+def test_ask_history_is_shared_but_viewers_cannot_start_or_change_work(
+    tmp_path: Path, method: str, path: str, required: str
+) -> None:
+    access = _RecordingProjectAccess("viewer")
+    app = _protect(_core(tmp_path, "ask-roles"), access)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.request(method, path, json={})
+        assert access.pop_required_role() == required
+        assert (response.status_code == 403) == (required == "editor")
+
+
+@pytest.mark.parametrize(
     ("method", "path"),
     (
         ("POST", "/api/projects/proof/notification-channels"),

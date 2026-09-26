@@ -32,9 +32,9 @@ from frisket.engine.executor.map_find_source import (
 def _model_calls(
     params: FindOperation, wire_calls: tuple[Any, ...]
 ) -> list[dict[str, Any]]:
-    from frisket.engine.runner.row_execution import _wire_accounting_meta
+    from frisket.ai.models.accounting import wire_accounting_meta
 
-    accounting = _wire_accounting_meta(params.model, list(wire_calls))
+    accounting = wire_accounting_meta(params.model, list(wire_calls))
     return [
         dict(call)
         for call in accounting.get("model_calls", [])

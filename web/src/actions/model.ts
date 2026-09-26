@@ -81,26 +81,6 @@ export function modelOptionsForTier(hosted: boolean): ModelOption[] {
     : MODEL_OPTIONS;
 }
 
-export function defaultCopilotModel(catalog: LocalProviderCatalog | null): string {
-  const byId = new Map(
-    (catalog?.providers ?? []).map((provider) => [localProviderIdentity(provider), provider]),
-  );
-  const preferred: [string, string][] = [
-    ['anthropic', 'anthropic/claude-sonnet-5'],
-    ['openai', 'openai/gpt-5.6-terra'],
-    ['gemini', 'gemini/gemini-3.6-flash'],
-  ];
-  for (const [provider, model] of preferred) {
-    const entry = byId.get(provider);
-    if (entry?.kind === 'platform_api' && entry.configured) return model;
-  }
-  const localServer = (catalog?.providers ?? []).find(
-    (provider) => provider.kind === 'local_http' && provider.reachable && provider.models.length > 0,
-  );
-  if (localServer) return localServer.models[0].id;
-  return 'anthropic/claude-sonnet-5';
-}
-
 export function providerIsUsable(provider: LocalProviderCatalog['providers'][number]): boolean {
   return provider.kind === 'local_http'
     ? Boolean(provider.reachable) && provider.models.length > 0

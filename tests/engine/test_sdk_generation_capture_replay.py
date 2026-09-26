@@ -599,7 +599,7 @@ def test_rich_input_provenance_is_scoped_or_typed_refused(sheet) -> None:
         "divergent_edit_row_ids": [],
     }
 
-    from frisket.authoring import copilot
+    from frisket.authoring import action_proposals
     from frisket.server.services.action_param_validation import (
         ActionParamValidationService,
     )
@@ -624,7 +624,7 @@ def test_rich_input_provenance_is_scoped_or_typed_refused(sheet) -> None:
         }
     }
     assert (
-        copilot.validate_proposals(
+        action_proposals.validate_proposals(
             project,
             {
                 "proposals": [

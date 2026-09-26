@@ -57,6 +57,7 @@ def _prior_bundle(tmp_path, *, column_count: int = 1):
 
     with sqlite3.connect(path / "project.db") as downgrade:
         downgrade.execute("PRAGMA foreign_keys=OFF")
+        _drop_project_qa(downgrade)
         downgrade.execute("DROP TABLE current_cells")
         downgrade.execute("DROP INDEX idx_cells_column")
         downgrade.execute("ALTER TABLE cells DROP COLUMN producer_id")
@@ -73,6 +74,16 @@ def _table_names(db: sqlite3.Connection) -> set[str]:
         str(row[0])
         for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")
     }
+
+
+def _drop_project_qa(db: sqlite3.Connection) -> None:
+    """Restore the historical bundle fixtures after seeding with current DDL."""
+
+    db.execute("DROP TABLE project_qa_usage_calls")
+    db.execute("DROP TABLE project_qa_citations")
+    db.execute("DROP TABLE project_qa_events")
+    db.execute("DROP TABLE project_qa_turns")
+    db.execute("DROP TABLE project_qa_threads")
 
 
 def test_migration_backfills_current_precedence_without_inventing_base_origins(
@@ -159,6 +170,7 @@ def test_validity_migration_rebuilds_without_rewriting_values(tmp_path) -> None:
     project.close()
 
     with sqlite3.connect(path / "project.db") as downgrade:
+        _drop_project_qa(downgrade)
         downgrade.execute("ALTER TABLE current_cells DROP COLUMN validity")
         downgrade.execute(
             "UPDATE meta SET value=? WHERE key=?",

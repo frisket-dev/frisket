@@ -286,7 +286,9 @@ void request;
 
 def test_actual_list_source_and_copilot_scope_discriminators_compile(tmp_path):
     from frisket.actions.list_table import ListTableParams
-    from frisket.contracts.http.copilot import CopilotRegisteredActionDraft
+    from frisket.authoring.project_ask import (
+        ProjectAskRegisteredActionDraft as CopilotRegisteredActionDraft,
+    )
 
     models = [
         ("ActualListTableParams", ListTableParams, "source"),
@@ -328,7 +330,9 @@ void missingScopeKind; void wrongScopeKind;
 
 def test_actual_discriminated_sources_and_scopes_keep_python_schema_kind_parity():
     from frisket.actions.list_table import ListTableParams
-    from frisket.contracts.http.copilot import CopilotRegisteredActionDraft
+    from frisket.authoring.project_ask import (
+        ProjectAskRegisteredActionDraft as CopilotRegisteredActionDraft,
+    )
 
     cases = [
         (
