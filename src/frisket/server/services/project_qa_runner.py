@@ -82,12 +82,6 @@ async def run_turn(
     tools = await await_thread_worker(ProjectQATools, project, turn, store)
     tool_lock = asyncio.Lock()
     model_id = turn["model"] or default_project_ask_model(router)
-    await await_thread_worker(
-        store.append_event,
-        turn["id"],
-        kind="assistant",
-        payload={"text": "Inspecting the selected project material."},
-    )
 
     async def before_request(request: LLMRequest) -> None:
         provider = provider_from_model_id(request.model)
