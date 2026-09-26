@@ -81,6 +81,10 @@ def request_key(req: LLMRequest, recipe_version: str = "1") -> str:
     # canonical JSON -- and therefore its hash -- byte-identical to before.
     if req.tools is not None:
         canonical_dict["tools"] = req.tools
+    # Older cached tool/schema responses lack native call identities and
+    # continuation metadata needed to replay their history on later rounds.
+    if req.tools is not None or req.schema is not None:
+        canonical_dict["native_tool_history"] = 1
     if req.reasoning_policy is not None:
         canonical_dict["reasoning_policy"] = req.reasoning_policy
     canonical = json.dumps(canonical_dict, sort_keys=True, ensure_ascii=False)
