@@ -34,7 +34,7 @@
 .ask-composer-sources { display: flex; align-items: center; gap: 6px; min-height: 25px; }
 .ask-compose-box { border: 1px solid var(--border-strong); border-radius: 12px; padding: 9px 10px 7px; background: var(--bg-panel); box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 5%, transparent); }
 .ask-compose-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-bg); }
-.ask-compose-box textarea { width: 100%; box-sizing: border-box; min-height: 56px; max-height: 180px; resize: none; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; line-height: 1.5; }
+.ask-compose-box textarea { width: 100%; box-sizing: border-box; min-height: 1.5em; max-height: 180px; resize: none; overflow-y: hidden; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; line-height: 1.5; }
 .ask-compose-controls { display: flex; align-items: center; gap: 4px; font-size: 12px; }
 .ask-compose-controls > button:not(.ask-options-trigger) { margin-left: auto; }
 .ask-compose-controls button:disabled { opacity: .45; cursor: default; }

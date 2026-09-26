@@ -1723,9 +1723,49 @@ kbd {
   align-items: flex-end;
   gap: 3px;
   min-width: 0;
-  overflow-x: auto;
+  overflow: hidden;
   overflow-y: hidden;
   flex-wrap: nowrap;
+}
+.workbench-mainView-sheetTabs {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+.workbench-mainView-tab-measure {
+  position: absolute;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  visibility: hidden;
+  pointer-events: none;
+}
+.workbench-mainView-moreTabs {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  min-height: 30px;
+  margin-bottom: -1px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 9px 9px 0 0;
+  background: transparent;
+  color: var(--text-mid);
+  cursor: pointer;
+}
+.workbench-mainView-moreTabs:hover,
+.workbench-mainView-moreTabs.open {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.menu-pop.workbench-mainView-moreTabsMenu {
+  max-height: min(320px, 50vh);
 }
 .workbench-mainView-tab {
   flex: 0 0 auto;
@@ -11017,8 +11057,9 @@ dialog.modal-card::backdrop {
   width: 30px; height: 30px; border-radius: var(--radius-8);
   color: var(--text-mid); background: transparent;
 }
-.chrome-ask-btn:hover, .chrome-account-btn:hover { background: var(--bg-hover); }
-.chrome-ask-btn.open { background: var(--focus-bg); color: var(--focus); }
+.chrome-account-btn:hover { background: var(--bg-hover); }
+.chrome-ask-btn { background: var(--accent); color: var(--text-on-solid); }
+.chrome-ask-btn:hover, .chrome-ask-btn.open { background: var(--accent-strong); }
 
 /* ---- Guided walkthrough --------------------------------------------------- */
 .walkthrough-target-box {

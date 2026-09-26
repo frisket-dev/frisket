@@ -316,7 +316,7 @@ test('derive materializes arrays of typed objects into a child sheet', async ({ 
 
   const child = await waitForSheet(page.request, pid, 'Sponsors');
   await page.goto(`/p/${pid}/s/${child.id}`);
-  await expect(page.getByText('Sponsors').first()).toBeVisible();
+  await expect(page.getByTestId(`workbench-mainView-tab-${child.id}`)).toBeVisible();
   await expect(page.getByTestId('sheet-breadcrumb')).toContainText('via derive');
   await expect(page.getByTestId('sheet-stats')).toHaveText('4 rows · 3 columns');
 

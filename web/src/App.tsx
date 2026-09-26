@@ -15,12 +15,14 @@ import {
   type ReactNode,
 } from 'react';
 import { PanelSelect } from './components/PanelSelect';
+import { MenuPop } from './components/MenuPop';
 import {
   AtSign,
   Bell,
   BellRing,
   BookOpen,
   Boxes,
+  ChevronRight,
   Database,
   Eye,
   FileText,
@@ -92,6 +94,7 @@ import { ActMenuBar } from './workbench/ActMenuBar';
 import { InspectDetailColumn } from './workbench/InspectDetailColumn';
 import { ActionDrawer } from './workbench/ActionDrawer';
 import { DiscoverPanel, type DiscoverTabDescriptor } from './workbench/DiscoverPanel';
+import { useSheetTabsOverflow } from './workbench/useSheetTabsOverflow';
 import { nerReplayPlan } from './workbench/nerReplayModel';
 import { DocumentView } from './workbench/DocumentView';
 import { AnswersView } from './workbench/AnswersView';
@@ -1992,6 +1995,33 @@ const WorkspaceMainViewTabs = memo(function WorkspaceMainViewTabs() {
 
   // Preserve deepest-first cascade order.
   const staleDeepestFirst = staleSheetsDeepestFirst(sheets);
+  const [moreTabsOpen, setMoreTabsOpen] = useState(false);
+  const moreTabsTriggerRef = useRef<HTMLButtonElement>(null);
+  const moreTabsMenuRef = useRef<HTMLDivElement>(null);
+  const hasActiveSheet = Boolean(
+    sheet
+    && !activePromotedView
+    && !ocrCompareActive
+    && !transcribeCompareActive
+    && !translateCompareActive
+    && !topicCompareActive,
+  );
+  const { sheetTabsRef, measureRef: sheetTabsMeasureRef, visibleSheets, overflowSheets } = useSheetTabsOverflow(
+    sheets,
+    sheet,
+    hasActiveSheet,
+  );
+  if (moreTabsOpen && overflowSheets.length === 0) setMoreTabsOpen(false);
+  useNativePopover(moreTabsMenuRef, () => setMoreTabsOpen(false), {
+    enabled: moreTabsOpen,
+    ignoreSelector: '[data-testid="workbench-mainView-more-tabs"]',
+  });
+  const moreTabsPosition = useAnchoredPosition(moreTabsTriggerRef, {
+    enabled: moreTabsOpen,
+    align: 'right',
+    width: 220,
+    gap: 4,
+  });
 
   return (
     <>
@@ -2002,7 +2032,22 @@ const WorkspaceMainViewTabs = memo(function WorkspaceMainViewTabs() {
         data-mode="tab"
       >
         <div className="workbench-mainView-tab-list" role="tablist" aria-label="Open work surfaces">
-          {sheets.map((tabSheet) => {
+          <div className="workbench-mainView-sheetTabs" ref={sheetTabsRef}>
+            <div className="workbench-mainView-tab-measure" ref={sheetTabsMeasureRef} aria-hidden>
+              {sheets.map((tabSheet) => (
+                <span key={tabSheet.id} className={`workbench-mainView-tab${tabSheet.id === sheet?.id && hasActiveSheet ? ' active' : ''}`}>
+                  {tabSheet.parent ? <GitFork size={13} className="workbench-mainView-tab-glyph" /> : <SheetGlyph size={13} className="workbench-mainView-tab-glyph" />}
+                  <span className="workbench-mainView-tab-name">{tabSheet.name}</span>
+                  {tabSheet.parent && tabSheet.syncState && <span className="workbench-mainView-tab-syncDot" />}
+                  {tabSheet.id === sheet?.id && hasActiveSheet && <>
+                    <span className="workbench-mainView-tab-rowcount">{tabSheet.rowCount.toLocaleString()}</span>
+                    {tabSheet.parent && <span className="workbench-mainView-tab-info"><Info size={12} /></span>}
+                    <span className="workbench-mainView-tab-info"><Trash2 size={12} /></span>
+                  </>}
+                </span>
+              ))}
+            </div>
+          {visibleSheets.map((tabSheet) => {
             const active =
               sheet?.id === tabSheet.id &&
               !activePromotedView &&
@@ -2118,6 +2163,49 @@ const WorkspaceMainViewTabs = memo(function WorkspaceMainViewTabs() {
               </button>
             );
           })}
+            {overflowSheets.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  ref={moreTabsTriggerRef}
+                  className={`workbench-mainView-moreTabs${moreTabsOpen ? ' open' : ''}`}
+                  data-testid="workbench-mainView-more-tabs"
+                  aria-label="More tabs"
+                  title="More tabs"
+                  aria-haspopup="menu"
+                  aria-expanded={moreTabsOpen}
+                  onClick={() => setMoreTabsOpen((open) => !open)}
+                >
+                  <ChevronRight size={16} aria-hidden />
+                </button>
+                {moreTabsOpen && (
+                  <MenuPop
+                    ref={moreTabsMenuRef}
+                    className="workbench-mainView-moreTabsMenu"
+                    style={moreTabsPosition
+                      ? { position: 'fixed', inset: 'auto', top: moreTabsPosition.top, bottom: moreTabsPosition.bottom, left: moreTabsPosition.left, width: moreTabsPosition.width, margin: 0 }
+                      : { position: 'fixed', visibility: 'hidden' }}
+                  >
+                    {overflowSheets.map((tabSheet) => (
+                      <button
+                        key={tabSheet.id}
+                        type="button"
+                        role="menuitem"
+                        className={`menu-item${tabSheet.id === sheet?.id ? ' current' : ''}`}
+                        onClick={() => {
+                          selectSheetTab(tabSheet.id);
+                          setMoreTabsOpen(false);
+                        }}
+                      >
+                        {tabSheet.parent ? <GitFork size={13} aria-hidden /> : <SheetGlyph size={13} aria-hidden />}
+                        <span className="menu-item-name">{tabSheet.name}</span>
+                      </button>
+                    ))}
+                  </MenuPop>
+                )}
+              </>
+            )}
+          </div>
           {activePreviewView && (
             <span
               className="workbench-mainView-tab workbench-mainView-previewTab active"

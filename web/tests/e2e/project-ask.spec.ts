@@ -67,13 +67,28 @@ test('Ask stays docked, keeps its draft, and reconnects to saved progress', asyn
   await expect(sourcePicker).toBeVisible();
   await expect(sourcePicker.getByRole('checkbox', { name: 'Whole project', exact: true })).not.toBeChecked();
   await sourcePicker.getByRole('button', { name: 'Use sources', exact: true }).click();
-  await dock.getByRole('textbox', { name: 'Question', exact: true }).fill('What changed?');
+  const question = dock.getByRole('textbox', { name: 'Question', exact: true });
+  await expect(question).toHaveCSS('resize', 'none');
+  const initialHeight = await question.evaluate((element) => element.getBoundingClientRect().height);
+  const lineHeight = await question.evaluate((element) => Number.parseFloat(getComputedStyle(element).lineHeight));
+  expect(initialHeight).toBeLessThan(lineHeight * 2);
+  await page.screenshot({ path: test.info().outputPath('ask-single-line.png'), fullPage: true });
+  await question.fill('First line\nSecond line\nThird line');
+  await expect.poll(() => question.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThan(initialHeight * 2);
+  await question.fill('');
+  await expect.poll(() => question.evaluate((element) => element.getBoundingClientRect().height)).toBe(initialHeight);
+  await question.fill('A question that wraps naturally across several lines in the composer. '.repeat(5));
+  await expect.poll(() => question.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThan(initialHeight * 2);
+  await page.screenshot({ path: test.info().outputPath('ask-growing-input.png'), fullPage: true });
+  await question.fill('What changed?');
   await dock.getByRole('button', { name: 'Collapse Ask' }).click();
   await expect(dock).not.toBeVisible();
   await page.getByTestId('chrome-ask-toggle').click();
   await expect(dock.getByRole('textbox', { name: 'Question', exact: true })).toHaveValue('What changed?');
   await dock.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(dock.getByRole('button', { name: 'Stop', exact: true })).toBeVisible();
+  await expect(question).toHaveValue('');
+  await expect.poll(() => question.evaluate((element) => element.getBoundingClientRect().height)).toBe(initialHeight);
   await expect(dock.getByText('The council approved the contract.', { exact: true })).toBeVisible();
   await expect(dock.getByRole('button', { name: 'Stop', exact: true })).not.toBeVisible();
   await expect(dock.getByText('Checking sources', { exact: true })).toHaveCount(1);
@@ -121,6 +136,8 @@ test('Ask stays docked, keeps its draft, and reconnects to saved progress', asyn
   await expect(page.getByTestId('action-form-title')).toContainText('Add a note');
   await expect(dock).toBeVisible();
   await page.screenshot({ path: test.info().outputPath('ask-docked.png'), fullPage: true });
+  await page.evaluate(() => { document.documentElement.dataset.frisketTheme = 'dark'; });
+  await page.screenshot({ path: test.info().outputPath('ask-dark.png'), fullPage: true });
 });
 
 

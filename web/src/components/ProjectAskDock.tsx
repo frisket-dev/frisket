@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronLeft, Plus, Send, Square } from 'lucide-react';
 import type { GeneratedActionDraft, SheetMeta } from '../api/types';
 import type { AskScope, AskCitation } from '../api/projectQA';
@@ -32,6 +32,7 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
   const threadTriggerRef = useRef<HTMLButtonElement>(null);
   const optionsMenuRef = useRef<HTMLDivElement | null>(null);
   const optionsTriggerRef = useRef<HTMLButtonElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollNextMessage = useRef(false);
   const setOptionsMenuRef = useCallback((node: HTMLDivElement | null) => {
     optionsMenuRef.current = node;
@@ -77,6 +78,26 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
     qa.setOptions({ model: requestModel });
     void qa.send();
   };
+  const resizeComposer = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 180)}px`;
+    textarea.style.overflowY = textarea.scrollHeight > 180 ? 'auto' : 'hidden';
+  }, []);
+  useLayoutEffect(resizeComposer, [resizeComposer, state.draft]);
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return undefined;
+    let width = textarea.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (textarea.clientWidth === width) return;
+      width = textarea.clientWidth;
+      resizeComposer();
+    });
+    observer.observe(textarea);
+    return () => observer.disconnect();
+  }, [resizeComposer]);
 
   return <aside className="ask-dock" aria-label="Ask your project" data-testid="ask-dock">
     <header className="ask-header"><strong>Ask</strong>
@@ -110,7 +131,7 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
       </div>
       {state.scope && !scopeMatchesCurrentView && <div className="ask-scope-mismatch"><span>Viewing {currentViewLabel}</span><button type="button" onClick={() => qa.setOptions({ scope: initialScope })}>{contextIsSelection ? 'Use current selection' : 'Use this sheet'}</button></div>}
       <div className="ask-compose-box">
-        <textarea aria-label="Question" placeholder={state.thread ? 'Follow up in this conversation…' : 'Ask about your project…'} value={state.draft} onChange={(event) => qa.setDraft(event.target.value)}
+        <textarea ref={textareaRef} rows={1} aria-label="Question" placeholder={state.thread ? 'Follow up in this conversation…' : 'Ask about your project…'} value={state.draft} onChange={(event) => qa.setDraft(event.target.value)}
           onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && !state.activeTurn && canSend) { event.preventDefault(); send(); } }} />
         <div className="ask-compose-controls">
           <button type="button" className="ask-options-trigger" ref={optionsTriggerRef} data-testid="ask-options-trigger" aria-label="Ask options" title="Ask options" aria-haspopup="dialog" aria-expanded={optionsOpen} onClick={() => setOptionsOpen((open) => !open)}><Plus size={16} aria-hidden /></button>
