@@ -32,23 +32,17 @@ if (!purifierGlobal.__frisketMarkdownLinkHookInstalled) {
  * survives HTML URL parsing). Keep the sanitizer, then translate its DOM
  * fragment into React nodes instead of injecting sanitized strings.
  */
-function renderMarkdown(src: string, renderLink?: MarkdownViewProps['renderLink']): ReactNode {
-  const html = marked.parse(src) as string;
-  return sanitizeToReact(html, renderLink);
-}
-
 function renderHtml(src: string): ReactNode {
-  return sanitizeToReact(src);
+  return domNodesToReact(sanitizeHtml(src).childNodes, 'root');
 }
 
-function sanitizeToReact(src: string, renderLink?: MarkdownViewProps['renderLink']): ReactNode {
-  const fragment = DOMPurify.sanitize(src, {
+function sanitizeHtml(src: string): DocumentFragment {
+  return DOMPurify.sanitize(src, {
     FORBID_TAGS: ['style', 'form'],
     FORCE_BODY: true,
     USE_PROFILES: { html: true },
     RETURN_DOM_FRAGMENT: true,
   });
-  return domNodesToReact(fragment.childNodes, 'root', renderLink);
 }
 
 function domNodesToReact(nodes: NodeListOf<ChildNode>, keyPrefix: string, renderLink?: MarkdownViewProps['renderLink']): ReactNode[] {
@@ -151,7 +145,8 @@ export interface MarkdownViewProps {
 /** Rendered markdown block (row drawer / detail surfaces). */
 export function MarkdownView({ source, className, testId, decodeEscapes, renderLink }: MarkdownViewProps) {
   const renderedSource = decodeEscapes ? decodeEscapedText(source) : source;
-  const content = useMemo(() => renderMarkdown(renderedSource, renderLink), [renderedSource, renderLink]);
+  const fragment = useMemo(() => sanitizeHtml(marked.parse(renderedSource) as string), [renderedSource]);
+  const content = useMemo(() => domNodesToReact(fragment.childNodes, 'root', renderLink), [fragment, renderLink]);
   return (
     <div
       className={`markdown-body${className ? ` ${className}` : ''}`}
