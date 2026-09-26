@@ -60,6 +60,7 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
+    ModelResponsePart,
     SystemPromptPart,
     TextPart,
     ToolCallPart,
@@ -467,9 +468,14 @@ class FrisketRouterModel(Model):
                     if p.part_kind == "text":
                         text_parts.append(p.content)
                     elif p.part_kind == "tool-call":
+                        # Provider-owned continuation metadata is valid only for
+                        # the provider that minted it. The logical call below is
+                        # sufficient when history is deliberately moved between
+                        # models/providers.
                         details = (
                             p.provider_details
-                            if isinstance(p.provider_details, dict)
+                            if m.provider_name == self.system
+                            and isinstance(p.provider_details, dict)
                             else {}
                         )
                         wire_content = details.get(_WIRE_CONTENT)
@@ -568,6 +574,11 @@ class FrisketRouterModel(Model):
                 tool_call_id = resp.output_tool_call["id"]
             elif resp.content is not None:
                 provider_details = {_WIRE_CONTENT: resp.content}
+            else:
+                # Legacy schema-only cache entries predate physical output-tool
+                # identity. Replay their logical result as assistant JSON so a
+                # validation retry never invents a provider-native tool call.
+                provider_details = {_WIRE_CONTENT: json.dumps(data)}
             return ModelResponse(
                 parts=[
                     ToolCallPart(
@@ -583,20 +594,28 @@ class FrisketRouterModel(Model):
                 ],
                 usage=usage,
                 model_name=self.model_name,
+                provider_name=self.system,
             )
         if resp.tool_calls:
+            parts: list[ModelResponsePart] = (
+                [TextPart(content=resp.content)]
+                if isinstance(resp.content, str) and resp.content
+                else []
+            )
+            parts.extend(
+                ToolCallPart(
+                    tool_name=tc["name"],
+                    args=tc["args"],
+                    tool_call_id=tc["id"],
+                    provider_details=tc.get("provider_details"),
+                )
+                for tc in resp.tool_calls
+            )
             return ModelResponse(
-                parts=[
-                    ToolCallPart(
-                        tool_name=tc["name"],
-                        args=tc["args"],
-                        tool_call_id=tc["id"],
-                        provider_details=tc.get("provider_details"),
-                    )
-                    for tc in resp.tool_calls
-                ],
+                parts=parts,
                 usage=usage,
                 model_name=self.model_name,
+                provider_name=self.system,
             )
         if data is not None:
             text = json.dumps(data)
@@ -605,7 +624,10 @@ class FrisketRouterModel(Model):
         else:
             text = ""
         return ModelResponse(
-            parts=[TextPart(content=text)], usage=usage, model_name=self.model_name
+            parts=[TextPart(content=text)],
+            usage=usage,
+            model_name=self.model_name,
+            provider_name=self.system,
         )
 
 

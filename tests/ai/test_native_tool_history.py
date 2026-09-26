@@ -8,21 +8,24 @@ from typing import Any
 import httpx
 from pydantic import BaseModel
 from pydantic_ai import Agent
+from pydantic_ai.messages import ModelResponse, ToolCallPart
 
 from frisket.ai.llm.cache import request_key
 from frisket.ai.llm.router import ModelRouter
 from frisket.ai.llm.structured import FrisketRouterModel
-from frisket.ai.llm.types import LLMRequest
+from frisket.ai.llm.types import LLMRequest, LLMResponse
 
 
-def _openai_tool_call(call_id: str, sheet_id: int) -> dict[str, Any]:
+def _openai_tool_call(
+    call_id: str, sheet_id: int, *, text: str | None = None
+) -> dict[str, Any]:
     return {
         "id": "chat-tool",
         "choices": [
             {
                 "message": {
                     "role": "assistant",
-                    "content": None,
+                    "content": text,
                     "tool_calls": [
                         {
                             "id": call_id,
@@ -61,18 +64,24 @@ def _openai_text(text: str) -> dict[str, Any]:
     }
 
 
-def _anthropic_tool_call(call_id: str, sheet_id: int) -> dict[str, Any]:
+def _anthropic_tool_call(
+    call_id: str, sheet_id: int, *, text: str | None = None
+) -> dict[str, Any]:
+    content: list[dict[str, Any]] = []
+    if text is not None:
+        content.append({"type": "text", "text": text})
+    content.append(
+        {
+            "type": "tool_use",
+            "id": call_id,
+            "name": "read_rows",
+            "input": {"sheet_id": sheet_id, "limit": 2},
+        }
+    )
     return {
         "id": "msg-tool",
         "stop_reason": "tool_use",
-        "content": [
-            {
-                "type": "tool_use",
-                "id": call_id,
-                "name": "read_rows",
-                "input": {"sheet_id": sheet_id, "limit": 2},
-            }
-        ],
+        "content": content,
         "usage": {"input_tokens": 10, "output_tokens": 5},
     }
 
@@ -187,7 +196,9 @@ def test_gemini_followup_request_preserves_openai_native_tool_history() -> None:
         _run_tool_rounds(
             "gemini",
             [
-                _openai_tool_call("read-call-7", 1),
+                _openai_tool_call(
+                    "read-call-7", 1, text="I will inspect sheet 1 first."
+                ),
                 _openai_tool_call("read-call-8", 2),
                 _openai_text("The permit decision was deferred."),
             ],
@@ -214,6 +225,8 @@ def test_gemini_followup_request_preserves_openai_native_tool_history() -> None:
     ):
         assistant, result = pair
         [tool_call] = assistant["tool_calls"]
+        if call_id == "read-call-7":
+            assert assistant["content"] == "I will inspect sheet 1 first."
         assert tool_call["id"] == call_id
         assert tool_call["extra_content"] == {
             "google": {"thought_signature": f"synthetic-{call_id}-signature"}
@@ -232,7 +245,9 @@ def test_anthropic_followup_request_preserves_native_tool_history() -> None:
         _run_tool_rounds(
             "anthropic",
             [
-                _anthropic_tool_call("read-call-7", 1),
+                _anthropic_tool_call(
+                    "read-call-7", 1, text="I will inspect sheet 1 first."
+                ),
                 _anthropic_tool_call("read-call-8", 2),
                 _anthropic_text("The permit was deferred."),
             ],
@@ -262,7 +277,14 @@ def test_anthropic_followup_request_preserves_native_tool_history() -> None:
         strict=True,
     ):
         assistant, result = pair
-        [tool_use] = assistant["content"]
+        [tool_use] = [
+            part for part in assistant["content"] if part["type"] == "tool_use"
+        ]
+        if call_id == "read-call-7":
+            assert assistant["content"][0] == {
+                "type": "text",
+                "text": "I will inspect sheet 1 first.",
+            }
         [tool_result] = result["content"]
         assert tool_use == {
             "type": "tool_use",
@@ -406,6 +428,82 @@ def test_schema_repair_uses_only_the_provider_native_history_shape() -> None:
     assert repair["messages"][-1]["role"] == "user"
 
 
+class _LegacySchemaRouter:
+    def __init__(self) -> None:
+        self.requests: list[LLMRequest] = []
+
+    async def complete_transport(
+        self, request: LLMRequest, *, recipe_version: str, trace: Any = None
+    ) -> LLMResponse:
+        del recipe_version, trace
+        self.requests.append(request)
+        return LLMResponse(
+            content=None,
+            data=None if len(self.requests) == 1 else {"count": 2},
+            tokens_in=1,
+            tokens_out=1,
+            cost=0.0,
+            model=request.model,
+        )
+
+
+def test_legacy_schema_response_without_call_identity_replays_as_text() -> None:
+    router = _LegacySchemaRouter()
+    agent = Agent(
+        FrisketRouterModel(
+            router,  # type: ignore[arg-type]
+            "anthropic/claude-sonnet-4-5",
+            mechanism="native_tool",
+        ),
+        output_type=_CountAnswer,
+        retries=1,
+    )
+
+    result = asyncio.run(agent.run("How many permits are there?"))
+
+    assert result.output == _CountAnswer(count=2)
+    repair_messages = router.requests[1].messages
+    assert not any(
+        message.get("tool_calls") or message["role"] == "tool"
+        for message in repair_messages
+    )
+    assert repair_messages[-2] == {
+        "role": "assistant",
+        "content": "null",
+    }
+    assert repair_messages[-1]["role"] == "user"
+
+
+def test_provider_metadata_is_read_only_by_the_provider_that_minted_it() -> None:
+    response = ModelResponse(
+        parts=[
+            ToolCallPart(
+                tool_name="read_rows",
+                args={"sheet_id": 1},
+                tool_call_id="read-call-7",
+                provider_details={
+                    "extra_content": {
+                        "google": {"thought_signature": "synthetic-signature"}
+                    }
+                },
+            )
+        ],
+        model_name="gemini-3-flash-preview",
+        provider_name="gemini",
+    )
+    router = ModelRouter(keys={}, use_env_keys=False)
+    gemini = FrisketRouterModel(router, "gemini/gemini-3-flash-preview")
+    anthropic = FrisketRouterModel(router, "anthropic/claude-sonnet-4-5")
+
+    [gemini_message] = gemini._to_our_messages([response])  # noqa: SLF001
+    [anthropic_message] = anthropic._to_our_messages([response])  # noqa: SLF001
+
+    assert gemini_message["tool_calls"][0]["provider_details"] == {
+        "extra_content": {"google": {"thought_signature": "synthetic-signature"}}
+    }
+    assert "provider_details" not in anthropic_message["tool_calls"][0]
+
+
 def _legacy_v3_request_key(request: LLMRequest, recipe_version: str) -> str:
     canonical: dict[str, Any] = {
         "v": 3,
@@ -427,38 +525,35 @@ def _legacy_v3_request_key(request: LLMRequest, recipe_version: str) -> str:
 
 
 def test_native_history_requests_do_not_replay_legacy_response_shapes() -> None:
-    requests = [
-        LLMRequest(
-            model="gemini/gemini-3-flash-preview",
-            messages=[{"role": "user", "content": "Read the permit rows."}],
-            tools=[
-                {
-                    "name": "read_rows",
-                    "description": "Read selected rows.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {"sheet_id": {"type": "integer"}},
-                        "required": ["sheet_id"],
-                    },
-                }
-            ],
-        ),
-        LLMRequest(
-            model="anthropic/claude-sonnet-4-5",
-            messages=[{"role": "user", "content": "Count the permits."}],
-            schema={
-                "type": "object",
-                "properties": {"count": {"type": "integer"}},
-                "required": ["count"],
-            },
-            mechanism="native_tool",
-        ),
-    ]
+    tools_request = LLMRequest(
+        model="gemini/gemini-3-flash-preview",
+        messages=[{"role": "user", "content": "Read the permit rows."}],
+        tools=[
+            {
+                "name": "read_rows",
+                "description": "Read selected rows.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"sheet_id": {"type": "integer"}},
+                    "required": ["sheet_id"],
+                },
+            }
+        ],
+    )
+    schema_request = LLMRequest(
+        model="anthropic/claude-sonnet-4-5",
+        messages=[{"role": "user", "content": "Count the permits."}],
+        schema={
+            "type": "object",
+            "properties": {"count": {"type": "integer"}},
+            "required": ["count"],
+        },
+        mechanism="native_tool",
+    )
 
-    legacy_collisions = [
-        request.model
-        for request in requests
-        if request_key(request, "project_qa.v1")
-        == _legacy_v3_request_key(request, "project_qa.v1")
-    ]
-    assert legacy_collisions == []
+    assert request_key(tools_request, "project_qa.v1") != _legacy_v3_request_key(
+        tools_request, "project_qa.v1"
+    )
+    assert request_key(schema_request, "project_qa.v1") == _legacy_v3_request_key(
+        schema_request, "project_qa.v1"
+    )
