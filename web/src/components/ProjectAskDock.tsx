@@ -85,14 +85,19 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
     textarea.style.height = `${Math.min(textarea.scrollHeight, 180)}px`;
     textarea.style.overflowY = textarea.scrollHeight > 180 ? 'auto' : 'hidden';
   }, []);
-  useLayoutEffect(() => {
+  useLayoutEffect(resizeComposer, [resizeComposer, state.draft]);
+  useEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea) return undefined;
-    resizeComposer();
-    const observer = new ResizeObserver(resizeComposer);
+    let width = textarea.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (textarea.clientWidth === width) return;
+      width = textarea.clientWidth;
+      resizeComposer();
+    });
     observer.observe(textarea);
     return () => observer.disconnect();
-  }, [resizeComposer, state.draft]);
+  }, [resizeComposer]);
 
   return <aside className="ask-dock" aria-label="Ask your project" data-testid="ask-dock">
     <header className="ask-header"><strong>Ask</strong>

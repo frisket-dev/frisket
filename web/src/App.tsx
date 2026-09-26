@@ -2011,6 +2011,9 @@ const WorkspaceMainViewTabs = memo(function WorkspaceMainViewTabs() {
     sheet,
     hasActiveSheet,
   );
+  useEffect(() => {
+    if (overflowSheets.length === 0) setMoreTabsOpen(false);
+  }, [overflowSheets.length]);
   useNativePopover(moreTabsMenuRef, () => setMoreTabsOpen(false), {
     enabled: moreTabsOpen,
     ignoreSelector: '[data-testid="workbench-mainView-more-tabs"]',
@@ -2034,10 +2037,15 @@ const WorkspaceMainViewTabs = memo(function WorkspaceMainViewTabs() {
           <div className="workbench-mainView-sheetTabs" ref={sheetTabsRef}>
             <div className="workbench-mainView-tab-measure" ref={sheetTabsMeasureRef} aria-hidden>
               {sheets.map((tabSheet) => (
-                <span key={tabSheet.id} className="workbench-mainView-tab">
+                <span key={tabSheet.id} className={`workbench-mainView-tab${tabSheet.id === sheet?.id && hasActiveSheet ? ' active' : ''}`}>
                   {tabSheet.parent ? <GitFork size={13} className="workbench-mainView-tab-glyph" /> : <SheetGlyph size={13} className="workbench-mainView-tab-glyph" />}
                   <span className="workbench-mainView-tab-name">{tabSheet.name}</span>
-                  {tabSheet.id === sheet?.id && hasActiveSheet && <><span className="workbench-mainView-tab-rowcount">{tabSheet.rowCount.toLocaleString()}</span><span className="workbench-mainView-tab-info" /><span className="workbench-mainView-tab-info" /></>}
+                  {tabSheet.parent && tabSheet.syncState && <span className="workbench-mainView-tab-syncDot" />}
+                  {tabSheet.id === sheet?.id && hasActiveSheet && <>
+                    <span className="workbench-mainView-tab-rowcount">{tabSheet.rowCount.toLocaleString()}</span>
+                    {tabSheet.parent && <span className="workbench-mainView-tab-info"><Info size={12} /></span>}
+                    <span className="workbench-mainView-tab-info"><Trash2 size={12} /></span>
+                  </>}
                 </span>
               ))}
             </div>
