@@ -374,6 +374,8 @@ jobs:
           derive-object-list.spec.ts
           explain-cell.spec.ts
           golden-extract-people-search.spec.ts
+          project-ask.spec.ts
+          sheet-tab-overflow.spec.ts
           workbench-ia-sheet-tabs.spec.ts
         working-directory: web
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
