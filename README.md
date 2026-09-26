@@ -77,6 +77,8 @@ export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
 The generic endpoint gets `/v1/traces` appended. If you use
 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, include the full trace path instead.
 `OTEL_SDK_DISABLED=true` or `OTEL_TRACES_EXPORTER=none` disables export.
+An unsupported protocol or malformed header also disables Ask tracing and logs
+a warning that names the invalid setting without logging its value.
 
 Only the Project Ask chatbot is instrumented. Prompt, completion, and tool
 payloads are excluded by default; traces still include model, token, timing,

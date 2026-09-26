@@ -12,6 +12,7 @@ from opentelemetry.sdk.trace.export import (
     SpanExporter,
     SpanExportResult,
 )
+from opentelemetry.trace import StatusCode
 from pydantic_ai import Agent
 from pydantic_ai.models.instrumented import InstrumentationSettings
 from pydantic_ai.models.test import TestModel
@@ -19,9 +20,12 @@ from pydantic_ai.models.test import TestModel
 from frisket.ai.llm import LLMError, ModelRouter
 from frisket.ai.llm.types import LLMResponse
 from frisket.contracts.http.project_qa import AskThreadCreate, AskTurnRequest
+from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.server.services import project_qa as project_qa_service
 from frisket.server.services import project_qa_tracing
 from frisket.server.services.project_qa import ProjectQAService
+from frisket.server.services.project_qa_runner import run_turn
+from frisket.server.services.project_qa_tools import ProjectQATools
 from frisket.server.services.project_qa_tracing import ProjectQATracing
 from frisket.server.workspace import Workspace
 
@@ -116,23 +120,21 @@ def test_standard_otlp_opt_outs_disable_ask_tracing(monkeypatch, name, value):
     assert project_qa_tracing.build_project_qa_tracing() is None
 
 
-def test_unsupported_protocol_names_only_the_offending_knob(monkeypatch):
+def test_unsupported_protocol_disables_only_tracing(monkeypatch, caplog):
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://api.example/otel")
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "grpc")
-    with pytest.raises(ValueError) as raised:
-        project_qa_tracing.build_project_qa_tracing()
-    assert "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL" in str(raised.value)
+    assert project_qa_tracing.build_project_qa_tracing() is None
+    assert "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL" in caplog.text
+    assert "grpc" not in caplog.text
 
 
 def test_malformed_headers_do_not_reach_errors_or_logs(monkeypatch, caplog):
     secret = "not-a-real-secret-value"
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://api.example/otel")
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_HEADERS", f"Authorization {secret}")
-    with pytest.raises(ValueError) as raised:
-        project_qa_tracing.build_project_qa_tracing()
-    observed = str(raised.value) + caplog.text
-    assert "OTEL_EXPORTER_OTLP_HEADERS" in observed
-    assert secret not in observed
+    assert project_qa_tracing.build_project_qa_tracing() is None
+    assert "OTEL_EXPORTER_OTLP_HEADERS" in caplog.text
+    assert secret not in caplog.text
 
 
 def test_actual_http_export_honors_content_opt_in(monkeypatch):
@@ -294,6 +296,134 @@ def test_ask_only_metadata_spans_survive_export_failure_and_shutdown_once(
         assert sheet_name not in trace_text
         assert "sibling-agent-sentinel" not in trace_text
         assert "untraced sibling" not in trace_text
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("include_content", [False, True], ids=["metadata", "content"])
+def test_ask_tool_exception_details_follow_content_setting(
+    tmp_path, monkeypatch, include_content
+):
+    async def scenario():
+        exporters: list[_CaptureExporter] = []
+
+        def exporter(**kwargs):
+            created = _CaptureExporter(**kwargs)
+            exporters.append(created)
+            return created
+
+        monkeypatch.setattr(project_qa_tracing, "OTLPSpanExporter", exporter)
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://api.example/otel")
+        monkeypatch.setenv(
+            "FRISKET_ASK_TRACE_CONTENT", "true" if include_content else "false"
+        )
+        tracing = project_qa_tracing.build_project_qa_tracing()
+        assert tracing is not None
+
+        secret = "private-project-tool-exception-sentinel"
+
+        class Adapter:
+            async def complete(self, request, client):
+                return LLMResponse(
+                    content=None,
+                    data=None,
+                    model=request.model,
+                    tokens_in=1,
+                    tokens_out=1,
+                    cost=0.0,
+                    tool_calls=[
+                        {
+                            "name": "read_rows",
+                            "args": {"sheet_id": 1},
+                            "id": "read-1",
+                        }
+                    ],
+                )
+
+        router = ModelRouter(
+            keys={"anthropic": "test"},
+            key_sources={"anthropic": "platform_key"},
+            cache=None,
+            cache_mode="off",
+            use_env_keys=False,
+        )
+        router._adapters["anthropic"] = Adapter()
+        workspace = Workspace(tmp_path / "ws", router=router)
+        pid = workspace.create("Ask")["id"]
+        project = workspace.get(pid)
+        project.add_sheet("Evidence")
+        store = ProjectQAStore(project)
+        thread = store.create_thread(title="Ask", scope={"kind": "project"})
+        turn = store.submit_turn(
+            thread["id"],
+            request_id="tool-error",
+            question="private question",
+            scope={"kind": "project"},
+            model="anthropic/test",
+        )
+
+        def broken_read(*args, **kwargs):
+            raise RuntimeError(secret)
+
+        monkeypatch.setattr(ProjectQATools, "read_rows", broken_read)
+        try:
+            with pytest.raises(RuntimeError, match=secret):
+                await run_turn(
+                    project,
+                    router,
+                    turn,
+                    store,
+                    instrumentation=tracing.instrumentation,
+                )
+        finally:
+            tracing.shutdown()
+            project.close()
+
+        spans = exporters[0].spans
+        exception_events = [
+            event
+            for span in spans
+            for event in span.events
+            if event.name == "exception"
+        ]
+        assert exception_events
+        assert any(
+            str((event.attributes or {}).get("exception.type", "")).endswith(
+                "RuntimeError"
+            )
+            for event in exception_events
+        )
+        assert any(span.status.status_code is StatusCode.ERROR for span in spans)
+        trace_text = repr(
+            [
+                (
+                    span.name,
+                    span.attributes,
+                    [(event.name, event.attributes) for event in span.events],
+                    span.status.description,
+                )
+                for span in spans
+            ]
+        )
+
+        if include_content:
+            assert any(
+                secret in str((event.attributes or {}).get("exception.message", ""))
+                for event in exception_events
+            )
+            assert any(
+                secret in str((event.attributes or {}).get("exception.stacktrace", ""))
+                for event in exception_events
+            )
+            assert any(secret in str(span.status.description) for span in spans)
+        else:
+            assert all(
+                "exception.message" not in (event.attributes or {})
+                and "exception.stacktrace" not in (event.attributes or {})
+                for event in exception_events
+            )
+            assert all(span.status.description is None for span in spans)
+            assert secret not in trace_text
 
     asyncio.run(scenario())
 
