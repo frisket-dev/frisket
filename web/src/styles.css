@@ -11057,8 +11057,9 @@ dialog.modal-card::backdrop {
   width: 30px; height: 30px; border-radius: var(--radius-8);
   color: var(--text-mid); background: transparent;
 }
-.chrome-ask-btn:hover, .chrome-account-btn:hover { background: var(--bg-hover); }
-.chrome-ask-btn.open { background: var(--accent-bg); color: var(--accent); }
+.chrome-account-btn:hover { background: var(--bg-hover); }
+.chrome-ask-btn { background: var(--accent); color: var(--text-on-solid); }
+.chrome-ask-btn:hover, .chrome-ask-btn.open { background: var(--accent-strong); }
 
 /* ---- Guided walkthrough --------------------------------------------------- */
 .walkthrough-target-box {

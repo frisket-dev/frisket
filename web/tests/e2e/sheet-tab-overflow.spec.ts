@@ -6,7 +6,7 @@ test('extra sheets are available through a menu without a tab scrollbar', async 
   const pid = await createProject(page.request, uniqueName('sheet-overflow'));
   const sheets: { id: string; name: string }[] = [];
   for (let index = 1; index <= 14; index += 1) {
-    const name = `Council report ${String(index).padStart(2, '0')}`;
+    const name = index === 14 ? 'Council report with a much longer descriptive title' : `Council report ${String(index).padStart(2, '0')}`;
     sheets.push({ name, id: await importCsv(page.request, pid, `${name}.csv`, 'note\nA council decision.\n') });
   }
   await openProject(page, pid, sheets[0].id);
@@ -24,6 +24,10 @@ test('extra sheets are available through a menu without a tab scrollbar', async 
   const selected = page.getByTestId(`workbench-mainView-tab-${last.id}`);
   await expect(selected).toHaveAttribute('aria-selected', 'true');
   await expect(selected).toBeInViewport();
+  const selectedBounds = await selected.boundingBox();
+  const moreBounds = await more.boundingBox();
+  expect(selectedBounds!.x + selectedBounds!.width).toBeLessThanOrEqual(moreBounds!.x);
+  expect(moreBounds!.x + moreBounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
   await expect(menu).not.toBeVisible();
   await selected.focus();
   await page.keyboard.press('Home');

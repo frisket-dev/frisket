@@ -126,7 +126,7 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
       </div>
       {state.scope && !scopeMatchesCurrentView && <div className="ask-scope-mismatch"><span>Viewing {currentViewLabel}</span><button type="button" onClick={() => qa.setOptions({ scope: initialScope })}>{contextIsSelection ? 'Use current selection' : 'Use this sheet'}</button></div>}
       <div className="ask-compose-box">
-        <textarea ref={textareaRef} aria-label="Question" placeholder={state.thread ? 'Follow up in this conversation…' : 'Ask about your project…'} value={state.draft} onChange={(event) => qa.setDraft(event.target.value)}
+        <textarea ref={textareaRef} rows={1} aria-label="Question" placeholder={state.thread ? 'Follow up in this conversation…' : 'Ask about your project…'} value={state.draft} onChange={(event) => qa.setDraft(event.target.value)}
           onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && !state.activeTurn && canSend) { event.preventDefault(); send(); } }} />
         <div className="ask-compose-controls">
           <button type="button" className="ask-options-trigger" ref={optionsTriggerRef} data-testid="ask-options-trigger" aria-label="Ask options" title="Ask options" aria-haspopup="dialog" aria-expanded={optionsOpen} onClick={() => setOptionsOpen((open) => !open)}><Plus size={16} aria-hidden /></button>
