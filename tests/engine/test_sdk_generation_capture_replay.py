@@ -624,26 +624,21 @@ def test_rich_input_provenance_is_scoped_or_typed_refused(sheet) -> None:
         }
     }
     assert (
-        action_proposals.validate_proposals(
+        action_proposals.validate_action_proposal(
             project,
             {
-                "proposals": [
-                    {
-                        "kind": "map",
-                        "title": "Ask about generated text",
-                        "spec": {
-                            "action_kind": "map.ask",
-                            "sheet_id": sheet_id,
-                            "source": ["generated"],
-                            "model": "anthropic/claude-haiku-4-5",
-                            "question": "What happened?",
-                            "output_names": {"answer": "answer"},
-                        },
-                    }
-                ]
+                "action_id": "map.ask",
+                "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
+                "params": {
+                    "source": ["generated"],
+                    "model": "anthropic/claude-haiku-4-5",
+                    "question": "What happened?",
+                },
+                "output_names": {"answer": "answer"},
             },
+            title="Ask about generated text",
         )
-        == []
+        is None
     )
 
     summary_column_id = project.add_column(

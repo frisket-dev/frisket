@@ -22,7 +22,7 @@ from frisket.search import search_cells_scoped
 from frisket.semantic import semantic_passage_search
 from frisket.authoring.action_proposals import (
     proposal_action_ids,
-    validate_action_proposals,
+    validate_action_proposal,
 )
 from frisket.authoring.project_ask import (
     PROJECT_ASK_CREATE_SHEET_KINDS,
@@ -1047,16 +1047,8 @@ class ProjectQATools:
             "has_more": len(ranked) > limit,
         }
 
-    def propose_action(
-        self, kind: str, title: str, spec: dict[str, Any]
-    ) -> dict[str, Any]:
-        """Validate and save a review-only flat proposal; Ask cannot execute it.
-
-        ``kind`` is the action-id prefix (for example ``media``). ``spec`` puts
-        ``action_kind``, its target (normally ``sheet_id``), and every action
-        parameter at the top level. It must not contain nested ``params`` or
-        execution authorization.
-        """
+    def propose_action(self, title: str, draft: dict[str, Any]) -> dict[str, Any]:
+        """Validate and save one canonical review-only action draft."""
         if not self.turn["suggest_actions"]:
             raise ProjectQAScopeError("action suggestions are disabled for this turn")
         title = " ".join(title.split())
@@ -1064,16 +1056,17 @@ class ProjectQATools:
             raise ValueError(
                 "proposal title must be concise plain text without Markdown brackets"
             )
-        proposals = validate_action_proposals(
+        spec = validate_action_proposal(
             self.project,
-            [{"kind": kind, "title": title, "spec": spec}],
+            draft,
             scope=self.turn["scope"],
+            title=title,
         )
-        if not proposals:
+        if spec is None:
             raise ProjectQAScopeError(
                 "proposal is not an available action for this project"
             )
-        proposal = proposals[0]
+        proposal = {"title": title, "spec": spec}
         event = self.store.append_event(
             self.turn_id, kind="action_proposal", payload={"proposal": proposal}
         )
@@ -1085,7 +1078,7 @@ class ProjectQATools:
         }
 
     def describe_action(self, action_id: str) -> dict[str, Any]:
-        """Return catalog facts and the flat review-only proposal contract."""
+        """Return catalog facts and the canonical review-only draft contract."""
 
         if not self.turn["suggest_actions"]:
             raise ProjectQAScopeError("action suggestions are disabled for this turn")
@@ -1118,13 +1111,13 @@ class ProjectQATools:
             and "default" in schema
         }
         if entry.kind in PROJECT_ASK_CREATE_SHEET_KINDS:
-            target_fields = (
-                ["sheet_id", "sheet_name"]
+            scope_contract = (
+                {"kind": "sheet_rows", "requires_sheet_id": True}
                 if entry.kind in PROJECT_ASK_ROW_CREATE_SHEET_KINDS
-                else ["sheet_name"]
+                else {"kind": "project"}
             )
         else:
-            target_fields = ["sheet_id"]
+            scope_contract = {"kind": "sheet_rows", "requires_sheet_id": True}
         target = f"#action/{entry.kind}"
         self._action_references.add(target)
         return {
@@ -1137,18 +1130,20 @@ class ProjectQATools:
             "defaults": defaults,
             "source_requirements": entry.ui_hints.get("source_requirements", []),
             "proposal_contract": {
-                "kind": entry.kind.split(".", 1)[0],
-                "spec_format": "flat",
-                "fixed_fields": {"action_kind": entry.kind},
-                "required_fields": [
-                    "action_kind",
-                    *target_fields,
-                    *required_params,
-                ],
-                "optional_fields": [
-                    *[name for name in properties if name not in required_params],
-                    "output_names",
-                ],
+                "fixed_fields": {"action_id": entry.kind},
+                "scope": scope_contract,
+                "params": {
+                    "required": required_params,
+                    "optional": [
+                        name for name in properties if name not in required_params
+                    ],
+                },
+                "output_names": "optional logical-output to column-name mapping",
+                **(
+                    {"sheet_name": "required non-empty output sheet name"}
+                    if entry.kind in PROJECT_ASK_CREATE_SHEET_KINDS
+                    else {}
+                ),
             },
         }
 

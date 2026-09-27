@@ -220,6 +220,26 @@ def test_file_scope_exposes_only_the_selected_cell(tmp_path: Path) -> None:
             tools.read_rows(1, row_ids=[2])
         with pytest.raises(ProjectQAScopeError, match="outside"):
             tools.read_rows(999)
+        proposal = tools.propose_action(
+            "Use the selected file cell",
+            {
+                "action_id": "map.template",
+                "scope": {"kind": "sheet_rows", "sheet_id": 1, "row_ids": [1]},
+                "params": {"template": {"text": "{{Selected}}"}},
+                "output_names": {},
+            },
+        )["proposal"]
+        assert proposal["spec"]["scope"]["row_ids"] == [1]
+        with pytest.raises(ProjectQAScopeError):
+            tools.propose_action(
+                "Read an unselected column",
+                {
+                    "action_id": "map.template",
+                    "scope": {"kind": "sheet_rows", "sheet_id": 1},
+                    "params": {"template": {"text": "{{Private}}"}},
+                    "output_names": {},
+                },
+            )
     finally:
         project.close()
 
@@ -339,15 +359,16 @@ def test_scoped_query_count_search_and_open_source_do_not_widen_rows(
         assert len(opened["passages"][0]["text"]) > 2_000
         assert opened["truncated"] is True
         proposal = tools.propose_action(
-            "map",
             "Copy text",
             {
-                "action_kind": "map.template",
-                "sheet_id": sheet_id,
-                "template": {"text": "{{Text}}"},
+                "action_id": "map.template",
+                "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
+                "params": {"template": {"text": "{{Text}}"}},
+                "output_names": {},
             },
         )["proposal"]
         assert proposal["spec"]["scope"]["row_ids"] == row_ids[:2]
+        assert "kind" not in proposal
         assert store.events(thread["id"])["events"][-1]["kind"] == "action_proposal"
     finally:
         project.close()
@@ -685,6 +706,17 @@ def test_runner_combines_read_and_typed_output_repairs_citations_and_accounts(
         assert "[1](#cite-1)" in instructions
         assert "[Transcribe](#action/media.transcribe)" in instructions
         assert "prepared action" in instructions
+        assert "'action_id':'media.transcribe'" in instructions
+        assert "'scope':{'kind':'sheet_rows','sheet_id':4}" in instructions
+        assert "'params':{'source':'Council audio'}" in instructions
+        assert "action_kind" not in instructions
+        proposal_tool = next(
+            tool
+            for tool in adapter.requests[0].tools or []
+            if tool["name"] == "propose_action"
+        )
+        assert set(proposal_tool["parameters"]["properties"]) == {"title", "draft"}
+        assert "action_id" not in str(proposal_tool["parameters"])
         observations = [
             str(message["content"])
             for request in adapter.requests[1:]
@@ -1077,6 +1109,27 @@ def test_action_proposals_cannot_escape_the_submitted_ask_scope(tmp_path):
     project, store, turn = _project_turn(tmp_path, scope)
     try:
         tools = ProjectQATools(project, turn, store)
+        valid_subset = {
+            "action_id": "map.template",
+            "scope": {"kind": "sheet_rows", "sheet_id": 1, "row_ids": [1]},
+            "params": {"template": {"text": "{{Selected}}"}},
+            "output_names": {},
+        }
+        proposal = tools.propose_action("Selected row", valid_subset)["proposal"]
+        assert proposal["spec"]["scope"]["row_ids"] == [1]
+        with pytest.raises(ProjectQAScopeError):
+            tools.propose_action(
+                "All rows action cannot narrow",
+                {
+                    "action_id": "resolve.substitute",
+                    "scope": {"kind": "sheet_rows", "sheet_id": 1},
+                    "params": {
+                        "source": "Selected",
+                        "mapping": {"visible evidence": "visible"},
+                    },
+                    "output_names": {},
+                },
+            )
         for draft in [
             {
                 "action_id": "map.template",
@@ -1092,11 +1145,16 @@ def test_action_proposals_cannot_escape_the_submitted_ask_scope(tmp_path):
             },
         ]:
             with pytest.raises(ProjectQAScopeError):
-                tools.propose_action("map", "Out of scope", draft)
-        assert not [
-            e
-            for e in store.events(turn["thread_id"])["events"]
-            if e["kind"] == "action_proposal"
-        ]
+                tools.propose_action("Out of scope", draft)
+        assert (
+            len(
+                [
+                    e
+                    for e in store.events(turn["thread_id"])["events"]
+                    if e["kind"] == "action_proposal"
+                ]
+            )
+            == 1
+        )
     finally:
         project.close()
