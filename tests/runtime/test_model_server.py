@@ -209,22 +209,39 @@ def test_real_server_requires_token_and_is_stopped(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(model_server, "runtime_dir", lambda: tmp_path)
     real_spawn = model_server.spawn_service
+    child_log_path = tmp_path / "model-server.log"
+    processes = []
 
-    def spawn_test_factory(argv, **kwargs):
-        kwargs["env"]["PYTHONPATH"] = str(tmp_path)
-        return real_spawn(argv, **kwargs)
+    with child_log_path.open("w+b") as child_log:
 
-    monkeypatch.setattr(model_server, "spawn_service", spawn_test_factory)
+        def spawn_test_factory(argv, **kwargs):
+            kwargs["env"]["PYTHONPATH"] = str(tmp_path)
+            kwargs["stdout"] = child_log
+            kwargs["stderr"] = child_log
+            process = real_spawn(argv, **kwargs)
+            processes.append(process)
+            return process
 
-    owned = model_server.LocalModelServer(environ=environment)
-    assert owned._start_if_installed() is True
-    with pytest.raises(urllib.error.HTTPError) as denied:
-        urllib.request.urlopen(f"{owned.url}/capabilities", timeout=1)  # noqa: S310
-    assert denied.value.code == 403
-    host, port = "127.0.0.1", int(owned.url.rsplit(":", 1)[1])
-    owned.stop()
-    with pytest.raises(OSError):
-        socket.create_connection((host, port), timeout=0.25)
+        monkeypatch.setattr(model_server, "spawn_service", spawn_test_factory)
+
+        owned = model_server.LocalModelServer(environ=environment)
+        host, port = "127.0.0.1", int(owned.url.rsplit(":", 1)[1])
+        try:
+            ready = owned._start_if_installed()
+            child_log.flush()
+            returncode = processes[-1].poll() if processes else "not spawned"
+            child_output = child_log_path.read_text(errors="replace")
+            assert ready is True, (
+                f"model server readiness failed; guardian returncode={returncode}; "
+                f"child log:\n{child_output}"
+            )
+            with pytest.raises(urllib.error.HTTPError) as denied:
+                urllib.request.urlopen(f"{owned.url}/capabilities", timeout=1)  # noqa: S310
+            assert denied.value.code == 403
+        finally:
+            owned.stop()
+        with pytest.raises(OSError):
+            socket.create_connection((host, port), timeout=0.25)
 
 
 def test_real_server_dies_with_its_application_parent(tmp_path):

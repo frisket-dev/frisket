@@ -380,23 +380,19 @@ async def run_turn(
         """Discover actions and exact generic Markdown links to their normal forms."""
         return await source_tool("search_actions", tools.search_actions, query, limit)
 
-    async def propose_action(
-        kind: str, title: str, spec: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def propose_action(title: str, draft: dict[str, Any]) -> dict[str, Any]:
         """Save a prepared review-only action and return its exact Markdown link.
 
-        Use the flat proposal contract from ``describe_action``. Preparing is
+        Use the canonical draft contract from ``describe_action``. Preparing is
         optional: recommend a generic catalog link when required project inputs
         are unknown. This tool validates a draft but never executes it.
         """
         try:
             async with tool_lock:
-                return await await_thread_worker(
-                    tools.propose_action, kind, title, spec
-                )
+                return await await_thread_worker(tools.propose_action, title, draft)
         except ValueError as error:
             raise ModelRetry(
-                "That prepared action is unavailable. Follow describe_action's flat "
+                "That prepared action is unavailable. Follow describe_action's canonical "
                 "proposal contract, or use its generic reference instead."
             ) from error
 
@@ -430,12 +426,12 @@ async def run_turn(
             "example [Transcribe](#action/media.transcribe); it opens the normal action form. "
             "Prepare a specific draft only when the user asks to set up or prepare it, or has clearly "
             "chosen that action. Then use describe_action for required parameters and defaults, call "
-            "propose_action with its flat proposal contract, and insert the returned prepared action reference "
+            "propose_action with its canonical draft contract, and insert the returned prepared action reference "
             "unchanged. Never include both a generic and prepared reference for the same action in one "
             "recommendation. For example, after project tools identify sheet 4 and an "
-            "audio column named Council audio, a described transcription draft is kind='media', "
-            "title='Transcribe council audio', spec={'action_kind':'media.transcribe','sheet_id':4,"
-            "'source':'Council audio'}. Replace every illustrative value with observed catalog and "
+            "audio column named Council audio, call propose_action with title='Transcribe council audio' "
+            "and draft={'action_id':'media.transcribe','scope':{'kind':'sheet_rows','sheet_id':4},"
+            "'params':{'source':'Council audio'},'output_names':{}}. Replace every illustrative value with observed catalog and "
             "project facts. Do not prepare an arbitrary or partially guessed draft. "
             "Write recommendations in user-facing task language. Do not dump action IDs, parameter names, "
             "schemas, or raw options into the answer. Until the chosen engine's feature availability is "

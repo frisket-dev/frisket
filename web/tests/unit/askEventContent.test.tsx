@@ -84,4 +84,27 @@ describe('Ask event presentation', () => {
     expect(openAction).toHaveBeenCalledWith('media.transcribe');
     expect(screen.queryByRole('link', { name: 'Made up' })).not.toBeInTheDocument();
   });
+
+  it('leaves malformed or untrusted reserved markers inert', () => {
+    const proposal = event('action_proposal', {
+      proposal: { title: 'Other turn', spec: { action_id: 'map.template', scope: { kind: 'sheet_rows', sheet_id: 1 }, params: { template: { text: 'note' } }, output_names: { rendered: 'note' } } },
+    });
+    proposal.turn_id = 'other-turn';
+    proposal.seq = 7;
+    const inspect = vi.fn();
+    render(<AskEventContent event={event('answer', { text: '[Zero](#cite-0) [Other turn](#action-7) [Unknown](#action/unknown) [Ordinary](https://example.test)', citation_ids: ['source'] })}
+      actionProposals={[askActionProposal(proposal)!]} onInspectProposal={inspect} onOpenSource={vi.fn()} />);
+    expect(screen.getByText('Zero')).toBeVisible();
+    expect(screen.getByText('Other turn')).toBeVisible();
+    expect(screen.getByText('Unknown')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Other turn' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Ordinary' })).toHaveAttribute('href', 'https://example.test');
+    expect(inspect).not.toHaveBeenCalled();
+  });
+
+  it('keeps the source fallback when a citation marker is only a code example', () => {
+    renderEvent(event('answer', { text: 'Example: `[Source](#cite-1)`', citation_ids: ['source'] }));
+    expect(screen.getByText('Sources')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Source 1' })).not.toBeInTheDocument();
+  });
 });

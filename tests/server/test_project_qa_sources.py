@@ -124,41 +124,104 @@ def test_action_discovery_is_bounded_and_obeys_suggestions_setting(source):
         }
     ]
     assert described["proposal_contract"] == {
-        "kind": "media",
-        "spec_format": "flat",
-        "fixed_fields": {"action_kind": "media.transcribe"},
-        "required_fields": ["action_kind", "sheet_id", "source"],
-        "optional_fields": [
-            "language",
-            "model_size",
-            "context",
-            "clean",
-            "vad",
-            "diarize",
-            "num_speakers",
-            "min_speakers",
-            "max_speakers",
-            "engine",
-            "output_names",
-        ],
+        "fixed_fields": {"action_id": "media.transcribe"},
+        "scope": {"kind": "sheet_rows", "requires_sheet_id": True},
+        "params": {
+            "required": ["source"],
+            "optional": [
+                "language",
+                "model_size",
+                "context",
+                "clean",
+                "vad",
+                "diarize",
+                "num_speakers",
+                "min_speakers",
+                "max_speakers",
+                "engine",
+            ],
+        },
+        "output_names": "optional logical-output to column-name mapping",
     }
+    assert not [
+        event
+        for event in store.events(turn["thread_id"])["events"]
+        if event["kind"] == "action_proposal"
+    ]
 
     project.add_column(sheet, "Council audio", type="audio")
+    draft = {
+        "action_id": "media.transcribe",
+        "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+        "params": {"source": "Council audio"},
+        "output_names": {},
+    }
     prepared = tools.propose_action(
-        "media",
         "Transcribe council audio",
+        draft,
+    )
+    event = store.events(turn["thread_id"])["events"][-1]
+    assert event["kind"] == "action_proposal"
+    assert prepared["proposal"] == event["payload"]["proposal"]
+    assert prepared["proposal"] == {
+        "title": "Transcribe council audio",
+        "spec": draft,
+    }
+    assert prepared["reference"] == (
+        f"[Transcribe council audio](#action-{event['seq']})"
+    )
+
+    false_value = tools.propose_action(
+        "Extract text matches",
+        {
+            "action_id": "map.regex_extract",
+            "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+            "params": {
+                "input_columns": ["Text"],
+                "pattern": "NEEDLE",
+                "all_matches": False,
+            },
+            "output_names": {},
+        },
+    )["proposal"]
+    assert false_value["spec"]["params"]["all_matches"] is False
+
+    zero = tools.propose_action(
+        "Extract entities",
+        {
+            "action_id": "map.ner",
+            "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+            "params": {
+                "source": ["Text"],
+                "labels": ["PERSON"],
+                "engine": "gliner",
+                "threshold": 0,
+            },
+            "output_names": {},
+        },
+    )["proposal"]
+    assert zero["spec"]["params"]["threshold"] == 0
+
+    before = len(store.events(turn["thread_id"])["events"])
+    for invalid in [
         {
             "action_kind": "media.transcribe",
             "sheet_id": sheet,
             "source": "Council audio",
         },
-    )
-    event = store.events(turn["thread_id"])["events"][-1]
-    assert event["kind"] == "action_proposal"
-    assert prepared["proposal"] == event["payload"]["proposal"]
-    assert prepared["reference"] == (
-        f"[Transcribe council audio](#action-{event['seq']})"
-    )
+        {**draft, "confirmation": "consent-hash"},
+        {**draft, "idempotency_key": "ask-must-not-authorize"},
+        {**draft, "replace_existing": False},
+        {**draft, "confirmed": True},
+        {**draft, "consented_promise_set_hash": "consent-hash"},
+        {**draft, "authoring_contract_version": "v1"},
+        {**draft, "action_id": "media.not_registered"},
+        {**draft, "params": {"source": "Missing media"}},
+    ]:
+        with pytest.raises(ProjectQAScopeError):
+            tools.propose_action("Invalid proposal", invalid)
+    assert len(store.events(turn["thread_id"])["events"]) == before
+    assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
     disabled = ProjectQATools(project, {**turn, "suggest_actions": False}, store)
     with pytest.raises(ProjectQAScopeError):
         disabled.search_actions("transcribe")

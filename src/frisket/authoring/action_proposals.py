@@ -10,7 +10,6 @@ from pydantic import ValidationError
 
 from frisket.actions.core import ColumnTransform
 from frisket.actions.registry import ACTION_REGISTRY
-from frisket.actions.system import root_action_catalog
 from frisket.actions.types import (
     ColumnTransformContext,
     InputReference,
@@ -20,98 +19,37 @@ from frisket.actions.types import (
 )
 from frisket.authoring.project_ask import (
     PROJECT_ASK_ACTION_KINDS,
-    PROJECT_ASK_CREATE_SHEET_KINDS,
-    PROJECT_ASK_ROW_CREATE_SHEET_KINDS,
     ProjectAskRegisteredActionDraft,
 )
 from frisket.engine.store import Project
 
 logger = logging.getLogger("frisket.project_ask")
 
-WIRE_ACTION_FAMILIES = tuple(
-    (
-        family,
-        tuple(
-            kind for kind in PROJECT_ASK_ACTION_KINDS if kind.startswith(f"{family}.")
-        ),
-    )
-    for family in (
-        "map",
-        "resolve",
-        "derive",
-        "reduce",
-        "media",
-        "enrich",
-        "web",
-        "research",
-    )
-)
-WIRE_ACTION_KINDS = frozenset(
-    kind for _family, kinds in WIRE_ACTION_FAMILIES for kind in kinds
-)
-_ACTION_CATALOG_BY_KIND = {entry.kind: entry for entry in root_action_catalog().actions}
-_SAVED_AUTHORIZATION_FIELDS = frozenset({"confirmed", "consented_promise_set_hash"})
-_FORBIDDEN_PROPOSAL_FIELDS = _SAVED_AUTHORIZATION_FIELDS | frozenset(
-    {"params", "authoring_contract_version", "idempotency_key", "confirmation"}
-)
-
 
 def proposal_action_ids() -> frozenset[str]:
-    return WIRE_ACTION_KINDS
+    return PROJECT_ASK_ACTION_KINDS
 
 
-def _coerce_proposal(
-    kind: Any, spec: dict[str, Any]
+def _bind_draft(
+    spec: Mapping[str, Any],
 ) -> tuple[dict[str, Any], tuple[InputReference, ...]] | None:
-    """Validate one flat model-authored spec and emit the saved envelope."""
+    """Strictly bind one canonical, authorization-free action draft."""
 
-    family = kind if isinstance(kind, str) else ""
-    action_kind = spec.get("action_kind")
-    if (
-        family not in {candidate for candidate, _kinds in WIRE_ACTION_FAMILIES}
-        or not isinstance(action_kind, str)
-        or action_kind not in WIRE_ACTION_KINDS
-        or action_kind.split(".", 1)[0] != family
-        or _FORBIDDEN_PROPOSAL_FIELDS.intersection(spec)
-    ):
-        return None
-    creates_sheet = action_kind in PROJECT_ASK_CREATE_SHEET_KINDS
-    project_scoped = (
-        creates_sheet and action_kind not in PROJECT_ASK_ROW_CREATE_SHEET_KINDS
-    )
-    target_fields = (
-        {"sheet_name"}
-        if project_scoped
-        else {"sheet_id", "sheet_name"}
-        if creates_sheet
-        else {"sheet_id"}
-    )
-    params = {
-        name: value
-        for name, value in spec.items()
-        if name not in {"action_kind", *target_fields, "output_names"}
-    }
-    output_names = spec.get("output_names", {})
-    if not isinstance(output_names, dict):
-        return None
-    registered = ACTION_REGISTRY.get(action_kind)
     try:
-        draft = ProjectAskRegisteredActionDraft.model_validate(
-            {
-                "action_id": action_kind,
-                "scope": {"kind": "project"}
-                if project_scoped
-                else {"kind": "sheet_rows", "sheet_id": spec.get("sheet_id")},
-                **({"sheet_name": spec.get("sheet_name")} if creates_sheet else {}),
-                "params": params,
-                "output_names": output_names,
-            },
-            strict=True,
-        )
+        draft = ProjectAskRegisteredActionDraft.model_validate(spec, strict=True)
+    except (TypeError, ValidationError, ValueError):
+        return None
+    if draft.action_id not in PROJECT_ASK_ACTION_KINDS:
+        return None
+    registered = ACTION_REGISTRY.get(draft.action_id)
+    try:
+        scope_data = draft.scope.model_dump()
+        if scope_data.get("row_ids") is not None:
+            scope_data["row_ids"] = tuple(scope_data["row_ids"])
         bound_params, _ = registered.bind_values(
-            scope=(ProjectScope if project_scoped else SheetRows).model_validate(
-                draft.scope.model_dump(), strict=True
-            ),
+            scope=(
+                ProjectScope if draft.scope.kind == "project" else SheetRows
+            ).model_validate(scope_data, strict=True),
             params=draft.params,
             output_names=draft.output_names,
         )
@@ -119,39 +57,6 @@ def _coerce_proposal(
     except Exception:
         return None
     return draft.model_dump(mode="json", exclude_none=True), references
-
-
-def _prune_native_fill(spec: dict[str, Any]) -> dict[str, Any]:
-    """Remove union-schema filler without erasing typed action intent.
-
-    Native structured output may populate fields that belong to another
-    action in the model-facing union. The selected typed action is the
-    owner: discard undeclared fields and null filler, then let its strict
-    params model decide whether every declared value is valid. In particular,
-    ``False``, numeric zero, empty strings, and empty lists can be meaningful
-    values and must not be rewritten into an action default.
-    """
-
-    action_kind = spec.get("action_kind")
-    entry = (
-        _ACTION_CATALOG_BY_KIND.get(action_kind)
-        if isinstance(action_kind, str)
-        else None
-    )
-    properties = entry.input_schema.get("properties", {}) if entry is not None else {}
-    declared = set(properties) if isinstance(properties, dict) else set()
-    target_field = (
-        "sheet_name" if action_kind in PROJECT_ASK_CREATE_SHEET_KINDS else "sheet_id"
-    )
-    allowed = {"action_kind", target_field, *declared, *_FORBIDDEN_PROPOSAL_FIELDS}
-    if action_kind in PROJECT_ASK_ROW_CREATE_SHEET_KINDS:
-        allowed.add("sheet_id")
-    allowed.add("output_names")
-    return {
-        key: value
-        for key, value in spec.items()
-        if key in allowed and (value is not None or key in _FORBIDDEN_PROPOSAL_FIELDS)
-    }
 
 
 def _proposal_project_reference_error(
@@ -220,6 +125,14 @@ def _registered_proposal_project_reference_error(
     sheet = sheet_columns.get(sheet_id)
     if sheet is None:
         return "unknown_sheet_id", {"sheet_id": sheet_id}
+    requested_rows = draft["scope"].get("row_ids")
+    if requested_rows is not None and set(
+        project.visible_row_ids(sheet_id, requested_rows)
+    ) != set(requested_rows):
+        return "unknown_input_rows", {
+            "sheet_id": sheet_id,
+            "row_ids": requested_rows,
+        }
     columns_by_name = sheet[1]
     unknown = [
         reference.column
@@ -300,11 +213,15 @@ def _registered_proposal_project_reference_error(
     return None
 
 
-def validate_proposals(project: Project, data: dict[str, Any]) -> list[dict[str, Any]]:
-    """Validate that proposals reference real sheets/columns; drop broken ones
-    (with a logged reason — never a silent vanish,
-    copilot-proposal-spec-schema-v1) and coerce each survivor into its strict,
-    closed Project AskProposal wire spec."""
+def validate_action_proposal(
+    project: Project,
+    spec: Mapping[str, Any],
+    *,
+    scope: Mapping[str, Any] | None = None,
+    title: str = "",
+) -> dict[str, Any] | None:
+    """Return one strict canonical draft when it is safe to offer for review."""
+
     sheet_columns: dict[int, tuple[set[int], dict[str, str]]] = {}
     for sheet in project.sheets():
         columns = project.columns(sheet["id"])
@@ -312,74 +229,66 @@ def validate_proposals(project: Project, data: dict[str, Any]) -> list[dict[str,
             {column["id"] for column in columns},
             {str(column["name"]): str(column["type"]) for column in columns},
         )
-    valid: list[dict[str, Any]] = []
-    for prop in data.get("proposals", []):
-        title = prop.get("title", "")
-        spec = prop.get("spec", {})
-        if not isinstance(spec, dict):
-            logger.warning(
-                "project_ask_proposal_dropped",
-                extra={
-                    "event": "project_ask_proposal_dropped",
-                    "reason": "spec_not_object",
-                    "title": title,
-                },
-            )
-            continue
-        spec = _prune_native_fill(spec)
-        coercion = _coerce_proposal(prop.get("kind"), spec)
-        if coercion is None:
-            logger.warning(
-                "project_ask_proposal_dropped",
-                extra={
-                    "event": "project_ask_proposal_dropped",
-                    "reason": "wire_contract_failed",
-                    "title": title,
-                    "kind": prop.get("kind"),
-                },
-            )
-            continue
-        coerced, references = coercion
-        reference_error = _registered_proposal_project_reference_error(
-            project,
-            sheet_columns,
-            coerced,
-            references,
+
+    bound = _bind_draft(spec)
+    if bound is None:
+        logger.warning(
+            "project_ask_proposal_dropped",
+            extra={
+                "event": "project_ask_proposal_dropped",
+                "reason": "wire_contract_failed",
+                "title": title,
+            },
         )
-        if reference_error is not None:
-            reason, details = reference_error
+        return None
+    draft, references = bound
+    if scope is not None and scope.get("kind") != "project":
+        if not _restrict_scope(project, draft, scope):
             logger.warning(
                 "project_ask_proposal_dropped",
                 extra={
                     "event": "project_ask_proposal_dropped",
-                    "reason": reason,
+                    "reason": "outside_ask_scope",
                     "title": title,
-                    **details,
                 },
             )
-            continue
-        valid.append({"kind": prop.get("kind"), "title": title, "spec": coerced})
-    return valid
-
-
-def validate_action_proposals(
-    project: Project,
-    proposals: list[dict[str, Any]],
-    *,
-    scope: Mapping[str, Any] | None = None,
-) -> list[dict[str, Any]]:
-    valid = validate_proposals(project, {"proposals": proposals})
-    if scope is None or scope.get("kind") == "project":
-        return valid
-    return [proposal for proposal in valid if _restrict_scope(project, proposal, scope)]
+            return None
+        rebound = _bind_draft(draft)
+        if rebound is None:
+            logger.warning(
+                "project_ask_proposal_dropped",
+                extra={
+                    "event": "project_ask_proposal_dropped",
+                    "reason": "scope_binding_failed",
+                    "title": title,
+                },
+            )
+            return None
+        draft, references = rebound
+    reference_error = _registered_proposal_project_reference_error(
+        project,
+        sheet_columns,
+        draft,
+        references,
+    )
+    if reference_error is not None:
+        reason, details = reference_error
+        logger.warning(
+            "project_ask_proposal_dropped",
+            extra={
+                "event": "project_ask_proposal_dropped",
+                "reason": reason,
+                "title": title,
+                **details,
+            },
+        )
+        return None
+    return draft
 
 
 def _restrict_scope(
-    project: Project, proposal: dict[str, Any], source_scope: Mapping[str, Any]
+    project: Project, spec: dict[str, Any], source_scope: Mapping[str, Any]
 ) -> bool:
-    spec = proposal.get("spec")
-    if not isinstance(spec, dict):
-        return False
     draft_scope = spec.get("scope")
     if not isinstance(draft_scope, dict) or draft_scope.get("kind") != "sheet_rows":
         return False
@@ -397,31 +306,38 @@ def _restrict_scope(
         return True
 
     row_ids: set[int] = set()
-    file_columns: set[int] = set()
-    has_row_source = False
+    unrestricted_rows: set[int] = set()
+    file_columns_by_row: dict[int, set[int]] = {}
     for source in sources:
         if source.get("kind") == "rows":
-            has_row_source = True
-            row_ids.update(
+            source_rows = {
                 row_id
                 for row_id in source.get("row_ids", [])
                 if isinstance(row_id, int) and not isinstance(row_id, bool)
-            )
+            }
+            row_ids.update(source_rows)
+            unrestricted_rows.update(source_rows)
         elif source.get("kind") == "file":
             row_id = source.get("row_id")
             column_id = source.get("column_id")
             if isinstance(row_id, int) and not isinstance(row_id, bool):
                 row_ids.add(row_id)
-            if isinstance(column_id, int) and not isinstance(column_id, bool):
-                file_columns.add(column_id)
+                if isinstance(column_id, int) and not isinstance(column_id, bool):
+                    file_columns_by_row.setdefault(row_id, set()).add(column_id)
     if not row_ids:
         return False
-    if (
-        file_columns
-        and not has_row_source
-        and not _references_are_selected_file_columns(
-            project, spec, sheet_id, file_columns
-        )
+    requested_rows = draft_scope.get("row_ids")
+    if requested_rows is not None:
+        if not set(requested_rows).issubset(row_ids):
+            return False
+        row_ids = set(requested_rows)
+    if not _references_fit_selected_cells(
+        project,
+        spec,
+        sheet_id,
+        row_ids,
+        unrestricted_rows,
+        file_columns_by_row,
     ):
         return False
     narrowed = dict(draft_scope)
@@ -430,15 +346,23 @@ def _restrict_scope(
     return True
 
 
-def _references_are_selected_file_columns(
-    project: Project, spec: dict[str, Any], sheet_id: int, columns: set[int]
+def _references_fit_selected_cells(
+    project: Project,
+    spec: dict[str, Any],
+    sheet_id: int,
+    target_rows: set[int],
+    unrestricted_rows: set[int],
+    file_columns_by_row: dict[int, set[int]],
 ) -> bool:
-    """Reject a file-only draft that would read an unrelated source column."""
+    """Keep each file-selected row within its own selected input cells."""
 
     try:
         registered = ACTION_REGISTRY.get(str(spec["action_id"]))
+        scope = dict(spec["scope"])
+        if scope.get("row_ids") is not None:
+            scope["row_ids"] = tuple(scope["row_ids"])
         bound, _ = registered.bind_values(
-            scope=SheetRows.model_validate(spec["scope"], strict=True),
+            scope=SheetRows.model_validate(scope, strict=True),
             params=spec["params"],
             output_names=spec.get("output_names", {}),
         )
@@ -448,4 +372,14 @@ def _references_are_selected_file_columns(
     by_name = {
         str(column["name"]): int(column["id"]) for column in project.columns(sheet_id)
     }
-    return all(by_name.get(reference.column) in columns for reference in references)
+    reference_columns: set[int] = set()
+    for reference in references:
+        column_id = by_name.get(reference.column)
+        if column_id is None:
+            return False
+        reference_columns.add(column_id)
+    return all(
+        row_id in unrestricted_rows
+        or reference_columns <= file_columns_by_row.get(row_id, set())
+        for row_id in target_rows
+    )

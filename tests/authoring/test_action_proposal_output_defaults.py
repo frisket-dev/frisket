@@ -33,16 +33,9 @@ def test_ask_proposal_rename_defaults_match_host_admission(kind, renames):
         draft
     )
 
-    spec = {
-        "action_kind": kind,
-        **request["params"],
-        "sheet_id": request["scope"]["sheet_id"],
-        **({"sheet_name": request["sheet_name"]} if "sheet_name" in request else {}),
-        **({"output_names": output_names} if renames != "omitted" else {}),
-    }
-    result = action_proposals._coerce_proposal(kind.split(".")[0], spec)
-    assert result is not None
-    authored, _ = result
+    authored = ProjectAskRegisteredActionDraft.model_validate(draft).model_dump(
+        mode="json", exclude_none=True
+    )
     assert authored == {**draft, "output_names": output_names}
 
 
@@ -60,14 +53,13 @@ def test_ask_proposal_rename_defaults_match_host_admission(kind, renames):
 )
 def test_ask_proposal_still_refuses_invalid_explicit_renames(output_names):
     request = ACTION_REGISTRY.get("reduce.group_summary").catalog_entry()["examples"][0]
-    spec = {
-        "action_kind": request["action_id"],
-        **request["params"],
-        "sheet_id": request["scope"]["sheet_id"],
-        "sheet_name": request["sheet_name"],
-        "output_names": output_names,
+    draft = {
+        key: value
+        for key, value in request.items()
+        if key not in {"idempotency_key", "replace_existing"}
     }
-    assert action_proposals._coerce_proposal("reduce", spec) is None
+    draft["output_names"] = output_names
+    assert action_proposals._bind_draft(draft) is None
 
 
 @pytest.mark.parametrize("kind", ["reduce.group_summary", "map.find"])
