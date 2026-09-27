@@ -18,6 +18,7 @@ import { AskThreadControls } from './project-ask/AskThreadControls';
 import { AskSourcePicker } from './project-ask/AskSourcePicker';
 import { compactAskToolEvents } from './project-ask/activityEvents';
 import { AskWorkingActivity } from './project-ask/AskToolActivity';
+import { hasInlineMarker } from './project-ask/inlineReferences';
 import './ProjectAskDock.css';
 
 export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposal, onOpenSource, onOpenAction }: {
@@ -96,9 +97,8 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
     for (const event of visibleEvents) {
       if (event.kind !== 'answer' && event.kind !== 'assistant') continue;
       const text = typeof event.payload.text === 'string' ? event.payload.text : '';
-      for (const match of text.matchAll(/\[[^\]]+\]\(#action-([1-9]\d*)\)/g)) {
-        const seq = Number(match[1]);
-        if (actionProposals.some((proposal) => proposal.event.turn_id === event.turn_id && proposal.event.seq === seq)) referenced.add(seq);
+      for (const proposal of actionProposals) {
+        if (proposal.event.turn_id === event.turn_id && hasInlineMarker(text, 'action-', (seq) => seq === proposal.event.seq)) referenced.add(proposal.event.seq);
       }
     }
     return referenced;
