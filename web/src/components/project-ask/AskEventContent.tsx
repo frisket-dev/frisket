@@ -1,11 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { ChartColumnIncreasing, ChevronRight, Copy } from 'lucide-react';
 import type { AskCitation, AskEvent } from '../../api/projectQA';
 import type { ActionCatalogEntry, GeneratedActionDraft } from '../../api/types';
-import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 import { askActionProposal, type AskActionProposal } from './actionProposal';
 import { AskAnswer } from './AskAnswer';
-import { hasCitationPreview } from './citationPreview';
+import { useAskCitation } from './useAskCitation';
 
 export function AskEventContent({ event, onInspectProposal, onOpenSource, actionProposals = [], actionCatalog = [], onOpenAction }: {
   event: AskEvent;
@@ -16,20 +15,8 @@ export function AskEventContent({ event, onInspectProposal, onOpenSource, action
   onOpenAction?(actionId: string): void;
 }) {
   const payload = event.payload;
-  const { qa } = useWorkspaceStores();
-  const [source, setSource] = useState<AskCitation | null>(null);
-  const [sourceError, setSourceError] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
-  const request = useRef(0);
-  useEffect(() => () => { request.current += 1; }, []);
-  const openSource = (id: string) => {
-    const version = ++request.current;
-    setSourceError(null);
-    void qa.citation(event.thread_id, id).then((citation) => {
-      if (version !== request.current) return;
-      setSource(hasCitationPreview(citation) ? citation : null); onOpenSource(citation);
-    }).catch(() => { if (version === request.current) setSourceError('Could not open this source. Please try again.'); });
-  };
+  const { source, sourceError, openSource } = useAskCitation(event.thread_id, onOpenSource);
   async function copyDebug(text: string) {
     try { await navigator.clipboard.writeText(text); setCopyStatus('Copied'); }
     catch { setCopyStatus('Could not copy. Please try again.'); }

@@ -101,4 +101,10 @@ describe('Ask event presentation', () => {
     expect(screen.getByRole('link', { name: 'Ordinary' })).toHaveAttribute('href', 'https://example.test');
     expect(inspect).not.toHaveBeenCalled();
   });
+
+  it('keeps the source fallback when a citation marker is only a code example', () => {
+    renderEvent(event('answer', { text: 'Example: `[Source](#cite-1)`', citation_ids: ['source'] }));
+    expect(screen.getByText('Sources')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Source 1' })).not.toBeInTheDocument();
+  });
 });

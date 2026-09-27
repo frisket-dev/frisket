@@ -18,7 +18,7 @@ import { AskThreadControls } from './project-ask/AskThreadControls';
 import { AskSourcePicker } from './project-ask/AskSourcePicker';
 import { compactAskToolEvents } from './project-ask/activityEvents';
 import { AskWorkingActivity } from './project-ask/AskToolActivity';
-import { hasInlineMarker } from './project-ask/inlineReferences';
+import { inlineMarkerIndexes } from './project-ask/inlineReferences';
 import './ProjectAskDock.css';
 
 export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposal, onOpenSource, onOpenAction }: {
@@ -97,8 +97,9 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
     for (const event of visibleEvents) {
       if (event.kind !== 'answer' && event.kind !== 'assistant') continue;
       const text = typeof event.payload.text === 'string' ? event.payload.text : '';
+      const referencedInAnswer = inlineMarkerIndexes(text, 'action-');
       for (const proposal of actionProposals) {
-        if (proposal.event.turn_id === event.turn_id && hasInlineMarker(text, 'action-', (seq) => seq === proposal.event.seq)) referenced.add(proposal.event.seq);
+        if (proposal.event.turn_id === event.turn_id && referencedInAnswer.has(proposal.event.seq)) referenced.add(proposal.event.seq);
       }
     }
     return referenced;

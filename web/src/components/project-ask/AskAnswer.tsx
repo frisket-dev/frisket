@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { Copy, Files } from 'lucide-react';
 import type { AskCitation, AskEvent } from '../../api/projectQA';
 import type { ActionCatalogEntry, GeneratedActionDraft } from '../../api/types';
@@ -7,8 +7,8 @@ import { MarkdownView } from '../../markdown';
 import { ACTION_PLACEMENTS } from '../../actions/model';
 import { ACTION_ICON_BY_KIND, baseActTabLabel } from '../../workbench/actSurface';
 import { type AskActionProposal } from './actionProposal';
-import { hasCitationPreview } from './citationPreview';
 import { actionKind, hasInlineMarker, isReservedReference, markerIndex } from './inlineReferences';
+import { hasCitationPreview, useAskCitation } from './useAskCitation';
 
 function actionTooltip(kind: string, title: string): string {
   const tab = ACTION_PLACEMENTS[kind] && baseActTabLabel(ACTION_PLACEMENTS[kind].tab);
@@ -25,25 +25,14 @@ export function AskAnswer({ event, onInspectProposal, onOpenSource, actionPropos
 }) {
   const payload = event.payload;
   const { qa } = useWorkspaceStores();
-  const [source, setSource] = useState<AskCitation | null>(null);
-  const [sourceError, setSourceError] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const textRef = useRef<HTMLDivElement>(null);
-  const request = useRef(0);
   const text = String(payload.text ?? '');
   const citationIds = Array.isArray(payload.citation_ids) ? payload.citation_ids.filter((id): id is string => typeof id === 'string') : [];
   const proposalsBySeq = new Map(actionProposals.filter((proposal) => proposal.event.turn_id === event.turn_id).map((proposal) => [proposal.event.seq, proposal]));
   const catalogByKind = new Map(actionCatalog.map((entry) => [entry.kind, entry]));
   const hasInlineCitations = hasInlineMarker(text, 'cite-', (index) => index <= citationIds.length);
-  useEffect(() => () => { request.current += 1; }, []);
-  const openSource = (id: string) => {
-    const version = ++request.current;
-    setSourceError(null);
-    void qa.citation(event.thread_id, id).then((citation) => {
-      if (version !== request.current) return;
-      setSource(hasCitationPreview(citation) ? citation : null); onOpenSource(citation);
-    }).catch(() => { if (version === request.current) setSourceError('Could not open this source. Please try again.'); });
-  };
+  const { source, sourceError, openSource, closeSource } = useAskCitation(event.thread_id, onOpenSource);
   async function copy(withSources: boolean) {
     try {
       const answer = textRef.current?.innerText ?? textRef.current?.textContent ?? text;
@@ -81,7 +70,7 @@ export function AskAnswer({ event, onInspectProposal, onOpenSource, actionPropos
       <button type="button" key={`${id}:${index}`} aria-pressed={source?.id === id} onClick={() => openSource(id)}>[{index + 1}] {event.citations?.find((citation) => citation.id === id)?.label ?? `Source ${index + 1}`}</button>
     )}</details>}
     {sourceError && <p role="alert">{sourceError}</p>}
-    {source && hasCitationPreview(source) && <div className="ask-source-preview"><strong>{source.label}</strong><button type="button" aria-label="Close source preview" onClick={() => setSource(null)}>×</button>{source.message && <p>{source.message}</p>}{source.target?.kind === 'web' && <><p>{source.excerpt}</p>
+    {source && hasCitationPreview(source) && <div className="ask-source-preview"><strong>{source.label}</strong><button type="button" aria-label="Close source preview" onClick={closeSource}>×</button>{source.message && <p>{source.message}</p>}{source.target?.kind === 'web' && <><p>{source.excerpt}</p>
       <p>{source.target.fetched ? 'Page read' : 'Search snippet'} · {new Date(source.target.retrieved_at).toLocaleString()}</p>
       <p><a href={source.target.url} target="_blank" rel="noopener noreferrer">{source.target.url}</a></p>
       <button type="button" className="btn" onClick={() => { if (source.target?.kind === 'web') onInspectProposal('Save web source', { action_id: 'import.urls', scope: { kind: 'project' }, params: { urls: [source.target.url] }, sheet_name: 'Web sources', output_names: {} }); }}>Save to project</button>

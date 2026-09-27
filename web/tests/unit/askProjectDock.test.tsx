@@ -40,4 +40,14 @@ describe('ProjectAskDock inline action presentation', () => {
     expect(screen.getByRole('button', { name: 'Prepared note' })).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Open action' })).not.toBeInTheDocument();
   });
+
+  it('keeps a prepared proposal visible when its marker is only a code example', () => {
+    state.events = [
+      event('action_proposal', 7, { proposal: { title: 'Prepared note', spec: { action_id: 'map.template', scope: { kind: 'sheet_rows', sheet_id: 1 }, params: { template: { text: 'note' } }, output_names: { rendered: 'note' } } } }),
+      event('answer', 8, { text: 'Example: `[the prepared note](#action-7)`.' }),
+    ];
+    render(<ProjectAskDock initialScope={{ kind: 'project' }} sheets={[]} onClose={vi.fn()} onInspectProposal={vi.fn()} onOpenSource={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'Open action' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Prepared note' })).not.toBeInTheDocument();
+  });
 });
