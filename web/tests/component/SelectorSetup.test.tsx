@@ -132,6 +132,20 @@ describe('SelectorSetup', () => {
     expect(screen.getByRole('button', { name: 'Test' })).toBeEnabled();
   });
 
+  it('keeps keyboard focus while shared download progress advances', () => {
+    const initial = pull({ completed_bytes: 100, total_bytes: 1000 });
+    const setup = { kind: 'engine_setup' as const, scope: 'workspace' as const,
+      setup_ref: initial.model, can_mutate: true, can_start: false, blocked_by_operation: initial };
+    const props = { projectId: 'a', onChanged: vi.fn(), onEditingChange: vi.fn(), sharedProgress: true };
+    const view = render(<SelectorSetup {...props} choice={choice(setup)} />);
+    screen.getByRole('button', { name: 'Recheck' }).focus();
+    view.rerender(<SelectorSetup {...props} choice={choice({ ...setup,
+      blocked_by_operation: pull({ completed_bytes: 600, total_bytes: 1000 }) })} />);
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '60');
+    expect(screen.getByRole('button', { name: 'Recheck' })).toHaveFocus();
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it('shows a busy durable operation, polling and requesting cancellation on its actual organization scope', async () => {
     const busy = pull({ model: 'hf:another-model@revision', display_name: 'Another model' });
     request.mockResolvedValue(busy);

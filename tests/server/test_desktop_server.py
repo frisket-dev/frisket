@@ -209,6 +209,7 @@ def test_unexpected_worker_exit_stops_server_nonzero_and_cleans_up(
     from frisket.server import desktop
     import frisket.operability.structured_logging as structured_logging
     import frisket.runtime.launch as launch
+    import frisket.runtime.model_server as model_server_module
     import frisket.runtime.supervisor as supervisor
     import frisket.server.app as app_module
     import frisket.server.standalone as standalone
@@ -232,6 +233,13 @@ def test_unexpected_worker_exit_stops_server_nonzero_and_cleans_up(
         def wait(self, timeout=None):
             return 1
 
+    class FakeModelServer:
+        def start(self):
+            events.append("models-start")
+
+        def stop(self):
+            events.append("models-stop")
+
     class FakeServer:
         should_exit = False
 
@@ -254,6 +262,7 @@ def test_unexpected_worker_exit_stops_server_nonzero_and_cleans_up(
         def release(self):
             events.append("lock-release")
 
+    monkeypatch.setattr(model_server_module, "LocalModelServer", FakeModelServer)
     monkeypatch.setattr(app_module, "create_app", lambda *_args, **_kwargs: app)
     monkeypatch.setattr(standalone, "StandaloneLifetimeLock", FakeLock)
     monkeypatch.setattr(
@@ -276,6 +285,7 @@ def test_unexpected_worker_exit_stops_server_nonzero_and_cleans_up(
         == 1
     )
     assert app.state.standalone_runtime.worker_exited_unexpectedly is True
+    assert events.index("models-start") < events.index("models-stop")
     assert any(item[0] == "run" for item in events if isinstance(item, tuple))
     assert any(item[0] == "stop" for item in events if isinstance(item, tuple))
     assert events.index("lock-release") > next(

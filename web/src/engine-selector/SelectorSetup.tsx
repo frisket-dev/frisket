@@ -145,7 +145,7 @@ export function SelectorSetup(props: SelectorSetupProps) {
     case 'api_key': case 'models_gateway':
       return <CredentialSetupPanel key={key} {...props} setup={setup} />;
     case 'artifact_download': case 'engine_setup':
-      return <DownloadSetupPanel key={key} setup={setup} activeOperation={props.choice.active_operation} onChanged={props.onChanged}
+      return <DownloadSetupPanel key={`${props.projectId}:${props.choice.choice_id}:${setup.kind}:${setup.scope}:${setup.setup_ref}`} setup={setup} activeOperation={props.choice.active_operation} onChanged={props.onChanged}
         sharedProgress={props.sharedProgress} operationError={props.operationError} />;
     case 'first_use_download': return <p className="settings-help">{setup.disclosure}</p>;
     case 'instructions': return <section className="selector-setup"><strong>{setup.title}</strong><ol>{setup.steps.map((step) => <li key={step}>{step}</li>)}</ol>{setup.url && <a href={setup.url} target="_blank" rel="noreferrer">Learn more</a>}</section>;
