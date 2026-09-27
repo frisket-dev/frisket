@@ -41,6 +41,11 @@ _COST_POSTURE = {
     "org_key": "billed to your organization's provider key",
 }
 
+# A ``free_local`` estimate carries an explicit no-meter fact.  Keep its
+# presentation beside the posture labels rather than duplicating user-facing
+# billing copy at the estimate projection call site.
+FREE_LOCAL_COST_LABEL = "No provider or platform charge"
+
 
 def _plain_decimal(value: Any) -> str | None:
     try:

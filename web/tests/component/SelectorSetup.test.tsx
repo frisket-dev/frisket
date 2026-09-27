@@ -132,6 +132,20 @@ describe('SelectorSetup', () => {
     expect(screen.getByRole('button', { name: 'Test' })).toBeEnabled();
   });
 
+  it('keeps keyboard focus while shared download progress advances', () => {
+    const initial = pull({ completed_bytes: 100, total_bytes: 1000 });
+    const setup = { kind: 'engine_setup' as const, scope: 'workspace' as const,
+      setup_ref: initial.model, can_mutate: true, can_start: false, blocked_by_operation: initial };
+    const props = { projectId: 'a', onChanged: vi.fn(), onEditingChange: vi.fn(), sharedProgress: true };
+    const view = render(<SelectorSetup {...props} choice={choice(setup)} />);
+    screen.getByRole('button', { name: 'Recheck' }).focus();
+    view.rerender(<SelectorSetup {...props} choice={choice({ ...setup,
+      blocked_by_operation: pull({ completed_bytes: 600, total_bytes: 1000 }) })} />);
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '60');
+    expect(screen.getByRole('button', { name: 'Recheck' })).toHaveFocus();
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it('shows a busy durable operation, polling and requesting cancellation on its actual organization scope', async () => {
     const busy = pull({ model: 'hf:another-model@revision', display_name: 'Another model' });
     request.mockResolvedValue(busy);
@@ -170,6 +184,22 @@ describe('SelectorSetup', () => {
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '80');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(request).toHaveBeenCalledWith('outer.cancel_org_model_pull.post', expect.objectContaining({ pathParams: { pull_id: initial.id } }));
+  });
+
+  it.each(['done', 'failed'] as const)('notifies a standalone setup parent when its pull becomes %s', async (status) => {
+    vi.useFakeTimers();
+    const terminal = pull({
+      status,
+      capabilities: { cancel: false, retry: status === 'failed', remove: false },
+      error: status === 'failed' ? { code: 'failed', message: 'Download interrupted' } : null,
+      finished_at: '2026-09-12T00:00:04Z',
+    });
+    request.mockResolvedValue(terminal);
+    const changed = vi.fn();
+    render(<SelectorSetup projectId="a" choice={choice({ kind: 'engine_setup', scope: 'workspace', setup_ref: terminal.model, can_mutate: true, can_start: false, blocked_by_operation: pull() })} onChanged={changed} onEditingChange={vi.fn()} />);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(changed).toHaveBeenCalledTimes(1);
   });
 
   it('starts explicit engine setup with its returned durable operation, without assuming readiness', async () => {

@@ -40,6 +40,10 @@ interface ModelPullProgressProps {
   /** Uses the operation's backend-declared remove capability. */
   uninstall?: (ref: string) => Promise<ModelPullDto>;
   readOnly?: boolean;
+  /** A parent already owns this pull's poll loop and supplies fresh snapshots. */
+  poll?: boolean;
+  /** Surface a parent-owned poll failure without starting another request loop. */
+  externalPollError?: boolean;
 }
 
 export function ModelPullProgress({
@@ -50,6 +54,8 @@ export function ModelPullProgress({
   cancelPull = cancelModelPull,
   uninstall = uninstallArtifact,
   readOnly = false,
+  poll = true,
+  externalPollError = false,
 }: ModelPullProgressProps) {
   const [pull, setPull] = useState(initialPull);
   const [cancelling, setCancelling] = useState(false);
@@ -67,6 +73,17 @@ export function ModelPullProgress({
     setPull(initialPull);
     setCancelling(false);
     setCancelError(null);
+    setPollError(false);
+  }
+
+  // Selector setup owns one poll for both its closed trigger and open panel.
+  // Keep that externally supplied snapshot in this existing renderer while
+  // preserving local optimistic cancellation until the parent publishes a
+  // newer projection.
+  const [lastExternalPull, setLastExternalPull] = useState(initialPull);
+  if (!poll && initialPull !== lastExternalPull) {
+    setLastExternalPull(initialPull);
+    setPull(initialPull);
     setPollError(false);
   }
 
@@ -89,7 +106,7 @@ export function ModelPullProgress({
         onFailed?.(fresh);
       }
     },
-    { intervalMs: 1000, active, guardOverlap: true },
+    { intervalMs: 1000, active: poll && active, guardOverlap: true },
   );
 
   const cancel = async () => {
@@ -177,7 +194,7 @@ export function ModelPullProgress({
           )}
         </>
       )}
-      {pollError && (
+      {(pollError || externalPollError) && (
         <p className="settings-inline-status settings-validation-message is-error" role="alert">
           Could not refresh setup progress. Waiting for the next update.
         </p>

@@ -195,6 +195,8 @@ export function SelectorField({
             choice={raw}
             onChanged={state.refresh}
             onEditingChange={onEditingChange}
+            sharedProgress
+            operationError={state.operationError !== null}
           />
           {renderDetailExtra?.({ choice: raw, onEditingChange, close })}
         </> : null;

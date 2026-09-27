@@ -457,6 +457,9 @@ def test_v1_action_estimate_supports_local_ocr_without_creating_run_state(
     assert out["action"] == {"kind": "media.ocr"}
     assert out["estimate"]["rows"] == 1
     assert out["estimate"]["cost"] == 0
+    assert out["estimate"]["cost_source"] == "free_local"
+    assert out["estimate"]["venue_label"] == "Media stays on this machine."
+    assert out["estimate"]["billing_label"] == "No provider or platform charge"
     assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
     assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 0
 

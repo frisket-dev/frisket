@@ -38,7 +38,11 @@ from frisket.execution.consent_coverage import (
     ConsentCoverage,
     effective_consent_coverage,
 )
-from frisket.execution.claim_labels import cost_posture_label, trust_label
+from frisket.execution.claim_labels import (
+    FREE_LOCAL_COST_LABEL,
+    cost_posture_label,
+    trust_label,
+)
 
 # Compatibility re-export for downstream users of this module.
 from frisket.engine.runner.confirmation_context import (  # noqa: F401
@@ -796,7 +800,9 @@ def unestimated_cost(recipe: Recipe, spec: dict) -> dict[str, Any]:
     return {"cost": None, "cost_source": "unknown", "requires_confirmation": True}
 
 
-def _resolved_presentation_labels(resolved: ResolvedExecution) -> dict[str, str]:
+def _resolved_presentation_labels(
+    resolved: ResolvedExecution, *, cost_source: str
+) -> dict[str, str]:
     """Display-only labels for one selected execution venue.
 
     Downstream composition copy wins exactly when supplied. Base can describe
@@ -814,7 +820,14 @@ def _resolved_presentation_labels(resolved: ResolvedExecution) -> dict[str, str]
     if facts.cost_posture not in {"operator_borne", "org_key"}:
         return {}
     return {
-        "billing_label": cost_posture_label(facts.cost_posture),
+        # ``free_local`` is an explicit no-meter fact.  A zero numeric quote
+        # alone cannot make this claim: a provider-backed or BYOK route can
+        # validly price to zero and still bill the selected account.
+        "billing_label": (
+            FREE_LOCAL_COST_LABEL
+            if cost_source == "free_local"
+            else cost_posture_label(facts.cost_posture)
+        ),
         "venue_label": trust_label(
             facts.egress_class,
             facts.operator,
@@ -924,7 +937,11 @@ def _estimate_run(
             **(est if est is not None else unestimated_cost(recipe, spec)),
         }
         if isinstance(resolution, ResolvedExecution):
-            out.update(_resolved_presentation_labels(resolution))
+            out.update(
+                _resolved_presentation_labels(
+                    resolution, cost_source=str(out["cost_source"])
+                )
+            )
             if pricing_policy is None:
                 raise TypeError(
                     "estimate_run requires a pricing_policy for routed work"
