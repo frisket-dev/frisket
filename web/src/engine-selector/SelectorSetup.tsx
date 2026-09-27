@@ -114,11 +114,19 @@ function DownloadSetupPanel({ setup, activeOperation, onChanged, sharedProgress 
   };
   const matching = pull?.model === setup.setup_ref;
   const active = pull?.status === 'pending' || pull?.status === 'running';
+  const onTerminal = (fresh: ModelPullDto) => {
+    if (mounted.current) {
+      setPull(fresh);
+      onChanged();
+    }
+  };
   return <section className="selector-setup">
     {!setup.can_mutate && <p className="settings-help">Only an authorized owner can start or cancel this setup operation.</p>}
     {pull && !matching && <p className="settings-help">Another setup operation is active.</p>}
     {pull && <ModelPullProgress key={`${pull.id}:${pull.status}`} pull={pull} readOnly={!setup.can_mutate} fetchPull={fetchPull} cancelPull={cancelPull}
-      poll={!sharedProgress} externalPollError={operationError} />}
+      poll={!sharedProgress} externalPollError={operationError}
+      onDone={sharedProgress ? undefined : onTerminal}
+      onFailed={sharedProgress ? undefined : onTerminal} />}
     {(!pull || (matching && pull.capabilities.retry && !active)) && <button className="btn btn-primary" type="button"
       disabled={!setup.can_mutate || !setup.can_start || starting} onClick={() => void start()}>
       {starting ? 'Starting…' : pull ? 'Retry setup' : setup.kind === 'artifact_download' ? 'Download model' : 'Download and set up'}

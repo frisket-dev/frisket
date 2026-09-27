@@ -286,4 +286,48 @@ describe('useSelectorChoices', () => {
     if (hidden) Object.defineProperty(document, 'hidden', hidden);
     else delete (document as { hidden?: boolean }).hidden;
   });
+
+  it('stops the shared pull poll when the selector is disabled', async () => {
+    vi.useFakeTimers();
+    const active = pull();
+    const load = vi.fn<SelectorChoicesLoader>().mockResolvedValue(responseWithPull(active));
+    const loadPull = vi.fn<SelectorPullLoader>().mockResolvedValue(active);
+    const { result, rerender } = renderHook(
+      ({ enabled }) => useSelectorChoices({
+        projectId: 'project-a', query: query(null), queryKey: 'initial', load, loadPull, enabled,
+      }),
+      { initialProps: { enabled: true } },
+    );
+
+    await act(async () => { await Promise.resolve(); });
+    expect(result.current.response).not.toBeNull();
+    rerender({ enabled: false });
+    await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
+    expect(loadPull).not.toHaveBeenCalled();
+  });
+
+  it('continues polling after a manual catalog refresh invalidates an in-flight pull read', async () => {
+    vi.useFakeTimers();
+    const active = pull();
+    const stalePull = deferred<ModelPullDto>();
+    const load = vi.fn<SelectorChoicesLoader>()
+      .mockResolvedValueOnce(responseWithPull(active))
+      .mockResolvedValueOnce(responseWithPull(active));
+    const loadPull = vi.fn<SelectorPullLoader>()
+      .mockReturnValueOnce(stalePull.promise)
+      .mockResolvedValue(active);
+    const { result } = renderHook(() => useSelectorChoices({
+      projectId: 'project-a', query: query(null), queryKey: 'initial', load, loadPull,
+    }));
+
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(loadPull).toHaveBeenCalledTimes(1);
+    act(() => result.current.refresh());
+    await act(async () => { await Promise.resolve(); });
+    expect(load).toHaveBeenCalledTimes(2);
+    await act(async () => stalePull.resolve(active));
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(loadPull).toHaveBeenCalledTimes(2);
+  });
 });

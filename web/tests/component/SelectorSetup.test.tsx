@@ -172,6 +172,22 @@ describe('SelectorSetup', () => {
     expect(request).toHaveBeenCalledWith('outer.cancel_org_model_pull.post', expect.objectContaining({ pathParams: { pull_id: initial.id } }));
   });
 
+  it.each(['done', 'failed'] as const)('notifies a standalone setup parent when its pull becomes %s', async (status) => {
+    vi.useFakeTimers();
+    const terminal = pull({
+      status,
+      capabilities: { cancel: false, retry: status === 'failed', remove: false },
+      error: status === 'failed' ? { code: 'failed', message: 'Download interrupted' } : null,
+      finished_at: '2026-09-12T00:00:04Z',
+    });
+    request.mockResolvedValue(terminal);
+    const changed = vi.fn();
+    render(<SelectorSetup projectId="a" choice={choice({ kind: 'engine_setup', scope: 'workspace', setup_ref: terminal.model, can_mutate: true, can_start: false, blocked_by_operation: pull() })} onChanged={changed} onEditingChange={vi.fn()} />);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(changed).toHaveBeenCalledTimes(1);
+  });
+
   it('starts explicit engine setup with its returned durable operation, without assuming readiness', async () => {
     request.mockResolvedValue({ pull: pull(), deduplicated: false });
     const changed = vi.fn();

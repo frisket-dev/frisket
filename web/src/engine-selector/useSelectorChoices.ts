@@ -320,7 +320,7 @@ export function useSelectorChoices({
         const fresh = await loadPull(current.scope, current.id, { signal: controller.signal });
         if (controller.signal.aborted || pollContextRef.current?.scopeKey !== current.scopeKey
           || pollContextRef.current?.id !== current.id || pollContextRef.current?.revision !== current.revision) {
-          return 'stop';
+          return undefined;
         }
         const terminal = fresh.status === 'done' || fresh.status === 'failed' || fresh.status === 'cancelled';
         dispatch({ type: 'progress', revision: current.revision, scopeKey: current.scopeKey, pull: fresh, terminal });
@@ -344,7 +344,7 @@ export function useSelectorChoices({
       }
       return undefined;
     },
-    { intervalMs: pollIntervalMs, active: pollContext !== null, mode: 'settle-relative' },
+    { intervalMs: pollIntervalMs, active: enabled && Boolean(projectId) && pollContext !== null, mode: 'settle-relative' },
   );
 
   const refreshChoices = useCallback(() => refresh(), []);
