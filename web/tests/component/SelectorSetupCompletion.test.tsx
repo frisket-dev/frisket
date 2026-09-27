@@ -61,9 +61,10 @@ function catalog(active: ModelPullDto | null = null, ready = false): HttpSelecto
 it('refreshes a completed setup into a ready choice while keeping the pinned selector dialog open', async () => {
   vi.useFakeTimers();
   const started = operation(100);
+  const attached = operation(200);
   let resolveReady!: (response: HttpSelectorChoicesResponse) => void;
   const refreshed = new Promise<HttpSelectorChoicesResponse>((resolve) => { resolveReady = resolve; });
-  const choices = vi.fn().mockResolvedValueOnce(catalog()).mockResolvedValueOnce(catalog(started))
+  const choices = vi.fn().mockResolvedValueOnce(catalog()).mockResolvedValueOnce(catalog(attached))
     .mockReturnValue(refreshed);
   const polls = vi.fn().mockResolvedValueOnce(operation(600)).mockResolvedValueOnce(operation(1000, true));
   request.mockImplementation((id: string) => {
@@ -82,15 +83,21 @@ it('refreshes a completed setup into a ready choice while keeping the pinned sel
   await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: /Parakeet/ })); });
   expect(select).toHaveBeenCalledOnce();
   await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Download and set up' })); });
+  await act(async () => { await Promise.resolve(); });
   expect(choices).toHaveBeenCalledTimes(2);
+  expect(within(dialog).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '20');
+  await act(async () => { await vi.advanceTimersByTimeAsync(0); });
   expect(screen.getByTestId('engine-selector-dialog')).toBe(dialog);
   expect(dialog).toBeVisible();
   expect(dialog).toHaveAttribute('open');
-  await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+  await act(async () => { await Promise.resolve(); });
+  expect(polls).toHaveBeenCalledTimes(1);
   expect(within(dialog).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '60');
-  await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
-  expect(choices.mock.calls.length).toBeGreaterThanOrEqual(3);
-  expect(choices.mock.calls.length).toBeLessThanOrEqual(4);
+  expect(choices).toHaveBeenCalledTimes(2);
+  await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+  await act(async () => { await Promise.resolve(); });
+  expect(choices).toHaveBeenCalledTimes(3);
   expect(screen.getByTestId('engine-selector-dialog')).toBe(dialog);
   expect(dialog).toHaveAttribute('open');
   expect(within(dialog).getByTestId('model-pull-done')).toHaveTextContent('Parakeet setup installed');

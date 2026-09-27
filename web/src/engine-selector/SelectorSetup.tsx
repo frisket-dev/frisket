@@ -13,6 +13,9 @@ import { useSetupRequests } from './setupLifetime';
 
 export interface SelectorSetupProps {
   projectId: string; choice: SelectorChoice; onChanged(): void; onEditingChange(editing: boolean): void;
+  /** SelectorField already owns the durable pull poll for its trigger and panel. */
+  sharedProgress?: boolean;
+  operationError?: boolean;
 }
 type Setup = NonNullable<SelectorChoice['setup']>;
 type CredentialSetup = Extract<Setup, { kind: 'api_key' | 'models_gateway' }>;
@@ -49,8 +52,8 @@ function CredentialSetupPanel({ setup, projectId, onChanged, onEditingChange }: 
   </section>;
 }
 
-function DownloadSetupPanel({ setup, activeOperation, onChanged }: {
-  setup: DownloadSetup; activeOperation: ModelPullDto | null; onChanged(): void;
+function DownloadSetupPanel({ setup, activeOperation, onChanged, sharedProgress = false, operationError = false }: {
+  setup: DownloadSetup; activeOperation: ModelPullDto | null; onChanged(): void; sharedProgress?: boolean; operationError?: boolean;
 }) {
   const [pull, setPull] = useState(activeOperation ?? setup.blocked_by_operation);
   const [starting, setStarting] = useState(false);
@@ -58,6 +61,12 @@ function DownloadSetupPanel({ setup, activeOperation, onChanged }: {
   const { begin } = useSetupRequests();
   const mounted = useRef(true);
   const pollRequests = useRef(new Set<AbortController>());
+  const projectedPull = activeOperation ?? setup.blocked_by_operation;
+  const [lastProjectedPull, setLastProjectedPull] = useState(projectedPull);
+  if (projectedPull !== lastProjectedPull) {
+    setLastProjectedPull(projectedPull);
+    setPull(projectedPull);
+  }
   useEffect(() => {
     mounted.current = true;
     const requests = pollRequests.current;
@@ -67,10 +76,8 @@ function DownloadSetupPanel({ setup, activeOperation, onChanged }: {
   const fetchPull = async (id: number): Promise<ModelPullDto> => {
     const controller = new AbortController(); pollRequests.current.add(controller);
     try {
-      const fresh = org ? await teamModels.orgGetModelPull(id, { signal: controller.signal })
+      return org ? await teamModels.orgGetModelPull(id, { signal: controller.signal })
         : await workspace.getModelPull(id, { signal: controller.signal });
-      if (mounted.current) setError(null);
-      return fresh;
     } finally { pollRequests.current.delete(controller); }
   };
   const cancelPull = async (id: number) => {
@@ -111,7 +118,7 @@ function DownloadSetupPanel({ setup, activeOperation, onChanged }: {
     {!setup.can_mutate && <p className="settings-help">Only an authorized owner can start or cancel this setup operation.</p>}
     {pull && !matching && <p className="settings-help">Another setup operation is active.</p>}
     {pull && <ModelPullProgress key={`${pull.id}:${pull.status}`} pull={pull} readOnly={!setup.can_mutate} fetchPull={fetchPull} cancelPull={cancelPull}
-      onDone={(fresh) => { if (mounted.current) { setPull(fresh); onChanged(); } }} onFailed={(fresh) => { if (mounted.current) { setPull(fresh); onChanged(); } }} />}
+      poll={!sharedProgress} externalPollError={operationError} />}
     {(!pull || (matching && pull.capabilities.retry && !active)) && <button className="btn btn-primary" type="button"
       disabled={!setup.can_mutate || !setup.can_start || starting} onClick={() => void start()}>
       {starting ? 'Starting…' : pull ? 'Retry setup' : setup.kind === 'artifact_download' ? 'Download model' : 'Download and set up'}
@@ -130,7 +137,8 @@ export function SelectorSetup(props: SelectorSetupProps) {
     case 'api_key': case 'models_gateway':
       return <CredentialSetupPanel key={key} {...props} setup={setup} />;
     case 'artifact_download': case 'engine_setup':
-      return <DownloadSetupPanel key={key} setup={setup} activeOperation={props.choice.active_operation} onChanged={props.onChanged} />;
+      return <DownloadSetupPanel key={key} setup={setup} activeOperation={props.choice.active_operation} onChanged={props.onChanged}
+        sharedProgress={props.sharedProgress} operationError={props.operationError} />;
     case 'first_use_download': return <p className="settings-help">{setup.disclosure}</p>;
     case 'instructions': return <section className="selector-setup"><strong>{setup.title}</strong><ol>{setup.steps.map((step) => <li key={step}>{step}</li>)}</ol>{setup.url && <a href={setup.url} target="_blank" rel="noreferrer">Learn more</a>}</section>;
   }
