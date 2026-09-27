@@ -244,6 +244,74 @@ def test_file_scope_exposes_only_the_selected_cell(tmp_path: Path) -> None:
         project.close()
 
 
+def test_action_proposal_mixed_row_and_file_scope_checks_file_row_cells(
+    tmp_path: Path,
+) -> None:
+    scope = {
+        "kind": "sources",
+        "sources": [
+            {"kind": "rows", "sheet_id": 1, "row_ids": [1]},
+            {"kind": "file", "sheet_id": 1, "row_id": 2, "column_id": 1},
+        ],
+    }
+    project, store, turn = _project_turn(tmp_path, scope)
+    try:
+        tools = ProjectQATools(project, turn, store)
+        with pytest.raises(ProjectQAScopeError):
+            tools.propose_action(
+                "Read a column outside the selected file cell",
+                {
+                    "action_id": "map.template",
+                    "scope": {
+                        "kind": "sheet_rows",
+                        "sheet_id": 1,
+                        "row_ids": [1, 2],
+                    },
+                    "params": {"template": {"text": "{{Private}}"}},
+                    "output_names": {},
+                },
+            )
+        assert not [
+            event
+            for event in store.events(turn["thread_id"])["events"]
+            if event["kind"] == "action_proposal"
+        ]
+    finally:
+        project.close()
+
+
+def test_action_proposal_heterogeneous_file_scope_checks_each_target_row(
+    tmp_path: Path,
+) -> None:
+    scope = {
+        "kind": "sources",
+        "sources": [
+            {"kind": "file", "sheet_id": 1, "row_id": 1, "column_id": 1},
+            {"kind": "file", "sheet_id": 1, "row_id": 2, "column_id": 2},
+        ],
+    }
+    project, store, turn = _project_turn(tmp_path, scope)
+    try:
+        tools = ProjectQATools(project, turn, store)
+        draft = {
+            "action_id": "map.template",
+            "scope": {
+                "kind": "sheet_rows",
+                "sheet_id": 1,
+                "row_ids": [1, 2],
+            },
+            "params": {"template": {"text": "{{Selected}}"}},
+            "output_names": {},
+        }
+        with pytest.raises(ProjectQAScopeError):
+            tools.propose_action("Read different selected cells as one column", draft)
+        draft["scope"]["row_ids"] = [1]
+        proposal = tools.propose_action("Read the selected cell", draft)["proposal"]
+        assert proposal["spec"]["scope"]["row_ids"] == [1]
+    finally:
+        project.close()
+
+
 def test_read_observation_budget_and_scope_admission_are_bounded(
     tmp_path: Path,
 ) -> None:

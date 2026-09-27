@@ -306,23 +306,24 @@ def _restrict_scope(
         return True
 
     row_ids: set[int] = set()
-    file_columns: set[int] = set()
-    has_row_source = False
+    unrestricted_rows: set[int] = set()
+    file_columns_by_row: dict[int, set[int]] = {}
     for source in sources:
         if source.get("kind") == "rows":
-            has_row_source = True
-            row_ids.update(
+            source_rows = {
                 row_id
                 for row_id in source.get("row_ids", [])
                 if isinstance(row_id, int) and not isinstance(row_id, bool)
-            )
+            }
+            row_ids.update(source_rows)
+            unrestricted_rows.update(source_rows)
         elif source.get("kind") == "file":
             row_id = source.get("row_id")
             column_id = source.get("column_id")
             if isinstance(row_id, int) and not isinstance(row_id, bool):
                 row_ids.add(row_id)
-            if isinstance(column_id, int) and not isinstance(column_id, bool):
-                file_columns.add(column_id)
+                if isinstance(column_id, int) and not isinstance(column_id, bool):
+                    file_columns_by_row.setdefault(row_id, set()).add(column_id)
     if not row_ids:
         return False
     requested_rows = draft_scope.get("row_ids")
@@ -330,12 +331,13 @@ def _restrict_scope(
         if not set(requested_rows).issubset(row_ids):
             return False
         row_ids = set(requested_rows)
-    if (
-        file_columns
-        and not has_row_source
-        and not _references_are_selected_file_columns(
-            project, spec, sheet_id, file_columns
-        )
+    if not _references_fit_selected_cells(
+        project,
+        spec,
+        sheet_id,
+        row_ids,
+        unrestricted_rows,
+        file_columns_by_row,
     ):
         return False
     narrowed = dict(draft_scope)
@@ -344,10 +346,15 @@ def _restrict_scope(
     return True
 
 
-def _references_are_selected_file_columns(
-    project: Project, spec: dict[str, Any], sheet_id: int, columns: set[int]
+def _references_fit_selected_cells(
+    project: Project,
+    spec: dict[str, Any],
+    sheet_id: int,
+    target_rows: set[int],
+    unrestricted_rows: set[int],
+    file_columns_by_row: dict[int, set[int]],
 ) -> bool:
-    """Reject a file-only draft that would read an unrelated source column."""
+    """Keep each file-selected row within its own selected input cells."""
 
     try:
         registered = ACTION_REGISTRY.get(str(spec["action_id"]))
@@ -365,4 +372,14 @@ def _references_are_selected_file_columns(
     by_name = {
         str(column["name"]): int(column["id"]) for column in project.columns(sheet_id)
     }
-    return all(by_name.get(reference.column) in columns for reference in references)
+    reference_columns: set[int] = set()
+    for reference in references:
+        column_id = by_name.get(reference.column)
+        if column_id is None:
+            return False
+        reference_columns.add(column_id)
+    return all(
+        row_id in unrestricted_rows
+        or reference_columns <= file_columns_by_row.get(row_id, set())
+        for row_id in target_rows
+    )
