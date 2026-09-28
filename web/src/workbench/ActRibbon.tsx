@@ -5,6 +5,7 @@
 // pre-targeted, it never runs.
 
 import { PanelTopClose } from 'lucide-react';
+import { OverflowRow } from '../components/OverflowRow';
 import overflowStyles from './ActTabsOverflow.module.css';
 import {
   actItemsInDisplayOrder,
@@ -72,38 +73,72 @@ export function ActRibbon({
     else onLaunchContribution(item.contributionId);
   };
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0] ?? null;
+  const renderTab = (tab: ResolvedActTab, measuring: boolean) => {
+    const index = tabs.indexOf(tab);
+    const previous = tabs[index - 1];
+    const needsDivider = tab.contextual && (!previous || !previous.contextual);
+    const active = activeTab?.id === tab.id;
+    return (
+      <div className="act-ribbon-tab-wrap">
+        {needsDivider && <span className="act-ribbon-tab-divider" aria-hidden />}
+        {measuring ? (
+          <span className={`act-ribbon-tab${active ? ' active' : ''}${
+            tab.contextual ? ` contextual contextual-${tab.accent}` : ''
+          }`}>
+            {tab.contextual && <span className="act-ribbon-tab-dot" aria-hidden />}
+            {tab.label}
+          </span>
+        ) : (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={active}
+            className={`act-ribbon-tab${active ? ' active' : ''}${
+              tab.contextual ? ` contextual contextual-${tab.accent}` : ''
+            }`}
+            data-testid={`ribbon-tab-${tab.id}`}
+            data-contextual={tab.contextual ? 'true' : 'false'}
+            onClick={() => onSelectTab(tab.id)}
+          >
+            {tab.contextual && <span className="act-ribbon-tab-dot" aria-hidden />}
+            {tab.label}
+          </button>
+        )}
+      </div>
+    );
+  };
   return (
     <div className="act-ribbon" data-testid="act-ribbon" data-ribbon-mode="ribbon">
-      <div
-        className={`act-ribbon-tabstrip ${overflowStyles.ribbonTabstrip}`}
-        role="tablist"
-        aria-label="Action tabs"
-      >
-        <div className={`act-ribbon-tabs ${overflowStyles.ribbonTabs}`}>
-          {tabs.map((tab, index) => {
-            const previous = tabs[index - 1];
-            const needsDivider = tab.contextual && (!previous || !previous.contextual);
-            return (
-              <div className="act-ribbon-tab-wrap" key={tab.id}>
-                {needsDivider && <span className="act-ribbon-tab-divider" aria-hidden />}
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={activeTab?.id === tab.id}
-                  className={`act-ribbon-tab${activeTab?.id === tab.id ? ' active' : ''}${
-                    tab.contextual ? ` contextual contextual-${tab.accent}` : ''
-                  }`}
-                  data-testid={`ribbon-tab-${tab.id}`}
-                  data-contextual={tab.contextual ? 'true' : 'false'}
-                  onClick={() => onSelectTab(tab.id)}
-                >
-                  {tab.contextual && <span className="act-ribbon-tab-dot" aria-hidden />}
-                  {tab.label}
-                </button>
-              </div>
-            );
-          })}
-        </div>
+      <div className={`act-ribbon-tabstrip ${overflowStyles.ribbonTabstrip}`}>
+        <OverflowRow
+          items={tabs}
+          getKey={(tab) => tab.id}
+          keepVisibleKey={activeTab?.id}
+          role="tablist"
+          aria-label="Action tabs"
+          renderItem={renderTab}
+          renderOverflowItem={(tab, closeMenu) => (
+            <button
+              type="button"
+              role="menuitem"
+              className="menu-item"
+              data-testid={`ribbon-tab-menu-${tab.id}`}
+              onClick={() => {
+                onSelectTab(tab.id);
+                closeMenu();
+              }}
+            >
+              <span className="menu-item-name">{tab.label}</span>
+            </button>
+          )}
+          className={`act-ribbon-tabs ${overflowStyles.ribbonTabs}`}
+          triggerClassName={overflowStyles.ribbonOverflowTrigger}
+          menuClassName={overflowStyles.ribbonOverflowMenu}
+          triggerTestId="ribbon-tab-overflow"
+          menuTestId="ribbon-tab-overflow-menu"
+          overflowLabel="More action tabs"
+          menuWidth={220}
+        />
         <button
           type="button"
           className={`act-ribbon-collapse ${overflowStyles.ribbonCollapse}`}

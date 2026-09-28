@@ -1,9 +1,35 @@
-/* Keep the control at the end of each tab strip usable while its tabs scroll. */
+/* Keep the control at the end of each tab strip usable without scrolling. */
 .ribbonTabstrip {
   min-width: 0;
+  overflow: hidden;
 }
 
-.ribbonTabs,
+.ribbonTabs {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: visible;
+}
+
+.ribbonOverflowTrigger {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  padding: 0;
+  color: var(--text-mid);
+}
+
+.ribbonOverflowTrigger:hover,
+.ribbonOverflowTrigger[aria-expanded='true'] {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.ribbonOverflowMenu {
+  max-height: min(320px, 50vh);
+}
+
 .menuTabs {
   flex: 1 1 auto;
   min-width: 0;
