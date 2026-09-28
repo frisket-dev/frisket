@@ -90,4 +90,16 @@ describe('ActionPromptField', () => {
     expect(screen.getByTestId('extract-prompt-hint'))
       .toHaveTextContent('Describe what to pull out.');
   });
+
+  it('includes the border when fitting content to a border-box control', () => {
+    render(<ActionPromptField label="Prompt" value="Short prompt" onChange={() => {}} />);
+    const textarea = screen.getByTestId('action-prompt');
+    Object.defineProperties(textarea, {
+      scrollHeight: { get: () => 72 },
+      clientHeight: { get: () => 70 },
+      offsetHeight: { get: () => 72 },
+    });
+    fireEvent.input(textarea);
+    expect(textarea).toHaveStyle({ height: '74px' });
+  });
 });
