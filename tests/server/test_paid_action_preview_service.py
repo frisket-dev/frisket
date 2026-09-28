@@ -184,9 +184,10 @@ def test_cancel_joins_returned_paid_call_before_receipt_settlement(
         project.close()
 
 
-def test_scratch_teardown_error_survives_receipt_settlement_failure(tmp_path):
+def test_scratch_teardown_error_survives_receipt_settlement_failure(tmp_path, monkeypatch):
     from frisket.engine.sandbox.shim import SandboxTeardownError
 
+    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     service, project, _ = _fixture(tmp_path, _Adapter())
     plan, _source, router, composition, execution_context = service.prepare_ocr_scratch(
         "paid",
