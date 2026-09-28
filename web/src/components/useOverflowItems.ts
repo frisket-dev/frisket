@@ -72,7 +72,7 @@ export function useOverflowItems<T>(
         const activeIndex = items.findIndex((item) => getKey(item) === keepVisibleKey);
         if (activeIndex >= 0 && !visibleIndexes.includes(activeIndex)
           && rowWidth([widths[activeIndex]], gap, triggerWidth, true) <= available) {
-          const retainedIndexes = visibleIndexes.slice(0, -1);
+          const retainedIndexes = [...visibleIndexes];
           while (
             retainedIndexes.length > 0
             && rowWidth(

@@ -22,13 +22,13 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); resizeCallbacks.clear(); });
 
 const items = [0, 1, 2];
-function Example({ keepVisibleKey, onChoose = () => {} }: {
-  keepVisibleKey?: string; onChoose?(item: number): void;
+function Example({ keepVisibleKey, onChoose = () => {}, widths = [80, 80, 80] }: {
+  keepVisibleKey?: string; onChoose?(item: number): void; widths?: number[];
 }) {
   return <OverflowRow items={items} getKey={String} keepVisibleKey={keepVisibleKey} overflowLabel="More commands"
     renderItem={(item, measuring) => measuring
-      ? <span data-width="80">Command {item}</span>
-      : <button data-width="80" onClick={() => onChoose(item)}>Command {item}</button>}
+      ? <span data-width={widths[item]}>Command {item}</span>
+      : <button data-width={widths[item]} onClick={() => onChoose(item)}>Command {item}</button>}
     renderOverflowItem={(item, closeMenu) => <button role="menuitem" onClick={() => {
       onChoose(item); closeMenu();
     }}>Run {item}</button>} />;
@@ -70,6 +70,13 @@ it('puts all items in the menu when none fits beside the chevron', () => {
   expect(screen.queryByRole('button', { name: /Command \d/ })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'More commands' }));
   expect(screen.getAllByRole('menuitem')).toHaveLength(3);
+});
+
+it('retains fitting items when the requested item is narrower than the first overflowed item', () => {
+  render(<Example keepVisibleKey="2" widths={[80, 200, 50]} />);
+  expect(screen.getByRole('button', { name: 'Command 0' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Command 2' })).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Command 1' })).not.toBeInTheDocument();
 });
 
 it('moves keyboard focus through caller-rendered menu entries', () => {
