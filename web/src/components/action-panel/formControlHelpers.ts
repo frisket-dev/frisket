@@ -178,7 +178,10 @@ export function numericParamOk(
 export function resizeTextareaToContent(textarea: HTMLTextAreaElement | null) {
   if (!textarea) return;
   textarea.style.height = 'auto';
-  textarea.style.height = `${textarea.scrollHeight}px`;
+  // Controls use border-box sizing; scrollHeight excludes the border. Without
+  // that extra height even a short prompt gets an unnecessary scrollbar.
+  const borderHeight = textarea.offsetHeight - textarea.clientHeight;
+  textarea.style.height = `${textarea.scrollHeight + borderHeight}px`;
 }
 
 export function handleAutoResizeTextareaInput(event: FormEvent<HTMLTextAreaElement>) {

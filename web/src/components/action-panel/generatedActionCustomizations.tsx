@@ -294,6 +294,7 @@ const EXACT_CUSTOMIZATIONS = {
     fields: { question: PromptField },
     outputLabel: (key) => key === 'answer' ? 'Answer' : undefined,
   },
+  'map.judge': { fields: { guidelines: GuidanceField } },
   'map.ner': {
     body: NerParamsBody,
     inlineDiagnosticFields: ['source', 'engine', 'labels'],

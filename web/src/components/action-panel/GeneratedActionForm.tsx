@@ -828,7 +828,7 @@ function GeneratedActionFormContents({
             ariaLabel={`${field.label} columns`}
             multiColumn={singleColumn ? undefined : {
               selectedColumns: editor.columns,
-              allModeLabel: 'All compatible columns',
+              allModeLabel: 'All columns',
               onSelectedColumnsChange: (names) => writeSource({
                 ...editor,
                 mode: 'columns',

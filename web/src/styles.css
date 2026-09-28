@@ -691,6 +691,11 @@ kbd {
 .action-help-section p { margin: 0; }
 .action-help-section ul { margin: 0; padding-left: 18px; }
 
+/* Keep breathing room above the divider even when the footer's auto margin
+   collapses in a long form. Preserve its bottom alignment in short forms. */
+.action-drawer .action-form > :has(+ .action-run-actions) {
+  margin-bottom: 14px;
+}
 .action-drawer .action-form > .action-run-actions {
   position: sticky;
   bottom: 0;
