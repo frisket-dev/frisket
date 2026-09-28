@@ -250,6 +250,10 @@ function schemaStringMaxLength(schema: JsonSchemaLike | undefined): number | und
   return undefined;
 }
 
+function schemaUsesTextarea(schema: JsonSchemaLike | undefined): boolean {
+  return schema?.['x-frisket-input'] === 'textarea';
+}
+
 function catalogFormParamToActionParam(
   param: ActionCatalogFormParam,
   schema?: JsonSchemaLike,
@@ -306,7 +310,7 @@ function catalogFormParamToActionParam(
   return {
     name: param.name,
     label: param.label ?? paramLabel(param.name),
-    input: param.type === 'textarea' ? 'textarea' : 'text',
+    input: param.type === 'textarea' || schemaUsesTextarea(schema) ? 'textarea' : 'text',
     defaultValue: paramDefault(param),
     required: paramRequired(param),
     hint: param.description,
@@ -511,7 +515,9 @@ function generatedCatalogParams(entry: ActionCatalogEntry): ActionParam[] | unde
             ? 'category'
           : schema.type === 'boolean'
             ? 'boolean'
-            : 'text';
+            : schemaUsesTextarea(schema)
+              ? 'textarea'
+              : 'text';
     const declaration: ActionCatalogFormParam = {
       name,
       type,

@@ -184,11 +184,6 @@ function PromptField({ label, value, onChange }: GeneratedActionFieldProps) {
     rows={5} onChange={onChange} />;
 }
 
-function GuidanceField({ id, testid, label, value, onChange }: GeneratedActionFieldProps) {
-  return <ActionPromptField id={id} testId={testid} label={label}
-    value={typeof value === 'string' ? value : ''} rows={5} onChange={onChange} />;
-}
-
 const EXACT_CUSTOMIZATIONS = {
   'web.capture_page': { body: PageCaptureParamsBody, primaryLabel: 'Capture pages',
     inlineDiagnosticFields: ['source', 'max_bytes', 'timeout_ms'],
@@ -294,11 +289,9 @@ const EXACT_CUSTOMIZATIONS = {
     fields: { question: PromptField },
     outputLabel: (key) => key === 'answer' ? 'Answer' : undefined,
   },
-  'map.judge': { fields: { guidelines: GuidanceField } },
   'map.ner': {
     body: NerParamsBody,
     inlineDiagnosticFields: ['source', 'engine', 'labels'],
-    fields: { extra_instructions: GuidanceField },
     initialParams: { labels: [...RECOMMENDED_SPACY_TYPES] },
     outputLabel: () => 'Entities',
   },
@@ -309,14 +302,12 @@ const EXACT_CUSTOMIZATIONS = {
       ...((params.engine ?? 'local_semantic') === 'local_semantic'
         ? [] : ['include_confidence', 'include_justification'] as const),
     ],
-    fields: { context: GuidanceField },
     initialParams: { fields: [{ name: 'category', type: 'category', labels: [], description: '' }] },
   },
   'map.extract': {
     body: ExtractParamsBody,
     inlineDiagnosticFields: ['source', 'fields', 'instruction', 'model', 'include_confidence',
       'source_document_columns', 'grounding', 'evidence_policy', 'context'],
-    fields: { instruction: GuidanceField, context: GuidanceField },
     initialParams: { fields: [{ name: 'value', type: 'text', description: '' }] },
     initialPromptParams: (prompt) => {
       const { name, type, description } = extractFieldFromQuestion(prompt);
@@ -327,18 +318,16 @@ const EXACT_CUSTOMIZATIONS = {
     body: McpExtractParamsBody,
     inlineDiagnosticFields: ['source', 'fields', 'instruction', 'mcp_server_ids', 'model',
       'include_confidence', 'context'],
-    fields: { instruction: GuidanceField, context: GuidanceField },
     initialParams: {
       fields: [{ name: 'value', type: 'text', description: '' }],
       mcp_server_ids: [],
     },
   },
-  'map.find': { body: FindParamsBody, defaultSheetName: 'Findings', fields: { instruction: GuidanceField },
+  'map.find': { body: FindParamsBody, defaultSheetName: 'Findings',
     inlineDiagnosticFields: ['source', 'instruction', 'fields', 'model'] },
   'map.translate': {
     body: TranslateParamsBody,
     inlineDiagnosticFields: ['source', 'engine', 'language'],
-    fields: { context: GuidanceField },
     initialParams: { engine: 'llm', target_language: 'English' },
     defaultOutputName: (key) => key === 'detected_language' ? 'translation_detected_language' : undefined,
   },

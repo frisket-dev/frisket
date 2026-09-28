@@ -24,7 +24,10 @@ from frisket.ops.extraction import extract_response_schema, render_extract_messa
 
 
 class ExtractParams(_ModelRowsParams):
-    instruction: str = ""
+    instruction: str = Field(
+        default="",
+        json_schema_extra={"x-frisket-input": "textarea"},
+    )
     fields: list[ExtractField] = Field(min_length=1, max_length=64)
     include_confidence: bool = False
     source_document_columns: list[ColumnRef[Any]] = Field(default_factory=list)

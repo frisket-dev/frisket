@@ -21,7 +21,11 @@ class FindSourceColumn(ColumnRef[Any]):
 
 
 class FindOptions(ActionParams):
-    instruction: StrictStr = Field(title="Describe what to look for", min_length=1)
+    instruction: StrictStr = Field(
+        title="Describe what to look for",
+        min_length=1,
+        json_schema_extra={"x-frisket-input": "textarea"},
+    )
     model: ModelRef
     fields: list[ExtractField] = Field(default_factory=list, max_length=63)
 

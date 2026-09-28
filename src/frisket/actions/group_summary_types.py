@@ -21,7 +21,10 @@ class GroupSummaryColumn(ColumnRef[Any]):
 
 class GroupSummaryOptions(ActionParams):
     model: ModelRef
-    instruction: StrictStr = Field(min_length=1)
+    instruction: StrictStr = Field(
+        min_length=1,
+        json_schema_extra={"x-frisket-input": "textarea"},
+    )
     group_by: ColumnRef[Any] | None = None
 
     @field_validator("instruction")

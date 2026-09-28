@@ -63,6 +63,7 @@ class _ModelRowsParams(ActionParams):
     context: StrictStr = Field(
         default="",
         description="Optional context about the dataset.",
+        json_schema_extra={"x-frisket-input": "textarea"},
     )
 
     @field_validator("source")
@@ -72,7 +73,10 @@ class _ModelRowsParams(ActionParams):
 
 
 class AskParams(_ModelRowsParams):
-    question: StrictStr = Field(description="The question to answer for each row.")
+    question: StrictStr = Field(
+        description="The question to answer for each row.",
+        json_schema_extra={"x-frisket-input": "textarea"},
+    )
 
     @field_validator("question")
     @classmethod
@@ -133,6 +137,7 @@ class SummarizeParams(_ModelRowsParams):
         default=None,
         title="Custom instruction",
         description="Leave blank to use the selected summary style.",
+        json_schema_extra={"x-frisket-input": "textarea"},
     )
 
     @field_validator("instruction")
