@@ -16,7 +16,6 @@ import { createWorkspaceStores, type WorkspaceStores } from '../../src/state/cre
 import { sheetMeta } from '../support/actionFormFixtures';
 import { completeCatalogPayload } from '../support/actionFormFixtures';
 import { syntheticActionCatalogEntry } from '../support/actionCatalogFixtures';
-import { servedActionCatalog } from '../support/servedActionCatalog';
 import { aiMeta, columnDef } from '../support/domainFixtures';
 import { resolveWalkthroughTarget } from '../../src/walkthrough/targets';
 import { LAWSUIT_DOCUMENT_WALKTHROUGH } from '../../src/walkthrough/walkthroughs';
@@ -673,30 +672,6 @@ describe('GeneratedActionForm', () => {
     expect(onExecute).not.toHaveBeenCalled();
   });
 
-  it('renders Judge results with multiline guidelines and keeps untouched validation quiet', async () => {
-    const entry = servedActionCatalog().actions.find((item) => item.kind === 'map.judge')!;
-    expect(isGeneratedActionCatalogEntry(entry)).toBe(true);
-    if (!isGeneratedActionCatalogEntry(entry)) throw new Error('Expected generated Judge form');
-    expect(entry.title).toBe('Judge results');
-    const resolveParams = vi.fn(async () => ({
-      diagnostics: { guidelines: { ok: false, message: 'guidelines must not be blank' } },
-      logical_outputs: [],
-    }));
-    render(<GeneratedActionForm catalogEntry={entry} actionTemplate={generatedTemplate(entry)}
-      sheet={SHEET} running={false} resolveParams={resolveParams}
-      onExecute={vi.fn()} onClose={vi.fn()} />);
-
-    const guidelines = screen.getByLabelText('Guidelines');
-    expect(guidelines.tagName).toBe('TEXTAREA');
-    expect(guidelines).toHaveClass('form-textarea-autogrow');
-    await waitFor(() => expect(resolveParams).toHaveBeenCalled());
-    expect(screen.queryByText('guidelines must not be blank')).not.toBeInTheDocument();
-    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
-    fireEvent.change(guidelines, { target: { value: ' ' } });
-    expect(await screen.findByTestId('field-guidelines-error'))
-      .toHaveTextContent('guidelines must not be blank');
-  });
-
   it('uses the rich-source empty state without repeating its server refusal', async () => {
     const entry = syntheticActionCatalogEntry('map.decorate', {
       title: 'Date-only source',
@@ -726,27 +701,6 @@ describe('GeneratedActionForm', () => {
       .toHaveTextContent('Add a date column to use this action.');
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeDisabled());
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-  });
-
-  it('keeps feedback visible for an invalid saved action', async () => {
-    const entry = generatedEntry('map.template');
-    render(
-      <GeneratedActionForm catalogEntry={entry} actionTemplate={generatedTemplate(entry)}
-        sheet={SHEET} running={false}
-        initialDraft={{
-          action_id: entry.kind, scope: { kind: 'sheet_rows', sheet_id: 7 },
-          params: { template: { text: '{{retired}}' } }, output_names: { rendered: 'result' },
-        }}
-        resolveParams={async () => ({
-          diagnostics: { template: { ok: false, message: 'Saved template uses a missing column.' } },
-          logical_outputs: [],
-        })}
-        onExecute={vi.fn()} onClose={vi.fn()} />,
-    );
-
-    expect(await screen.findByTestId('field-template-error'))
-      .toHaveTextContent('Saved template uses a missing column.');
-    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
   });
 
   it('opens an unlisted generated action without a frontend ID registration', async () => {

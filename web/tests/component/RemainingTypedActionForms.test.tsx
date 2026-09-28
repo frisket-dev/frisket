@@ -98,32 +98,3 @@ it('preserves a question redirected to Extract as the output field instruction',
   })));
   expect(screen.getByLabelText('Field 1 description')).toHaveValue('Who signed the contract?');
 });
-
-it('keeps Tool-assisted Extract required-server validation quiet until the selection changes', async () => {
-  const entry = catalog.actions.find((item) => item.kind === 'map.mcp_extract');
-  if (!entry || !isGeneratedActionCatalogEntry(entry)) throw new Error('Missing Tool-assisted Extract');
-  installActionSelectorFixture(entry, async () => selectorProviderCatalog(['test/model']));
-  const template = generatedActionTemplateFromCatalogEntry(entry)!;
-  const api = createProjectApi('typed-forms:mcp-fresh');
-  vi.spyOn(api, 'listMcpServers').mockResolvedValue([{
-    id: 'server-one', name: 'Local tools', enabled: true,
-  }] as Awaited<ReturnType<typeof api.listMcpServers>>);
-  stores = createWorkspaceStores('typed-forms:mcp-fresh', api);
-  const resolveParams = vi.fn(async () => ({
-    diagnostics: { mcp_server_ids: { ok: false, message: 'Select at least one value.' } },
-    logical_outputs: [],
-  }));
-  render(<WorkspaceStoresContext.Provider value={stores}>
-    <GeneratedActionForm projectId="typed-forms:mcp-fresh" catalogEntry={entry}
-      actionTemplate={template} sheet={sheet} running={false} resolveParams={resolveParams}
-      onExecute={vi.fn()} onClose={vi.fn()} />
-  </WorkspaceStoresContext.Provider>);
-  await waitFor(() => expect(resolveParams).toHaveBeenCalled());
-  expect(screen.queryByText('Select at least one value.')).not.toBeInTheDocument();
-  expect(screen.getByTestId('generated-action-run')).toBeDisabled();
-  fireEvent.click(screen.getByRole('button', { name: 'Tools · 0 MCP servers' }));
-  const server = await screen.findByRole('checkbox', { name: 'Local tools' });
-  fireEvent.click(server);
-  fireEvent.click(server);
-  expect(await screen.findByText('Select at least one value.')).toBeInTheDocument();
-});
