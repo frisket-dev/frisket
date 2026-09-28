@@ -16,6 +16,8 @@ import { injectTestOnlyUnassignedAction } from '../workbench/actSurface';
 import type { ActSurfaceStoreHandle } from './actSurfaceStore';
 import type {
   DocumentAnnotationPreferences,
+  DocumentAlongsidePreference,
+  DocumentAlongsidePreferences,
   DocumentViewFit,
   DocumentViewLayout,
   DocumentViewState,
@@ -83,6 +85,10 @@ function documentAnnotationPrefsStorageKey(projectId: string): string {
   return `frisket:document-annotations:${projectId}`;
 }
 
+function documentAlongsidePrefsStorageKey(projectId: string): string {
+  return `frisket:document-alongside:${projectId}`;
+}
+
 /** Stable compatibility surface: WEB-02 preserves every key and encoding. */
 export const chromeStorageKeys = {
   ribbonMode: ribbonModeStorageKey,
@@ -93,6 +99,7 @@ export const chromeStorageKeys = {
   openSplit: openSplitStorageKey,
   documentView: documentViewStorageKey,
   documentAnnotationPrefs: documentAnnotationPrefsStorageKey,
+  documentAlongsidePrefs: documentAlongsidePrefsStorageKey,
 };
 
 export interface HydratedChromePreferences {
@@ -104,10 +111,13 @@ export interface HydratedChromePreferences {
   openSplit: OpenSplitState | null;
   documentView: DocumentViewState | null;
   documentAnnotationPreferences: DocumentAnnotationPreferences;
+  /** Optional so legacy injected test fixtures retain the closed-pane default. */
+  documentAlongsidePreferences?: DocumentAlongsidePreferences;
 }
 
 export interface ChromePreferenceMutationTarget {
   getDocumentAnnotationPreferences(): DocumentAnnotationPreferences;
+  getDocumentAlongsidePreferences(): DocumentAlongsidePreferences;
   setRibbonMode(mode: RibbonMode): void;
   setActiveRibbonTab(tab: string): void;
   setDiscoverOpen(open: boolean): void;
@@ -116,6 +126,7 @@ export interface ChromePreferenceMutationTarget {
   setOpenSplit(split: OpenSplitState | null): void;
   setDocumentView(documentView: DocumentViewState | null): void;
   setDocumentAnnotationPreferences(prefs: DocumentAnnotationPreferences): void;
+  setDocumentAlongsidePreferences(prefs: DocumentAlongsidePreferences): void;
 }
 
 export interface ProjectChromePreferenceCommands {
@@ -130,6 +141,10 @@ export interface SheetChromePreferenceCommands {
   setOpenSplit(split: OpenSplitState | null): void;
   setDocumentView(documentView: DocumentViewState | null): void;
   setSheetAnnotationToggles(sheetId: string, disabledToggleKeys: readonly string[]): void;
+  setSheetDocumentAlongsidePreference(
+    sheetId: string,
+    preference: DocumentAlongsidePreference,
+  ): void;
 }
 
 export interface ScopedChromePreferenceOwner {
@@ -258,6 +273,28 @@ function decodeDocumentAnnotationPreferences(
   return preferences;
 }
 
+function decodeDocumentAlongsidePreferences(
+  raw: string,
+): DocumentAlongsidePreferences | undefined {
+  const parsed = parseJson(raw);
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined;
+  const preferences: DocumentAlongsidePreferences = {};
+  for (const [sheetId, preference] of Object.entries(parsed)) {
+    if (
+      typeof preference !== 'object' ||
+      preference === null ||
+      Array.isArray(preference) ||
+      typeof (preference as DocumentAlongsidePreference).open !== 'boolean' ||
+      ((preference as DocumentAlongsidePreference).columnId !== null &&
+        typeof (preference as DocumentAlongsidePreference).columnId !== 'string')
+    ) {
+      continue;
+    }
+    preferences[sheetId] = preference as DocumentAlongsidePreference;
+  }
+  return preferences;
+}
+
 function responsiveDiscoverDefault(): boolean {
   return typeof window !== 'undefined' ? window.innerWidth >= 1024 : true;
 }
@@ -379,6 +416,15 @@ export function createScopedChromePreferenceOwner(
           {},
           decodeDocumentAnnotationPreferences,
         ),
+        documentAlongsidePreferences: readPreference(
+          storage,
+          diagnostic,
+          'sheet',
+          'documentAlongsidePreferences',
+          chromeStorageKeys.documentAlongsidePrefs(projectId),
+          {},
+          decodeDocumentAlongsidePreferences,
+        ),
       };
     },
     bindCommands(target) {
@@ -429,6 +475,19 @@ export function createScopedChromePreferenceOwner(
               JSON.stringify(next),
             );
             target.setDocumentAnnotationPreferences(next);
+          },
+          setSheetDocumentAlongsidePreference(sheetId, preference) {
+            const next = {
+              ...target.getDocumentAlongsidePreferences(),
+              [sheetId]: { ...preference },
+            };
+            setValue(
+              'sheet',
+              'documentAlongsidePreferences',
+              chromeStorageKeys.documentAlongsidePrefs(projectId),
+              JSON.stringify(next),
+            );
+            target.setDocumentAlongsidePreferences(next);
           },
         },
       };

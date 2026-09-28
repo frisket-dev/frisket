@@ -4,6 +4,7 @@ import { emitActionCatalogInvalidated } from '../api/catalogEvents';
 import { actionTemplatesFromCatalog } from '../actions/model';
 import type {
   DocumentAnnotationPreferences,
+  DocumentAlongsidePreferences,
   DocumentViewState,
   OpenSplitState,
   PromotedView,
@@ -39,6 +40,7 @@ class MemoryStorage implements PreferenceStorage {
 
 function createMutationTarget() {
   let annotationPreferences: DocumentAnnotationPreferences = {};
+  let alongsidePreferences: DocumentAlongsidePreferences = {};
   const calls = {
     ribbonMode: [] as RibbonMode[],
     activeRibbonTab: [] as string[],
@@ -48,9 +50,11 @@ function createMutationTarget() {
     openSplit: [] as Array<OpenSplitState | null>,
     documentView: [] as Array<DocumentViewState | null>,
     documentAnnotationPreferences: [] as DocumentAnnotationPreferences[],
+    documentAlongsidePreferences: [] as DocumentAlongsidePreferences[],
   };
   const target: ChromePreferenceMutationTarget = {
     getDocumentAnnotationPreferences: () => annotationPreferences,
+    getDocumentAlongsidePreferences: () => alongsidePreferences,
     setRibbonMode: (value) => calls.ribbonMode.push(value),
     setActiveRibbonTab: (value) => calls.activeRibbonTab.push(value),
     setDiscoverOpen: (value) => calls.discoverOpen.push(value),
@@ -62,6 +66,10 @@ function createMutationTarget() {
       annotationPreferences = value;
       calls.documentAnnotationPreferences.push(value);
     },
+    setDocumentAlongsidePreferences: (value) => {
+      alongsidePreferences = value;
+      calls.documentAlongsidePreferences.push(value);
+    },
   };
   return { calls, target };
 }
@@ -69,7 +77,7 @@ function createMutationTarget() {
 const projectId = 'p1';
 
 describe('scoped chrome preferences', () => {
-  it('preserves the eight existing chromeStorageKeys families exactly', () => {
+  it('preserves existing chromeStorageKeys families and adds the document alongside key', () => {
     expect(chromeStorageKeys.ribbonMode(projectId)).toBe('frisket:ribbon-mode:p1');
     expect(chromeStorageKeys.activeRibbonTab(projectId)).toBe('frisket:ribbon-tab:p1');
     expect(chromeStorageKeys.discoverOpen(projectId)).toBe('frisket:discover-open:p1');
@@ -79,6 +87,9 @@ describe('scoped chrome preferences', () => {
     expect(chromeStorageKeys.documentView(projectId)).toBe('frisket:document-view:p1');
     expect(chromeStorageKeys.documentAnnotationPrefs(projectId)).toBe(
       'frisket:document-annotations:p1',
+    );
+    expect(chromeStorageKeys.documentAlongsidePrefs(projectId)).toBe(
+      'frisket:document-alongside:p1',
     );
   });
 
@@ -97,8 +108,9 @@ describe('scoped chrome preferences', () => {
       openSplit: null,
       documentView: null,
       documentAnnotationPreferences: {},
+      documentAlongsidePreferences: {},
     });
-    expect(diagnostic).toHaveBeenCalledTimes(8);
+    expect(diagnostic).toHaveBeenCalledTimes(9);
     expect(diagnostic.mock.calls.every(([entry]) => entry.kind === 'missing')).toBe(true);
   });
 
@@ -112,6 +124,7 @@ describe('scoped chrome preferences', () => {
     storage.values.set(chromeStorageKeys.openSplit(projectId), '{}');
     storage.values.set(chromeStorageKeys.documentView(projectId), '[]');
     storage.values.set(chromeStorageKeys.documentAnnotationPrefs(projectId), '[]');
+    storage.values.set(chromeStorageKeys.documentAlongsidePrefs(projectId), '[]');
     const diagnostic = vi.fn();
 
     const preferences = createScopedChromePreferenceOwner(projectId, {
@@ -126,7 +139,8 @@ describe('scoped chrome preferences', () => {
     expect(preferences.openSplit).toBeNull();
     expect(preferences.documentView).toBeNull();
     expect(preferences.documentAnnotationPreferences).toEqual({});
-    expect(diagnostic).toHaveBeenCalledTimes(8);
+    expect(preferences.documentAlongsidePreferences).toEqual({});
+    expect(diagnostic).toHaveBeenCalledTimes(9);
     expect(
       diagnostic.mock.calls.every(([entry]) =>
         entry.kind === 'malformed' || entry.kind === 'unsupported',
@@ -150,6 +164,7 @@ describe('scoped chrome preferences', () => {
     commands.sheet.setOpenSplit(split);
     commands.sheet.setDocumentView(null);
     commands.sheet.setSheetAnnotationToggles('1', ['1:2:ner']);
+    commands.sheet.setSheetDocumentAlongsidePreference('1', { open: true, columnId: 'c1' });
 
     expect(storage.values.get(chromeStorageKeys.ribbonMode(projectId))).toBe('menu');
     expect(storage.values.get(chromeStorageKeys.activeRibbonTab(projectId))).toBe('act');
@@ -163,10 +178,14 @@ describe('scoped chrome preferences', () => {
     expect(storage.values.get(chromeStorageKeys.documentAnnotationPrefs(projectId))).toBe(
       JSON.stringify({ '1': ['1:2:ner'] }),
     );
+    expect(storage.values.get(chromeStorageKeys.documentAlongsidePrefs(projectId))).toBe(
+      JSON.stringify({ '1': { open: true, columnId: 'c1' } }),
+    );
     expect(calls.ribbonMode).toEqual(['menu']);
     expect(calls.discoverOpen).toEqual([false]);
     expect(calls.openSplit).toEqual([split]);
     expect(calls.documentAnnotationPreferences).toEqual([{ '1': ['1:2:ner'] }]);
+    expect(calls.documentAlongsidePreferences).toEqual([{ '1': { open: true, columnId: 'c1' } }]);
     expect(diagnostic).not.toHaveBeenCalled();
   });
 
@@ -185,6 +204,54 @@ describe('scoped chrome preferences', () => {
     expect(calls.openSplit).toEqual([{ kind: 'graph', sheetId: 's2' }]);
     expect(diagnostic).toHaveBeenCalledTimes(2);
     expect(diagnostic.mock.calls.every(([entry]) => entry.kind === 'write_failed')).toBe(true);
+  });
+
+  it('keeps an independent alongside choice for every sheet across reloads', () => {
+    const storage = new MemoryStorage();
+    const owner = createScopedChromePreferenceOwner(projectId, { storage, diagnostic: vi.fn() });
+    const { calls, target } = createMutationTarget();
+    const commands = owner.bindCommands(target);
+
+    commands.sheet.setSheetDocumentAlongsidePreference('sheet-a', {
+      open: true,
+      columnId: 'body',
+    });
+    commands.sheet.setSheetDocumentAlongsidePreference('sheet-b', {
+      open: false,
+      columnId: 'summary',
+    });
+
+    expect(calls.documentAlongsidePreferences).toEqual([
+      { 'sheet-a': { open: true, columnId: 'body' } },
+      {
+        'sheet-a': { open: true, columnId: 'body' },
+        'sheet-b': { open: false, columnId: 'summary' },
+      },
+    ]);
+    expect(createScopedChromePreferenceOwner(projectId, { storage }).hydrate())
+      .toMatchObject({
+        documentAlongsidePreferences: {
+          'sheet-a': { open: true, columnId: 'body' },
+          'sheet-b': { open: false, columnId: 'summary' },
+        },
+      });
+  });
+
+  it('drops malformed alongside entries while retaining valid sheet preferences', () => {
+    const storage = new MemoryStorage();
+    storage.values.set(
+      chromeStorageKeys.documentAlongsidePrefs(projectId),
+      JSON.stringify({
+        good: { open: true, columnId: 'c1' },
+        missingOpen: { columnId: 'c2' },
+        invalidColumn: { open: false, columnId: 4 },
+      }),
+    );
+
+    expect(createScopedChromePreferenceOwner(projectId, { storage }).hydrate())
+      .toMatchObject({
+        documentAlongsidePreferences: { good: { open: true, columnId: 'c1' } },
+      });
   });
 });
 

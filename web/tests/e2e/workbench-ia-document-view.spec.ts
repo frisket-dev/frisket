@@ -174,7 +174,7 @@ test('Document view keeps the source PDF beside a selected derived markdown valu
   await runAndWait(page.request, pid, {
     action_id: 'map.template',
     scope: { kind: 'sheet_rows', sheet_id: sheetId },
-    params: { template: { text: '## {{filename}}\n\nDerived filing text' } },
+    params: { template: { text: '## {{filename}}\n\n' + 'Derived filing text. '.repeat(300) + 'x'.repeat(300) } },
     output_names: { rendered: 'filing_text' },
     idempotency_key: `document-view-template-${pid}`,
   });
@@ -191,8 +191,10 @@ test('Document view keeps the source PDF beside a selected derived markdown valu
   await expect(pdf).toBeVisible();
   await expect(pdf).toHaveAttribute('data-page-count', '2');
 
-  const comparison = page.getByTestId('document-derived-pane');
-  const picker = page.getByTestId('document-derived-column-select');
+  const comparison = page.getByTestId('document-alongside-pane');
+  const picker = page.getByTestId('document-alongside-column-select');
+  await expect(comparison).toHaveCount(0);
+  await page.getByTestId('document-show-alongside').click();
   await expect(comparison).toBeVisible();
   await picker.selectOption(String(filingText!.id));
   await expect(comparison.getByTestId('markdown-value')).toContainText('annual-report.pdf');
@@ -205,6 +207,91 @@ test('Document view keeps the source PDF beside a selected derived markdown valu
   await expect(documents.nth(1)).toHaveAttribute('data-active', 'true');
   await expect(pdf).toBeVisible();
   await expect(comparison.getByTestId('markdown-value')).toContainText('supplement.pdf');
+  const body = comparison.getByTestId('document-alongside-value');
+  expect(await body.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+  expect(await body.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+  await body.evaluate((element) => { element.scrollTop = 200; });
+  expect(await body.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  await expect(pdf).toHaveAttribute('data-page-count', '2');
+  await expect(page.getByTestId('document-pdf-page').first().locator('canvas')).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('document-alongside-markdown.png') });
+});
+
+test('alongside supports imported columns, copy, expansion, resize and per-sheet preferences', async ({ page }) => {
+  const { pid, sheetId } = await seedDocSheet(page, { extraDocs: true });
+  const columns = await sheetColumns(page.request, pid, sheetId);
+  const filename = columns.find((column) => column.name === 'filename')!;
+  const imported = await page.request.post(`/api/projects/${pid}/import/files?sheet_name=other`, {
+    multipart: { files: { name: 'other.pdf', mimeType: 'application/pdf', buffer: textPdf([['Other filing']]) } },
+  });
+  expect(imported.ok()).toBeTruthy();
+  const other = (await listSheets(page.request, pid)).find((sheet) => sheet.name === 'other')!;
+  await openProject(page, pid, sheetId);
+  await page.getByTestId('view-switch-document').click();
+  const pane = page.getByTestId('document-alongside-pane');
+  const value = page.getByTestId('document-alongside-value');
+  await expect(pane).toHaveCount(0);
+  await page.getByTestId('document-show-alongside').click();
+  await expect(pane.getByLabel('Column to show alongside')).toBeFocused();
+  await pane.getByLabel('Column to show alongside').selectOption(String(filename.id));
+  await expect(pane.getByRole('button', { name: 'Change column' })).toBeFocused();
+  await expect(pane.getByRole('heading', { name: 'filename', exact: true })).toBeVisible();
+  await expect(value).toHaveText('annual-report.pdf');
+
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await pane.getByRole('button', { name: 'Copy value', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('annual-report.pdf');
+  await pane.getByRole('button', { name: 'Expand value', exact: true }).click();
+  const expanded = page.getByRole('dialog', { name: 'filename', exact: true });
+  await expect(expanded).toContainText('annual-report.pdf');
+  expect((await expanded.boundingBox())!.width).toBeGreaterThan((await pane.boundingBox())!.width);
+  await expanded.press('Escape');
+  await expect(expanded).not.toBeVisible();
+  await expect(pane.getByRole('button', { name: 'Expand value', exact: true })).toBeFocused();
+
+  const seam = pane.getByRole('separator', { name: 'Resize alongside panel' });
+  const previous = Number(await seam.getAttribute('aria-valuenow'));
+  await seam.press('ArrowLeft');
+  await expect(seam).toHaveAttribute('aria-valuenow', String(previous + 24));
+  await page.getByTestId('document-list-item').nth(1).click();
+  await expect(value).toHaveText('supplement.pdf');
+  await page.getByTestId('document-list-item').nth(2).click();
+  await expect(value).toHaveText('(empty)');
+  await expect(pane.getByRole('button', { name: 'Copy value', exact: true })).toBeDisabled();
+
+  await openProject(page, pid, other.id);
+  await page.getByTestId('view-switch-document').click();
+  await expect(pane).toHaveCount(0);
+  await openProject(page, pid, sheetId);
+  await page.getByTestId('view-switch-document').click();
+  await expect(pane.getByRole('heading', { name: 'filename', exact: true })).toBeVisible();
+  await expect(seam).toHaveAttribute('aria-valuenow', String(previous + 24));
+  await page.reload();
+  await page.getByTestId('view-switch-document').click();
+  await expect(pane.getByRole('heading', { name: 'filename', exact: true })).toBeVisible();
+  await pane.getByRole('button', { name: 'Close alongside panel' }).click();
+  await expect(pane).toHaveCount(0);
+  await expect(page.getByTestId('document-show-alongside')).toBeFocused();
+  await page.reload();
+  await page.getByTestId('view-switch-document').click();
+  await expect(pane).toHaveCount(0);
+  await page.getByTestId('document-show-alongside').click();
+  await expect(pane.getByRole('heading', { name: 'filename', exact: true })).toBeVisible();
+  await expect(page.getByTestId('document-pdf')).toHaveAttribute('data-page-count', '2');
+  await expect(page.getByTestId('document-pdf-page').first().locator('canvas')).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('document-alongside-desktop.png') });
+  await page.setViewportSize({ width: 800, height: 900 });
+  await expect(seam).not.toBeVisible();
+  const bounds = await pane.boundingBox();
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(800);
+  await page.screenshot({ path: test.info().outputPath('document-alongside-narrow.png') });
+  // A removed column must not silently display a different column's value.
+  await page.evaluate(({ projectId, id }) => localStorage.setItem(`frisket:document-alongside:${projectId}`,
+    JSON.stringify({ [id]: { open: true, columnId: 'removed-column' } })), { projectId: pid, id: String(sheetId) });
+  await page.reload();
+  await page.getByTestId('view-switch-document').click();
+  await expect(pane.getByLabel('Column to show alongside')).toHaveValue('');
+  await expect(value).toContainText('Choose a column');
 });
 
 test('selection syncs BOTH ways through SelectedGridRows; the doc list follows the sheet order', async ({
