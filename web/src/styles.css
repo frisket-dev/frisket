@@ -824,19 +824,10 @@ kbd {
   flex-shrink: 0;
   position: relative;
 }
-/* The visible tab track clips overflow; tabs that don't fit move into the
-   `»` overflow menu (Chrome-devtools style). */
+/* OverflowRow clips the visible tab track; this outer flex item stays visible
+   so its top-layer menu and the collapse button retain their own layout. */
 .discover-tabs {
-  display: flex; align-items: stretch; gap: var(--space-2);
-  /* clip-x only: the » overflow MENU hangs below the row and must stay
-     visible (plain `overflow: hidden` clipped it into invisibility). */
-  flex: 1; min-width: 0; overflow-x: clip; overflow-y: visible;
-}
-/* Off-screen natural-width copies used only to measure overflow. */
-.discover-tab-measure {
-  position: absolute; visibility: hidden; pointer-events: none;
-  top: 0; left: 0;
-  display: flex; gap: 2px; white-space: nowrap;
+  flex: 1; min-width: 0; gap: var(--space-2);
 }
 .discover-tab {
   display: inline-flex; align-items: center; gap: 5px;
@@ -854,21 +845,14 @@ kbd {
   border-bottom-color: var(--discover);
   font-weight: 650;
 }
-.discover-overflow { position: relative; display: inline-flex; align-items: stretch; }
 .discover-overflow-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 28px; border-radius: var(--radius-7) var(--radius-7) 0 0;
   color: var(--text-mid); flex-shrink: 0;
 }
 .discover-overflow-btn:hover,
-.discover-overflow-btn-open { background: var(--discover-bg); color: var(--discover); }
-/* Native `popover="manual"` element (DiscoverPanel.tsx's DiscoverTabStrip):
-   the top-layer positioning recipe — `position: fixed`, then neutralize the
-   UA `[popover] { inset: 0; margin: auto }` centering box so the JS
-   `useAnchoredPosition` top/left/width own the placement. The hand-rolled
-   `.discover-overflow-backdrop` full-screen click-catcher retired with
-   doctor-popover-fanout-v1, F1 row 23 — outside-pointerdown dismissal is
-   structural now (useNativePopover). */
+.discover-overflow-btn[aria-expanded='true'] { background: var(--discover-bg); color: var(--discover); }
+/* OverflowRow mounts this as a native manual popover in the top layer. */
 .discover-overflow-menu {
   position: fixed;
   inset: auto;
@@ -885,7 +869,7 @@ kbd {
   font-size: 12.5px; color: var(--text); text-align: left;
 }
 .discover-overflow-item:hover { background: var(--bg-hover); }
-.discover-overflow-item-active { color: var(--discover); background: var(--discover-bg); font-weight: 600; }
+.discover-overflow-item[data-active='true'] { color: var(--discover); background: var(--discover-bg); font-weight: 600; }
 .discover-collapse {
   margin-left: auto;
   display: inline-flex; align-items: center; justify-content: center;

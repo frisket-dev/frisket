@@ -1,0 +1,45 @@
+.row {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.items {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: stretch;
+  min-width: 0;
+  gap: inherit;
+  overflow: clip;
+}
+
+.item {
+  display: flex;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.measure {
+  position: fixed;
+  top: 0;
+  left: -100000px;
+  display: flex;
+  width: max-content;
+  gap: inherit;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.trigger {
+  flex: 0 0 auto;
+}
+
+.triggerMeasure {
+  position: fixed;
+  top: 0;
+  left: -100000px;
+  visibility: hidden;
+  pointer-events: none;
+}

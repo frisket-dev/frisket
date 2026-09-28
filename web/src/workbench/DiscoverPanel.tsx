@@ -1,14 +1,12 @@
 import {
   ChevronLeft,
   ChevronRight,
-  ChevronsRight,
   type LucideIcon,
 } from 'lucide-react';
-import { useLayoutEffect, useRef, useState, type ComponentType } from 'react';
+import { type ComponentType } from 'react';
+import { OverflowRow } from '../components/OverflowRow';
 import { useResizable } from '../components/useResizable';
 import { ResizeSeam } from '../components/ResizeSeam';
-import { useNativePopover } from '../hooks/useNativePopover';
-import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
 
 const DISCOVER_MIN_WIDTH = 220;
 const DISCOVER_MAX_WIDTH = 520;
@@ -66,86 +64,17 @@ function DiscoverTabStrip({
   onSelectTab(tabId: string): void;
   onCollapse(): void;
 }) {
-  const rowRef = useRef<HTMLDivElement>(null);
-  const measureRef = useRef<HTMLDivElement>(null);
-  // visibleCount is DOM-MEASUREMENT state, not a copy of tabs.length: the
-  // overflow split is computed from live offsetWidth/clientWidth in the
-  // useLayoutEffect below (recompute), so it cannot be derived during render.
-  // tabs.length is only the pre-measurement seed for the first paint;
-  // recompute() re-runs on every tabs change (that effect's dep is [tabs]) and
-  // fires synchronously before paint, so the seed never shows stale to a user.
-  // no-derived-useState here is a false positive — allowlisted in doctor.config.ts.
-  const [visibleCount, setVisibleCount] = useState(tabs.length);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const overflowTriggerRef = useRef<HTMLButtonElement>(null);
-  const overflowMenuRef = useRef<HTMLDivElement>(null);
-
-  useLayoutEffect(() => {
-    const row = rowRef.current;
-    const measurer = measureRef.current;
-    if (!row || !measurer) return;
-    const OVERFLOW_BTN = 34;
-    const recompute = () => {
-      const widths = Array.from(measurer.children).map((el) => (el as HTMLElement).offsetWidth);
-      const available = row.clientWidth;
-      const total = widths.reduce((sum, w) => sum + w, 0);
-      if (total <= available) {
-        setVisibleCount(tabs.length);
-        return;
-      }
-      // Overflow exists: reserve room for the `»` button and fit as many as we can.
-      let used = 0;
-      let count = 0;
-      for (let i = 0; i < widths.length; i++) {
-        used += widths[i];
-        if (used + OVERFLOW_BTN <= available) count += 1;
-        else break;
-      }
-      setVisibleCount(Math.max(1, Math.min(tabs.length, count)));
-    };
-    const observer = new ResizeObserver(recompute);
-    observer.observe(row);
-    recompute();
-    return () => observer.disconnect();
-    // Re-measure when the tab set changes (a plugin installs/uninstalls, or a
-    // tab is hidden/revealed), so the overflow split tracks the live tabs.
-  }, [tabs]);
-
-  // Keep the active tab visible: if it falls into the overflow set, swap it in
-  // for the last otherwise-visible tab.
-  let visibleTabs = tabs.slice(0, visibleCount);
-  let overflowTabs = tabs.slice(visibleCount);
-  const activeDescriptor = tabs.find((tab) => tab.id === activeTab);
-  if (activeDescriptor && overflowTabs.some((tab) => tab.id === activeTab)) {
-    const displaced = visibleTabs[visibleTabs.length - 1];
-    visibleTabs = [...visibleTabs.slice(0, -1), activeDescriptor];
-    overflowTabs = [displaced, ...overflowTabs.filter((tab) => tab.id !== activeTab)];
-  }
-
-  // Top-layer popover: the DiscoverTabStrip `»` overflow menu has its own
-  // backdrop and shares no DOM/behavior with the genuine resident
-  // DiscoverPanel. useNativePopover's default escape:true/outside:true
-  // replaces BOTH the old Escape-only hook AND the hand-rolled
-  // `.discover-overflow-backdrop` click-catcher that used to own
-  // outside-click dismissal — one mechanism instead of two.
-  useNativePopover(overflowMenuRef, () => setMenuOpen(false), {
-    enabled: menuOpen,
-    ignoreSelector: '[data-testid="discover-tab-overflow"]',
-  });
-  // Fixed-position anchor now that the menu is a top-layer element — it no
-  // longer inherits placement from `.discover-overflow`'s CSS positioned
-  // ancestor (styles.css `.discover-overflow-menu`, right-aligned under the
-  // trigger).
-  const overflowMenuPos = useAnchoredPosition(overflowTriggerRef, {
-    enabled: menuOpen,
-    align: 'right',
-    width: 148,
-    gap: 2,
-  });
-
-  const renderTab = (tab: DiscoverTabDescriptor) => {
+  const renderTab = (tab: DiscoverTabDescriptor, measuring: boolean) => {
     const Icon = tab.Icon;
     const active = tab.id === activeTab;
+    if (measuring) {
+      return (
+        <span className={`discover-tab${active ? ' discover-tab-active' : ''}`}>
+          <Icon size={13} aria-hidden />
+          <span>{tab.label}</span>
+        </span>
+      );
+    }
     return (
       <button
         key={tab.id}
@@ -156,80 +85,50 @@ function DiscoverTabStrip({
         data-testid={`discover-tab-${tab.slug}`}
         onClick={() => onSelectTab(tab.id)}
       >
-        <Icon size={13} />
+        <Icon size={13} aria-hidden />
         <span>{tab.label}</span>
       </button>
     );
   };
 
   return (
-    <div className="discover-tabrow" role="tablist" aria-label="Discover tabs">
-      {/* Hidden measurer: natural-width copies used to compute overflow. */}
-      <div className="discover-tab-measure" aria-hidden ref={measureRef}>
-        {tabs.map((tab) => {
+    <div className="discover-tabrow">
+      <OverflowRow
+        items={tabs}
+        getKey={(tab) => tab.id}
+        keepVisibleKey={activeTab}
+        tabListLabel="Discover tabs"
+        renderItem={renderTab}
+        renderOverflowItem={(tab, closeMenu) => {
           const Icon = tab.Icon;
           return (
-            <span key={tab.id} className="discover-tab">
-              <Icon size={13} />
-              <span>{tab.label}</span>
-            </span>
-          );
-        })}
-      </div>
-
-      <div className="discover-tabs" ref={rowRef}>
-        {visibleTabs.map(renderTab)}
-        {overflowTabs.length > 0 && (
-          <div className="discover-overflow">
             <button
               type="button"
-              ref={overflowTriggerRef}
-              className={`discover-overflow-btn${menuOpen ? ' discover-overflow-btn-open' : ''}`}
-              data-testid="discover-tab-overflow"
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
-              aria-label="More Discover tabs"
-              title="More tabs"
-              onClick={() => setMenuOpen((open) => !open)}
+              role="menuitem"
+              className="menu-item discover-overflow-item"
+              data-testid={`discover-tab-menu-${tab.slug}`}
+              data-active={tab.id === activeTab ? 'true' : undefined}
+              onClick={() => {
+                onSelectTab(tab.id);
+                closeMenu();
+              }}
             >
-              <ChevronsRight size={16} />
+              <Icon size={14} aria-hidden />
+              <span>{tab.label}</span>
             </button>
-            {menuOpen && (
-              <div
-                ref={overflowMenuRef}
-                className="discover-overflow-menu"
-                role="menu"
-                data-testid="discover-tab-overflow-menu"
-                style={
-                  overflowMenuPos
-                    ? { position: 'fixed', inset: 'auto', top: overflowMenuPos.top, bottom: overflowMenuPos.bottom, left: overflowMenuPos.left, right: 'auto', width: overflowMenuPos.width, margin: 0 }
-                    : { position: 'fixed', visibility: 'hidden' }
-                }
-              >
-                {overflowTabs.map((tab) => {
-                  const Icon = tab.Icon;
-                  return (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      role="menuitem"
-                      className={`discover-overflow-item${tab.id === activeTab ? ' discover-overflow-item-active' : ''}`}
-                      data-testid={`discover-tab-menu-${tab.slug}`}
-                      onClick={() => {
-                        onSelectTab(tab.id);
-                        setMenuOpen(false);
-                      }}
-                    >
-                      <Icon size={14} />
-                      <span>{tab.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+          );
+        }}
+        className="discover-tabs"
+        triggerClassName="discover-overflow-btn"
+        menuClassName="discover-overflow-menu"
+        triggerTestId="discover-tab-overflow"
+        menuTestId="discover-tab-overflow-menu"
+        overflowLabel="More Discover tabs"
+        overflowTitle="More tabs"
+        menuAriaLabel="More Discover tabs"
+        menuWidth={148}
+        menuGap={2}
+      />
 
       <button
         type="button"
