@@ -21,6 +21,7 @@ from frisket.ai.external_pricing import (
     GOOGLE_TRANSLATE_CHAR,
     external_unit_price_string,
 )
+from frisket.ai.llm.pricing import model_price
 from frisket.execution.commercial import CommercialOffering
 from frisket.execution.promise_compiler import (
     CostBasis,
@@ -136,15 +137,21 @@ SKU_DATALAB_OCR_PAGE = DATALAB_OCR_PAGE
 
 
 def byok_remote_ocr_sku(engine_id: str) -> str:
-    """The BYOK/remote-api SKU for one VLM OCR engine. Named, and then
-    deliberately unpriced: a VLM bills per TOKEN over an image whose token
-    count is unknown until the page is rendered and sent, so there is no
-    per-page rate to quote. The SKU exists so the promise says *which* meter
-    it could not bound; :func:`quote_ocr` returns ``UnpriceableCost`` and the
-    run gates on an ``unbounded`` cost claim — today's behavior for remote OCR
-    (``unknown_cost_estimate``), now expressed as a claim the user consents
-    to."""
+    """The BYOK VLM OCR estimate key; actual spend uses provider usage."""
     return f"{engine_id}.ocr_page"
+
+
+def _vlm_ocr_page_estimate(engine: str) -> Decimal | None:
+    """Rough allowance: 4,096 image/prompt and 4,096 output tokens per page.
+
+    This is neither a token limit nor a per-page tariff. Dense pages and
+    repair calls can cost more; settlement uses recorded provider costs.
+    """
+    rates = model_price(engine)
+    if rates is None:
+        return None
+    input_rate, output_rate = rates
+    return (Decimal(str(input_rate)) + Decimal(str(output_rate))) * 4096 / 1_000_000
 
 
 #: Third-party provider list prices. Every one of them is somebody else's
@@ -587,20 +594,21 @@ def quote_ocr(
         # pp-ocrv6/paddleocr-vl: operator
         # already owns that compute and no per-request meter exists.
         return OperatorBorneZeroCost()
-    if sku != SKU_DATALAB_OCR_PAGE:
-        # A router-served VLM: billed per token over an image, with no
-        # per-page rate to quote (see :func:`byok_remote_ocr_sku`).
-        return UnpriceableCost()
     if pages is None:
         return UnpriceableCost()
-    rate = datalab_ocr_page_rate()
+    terms = _provider_direct_terms(CAPABILITY_OCR, sku)
+    if sku == SKU_DATALAB_OCR_PAGE:
+        rate = datalab_ocr_page_rate()
+    else:
+        rate = _vlm_ocr_page_estimate(engine)
+        terms["charge_authority"] = "provider_usage"
     if rate is None:
         return UnpriceableCost()
     return PricedCostBasis(
         pricing_key=sku,
         unit_rate=decimal_str(rate),
         estimated_quantity=decimal_str(int(pages)),
-        **_provider_direct_terms(CAPABILITY_OCR, sku),
+        **terms,
     )
 
 
@@ -823,10 +831,10 @@ def live_cost_fact(
             fact["unit_rate"] = decimal_str(rate)
         return fact
     if capability == CAPABILITY_OCR:
-        # The only remaining OCR SKU is the router-served VLM's, which has no
-        # per-page rate to observe (:func:`byok_remote_ocr_sku`). The absence
-        # is the honest answer; asking the AUDIO price table about an OCR
-        # engine would put a per-audio-second number on a per-page SKU.
+        fact["charge_authority"] = "provider_usage"
+        rate = _vlm_ocr_page_estimate(engine)
+        if rate is not None:
+            fact["unit_rate"] = decimal_str(rate)
         return fact
     rate = byok_audio_second_rate(engine).rate
     if rate is not None:
@@ -846,6 +854,7 @@ def settle(
     price_card_version: str | None,
     terminal_status: Literal["running", "completed", "failed", "cancelled"],
     all_rows_cancelled: bool,
+    provider_costs: Sequence[float | None] | None = None,
 ) -> dict[str, Any]:
     """Rate model-call facts exclusively under the attempt's pinned terms."""
     if not isinstance(terminal_status, str) or terminal_status not in (
@@ -1047,6 +1056,31 @@ def settle(
             "rated_calls": 0,
             "unmetered_calls": 0,
             "unsettleable": "unmetered",
+        }
+
+    if charge_authority == "provider_usage":
+        # A page-based token allowance is useful before execution, but is
+        # not a tariff. Never turn the estimate into a purported actual bill.
+        total = Decimal(0)
+        known = 0
+        if provider_costs is not None and len(provider_costs) == len(metered_units):
+            for raw_cost in provider_costs:
+                try:
+                    amount = _to_decimal(raw_cost)
+                except (InvalidOperation, TypeError, ValueError):
+                    continue
+                if amount < 0:
+                    continue
+                total += amount
+                known += 1
+        return {
+            "price_card_version": price_card_version,
+            "terminal_status": terminal_status,
+            "pricing_key": pricing_key,
+            "charge_authority": charge_authority,
+            "charge_usd": decimal_str(total) if known == len(metered_units) else None,
+            "rated_calls": known,
+            "unmetered_calls": len(metered_units) - known,
         }
 
     metered = Decimal(0)

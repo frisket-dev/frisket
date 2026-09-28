@@ -1050,7 +1050,7 @@ def attempt_settlement(
             "unsettleable": "run_terminal_status_missing",
         }
     calls = project.db.execute(
-        "SELECT row_id, units FROM model_calls WHERE attempt_id=? "
+        "SELECT row_id, units, provider_cost_usd FROM model_calls WHERE attempt_id=? "
         "ORDER BY created_at, id",
         (attempt_id,),
     ).fetchall()
@@ -1098,6 +1098,7 @@ def attempt_settlement(
     receipt = settle(
         cost_basis=cost_basis,
         metered_units=metered,
+        provider_costs=[call["provider_cost_usd"] for call in settlement_calls],
         price_card_version=price_card_version,
         terminal_status=terminal_status,
         all_rows_cancelled=all_rows_cancelled,
