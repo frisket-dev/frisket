@@ -64,6 +64,14 @@ export interface DocumentViewState {
 /** Store disabled layers so newly discovered layers remain visible by default. */
 export type DocumentAnnotationPreferences = Record<string, string[]>;
 
+export interface DocumentAlongsidePreference {
+  open: boolean;
+  columnId: string | null;
+}
+
+/** Per-sheet document-reader alongside pane choices. */
+export type DocumentAlongsidePreferences = Record<string, DocumentAlongsidePreference>;
+
 export interface PromotedView {
   key: string;
   sheetId: string;
@@ -115,6 +123,7 @@ export interface ChromeState {
   openSplit: OpenSplitState | null;
   documentView: DocumentViewState | null;
   documentAnnotationPreferences: DocumentAnnotationPreferences;
+  documentAlongsidePreferences: DocumentAlongsidePreferences;
   provenanceOpen: boolean;
   overflowMenuOpen: boolean;
 }
@@ -143,6 +152,7 @@ export function createChromeState(
     openSplit: preferences.openSplit,
     documentView: preferences.documentView,
     documentAnnotationPreferences: preferences.documentAnnotationPreferences,
+    documentAlongsidePreferences: preferences.documentAlongsidePreferences ?? {},
     provenanceOpen: false,
     overflowMenuOpen: false,
   };
@@ -198,6 +208,7 @@ export function createChromeStore(
   setOpenSplit(split: OpenSplitState | null): void;
   setDocumentView(documentView: DocumentViewState | null): void;
   setDocumentAnnotationPreferences(prefs: DocumentAnnotationPreferences): void;
+  setDocumentAlongsidePreferences(prefs: DocumentAlongsidePreferences): void;
 
   toggleProvenanceOpen(): void;
   closeProvenanceOpen(): void;
@@ -307,6 +318,9 @@ export function createChromeStore(
     setDocumentAnnotationPreferences(documentAnnotationPreferences) {
       store.set((s) => ({ ...s, documentAnnotationPreferences }));
     },
+    setDocumentAlongsidePreferences(documentAlongsidePreferences) {
+      store.set((s) => ({ ...s, documentAlongsidePreferences }));
+    },
 
     toggleProvenanceOpen() {
       store.set((s) => ({ ...s, provenanceOpen: !s.provenanceOpen }));
@@ -333,4 +347,5 @@ export type ChromeStoreHandle = Omit<
   | 'setOpenSplit'
   | 'setDocumentView'
   | 'setDocumentAnnotationPreferences'
+  | 'setDocumentAlongsidePreferences'
 >;

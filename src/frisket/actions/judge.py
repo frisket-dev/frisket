@@ -124,7 +124,7 @@ JUDGE = action(
         ),
     ),
     name="judge",
-    title="Judge a column against guidelines",
+    title="Judge results",
     description=(
         "Grade an AI-generated column's values against your guidelines with a "
         "second model, writing verdict and judge-note columns plus receipt evidence "

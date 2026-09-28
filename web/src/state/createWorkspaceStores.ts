@@ -213,6 +213,7 @@ export function createWorkspaceStores(
   const chrome = createChromeStore(projectId, chromePreferenceOwner.hydrate());
   const chromePreferenceCommands = chromePreferenceOwner.bindCommands({
     getDocumentAnnotationPreferences: () => chrome.store.get().documentAnnotationPreferences,
+    getDocumentAlongsidePreferences: () => chrome.store.get().documentAlongsidePreferences,
     setRibbonMode: chrome.setRibbonMode,
     setActiveRibbonTab: chrome.setActiveRibbonTab,
     setDiscoverOpen: chrome.setDiscoverOpen,
@@ -221,6 +222,7 @@ export function createWorkspaceStores(
     setOpenSplit: chrome.setOpenSplit,
     setDocumentView: chrome.setDocumentView,
     setDocumentAnnotationPreferences: chrome.setDocumentAnnotationPreferences,
+    setDocumentAlongsidePreferences: chrome.setDocumentAlongsidePreferences,
   });
   const chromePreferences = {
     projectId,

@@ -691,6 +691,11 @@ kbd {
 .action-help-section p { margin: 0; }
 .action-help-section ul { margin: 0; padding-left: 18px; }
 
+/* Keep breathing room above the divider even when the footer's auto margin
+   collapses in a long form. Preserve its bottom alignment in short forms. */
+.action-drawer .action-form > :has(+ .action-run-actions) {
+  margin-bottom: 14px;
+}
 .action-drawer .action-form > .action-run-actions {
   position: sticky;
   bottom: 0;
@@ -11728,41 +11733,15 @@ dialog.modal-card::backdrop {
 .document-option-check { justify-content: flex-start; gap: 8px; }
 .document-option-check input { flex-shrink: 0; }
 
-.document-derived-pane {
-  flex: 0 1 360px;
-  width: clamp(280px, 30vw, 420px);
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  border-left: 1px solid var(--border);
-  background: var(--bg-sidebar);
-}
-.document-derived-pane-header {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-}
-.document-derived-pane-picker { display: grid; gap: 4px; font-size: 11px; font-weight: 650; color: var(--text-mid); }
-.document-derived-pane-picker select { min-width: 0; width: 100%; }
-.document-derived-pane-body { flex: 1; min-height: 0; overflow: auto; padding: 12px 14px 20px; }
-.document-derived-pane-empty { margin: 0; color: var(--text-light); font-size: 12px; line-height: 1.5; }
-
 @media (max-width: 900px) {
   .document-list { width: 184px; }
-  .document-derived-pane { flex-basis: 280px; width: min(36vw, 320px); }
+  .document-view { flex-wrap: wrap; overflow-y: auto; align-content: flex-start; }
+  .document-reader { flex: 1 0 calc(100% - 184px); min-height: 360px; }
 }
 
 @media (max-width: 640px) {
-  .document-view { flex-wrap: wrap; overflow-y: auto; align-content: flex-start; }
   .document-list { flex-basis: 160px; width: 160px; }
-  .document-reader { flex: 1 0 calc(100% - 160px); min-height: 360px; }
-  .document-derived-pane {
-    flex: 1 0 100%;
-    width: 100%;
-    min-height: 220px;
-    border-top: 1px solid var(--border);
-    border-left: 0;
-  }
+  .document-reader { flex-basis: calc(100% - 160px); }
 }
 
 /* ---- Grounded Answers view (answers-view-shell-v1 / -docked-evidence-v1):
