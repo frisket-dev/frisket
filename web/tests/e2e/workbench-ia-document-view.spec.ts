@@ -232,7 +232,9 @@ test('alongside supports imported columns, copy, expansion, resize and per-sheet
   const value = page.getByTestId('document-alongside-value');
   await expect(pane).toHaveCount(0);
   await page.getByTestId('document-show-alongside').click();
+  await expect(pane.getByLabel('Column to show alongside')).toBeFocused();
   await pane.getByLabel('Column to show alongside').selectOption(String(filename.id));
+  await expect(pane.getByRole('button', { name: 'Change column' })).toBeFocused();
   await expect(pane.getByRole('heading', { name: 'filename', exact: true })).toBeVisible();
   await expect(value).toHaveText('annual-report.pdf');
 
@@ -269,6 +271,7 @@ test('alongside supports imported columns, copy, expansion, resize and per-sheet
   await expect(pane.getByRole('heading', { name: 'filename', exact: true })).toBeVisible();
   await pane.getByRole('button', { name: 'Close alongside panel' }).click();
   await expect(pane).toHaveCount(0);
+  await expect(page.getByTestId('document-show-alongside')).toBeFocused();
   await page.reload();
   await page.getByTestId('view-switch-document').click();
   await expect(pane).toHaveCount(0);

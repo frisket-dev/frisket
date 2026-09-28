@@ -12,8 +12,9 @@ import type { Row, SheetMeta } from '../../src/api/types';
 import type { DocumentViewState } from '../../src/workspace/useWorkspaceChromeState';
 import { DocumentView } from '../../src/workbench/DocumentView';
 
-vi.mock('../../src/workspace/useWorkspaceChromeState', () => ({
-  useDocumentAlongsidePreference: () => ({ preference: { open: false, columnId: null }, setPreference: vi.fn() }),
+vi.mock('../../src/workspace/useWorkspaceChromeState', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../src/workspace/useWorkspaceChromeState')>(),
+  useDocumentAlongsidePreference: () => ({ preference: { open: true, columnId: 'file' }, setPreference: vi.fn() }),
 }));
 
 afterEach(cleanup);
@@ -68,11 +69,13 @@ describe('DocumentView loading state', () => {
 
     expect(screen.getByTestId('document-view-loading')).toHaveTextContent('Loading documents…');
     expect(screen.queryByTestId('document-empty')).toBeNull();
+    expect(screen.queryByTestId('document-alongside-pane')).toBeNull();
 
     await act(async () => {
       resolveRows({ rows: [], total: 0 });
     });
     await waitFor(() => expect(screen.queryByTestId('document-view-loading')).toBeNull());
     expect(screen.getByTestId('document-empty')).toBeVisible();
+    expect(screen.getByTestId('document-alongside-pane')).toHaveTextContent('Choose a document to view its value.');
   });
 });

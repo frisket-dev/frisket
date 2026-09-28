@@ -31,6 +31,13 @@ export function DocumentAlongsidePane({
     rowId: string | undefined; columnId: string | null; value: Row['cells'][string]; text: string;
   } | null>(null);
   const dialog = useRef<HTMLDialogElement>(null);
+  const pickerRef = useRef<HTMLSelectElement>(null);
+  const changeRef = useRef<HTMLButtonElement>(null);
+  const chooserVisible = choosing || !selectedColumn;
+  useEffect(() => {
+    if (chooserVisible) pickerRef.current?.focus();
+    else changeRef.current?.focus();
+  }, [chooserVisible]);
   const headingId = useId();
   const expandedHeadingId = useId();
   const { width, onResizeStart, onResizeKeyDown } = useResizable({
@@ -43,8 +50,9 @@ export function DocumentAlongsidePane({
 
   useEffect(() => {
     const element = dialog.current;
-    if (expanded) element?.showModal();
-    return () => { element?.close(); };
+    if (!expanded || !element) return;
+    element.showModal();
+    return () => { element.close(); };
   }, [expanded]);
 
   async function copyValue() {
@@ -74,8 +82,8 @@ export function DocumentAlongsidePane({
       <header className={styles.header}>
         <div className={styles.headingRow}>
           <h2 id={headingId} title={selectedColumn?.name}>{selectedColumn?.name ?? 'Show alongside'}</h2>
-          <button type="button" className="icon-btn" aria-label="Change column" title="Change column"
-            aria-expanded={choosing || !selectedColumn} onClick={() => setChoosing(!choosing)}><Columns2 size={15} /></button>
+          {selectedColumn && <button ref={changeRef} type="button" className="icon-btn" aria-label="Change column" title="Change column"
+            aria-expanded={choosing} onClick={() => setChoosing(!choosing)}><Columns2 size={15} /></button>}
           <button type="button" className="icon-btn" aria-label="Copy value" title={status === 'Copied' ? 'Copied' : 'Copy value'}
             disabled={value === null || value === ''} onClick={() => void copyValue()}>
             {status === 'Copied' ? <Check size={15} /> : <Copy size={15} />}
@@ -85,8 +93,8 @@ export function DocumentAlongsidePane({
           <button type="button" className="icon-btn" aria-label="Close alongside panel" title="Close alongside panel"
             onClick={onClose}><X size={15} /></button>
         </div>
-        {(choosing || !selectedColumn) && (
-          <PanelSelect ariaLabel="Column to show alongside" testId="document-alongside-column-select"
+        {chooserVisible && (
+          <PanelSelect ref={pickerRef} ariaLabel="Column to show alongside" testId="document-alongside-column-select"
             value={selectedColumn?.id ?? ''} onValueChange={(columnId) => {
               onChangeColumn(columnId || null); setChoosing(false);
             }} options={[{ value: '', label: 'Choose a column' }, ...columns.map((column) => ({

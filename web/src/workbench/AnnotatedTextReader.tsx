@@ -68,6 +68,7 @@ interface AnnotatedTextReaderProps {
   onOpenDetail(): void;
   canOpenDetail: boolean;
   onShowAlongside?(): void;
+  alongsideTriggerRef?: RefObject<HTMLButtonElement>;
   optionsOpen: boolean;
   onToggleOptions(): void;
   optionsPopover: OptionsPopoverRenderer | null;
@@ -104,6 +105,7 @@ export function AnnotatedTextReader({
   onOpenDetail,
   canOpenDetail,
   onShowAlongside,
+  alongsideTriggerRef,
   optionsOpen,
   onToggleOptions,
   optionsPopover,
@@ -232,7 +234,7 @@ export function AnnotatedTextReader({
               {selectionCount > 0 ? `${selectionCount} selected` : 'browsing'}
             </span>
             <span className="document-reader-spacer" />
-            {onShowAlongside && <button type="button" className="mini-btn" data-testid="document-show-alongside"
+            {onShowAlongside && <button ref={alongsideTriggerRef} type="button" className="mini-btn" data-testid="document-show-alongside"
               onClick={onShowAlongside}>Show alongside</button>}
             <button
               type="button"

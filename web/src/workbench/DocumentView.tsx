@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react';
 import type { Row, SheetMeta } from '../api/types';
 import { MenuPop } from '../components/MenuPop';
 import type { DocumentViewState } from '../workspace/useWorkspaceChromeState';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnnotatedTextReader } from './AnnotatedTextReader';
 import { MentionDetailPanel } from './MentionDetailPanel';
 import { mentionTargetForMark, type MentionDetailTarget } from './mentionDetailModel';
@@ -76,6 +76,12 @@ export function DocumentView({
     occurrenceId: string;
   } | null>(null);
   const { preference: alongside, setPreference: setAlongside } = useDocumentAlongsidePreference(sheet.id);
+  const alongsideTriggerRef = useRef<HTMLButtonElement>(null);
+  const wasAlongsideOpen = useRef(alongside.open);
+  useEffect(() => {
+    if (wasAlongsideOpen.current && !alongside.open) alongsideTriggerRef.current?.focus();
+    wasAlongsideOpen.current = alongside.open;
+  }, [alongside.open]);
   // Each view-option select portals its custom menu to <body>, so the menu is
   // NOT a DOM descendant of the options popover. Two consequences, both
   // handled by the props threaded below: the menu must be promoted to the top
@@ -411,6 +417,7 @@ export function DocumentView({
             if (activeRowId) onOpenDetail(activeRowId);
           }}
           canOpenDetail={Boolean(activeRowId)}
+          alongsideTriggerRef={alongsideTriggerRef}
           onShowAlongside={alongside.open ? undefined : () => setAlongside({ ...alongside, open: true })}
           optionsOpen={optionsOpen}
           onToggleOptions={() => setOptionsOpen((open) => !open)}
@@ -438,6 +445,7 @@ export function DocumentView({
             if (activeRowId) onOpenDetail(activeRowId);
           }}
           canOpenDetail={Boolean(activeRowId)}
+          alongsideTriggerRef={alongsideTriggerRef}
           onShowAlongside={alongside.open ? undefined : () => setAlongside({ ...alongside, open: true })}
           optionsOpen={optionsOpen}
           onToggleOptions={() => setOptionsOpen((open) => !open)}
