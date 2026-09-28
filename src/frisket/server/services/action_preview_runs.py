@@ -955,8 +955,9 @@ def _scratch_claims(project, plan: ScratchActionPreviewPlan):
         payload["promise_set_hash"] = consented_set_hash(resolved.promise_set)
     return (
         resolved,
+        # Unknown costs are required nulls, not absent estimate fields.
         ActionEstimate.model_validate(payload).model_dump(
-            mode="json", exclude_none=True
+            mode="json", exclude_unset=True
         ),
         uncovered,
     )
