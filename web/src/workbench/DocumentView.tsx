@@ -9,7 +9,8 @@ import { MentionDetailPanel } from './MentionDetailPanel';
 import { mentionTargetForMark, type MentionDetailTarget } from './mentionDetailModel';
 import { documentMediaKind } from './documentMedia';
 import { DocumentReader } from './DocumentReader';
-import { DerivedColumnPane } from './DerivedColumnPane';
+import { DocumentAlongsidePane } from './DocumentAlongsidePane';
+import { useDocumentAlongsidePreference } from '../workspace/useWorkspaceChromeState';
 import type { TimedTranscriptDocument } from './timedTranscriptModel';
 import { useDocumentView } from './useDocumentView';
 import { LIST_ITEM_HEIGHT } from './useWindowedRowList';
@@ -74,7 +75,7 @@ export function DocumentView({
     target: MentionDetailTarget;
     occurrenceId: string;
   } | null>(null);
-  const [derivedColumnId, setDerivedColumnId] = useState<string | null>(null);
+  const { preference: alongside, setPreference: setAlongside } = useDocumentAlongsidePreference(sheet.id);
   // Each view-option select portals its custom menu to <body>, so the menu is
   // NOT a DOM descendant of the options popover. Two consequences, both
   // handled by the props threaded below: the menu must be promoted to the top
@@ -410,6 +411,7 @@ export function DocumentView({
             if (activeRowId) onOpenDetail(activeRowId);
           }}
           canOpenDetail={Boolean(activeRowId)}
+          onShowAlongside={alongside.open ? undefined : () => setAlongside({ ...alongside, open: true })}
           optionsOpen={optionsOpen}
           onToggleOptions={() => setOptionsOpen((open) => !open)}
           optionsPopover={optionsPopover}
@@ -436,6 +438,7 @@ export function DocumentView({
             if (activeRowId) onOpenDetail(activeRowId);
           }}
           canOpenDetail={Boolean(activeRowId)}
+          onShowAlongside={alongside.open ? undefined : () => setAlongside({ ...alongside, open: true })}
           optionsOpen={optionsOpen}
           onToggleOptions={() => setOptionsOpen((open) => !open)}
           optionsPopover={optionsPopover}
@@ -444,12 +447,16 @@ export function DocumentView({
           timedTranscriptDocument={activeTimedTranscriptDocument}
         />
       )}
-      <DerivedColumnPane
+      {alongside.open && <DocumentAlongsidePane
+        key={`${projectId}:${sheet.id}`}
+        projectId={projectId}
+        sheetId={sheet.id}
         columns={sheet.columns}
         row={activeRow}
-        selectedColumnId={derivedColumnId}
-        onChangeColumn={setDerivedColumnId}
-      />
+        selectedColumnId={alongside.columnId}
+        onChangeColumn={(columnId) => setAlongside({ open: true, columnId })}
+        onClose={() => setAlongside({ ...alongside, open: false })}
+      />}
       {mention !== null && source?.kind === 'text' && (
         <MentionDetailPanel
           target={mention.target}

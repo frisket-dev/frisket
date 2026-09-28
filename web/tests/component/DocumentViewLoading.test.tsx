@@ -12,6 +12,10 @@ import type { Row, SheetMeta } from '../../src/api/types';
 import type { DocumentViewState } from '../../src/workspace/useWorkspaceChromeState';
 import { DocumentView } from '../../src/workbench/DocumentView';
 
+vi.mock('../../src/workspace/useWorkspaceChromeState', () => ({
+  useDocumentAlongsidePreference: () => ({ preference: { open: false, columnId: null }, setPreference: vi.fn() }),
+}));
+
 afterEach(cleanup);
 
 const sheet: SheetMeta = {

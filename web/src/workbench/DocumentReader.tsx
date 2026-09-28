@@ -89,6 +89,7 @@ interface DocumentReaderProps {
   rowKey: string;
   onOpenDetail(): void;
   canOpenDetail: boolean;
+  onShowAlongside?(): void;
   optionsOpen: boolean;
   onToggleOptions(): void;
   /** Render-prop (not a pre-built element): the caller (DocumentView.tsx)
@@ -132,6 +133,7 @@ export function DocumentReader({
   rowKey,
   onOpenDetail,
   canOpenDetail,
+  onShowAlongside,
   optionsOpen,
   onToggleOptions,
   optionsPopover,
@@ -226,6 +228,8 @@ export function DocumentReader({
               {selectionCount > 0 ? `${selectionCount} selected` : 'browsing'}
             </span>
             <span className="document-reader-spacer" />
+            {onShowAlongside && <button type="button" className="mini-btn" data-testid="document-show-alongside"
+              onClick={onShowAlongside}>Show alongside</button>}
             {isPdf && (
               <div className="document-page-controls" role="group" aria-label="Page navigation">
                 <button
