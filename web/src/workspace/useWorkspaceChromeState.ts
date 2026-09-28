@@ -6,13 +6,18 @@
 // workbench/DocumentReader.tsx) see the same hook signature/return shape and
 // exported types from this path.
 
-export { useWorkspaceChromeState } from '../bind/useWorkspaceChromeState';
+export {
+  useDocumentAlongsidePreference,
+  useWorkspaceChromeState,
+} from '../bind/useWorkspaceChromeState';
 
 export {
   DISCOVER_TABS,
   type DeleteRowsConfirmState,
   type DiscoverTab,
   type DocumentViewFit,
+  type DocumentAlongsidePreference,
+  type DocumentAlongsidePreferences,
   type DocumentViewLayout,
   type DocumentViewState,
   type DocumentViewVideoFit,

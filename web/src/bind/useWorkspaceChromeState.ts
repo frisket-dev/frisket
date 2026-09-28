@@ -28,6 +28,7 @@ import { useSelector } from './useSelector';
 import {
   type DeleteRowsConfirmState,
   type DocumentViewState,
+  type DocumentAlongsidePreference,
   type EvidenceViewerFocus,
   type EvidenceViewerHost,
   type PromotedView,
@@ -224,6 +225,28 @@ export function useWorkspaceChromeState(projectId: string) {
     showError,
     toggleActionPanelOpen,
   };
+}
+
+const DEFAULT_DOCUMENT_ALONGSIDE_PREFERENCE: DocumentAlongsidePreference = {
+  open: false,
+  columnId: null,
+};
+
+/** Read and update one sheet's durable document-reader alongside preference. */
+export function useDocumentAlongsidePreference(sheetId: string) {
+  const chrome = useChromeHandle();
+  const { chromePreferences } = useWorkspaceStores();
+  const preference = useSelector(
+    chrome.store,
+    (state) =>
+      state.documentAlongsidePreferences[sheetId] ?? DEFAULT_DOCUMENT_ALONGSIDE_PREFERENCE,
+  );
+  const setPreference = useCallback(
+    (next: DocumentAlongsidePreference) =>
+      chromePreferences.sheet.setSheetDocumentAlongsidePreference(sheetId, next),
+    [chromePreferences.sheet, sheetId],
+  );
+  return { preference, setPreference };
 }
 
 /** Narrow feature-facing command hook: no raw chrome mutation surface. */
