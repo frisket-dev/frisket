@@ -64,7 +64,7 @@ test('ribbon and compact menu expose identical ordered categories and leaves', a
 
   const ribbonCategories = await page
     .getByTestId('act-ribbon')
-    .locator('.act-ribbon-tab')
+    .locator('.act-ribbon-tab[data-testid]')
     .evaluateAll((elements) =>
       elements.map((element) => ({
         id: (element.getAttribute('data-testid') ?? '').replace(/^ribbon-tab-/, ''),
@@ -188,20 +188,48 @@ test('an unassigned launcher kind falls back to the shared Misc/Other category, 
 });
 
 test('focused categories stay reachable without pushing ribbon controls offscreen', async ({ page }) => {
-  await page.setViewportSize({ width: 800, height: 900 });
+  await page.setViewportSize({ width: 500, height: 900 });
   await seedProject(page);
 
   const collapse = page.getByTestId('ribbon-collapse');
-  await expect(page.getByTestId('ribbon-tab-research')).toBeAttached();
-  const ribbonScrolls = await page.locator('.act-ribbon-tabs').evaluate((tabs) =>
-    tabs.scrollWidth > tabs.clientWidth);
-  expect(ribbonScrolls).toBe(false);
-  await page.getByTestId('ribbon-tab-research').click();
+  const more = page.getByRole('button', { name: 'More action tabs', exact: true });
+  await expect(more).toBeVisible();
+  const tabTrack = page.locator('.act-ribbon-tabs');
+  await expect(tabTrack).not.toHaveCSS('overflow-x', 'auto');
+  await expect(tabTrack).not.toHaveCSS('overflow-y', 'auto');
+  await expect.poll(() => tabTrack.evaluate((tabs) => ({
+    horizontal: tabs.scrollWidth > tabs.clientWidth,
+    vertical: tabs.scrollHeight > tabs.clientHeight,
+  }))).toEqual({ horizontal: false, vertical: false });
+  await more.click();
+  const overflowMenu = page.getByRole('menu', { name: 'More action tabs', exact: true });
+  await expect(overflowMenu).toBeVisible();
+  await overflowMenu.getByRole('menuitem', { name: 'Research', exact: true }).click();
+  const research = page.getByTestId('ribbon-tab-research');
+  await expect(research).toHaveAttribute('aria-selected', 'true');
+  await expect(research).toBeInViewport();
+  await expect(overflowMenu).not.toBeVisible();
   await expect(page.getByTestId('ribbon-action-enrich.geocode')).toBeVisible();
   const collapseBox = await collapse.boundingBox();
-  expect(collapseBox).not.toBeNull();
-  expect(collapseBox!.x + collapseBox!.width).toBeLessThanOrEqual(800);
+  const moreBox = await more.boundingBox();
+  const researchBox = await research.boundingBox();
+  expect(researchBox!.x + researchBox!.width).toBeLessThanOrEqual(moreBox!.x + 1);
+  expect(moreBox!.x + moreBox!.width).toBeLessThanOrEqual(collapseBox!.x);
+  expect(collapseBox!.x + collapseBox!.width).toBeLessThanOrEqual(500);
+  await more.click();
+  await page.keyboard.press('Escape');
+  await expect(overflowMenu).not.toBeVisible();
+  await expect(more).toBeFocused();
+  await more.click();
+  await page.setViewportSize({ width: 2800, height: 900 });
+  await expect(more).not.toBeVisible();
+  await expect(overflowMenu).not.toBeVisible();
+  await page.setViewportSize({ width: 500, height: 900 });
+  await expect(more).toBeVisible();
+  await expect(overflowMenu).not.toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('ribbon-overflow.png') });
 
+  await page.setViewportSize({ width: 800, height: 900 });
   await collapse.click();
   const expand = page.getByTestId('ribbon-expand');
   const menuScrolls = await page.locator('.act-menubar-menus').evaluate((tabs) =>
@@ -214,8 +242,8 @@ test('focused categories stay reachable without pushing ribbon controls offscree
   expect(menuBox).not.toBeNull();
   expect(expandBox).not.toBeNull();
   expect(menuBox!.x).toBeGreaterThanOrEqual(0);
-  expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(800);
-  expect(expandBox!.x + expandBox!.width).toBeLessThanOrEqual(800);
+  expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(500);
+  expect(expandBox!.x + expandBox!.width).toBeLessThanOrEqual(500);
   await page.getByTestId('menu-action-enrich.geocode').click();
   await expect(page.getByTestId('generated-action-form')).toBeVisible();
 });
