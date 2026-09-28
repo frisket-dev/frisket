@@ -114,7 +114,8 @@ export function ActRibbon({
           items={tabs}
           getKey={(tab) => tab.id}
           keepVisibleKey={activeTab?.id}
-          tabListLabel="Action tabs"
+          role="tablist"
+          aria-label="Action tabs"
           renderItem={renderTab}
           renderOverflowItem={(tab, closeMenu) => (
             <button
@@ -136,8 +137,6 @@ export function ActRibbon({
           triggerTestId="ribbon-tab-overflow"
           menuTestId="ribbon-tab-overflow-menu"
           overflowLabel="More action tabs"
-          overflowTitle="More tabs"
-          menuAriaLabel="More action tabs"
           menuWidth={220}
         />
         <button

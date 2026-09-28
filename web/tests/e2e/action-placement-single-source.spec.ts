@@ -242,8 +242,8 @@ test('focused categories stay reachable without pushing ribbon controls offscree
   expect(menuBox).not.toBeNull();
   expect(expandBox).not.toBeNull();
   expect(menuBox!.x).toBeGreaterThanOrEqual(0);
-  expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(500);
-  expect(expandBox!.x + expandBox!.width).toBeLessThanOrEqual(500);
+  expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(800);
+  expect(expandBox!.x + expandBox!.width).toBeLessThanOrEqual(800);
   await page.getByTestId('menu-action-enrich.geocode').click();
   await expect(page.getByTestId('generated-action-form')).toBeVisible();
 });

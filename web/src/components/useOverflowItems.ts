@@ -1,6 +1,5 @@
 import {
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
   type RefObject,
@@ -70,11 +69,9 @@ export function useOverflowItems<T>(
             break;
           }
         }
-        // A mount can briefly report zero width. Retain one reachable item;
-        // the clipped row still never acquires a scrollbar.
-        if (visibleIndexes.length === 0 && items.length > 0) visibleIndexes = [0];
         const activeIndex = items.findIndex((item) => getKey(item) === keepVisibleKey);
-        if (activeIndex >= 0 && !visibleIndexes.includes(activeIndex)) {
+        if (activeIndex >= 0 && !visibleIndexes.includes(activeIndex)
+          && rowWidth([widths[activeIndex]], gap, triggerWidth, true) <= available) {
           const retainedIndexes = visibleIndexes.slice(0, -1);
           while (
             retainedIndexes.length > 0
@@ -104,23 +101,15 @@ export function useOverflowItems<T>(
     return () => observer?.disconnect();
   }, [getKey, items, keepVisibleKey, overflowControlRef, overflowControlWidth]);
 
-  return useMemo(() => {
-    const sourceIds = items.map(getKey);
-    const layoutIsCurrent = layout
-      && layout.sourceIds.length === sourceIds.length
-      && layout.sourceIds.every((id, index) => id === sourceIds[index]);
-    const visibleIds = layoutIsCurrent ? layout.visibleIds : sourceIds;
-    let visible = visibleIds.flatMap((id) => {
-      const item = items.find((candidate) => getKey(candidate) === id);
-      return item ? [item] : [];
-    });
-    let overflow = items.filter((item) => !visibleIds.includes(getKey(item)));
-    const active = overflow.find((item) => getKey(item) === keepVisibleKey);
-    if (active && visible.length > 0) {
-      const displaced = visible.at(-1)!;
-      visible = [...visible.slice(0, -1), active];
-      overflow = [displaced, ...overflow.filter((item) => getKey(item) !== getKey(active))];
-    }
-    return { rowRef, measureRef, visibleItems: visible, overflowItems: overflow };
-  }, [getKey, items, keepVisibleKey, layout]);
+  const sourceIds = items.map(getKey);
+  const layoutIsCurrent = layout
+    && layout.sourceIds.length === sourceIds.length
+    && layout.sourceIds.every((id, index) => id === sourceIds[index]);
+  const visibleIds = new Set(layoutIsCurrent ? layout.visibleIds : sourceIds);
+  return {
+    rowRef,
+    measureRef,
+    visibleItems: items.filter((item) => visibleIds.has(getKey(item))),
+    overflowItems: items.filter((item) => !visibleIds.has(getKey(item))),
+  };
 }

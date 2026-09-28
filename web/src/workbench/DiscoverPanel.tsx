@@ -97,7 +97,8 @@ function DiscoverTabStrip({
         items={tabs}
         getKey={(tab) => tab.id}
         keepVisibleKey={activeTab}
-        tabListLabel="Discover tabs"
+        role="tablist"
+        aria-label="Discover tabs"
         renderItem={renderTab}
         renderOverflowItem={(tab, closeMenu) => {
           const Icon = tab.Icon;
@@ -124,8 +125,6 @@ function DiscoverTabStrip({
         triggerTestId="discover-tab-overflow"
         menuTestId="discover-tab-overflow-menu"
         overflowLabel="More Discover tabs"
-        overflowTitle="More tabs"
-        menuAriaLabel="More Discover tabs"
         menuWidth={148}
         menuGap={2}
       />

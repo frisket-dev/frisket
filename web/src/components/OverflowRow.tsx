@@ -2,9 +2,11 @@ import { ChevronsRight } from 'lucide-react';
 import {
   Fragment,
   useEffect,
+  useId,
   useRef,
   useState,
   type ReactNode,
+  type AriaRole,
 } from 'react';
 import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
 import { useNativePopover } from '../hooks/useNativePopover';
@@ -16,8 +18,9 @@ export interface OverflowRowProps<T> {
   items: readonly T[];
   getKey(item: T): string;
   keepVisibleKey?: string;
-  /** The label for the visible tablist. Omit for a row of ordinary buttons. */
-  tabListLabel?: string;
+  /** Semantics of the visible items; omitted for ordinary layout rows. */
+  role?: AriaRole;
+  'aria-label'?: string;
   /** Renders live markup or an inert, natural-width measurement copy. */
   renderItem(item: T, measuring: boolean): ReactNode;
   /** Owns the menu item's content, click behavior, and accessible role. */
@@ -25,12 +28,10 @@ export interface OverflowRowProps<T> {
   className?: string;
   triggerClassName?: string;
   menuClassName?: string;
-  triggerTestId: string;
-  menuTestId: string;
+  triggerTestId?: string;
+  menuTestId?: string;
   overflowLabel: string;
-  overflowTitle?: string;
-  menuAriaLabel?: string;
-  menuWidth: number;
+  menuWidth?: number;
   menuGap?: number;
 }
 
@@ -43,7 +44,8 @@ export function OverflowRow<T>({
   items,
   getKey,
   keepVisibleKey,
-  tabListLabel,
+  role,
+  'aria-label': label,
   renderItem,
   renderOverflowItem,
   className,
@@ -52,14 +54,14 @@ export function OverflowRow<T>({
   triggerTestId,
   menuTestId,
   overflowLabel,
-  overflowTitle,
-  menuAriaLabel,
-  menuWidth,
+  menuWidth = 220,
   menuGap = 4,
 }: OverflowRowProps<T>) {
+  const triggerId = useId();
   const triggerMeasureRef = useRef<HTMLButtonElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const wasOpen = useRef(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const { rowRef, measureRef, visibleItems, overflowItems } = useOverflowItems(items, {
     getKey,
@@ -67,14 +69,12 @@ export function OverflowRow<T>({
     overflowControlRef: triggerMeasureRef,
   });
 
-  useEffect(() => {
-    if (overflowItems.length === 0) setMenuOpen(false);
-  }, [overflowItems.length]);
+  if (menuOpen && overflowItems.length === 0) setMenuOpen(false);
 
   useNativePopover(menuRef, () => setMenuOpen(false), {
     enabled: menuOpen,
     focusRestore: true,
-    ignoreSelector: `[data-testid="${triggerTestId}"]`,
+    ignoreSelector: `[id="${triggerId}"]`,
   });
   const menuPosition = useAnchoredPosition(triggerRef, {
     enabled: menuOpen,
@@ -83,26 +83,34 @@ export function OverflowRow<T>({
     gap: menuGap,
   });
 
+  useEffect(() => {
+    if (menuOpen) menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]:not([disabled])')?.focus();
+    else if (wasOpen.current) triggerRef.current?.focus();
+    wasOpen.current = menuOpen;
+  }, [menuOpen]);
+
+  const closeMenu = () => setMenuOpen(false);
+
   const rowClassName = className ? `${styles.row} ${className}` : styles.row;
   const triggerClasses = triggerClassName ? `${styles.trigger} ${triggerClassName}` : styles.trigger;
-  const menuClasses = menuClassName ? menuClassName : undefined;
 
   return (
     <div ref={rowRef} className={rowClassName}>
-      <div className={styles.items} role={tabListLabel ? 'tablist' : undefined} aria-label={tabListLabel}>
+      <div className={styles.items} role={role} aria-label={label}>
         {visibleItems.map((item) => <div className={styles.item} key={getKey(item)}>{renderItem(item, false)}</div>)}
       </div>
       {overflowItems.length > 0 && (
         <>
           <button
             ref={triggerRef}
+            id={triggerId}
             type="button"
             className={triggerClasses}
             data-testid={triggerTestId}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             aria-label={overflowLabel}
-            title={overflowTitle ?? overflowLabel}
+            title={overflowLabel}
             onClick={() => setMenuOpen((open) => !open)}
           >
             <ChevronsRight size={16} aria-hidden />
@@ -110,9 +118,19 @@ export function OverflowRow<T>({
           {menuOpen && (
             <MenuPop
               ref={menuRef}
-              className={menuClasses}
+              className={menuClassName}
               data-testid={menuTestId}
-              aria-label={menuAriaLabel}
+              aria-label={overflowLabel}
+              onKeyDown={(event) => {
+                if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+                const entries = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])'));
+                if (!entries.length) return;
+                event.preventDefault();
+                const current = entries.indexOf(document.activeElement as HTMLElement);
+                const next = event.key === 'Home' ? 0 : event.key === 'End' ? entries.length - 1
+                  : (current + (event.key === 'ArrowDown' ? 1 : -1) + entries.length) % entries.length;
+                entries[next].focus();
+              }}
               style={menuPosition
                 ? {
                     position: 'fixed', inset: 'auto', top: menuPosition.top, bottom: menuPosition.bottom,
@@ -123,14 +141,14 @@ export function OverflowRow<T>({
             >
               {overflowItems.map((item) => (
                 <Fragment key={getKey(item)}>
-                  {renderOverflowItem(item, () => setMenuOpen(false))}
+                  {renderOverflowItem(item, closeMenu)}
                 </Fragment>
               ))}
             </MenuPop>
           )}
         </>
       )}
-      <div ref={measureRef} className={styles.measure} aria-hidden="true" inert>
+      <div ref={measureRef} className={styles.measure} aria-hidden="true" {...{ inert: '' }}>
         {items.map((item) => <div className={styles.item} key={getKey(item)}>{renderItem(item, true)}</div>)}
       </div>
       <button
@@ -139,7 +157,7 @@ export function OverflowRow<T>({
         className={triggerClassName ? `${styles.triggerMeasure} ${triggerClassName}` : styles.triggerMeasure}
         aria-hidden="true"
         tabIndex={-1}
-        inert
+        {...{ inert: '' }}
       >
         <ChevronsRight size={16} aria-hidden />
       </button>

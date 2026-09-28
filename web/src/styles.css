@@ -11169,7 +11169,7 @@ dialog.modal-card::backdrop {
   padding: 0 12px;
   border-bottom: 1px solid var(--border);
 }
-.act-ribbon-tabs { display: flex; align-items: stretch; min-width: 0; overflow-x: auto; }
+.act-ribbon-tabs { display: flex; align-items: stretch; min-width: 0; overflow: clip; }
 .act-ribbon-tab-wrap { display: flex; align-items: center; }
 .act-ribbon-tab-divider { width: 1px; height: 20px; background: var(--border); margin: 0 6px; }
 .act-ribbon-tab {
