@@ -515,9 +515,7 @@ function generatedCatalogParams(entry: ActionCatalogEntry): ActionParam[] | unde
             ? 'category'
           : schema.type === 'boolean'
             ? 'boolean'
-            : schemaUsesTextarea(schema)
-              ? 'textarea'
-              : 'text';
+            : 'text';
     const declaration: ActionCatalogFormParam = {
       name,
       type,

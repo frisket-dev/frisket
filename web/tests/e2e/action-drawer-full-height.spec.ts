@@ -3,7 +3,7 @@ import { createProject, importCsv, openAction, openProject, uniqueName } from '.
 
 // The drawer's top edge reaches the top
 // chrome's (project bar) bottom edge — the project bar stays visible; the
-// ribbon + sheet-tab strip underneath are covered while the drawer is open.
+// ribbon + sheet-tab strip reserve the drawer's width while it is open.
 // Closed/collapsed states are unchanged (workbench-ia-action-drawer.spec.ts
 // still pins the fixed-400px/no-reflow/band-edges contract; this spec pins
 // the NEW coverage + the interactions the coordinator flagged as at risk:
@@ -74,24 +74,22 @@ test('open drawer: band reaches the shell bottom (over the Monitor dock); Previe
   ).toBeLessThanOrEqual(2);
 });
 
-test('open drawer: the ribbon + sheet-tab strip are covered — not clickable under it', async ({
+test('open drawer: the ribbon and sheet tabs remain accessible beside it', async ({
   page,
 }) => {
   await seed(page);
   await openAction(page, 'map.summarize');
   await expect(page.getByTestId('action-drawer')).toBeVisible();
 
-  // The ribbon's collapse affordance sits at the ribbon row's far right edge —
-  // the same horizontal footprint as the drawer's fixed-400px right column —
-  // so it is the sharpest probe for "covered, not just visually behind."
-  // Playwright's actionability check refuses to click an element another
-  // element is painted over; a real click attempt times out.
-  await expect(page.getByTestId('ribbon-collapse').click({ timeout: 2_000 })).rejects.toThrow();
+  await page.getByTestId('ribbon-collapse').click();
+  await expect(page.getByTestId('workbench-region-act')).toHaveAttribute('data-ribbon-mode', 'menu');
 
-  // The sheet-tab strip (Navigate region) is covered too: its hit-test point
-  // resolves inside the drawer, not the tab strip.
+  // Navigation stays outside the drawer rather than underneath its surface.
   const navigateBox = await page.getByTestId('workbench-region-navigate').boundingBox();
+  const drawerBox = await page.getByTestId('action-drawer').boundingBox();
   expect(navigateBox).not.toBeNull();
+  expect(drawerBox).not.toBeNull();
+  expect(navigateBox!.x + navigateBox!.width).toBeLessThanOrEqual(drawerBox!.x + 1);
   const hit = await page.evaluate(
     ({ x, y }) => {
       const el = document.elementFromPoint(x, y);
@@ -99,7 +97,7 @@ test('open drawer: the ribbon + sheet-tab strip are covered — not clickable un
     },
     { x: navigateBox!.x + navigateBox!.width - 5, y: navigateBox!.y + navigateBox!.height / 2 },
   );
-  expect(hit).toBe(true);
+  expect(hit).toBe(false);
 });
 
 test('close: ribbon is clickable again', async ({ page }) => {

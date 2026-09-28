@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
+import { isDeepStrictEqual } from 'node:util';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeAll, expect, it, vi } from 'vitest';
 
@@ -82,11 +83,7 @@ function exactResolver(
   served: readonly ActionParamResolution[],
 ) {
   return vi.fn(async (request: ValidationRequest) => {
-    const index = expected.findIndex((candidate) => (
-      candidate.action_id === request.action_id
-      && JSON.stringify(candidate.scope) === JSON.stringify(request.scope)
-      && JSON.stringify(candidate.params) === JSON.stringify(request.params)
-    ));
+    const index = expected.findIndex((candidate) => isDeepStrictEqual(candidate, request));
     if (index < 0) throw new Error(`Unexpected validation request: ${JSON.stringify(request)}`);
     return served[index];
   });

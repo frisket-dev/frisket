@@ -177,6 +177,12 @@ export function numericParamOk(
 
 export function resizeTextareaToContent(textarea: HTMLTextAreaElement | null) {
   if (!textarea) return;
+  // Native sizing responds to content and width changes without measurements.
+  // Leave no inline height to compete with it; older browsers use the fallback.
+  if (typeof CSS !== 'undefined' && CSS.supports?.('field-sizing', 'content')) {
+    textarea.style.removeProperty('height');
+    return;
+  }
   textarea.style.height = 'auto';
   // Controls use border-box sizing; scrollHeight excludes the border. Without
   // that extra height even a short prompt gets an unnecessary scrollbar.

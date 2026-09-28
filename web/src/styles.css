@@ -555,16 +555,9 @@ kbd {
    2026-07-15: the band now runs all the way to the shell's bottom edge).
    The work regions reserve its width so their right edge meets the drawer.
    top is set inline from the measured band (chrome bar bottom), bottom is 0 —
-   ActionDrawer.tsx's measureBand. The open drawer therefore covers the ribbon
-   + sheet-tab strip AND the Monitor dock; the top chrome (project bar) stays
-   visible above the band. Most ribbon content is unpositioned and paints
-   below the drawer for
-   free, but the menu-mode menubar (.act-menubar-menus / .act-menubar-expand)
-   is position:relative; z-index:50 — so with the drawer at a lower z-index the
-   collapsed ribbon's Expand control poked through and stole clicks meant for
-   the drawer's own close button. The drawer sits above that positioned menubar
-   (and above Detail(2)/right-inspector(3)/Discover(4)) but still below
-   modals(60)/command palette(70). ------ */
+   ActionDrawer.tsx's measureBand. The ribbon and sheet tabs stay accessible
+   beside it, with the project bar above. The drawer stacks above the positioned
+   menubar(50) and inspectors, but below modals(60)/command palette(70). ------ */
 @layer action-panel {
 .workbench-shell.action-drawer-open > [data-testid='workbench-region-act'],
 .workbench-shell.action-drawer-open > [data-testid='workbench-region-navigate'],
@@ -691,24 +684,6 @@ kbd {
 .action-help-section p { margin: 0; }
 .action-help-section ul { margin: 0; padding-left: 18px; }
 
-/* Keep breathing room above the divider even when the footer's auto margin
-   collapses in a long form. Preserve its bottom alignment in short forms. */
-.action-drawer .action-form > :has(+ .action-run-actions) {
-  margin-bottom: 14px;
-}
-.action-drawer .action-form > .action-run-actions {
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
-  background: var(--bg-panel);
-  border-top: 1px solid var(--border);
-  /* margin-top:auto pins the footer to the drawer's real bottom when the form
-     is shorter than the drawer (the form is a flex column stretched to
-     min-height:100%); when the form overflows, the auto margin collapses to 0
-     and sticky keeps the footer visible while the body scrolls. */
-  margin: auto -18px 0;
-  padding: 12px 18px;
-}
 }
 
 .inspect-detail-column {
@@ -4885,6 +4860,17 @@ li.panel-empty { list-style: none; }
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+/* Drawer footers share the same sticky surface; only their edge spacing and
+   stacking differ. Auto margin keeps short forms anchored to the bottom. */
+.action-drawer .action-form > .action-run-actions {
+  z-index: 2;
+  margin: auto -18px 0;
+  padding: 12px 18px;
+}
+/* Auto margins collapse in long forms, so the last field owns the minimum gap. */
+.action-drawer .action-form > :has(+ .action-run-actions) {
+  margin-bottom: 14px;
 }
 }
 /* Quiet scope summary sits right-aligned above the button row. */
