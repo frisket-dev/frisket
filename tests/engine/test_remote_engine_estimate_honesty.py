@@ -103,7 +103,7 @@ class _StubAdapter:
 
 
 # ---------------------------------------------------------------------------
-# (a) OCR: remote/VLM engine estimates None; local engine estimates 0.0
+# (a) OCR: missing media quantity stays unknown; local engines estimate 0.0
 
 
 class TestOcrEstimateHonesty:
@@ -139,7 +139,9 @@ class TestOcrEstimateHonesty:
         )
         assert est["cost"] == 0.0
 
-    def test_remote_vlm_engine_estimate_is_unknown_not_zero(self, project, monkeypatch):
+    def test_remote_vlm_without_media_quantity_estimates_unknown(
+        self, project, monkeypatch
+    ):
         monkeypatch.setenv("GEMINI_API_KEY", "synthetic-ocr-key")
         sheet = _ocr_project(project)
         runner = MapRunner(
@@ -152,11 +154,7 @@ class TestOcrEstimateHonesty:
             _ocr_spec(sheet, "gemini/gemini-3.5-flash"),
             program=_program(_ocr_spec(sheet, "gemini/gemini-3.5-flash")),
         )
-        assert est["cost"] is None, (
-            "a remote VLM OCR engine must estimate None (unknown), never a "
-            "fabricated 0.0 — the cost gate's ask-always branch depends on "
-            "this (map_runner.py:223)"
-        )
+        assert est["cost"] is None, "missing media quantity must not become free OCR"
 
 
 # ---------------------------------------------------------------------------
@@ -406,11 +404,13 @@ class TestUnconfirmedRemoteEngineRunGated:
 
 
 class TestVlmOcrTraceCapturesModelCalls:
+    @pytest.mark.parametrize("limit", ["0", "2"])
     def test_vlm_ocr_default_trace_contains_model_call(
-        self, project, tmp_path, monkeypatch
+        self, project, tmp_path, monkeypatch, limit
     ):
         # The remote-api venue must be LIVE to resolve to it.
         monkeypatch.setenv("GEMINI_API_KEY", "key")
+        monkeypatch.setenv("FRISKET_COST_CONSENT_USD", limit)
         digest = project.add_blob(
             b"\x89PNG\r\n\x1a\n" + b"\x00" * 64,
             filename="scan.png",
@@ -430,26 +430,26 @@ class TestVlmOcrTraceCapturesModelCalls:
             authority=open_attempt_authority(project),
         )
         spec = _ocr_spec(sheet, "gemini/gemini-3.5-flash")
-        # Confirmation is an exact challenge/echo, even in a direct runner
-        # test. A bare boolean must not authorize whichever scope happens to
-        # be live at retry time.
-        with pytest.raises(CostGate) as challenge:
-            asyncio.run(runner.run(spec, program=_program(spec), confirmed=True))
-        assert challenge.value.promise_set_hash is not None
-        confirmed_spec = {
-            **spec,
-            "consented_promise_set_hash": challenge.value.promise_set_hash,
-        }
+        confirmation = None
+        if limit == "0":
+            # Force the exact challenge/echo path explicitly. With normal
+            # preapproval this call would execute, but only the typed host
+            # below owns the output claims needed for execution.
+            with pytest.raises(CostGate) as challenge:
+                asyncio.run(runner.run(spec, program=_program(spec), confirmed=True))
+            confirmation = challenge.value.promise_set_hash
+            assert confirmation is not None
+            assert adapter.calls == 0
         from frisket.actions.system import BoundTypedActionRequest
         from frisket.engine.executor.map_rows_action import (
             bound_typed_program_request_from_runner_spec,
             run_typed_map_rows_action,
         )
 
-        bound = bound_typed_program_request_from_runner_spec(confirmed_spec)
+        bound = bound_typed_program_request_from_runner_spec(spec)
         confirmed_request = bound.request.model_copy(
             update={
-                "confirmation": challenge.value.promise_set_hash,
+                "confirmation": confirmation,
             }
         )
         result = run_typed_map_rows_action(
