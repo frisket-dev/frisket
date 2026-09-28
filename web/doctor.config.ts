@@ -222,19 +222,6 @@ export default {
         ],
       },
       {
-        // derived-state-deps-v1: DiscoverTabStrip's visibleCount
-        // (DiscoverPanel.tsx:70, useState(tabs.length)) is DOM-measurement
-        // state, not a copy of tabs.length. The overflow split is computed from
-        // live offsetWidth/clientWidth in a useLayoutEffect (recompute), so it is
-        // not render-derivable; tabs.length is only the first-paint seed and
-        // recompute() re-runs on every tabs change (that effect's dep is [tabs])
-        // synchronously before paint, so the seed never shows stale. The site
-        // comment carries the full reasoning. no-derived-useState is a false
-        // positive here. KEEP.
-        files: ['src/workbench/DiscoverPanel.tsx'],
-        rules: ['react-doctor/no-derived-useState'],
-      },
-      {
         // route.project(next) runs inside the URL→routeStore projection effect.
         // no-pass-data-to-parent is
         // a false positive: route.project writes an EXTERNAL store handle, not a
