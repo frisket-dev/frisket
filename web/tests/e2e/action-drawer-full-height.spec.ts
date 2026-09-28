@@ -77,27 +77,17 @@ test('open drawer: band reaches the shell bottom (over the Monitor dock); Previe
 test('open drawer: the ribbon and sheet tabs remain accessible beside it', async ({
   page,
 }) => {
-  await seed(page);
+  const { sheetId } = await seed(page);
   await openAction(page, 'map.summarize');
   await expect(page.getByTestId('action-drawer')).toBeVisible();
 
   await page.getByTestId('ribbon-collapse').click();
   await expect(page.getByTestId('workbench-region-act')).toHaveAttribute('data-ribbon-mode', 'menu');
 
-  // Navigation stays outside the drawer rather than underneath its surface.
-  const navigateBox = await page.getByTestId('workbench-region-navigate').boundingBox();
-  const drawerBox = await page.getByTestId('action-drawer').boundingBox();
-  expect(navigateBox).not.toBeNull();
-  expect(drawerBox).not.toBeNull();
-  expect(navigateBox!.x + navigateBox!.width).toBeLessThanOrEqual(drawerBox!.x + 1);
-  const hit = await page.evaluate(
-    ({ x, y }) => {
-      const el = document.elementFromPoint(x, y);
-      return el?.closest('[data-testid="action-drawer"]') != null;
-    },
-    { x: navigateBox!.x + navigateBox!.width - 5, y: navigateBox!.y + navigateBox!.height / 2 },
-  );
-  expect(hit).toBe(false);
+  const sheetTab = page.getByTestId(`workbench-mainView-tab-${sheetId}`);
+  await expect(page.getByTestId('action-drawer')).toBeVisible();
+  await sheetTab.click();
+  await expect(sheetTab).toHaveAttribute('aria-selected', 'true');
 });
 
 test('close: ribbon is clickable again', async ({ page }) => {
