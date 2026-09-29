@@ -1517,7 +1517,10 @@ def test_v1_action_run_queues_map_extract_and_worker_finalizes_receipt(
     tmp_path,
 ) -> None:
     router, adapter = _stub_router(
-        {"person": "Ada Lovelace", "organization": "Analytical Engine Club"}
+        {
+            "person": {"value": "Ada Lovelace", "evidence": []},
+            "organization": {"value": "Analytical Engine Club", "evidence": []},
+        }
     )
     client = TestClient(
         create_app(tmp_path / "ws", router=router, run_status_grace_seconds=3600.0)

@@ -132,6 +132,7 @@ def _model_spec(sheet_id: int, *, model: str):
                     "model": model,
                     "instruction": "p",
                     "fields": [{"name": "x", "type": "text"}],
+                    "grounding": {"enabled": False},
                 },
                 "idempotency_key": "claims-gate-model",
             }
