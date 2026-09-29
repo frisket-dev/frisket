@@ -3680,7 +3680,7 @@ export interface ReviewBundleField {
   columnName: string;
   columnType: ColumnType;
   value: CellValue;
-  confidence: number;
+  confidence: number | null;
   justification: string;
   /** Explicit review outcome; absent for legacy review-state-only rows. */
   reviewDecision?: ReviewAction | null;
@@ -3702,7 +3702,7 @@ export interface ReviewBundle {
   actionKind: string;
   actionName: string;
   model: string;
-  confidence: number;
+  confidence: number | null;
   /** Source row values shown as the shared context for sibling outputs. */
   source: Record<string, CellValue>;
   context: string;
@@ -3716,6 +3716,67 @@ export interface ReviewBundlePage extends PageMeta {
 }
 
 export type ReviewAction = 'accept' | 'reject' | 'reject_clear' | 'edit';
+
+/** Exact review facts for a run or one of its output fields. Accuracy only
+ * uses the explicit accepted/incorrect denominator. */
+export interface ReviewRunCounts {
+  eligibleCount: number;
+  reviewedCount: number;
+  acceptedCount: number;
+  incorrectCount: number;
+  unreviewedCount: number;
+  confidenceCount: number;
+}
+
+export interface ReviewRunField extends ReviewRunCounts {
+  columnId: string;
+  columnName: string;
+  columnType: ColumnType;
+}
+
+export type ReviewRunStatus = 'open' | 'complete';
+export type ReviewBundleOrder = 'shuffle' | 'confidence';
+
+/** Request-only review queue controls; the server intentionally does not echo
+ * these transient ordering choices in a bundle page. */
+export interface ReviewBundleOptions {
+  fieldId?: string;
+  order?: ReviewBundleOrder;
+  seed?: number;
+}
+
+export interface ReviewRunsOptions {
+  sheetId?: string;
+  /** Fetch a pinned run that is older than the currently loaded page. */
+  runId?: string;
+}
+
+/** A persisted action run available to the review queue. */
+export interface ReviewRun {
+  runId: string;
+  sheetId: string;
+  sheetName: string;
+  actionKind: string;
+  actionName: string;
+  model: string | null;
+  startedAt: string;
+  reviewStatus: ReviewRunStatus;
+  reviewCompletedAt: string | null;
+  total: ReviewRunCounts;
+  fields: ReviewRunField[];
+}
+
+export interface ReviewRunsPage extends PageMeta {
+  schemaVersion: 'frisket.review_runs_page.v1';
+  runs: ReviewRun[];
+}
+
+export interface ReviewRunStatusResult {
+  schemaVersion: 'frisket.review_run_status.v1';
+  runId: string;
+  status: ReviewRunStatus;
+  reviewCompletedAt: string | null;
+}
 
 // ---------------------------------------------------------------------------
 // Live sources: a recurring fetch that lands new rows on a sheet. Source
@@ -4739,7 +4800,14 @@ export interface FrisketApi {
     limit?: number,
     runId?: string,
     includeReviewed?: boolean,
+    options?: ReviewBundleOptions,
   ): Promise<ReviewBundlePage>;
+  listReviewRuns(
+    offset?: number,
+    limit?: number,
+    options?: ReviewRunsOptions,
+  ): Promise<ReviewRunsPage>;
+  setReviewRunStatus(runId: string, status: ReviewRunStatus): Promise<ReviewRunStatusResult>;
   reviewItem(
     itemId: string,
     action: ReviewAction,

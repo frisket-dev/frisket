@@ -192,6 +192,9 @@ CREATE TABLE IF NOT EXISTS runs (
   cost_actual REAL DEFAULT 0,
   started_at TEXT NOT NULL DEFAULT (datetime('now')),
   finished_at TEXT,
+  -- Human review workflow state is independent of execution completion.
+  -- NULL means open; a timestamp means the reviewer marked this run complete.
+  review_completed_at TEXT,
   -- Code identity of the worker process that claimed and executed this run
   -- (worker-version-guard-v1: frisket.worker_version.code_version(), stamped
   -- by the project.run/action.run handlers). NULL for runs never claimed off

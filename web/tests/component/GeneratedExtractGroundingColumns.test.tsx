@@ -84,9 +84,14 @@ describe('generated Extract grounding controls', () => {
       estimateAction={vi.fn(async () => ({ cost: 0, rows: 1, billed_cost: 0 }))}
       onExecute={vi.fn()} onClose={vi.fn()} />);
 
-    expect(screen.getByText('Grounding and context')).toBeVisible();
+    expect(screen.getByText('Citations and context')).toBeVisible();
     expect(screen.getByTestId('field-source_document_columns')).toBeInTheDocument();
+    expect(screen.getByText('Citation sources')).toBeInTheDocument();
+    expect(screen.getByText(/Leave empty to use the action’s source inputs/)).toBeInTheDocument();
     expect(screen.getByTestId('field-citation_mode')).toHaveValue('require');
+    expect(screen.queryByTestId('field-grounding')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('field-evidence_policy')).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue('[object Object]')).not.toBeInTheDocument();
   });
 
   it('derives the selector without rewriting saved grounding defaults', () => {
@@ -102,6 +107,7 @@ describe('generated Extract grounding controls', () => {
       Field={({ name }) => <div data-testid={`field-${name}`} />} />);
 
     expect(screen.getByTestId('field-citation_mode')).toHaveValue('none');
+    expect(screen.queryByTestId('field-source_document_columns')).not.toBeInTheDocument();
     expect(setParams).not.toHaveBeenCalled();
   });
 

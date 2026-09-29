@@ -244,7 +244,12 @@ import type {
   ProjectExportOptions,
   ProvenanceManifest,
   ReviewAction,
+  ReviewBundleOptions,
   ReviewBundlePage,
+  ReviewRunsOptions,
+  ReviewRunsPage,
+  ReviewRunStatus,
+  ReviewRunStatusResult,
   MediaProxyStatus,
   ActionExecutionRequest,
   RunActionLaunchResult,
@@ -1864,8 +1869,24 @@ class RealApi implements FrisketApi {
     limit = 25,
     runId?: string,
     includeReviewed = false,
+    options?: ReviewBundleOptions,
   ): Promise<ReviewBundlePage> {
-    return this.historyReview.getReviewBundles(offset, limit, runId, includeReviewed);
+    return this.historyReview.getReviewBundles(offset, limit, runId, includeReviewed, options);
+  }
+
+  async listReviewRuns(
+    offset = 0,
+    limit = 50,
+    options?: ReviewRunsOptions,
+  ): Promise<ReviewRunsPage> {
+    return this.historyReview.listReviewRuns(offset, limit, options);
+  }
+
+  async setReviewRunStatus(
+    runId: string,
+    status: ReviewRunStatus,
+  ): Promise<ReviewRunStatusResult> {
+    return this.historyReview.setReviewRunStatus(runId, status);
   }
 
   async reviewItem(

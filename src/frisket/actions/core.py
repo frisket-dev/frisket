@@ -1157,6 +1157,7 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
         _project_errors(
             ("review_value_required", "Edit decisions require a replacement value."),
             ("review_target_not_found", "The current result cell was not found."),
+            ("review_complete", "Reopen this review to make more decisions."),
             ("output_column_busy", "The result column is claimed by a running action."),
             write_failure="The review decision and receipt could not be written.",
         ),

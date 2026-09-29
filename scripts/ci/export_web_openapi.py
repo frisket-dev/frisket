@@ -358,6 +358,12 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
             "GET",
         ): "tenant.review_bundles_ep.get",
         ("tenant", "review_count_ep", "GET"): "tenant.review_count_ep.get",
+        ("tenant", "review_runs_ep", "GET"): "tenant.review_runs_ep.get",
+        (
+            "tenant",
+            "review_run_status_ep",
+            "POST",
+        ): "tenant.review_run_status_ep.post",
         (
             "tenant",
             "runtime_projection_artifact",

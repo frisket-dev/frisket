@@ -25,6 +25,7 @@ export async function openReviewRoute(page: Page, pid: string, sheetId: number):
 
 export function seedReviewClassifyRun({
   context,
+  idempotencyKey = 'review-e2e-classify@sha256:v1',
   fields,
   sourceColumns,
   pid,
@@ -32,6 +33,7 @@ export function seedReviewClassifyRun({
   sheetId,
 }: {
   context: string;
+  idempotencyKey?: string;
   fields: ReviewClassifyField[];
   sourceColumns: string[];
   pid: string;
@@ -56,7 +58,7 @@ export function seedReviewClassifyRun({
         include_justification: includes('justification'),
         include_confidence: includes('confidence'),
       },
-      idempotency_key: 'review-e2e-classify@sha256:v1',
+      idempotency_key: idempotencyKey,
     },
   });
   const script = String.raw`

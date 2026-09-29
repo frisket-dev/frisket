@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any, Literal
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Path, Query
 
-from frisket.contracts.http.history_review import ReviewBundlesPage, ReviewCount
+from frisket.contracts.http.history_review import (
+    ReviewBundlesPage,
+    ReviewCount,
+    ReviewRunsPage,
+    ReviewRunStatus,
+    ReviewRunStatusRequest,
+)
 from frisket.contracts.http.project_search import ProjectSearchHits
 from frisket.contracts.http.run_provenance import ProvenanceManifest
 from frisket.server.paging import PageLimit100, PageOffset
@@ -140,6 +146,9 @@ def register_project_entity_review_routes(
         limit: PageLimit100 = 25,
         run_id: int | None = Query(default=None, ge=1),
         include_reviewed: bool = False,
+        field_id: int | None = Query(default=None, ge=1),
+        order: Literal["confidence", "shuffle"] = "confidence",
+        seed: int = Query(default=0, ge=0, le=2_147_483_647),
     ) -> ReviewBundlesPage:
         return ReviewBundlesPage.model_validate(
             service.review_bundles(
@@ -149,7 +158,46 @@ def register_project_entity_review_routes(
                 limit=limit,
                 run_id=run_id,
                 include_reviewed=include_reviewed,
+                field_id=field_id,
+                order=order,
+                seed=seed,
             )
+        )
+
+    @app.get(
+        "/api/projects/{pid}/review/runs",
+        response_model=ReviewRunsPage,
+        responses=http_error_responses(401, 403, 404, 422, 500),
+    )
+    def review_runs_ep(
+        pid: str,
+        sheet_id: int | None = Query(default=None, ge=1),
+        run_id: int | None = Query(default=None, ge=1),
+        offset: PageOffset = 0,
+        limit: int = Query(default=25, ge=1, le=50),
+    ) -> ReviewRunsPage:
+        return ReviewRunsPage.model_validate(
+            service.review_runs(
+                pid,
+                sheet_id=sheet_id,
+                run_id=run_id,
+                offset=offset,
+                limit=limit,
+            )
+        )
+
+    @app.post(
+        "/api/projects/{pid}/review/runs/{run_id}/status",
+        response_model=ReviewRunStatus,
+        responses=http_error_responses(401, 403, 404, 422, 500),
+    )
+    def review_run_status_ep(
+        pid: str,
+        run_id: Annotated[int, Path(ge=1)],
+        request: ReviewRunStatusRequest,
+    ) -> ReviewRunStatus:
+        return ReviewRunStatus.model_validate(
+            service.set_review_run_status(pid, run_id=run_id, status=request.status)
         )
 
     @app.get(
