@@ -50,4 +50,32 @@ describe('review citation source tabs', () => {
     expect(sourceLocation(sources[0], 'relief')).toBe('p. 2');
     expect(sourceLocation(sources[1], 'relief')).toBe('14:09');
   });
+
+  it('unions span references for one temporal run cited by separate fields', () => {
+    const firstField = evidenceArtifact({
+      stable_id: 'source:recording', media_type: 'audio/mpeg',
+      spans: [evidenceSpan({ stable_id: 'span:intro', selector: { start_ms: 1_000, end_ms: 3_000 } })],
+      runs: [{ index: 4, start_ms: 1_000, end_ms: 5_000, span_ids: ['span:intro'], clip_url: 'https://example.test/clip' }],
+    });
+    const secondField = {
+      ...firstField,
+      spans: [evidenceSpan({ stable_id: 'span:detail', selector: { start_ms: 3_000, end_ms: 5_000 } })],
+      runs: [{ index: 4, start_ms: 1_000, end_ms: 5_000, span_ids: ['span:detail'], clip_url: 'https://example.test/clip' }],
+    };
+
+    const source = reviewCitationSources([
+      { fieldId: 'summary', payload: payload('citation', firstField) },
+      { fieldId: 'finding', payload: payload('citation', secondField) },
+    ])[0];
+
+    expect(source.artifact.runs).toEqual([
+      { index: 4, start_ms: 1_000, end_ms: 5_000, span_ids: ['span:intro', 'span:detail'], clip_url: 'https://example.test/clip' },
+    ]);
+  });
+
+  it('labels plain-text sources as TXT', () => {
+    const plainText = evidenceArtifact({ stable_id: 'source:notes', media_type: 'text/plain', spans: [evidenceSpan()] });
+
+    expect(reviewCitationSources([{ fieldId: 'notes', payload: payload('citation', plainText) }])[0].kind).toBe('TXT');
+  });
 });

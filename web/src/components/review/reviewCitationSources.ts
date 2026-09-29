@@ -1,10 +1,10 @@
-import type { EvidenceArtifact, EvidenceSpan, EvidenceViewerPayload } from '../../api/types';
+import type { EvidenceArtifact, EvidenceCitationRun, EvidenceSpan, EvidenceViewerPayload } from '../../api/types';
 
 export interface ReviewCitationPayload { fieldId: string; payload: EvidenceViewerPayload; }
 interface SourceMember { fieldId: string; artifact: EvidenceArtifact; spans: EvidenceSpan[]; }
 export interface ReviewCitationSource {
   id: string; artifact: EvidenceArtifact; fieldIds: string[]; members: SourceMember[];
-  kind: 'MD' | 'PDF' | 'AUDIO' | 'FILE'; title: string;
+  kind: 'MD' | 'TXT' | 'PDF' | 'AUDIO' | 'FILE'; title: string;
 }
 
 /** Groups full-fidelity citations by persisted source-artifact identity. */
@@ -61,9 +61,28 @@ function mergeArtifacts(members: readonly SourceMember[]): EvidenceArtifact {
   const textContext = mergeTextContext(members, spanIds);
   return {
     ...first, spans, pages,
-    runs: uniqueBy(members.flatMap((member) => member.artifact.runs), (run) => `${run.index}:${run.span_ids.join(':')}`),
+    runs: mergeRuns(members),
     ...(textContext === null ? {} : { text_context: textContext }),
   };
+}
+
+function mergeRuns(members: readonly SourceMember[]): EvidenceCitationRun[] {
+  const byIndex = new Map<number, EvidenceCitationRun>();
+  for (const run of members.flatMap((member) => member.artifact.runs)) {
+    const current = byIndex.get(run.index);
+    if (!current) {
+      byIndex.set(run.index, { ...run, span_ids: [...new Set(run.span_ids)] });
+      continue;
+    }
+    byIndex.set(run.index, {
+      ...current,
+      start_ms: Math.min(current.start_ms, run.start_ms),
+      end_ms: Math.max(current.end_ms, run.end_ms),
+      clip_url: current.clip_url ?? run.clip_url,
+      span_ids: [...new Set([...current.span_ids, ...run.span_ids])],
+    });
+  }
+  return [...byIndex.values()];
 }
 
 function mergeTextContext(members: readonly SourceMember[], spanIds: ReadonlySet<string>) {
@@ -84,6 +103,7 @@ function sourceKind(mediaType: string): ReviewCitationSource['kind'] {
   if (type === 'application/pdf') return 'PDF';
   if (type.startsWith('audio/') || type.startsWith('video/')) return 'AUDIO';
   if (type === 'text/markdown' || type === 'application/vnd.frisket.row+json') return 'MD';
+  if (type === 'text/plain') return 'TXT';
   return 'FILE';
 }
 function sourceTitle(artifact: EvidenceArtifact): string {
