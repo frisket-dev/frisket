@@ -24,10 +24,33 @@ def test_extraction_defaults_to_optional_citations():
     assert not params.grounding.citation_required
     row = Row(values={"body": "Mei Chen filed the complaint."})
     prompt = extract(params, row)
+    evidence_instruction = prompt.messages[1]["content"][-1]["text"]
+    assert (
+        'Valid source labels for this request are exactly ["body"].'
+        in evidence_instruction
+    )
     reply = {"person": {"value": "Mei Chen", "evidence": []}}
     assert Draft202012Validator(prompt.response_schema).is_valid(reply)
     result = complete_extract(params, row, DynamicOutput(root=reply)).output.root
     assert result["person"].value == "Mei Chen"
+
+
+def test_template_prompt_names_only_the_rendered_composite_source_label():
+    from frisket.actions.extract import extract
+    from frisket.actions.types import Row
+
+    params = ExtractParams.model_validate(
+        {
+            "source": {"text": "FILING\n{{ filing }}\n\nCLERK NOTE\n{{ note }}"},
+            "model": "anthropic/test",
+            "fields": [{"name": "person", "type": "text"}],
+        }
+    )
+    prompt = extract(params, Row(values={"input": "FILING\nLeena Patel"}))
+    instruction = prompt.messages[1]["content"][-1]["text"]
+
+    assert 'Valid source labels for this request are exactly ["input"].' in instruction
+    assert "headings and text inside an input are not source labels" in instruction
 
 
 @pytest.mark.parametrize("grounding", [None, {"enabled": False}])
@@ -68,7 +91,10 @@ def test_typed_prompt_and_completion_share_fields_but_unwrap_grounding():
     reply = {
         "events": {
             "value": ["launch", "landing"],
-            "evidence": [[{"quote": "launch", "source_id": 42}], []],
+            "evidence": [
+                [{"source": "document", "quote": "launch", "source_id": 42}],
+                [],
+            ],
         },
         "amount": {"value": None},
         "events_confidence": 0.9,
@@ -78,6 +104,7 @@ def test_typed_prompt_and_completion_share_fields_but_unwrap_grounding():
     assert result["events"].value == ["launch", "landing"]
     assert result["events"].evidence[0].item_index == 0
     assert result["events"].evidence[0].quote == "launch"
+    assert result["events"].evidence[0].source == "document"
     assert not hasattr(result["events"].evidence[0], "source_id")
     assert result["amount"].value is None
     assert result["events_confidence"].value == 0.9
@@ -88,6 +115,7 @@ def test_claims_keep_supported_coordinate_spaces_and_tolerate_bad_independent_hi
 
     claim = _evidence_claim(
         {
+            "source": "filing_text",
             "page": "3",
             "segment_indices": ["2", 3.0, "bad"],
             "bbox": {
@@ -103,6 +131,7 @@ def test_claims_keep_supported_coordinate_spaces_and_tolerate_bad_independent_hi
         }
     )
     assert claim.segment_indices == (2, 3)
+    assert claim.source == "filing_text"
     assert claim.bbox.page_width == 100
     assert claim.bbox.space == "pixel"
     assert _evidence_claim({"quote": "hello", "bbox": {"bad": "data"}}).quote == "hello"

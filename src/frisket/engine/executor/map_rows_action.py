@@ -536,6 +536,7 @@ class _TypedMapRowsProgram(Recipe):
                         or (policy and policy.citation_required)
                     ),
                     source_columns=self._params.source_document_columns,
+                    prompt_source_columns=self.prompt_source_columns,
                 )
                 attempt = attempt_in_scope(ctx.extras)
                 self._extract_writer = (

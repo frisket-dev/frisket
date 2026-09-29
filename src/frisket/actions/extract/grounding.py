@@ -60,7 +60,7 @@ def _evidence_claim(raw, *, item_index=None):
         data["bbox"] = EvidenceBox.model_validate(box)
     except ValidationError:
         data["bbox"] = None
-    for key in ("quote", "snippet", "grounding_method"):
+    for key in ("source", "quote", "snippet", "grounding_method"):
         if data.get(key) is not None:
             data[key] = str(data[key]).strip() or None
     return EvidenceClaim.model_validate(data)

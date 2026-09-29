@@ -37,7 +37,7 @@ export function EvidenceViewer({
   scopeRowId = null,
   scopeSpanId,
   highlight = true,
-  defaultShowDetails = true,
+  defaultShowDetails = false,
 }: EvidenceViewerProps) {
   const { projectApi } = useWorkspaceStores();
   const [state, setState] = useState<ViewerState>({ phase: 'loading' });
@@ -56,7 +56,7 @@ export function EvidenceViewer({
     return () => {
       alive = false;
     };
-  }, [evidenceLinkId]);
+  }, [evidenceLinkId, projectApi]);
 
   useEffect(() => {
     if (mode !== 'peek') return;
@@ -168,7 +168,7 @@ function EvidencePayloadView({
   scopeRowId = null,
   scopeSpanId,
   highlight = true,
-  defaultShowDetails = true,
+  defaultShowDetails = false,
 }: {
   payload: EvidenceViewerPayload;
   scopeRowId?: string | null;
@@ -205,8 +205,7 @@ function EvidencePayloadView({
       <main className="evidence-viewer-source-pane">
         {payload.link.role === 'source_provenance' && (
           <div className="evidence-viewer-provenance-notice" data-testid="evidence-provenance-notice">
-            This is the source document used to create the derived value. It is provenance,
-            not a quoted passage supporting the converted text.
+            Original document used to create this text.
           </div>
         )}
         {orderedArtifacts.length === 0 ? (
@@ -215,7 +214,12 @@ function EvidencePayloadView({
           </div>
         ) : (
           orderedArtifacts.map((artifact) => (
-            <ArtifactSource key={`${artifact.stable_id}:${scopeSpanId ?? ''}:${highlight}`} artifact={artifact} />
+            <ArtifactSource
+              key={`${artifact.stable_id}:${scopeSpanId ?? ''}:${highlight}`}
+              artifact={artifact}
+              scopeSpanId={scopeSpanId}
+              highlight={highlight}
+            />
           ))
         )}
         <button
@@ -230,12 +234,10 @@ function EvidencePayloadView({
       {showDetails && (
         <aside className="evidence-viewer-detail-pane" data-testid="evidence-viewer-detail-pane">
           <LinkSummary payload={payload} />
-          {payload.warnings.length > 0 && (
-            <div className="evidence-viewer-warning" data-testid="evidence-viewer-warnings">
-              {payload.warnings.join(', ')}
-            </div>
-          )}
-          <GroundingDegradedNotice warnings={payload.warnings} />
+          <GroundingDegradedNotice
+            warnings={payload.warnings}
+            hasSavedTextContext={orderedArtifacts.some((artifact) => evidenceTextContext(artifact) !== null)}
+          />
           {orderedArtifacts.map((artifact) => (
             <ArtifactDetails key={artifact.stable_id} artifact={artifact} />
           ))}
@@ -250,13 +252,25 @@ const GROUNDING_DEGRADED_COPY: Record<string, string> = {
     'No positioned OCR/text stream for this source; run OCR to enable page highlights.',
   model_bbox_unverified:
     'The model’s highlight box could not be verified against the page text, so this citation shows the page instead of a box.',
+  temporal_span_clamped_to_artifact_duration_ms:
+    'This segment was shortened to fit the available recording.',
 };
 
-function GroundingDegradedNotice({ warnings }: { warnings: string[] }) {
-  const messages = warnings.flatMap(
-    (warning) =>
-      warning in GROUNDING_DEGRADED_COPY ? [GROUNDING_DEGRADED_COPY[warning]] : [],
-  );
+function warningMessages(warnings: readonly string[], hasSavedTextContext = false): string[] {
+  return warnings.flatMap((warning) => {
+    if (warning === 'no_word_stream' && hasSavedTextContext) return [];
+    return warning in GROUNDING_DEGRADED_COPY ? [GROUNDING_DEGRADED_COPY[warning]] : [];
+  });
+}
+
+function GroundingDegradedNotice({
+  warnings,
+  hasSavedTextContext,
+}: {
+  warnings: string[];
+  hasSavedTextContext: boolean;
+}) {
+  const messages = warningMessages(warnings, hasSavedTextContext);
   if (messages.length === 0) {
     return null;
   }
@@ -316,7 +330,15 @@ function LinkSummary({ payload }: { payload: EvidenceViewerPayload }) {
   );
 }
 
-export function ArtifactSource({ artifact }: { artifact: EvidenceArtifact }) {
+export function ArtifactSource({
+  artifact,
+  scopeSpanId,
+  highlight = true,
+}: {
+  artifact: EvidenceArtifact;
+  scopeSpanId?: string;
+  highlight?: boolean;
+}) {
   const blob = artifact.artifact_ref.blob;
   return (
     <section className="evidence-source-section" data-testid="evidence-artifact">
@@ -336,8 +358,8 @@ export function ArtifactSource({ artifact }: { artifact: EvidenceArtifact }) {
         artifact.pages.map((page) => (
           <EvidencePageView key={page.page} page={page} artifactStableId={artifact.stable_id} />
         ))
-      ) : isTextRenderableMediaType(artifact.media_type) && textCitedSpans(artifact).length > 0 ? (
-        <TextArtifactSource artifact={artifact} />
+      ) : isTextRenderableMediaType(artifact.media_type) && (evidenceTextContext(artifact) !== null || textCitedSpans(artifact).length > 0) ? (
+        <TextArtifactSource artifact={artifact} scopeSpanId={scopeSpanId} highlight={highlight} />
       ) : artifact.media_type === 'application/pdf' && blob ? (
         <iframe
           className="evidence-pdf"
@@ -676,20 +698,22 @@ function MediaOrFallback({ artifact }: { artifact: EvidenceArtifact }) {
   );
 }
 
-const TEXT_RENDERABLE_MEDIA_TYPES = new Set(['text/plain', 'application/vnd.frisket.row+json']);
+const TEXT_RENDERABLE_MEDIA_TYPES = new Set([
+  'text/plain',
+  'text/markdown',
+  'application/vnd.frisket.row+json',
+]);
 
 function isTextRenderableMediaType(mediaType: string): boolean {
   return TEXT_RENDERABLE_MEDIA_TYPES.has(mediaType.split(';')[0].trim());
 }
 
 function textCitedSpans(artifact: EvidenceArtifact): EvidenceSpan[] {
-  const seen = new Set<string>();
   const spans: EvidenceSpan[] = [];
   for (const span of artifact.spans) {
     if (span.span_kind !== 'text' && span.span_kind !== 'whole') continue;
     const text = span.quote || span.snippet;
-    if (!text || seen.has(text)) continue;
-    seen.add(text);
+    if (!text) continue;
     spans.push(span);
   }
   return spans;
@@ -741,9 +765,52 @@ function TextQuoteBlocks({ artifact, spans }: { artifact: EvidenceArtifact; span
 interface TextSegment {
   text: string;
   highlighted: boolean;
+  start: number;
+  end: number;
 }
 
-/* Never fabricate unavailable highlights. */
+type EvidenceTextContext = NonNullable<EvidenceArtifact['text_context']>;
+type EvidenceTextContextRange = EvidenceTextContext['ranges'][number];
+
+function evidenceTextContext(artifact: EvidenceArtifact): EvidenceTextContext | null {
+  return artifact.text_context ?? null;
+}
+
+function textSegments(sourceText: string, ranges: readonly Pick<EvidenceTextContextRange, 'start' | 'end'>[]): TextSegment[] {
+  if (sourceText.length === 0) return [];
+  const ordered = ranges
+    .filter((range) => Number.isInteger(range.start) && Number.isInteger(range.end)
+      && range.start >= 0 && range.start < range.end && range.end <= sourceText.length)
+    .slice()
+    .sort((a, b) => a.start - b.start || b.end - a.end);
+  const merged: Array<{ start: number; end: number }> = [];
+  for (const range of ordered) {
+    const last = merged[merged.length - 1];
+    // Overlaps are one visual mark. Adjacent, separately cited passages stay
+    // separate so the renderer does not erase their boundary.
+    if (last && range.start < last.end) {
+      last.end = Math.max(last.end, range.end);
+    } else {
+      merged.push({ start: range.start, end: range.end });
+    }
+  }
+  if (merged.length === 0) return [{ text: sourceText, highlighted: false, start: 0, end: sourceText.length }];
+  const segments: TextSegment[] = [];
+  let cursor = 0;
+  for (const range of merged) {
+    if (range.start > cursor) {
+      segments.push({ text: sourceText.slice(cursor, range.start), highlighted: false, start: cursor, end: range.start });
+    }
+    segments.push({ text: sourceText.slice(range.start, range.end), highlighted: true, start: range.start, end: range.end });
+    cursor = range.end;
+  }
+  if (cursor < sourceText.length) {
+    segments.push({ text: sourceText.slice(cursor), highlighted: false, start: cursor, end: sourceText.length });
+  }
+  return segments;
+}
+
+/* Legacy quote-only records have no persisted coordinates. */
 function highlightQuotes(sourceText: string, spans: EvidenceSpan[]): TextSegment[] {
   const ranges: Array<{ start: number; end: number }> = [];
   for (const span of spans) {
@@ -753,26 +820,55 @@ function highlightQuotes(sourceText: string, spans: EvidenceSpan[]): TextSegment
     if (start === -1) continue;
     ranges.push({ start, end: start + quote.length });
   }
-  ranges.sort((a, b) => a.start - b.start);
-  const merged: Array<{ start: number; end: number }> = [];
-  for (const range of ranges) {
-    const last = merged[merged.length - 1];
-    if (last && range.start <= last.end) {
-      last.end = Math.max(last.end, range.end);
-    } else {
-      merged.push({ ...range });
-    }
-  }
-  if (merged.length === 0) return [{ text: sourceText, highlighted: false }];
-  const segments: TextSegment[] = [];
-  let cursor = 0;
-  for (const range of merged) {
-    if (range.start > cursor) segments.push({ text: sourceText.slice(cursor, range.start), highlighted: false });
-    segments.push({ text: sourceText.slice(range.start, range.end), highlighted: true });
-    cursor = range.end;
-  }
-  if (cursor < sourceText.length) segments.push({ text: sourceText.slice(cursor), highlighted: false });
-  return segments;
+  return textSegments(sourceText, ranges);
+}
+
+function SavedTextContext({
+  context,
+  scopeSpanId,
+  highlight,
+}: {
+  context: EvidenceTextContext;
+  scopeSpanId?: string;
+  highlight: boolean;
+}) {
+  const ranges = highlight
+    ? scopeSpanId === undefined
+      ? context.ranges
+      : context.ranges.filter((range) => range.span_id === scopeSpanId)
+    : [];
+  const segments = textSegments(context.text, ranges);
+  const firstHighlightIndex = segments.findIndex((segment) => segment.highlighted);
+  const firstMarkRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (firstHighlightIndex >= 0) firstMarkRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [firstHighlightIndex]);
+
+  return (
+    <div className="evidence-text-source" data-testid="evidence-text-source" data-source-version="saved">
+      <pre className="evidence-text-body" data-testid="evidence-text-body">
+        {segments.map((segment, index) => (
+          segment.highlighted ? (
+            <mark
+              key={`${segment.start}:${segment.end}`}
+              className="evidence-text-highlight"
+              data-testid="evidence-text-highlight"
+              ref={index === firstHighlightIndex ? firstMarkRef : undefined}
+            >
+              {segment.text}
+            </mark>
+          ) : (
+            <span key={`${segment.start}:${segment.end}`}>{segment.text}</span>
+          )
+        ))}
+      </pre>
+      {highlight && context.ranges.length > 0 && firstHighlightIndex < 0 && (
+        <div className="evidence-viewer-warning" data-testid="evidence-text-context-unavailable">
+          This citation has no displayable passage in the saved source.
+        </div>
+      )}
+    </div>
+  );
 }
 
 type TextBlobState =
@@ -828,7 +924,7 @@ function TextBlobSource({
     <div className="evidence-text-source" data-testid="evidence-text-source">
       <pre className="evidence-text-body" data-testid="evidence-text-body">
         {segments.map((segment, index) => {
-          const key = `${segment.text}-${segment.highlighted}`;
+          const key = `${segment.start}:${segment.end}`;
           return segment.highlighted ? (
             <mark
               key={key}
@@ -847,7 +943,23 @@ function TextBlobSource({
   );
 }
 
-export function TextArtifactSource({ artifact }: { artifact: EvidenceArtifact }) {
+export function TextArtifactSource({
+  artifact,
+  scopeSpanId,
+  highlight = true,
+}: {
+  artifact: EvidenceArtifact;
+  scopeSpanId?: string;
+  highlight?: boolean;
+}) {
+  const context = evidenceTextContext(artifact);
+  if (context !== null) {
+    return <SavedTextContext context={context} scopeSpanId={scopeSpanId} highlight={highlight} />;
+  }
+  return <LegacyTextArtifactSource artifact={artifact} />;
+}
+
+function LegacyTextArtifactSource({ artifact }: { artifact: EvidenceArtifact }) {
   const spans = useMemo(() => textCitedSpans(artifact), [artifact]);
   if (spans.length === 0) return null;
   const blob = artifact.artifact_ref.blob;
@@ -914,6 +1026,7 @@ function SpanCard({
   artifactStableId: string;
 }) {
   const selectorSummary = useMemo(() => selectorLabel(span), [span]);
+  const warningCopy = warningMessages(span.warnings);
   const pageTarget = selectorNumber(span, 'page_start');
   const jumpToPage = pageTarget === null
     ? undefined
@@ -974,8 +1087,10 @@ function SpanCard({
           </>
         ) : null}
       </dl>
-      {span.warnings.length > 0 && (
-        <div className="evidence-viewer-warning">{span.warnings.join(', ')}</div>
+      {warningCopy.length > 0 && (
+        <div className="evidence-viewer-warning">
+          {warningCopy.map((message) => <p key={message}>{message}</p>)}
+        </div>
       )}
     </article>
   );

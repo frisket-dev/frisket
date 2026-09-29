@@ -52,22 +52,59 @@ def _source_artifact(
     sheet_id: int,
     row_id: int,
     source_columns: list[str],
-    input_column_ids: dict[str, int],
+    input_column_ids: dict[str, int | None],
     artifact_cache: dict[tuple[int, int, str], dict[str, Any]],
     captured_sources: dict[str, Any] | None = None,
+    source_label: str | None = None,
 ) -> dict[str, Any]:
     from frisket.engine.store.evidence import record_source_artifact
     from frisket.engine.store.media_blobs import MediaBlobStore
 
     for name in source_columns:
         column_id = input_column_ids.get(name)
+        captured = (captured_sources or {}).get(name, {})
+        value = (
+            captured.get("value")
+            if captured_sources is not None
+            else (
+                project.get_values(sheet_id, column_id, row_ids=[row_id]).get(row_id)
+                if column_id is not None
+                else None
+            )
+        )
+        captured_text = captured.get("captured_text")
+        if not isinstance(captured_text, str) and captured.get("model_visible"):
+            captured_text = value if isinstance(value, str) else None
+        if isinstance(captured_text, str):
+            cache_key = (row_id, column_id or 0, _text_hash(captured_text))
+            if cache_key in artifact_cache:
+                return artifact_cache[cache_key]
+            artifact = record_source_artifact(
+                project,
+                artifact_kind="text",
+                media_type=(
+                    "text/markdown"
+                    if captured.get("column_type") == "markdown"
+                    else "text/plain"
+                ),
+                title=source_label or name,
+                source_sheet_id=sheet_id if column_id is not None else None,
+                source_row_id=row_id if column_id is not None else None,
+                source_column_id=column_id,
+                metadata={
+                    "source_label": name,
+                    "captured_text": captured_text,
+                    "captured_source": {
+                        key: captured.get(key)
+                        for key in ("column_id", "column_type", "value_ref")
+                        if captured.get(key) is not None
+                    },
+                },
+            )
+            artifact_cache[cache_key] = artifact
+            return artifact
         if column_id is None:
             continue
-        value = (
-            captured_sources.get(name, {}).get("value")
-            if captured_sources is not None
-            else project.get_values(sheet_id, column_id, row_ids=[row_id]).get(row_id)
-        )
         if not isinstance(value, dict) or not value.get("blob"):
             continue
         blob_hash = str(value["blob"])
@@ -81,6 +118,7 @@ def _source_artifact(
             media_type=str(value.get("mime") or "application/octet-stream"),
             blob_hash=blob_hash,
             filename=value.get("filename"),
+            title=source_label or name,
             page_count=_int_or_none(metadata.get("pages")),
             source_sheet_id=sheet_id,
             source_row_id=row_id,
@@ -107,6 +145,101 @@ def _source_artifact(
             },
         )
     return artifact_cache[cache_key]
+
+
+def _captured_text_spans(
+    project: Any,
+    *,
+    artifact: dict[str, Any],
+    source: dict[str, Any],
+    source_label: str,
+    sheet_id: int,
+    row_id: int,
+    entry: dict[str, Any],
+    rank: int,
+) -> list[dict[str, Any]] | None:
+    """Locate one quote in its frozen model-visible source, if it has text."""
+
+    text = source.get("captured_text")
+    quote = _optional_string(entry.get("quote"))
+    if not isinstance(text, str):
+        return None
+    if quote is None:
+        return []
+
+    from frisket.engine.store.evidence import record_source_span, record_text_surface
+    from frisket.engine.store.text_quote_match import quote_ranges
+
+    ranges = quote_ranges(text, quote)
+    if not ranges:
+        return []
+    content_hash = _text_hash(text)
+    column_id = source.get("column_id")
+    if isinstance(column_id, int) and not source.get("composite"):
+        surface = record_text_surface(
+            project,
+            surface_kind="cell",
+            content_hash=content_hash,
+            offset_unit="unicode_codepoint",
+            text_sheet_id=sheet_id,
+            text_row_id=row_id,
+            text_column_id=column_id,
+            value_ref=source.get("value_ref"),
+        )
+    else:
+        surface = record_text_surface(
+            project,
+            surface_kind="composite",
+            content_hash=content_hash,
+            offset_unit="unicode_codepoint",
+            surface_ref={
+                "identity": {
+                    "kind": "map_extract_input",
+                    "source": source_label,
+                    "sheet_id": sheet_id,
+                    "row_id": row_id,
+                    "content_hash": content_hash,
+                }
+            },
+        )
+    metadata = {
+        "raw": entry,
+        "grounding_method": _optional_string(entry.get("grounding_method"))
+        or "exact_quote",
+        "rank": rank,
+        "alignment": "exact_text",
+        "source": source_label,
+        "warnings": [],
+    }
+    return [
+        record_source_span(
+            project,
+            artifact_id=int(artifact["id"]),
+            span_kind="text",
+            char_start=start,
+            char_end=end,
+            quote=text[start:end],
+            snippet=text[start:end],
+            text_layer_hash=content_hash,
+            text_surface_id=int(surface["id"]),
+            metadata=metadata,
+        )
+        for start, end in ranges
+    ]
+
+
+def _span_is_usable(span: dict[str, Any]) -> bool:
+    """Whether a resolved span is enough to satisfy Require citations."""
+
+    if span.get("char_start") is not None and span.get("char_end") is not None:
+        return True
+    if span.get("span_kind") == "temporal":
+        return span.get("start_ms") is not None and span.get("end_ms") is not None
+    if span.get("span_kind") == "region":
+        return bool(span.get("bbox"))
+    if span.get("span_kind") == "page_range":
+        return span.get("page_start") is not None
+    return False
 
 
 def _boxes_overlap(
@@ -389,7 +522,11 @@ def _transcript_segment_indices_spans(
         else transcript_stream
     )
     if resolved is None:
-        return []
+        # A model may emit an irrelevant segment hint alongside a valid quote.
+        # With no actual transcript stream for this chosen source, let the
+        # source-appropriate text/OCR paths evaluate that quote. Once a stream
+        # exists, invalid IDs still return [] and fail closed below.
+        return None
     matches = ground(
         AnchorTarget(unit_ids=indices), resolved.anchors, method="anchor_id"
     )
@@ -513,6 +650,7 @@ def _transcript_quote_spans(
 # transcript wins (temporal spans); `aligned`/`model_bbox_verified` the OCR wins.
 _CONFIDENT_ALIGNMENTS = {
     "aligned",
+    "exact_text",
     "aligned_temporal",
     "segment_anchor",
     "model_bbox_verified",
@@ -527,6 +665,8 @@ def _resolve_evidence_entry_spans(
     row_id: int,
     entry: dict[str, Any],
     rank: int,
+    captured_source: dict[str, Any] | None = None,
+    source_label: str | None = None,
     transcript_stream: Any = _UNRESOLVED_TRANSCRIPT,
 ) -> list[dict[str, Any]] | None:
     """Resolve ONE evidence entry into spans, transcript-first (W2.3). Tries in
@@ -564,6 +704,19 @@ def _resolve_evidence_entry_spans(
             entry=entry,
             rank=rank,
             transcript_stream=transcript_stream,
+        )
+    if entry_spans is None and artifact.get("blob_hash"):
+        entry_spans = _source_spans(project, artifact=artifact, item=entry, rank=rank)
+    if entry_spans is None:
+        entry_spans = _captured_text_spans(
+            project,
+            artifact=artifact,
+            source=captured_source or {},
+            source_label=source_label or "input",
+            sheet_id=sheet_id,
+            row_id=row_id,
+            entry=entry,
+            rank=rank,
         )
     if entry_spans is None:
         entry_spans = _source_spans(project, artifact=artifact, item=entry, rank=rank)

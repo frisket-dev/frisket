@@ -182,6 +182,9 @@ describe('EvidenceViewer JSON leaves', () => {
 
     render(<EvidenceViewer evidenceLinkId="evidence-link:1" mode="pane" onClose={() => {}} />);
 
+    const detailsToggle = await screen.findByTestId('evidence-details-toggle');
+    expect(screen.queryByTestId('evidence-viewer-detail-pane')).not.toBeInTheDocument();
+    detailsToggle.click();
     expect(await screen.findByTestId('evidence-link-status')).toHaveTextContent('active');
     expect(screen.getAllByTestId('evidence-region-highlight')).toHaveLength(1);
     expect(screen.getAllByTestId('evidence-selector-summary')[0]).toHaveTextContent('null');
@@ -201,8 +204,32 @@ describe('EvidenceViewer JSON leaves', () => {
 
     expect(await screen.findByRole('heading', { name: 'Source provenance' })).toBeVisible();
     expect(screen.getByTestId('evidence-provenance-notice')).toHaveTextContent(
-      'not a quoted passage supporting the converted text',
+      'Original document used to create this text.',
     );
+  });
+
+  it('keeps raw OCR warning codes out of a saved text citation', async () => {
+    const source = {
+      ...jsonLeafPayload.artifacts[1],
+      text_context: {
+        text: 'A cited passage in the captured Markdown source.',
+        offset_unit: 'utf16_code_unit',
+        ranges: [{ span_id: 'evidence_span:text', start: 2, end: 16 }],
+      },
+    };
+    getEvidenceViewer.mockResolvedValue({
+      ...jsonLeafPayload,
+      artifacts: [source],
+      warnings: ['no_word_stream', 'internal_only_warning'],
+    });
+
+    render(<EvidenceViewer evidenceLinkId="evidence-link:1" mode="pane" onClose={() => {}} />);
+
+    expect(await screen.findByTestId('evidence-text-body')).toHaveTextContent(source.text_context.text);
+    expect(screen.queryByText('no_word_stream')).not.toBeInTheDocument();
+    expect(screen.queryByText('internal_only_warning')).not.toBeInTheDocument();
+    screen.getByTestId('evidence-details-toggle').click();
+    expect(screen.queryByTestId('evidence-grounding-degraded')).not.toBeInTheDocument();
   });
 });
 

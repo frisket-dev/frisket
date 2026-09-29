@@ -6,9 +6,12 @@ from frisket.actions.core import RegisteredAction
 from frisket.actions.extract import EXTRACT
 from frisket.actions.types import ActionRequest
 from frisket.engine.executor.extract_evidence import _source_artifact
-from frisket.engine.executor.extract_result_evidence import ExtractResultEvidence
+from frisket.engine.executor.extract_result_evidence import (
+    ExtractResultEvidence,
+    _grounding_artifact_source,
+)
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import list_cell_evidence
+from frisket.engine.store.evidence import list_cell_evidence, resolve_evidence_viewer
 from frisket.engine.store.receipts import ReceiptStore
 from test_model_rows_actions import _DataAdapter, _run_third_party
 from frisket.ai.llm import ModelRouter
@@ -43,7 +46,9 @@ def run_extract(
 ):
     project, sheet, _, row = source
     params = {
-        "source": [source_name],
+        "source": (
+            source_name if isinstance(source_name, (list, dict)) else [source_name]
+        ),
         "model": "anthropic/claude-haiku-4-5",
         "fields": fields,
         "grounding": {"enabled": grounding, "citation_required": citation_required},
@@ -128,10 +133,14 @@ def test_typed_extract_list_citations_and_confidence_policy(source, members):
         confidence=True,
     )
     assert result.status == "completed", result.errors
-    assert values(source)["published_events"] == members
+    assert values(source)["published_events"] == (None if members else members)
     assert values(source)["events_confidence"] == 0.8
     project, sheet, _, row = source
-    column = next(c for c in project.columns(sheet) if c["name"] == "published_events")
+    column = next(
+        c
+        for c in project.columns(sheet, include_hidden=True)
+        if c["name"] == "published_events"
+    )
     links = list_cell_evidence(
         project, sheet_id=sheet, row_id=row, column_id=column["id"]
     )
@@ -150,6 +159,269 @@ def test_typed_extract_list_citations_and_confidence_policy(source, members):
         )
         assert fact["link_refs"][0]["item_index"] == 0
         assert fact["unsupported_values"][0]["item_index"] == 1
+        assert any(error.code == "evidence_required" for error in receipt.errors)
+
+
+def test_text_citation_freezes_source_and_projects_all_utf16_ranges(source):
+    project, sheet, column, row = source
+    text = "🚀 Ada\t Lovelace. Ada  Lovelace."
+    project.apply_edits([{"row_id": row, "column_id": column, "value": text}])
+
+    result, _ = run_extract(
+        source,
+        [{"name": "person", "type": "text"}],
+        {
+            "person": {
+                "value": "Ada Lovelace",
+                "evidence": [
+                    {
+                        "source": "body",
+                        "quote": "Ada Lovelace.",
+                        "segment_indices": [0],
+                    }
+                ],
+            }
+        },
+        grounding=True,
+        citation_required=True,
+    )
+
+    assert result.status == "completed", result.errors
+    output = next(c for c in project.columns(sheet) if c["name"] == "published_person")
+    evidence = list_cell_evidence(
+        project, sheet_id=sheet, row_id=row, column_id=output["id"]
+    )
+    assert len(evidence["links"]) == 1
+    viewer = resolve_evidence_viewer(project, evidence["links"][0]["stable_id"])
+    artifact = viewer["artifacts"][0]
+    assert artifact["title"] == "body"
+    assert artifact["text_context"]["text"] == text
+    assert artifact["text_context"]["offset_unit"] == "utf16_code_unit"
+    assert artifact["text_context"]["ranges"] == [
+        {
+            "span_id": artifact["spans"][0]["stable_id"],
+            "start": 3,
+            "end": 17,
+        },
+        {
+            "span_id": artifact["spans"][1]["stable_id"],
+            "start": 18,
+            "end": 32,
+        },
+    ]
+
+    project.apply_edits(
+        [{"row_id": row, "column_id": column, "value": "changed later"}]
+    )
+    edited = resolve_evidence_viewer(project, evidence["links"][0]["stable_id"])
+    assert edited["artifacts"][0]["text_context"]["text"] == text
+    assert edited["link"]["text_layer_hash_mismatch"] is True
+
+
+def test_text_claims_resolve_per_visible_source_and_per_deliberate_claim(source):
+    project, sheet, _, row = source
+    notes = project.add_column(sheet, "notes", type="text")
+    project.apply_edits(
+        [{"row_id": row, "column_id": notes, "value": "Dear Ada. Ada replied."}]
+    )
+    result, _ = run_extract(
+        source,
+        [{"name": "person", "type": "text"}],
+        {
+            "person": {
+                "value": "Ada",
+                "evidence": [
+                    {"source": "body", "quote": "Ada"},
+                    {"source": "notes", "quote": "Dear Ada"},
+                ],
+            }
+        },
+        grounding=True,
+        citation_required=True,
+        source_name=["body", "notes"],
+    )
+    assert result.status == "completed", result.errors
+    output = next(c for c in project.columns(sheet) if c["name"] == "published_person")
+    links = list_cell_evidence(
+        project, sheet_id=sheet, row_id=row, column_id=output["id"]
+    )["links"]
+    assert len(links) == 2
+    assert {
+        resolve_evidence_viewer(project, link["stable_id"])["artifacts"][0]["title"]
+        for link in links
+    } == {"body", "notes"}
+
+
+def test_real_multi_text_reply_ignores_spurious_segment_hints(source):
+    project, sheet, _, row = source
+    filing = project.add_column(sheet, "filing_text", type="text", format="markdown")
+    note = project.add_column(sheet, "clerk_note", type="text")
+    project.apply_edits(
+        [
+            {
+                "row_id": row,
+                "column_id": filing,
+                "value": "📄 COMPLAINT\n\nLeena\nPatel v. Cedar Bridge.\nLeena Patel filed.",
+            },
+            {
+                "row_id": row,
+                "column_id": note,
+                "value": "Clerk note:\r\n\r\nLeena\tPatel filed.\nLeena\u00a0Patel requested a copy.",
+            },
+        ]
+    )
+    reply = {
+        "person": {
+            "value": "Leena Patel",
+            "evidence": [
+                {
+                    "source": "filing_text",
+                    "segment_indices": [0],
+                    "quote": "Leena Patel",
+                },
+                {
+                    "source": "clerk_note",
+                    "segment_indices": [0],
+                    "quote": "Leena Patel",
+                },
+            ],
+            "warnings": [],
+        }
+    }
+    result, _ = run_extract(
+        source,
+        [{"name": "person", "type": "text"}],
+        reply,
+        grounding=True,
+        citation_required=True,
+        source_name=["filing_text", "clerk_note"],
+    )
+    assert result.status == "completed", result.errors
+    assert values(source)["published_person"] == "Leena Patel"
+    output = next(c for c in project.columns(sheet) if c["name"] == "published_person")
+    links = list_cell_evidence(
+        project, sheet_id=sheet, row_id=row, column_id=output["id"]
+    )["links"]
+    assert len(links) == 2
+    contexts = {
+        viewer["artifacts"][0]["title"]: viewer["artifacts"][0]["text_context"]
+        for viewer in (
+            resolve_evidence_viewer(project, link["stable_id"]) for link in links
+        )
+    }
+    assert len(contexts["filing_text"]["ranges"]) == 2
+    assert len(contexts["clerk_note"]["ranges"]) == 2
+
+
+def test_ambiguous_or_missing_text_quote_does_not_satisfy_require(source):
+    project, sheet, _, row = source
+    notes = project.add_column(sheet, "notes", type="text")
+    project.apply_edits(
+        [{"row_id": row, "column_id": notes, "value": "Ada appears here too."}]
+    )
+    result, _ = run_extract(
+        source,
+        [{"name": "person", "type": "text"}],
+        {"person": {"value": "Ada", "evidence": [{"quote": "Ada"}]}},
+        grounding=True,
+        citation_required=True,
+        source_name=["body", "notes"],
+    )
+    assert result.status == "completed", result.errors
+    assert values(source)["published_person"] is None
+    assert project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] == 0
+
+
+def test_optional_unmatched_text_quote_keeps_value_without_located_link(source):
+    result, _ = run_extract(
+        source,
+        [{"name": "person", "type": "text"}],
+        {
+            "person": {
+                "value": "Grace",
+                "evidence": [{"source": "body", "quote": "Grace"}],
+            }
+        },
+        grounding=True,
+    )
+    assert result.status == "completed", result.errors
+    assert values(source)["published_person"] == "Grace"
+    assert (
+        source[0].db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] == 0
+    )
+
+
+def test_template_input_is_captured_as_one_citable_composite(source):
+    project, sheet, _, row = source
+    result, _ = run_extract(
+        source,
+        [{"name": "person", "type": "text"}],
+        {
+            "person": {
+                "value": "Ada",
+                "evidence": [{"source": "input", "quote": "Subject: Ada"}],
+            }
+        },
+        grounding=True,
+        citation_required=True,
+        source_name={"text": "Subject: {{ body }}"},
+    )
+    assert result.status == "completed", result.errors
+    output = next(c for c in project.columns(sheet) if c["name"] == "published_person")
+    link = list_cell_evidence(
+        project, sheet_id=sheet, row_id=row, column_id=output["id"]
+    )["links"][0]
+    artifact = resolve_evidence_viewer(project, link["stable_id"])["artifacts"][0]
+    assert artifact["title"] == "input"
+    assert artifact["source_cell"] is None
+    assert artifact["text_context"]["text"] == "Subject: Ada launched a rocket."
+
+
+def test_generated_markdown_quote_remains_primary_with_auxiliary_pdf():
+    sources = {
+        "markdown": {
+            "model_visible": True,
+            "captured_text": "Leena Patel filed the complaint.",
+            "value": "Leena Patel filed the complaint.",
+            "value_ref": {"kind": "run_result", "run_id": 7},
+            "producer_action_kind": "media.to_markdown",
+        },
+        "original_pdf": {
+            "model_visible": False,
+            "value": {"blob": "sha256:pdf"},
+        },
+    }
+
+    assert (
+        _grounding_artifact_source(
+            sources,
+            "markdown",
+            {"quote": "Leena Patel"},
+            ("original_pdf",),
+        )
+        == "markdown"
+    )
+
+
+def test_page_claim_does_not_guess_between_multiple_auxiliary_files():
+    sources = {
+        "markdown": {"model_visible": True, "value": "Page text"},
+        "first_pdf": {"model_visible": False, "value": {"blob": "sha256:first"}},
+        "second_pdf": {
+            "model_visible": False,
+            "value": {"blob": "sha256:second"},
+        },
+    }
+
+    assert (
+        _grounding_artifact_source(
+            sources,
+            "markdown",
+            {"page": 1, "quote": "Page text"},
+            ("first_pdf", "second_pdf"),
+        )
+        is None
+    )
 
 
 def test_typed_extract_required_citation_withholds_only_unsupported_field(source):
@@ -352,7 +624,16 @@ def test_transcript_prompt_and_evidence_use_captured_version(
             {
                 "claim": {
                     "value": "vote was rigged",
-                    "evidence": [{"segment_indices": [2, 3]}],
+                    "evidence": [
+                        {
+                            "source": (
+                                "transcript_segments"
+                                if source_name == "transcript"
+                                else source_name
+                            ),
+                            "segment_indices": [2, 3],
+                        }
+                    ],
                 }
             },
             grounding=True,

@@ -209,6 +209,7 @@ test('transcribed audio row: evidence viewer shows player + captions + clickable
 
   await openProject(page, pid, seeded.sheetId);
   const viewer = await openTranscriptEvidence(page, columns);
+  await viewer.getByTestId('evidence-details-toggle').click();
   await expect(viewer.getByTestId('evidence-export-ref')).toContainText(seeded.linkStableId);
 
   const player = viewer.getByTestId('evidence-audio');
@@ -236,10 +237,9 @@ test('transcribed audio row: evidence viewer shows player + captions + clickable
   const currentTime = await player.evaluate((el) => (el as HTMLMediaElement).currentTime);
   expect(Math.abs(currentTime - 1)).toBeLessThan(0.5);
 
-  // The clamped span (segment index 2) still surfaces its warning via
-  // SpanCard (metadata.warnings), unchanged by the seek addition.
+  // The clamped span (segment index 2) maps its stored warning to useful copy.
   const clampedSpanCard = viewer.getByTestId('evidence-span-temporal').filter({ hasText: 'CLOSING REMARKS' });
-  await expect(clampedSpanCard).toContainText('temporal_span_clamped_to_artifact_duration_ms');
+  await expect(clampedSpanCard).toContainText('This segment was shortened to fit the available recording.');
 });
 
 test('transcribed video row: evidence viewer renders <video> not <audio>, with the same click-to-seek segment list', async ({

@@ -827,6 +827,7 @@ def resolve_evidence_viewer(
 
     for artifact in artifacts.values():
         artifact["pages"] = _page_payloads(artifact, project_id=project_id)
+        artifact["text_context"] = _artifact_text_context(artifact)
 
     # Attach each cited span's run membership (run_index) and each
     # artifact's run-level clip affordances -- ONE clip per contiguous run
@@ -861,6 +862,9 @@ def resolve_evidence_viewer(
 
     metadata = _json_loads(link["metadata"], {})
     producer = _json_loads(link["producer_json"], {})
+    if isinstance(producer.get("source"), str):
+        for artifact in artifacts.values():
+            artifact["title"] = producer["source"]
     warnings = _dedupe_strings(
         [
             *(_list_value(metadata.get("warnings"))),
@@ -1015,17 +1019,77 @@ def _text_layer_hash_mismatch(
     hash_bearing = [row for row in joined_spans if row["text_layer_hash"]]
     if not hash_bearing:
         return False
-    sheet_id = link["sheet_id"]
-    row_id = link["row_id"]
-    column_id = link["column_id"]
-    if sheet_id is None or row_id is None or column_id is None:
-        return False
-    values = project.get_values(int(sheet_id), int(column_id), row_ids=[int(row_id)])
-    current = values.get(int(row_id))
-    if not isinstance(current, str):
-        return False
-    current_hash = _text_hash(current)
-    return any(row["text_layer_hash"] != current_hash for row in hash_bearing)
+    for row in hash_bearing:
+        sheet_id, row_id, column_id = (
+            link["sheet_id"],
+            link["row_id"],
+            link["column_id"],
+        )
+        if row["text_surface_id"] is not None:
+            surface = project.db.execute(
+                "SELECT surface_kind,text_sheet_id,text_row_id,text_column_id "
+                "FROM text_surfaces WHERE id=?",
+                (int(row["text_surface_id"]),),
+            ).fetchone()
+            if surface is None or surface["surface_kind"] != "cell":
+                continue
+            sheet_id, row_id, column_id = (
+                surface["text_sheet_id"],
+                surface["text_row_id"],
+                surface["text_column_id"],
+            )
+        if sheet_id is None or row_id is None or column_id is None:
+            continue
+        values = project.get_values(
+            int(sheet_id), int(column_id), row_ids=[int(row_id)]
+        )
+        current = values.get(int(row_id))
+        if isinstance(current, str) and row["text_layer_hash"] != _text_hash(current):
+            return True
+    return False
+
+
+def _utf16_offset(text: str, codepoint_offset: int) -> int:
+    return len(text[:codepoint_offset].encode("utf-16-le")) // 2
+
+
+def _artifact_text_context(artifact: dict[str, Any]) -> dict[str, Any] | None:
+    """Project a cited artifact's frozen text and verified cited ranges."""
+
+    metadata = artifact.get("metadata")
+    text = metadata.get("captured_text") if isinstance(metadata, dict) else None
+    if not isinstance(text, str):
+        return None
+    expected_hash = _text_hash(text)
+    ranges = []
+    for span in artifact["spans"]:
+        selector = span.get("selector") or {}
+        start, end = selector.get("char_start"), selector.get("char_end")
+        if (
+            not isinstance(start, int)
+            or isinstance(start, bool)
+            or not isinstance(end, int)
+            or isinstance(end, bool)
+            or start < 0
+            or end <= start
+            or end > len(text)
+            or span.get("text_layer_hash") != expected_hash
+        ):
+            continue
+        ranges.append(
+            {
+                "span_id": span["stable_id"],
+                "start": _utf16_offset(text, start),
+                "end": _utf16_offset(text, end),
+            }
+        )
+    if not ranges:
+        return None
+    return {
+        "text": text,
+        "offset_unit": "utf16_code_unit",
+        "ranges": ranges,
+    }
 
 
 def _stable_id(prefix: str) -> str:
@@ -1282,6 +1346,7 @@ def _artifact_payload_from_join(
         "external_ref": external_ref,
         "artifact_ref": artifact_ref,
         "metadata": metadata,
+        "text_context": None,
         "spans": [],
         "pages": [],
         # Populated by resolve_evidence_viewer after the join loop (needs

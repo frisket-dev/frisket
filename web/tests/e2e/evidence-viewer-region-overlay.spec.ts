@@ -223,6 +223,7 @@ async function openTextEvidence(page: Page, columns: WireColumn[], rowIndex: num
   await rowDrawer.getByTestId('cell-evidence-open-Text').click();
   const viewer = page.getByTestId('evidence-viewer');
   await expect(viewer).toBeVisible();
+  await viewer.getByTestId('evidence-details-toggle').click();
   return viewer;
 }
 
@@ -267,14 +268,22 @@ test('grounded OCR PDF row: page images render (not the text fallback), the regi
   expect(style.height).toBe(`${(REGION_BBOX.y1 - REGION_BBOX.y0) * 100}%`);
   await expect(page1.getByTestId('evidence-region-highlight')).toHaveCount(0);
 
-  // Page 2 starts out of view (stacked below page 1 in the scroll pane).
-  await expect(page2).not.toBeInViewport();
+  // The fixture images are intentionally tiny, so both pages can fit at some
+  // browser viewport sizes. Mark the target's native scroll call instead of
+  // assuming its initial viewport position.
+  await page.evaluate(() => {
+    const nativeScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = function scrollIntoViewForEvidenceTest(options) {
+      this.setAttribute('data-evidence-scroll-target', 'true');
+      nativeScrollIntoView.call(this, options);
+    };
+  });
 
-  // Clicking the region's span card (right pane) navigates the left pane to
-  // that span's page.
+  // Clicking the region's span card (right pane) targets its matching page.
   const regionSpanCard = viewer.getByTestId('evidence-span-region');
   await expect(regionSpanCard).toHaveCount(1);
   await regionSpanCard.click();
+  await expect(page2).toHaveAttribute('data-evidence-scroll-target', 'true');
   await expect(page2).toBeInViewport();
 });
 

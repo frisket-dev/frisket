@@ -25,6 +25,7 @@ class EvidenceClaim(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     item_index: int | None = Field(default=None, ge=0)
+    source: str | None = None
     segment_indices: tuple[int, ...] = ()
     page: int | None = None
     page_start: int | None = None
