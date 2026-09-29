@@ -273,6 +273,7 @@ CASES = [
                     "invalid_action_request",
                     "review_value_required",
                     "review_target_not_found",
+                    "review_complete",
                     "output_column_busy",
                     "idempotency_conflict",
                     "project_write_failed",
@@ -328,6 +329,27 @@ CASES = [
         request_style="typed",
     )
 ]
+
+
+def test_completed_review_requires_reopening_before_another_decision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from frisket.engine.runner.review import set_review_run_status
+
+    with case_env(CASES[0], tmp_path, monkeypatch) as env:
+        project, seeded = env.project, env.seeded
+        row_id = seeded["row_ids"][0]
+        set_review_run_status(project, run_id=seeded["run_id"], status="complete")
+        refused = env.run(_make_action(seeded))
+        assert refused.status == "failed", refused.errors
+        assert any(error.code == "review_complete" for error in refused.errors)
+        assert _review_state(project, seeded, row_id) == "unreviewed"
+        set_review_run_status(project, run_id=seeded["run_id"], status="open")
+        action = _make_action(seeded)
+        action["idempotency_key"] = "review_reopened@sha256:v1"
+        accepted = env.run(action)
+        assert accepted.status == "completed", accepted.errors
+        assert _review_metadata(project, seeded, row_id) == ("accept", None)
 
 
 def test_review_edit_undo_and_two_reject_decisions_walk_exact_metadata(

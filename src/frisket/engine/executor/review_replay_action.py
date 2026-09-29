@@ -49,9 +49,10 @@ def _visible_current_review_target(
         """
         SELECT res.run_id, res.row_id, res.column_id, res.value,
                res.confidence, res.justification, res.error, res.review_state,
-               res.review_decision, res.review_note,
+               res.review_decision, res.review_note, runs.review_completed_at,
                c.sheet_id, c.name AS column_name
         FROM results res
+        JOIN runs ON runs.id=res.run_id
         JOIN columns c ON c.id=res.column_id
         LEFT JOIN cell_result_heads active_head
           ON active_head.column_id=res.column_id
@@ -74,6 +75,13 @@ def _visible_current_review_target(
             action_kind=action_kind,
             field="params",
             details={"run_id": run_id, "row_id": row_id, "column_id": column_id},
+        )
+    if row["review_completed_at"] is not None:
+        _refuse(
+            "review_complete",
+            "This review is complete. Reopen it to make more decisions.",
+            action_kind=action_kind,
+            field="params.run_id",
         )
     return dict(row)
 
