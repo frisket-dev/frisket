@@ -57,10 +57,19 @@ export function ReviewSourcePreview({
   useEffect(() => {
     const activeFieldId = activeField?.id;
     if (!activeSource || !activeFieldId) return;
+    const viewer = viewerRef.current;
+    if (!viewer) return;
     const page = selectedPage(activeSource, activeFieldId);
-    if (page === null) return;
-    viewerRef.current?.querySelector<HTMLElement>(`#evidence-page-${CSS.escape(activeSource.id)}-${page}`)
-      ?.scrollIntoView({ block: 'start' });
+    if (page !== null) {
+      viewer.querySelector<HTMLElement>(`#evidence-page-${CSS.escape(activeSource.id)}-${page}`)
+        ?.scrollIntoView({ block: 'start' });
+    }
+    viewer.querySelector<HTMLElement>('[data-emphasized="true"]')
+      ?.scrollIntoView({ block: 'center' });
+    // The canonical temporal segment button owns media readiness, seeking and
+    // the autoplay-rejection guard. Reuse that behavior when a shared source
+    // remains selected while the reviewer moves to a different field.
+    viewer.querySelector<HTMLButtonElement>('.evidence-temporal-segment-emphasized')?.click();
   }, [activeField?.id, activeSource]);
 
   return (
