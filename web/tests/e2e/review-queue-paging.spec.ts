@@ -1,6 +1,5 @@
 import { expect, test } from '@playwright/test';
 import { createProject, importCsv, openProject, uniqueName } from './helpers';
-import { openReviewRoute } from './reviewFixtures';
 
 type WireReviewBundle = {
   id: string;
@@ -156,10 +155,10 @@ test('review overlay pages bundles and refreshes global count after decisions', 
   });
   const reviewButton = page.getByTestId('review-queue-button');
   await expect(reviewButton.locator('.badge')).toHaveText(String(total));
-  await expect(reviewButton).toBeDisabled();
+  await expect(reviewButton).toBeEnabled();
   expect(bundleRequests).toEqual([]);
 
-  await openReviewRoute(page, pid, sheetId);
+  await page.getByTestId('review-queue-button').click();
   const queue = page.getByTestId('review-queue');
   await expect(queue).toBeVisible();
   await expect.poll(() => bundleRequests).toContain('offset=0&limit=25');
@@ -205,14 +204,13 @@ test('review overlay pages bundles and refreshes global count after decisions', 
   await expect(queue.getByTestId('review-page-status')).toContainText('Showing 1-25 of 50 bundles');
   expect(sheetFanoutRequests).toEqual([]);
   expect(decisions[0]).toMatchObject({
-    schema_version: 'frisket.action.v2',
-    kind: 'review.decision',
-    capabilities: ['project:write'],
+    action_id: 'review.decision',
+    scope: { kind: 'project' },
     params: {
       decision: 'accept',
-      target: {
-        kind: 'result_cell',
-      },
+      run_id: 901,
+      row_id: 51,
+      column_id: 2,
     },
   });
 });

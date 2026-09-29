@@ -5,7 +5,7 @@
 
 import { expect, test } from '@playwright/test';
 import { createProject, importCsv, uniqueName } from './helpers';
-import { openReviewRoute, seedReviewClassifyRun } from './reviewFixtures';
+import { seedReviewClassifyRun } from './reviewFixtures';
 
 const CSV = `snippet
 "The zoning board approved a variance for the mayor's cousin without discussion."
@@ -39,14 +39,14 @@ test('review queue: a/r resolve items and the count decrements', async ({ page }
   await page.goto(`/p/${pid}`);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 20_000 });
 
-  // The status-bar badge remains visible, but its unfinished entry point is disabled.
+  // Open the existing queue through its status-bar entry point.
   const reviewButton = page.getByTestId('review-queue-button');
   await expect(reviewButton.locator('.badge')).toBeVisible();
-  await expect(reviewButton).toBeDisabled();
+  await expect(reviewButton).toBeEnabled();
   const initial = Number(await reviewButton.locator('.badge').innerText());
   expect(initial).toBeGreaterThanOrEqual(2);
 
-  await openReviewRoute(page, pid, sheetId);
+  await page.getByTestId('review-queue-button').click();
   const queue = page.getByTestId('review-queue');
   await expect(queue).toBeVisible();
   const contribution = page.getByTestId('workbench-contribution-frisket-core-view-review-queue');
