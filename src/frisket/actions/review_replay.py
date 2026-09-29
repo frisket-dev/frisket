@@ -85,6 +85,7 @@ def decide_review(
         value=params.value,
         value_supplied="value" in params.model_fields_set,
         note=params.note,
+        note_supplied="note" in params.model_fields_set,
     )
 
 

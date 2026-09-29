@@ -533,6 +533,65 @@ def test_clear_reject_clear_keeps_the_null_overlay(
         assert _live_risk(project, seeded, row_id) is None
 
 
+def test_decision_omitted_note_preserves_row_note_and_explicit_null_clears_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with case_env(CASES[0], tmp_path, monkeypatch) as env:
+        project, seeded = env.project, env.seeded
+        row_id = seeded["row_ids"][0]
+        noted = env.run(_review_note_action(seeded))
+        assert noted.status == "completed", noted.errors
+
+        accepted = env.run(
+            _review_action(
+                run_id=seeded["run_id"],
+                row_id=row_id,
+                column_id=seeded["risk_column_id"],
+                decision="accept",
+                key="review_note_preserved@sha256:v1",
+            )
+        )
+        assert accepted.status == "completed", accepted.errors
+        assert _review_metadata(project, seeded, row_id) == (
+            "accept",
+            "Checked against the source row.",
+        )
+
+        explicit_null = _review_action(
+            run_id=seeded["run_id"],
+            row_id=row_id,
+            column_id=seeded["risk_column_id"],
+            decision="reject",
+            key="review_note_explicit_null@sha256:v1",
+        )
+        explicit_null["params"]["note"] = None
+        rejected = env.run(explicit_null)
+        assert rejected.status == "completed", rejected.errors
+        assert _review_metadata(project, seeded, row_id) == ("reject", None)
+
+        renoted = env.run(
+            {
+                **_review_note_action(seeded),
+                "idempotency_key": "review_note_before_clear@sha256:v1",
+            }
+        )
+        assert renoted.status == "completed", renoted.errors
+        cleared = env.run(
+            _review_action(
+                run_id=seeded["run_id"],
+                row_id=row_id,
+                column_id=seeded["risk_column_id"],
+                decision="clear",
+                key="review_note_clear_preserved@sha256:v1",
+            )
+        )
+        assert cleared.status == "completed", cleared.errors
+        assert _review_metadata(project, seeded, row_id) == (
+            None,
+            "Checked against the source row.",
+        )
+
+
 def test_row_note_persists_after_all_fields_are_reviewed_and_refuses_completed_run(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

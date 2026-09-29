@@ -240,6 +240,7 @@ class _ReviewDecider(_CallOnce):
         value: Any,
         value_supplied: bool,
         note: str | None,
+        note_supplied: bool,
     ) -> ReviewDecision:
         self._begin()
         if decision == "edit" and not value_supplied:
@@ -266,7 +267,9 @@ class _ReviewDecider(_CallOnce):
             else "verified"
         )
         decision_after = None if decision == "clear" else decision
-        note_after = target["review_note"] if decision == "clear" else note
+        note_after = (
+            target["review_note"] if decision == "clear" or not note_supplied else note
+        )
         current_ref: dict[str, Any] | None = None
         if decision in {"edit", "reject_clear"}:
             _values, refs = self._project.get_values_with_refs(

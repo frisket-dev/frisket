@@ -1249,6 +1249,7 @@ class ReviewDecider(Protocol):
         value: Any,
         value_supplied: bool,
         note: str | None,
+        note_supplied: bool,
     ) -> ReviewDecision: ...
 
 
