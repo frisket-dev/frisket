@@ -439,6 +439,19 @@ export function normalizeGridSortSpec(value: unknown): GridSortSpec | null {
   return out.length > 0 ? out : null;
 }
 
+type FilterValueFormatter = (value: unknown) => string;
+
+const fullFilterValue: FilterValueFormatter = (value) => String(value);
+const GRID_FILTER_SUMMARY_VALUE_LIMIT = 80;
+
+function summaryFilterValue(value: unknown): string {
+  const text = String(value);
+  const characters = Array.from(text);
+  return characters.length <= GRID_FILTER_SUMMARY_VALUE_LIMIT
+    ? text
+    : `${characters.slice(0, GRID_FILTER_SUMMARY_VALUE_LIMIT - 1).join('')}…`;
+}
+
 /** Chip text for an `entity_eq` filter. It must say WHICH of the three
  *  filters is applied, because the row sets differ sharply: "grouped forms"
  *  is every spelling sharing one fingerprint, "exact spelling" is one literal
@@ -451,6 +464,7 @@ function entityFilterLabel(
   column: string,
   value: GridFilterValue | undefined,
   valueLabel: string | null | undefined,
+  formatValue: FilterValueFormatter,
 ): string {
   const entity = entityFilterValue(value);
   // Loud, not silent: a filter the client cannot describe is one the server
@@ -462,7 +476,7 @@ function entityFilterLabel(
   // one group ("entities People mentions" reads worse than the raw type).
   const typeName = entityTypeName(entity.type);
   if (entity.text !== undefined) {
-    return `${column} · “${entity.text}” (${typeName}, exact spelling)`;
+    return `${column} · “${formatValue(entity.text)}” (${typeName}, exact spelling)`;
   }
   if (entity.fingerprint !== undefined) {
     // The fingerprint carries no spelling, and printing the token itself would
@@ -473,7 +487,7 @@ function entityFilterLabel(
     // restored, or a filter applied from anywhere else — the chip names the
     // TYPE rather than inventing a spelling.
     return valueLabel
-      ? `${column} · “${valueLabel}” (${typeName}, grouped forms)`
+      ? `${column} · “${formatValue(valueLabel)}” (${typeName}, grouped forms)`
       : `${column} · ${typeName} mentions (grouped forms)`;
   }
   return `${column} · all ${typeName} mentions`;
@@ -487,32 +501,33 @@ function gridFilterConditionLabel(
   column: string,
   operators: Partial<Record<GridFilterOperator, GridFilterValue>>,
   valueLabel?: string | null,
+  formatValue: FilterValueFormatter = fullFilterValue,
 ): string {
   if (operators.group_eq && Object.keys(operators).length > 1) {
     const { group_eq, ...rest } = operators;
-    return `${gridFilterConditionLabel(column, rest)} · ${gridFilterConditionLabel(column, { group_eq })}`;
+    return `${gridFilterConditionLabel(column, rest, undefined, formatValue)} · ${gridFilterConditionLabel(column, { group_eq }, undefined, formatValue)}`;
   }
   const [operator, value] = Object.entries(operators ?? {})[0] ?? ['eq', ''];
   if (operator === 'between' && isGridFilterRangeValue(value)) {
-    return `${column} between ${value.start} and ${value.end}`;
+    return `${column} between ${formatValue(value.start)} and ${formatValue(value.end)}`;
   }
   if (operator === 'date_relative' && isGridFilterRelativeDateValue(value)) {
     return `${column} in the last ${value.amount} ${value.unit}`;
   }
   if (operator === 'date_this_year') return `${column} this year`;
   if (operator === 'date_ytd') return `${column} year to date`;
-  if (operator === 'date_year') return `${column} in ${value}`;
+  if (operator === 'date_year') return `${column} in ${formatValue(value)}`;
   if (operator === 'date_month') {
     const month = Number(value);
     const label = Number.isInteger(month) && month >= 1 && month <= 12
       ? new Intl.DateTimeFormat(undefined, { month: 'long', timeZone: 'UTC' })
           .format(new Date(Date.UTC(2020, month - 1, 1)))
-      : String(value);
+      : formatValue(value);
     return `${column} in ${label}`;
   }
   if (operator === 'date_weekday') {
     const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    return `${column} on ${weekdays[Number(value)] ?? String(value)}`;
+    return `${column} on ${weekdays[Number(value)] ?? formatValue(value)}`;
   }
   if (operator === 'date_invalid') return `${column} is not a valid date`;
   if (operator === 'bbox') {
@@ -527,32 +542,41 @@ function gridFilterConditionLabel(
     const group = groupFilterValue(value);
     if (!group) return `${column} invalid group filter`;
     if (group.kind === 'missing' || group.kind === 'invalid') return `${column} is ${group.kind}`;
-    if (group.kind === 'date_bucket') return `${column} in ${group.value}`;
-    if (group.kind === 'value') return `${column} is ${group.value_json.slice(0, 120)}`;
+    if (group.kind === 'date_bucket') return `${column} in ${formatValue(group.value)}`;
+    if (group.kind === 'value') return `${column} is ${formatValue(group.value_json.slice(0, 120))}`;
   }
   if (operator === 'entity_eq') {
-    return entityFilterLabel(column, value, valueLabel);
+    return entityFilterLabel(column, value, valueLabel, formatValue);
   }
   if (operator === 'list_contains_any') {
     const selectors = listContainsAnyFilterValue(value);
     if (!selectors) return `${column} invalid list filter`;
     const labels = selectors.map((selector) => selector.kind === 'scalar'
-      ? String(selector.value)
-      : `${selector.text} (${entityTypeName(selector.type)})`);
+      ? formatValue(selector.value)
+      : `${formatValue(selector.text)} (${entityTypeName(selector.type)})`);
     if (labels.length <= 3) return `${column} contains ${labels.join(' or ')}`;
     return `${column} contains ${labels.slice(0, 2).join(', ')} or ${labels.length - 2} more`;
   }
   if (operator === 'in' && Array.isArray(value)) {
     if (value.length === 0) return `${column} invalid multi-value filter`;
-    if (value.length <= 3) return `${column} is ${value.join(' or ')}`;
-    return `${column} is ${value.slice(0, 2).join(', ')} or ${value.length - 2} more`;
+    if (value.length <= 3) return `${column} is ${value.map(formatValue).join(' or ')}`;
+    return `${column} is ${value.slice(0, 2).map(formatValue).join(', ')} or ${value.length - 2} more`;
   }
-  return `${column} ${operator} ${value}`;
+  return `${column} ${operator} ${formatValue(value)}`;
 }
 
 export function gridFilterLabel(filter: GridFilterSpec, valueLabel?: string | null): string {
   const labels = Object.entries(filter).map(([column, operators]) =>
     gridFilterConditionLabel(column, operators, valueLabel));
+  return labels.length > 0 ? labels.join(' · ') : 'active';
+}
+
+/** Compact display text for the active-grid bar. Unlike `gridFilterLabel`, this
+ * caps each user-provided value; the filter itself and every other summary keep
+ * the original value. */
+export function gridFilterSummaryLabel(filter: GridFilterSpec, valueLabel?: string | null): string {
+  const labels = Object.entries(filter).map(([column, operators]) =>
+    gridFilterConditionLabel(column, operators, valueLabel, summaryFilterValue));
   return labels.length > 0 ? labels.join(' · ') : 'active';
 }
 

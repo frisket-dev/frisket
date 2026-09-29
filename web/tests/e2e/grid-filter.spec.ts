@@ -14,6 +14,35 @@ import {
 
 const filterSpec = { status: { eq: 'open' } };
 
+test('long filter values stay intact in queries but have a bounded summary', async ({ page }) => {
+  const value = 'DocumentText'.repeat(100);
+  const pid = await createProject(page.request, uniqueName('e2e-long-filter'));
+  const sheetId = await importCsv(page.request, pid, 'rows.csv', `body\n"${value}"\nOther\n`);
+  await openProject(page, pid, sheetId);
+  await openFriendlyFilterSidebar(page, await sheetColumns(page.request, pid, sheetId), 'body');
+  const response = page.waitForResponse((res) => {
+    const url = new URL(res.url());
+    if (url.pathname !== `/api/projects/${pid}/sheets/${sheetId}/data`) return false;
+    const filter = url.searchParams.get('filter');
+    return filter !== null && JSON.parse(filter).body?.eq === value;
+  });
+  await page.getByTestId('facet-values-body').getByRole('checkbox').first().check();
+  expect((await (await response).json()).total).toBe(1);
+  const summary = page.getByTestId('active-grid-filter');
+  await expect(summary).toContainText(`${value.slice(0, 79)}…`);
+  await summary.evaluate((element) => { element.style.maxWidth = '150px'; });
+  const dimensions = await summary.locator('.active-grid-filter-label').evaluate((element) => ({
+    height: element.getBoundingClientRect().height,
+    lineHeight: Number.parseFloat(getComputedStyle(element).lineHeight),
+    totalHeight: element.scrollHeight,
+  }));
+  expect(dimensions.totalHeight).toBeGreaterThan(dimensions.height);
+  expect(dimensions.height).toBeLessThanOrEqual(dimensions.lineHeight * 3 + 1);
+  await expect(page.getByTestId('clear-grid-filter')).toBeVisible();
+  await page.getByTestId('clear-grid-filter').click();
+  await expect(summary).toHaveCount(0);
+});
+
 test('grid filter: filter rows by column value through the sheet data endpoint', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-grid-filter'));
   const sheetId = await importCsv(
