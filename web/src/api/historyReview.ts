@@ -119,6 +119,7 @@ export interface HistoryReviewDomainApi {
   undo(): Promise<HistoryState>;
   redo(): Promise<HistoryState>;
   stepTo(opIndex: number): Promise<HistoryState>;
+  setReviewNote(runId: string, rowId: string, note: string | null): Promise<void>;
   reviewItem(
     itemId: string,
     action: ReviewAction,
@@ -514,6 +515,7 @@ function mapReviewBundles(wire: ReviewBundlesWire): ReviewBundlePage {
         .map(([key, value]) => `${key}: ${String(value)}`)
         .join('  ·  ')
         .slice(0, 400),
+      reviewNote: bundle.review_note ?? null,
       fields: bundle.fields.map(mapReviewBundleField),
       evidence: bundle.evidence.map(mapReviewBundleField),
     };
@@ -737,6 +739,15 @@ export function createHistoryReviewDomainApi(
         await historyForInvocation(invocation),
         invocation,
       );
+    },
+
+    async setReviewNote(runId, rowId, note) {
+      const ids = [Number(runId), Number(rowId)];
+      if (!ids.every((id) => Number.isInteger(id) && id > 0)) throw new ApiError(400, 'Invalid review row reference');
+      const spec = v1ActionSession.registeredProjectActionSpec('review.note', { run_id: ids[0], row_id: ids[1], note });
+      await v1ActionSession.withV1ActionResult(spec, (out) => {
+        v1ActionSession.assertCompletedV1ActionResult(out, 'Review note could not be saved');
+      });
     },
 
     async reviewItem(itemId, action, editedValue, note) {

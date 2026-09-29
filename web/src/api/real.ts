@@ -1889,6 +1889,10 @@ class RealApi implements FrisketApi {
     return this.historyReview.setReviewRunStatus(runId, status);
   }
 
+  async setReviewNote(runId: string, rowId: string, note: string | null): Promise<void> {
+    return this.historyReview.setReviewNote(runId, rowId, note);
+  }
+
   async reviewItem(
     itemId: string,
     action: ReviewAction,

@@ -7802,6 +7802,7 @@ type HttpReviewBundlesPage_ReviewBundle = ({
   "id": (string);
   "items": (Array<(HttpReviewBundlesPage_ReviewBundleItem)>);
   "model": (((string)) | ((null)));
+  "review_note"?: (((string)) | ((null)));
   "row_id": (number);
   "run_id": (number);
   "sheet_id": (number);

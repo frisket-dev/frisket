@@ -67,14 +67,15 @@ test('review queue: a/r resolve items and the count decrements', async ({ page }
     'evidence.open',
     'grid.refresh',
   ]));
-  await expect(queue).toContainText(`${initial} pending`);
+  await expect(queue.getByTestId('review-page-status')).toHaveText(`1 / ${initial}`);
   await expect(page.getByTestId('review-card')).toBeVisible();
 
   // a = accept, r = reject; each resolves the current item.
   await page.keyboard.press('a');
-  await expect(queue).toContainText(`${initial - 1} pending`);
+  await expect(queue.getByTestId('review-field-beat')).toHaveAttribute('data-review-state', 'verified');
+  await queue.getByRole('button', { name: 'Next row', exact: true }).first().click();
   await page.keyboard.press('r');
-  await expect(queue).toContainText(`${initial - 2} pending`);
+  await expect(queue.getByTestId('review-field-beat')).toHaveAttribute('data-review-state', 'rejected');
 
   // Esc closes the overlay route; the badge reflects
   // the new count.

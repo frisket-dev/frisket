@@ -147,6 +147,7 @@ export interface ProjectApiPort extends
   resolveActionParams: FrisketApi['resolveActionParams'];
   exportGoogleSheets: FrisketApi['exportGoogleSheets'];
   getReviewBundles: FrisketApi['getReviewBundles'];
+  setReviewNote: FrisketApi['setReviewNote'];
   reviewItem: FrisketApi['reviewItem'];
   listNotifications: FrisketApi['listNotifications'];
   getNotificationsSummary: FrisketApi['getNotificationsSummary'];

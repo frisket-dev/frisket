@@ -3,6 +3,7 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { createProject, importCsv, openProject, uniqueName } from './helpers';
 import { seedReviewClassifyRun } from './reviewFixtures';
+import { extractRecordedContent } from './textCitationFixtures';
 
 test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
 
@@ -60,11 +61,37 @@ test('review workspace saves independent decisions, resets verdicts, and keeps a
   await expect(reopenedNote).toHaveValue(noteText);
 
   if (process.env.FRISKET_REVIEW_SCREENSHOTS) {
-    const screenshots = path.resolve(process.cwd(), 'screenshots');
+    const screenshots = path.resolve(process.env.FRISKET_REVIEW_SCREENSHOTS!);
     mkdirSync(screenshots, { recursive: true });
     await page.screenshot({
       path: path.join(screenshots, 'review-workspace@2x.png'),
       animations: 'disabled',
     });
   }
+});
+
+
+test('review uses cited-source tabs and the canonical text highlighter without nested scrolling', async ({ page }) => {
+  const pid = await createProject(page.request, uniqueName('review-cited-source'));
+  const seeded = extractRecordedContent(pid);
+  await openProject(page, pid, seeded.sheetId);
+  await page.getByTestId('review-queue-button').click();
+  const queue = page.getByTestId('review-queue');
+  await expect(queue.getByRole('tab')).toHaveCount(2);
+  await queue.getByRole('tab', { name: /filing_text/ }).click();
+  const source = queue.getByTestId('evidence-text-body');
+  await expect(source).toContainText('EMPLOYMENT DISCRIMINATION COMPLAINT');
+  await expect(queue.getByTestId('evidence-text-highlight').first()).toBeVisible();
+  expect(await source.evaluate((element) => getComputedStyle(element).maxHeight)).toBe('none');
+  expect(await source.evaluate((element) => getComputedStyle(element).overflowY)).toBe('visible');
+  const card = await queue.getByTestId('review-card').boundingBox();
+  expect(card!.height).toBeGreaterThan(800);
+  if (process.env.FRISKET_REVIEW_SCREENSHOTS) {
+    mkdirSync(process.env.FRISKET_REVIEW_SCREENSHOTS, { recursive: true });
+    await page.screenshot({ path: path.join(process.env.FRISKET_REVIEW_SCREENSHOTS, 'review-cited-sources@2x.png') });
+  }
+  await page.setViewportSize({ width: 620, height: 850 });
+  await expect(queue.getByTestId('review-note-input')).toBeVisible();
+  expect(await queue.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  if (process.env.FRISKET_REVIEW_SCREENSHOTS) await page.screenshot({ path: path.join(process.env.FRISKET_REVIEW_SCREENSHOTS, 'review-narrow@2x.png') });
 });

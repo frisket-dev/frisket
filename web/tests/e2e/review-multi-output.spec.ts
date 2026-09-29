@@ -77,25 +77,27 @@ test('review queue groups sibling outputs and resolves fields independently', as
 
   await page.getByTestId('review-queue-button').click();
   const queue = page.getByTestId('review-queue');
-  await expect(queue).toContainText('2 pending');
-  await expect(queue).toContainText('1 bundles');
+  await expect(queue).toContainText('0 of 2 decided');
+  await expect(queue.getByTestId('review-page-status')).toHaveText('1 / 1');
 
   const beat = page.getByTestId('review-field-beat');
   const tone = page.getByTestId('review-field-tone');
   await expect(beat).toBeVisible();
   await expect(tone).toBeVisible();
-  await expect(page.getByTestId('review-bundle-context')).toContainText('Mayor met a lobbyist');
+  await queue.getByRole('button', { name: /^Row fields/ }).click();
+  await expect(queue.getByTestId('review-row-fields-drawer')).toContainText('Mayor met a lobbyist');
+  await queue.getByRole('button', { name: 'Close row fields' }).click();
 
-  await beat.click();
+  await queue.getByRole('button', { name: 'Select beat review field' }).click();
   await page.getByTestId('review-edit').click();
   await page.getByTestId('review-edit-input').fill('accountability');
-  await page.getByTestId('review-edit-input').press('Enter');
+  await queue.getByRole('button', { name: 'Save edit' }).click();
 
   await expect(beat).toHaveAttribute('data-review-state', 'verified');
   await expect(beat).toHaveAttribute('data-review-changed', 'true');
-  await expect(beat).toContainText('edited');
+  await expect(beat).toContainText('Corrected');
   await expect(tone).toHaveAttribute('data-review-state', 'unreviewed');
-  await expect(queue).toContainText('1 pending');
+  await expect(queue).toContainText('1 of 2 decided');
 
   expect(legacyReviewItemCalled).toBe(false);
   expect(reviewDecisions).toHaveLength(1);
@@ -109,7 +111,7 @@ test('review queue groups sibling outputs and resolves fields independently', as
   });
   expect(String(reviewDecisions[0].idempotency_key)).toContain('web-review.decision:');
 
-  await tone.click();
+  await queue.getByRole('button', { name: 'Select tone review field' }).click();
   const note = page.getByTestId('review-note-input');
   await note.fill('The source says low urgency.');
   // Queue shortcuts must not resolve a field while the reviewer is writing.
@@ -118,8 +120,10 @@ test('review queue groups sibling outputs and resolves fields independently', as
   // It remains ordinary note text while typing; restore the intended note
   // before asserting the persisted payload.
   await note.press('Backspace');
-  await page.getByTestId('review-reject').click();
-  await expect(page.getByTestId('review-empty')).toBeVisible();
+  await note.blur();
+  await expect(note).toBeEnabled();
+  await queue.getByRole('button', { name: 'Reject tone', exact: true }).click();
+  await expect(page.getByText('Row done', { exact: true })).toBeVisible();
 
   expect(legacyReviewItemCalled).toBe(false);
   expect(reviewDecisions).toHaveLength(2);
@@ -128,10 +132,11 @@ test('review queue groups sibling outputs and resolves fields independently', as
     scope: { kind: 'project' },
     params: {
       decision: 'reject',
-      note: 'The source says low urgency.',
     },
   });
 
+  const noted = await (await page.request.get(`/api/projects/${pid}/review/bundles?include_reviewed=true`)).json();
+  expect(noted.bundles[0].review_note).toBe('The source says low urgency.');
   const finalBundlesPage = await (await page.request.get(`/api/projects/${pid}/review/bundles`)).json();
   const finalBundles = finalBundlesPage.bundles;
   expect(finalBundles).toHaveLength(0);
@@ -169,15 +174,14 @@ test('Shift+R rejects and clears a focused result', async ({ page }) => {
   await expect(page.getByTestId('review-queue-button')).toBeEnabled();
   await page.getByTestId('review-queue-button').click();
   const clear = page.getByTestId('review-reject-clear');
-  await expect(clear).toHaveAccessibleName('Reject and clear selected result');
-  await expect(clear).toHaveAttribute('title', 'Reject and clear (Shift+R)');
+  await expect(clear).toHaveAccessibleName('Reject and clear');
   await page.keyboard.press('Shift+R');
-  await expect(page.getByTestId('review-empty')).toBeVisible();
+  await expect(page.getByText('Row done', { exact: true })).toBeVisible();
 
   expect(decisions).toHaveLength(1);
   expect(decisions[0]).toMatchObject({
     action_id: 'review.decision',
-    params: { decision: 'reject_clear', note: null },
+    params: { decision: 'reject_clear' },
   });
   const columns = await sheetColumns(page.request, pid, sheetId);
   const data = await sheetData(page.request, pid, sheetId);
