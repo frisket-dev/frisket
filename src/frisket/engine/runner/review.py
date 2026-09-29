@@ -244,6 +244,14 @@ def review_bundles(
                 "model": key["model"],
                 "confidence": key["confidence"],
                 "source": _source_context(project, key["sheet_id"], key["row_id"]),
+                "review_note": next(
+                    (
+                        field["review_note"]
+                        for field in fields
+                        if field["review_note"] not in (None, "")
+                    ),
+                    None,
+                ),
                 "fields": fields,
                 "evidence": evidence,
                 "items": items,

@@ -158,6 +158,10 @@ def test_action_run_discriminates_review_decision_role_from_body(
         assert access.pop_required_role() == "reviewer"
         assert review.status_code != 403, review.text
 
+        note = client.post(path, json={"action_id": "review.note"})
+        assert access.pop_required_role() == "reviewer"
+        assert note.status_code != 403, note.text
+
         ordinary = client.post(path, json={"action_id": "map.template"})
         assert access.pop_required_role() == "editor"
         assert ordinary.status_code == 403, ordinary.text

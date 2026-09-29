@@ -14,6 +14,8 @@ from frisket.actions.types import (
     ReplayValueDismissor,
     ReviewDecider,
     ReviewDecision,
+    ReviewNote,
+    ReviewNoter,
 )
 from frisket.contracts.action import (
     ActionResult,
@@ -40,6 +42,7 @@ from frisket.engine.store.cells import (
 )
 from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
 from frisket.engine.store.evidence import mark_evidence_stale_for_cell_refs
+from frisket.review_predicate import is_support_column
 
 
 def _visible_current_review_target(
@@ -84,6 +87,61 @@ def _visible_current_review_target(
             field="params.run_id",
         )
     return dict(row)
+
+
+def _visible_current_review_row_targets(
+    project: Any, *, run_id: int, row_id: int, action_kind: str
+) -> list[dict[str, Any]]:
+    run = project.db.execute(
+        "SELECT review_completed_at FROM runs WHERE id=?", (run_id,)
+    ).fetchone()
+    if run is None:
+        _refuse(
+            "review_target_not_found",
+            "review.note target run was not found",
+            action_kind=action_kind,
+            field="params.run_id",
+            details={"run_id": run_id, "row_id": row_id},
+        )
+    if run["review_completed_at"] is not None:
+        _refuse(
+            "review_complete",
+            "This review is complete. Reopen it to change its note.",
+            action_kind=action_kind,
+            field="params.run_id",
+        )
+    rows = project.db.execute(
+        """
+        SELECT res.run_id, res.row_id, res.column_id, res.review_state,
+               res.review_decision, res.review_note, c.sheet_id,
+               c.name AS column_name
+        FROM results res
+        JOIN columns c ON c.id=res.column_id
+        LEFT JOIN cell_result_heads active_head
+          ON active_head.column_id=res.column_id
+          AND active_head.row_id=res.row_id AND active_head.run_id=res.run_id
+        JOIN rows ON rows.id=res.row_id AND rows.sheet_id=c.sheet_id
+        WHERE res.run_id=? AND res.row_id=? AND rows.hidden=0
+          AND (active_head.run_id IS NOT NULL OR (
+            c.current_run_id=res.run_id AND NOT EXISTS (
+              SELECT 1 FROM run_output_generations generation
+              WHERE generation.column_id=c.id
+            )
+          ))
+        ORDER BY c.position, c.id
+        """,
+        (run_id, row_id),
+    ).fetchall()
+    targets = [dict(row) for row in rows if not is_support_column(row["column_name"])]
+    if not targets:
+        _refuse(
+            "review_target_not_found",
+            "review.note target row was not found",
+            action_kind=action_kind,
+            field="params.row_id",
+            details={"run_id": run_id, "row_id": row_id},
+        )
+    return targets
 
 
 def _replay_origin_run(
@@ -178,7 +236,7 @@ class _ReviewDecider(_CallOnce):
         run_id: int,
         row_id: int,
         column_id: int,
-        decision: Literal["accept", "reject", "reject_clear", "edit"],
+        decision: Literal["accept", "reject", "reject_clear", "edit", "clear"],
         value: Any,
         value_supplied: bool,
         note: str | None,
@@ -201,8 +259,14 @@ class _ReviewDecider(_CallOnce):
         _claimed_column(self._project, column_id, action_kind=self._action.kind)
         state_before = str(target["review_state"])
         state_after = (
-            "rejected" if decision in {"reject", "reject_clear"} else "verified"
+            "unreviewed"
+            if decision == "clear"
+            else "rejected"
+            if decision in {"reject", "reject_clear"}
+            else "verified"
         )
+        decision_after = None if decision == "clear" else decision
+        note_after = target["review_note"] if decision == "clear" else note
         current_ref: dict[str, Any] | None = None
         if decision in {"edit", "reject_clear"}:
             _values, refs = self._project.get_values_with_refs(
@@ -226,8 +290,8 @@ class _ReviewDecider(_CallOnce):
                 },
                 "review_metadata_after": {
                     f"{run_id}:{row_id}:{column_id}": {
-                        "decision": decision,
-                        "note": note,
+                        "decision": decision_after,
+                        "note": note_after,
                     }
                 },
             },
@@ -247,7 +311,7 @@ class _ReviewDecider(_CallOnce):
                 details={"run_id": run_id, "row_id": row_id, "column_id": column_id},
             )
         store.set_result_review_metadata(
-            run_id, row_id, column_id, decision, note, commit=False
+            run_id, row_id, column_id, decision_after, note_after, commit=False
         )
         edit_ref = None
         if decision in {"edit", "reject_clear"}:
@@ -289,11 +353,79 @@ class _ReviewDecider(_CallOnce):
             decision=decision,
             review_state_before=state_before,
             review_state_after=state_after,
-            note=note,
+            note=note_after,
             op_id=op_id,
         )
         self.target = target
         self.edit_ref = edit_ref
+        self.result = result
+        return result
+
+
+class _ReviewNoter(_CallOnce):
+    def note(self, *, run_id: int, row_id: int, note: str | None) -> ReviewNote:
+        self._begin()
+        targets = _visible_current_review_row_targets(
+            self._project,
+            run_id=run_id,
+            row_id=row_id,
+            action_kind=self._action.kind,
+        )
+        for target in targets:
+            _claimed_column(
+                self._project,
+                int(target["column_id"]),
+                action_kind=self._action.kind,
+            )
+        before = {
+            f"{run_id}:{row_id}:{target['column_id']}": {
+                "decision": target["review_decision"],
+                "note": target["review_note"],
+            }
+            for target in targets
+        }
+        after = {
+            key: {"decision": before_value["decision"], "note": note}
+            for key, before_value in before.items()
+        }
+        op_id = _write_op(
+            self._cur,
+            kind=self._action.kind,
+            label=f"review note row {row_id}",
+            spec=_op_spec(self._action, self._params_hash),
+            undo_info={
+                "review_metadata": before,
+                "review_metadata_after": after,
+            },
+        )
+        from frisket.engine.store.runs import RunResultStore
+
+        store = RunResultStore(self._project)
+        for target in targets:
+            updated = store.set_result_review_metadata(
+                run_id,
+                row_id,
+                int(target["column_id"]),
+                target["review_decision"],
+                note,
+                commit=False,
+            )
+            if updated != 1:
+                _refuse(
+                    "review_target_not_found",
+                    "review.note target result cell was not found",
+                    action_kind=self._action.kind,
+                    field="params",
+                    details={"run_id": run_id, "row_id": row_id},
+                )
+        result = ReviewNote(
+            run_id=run_id,
+            row_id=row_id,
+            note=note,
+            column_count=len(targets),
+            op_id=op_id,
+        )
+        self.targets = targets
         self.result = result
         return result
 
@@ -524,6 +656,7 @@ class _ReplayValueDismissor(_CallOnce):
 
 CAPABILITY_IMPL = {
     ReviewDecider: _ReviewDecider,
+    ReviewNoter: _ReviewNoter,
     ReplayValueAcceptor: _ReplayValueAcceptor,
     ReplayColumnAcceptor: _ReplayColumnAcceptor,
     ReplayValueDismissor: _ReplayValueDismissor,
@@ -607,6 +740,53 @@ def _review_result_and_receipt(
             "review_state_after": returned.review_state_after,
             "note": returned.note,
         },
+    )
+    return _result_from_receipt(receipt), receipt
+
+
+def _review_note_result_and_receipt(
+    returned: ReviewNote,
+    capability: _ReviewNoter,
+    *,
+    action: _TypedProjectEnvelope,
+    project_id: str,
+    action_id: str,
+    receipt_id: str,
+    params_hash: str,
+) -> tuple[ActionResult, Receipt]:
+    target_ref = {
+        "kind": "review_row",
+        "run_id": returned.run_id,
+        "row_id": returned.row_id,
+        "sheet_id": int(capability.targets[0]["sheet_id"]),
+        "columns": [
+            {
+                "column_id": int(target["column_id"]),
+                "column_name": str(target["column_name"]),
+            }
+            for target in capability.targets
+        ],
+    }
+    note_ref = {
+        "kind": "review_note",
+        "run_id": returned.run_id,
+        "row_id": returned.row_id,
+        "note": returned.note,
+        "column_count": returned.column_count,
+        "op_id": returned.op_id,
+    }
+    receipt = Receipt(
+        receipt_id=receipt_id,
+        project_id=project_id,
+        action_id=action_id,
+        action_kind=action.kind,
+        op_ids=[returned.op_id],
+        idempotency_key=action.idempotency_key,
+        params_hash=params_hash,
+        status="completed",
+        inputs=[ReceiptIO(name="target", ref=target_ref)],
+        outputs=[ReceiptIO(name="note", ref=note_ref)],
+        evidence=[ReceiptEvidence(ref=target_ref, retention="pinned")],
     )
     return _result_from_receipt(receipt), receipt
 
@@ -723,6 +903,7 @@ def _replay_result_and_receipt(
 def result_and_receipt(
     returned: (
         ReviewDecision
+        | ReviewNote
         | AcceptedReplayValue
         | AcceptedReplayColumn
         | DismissedReplayValue
@@ -737,6 +918,16 @@ def result_and_receipt(
 ) -> tuple[ActionResult, Receipt]:
     if isinstance(returned, ReviewDecision):
         result, receipt = _review_result_and_receipt(
+            returned,
+            capability,
+            action=action,
+            project_id=project_id,
+            action_id=action_id,
+            receipt_id=receipt_id,
+            params_hash=params_hash,
+        )
+    elif isinstance(returned, ReviewNote):
+        result, receipt = _review_note_result_and_receipt(
             returned,
             capability,
             action=action,

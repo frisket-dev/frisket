@@ -398,7 +398,7 @@ class _Enforcer:
         required role so a reviewer may submit one on an otherwise editor route.
         """
 
-        if policy.body.get("action_id") == "review.decision":
+        if policy.body.get("action_id") in {"review.decision", "review.note"}:
             policy.required_project_role = "reviewer"
 
     def _policy_notification_owner(self, policy: _Evaluation) -> None:

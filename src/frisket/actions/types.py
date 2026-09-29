@@ -692,10 +692,19 @@ class ReviewDecision:
     run_id: int
     row_id: int
     column_id: int
-    decision: Literal["accept", "reject", "reject_clear", "edit"]
+    decision: Literal["accept", "reject", "reject_clear", "edit", "clear"]
     review_state_before: Literal["unreviewed", "verified", "rejected"]
-    review_state_after: Literal["verified", "rejected"]
+    review_state_after: Literal["unreviewed", "verified", "rejected"]
     note: str | None
+    op_id: int
+
+
+@dataclass(frozen=True)
+class ReviewNote:
+    run_id: int
+    row_id: int
+    note: str | None
+    column_count: int
     op_id: int
 
 
@@ -929,10 +938,21 @@ class ReviewDecisionActionOutput(BaseModel):
     run_id: int
     row_id: int
     column_id: int
-    decision: Literal["accept", "reject", "reject_clear", "edit"]
+    decision: Literal["accept", "reject", "reject_clear", "edit", "clear"]
     review_state_before: Literal["unreviewed", "verified", "rejected"]
-    review_state_after: Literal["verified", "rejected"]
+    review_state_after: Literal["unreviewed", "verified", "rejected"]
     note: str | None
+    op_ids: list[int] = Field(default_factory=list)
+    receipt_id: str | None = None
+
+
+class ReviewNoteActionOutput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    run_id: int
+    row_id: int
+    note: str | None
+    column_count: int
     op_ids: list[int] = Field(default_factory=list)
     receipt_id: str | None = None
 
@@ -1225,11 +1245,21 @@ class ReviewDecider(Protocol):
         run_id: int,
         row_id: int,
         column_id: int,
-        decision: Literal["accept", "reject", "reject_clear", "edit"],
+        decision: Literal["accept", "reject", "reject_clear", "edit", "clear"],
         value: Any,
         value_supplied: bool,
         note: str | None,
     ) -> ReviewDecision: ...
+
+
+class ReviewNoter(Protocol):
+    def note(
+        self,
+        *,
+        run_id: int,
+        row_id: int,
+        note: str | None,
+    ) -> ReviewNote: ...
 
 
 class ReplayValueAcceptor(Protocol):

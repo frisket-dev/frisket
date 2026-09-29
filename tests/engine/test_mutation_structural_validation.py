@@ -21,6 +21,7 @@ from frisket.actions.review_replay import (
     ReplayAcceptParams,
     ReplayDismissParams,
     ReviewDecisionParams,
+    ReviewNoteParams,
 )
 from frisket.actions.system import typed_action_for_request
 from frisket.actions.types import EditedCells, QueryEditedCells, RetypedColumn
@@ -38,6 +39,7 @@ VALID_PARAMS: dict[str, dict[str, Any]] = {
         "decision": "edit",
         "value": 0,
     },
+    "review.note": {"run_id": 1, "row_id": 1, "note": "Checked."},
     "replay.accept": {
         "sheet_id": 1,
         "row_id": 1,
@@ -64,6 +66,9 @@ MALFORMED: tuple[tuple[str, str, tuple[str | int, ...], Any], ...] = (
     ("review-missing", "review.decision", ("value",), _DELETE),
     ("review-cross", "review.decision", ("decision",), "accept"),
     ("review-json", "review.decision", ("value",), object()),
+    ("review-note-row", "review.note", ("row_id",), 0),
+    ("review-note-coerced-run", "review.note", ("run_id",), "1"),
+    ("review-note-type", "review.note", ("note",), 3),
     ("accept-target", "replay.accept", ("row_id",), 0),
     ("accept-coerced-id", "replay.accept", ("row_id",), "1"),
     ("accept-column", "replay.accept_column", ("column_id",), 0),
@@ -159,6 +164,11 @@ def test_malformed_mutations_stop_before_executor_and_database(
                 "value": None,
                 "note": None,
             },
+        ),
+        (
+            ReviewNoteParams,
+            {"run_id": 1, "row_id": 2, "note": " Checked. "},
+            {"run_id": 1, "row_id": 2, "note": " Checked. "},
         ),
         (
             ReplayAcceptParams,
