@@ -4257,6 +4257,7 @@ type HttpEvidenceViewerResponse_EvidenceProducer = ({
   "repointed_from_link_id"?: (((number)) | ((null)));
   "repointed_from_row_id"?: (((number)) | ((null)));
   "schema_version"?: (((string)) | ((null)));
+  "source"?: (((string)) | ((null)));
   "source_action_kind"?: (((string)) | ((null)));
   "source_row_id"?: (((number)) | ((null)));
   "value_hash"?: (((string)) | ((null)));
@@ -4277,6 +4278,18 @@ type HttpEvidenceViewerResponse_EvidenceTemporalRun = ({
   "start_ms": (number);
 });
 
+type HttpEvidenceViewerResponse_EvidenceTextContext = ({
+  "offset_unit": ("utf16_code_unit") & (string);
+  "ranges": (Array<(HttpEvidenceViewerResponse_EvidenceTextRange)>);
+  "text": (string);
+});
+
+type HttpEvidenceViewerResponse_EvidenceTextRange = ({
+  "end": (number);
+  "span_id": (string);
+  "start": (number);
+});
+
 type HttpEvidenceViewerResponse_EvidenceViewerArtifact = ({
   "artifact_kind": (string);
   "artifact_ref": (HttpEvidenceViewerResponse_EvidenceArtifactReference);
@@ -4295,6 +4308,7 @@ type HttpEvidenceViewerResponse_EvidenceViewerArtifact = ({
   "source_url": (((string)) | ((null)));
   "spans": (Array<(HttpEvidenceViewerResponse_EvidenceViewerSpan)>);
   "stable_id": (string);
+  "text_context"?: (((HttpEvidenceViewerResponse_EvidenceTextContext)) | ((null)));
   "title": (((string)) | ((null)));
 });
 

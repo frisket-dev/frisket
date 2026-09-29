@@ -1,0 +1,52 @@
+{
+  "inputs": {
+    "filing_text": "📄 EMPLOYMENT DISCRIMINATION COMPLAINT\n\nLeena\nPatel v. Cedar Bridge Security Inc.\nCase No. RV-CV-2026-00689. Filed March 3, 2026.\n\nLeena Patel worked for Cedar Bridge Security as a scheduling coordinator on the Riverton school account, contract CTR-2025-077. She alleges the company terminated her after she complained that supervisors assigned fewer shifts to guards who requested religious accommodations.\n\nPatel says she raised the issue with operations director Grant Mercer on January 7 and was dismissed on January 20 for alleged mishandling of attendance records.\n\nCLAIMS FOR RELIEF\n\nCount I alleges religious discrimination under the Riverton Human Rights Act. Count II alleges retaliation. Count III alleges failure to preserve scheduling records after receiving notice of an administrative complaint.\n\nPatel seeks back pay, lost benefits, compensatory damages, punitive damages, and an order requiring Cedar Bridge to preserve shift assignments, supervisor messages, and access logs. No specific dollar amount is stated.\n\nThe complaint references staffing reports submitted to the School District but does not name the district as a defendant. Counsel: Alice Mendez, Workers Justice Center.",
+    "clerk_note": "Clerk intake note:\r\n\r\nLeena\tPatel filed this complaint.\n\nLeena Patel requested a copy."
+  },
+  "params": {
+    "source": [
+      "filing_text",
+      "clerk_note"
+    ],
+    "model": "gemini/gemini-3.6-flash",
+    "instruction": "Extract the plaintiff full name. Cite the shortest supporting name phrase in each supplied source that names the plaintiff. If there are multiple source labels, supply a separate evidence entry from each. Do not cite surrounding unrelated sentences.",
+    "fields": [
+      {
+        "name": "plaintiff",
+        "type": "text",
+        "description": "Full name of the person who filed the complaint."
+      }
+    ],
+    "grounding": {
+      "enabled": true,
+      "citation_required": true
+    }
+  },
+  "reply": {
+    "plaintiff": {
+      "value": "Leena Patel",
+      "evidence": [
+        {
+          "source": "filing_text",
+          "segment_indices": [
+            0
+          ],
+          "quote": "Leena Patel"
+        },
+        {
+          "source": "clerk_note",
+          "segment_indices": [
+            0
+          ],
+          "quote": "Leena Patel"
+        }
+      ],
+      "warnings": []
+    }
+  },
+  "recorded": {
+    "model": "gemini/gemini-3.6-flash",
+    "date": "2026-09-29",
+    "note": "Real provider reply over synthetic sample project content; includes irrelevant segment hints returned for plain text."
+  }
+}

@@ -769,49 +769,18 @@ interface TextSegment {
   end: number;
 }
 
-interface EvidenceTextContextRange {
-  spanId: string;
-  start: number;
-  end: number;
-}
+type EvidenceTextContext = NonNullable<EvidenceArtifact['text_context']>;
+type EvidenceTextContextRange = EvidenceTextContext['ranges'][number];
 
-interface EvidenceTextContext {
-  text: string;
-  ranges: EvidenceTextContextRange[];
-  rangeCount: number;
-}
-
-/** The server owns matching. This reader only accepts valid UTF-16 offsets
- * over the exact captured string, which JavaScript slices natively. */
 function evidenceTextContext(artifact: EvidenceArtifact): EvidenceTextContext | null {
-  const raw = (artifact as EvidenceArtifact & { text_context?: unknown }).text_context;
-  const context = jsonRecord(raw);
-  if (!context || typeof context.text !== 'string' || context.offset_unit !== 'utf16_code_unit') return null;
-  const text = context.text;
-  const rawRanges = Array.isArray(context.ranges) ? context.ranges : [];
-  const ranges = rawRanges.flatMap((rawRange) => {
-    const range = jsonRecord(rawRange);
-    const start = finiteNumber(range?.start);
-    const end = finiteNumber(range?.end);
-    if (
-      typeof range?.span_id !== 'string'
-      || start === null
-      || end === null
-      || !Number.isInteger(start)
-      || !Number.isInteger(end)
-      || start < 0
-      || start >= end
-      || end > text.length
-    ) return [];
-    return [{ spanId: range.span_id, start, end }];
-  });
-  return { text, ranges, rangeCount: rawRanges.length };
+  return artifact.text_context ?? null;
 }
 
 function textSegments(sourceText: string, ranges: readonly Pick<EvidenceTextContextRange, 'start' | 'end'>[]): TextSegment[] {
   if (sourceText.length === 0) return [];
   const ordered = ranges
-    .filter((range) => range.start >= 0 && range.start < range.end && range.end <= sourceText.length)
+    .filter((range) => Number.isInteger(range.start) && Number.isInteger(range.end)
+      && range.start >= 0 && range.start < range.end && range.end <= sourceText.length)
     .slice()
     .sort((a, b) => a.start - b.start || b.end - a.end);
   const merged: Array<{ start: number; end: number }> = [];
@@ -866,7 +835,7 @@ function SavedTextContext({
   const ranges = highlight
     ? scopeSpanId === undefined
       ? context.ranges
-      : context.ranges.filter((range) => range.spanId === scopeSpanId)
+      : context.ranges.filter((range) => range.span_id === scopeSpanId)
     : [];
   const segments = textSegments(context.text, ranges);
   const firstHighlightIndex = segments.findIndex((segment) => segment.highlighted);
@@ -893,7 +862,7 @@ function SavedTextContext({
           )
         ))}
       </pre>
-      {highlight && context.rangeCount > 0 && ranges.length === 0 && (
+      {highlight && context.ranges.length > 0 && firstHighlightIndex < 0 && (
         <div className="evidence-viewer-warning" data-testid="evidence-text-context-unavailable">
           This citation has no displayable passage in the saved source.
         </div>

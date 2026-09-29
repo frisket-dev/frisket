@@ -8,15 +8,9 @@ import { ArtifactSource, TextArtifactSource } from '../../src/components/Evidenc
 import type { EvidenceArtifact } from '../../src/api/types';
 import { evidenceArtifact } from '../support/evidenceFixtures';
 
-type TextContext = {
-  text: string;
-  offset_unit: 'utf16_code_unit';
-  ranges: Array<{ span_id: string; start: number; end: number }>;
-};
+type TextContext = NonNullable<EvidenceArtifact['text_context']>;
 
-type ArtifactWithTextContext = EvidenceArtifact & { text_context: TextContext | null };
-
-function textArtifact(title: string, text: string, ranges: TextContext['ranges']): ArtifactWithTextContext {
+function textArtifact(title: string, text: string, ranges: TextContext['ranges']): EvidenceArtifact {
   return {
     ...evidenceArtifact({
       title,
