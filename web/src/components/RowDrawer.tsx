@@ -1,4 +1,4 @@
-import { Check, Copy, FileSearch2, MapPin, Pause, Pencil, Play, RefreshCcw, X, Zap } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Copy, FileSearch2, MapPin, Pause, Pencil, Play, RefreshCcw, X, Zap } from 'lucide-react';
 import { useCallback, useEffect, useReducer, useRef, useState, type CSSProperties, type FocusEvent, type ReactNode, type RefObject } from 'react';
 import { type CellEvidencePayload, type CellProvenance, type CellValue, type ColumnDef, type Row, type RunTraceRowEvidence, type SheetMeta } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
@@ -1852,7 +1852,9 @@ function ProvenanceBlock({
             aria-label={`${runResultExpanded ? 'Hide' : 'Show'} run result details`}
             onClick={onToggleRunResult}
           >
-            <span aria-hidden="true">{runResultExpanded ? 'v' : '>'}</span>
+            {runResultExpanded
+              ? <ChevronDown size={12} aria-hidden="true" />
+              : <ChevronRight size={12} aria-hidden="true" />}
             <span data-testid="cell-provenance-origin">run result</span>
           </button>
         ) : (
