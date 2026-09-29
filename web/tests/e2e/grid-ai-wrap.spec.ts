@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { createProject, importCsv, openProject, patchColumn, uniqueName } from './helpers';
+import { createProject, importCsv, listSheets, openProject, patchColumn, uniqueName } from './helpers';
 import { seedGeneratedCellEvidence } from './investigativeActionFixtures';
 
 test.use({ deviceScaleFactor: 2 });
@@ -37,6 +37,32 @@ async function firstRowInkLines(page: Page, columnName: string): Promise<number>
     }
     return lines;
   }, columnName);
+}
+
+async function resizeColumnTo(page: Page, columnName: string, targetWidth: number): Promise<number> {
+  const grid = page.getByTestId('grid');
+  const column = page.getByTestId(`grid-column-${columnName}`);
+  const gridBox = await grid.boundingBox();
+  const initial = await column.boundingBox();
+  if (!gridBox || !initial) throw new Error(`${columnName} column not visible`);
+  for (const edgeOffset of [0, -1, 1, -2, 2]) {
+    const current = await column.boundingBox();
+    if (!current) throw new Error(`${columnName} column not visible`);
+    const borderX = current.x + current.width + edgeOffset;
+    const headerY = gridBox.y + 17;
+    await page.mouse.move(borderX, headerY);
+    await page.mouse.down();
+    await page.mouse.move(borderX + targetWidth - current.width, headerY, { steps: 8 });
+    await page.mouse.up();
+    try {
+      await expect.poll(async () => (await column.boundingBox())?.width ?? 0, { timeout: 1_000 })
+        .toBeCloseTo(targetWidth, -1);
+      return (await column.boundingBox())!.width;
+    } catch {
+      await page.keyboard.press('Escape');
+    }
+  }
+  throw new Error(`could not resize ${columnName} column`);
 }
 
 test('a generated markdown column inherits wrap text before and after reload', async ({ page }) => {
@@ -92,4 +118,69 @@ test('a generated plain-text column soft-wraps before canvas drawing', async ({ 
   const draws = () => page.evaluate(() => (window as unknown as { __softWrapDraws: string[] }).__softWrapDraws);
   await expect.poll(async () => (await draws()).length).toBeGreaterThan(0);
   expect(await draws()).not.toContain(outputValue);
+});
+
+test('the sample Contracts description soft-wraps after Dispatches renders an empty paragraph', async ({ page }) => {
+  const description = 'Emergency ambulance response and overnight crews';
+  await page.addInitScript((trackedText) => {
+    localStorage.setItem('frisket:wrap-text', '1');
+    localStorage.setItem('frisket:row-height', '68');
+    const draws: Array<{ text: string; x: number; y: number; width: number }> = [];
+    Object.assign(window, { __contractDescriptionDraws: draws, __sawParagraphStory: false });
+    const original = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText = function (value, x, y, ...rest) {
+      const text = String(value);
+      if (text.includes('Members')) Object.assign(window, { __sawParagraphStory: true });
+      if (trackedText.split(' ').some((word) => text.includes(word))) {
+        draws.push({ text, x, y, width: this.measureText(text).width });
+      }
+      return original.call(this, value, x, y, ...rest);
+    };
+  }, description);
+
+  const pid = await createProject(page.request, uniqueName('grid-contract-description-wrap'));
+  const seed = await page.request.post(`/api/projects/${pid}/seed-sample`);
+  expect(seed.ok()).toBeTruthy();
+  const sheets = await listSheets(page.request, pid);
+  const dispatches = sheets.find((sheet) => sheet.name === 'Dispatches');
+  const contracts = sheets.find((sheet) => sheet.name === 'Contracts');
+  if (!dispatches || !contracts) throw new Error('sample project sheets missing');
+  await openProject(page, pid, dispatches.id);
+
+  const wrap = page.getByTestId('toggle-wrap');
+  await expect(wrap).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('grid-column-story')).toBeVisible();
+  await page.evaluate(() => {
+    window.dispatchEvent(new CustomEvent('frisket:reveal-grid-column', {
+      detail: { columnName: 'story' },
+    }));
+  });
+  await expect.poll(() => page.evaluate(() =>
+    (window as unknown as { __sawParagraphStory: boolean }).__sawParagraphStory,
+  )).toBe(true);
+
+  await page.getByTestId(`workbench-mainView-tab-${contracts.id}`).click();
+  await expect(page.locator('.sheet-title')).toHaveText('Contracts');
+  await expect(page.getByTestId('grid-column-description')).toBeVisible();
+  const columnWidth = await resizeColumnTo(page, 'description', 156);
+  await wrap.click();
+  await expect(wrap).toHaveAttribute('aria-pressed', 'false');
+  await page.evaluate(() => {
+    (window as unknown as { __contractDescriptionDraws: unknown[] }).__contractDescriptionDraws.length = 0;
+  });
+  await wrap.click();
+  await expect(wrap).toHaveAttribute('aria-pressed', 'true');
+
+  const drawLines = () => page.evaluate(() => {
+    const draws = (window as unknown as {
+      __contractDescriptionDraws: Array<{ text: string; x: number; y: number; width: number }>;
+    }).__contractDescriptionDraws;
+    return draws.filter((draw) => draw.y > 34 && draw.y < 110);
+  });
+  await expect.poll(async () => (await drawLines()).length).toBeGreaterThan(1);
+  const lines = await drawLines();
+  expect(lines).not.toContainEqual(expect.objectContaining({ text: description }));
+  expect(new Set(lines.map((line) => Math.round(line.y))).size).toBeGreaterThan(1);
+
+  expect(Math.max(...lines.map((line) => line.width))).toBeLessThan(columnWidth);
 });

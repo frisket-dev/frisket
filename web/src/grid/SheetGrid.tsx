@@ -56,6 +56,7 @@ import {
   isAudioPlayButtonHit,
   shouldOpenDrawerOnKey,
   typeHeaderIcon,
+  withWrapSafeDisplayData,
   withOneClickFacetCursor,
   withAudioPlayback,
 } from './cells';
@@ -1398,10 +1399,12 @@ function useSheetGridController({
         if (!previewCol) return { kind: GridCellKind.Loading, allowOverlay: false };
         const row = cache.getRow(rowIdx);
         if (row === undefined) return { kind: GridCellKind.Loading, allowOverlay: false };
-        return previewGridCell(
-          previewCol,
-          previewCells?.[row.id]?.[previewCol.name],
-          { wrap: wrapText, projectId, gridCellPalette },
+        return withWrapSafeDisplayData(
+          previewGridCell(
+            previewCol,
+            previewCells?.[row.id]?.[previewCol.name],
+            { wrap: wrapText, projectId, gridCellPalette },
+          ),
         );
       }
       const def = gridColumns[col];
@@ -1409,26 +1412,30 @@ function useSheetGridController({
       if (!def) return { kind: GridCellKind.Loading, allowOverlay: false };
       const preview = previewAt(item);
       if (preview) {
-        return previewGridCell(preview.column, preview.cell, { wrap: wrapText, projectId, gridCellPalette });
+        return withWrapSafeDisplayData(
+          previewGridCell(preview.column, preview.cell, { wrap: wrapText, projectId, gridCellPalette }),
+        );
       }
       const row = cache.getRow(rowIdx);
       const pending =
         pendingColIds.has(def.id) &&
         (pendingRowIds === null || (row !== undefined && pendingRowIds.has(row.id)));
       const entityMentionCellKey = row ? JSON.stringify([row.id, def.id]) : null;
-      let cell = withOneClickFacetCursor(
-        buildCell(def, row, {
-          projectId,
-          wrap: wrapText,
-          pending,
-          editable: cellEditability(def),
-          gridCellPalette,
-          expandEntityMentions: Boolean(
-            entityMentionCellKey && expandedEntityMentionCells.has(entityMentionCellKey),
-          ),
-        }),
-        def,
-        row,
+      let cell = withWrapSafeDisplayData(
+        withOneClickFacetCursor(
+          buildCell(def, row, {
+            projectId,
+            wrap: wrapText,
+            pending,
+            editable: cellEditability(def),
+            gridCellPalette,
+            expandEntityMentions: Boolean(
+              entityMentionCellKey && expandedEntityMentionCells.has(entityMentionCellKey),
+            ),
+          }),
+          def,
+          row,
+        ),
       );
       if (def.id === citationColumnId) cell = { ...cell, themeOverride: { ...cell.themeOverride, bgCell: gridTheme.bgSearchResult ?? "#fff1cf" } };
       const media = audioMedia(cell);
