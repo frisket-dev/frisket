@@ -8,6 +8,7 @@ import {
   exactViewHiddenColumns,
   filterConditionFromDraft,
   gridFilterLabel,
+  gridFilterSummaryLabel,
   hiddenColumnsKey,
   loadHiddenColumns,
   normalizeGridFilterSpec,
@@ -274,6 +275,25 @@ describe('gridFilterLabel — the entity_eq chip', () => {
         ],
       },
     } as never)).toBe('mentions contains NYPD (Organization) or NYPD (Person)');
+  });
+});
+
+describe('gridFilterSummaryLabel — active-grid display clamp', () => {
+  it('caps each unbroken value at 80 characters including the ellipsis without changing the full label', () => {
+    const fullValue = 'x'.repeat(120);
+    const filter = { markdown: { contains: fullValue } } as GridFilterSpec;
+    const compactValue = `${'x'.repeat(79)}…`;
+
+    expect(gridFilterSummaryLabel(filter)).toBe(`markdown contains ${compactValue}`);
+    expect(gridFilterLabel(filter)).toBe(`markdown contains ${fullValue}`);
+    expect(compactValue).toHaveLength(80);
+  });
+
+  it('caps every selected value independently', () => {
+    const first = 'a'.repeat(100);
+    const second = 'b'.repeat(100);
+    expect(gridFilterSummaryLabel({ tags: { in: [first, second] } }))
+      .toBe(`tags is ${'a'.repeat(79)}… or ${'b'.repeat(79)}…`);
   });
 });
 
