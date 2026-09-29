@@ -621,6 +621,56 @@ describe('GeneratedActionForm', () => {
     expect(onExecute.mock.calls[0][0]).not.toHaveProperty('row_ids');
   });
 
+  it('keeps JSON editors expanding and blocks duplicate output rename keys until corrected', async () => {
+    const entry = syntheticActionCatalogEntry('example.table', {
+      input_schema: {
+        type: 'object', properties: { options: { type: 'object', title: 'Options' } },
+      },
+      row_scope_policy: { kind: 'project', selectors: [] },
+      ui_hints: { form: 'generated', semantic_controls: {}, logical_outputs: [],
+        dynamic_outputs: true, typed_action: { creates_sheet: true } },
+    }) as GeneratedActionCatalogEntry;
+    const onExecute = vi.fn();
+    render(<GeneratedActionForm catalogEntry={entry} actionTemplate={generatedTemplate(entry)}
+      sheet={SHEET} running={false} resolveParams={resolveStaticParams}
+      initialDraft={{ action_id: entry.kind, scope: { kind: 'project' },
+        sheet_name: 'Results', params: { options: {} }, output_names: {} }}
+      onExecute={onExecute} onClose={vi.fn()} />);
+    await waitFor(() => expect(screen.getByTestId('run-button')).toBeEnabled());
+
+    // Both JSON surfaces use the shared fallback in this non-layout DOM.
+    const options = screen.getByLabelText('Options');
+    const renames = screen.getByLabelText('Output column renames');
+    Object.defineProperty(renames, 'scrollHeight', { configurable: true, value: 180 });
+    fireEvent.click(screen.getByText('Rename output columns'));
+    await waitFor(() => expect(renames.style.height).toBe('180px'));
+    for (const editor of [options, renames]) {
+      expect(editor).toHaveClass('form-textarea', 'form-textarea-autogrow');
+      Object.defineProperty(editor, 'scrollHeight', { configurable: true, value: 180 });
+      fireEvent.input(editor, { target: { value: '{"name":"renamed"}' } });
+      expect(editor.style.height).toBe('180px');
+      Object.defineProperty(editor, 'scrollHeight', { configurable: true, value: 60 });
+      fireEvent.input(editor, { target: { value: '{}' } });
+      expect(editor.style.height).toBe('60px');
+    }
+
+    fireEvent.change(renames, { target: { value: '{"name":"first","name":"last"}' } });
+    expect(renames).toHaveValue('{"name":"first","name":"last"}');
+    expect(screen.getByTestId('run-button')).toBeDisabled();
+    expect(screen.getByTestId('generated-action-preview')).toBeDisabled();
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter a JSON object mapping column names to new names.');
+    fireEvent.click(screen.getByTestId('run-button'));
+    expect(onExecute).not.toHaveBeenCalled();
+
+    fireEvent.change(renames, { target: { value: '{"name":"first"}' } });
+    await waitFor(() => expect(screen.getByTestId('run-button')).toBeEnabled());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('run-button'));
+    expect(onExecute).toHaveBeenCalledWith(expect.objectContaining({
+      params: { options: {} }, output_names: { name: 'first' },
+    }), 'run');
+  });
+
   it.each([
     { label: 'a blank output key', outputs: [{ key: '', column_type: 'text' }] },
     { label: 'duplicate output keys', outputs: [

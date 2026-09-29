@@ -32,7 +32,8 @@ import {
   type SourceInputMode,
 } from './SourceInputControl';
 import { OutputNameCombobox } from './TargetSaveToControl';
-import { dedupeDefaultColumnName, existingColumnByName } from './formControlHelpers';
+import { dedupeDefaultColumnName, existingColumnByName,
+  handleAutoResizeTextareaInput, resizeTextareaToContent } from './formControlHelpers';
 import { generatedActionCustomizationFor } from './generatedActionCustomizations';
 import { SelectorField } from '../../engine-selector/SelectorField';
 import type { SelectorChoice } from '../../api/selectorChoices';
@@ -82,7 +83,9 @@ function JsonSchemaField({ field, value, schemaType, onChange }: {
   }, [value]);
   return <div className="param-row">
     <label className="form-label" htmlFor={field.id}>{field.label}</label>
-    <textarea id={field.id} className="form-input" rows={7} data-testid={field.testid}
+    <textarea id={field.id} className="form-input form-textarea form-textarea-autogrow"
+      ref={resizeTextareaToContent} onInput={handleAutoResizeTextareaInput}
+      rows={7} data-testid={field.testid}
       value={text} aria-invalid={typeof value === 'string'} onChange={(event) => {
         const raw = event.target.value;
         setText(raw);
@@ -1184,14 +1187,21 @@ function GeneratedActionFormContents({
         </Fragment>;
       })}
 
-      {createsSheet && !customization?.outputNamesReadOnly && outputs.length === 0 && <details className="action-advanced">
+      {createsSheet && !customization?.outputNamesReadOnly && outputs.length === 0 && <details className="action-advanced"
+        onToggle={(event) => {
+          if (event.currentTarget.open) {
+            resizeTextareaToContent(event.currentTarget.querySelector('textarea'));
+          }
+        }}>
         <summary>Rename output columns</summary>
         <p className="form-hint">Columns are discovered from the list. Optionally map their names to new names.</p>
-        <textarea className="form-input" aria-label="Output column renames" value={renameText}
+        <textarea className="form-input form-textarea form-textarea-autogrow"
+          ref={resizeTextareaToContent} onInput={handleAutoResizeTextareaInput}
+          aria-label="Output column renames" value={renameText}
           disabled={running} onChange={(event) => {
             setRenameText(event.target.value);
             try {
-              const value: unknown = JSON.parse(event.target.value);
+              const value: unknown = parseStrictJson(event.target.value);
               if (!value || typeof value !== 'object' || Array.isArray(value)
                 || Object.values(value).some((name) => typeof name !== 'string')) throw new Error();
               setOutputNames(value as Record<string, string>);
