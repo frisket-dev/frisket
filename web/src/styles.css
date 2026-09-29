@@ -3319,7 +3319,7 @@ li.panel-empty { list-style: none; }
 .form-textarea-autogrow {
   field-sizing: content;
   max-height: 50vh;
-  overflow-y: auto;
+  overflow-y: hidden;
 }
 @layer base {
 .form-input + .form-input { margin-top: 6px; }
