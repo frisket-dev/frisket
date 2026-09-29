@@ -373,6 +373,7 @@ jobs:
           action-validation-ux.spec.ts
           derive-object-list.spec.ts
           explain-cell.spec.ts
+          extraction-text-citations.spec.ts
           golden-extract-people-search.spec.ts
           project-ask.spec.ts
           sheet-tab-overflow.spec.ts

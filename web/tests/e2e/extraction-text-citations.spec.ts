@@ -5,16 +5,15 @@ import { expect, test } from '@playwright/test';
 import { createProject, dblclickCell, openProject, sheetColumns, uniqueName } from './helpers';
 
 const REPO_ROOT = path.basename(process.cwd()) === 'web' ? path.resolve(process.cwd(), '..') : process.cwd();
-const PYTHON = path.join(REPO_ROOT, '.venv', 'bin', 'python');
+const PYTHON = process.env.FRISKET_E2E_PYTHON ?? path.join(REPO_ROOT, '.venv', 'bin', 'python');
 
 function extractRecordedContent(pid: string): { sheetId: number; sources: string[] } {
   const workspace = process.env.FRISKET_E2E_WS ?? path.join(os.homedir(), '.frisket/e2e-ws');
   const script = String.raw`
 import json, sys
 from pathlib import Path
-sys.path.insert(0, str(Path.cwd() / 'tests' / 'engine'))
-from test_model_rows_actions import _DataAdapter
-from executor_harness import run_action_with_confirmation
+import httpx
+from frisket.engine.executor import run_action_spec
 from frisket.actions.types import ActionRequest
 from frisket.ai.llm import ModelRouter
 from frisket.engine.store import Project
@@ -28,9 +27,16 @@ try:
     columns = {name: project.add_column(sheet, name, 'text') for name in record['inputs']}
     row = project.add_rows(sheet, [record['inputs']], columns)[0]
     router = ModelRouter(keys={'gemini': 'recorded'}, cache=None, cache_mode='off', use_env_keys=False)
-    router._adapters['gemini'] = _DataAdapter([], record['reply'])
+    # Only transport is replaced: the real adapter and extraction path process
+    # the recorded provider reply. No credentials or network are used.
+    reply = {'choices': [{'message': {'role': 'assistant', 'content': json.dumps(record['reply'])}, 'finish_reason': 'stop'}], 'usage': {'prompt_tokens': 12, 'completion_tokens': 3}}
+    router._client = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json=reply)))
     request = ActionRequest(action_id='map.extract', scope={'kind': 'sheet_rows', 'sheet_id': sheet, 'row_ids': [row]}, params=record['params'], output_names={'plaintiff': 'plaintiff'}, idempotency_key='recorded-text-citations')
-    result = run_action_with_confirmation(project, request.model_dump(mode='json'), project_id=pid, router=router)
+    action = request.model_dump(mode='json')
+    result = run_action_spec(project, action, project_id=pid, router=router)
+    if result.status == 'needs_confirmation':
+        action['confirmation'] = result.errors[0].details['promise_set_hash']
+        result = run_action_spec(project, action, project_id=pid, router=router)
     assert result.status == 'completed', result.errors
     output = next(c for c in project.columns(sheet) if c['name'] == 'plaintiff')
     links = list_cell_evidence(project, sheet_id=sheet, row_id=row, column_id=output['id'])['links']
