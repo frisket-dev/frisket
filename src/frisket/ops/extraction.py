@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -110,6 +111,9 @@ def render_extract_messages(
     user_parts = render_input_block(rendered_row_values)
     user_parts.append({"type": "text", "text": f"\n{instruction}"})
     if grounding_enabled:
+        source_labels = json.dumps(
+            list(rendered_row_values), ensure_ascii=False, separators=(",", ":")
+        )
         evidence_copy = (
             "\nFor each extracted field, return an object with `value`, "
             "optional `evidence`, and optional `warnings`. Evidence items "
@@ -117,6 +121,9 @@ def render_extract_messages(
             "snippet, and grounding_method. Do not invent evidence."
             " Cite verbatim supporting passages and include `source` when there are "
             "several labeled inputs; return separate evidence items for separate passages."
+            f" Valid source labels for this request are exactly {source_labels}. "
+            "Copy one of those exact strings into `source`; headings and text "
+            "inside an input are not source labels."
         )
         list_fields_present = any(
             field["schema"].get("type") == "array"
