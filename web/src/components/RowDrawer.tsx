@@ -38,6 +38,8 @@ import { useNativePopover } from '../hooks/useNativePopover';
 import { createAudioPlaybackSource } from '../state/audioPlaybackStore';
 
 const EMPTY_CONTRIBUTIONS: WorkbenchResolvedLayoutContribution[] = [];
+const EMPTY_RUN_RESULT_FIELDS: ReadonlySet<string> = new Set();
+const NOOP_TOGGLE_RUN_RESULT = () => {};
 
 function DetailContributionSlot({
   render,
@@ -50,6 +52,8 @@ function DetailContributionSlot({
 }
 
 export interface RowDrawerBodyProps {
+  /** Scopes ephemeral disclosure state when sheet and column IDs repeat across projects. */
+  projectId?: string;
   sheet: SheetMeta;
   row: Row;
   selectedColumnId?: string | null;
@@ -71,12 +75,16 @@ export interface RowDrawerBodyProps {
    *  empty-output terminal-row contract): run.backfill with this row's exact
    *  id. The promise settles when the retry run finishes. */
   onRetryCell?(columnName: string): Promise<void>;
+  /** Session-local run-result disclosures, owned above a transient row fetch. */
+  expandedRunResultFields?: ReadonlySet<string>;
+  onToggleRunResultField?(fieldKey: string): void;
 }
 
 /** The Inspect content — lineage chips, per-field blocks, plugin detail
  *  contributions — WITHOUT any panel chrome. Hosted by the resident Detail
  *  column; the overlay Drawer wrapper is retired. */
 export function RowDrawerBody({
+  projectId,
   sheet,
   row,
   selectedColumnId,
@@ -86,25 +94,13 @@ export function RowDrawerBody({
   bodyRef,
   onOpenInDocumentView,
   onRetryCell,
+  expandedRunResultFields = EMPTY_RUN_RESULT_FIELDS,
+  onToggleRunResultField,
 }: RowDrawerBodyProps) {
   const fallbackRef = useRef<HTMLDivElement>(null);
   const drawerBodyRef = bodyRef ?? fallbackRef;
   const documentColumn = onOpenInDocumentView ? documentMediaColumns(sheet)[0] ?? null : null;
-  // RowField is deliberately keyed by row + column, so its local UI state
-  // resets when the inspected row changes. Keep run-result disclosure here,
-  // keyed to the sheet field instead: opening a field remains useful while
-  // walking rows, without becoming a browser-wide preference.
-  const [expandedRunResultFields, setExpandedRunResultFields] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
-  const toggleRunResultField = useCallback((fieldKey: string) => {
-    setExpandedRunResultFields((previous) => {
-      const next = new Set(previous);
-      if (next.has(fieldKey)) next.delete(fieldKey);
-      else next.add(fieldKey);
-      return next;
-    });
-  }, []);
+  const toggleRunResultField = onToggleRunResultField ?? NOOP_TOGGLE_RUN_RESULT;
 
   useEffect(() => {
     if (!selectedColumnId || !drawerBodyRef.current) return;
@@ -168,7 +164,7 @@ export function RowDrawerBody({
         </button>
       )}
       {sheet.columns.map((col) => {
-        const fieldKey = `${sheet.id}:${col.id}`;
+        const fieldKey = `${projectId ?? ''}:${sheet.id}:${col.id}`;
         return (
           <RowField
             key={`${row.id}:${col.id}`}
@@ -347,11 +343,6 @@ export function RowField({
   // afterBackfill then refreshes the row, so the block clears itself on
   // success and stays (honestly) on a repeat empty result.
   const [retryBusy, setRetryBusy] = useState(false);
-  const [localRunResultExpanded, setLocalRunResultExpanded] = useState(false);
-  const effectiveRunResultExpanded = runResultExpanded ?? localRunResultExpanded;
-  const toggleRunResult = onToggleRunResult ?? (() => {
-    setLocalRunResultExpanded((expanded) => !expanded);
-  });
   const retryable = Boolean(
     onRetryCell && col.ai && row.cellOutcomes?.[col.id] === 'empty_output',
   );
@@ -506,8 +497,8 @@ export function RowField({
       {col.ai && prov && (
         <ProvenanceBlock
           prov={prov}
-          runResultExpanded={effectiveRunResultExpanded}
-          onToggleRunResult={toggleRunResult}
+          runResultExpanded={runResultExpanded ?? false}
+          onToggleRunResult={onToggleRunResult ?? NOOP_TOGGLE_RUN_RESULT}
         />
       )}
       {retryable && onRetryCell && (

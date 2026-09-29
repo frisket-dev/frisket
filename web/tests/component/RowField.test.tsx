@@ -11,6 +11,7 @@
 
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { useState } from 'react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { RowDrawerBody, RowField } from '../../src/components/RowDrawer';
@@ -127,12 +128,28 @@ describe('row drawer field action rail', () => {
       { topic: 'Education', summary: 'School board meeting' },
       { id: 'row-2', provenance: provenance('row-2') },
     );
-    const draw = (currentRow: typeof rowOne) => (
-      <RowDrawerBody
-        sheet={drawerSheet}
-        row={currentRow}
-        onEdit={noopEdit}
-      />
+    function DisclosureOwner({ currentRow, visible = true }: { currentRow: typeof rowOne; visible?: boolean }) {
+      const [expandedFields, setExpandedFields] = useState<ReadonlySet<string>>(() => new Set());
+      const toggle = (fieldKey: string) => {
+        setExpandedFields((previous) => {
+          const next = new Set(previous);
+          if (next.has(fieldKey)) next.delete(fieldKey);
+          else next.add(fieldKey);
+          return next;
+        });
+      };
+      return visible ? (
+        <RowDrawerBody
+          sheet={drawerSheet}
+          row={currentRow}
+          onEdit={noopEdit}
+          expandedRunResultFields={expandedFields}
+          onToggleRunResultField={toggle}
+        />
+      ) : null;
+    }
+    const draw = (currentRow: typeof rowOne, visible = true) => (
+      <DisclosureOwner currentRow={currentRow} visible={visible} />
     );
     const view = render(draw(rowOne));
     const topicField = screen.getByTestId('row-field-topic');
@@ -152,6 +169,10 @@ describe('row drawer field action rail', () => {
     expect(summaryToggle).toHaveAttribute('aria-expanded', 'false');
     expect(within(topicField).getByText('Classify topic')).toBeInTheDocument();
 
+    // The production row fetch has this same transient null gap: the drawer
+    // body unmounts but the resident owner remains mounted.
+    view.rerender(draw(rowTwo, false));
+    expect(screen.queryByTestId('row-field-topic')).toBeNull();
     view.rerender(draw(rowTwo));
     const switchedTopic = screen.getByTestId('row-field-topic');
     const switchedSummary = screen.getByTestId('row-field-summary');
