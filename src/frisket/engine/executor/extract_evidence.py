@@ -522,7 +522,11 @@ def _transcript_segment_indices_spans(
         else transcript_stream
     )
     if resolved is None:
-        return []
+        # A model may emit an irrelevant segment hint alongside a valid quote.
+        # With no actual transcript stream for this chosen source, let the
+        # source-appropriate text/OCR paths evaluate that quote. Once a stream
+        # exists, invalid IDs still return [] and fail closed below.
+        return None
     matches = ground(
         AnchorTarget(unit_ids=indices), resolved.anchors, method="anchor_id"
     )

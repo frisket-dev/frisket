@@ -862,6 +862,9 @@ def resolve_evidence_viewer(
 
     metadata = _json_loads(link["metadata"], {})
     producer = _json_loads(link["producer_json"], {})
+    if isinstance(producer.get("source"), str):
+        for artifact in artifacts.values():
+            artifact["title"] = producer["source"]
     warnings = _dedupe_strings(
         [
             *(_list_value(metadata.get("warnings"))),

@@ -130,8 +130,12 @@ def _resolve_claim_source(
     if requested is not None:
         label = str(requested).strip()
         return label if label in eligible else None
-    if len(eligible) == 1:
-        return next(iter(eligible))
+    canonical = {
+        str(source.get("alias_of") or name) for name, source in eligible.items()
+    }
+    if len(canonical) == 1:
+        label = next(iter(canonical))
+        return label if label in eligible else next(iter(eligible))
     quote = entry.get("quote")
     if not isinstance(quote, str) or not quote.strip():
         return None
@@ -141,7 +145,13 @@ def _resolve_claim_source(
         if isinstance(source.get("captured_text"), str)
         and quote_ranges(source["captured_text"], quote.strip())
     ]
-    return matched[0] if len(matched) == 1 else None
+    matched_canonical = {
+        str(eligible[name].get("alias_of") or name) for name in matched
+    }
+    if len(matched_canonical) != 1:
+        return None
+    label = next(iter(matched_canonical))
+    return label if label in eligible else matched[0]
 
 
 def _grounding_artifact_source(
@@ -149,20 +159,19 @@ def _grounding_artifact_source(
     source_label: str,
     entry: dict[str, Any],
     auxiliary_names: tuple[str, ...],
-) -> str:
+) -> str | None:
     """Keep established PDF/OCR grounding without making the file model-visible."""
 
     source = sources[source_label]
-    ref = source.get("value_ref") or {}
-    use_auxiliary = (
-        any(
-            entry.get(key) is not None
-            for key in ("bbox", "page", "page_start", "page_end")
-        )
-        or ref.get("kind") == "run_result"
+    use_auxiliary = source.get("producer_action_kind") == "media.ocr" or any(
+        entry.get(key) is not None for key in ("bbox", "page", "page_start", "page_end")
     )
     if not use_auxiliary:
         return source_label
+    source_value = source.get("value")
+    if isinstance(source_value, dict) and source_value.get("blob"):
+        return source_label
+    candidates = []
     for name in auxiliary_names:
         candidate = sources.get(name) or {}
         value = candidate.get("value")
@@ -171,8 +180,8 @@ def _grounding_artifact_source(
             and isinstance(value, dict)
             and value.get("blob")
         ):
-            return name
-    return source_label
+            candidates.append(name)
+    return candidates[0] if len(candidates) == 1 else None
 
 
 class ExtractResultEvidence:
@@ -188,6 +197,7 @@ class ExtractResultEvidence:
         grounding_enabled=False,
         citation_required=False,
         source_columns=(),
+        prompt_source_columns=(),
     ):
         self.project = project
         self.fields = dict(fields)
@@ -198,27 +208,73 @@ class ExtractResultEvidence:
         self.source_columns = tuple(
             getattr(column, "name", column) for column in source_columns
         )
+        self.prompt_source_columns = tuple(prompt_source_columns)
 
     def capture(self, values, capture, results, spec, *, row_id, **kwargs):
-        del spec, row_id, kwargs
+        del kwargs
+        from frisket.engine.runner.grounding import looks_like_segment_list
+        from frisket.ops.extraction import _numbered_segments_text
+
         sources = {
             name: {**deepcopy(source), "model_visible": False}
             for name, source in capture.items()
         }
-        for name, value in values.items():
+        for source in sources.values():
+            ref = source.get("value_ref") or {}
+            run_id = ref.get("run_id")
+            if run_id is None:
+                continue
+            run = self.project.db.execute(
+                "SELECT action_kind FROM runs WHERE id=?", (int(run_id),)
+            ).fetchone()
+            if run is not None:
+                source["producer_action_kind"] = run["action_kind"]
+        prompt_values = extract_prompt_values(
+            self.project,
+            values,
+            spec,
+            prompt_source_columns=self.prompt_source_columns,
+        )
+        for name, value in prompt_values.items():
+            inherited_name = None
+            if name not in sources and looks_like_segment_list(value):
+                inherited_name = next(
+                    (
+                        candidate
+                        for candidate in self.prompt_source_columns
+                        if candidate in sources
+                        and _captured_transcript(
+                            self.project,
+                            {candidate: sources[candidate]},
+                            sheet_id=spec["sheet_id"],
+                            row_id=row_id,
+                        )
+                        is not None
+                    ),
+                    None,
+                )
+            inherited = sources.get(inherited_name) if inherited_name else None
             source = sources.setdefault(
                 name,
-                {
-                    "column_id": None,
-                    "column_type": "text",
-                    "value_ref": None,
-                    "composite": True,
-                },
+                (
+                    {**deepcopy(inherited), "composite": True}
+                    if inherited is not None
+                    else {
+                        "column_id": None,
+                        "column_type": "text",
+                        "value_ref": None,
+                        "composite": True,
+                    }
+                ),
             )
             source["model_visible"] = True
+            if inherited_name is not None:
+                source["alias_of"] = inherited_name
             source["value"] = deepcopy(value)
             if isinstance(value, str):
                 source["captured_text"] = value
+            elif looks_like_segment_list(value):
+                source["captured_text"] = _numbered_segments_text(value)
         for cell in results.values():
             # Returned checkpoints retain the source captured before their call.
             cell.setdefault("extraction_sources", sources)
@@ -305,6 +361,19 @@ class ExtractResultEvidence:
                         artifact_source_label = _grounding_artifact_source(
                             sources, source_label, entry, self.source_columns
                         )
+                        if artifact_source_label is None:
+                            warnings.append("evidence_source_unresolved")
+                            unsupported.append(
+                                {
+                                    "row_id": row_id,
+                                    "column_id": column_id,
+                                    "field": logical,
+                                    "item_index": item_index,
+                                    "reason": "evidence_source_unresolved",
+                                    "citation_required": self.citation_required,
+                                }
+                            )
+                            continue
                         artifact_source = sources[artifact_source_label]
                         artifact = _source_artifact(
                             project,

@@ -140,6 +140,11 @@ def render_extract_messages(
                 "Keep a short verbatim `quote` alongside; prefer the "
                 "numbers, they are the reliable anchor."
             )
+        else:
+            evidence_copy += (
+                " Do not return `segment_indices` unless numbered transcript "
+                "segments are shown in the input."
+            )
         user_parts.append({"type": "text", "text": evidence_copy})
     return [
         {"role": "system", "content": system},
