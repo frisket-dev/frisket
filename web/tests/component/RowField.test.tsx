@@ -13,9 +13,10 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { RowField } from '../../src/components/RowDrawer';
+import { RowDrawerBody, RowField } from '../../src/components/RowDrawer';
 import { createProjectApi } from '../../src/api/real';
 import type { CellProvenance } from '../../src/api/types';
+import { sheetMeta } from '../support/actionFormFixtures';
 import { aiMeta, columnDef, row } from '../support/domainFixtures';
 import { installPopoverPolyfill } from '../support/domPolyfills';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
@@ -94,6 +95,79 @@ function openExplainPanelAt(rect: Partial<DOMRect>): { field: HTMLElement; panel
 }
 
 describe('row drawer field action rail', () => {
+  it('keeps each run-result disclosure open independently while switching rows', () => {
+    const topic = columnDef({ id: 'topic', name: 'topic', type: 'text', ai: aiMeta() });
+    const summary = columnDef({ id: 'summary', name: 'summary', type: 'text', ai: aiMeta() });
+    const provenance = (rowId: string): Record<string, CellProvenance> => ({
+      topic: {
+        currentValueRef: { kind: 'run_result', rowId, columnId: 'topic', runId: 'run-topic', opId: null },
+        model: 'gemini/gemini-2.5-flash',
+        actionName: 'Classify topic',
+        cost: 0.01,
+        confidence: 0.92,
+        justification: 'Topic explanation remains useful without expanding the run facts.',
+        runId: 'run-topic',
+      },
+      summary: {
+        currentValueRef: { kind: 'run_result', rowId, columnId: 'summary', runId: 'run-summary', opId: null },
+        model: 'gemini/gemini-2.5-flash',
+        actionName: 'Summarize',
+        cost: 0.02,
+        confidence: 0.81,
+        justification: '',
+        runId: 'run-summary',
+      },
+    });
+    const drawerSheet = sheetMeta([topic, summary]);
+    const rowOne = row(
+      { topic: 'Infrastructure', summary: 'Road repair contract' },
+      { id: 'row-1', provenance: provenance('row-1') },
+    );
+    const rowTwo = row(
+      { topic: 'Education', summary: 'School board meeting' },
+      { id: 'row-2', provenance: provenance('row-2') },
+    );
+    const draw = (currentRow: typeof rowOne) => (
+      <RowDrawerBody
+        sheet={drawerSheet}
+        row={currentRow}
+        onEdit={noopEdit}
+      />
+    );
+    const view = render(draw(rowOne));
+    const topicField = screen.getByTestId('row-field-topic');
+    const summaryField = screen.getByTestId('row-field-summary');
+    const topicToggle = within(topicField).getByTestId('cell-provenance-run-result-toggle');
+    const summaryToggle = within(summaryField).getByTestId('cell-provenance-run-result-toggle');
+
+    expect(topicToggle).toHaveAttribute('aria-expanded', 'false');
+    expect(summaryToggle).toHaveAttribute('aria-expanded', 'false');
+    expect(within(topicField).queryByText('Classify topic')).toBeNull();
+    expect(within(topicField).getByTestId('prov-justification')).toHaveTextContent(
+      'Topic explanation remains useful',
+    );
+
+    fireEvent.click(topicToggle);
+    expect(topicToggle).toHaveAttribute('aria-expanded', 'true');
+    expect(summaryToggle).toHaveAttribute('aria-expanded', 'false');
+    expect(within(topicField).getByText('Classify topic')).toBeInTheDocument();
+
+    view.rerender(draw(rowTwo));
+    const switchedTopic = screen.getByTestId('row-field-topic');
+    const switchedSummary = screen.getByTestId('row-field-summary');
+    expect(within(switchedTopic).getByTestId('cell-provenance-run-result-toggle'))
+      .toHaveAttribute('aria-expanded', 'true');
+    expect(within(switchedSummary).getByTestId('cell-provenance-run-result-toggle'))
+      .toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.click(within(switchedSummary).getByTestId('cell-provenance-run-result-toggle'));
+    view.rerender(draw(rowOne));
+    expect(within(screen.getByTestId('row-field-topic')).getByTestId('cell-provenance-run-result-toggle'))
+      .toHaveAttribute('aria-expanded', 'true');
+    expect(within(screen.getByTestId('row-field-summary')).getByTestId('cell-provenance-run-result-toggle'))
+      .toHaveAttribute('aria-expanded', 'true');
+  });
+
   it('reveals copy + edit icon actions on hover for a raw column, hidden otherwise', () => {
     const col = columnDef({ id: 'snippet', name: 'snippet', type: 'text' });
     render(

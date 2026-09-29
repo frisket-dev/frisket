@@ -90,6 +90,21 @@ export function RowDrawerBody({
   const fallbackRef = useRef<HTMLDivElement>(null);
   const drawerBodyRef = bodyRef ?? fallbackRef;
   const documentColumn = onOpenInDocumentView ? documentMediaColumns(sheet)[0] ?? null : null;
+  // RowField is deliberately keyed by row + column, so its local UI state
+  // resets when the inspected row changes. Keep run-result disclosure here,
+  // keyed to the sheet field instead: opening a field remains useful while
+  // walking rows, without becoming a browser-wide preference.
+  const [expandedRunResultFields, setExpandedRunResultFields] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const toggleRunResultField = useCallback((fieldKey: string) => {
+    setExpandedRunResultFields((previous) => {
+      const next = new Set(previous);
+      if (next.has(fieldKey)) next.delete(fieldKey);
+      else next.add(fieldKey);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (!selectedColumnId || !drawerBodyRef.current) return;
@@ -152,18 +167,23 @@ export function RowDrawerBody({
           ↰ derived from <strong>{sheet.parent.sheetName}</strong> via {sheet.parent.viaAction}
         </button>
       )}
-      {sheet.columns.map((col) => (
-        <RowField
-          key={`${row.id}:${col.id}`}
-          col={col}
-          columns={sheet.columns}
-          row={row}
-          sheetId={sheet.id}
-          selected={col.id === selectedColumnId}
-          onEdit={onEdit}
-          onRetryCell={onRetryCell}
-        />
-      ))}
+      {sheet.columns.map((col) => {
+        const fieldKey = `${sheet.id}:${col.id}`;
+        return (
+          <RowField
+            key={`${row.id}:${col.id}`}
+            col={col}
+            columns={sheet.columns}
+            row={row}
+            sheetId={sheet.id}
+            selected={col.id === selectedColumnId}
+            onEdit={onEdit}
+            onRetryCell={onRetryCell}
+            runResultExpanded={expandedRunResultFields.has(fieldKey)}
+            onToggleRunResult={() => toggleRunResultField(fieldKey)}
+          />
+        );
+      })}
       {renderDetailContribution &&
         detailContributions
           .flatMap((contribution) => {
@@ -284,6 +304,8 @@ export function RowField({
   selected,
   onEdit,
   onRetryCell,
+  runResultExpanded,
+  onToggleRunResult,
 }: {
   col: ColumnDef;
   columns: ColumnDef[];
@@ -292,6 +314,9 @@ export function RowField({
   selected: boolean;
   onEdit(row: Row, col: ColumnDef, value: CellValue): Promise<void>;
   onRetryCell?(columnName: string): Promise<void>;
+  /** Controlled by RowDrawerBody so this field stays expanded across rows. */
+  runResultExpanded?: boolean;
+  onToggleRunResult?(): void;
 }) {
   const value = row.cells?.[col.id] ?? null;
   const [fieldState, dispatch] = useReducer(rowFieldReducer, value, rowFieldInitialState);
@@ -322,6 +347,11 @@ export function RowField({
   // afterBackfill then refreshes the row, so the block clears itself on
   // success and stays (honestly) on a repeat empty result.
   const [retryBusy, setRetryBusy] = useState(false);
+  const [localRunResultExpanded, setLocalRunResultExpanded] = useState(false);
+  const effectiveRunResultExpanded = runResultExpanded ?? localRunResultExpanded;
+  const toggleRunResult = onToggleRunResult ?? (() => {
+    setLocalRunResultExpanded((expanded) => !expanded);
+  });
   const retryable = Boolean(
     onRetryCell && col.ai && row.cellOutcomes?.[col.id] === 'empty_output',
   );
@@ -473,7 +503,13 @@ export function RowField({
           />
         </ClampedField>
       )}
-      {col.ai && prov && <ProvenanceBlock prov={prov} />}
+      {col.ai && prov && (
+        <ProvenanceBlock
+          prov={prov}
+          runResultExpanded={effectiveRunResultExpanded}
+          onToggleRunResult={toggleRunResult}
+        />
+      )}
       {retryable && onRetryCell && (
         <div className="row-field-retry" data-testid={`cell-retry-${col.name}`}>
           <span className="row-field-retry-note">
@@ -1789,7 +1825,15 @@ function runTraceAbsenceMessage(status: RunTraceRowEvidence['status']): ReactNod
   }
 }
 
-function ProvenanceBlock({ prov }: { prov: CellProvenance }) {
+function ProvenanceBlock({
+  prov,
+  runResultExpanded,
+  onToggleRunResult,
+}: {
+  prov: CellProvenance;
+  runResultExpanded: boolean;
+  onToggleRunResult(): void;
+}) {
   const confidence =
     typeof prov.confidence === 'number' && Number.isFinite(prov.confidence)
       ? prov.confidence
@@ -1799,10 +1843,24 @@ function ProvenanceBlock({ prov }: { prov: CellProvenance }) {
     <div className="provenance" data-testid="cell-provenance">
       <div className="provenance-grid">
         <span className="prov-key">origin</span>
-        <span data-testid="cell-provenance-origin">
-          {cellOriginLabel(prov.currentValueRef.kind)}
-        </span>
-        {isRunResult && (
+        {isRunResult ? (
+          <button
+            type="button"
+            className="mini-btn"
+            data-testid="cell-provenance-run-result-toggle"
+            aria-expanded={runResultExpanded}
+            aria-label={`${runResultExpanded ? 'Hide' : 'Show'} run result details`}
+            onClick={onToggleRunResult}
+          >
+            <span aria-hidden="true">{runResultExpanded ? 'v' : '>'}</span>
+            <span data-testid="cell-provenance-origin">run result</span>
+          </button>
+        ) : (
+          <span data-testid="cell-provenance-origin">
+            {cellOriginLabel(prov.currentValueRef.kind)}
+          </span>
+        )}
+        {isRunResult && runResultExpanded && (
           <>
             <span className="prov-key">action</span>
             <span>{prov.actionName}</span>
