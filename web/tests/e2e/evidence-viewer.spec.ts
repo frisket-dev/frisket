@@ -340,7 +340,9 @@ test('row drawer opens the shared evidence viewer and hides stale support by def
   await expect(sourceEvidenceContribution).toHaveAttribute('data-required-capabilities', /evidence\.resolve/);
   await expect(sourceEvidenceContribution).toHaveAttribute('data-required-capabilities', /sourceArtifact\.resolve/);
   await expect(sourceEvidenceContribution).toHaveAttribute('data-required-capabilities', /grid\.companion\.open/);
-  await expect(page.getByTestId('evidence-viewer').getByTestId('evidence-export-ref')).toContainText(
+  const sourceViewer = page.getByTestId('evidence-viewer');
+  await sourceViewer.getByTestId('evidence-details-toggle').click();
+  await expect(sourceViewer.getByTestId('evidence-export-ref')).toContainText(
     seeded.sourceLinkStableId,
   );
   await page.getByLabel('Close evidence viewer').click();
@@ -358,9 +360,11 @@ test('row drawer opens the shared evidence viewer and hides stale support by def
 
   const viewer = page.getByTestId('evidence-viewer');
   await expect(viewer).toBeVisible();
+  await viewer.getByTestId('evidence-details-toggle').click();
   await expect(viewer.getByTestId('evidence-link-status')).toContainText('active');
   await expect(viewer.getByTestId('evidence-export-ref')).toContainText('evidence_link:');
-  await expect(viewer.getByTestId('evidence-viewer-warnings')).toContainText('cross_artifact_support');
+  await expect(viewer.getByTestId('evidence-viewer-warnings')).toHaveCount(0);
+  await expect(viewer.getByText('cross_artifact_support')).toHaveCount(0);
   await expect(viewer.getByTestId('evidence-page-image')).toBeVisible();
   await expect(viewer.getByTestId('evidence-region-highlight')).toBeVisible();
   await expect(viewer.getByTestId('evidence-page-text')).toContainText('$1,250,000');
@@ -386,6 +390,7 @@ test('row drawer opens the shared evidence viewer and hides stale support by def
   await expect(companionEvidenceContribution).toBeVisible();
   await expect(companionEvidenceContribution).toHaveAttribute('data-host', 'mainView');
   await expect(companionEvidenceContribution).toHaveAttribute('data-mode', 'pane');
+  await companionEvidenceContribution.getByTestId('evidence-details-toggle').click();
   await expect(companionEvidenceContribution.getByTestId('evidence-export-ref')).toContainText(
     seeded.activeLinkStableId,
   );
@@ -424,6 +429,8 @@ test('row drawer opens the shared evidence viewer and hides stale support by def
   await staleDrawer.getByTestId('cell-evidence-stale-toggle-Contract value').click();
   await expect(staleDrawer.getByTestId('cell-evidence-stale-Contract value')).toBeVisible();
   await staleDrawer.getByTestId('cell-evidence-open-stale-Contract value').click();
-  await expect(page.getByTestId('evidence-viewer').getByTestId('evidence-link-status')).toContainText('stale');
-  await expect(page.getByTestId('evidence-viewer').getByTestId('evidence-stale-reason')).toContainText('manual_cell_edit');
+  const staleViewer = page.getByTestId('evidence-viewer');
+  await staleViewer.getByTestId('evidence-details-toggle').click();
+  await expect(staleViewer.getByTestId('evidence-link-status')).toContainText('stale');
+  await expect(staleViewer.getByTestId('evidence-stale-reason')).toContainText('manual_cell_edit');
 });

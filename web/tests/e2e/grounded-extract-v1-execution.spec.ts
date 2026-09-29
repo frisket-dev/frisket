@@ -95,5 +95,6 @@ test('grounded extract posts citation policy on map.extract and opens evidence l
   await rowDrawer.getByTestId('cell-evidence-open-award_value').click();
   const viewer = page.getByTestId('evidence-viewer');
   await expect(viewer).toBeVisible();
+  await viewer.getByTestId('evidence-details-toggle').click();
   await expect(viewer.getByTestId('evidence-export-ref')).toContainText(seeded.stableId);
 });

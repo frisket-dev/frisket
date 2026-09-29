@@ -252,6 +252,8 @@ const GROUNDING_DEGRADED_COPY: Record<string, string> = {
     'No positioned OCR/text stream for this source; run OCR to enable page highlights.',
   model_bbox_unverified:
     'The model’s highlight box could not be verified against the page text, so this citation shows the page instead of a box.',
+  temporal_span_clamped_to_artifact_duration_ms:
+    'This segment was shortened to fit the available recording.',
 };
 
 function warningMessages(warnings: readonly string[], hasSavedTextContext = false): string[] {

@@ -73,5 +73,6 @@ test('URL capture launches web.capture_page with render and WARC options', async
   await rowDrawer.getByTestId('cell-evidence-open-url').click();
   const viewer = page.getByTestId('evidence-viewer');
   await expect(viewer).toBeVisible();
+  await viewer.getByTestId('evidence-details-toggle').click();
   await expect(viewer.getByTestId('evidence-export-ref')).toContainText(seeded.stableId);
 });

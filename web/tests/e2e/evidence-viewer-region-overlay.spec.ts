@@ -223,6 +223,7 @@ async function openTextEvidence(page: Page, columns: WireColumn[], rowIndex: num
   await rowDrawer.getByTestId('cell-evidence-open-Text').click();
   const viewer = page.getByTestId('evidence-viewer');
   await expect(viewer).toBeVisible();
+  await viewer.getByTestId('evidence-details-toggle').click();
   return viewer;
 }
 
