@@ -7,6 +7,7 @@ from frisket.actions.grounding_types import EvidenceBox, EvidenceClaim
 def test_claim_roundtrip_preserves_list_index_and_existing_coordinate_spaces():
     claim = EvidenceClaim(
         item_index=1,
+        source="transcript",
         segment_indices=(2, 3),
         page=0,
         bbox=EvidenceBox(x0=20, y0=30, x1=50, y1=70, space="page_1000"),
@@ -14,6 +15,7 @@ def test_claim_roundtrip_preserves_list_index_and_existing_coordinate_spaces():
     )
     assert EvidenceClaim.model_validate_json(claim.model_dump_json()) == claim
     assert claim.bbox.space == "page_1000"
+    assert claim.source == "transcript"
 
 
 @pytest.mark.parametrize("field", ["source_id", "blob_hash", "span_id", "metadata"])

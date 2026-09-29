@@ -41,6 +41,7 @@ def extract_response_schema(
         evidence_item_schema = {
             "type": "object",
             "properties": {
+                "source": {"type": "string"},
                 "segment_indices": {
                     "type": "array",
                     "items": {"type": "integer"},
@@ -112,8 +113,10 @@ def render_extract_messages(
         evidence_copy = (
             "\nFor each extracted field, return an object with `value`, "
             "optional `evidence`, and optional `warnings`. Evidence items "
-            "may cite a page, bbox in normalized page coordinates, quote, "
+            "may cite an input `source` label, page, bbox in normalized page coordinates, quote, "
             "snippet, and grounding_method. Do not invent evidence."
+            " Cite verbatim supporting passages and include `source` when there are "
+            "several labeled inputs; return separate evidence items for separate passages."
         )
         list_fields_present = any(
             field["schema"].get("type") == "array"

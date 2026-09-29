@@ -68,7 +68,10 @@ def test_typed_prompt_and_completion_share_fields_but_unwrap_grounding():
     reply = {
         "events": {
             "value": ["launch", "landing"],
-            "evidence": [[{"quote": "launch", "source_id": 42}], []],
+            "evidence": [
+                [{"source": "document", "quote": "launch", "source_id": 42}],
+                [],
+            ],
         },
         "amount": {"value": None},
         "events_confidence": 0.9,
@@ -78,6 +81,7 @@ def test_typed_prompt_and_completion_share_fields_but_unwrap_grounding():
     assert result["events"].value == ["launch", "landing"]
     assert result["events"].evidence[0].item_index == 0
     assert result["events"].evidence[0].quote == "launch"
+    assert result["events"].evidence[0].source == "document"
     assert not hasattr(result["events"].evidence[0], "source_id")
     assert result["amount"].value is None
     assert result["events_confidence"].value == 0.9
@@ -88,6 +92,7 @@ def test_claims_keep_supported_coordinate_spaces_and_tolerate_bad_independent_hi
 
     claim = _evidence_claim(
         {
+            "source": "filing_text",
             "page": "3",
             "segment_indices": ["2", 3.0, "bad"],
             "bbox": {
@@ -103,6 +108,7 @@ def test_claims_keep_supported_coordinate_spaces_and_tolerate_bad_independent_hi
         }
     )
     assert claim.segment_indices == (2, 3)
+    assert claim.source == "filing_text"
     assert claim.bbox.page_width == 100
     assert claim.bbox.space == "pixel"
     assert _evidence_claim({"quote": "hello", "bbox": {"bad": "data"}}).quote == "hello"

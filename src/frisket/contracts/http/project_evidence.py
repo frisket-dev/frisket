@@ -144,6 +144,7 @@ class EvidenceProducer(WireModel):
     project_id: str | None = None
     field: str | None = None
     output_role: str | None = None
+    source: str | None = None
     model_call_id: int | None = None
     item_index: int | None = None
     repointed_from_link_id: int | None = None
@@ -231,6 +232,18 @@ class EvidenceSourceCell(WireModel):
     column_id: int | None
 
 
+class EvidenceTextRange(WireModel):
+    span_id: str
+    start: int
+    end: int
+
+
+class EvidenceTextContext(WireModel):
+    text: str
+    offset_unit: Literal["utf16_code_unit"]
+    ranges: list[EvidenceTextRange]
+
+
 class EvidenceViewerArtifact(WireModel):
     id: int
     stable_id: str
@@ -247,6 +260,7 @@ class EvidenceViewerArtifact(WireModel):
     external_ref: JsonValue
     artifact_ref: EvidenceArtifactReference
     metadata: JsonValue
+    text_context: EvidenceTextContext | None = None
     spans: list[EvidenceViewerSpan]
     pages: list[EvidenceViewerPage]
     runs: list[EvidenceTemporalRun]
@@ -279,6 +293,8 @@ __all__ = [
     "EvidenceProducer",
     "EvidenceSourceCell",
     "EvidenceTemporalRun",
+    "EvidenceTextContext",
+    "EvidenceTextRange",
     "EvidenceViewerArtifact",
     "EvidenceViewerLink",
     "EvidenceViewerPage",

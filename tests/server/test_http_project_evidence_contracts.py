@@ -129,6 +129,11 @@ class _EvidenceService:
                         "external_ref": {"provider": "test"},
                     },
                     "metadata": {"page_images": {"1": {"raw": True}}},
+                    "text_context": {
+                        "text": "🚀 contract",
+                        "offset_unit": "utf16_code_unit",
+                        "ranges": [{"span_id": "span:6", "start": 3, "end": 11}],
+                    },
                     "spans": [
                         {
                             "id": 6,
@@ -212,6 +217,9 @@ def test_project_evidence_contracts_preserve_explicit_dynamic_json_leaves() -> N
     }
     artifact = viewer.json()["artifacts"][0]
     assert artifact["spans"][0]["raw"] == {"pixel_box": [1, 2, 3, 4]}
+    assert artifact["text_context"]["ranges"] == [
+        {"span_id": "span:6", "start": 3, "end": 11}
+    ]
     assert artifact["pages"][0]["regions"][0]["bbox"] == [[0, 0, 1, 1]]
     assert column.json()["rows"] == []
 

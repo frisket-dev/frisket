@@ -217,6 +217,7 @@ def _grounded_reply() -> dict[str, Any]:
             "value": "$1,250,000",
             "evidence": [
                 {
+                    "source": "document_text",
                     "kind": "source_span",
                     "span_kind": "region",
                     "page": 3,
@@ -246,6 +247,7 @@ def _grounded_bbox_spaces_reply() -> dict[str, Any]:
             "value": "$1,250,000",
             "evidence": [
                 {
+                    "source": "document_text",
                     "kind": "source_span",
                     "span_kind": "region",
                     "page": 3,
@@ -268,6 +270,7 @@ def _grounded_bbox_spaces_reply() -> dict[str, Any]:
             "value": "Acme Civic Works",
             "evidence": [
                 {
+                    "source": "document_text",
                     "kind": "source_span",
                     "span_kind": "region",
                     "page": 3,
