@@ -90,6 +90,7 @@ try:
                 }
             ],
             "include_confidence": False,
+            "grounding": {"enabled": False},
         },
         "output_names": {"people": "people"},
         "idempotency_key": "e2e-cache-prime",
@@ -238,6 +239,7 @@ async function runPeopleDeriveComposite(
           },
         ],
         include_confidence: false,
+        grounding: { enabled: false },
       },
       output_names: { people: 'people' },
       idempotency_key: `golden-people-extract@sha256:${pid}`,
