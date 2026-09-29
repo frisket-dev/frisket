@@ -29,7 +29,9 @@ PROJECT_ID = "project-null-required"
 
 class _StubAdapter:
     def __init__(self, reply: dict[str, Any]) -> None:
-        self.reply = reply
+        self.reply = {
+            name: {"value": value, "evidence": []} for name, value in reply.items()
+        }
         self.requests: list[LLMRequest] = []
 
     async def complete(self, req: LLMRequest, client) -> LLMResponse:  # noqa: ANN001

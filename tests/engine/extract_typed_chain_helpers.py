@@ -47,6 +47,9 @@ def typed_extract_request(
         "model": model,
         "instruction": instruction,
         "fields": fields,
+        # These value-only chain fixtures explicitly opt out; tests of the
+        # default citation envelope construct ordinary ExtractParams instead.
+        "grounding": {"enabled": False},
     }
     if context:
         params["context"] = context

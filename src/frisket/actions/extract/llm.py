@@ -31,7 +31,7 @@ class ExtractParams(_ModelRowsParams):
     fields: list[ExtractField] = Field(min_length=1, max_length=64)
     include_confidence: bool = False
     source_document_columns: list[ColumnRef[Any]] = Field(default_factory=list)
-    grounding: ExtractGrounding | None = None
+    grounding: ExtractGrounding | None = Field(default=ExtractGrounding(enabled=True))
     evidence_policy: ExtractEvidencePolicy | None = None
 
     @field_validator("instruction")

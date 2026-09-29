@@ -9,6 +9,44 @@ from frisket.actions.extraction_types import ExtractField, extraction_output_fie
 from frisket.ops.extraction import extract_response_schema, normalize_extracted_value
 
 
+def test_extraction_defaults_to_optional_citations():
+    from frisket.actions.extract import complete_extract, extract
+    from frisket.actions.types import DynamicOutput, Row
+
+    params = ExtractParams.model_validate(
+        {
+            "source": ["body"],
+            "model": "anthropic/test",
+            "fields": [{"name": "person", "type": "text"}],
+        }
+    )
+    assert params.grounding is not None and params.grounding.enabled
+    assert not params.grounding.citation_required
+    row = Row(values={"body": "Mei Chen filed the complaint."})
+    prompt = extract(params, row)
+    reply = {"person": {"value": "Mei Chen", "evidence": []}}
+    assert Draft202012Validator(prompt.response_schema).is_valid(reply)
+    result = complete_extract(params, row, DynamicOutput(root=reply)).output.root
+    assert result["person"].value == "Mei Chen"
+
+
+@pytest.mark.parametrize("grounding", [None, {"enabled": False}])
+def test_extraction_preserves_explicit_citation_opt_out(grounding):
+    from frisket.actions.extract import extract
+    from frisket.actions.types import Row
+
+    params = ExtractParams.model_validate(
+        {
+            "source": ["body"],
+            "model": "anthropic/test",
+            "fields": [{"name": "person", "type": "text"}],
+            "grounding": grounding,
+        }
+    )
+    prompt = extract(params, Row(values={"body": "Mei Chen filed the complaint."}))
+    assert Draft202012Validator(prompt.response_schema).is_valid({"person": "Mei Chen"})
+
+
 def test_typed_prompt_and_completion_share_fields_but_unwrap_grounding():
     from frisket.actions.extract import complete_extract, extract
     from frisket.actions.types import DynamicOutput, Row
