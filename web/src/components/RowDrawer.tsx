@@ -1,4 +1,4 @@
-import { Check, Copy, FileSearch2, MapPin, Pause, Pencil, Play, RefreshCcw, X, Zap } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Copy, FileSearch2, MapPin, Pause, Pencil, Play, RefreshCcw, X, Zap } from 'lucide-react';
 import { useCallback, useEffect, useReducer, useRef, useState, type CSSProperties, type FocusEvent, type ReactNode, type RefObject } from 'react';
 import { type CellEvidencePayload, type CellProvenance, type CellValue, type ColumnDef, type Row, type RunTraceRowEvidence, type SheetMeta } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
@@ -50,6 +50,8 @@ function DetailContributionSlot({
 }
 
 export interface RowDrawerBodyProps {
+  /** Scopes ephemeral disclosure state when sheet and column IDs repeat across projects. */
+  projectId: string;
   sheet: SheetMeta;
   row: Row;
   selectedColumnId?: string | null;
@@ -71,12 +73,16 @@ export interface RowDrawerBodyProps {
    *  empty-output terminal-row contract): run.backfill with this row's exact
    *  id. The promise settles when the retry run finishes. */
   onRetryCell?(columnName: string): Promise<void>;
+  /** Session-local run-result disclosures, owned above a transient row fetch. */
+  expandedRunResultFields: ReadonlySet<string>;
+  onToggleRunResultField(fieldKey: string): void;
 }
 
 /** The Inspect content — lineage chips, per-field blocks, plugin detail
  *  contributions — WITHOUT any panel chrome. Hosted by the resident Detail
  *  column; the overlay Drawer wrapper is retired. */
 export function RowDrawerBody({
+  projectId,
   sheet,
   row,
   selectedColumnId,
@@ -86,6 +92,8 @@ export function RowDrawerBody({
   bodyRef,
   onOpenInDocumentView,
   onRetryCell,
+  expandedRunResultFields,
+  onToggleRunResultField,
 }: RowDrawerBodyProps) {
   const fallbackRef = useRef<HTMLDivElement>(null);
   const drawerBodyRef = bodyRef ?? fallbackRef;
@@ -152,18 +160,23 @@ export function RowDrawerBody({
           ↰ derived from <strong>{sheet.parent.sheetName}</strong> via {sheet.parent.viaAction}
         </button>
       )}
-      {sheet.columns.map((col) => (
-        <RowField
-          key={`${row.id}:${col.id}`}
-          col={col}
-          columns={sheet.columns}
-          row={row}
-          sheetId={sheet.id}
-          selected={col.id === selectedColumnId}
-          onEdit={onEdit}
-          onRetryCell={onRetryCell}
-        />
-      ))}
+      {sheet.columns.map((col) => {
+        const fieldKey = `${projectId}:${sheet.id}:${col.id}`;
+        return (
+          <RowField
+            key={`${row.id}:${col.id}`}
+            col={col}
+            columns={sheet.columns}
+            row={row}
+            sheetId={sheet.id}
+            selected={col.id === selectedColumnId}
+            onEdit={onEdit}
+            onRetryCell={onRetryCell}
+            runResultExpanded={expandedRunResultFields.has(fieldKey)}
+            onToggleRunResult={() => onToggleRunResultField(fieldKey)}
+          />
+        );
+      })}
       {renderDetailContribution &&
         detailContributions
           .flatMap((contribution) => {
@@ -284,6 +297,8 @@ export function RowField({
   selected,
   onEdit,
   onRetryCell,
+  runResultExpanded,
+  onToggleRunResult,
 }: {
   col: ColumnDef;
   columns: ColumnDef[];
@@ -292,6 +307,9 @@ export function RowField({
   selected: boolean;
   onEdit(row: Row, col: ColumnDef, value: CellValue): Promise<void>;
   onRetryCell?(columnName: string): Promise<void>;
+  /** Controlled by RowDrawerBody so this field stays expanded across rows. */
+  runResultExpanded: boolean;
+  onToggleRunResult(): void;
 }) {
   const value = row.cells?.[col.id] ?? null;
   const [fieldState, dispatch] = useReducer(rowFieldReducer, value, rowFieldInitialState);
@@ -473,7 +491,13 @@ export function RowField({
           />
         </ClampedField>
       )}
-      {col.ai && prov && <ProvenanceBlock prov={prov} />}
+      {col.ai && prov && (
+        <ProvenanceBlock
+          prov={prov}
+          runResultExpanded={runResultExpanded}
+          onToggleRunResult={onToggleRunResult}
+        />
+      )}
       {retryable && onRetryCell && (
         <div className="row-field-retry" data-testid={`cell-retry-${col.name}`}>
           <span className="row-field-retry-note">
@@ -1789,7 +1813,15 @@ function runTraceAbsenceMessage(status: RunTraceRowEvidence['status']): ReactNod
   }
 }
 
-function ProvenanceBlock({ prov }: { prov: CellProvenance }) {
+function ProvenanceBlock({
+  prov,
+  runResultExpanded,
+  onToggleRunResult,
+}: {
+  prov: CellProvenance;
+  runResultExpanded: boolean;
+  onToggleRunResult(): void;
+}) {
   const confidence =
     typeof prov.confidence === 'number' && Number.isFinite(prov.confidence)
       ? prov.confidence
@@ -1799,10 +1831,26 @@ function ProvenanceBlock({ prov }: { prov: CellProvenance }) {
     <div className="provenance" data-testid="cell-provenance">
       <div className="provenance-grid">
         <span className="prov-key">origin</span>
-        <span data-testid="cell-provenance-origin">
-          {cellOriginLabel(prov.currentValueRef.kind)}
-        </span>
-        {isRunResult && (
+        {isRunResult ? (
+          <button
+            type="button"
+            className="mini-btn"
+            data-testid="cell-provenance-run-result-toggle"
+            aria-expanded={runResultExpanded}
+            aria-label={`${runResultExpanded ? 'Hide' : 'Show'} run result details`}
+            onClick={onToggleRunResult}
+          >
+            {runResultExpanded
+              ? <ChevronDown size={12} aria-hidden="true" />
+              : <ChevronRight size={12} aria-hidden="true" />}
+            <span data-testid="cell-provenance-origin">run result</span>
+          </button>
+        ) : (
+          <span data-testid="cell-provenance-origin">
+            {cellOriginLabel(prov.currentValueRef.kind)}
+          </span>
+        )}
+        {isRunResult && runResultExpanded && (
           <>
             <span className="prov-key">action</span>
             <span>{prov.actionName}</span>

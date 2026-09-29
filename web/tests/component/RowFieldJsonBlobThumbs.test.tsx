@@ -48,7 +48,7 @@ describe('row drawer json image-blob thumbnails', () => {
       { image: { blob: 'b'.repeat(64), mime: 'image/jpeg', filename: 'frame1.jpg' }, t: 158.2 },
     ];
     render(
-      <RowField
+      <RowField runResultExpanded={false} onToggleRunResult={() => {}}
         col={col}
         columns={[col]}
         row={row({ frames: JSON.stringify(frames) })}
@@ -104,7 +104,7 @@ describe('row drawer json image-blob thumbnails', () => {
     [{ t: 1, image: { inline_data_url: 'https://example.test/image.jpg', mime: 'image/jpeg', filename: 'bad.jpg' } }],
   ])('keeps geometry and malformed image payloads in ordinary JSON: %j', (...items) => {
     const col = columnDef({ id: 'results', name: 'results', type: 'json' });
-    render(<RowField col={col} columns={[col]} row={row({ results: JSON.stringify(items) })}
+    render(<RowField runResultExpanded={false} onToggleRunResult={() => {}} col={col} columns={[col]} row={row({ results: JSON.stringify(items) })}
       selected onEdit={noopEdit} />);
     expect(screen.queryByTestId('json-blob-thumb')).not.toBeInTheDocument();
     expect(screen.getByTestId('json-mini-table')).toBeInTheDocument();
@@ -117,7 +117,7 @@ describe('row drawer json image-blob thumbnails', () => {
       { title: 'Zoning appeal filed', url: 'https://example.com/b' },
     ];
     render(
-      <RowField
+      <RowField runResultExpanded={false} onToggleRunResult={() => {}}
         col={col}
         columns={[col]}
         row={row({ results: JSON.stringify(results) })}

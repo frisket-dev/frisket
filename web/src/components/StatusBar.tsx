@@ -260,22 +260,17 @@ export function StatusBar({
         >
           <Redo2 size={13} /> Redo
         </button>
-        {reviewCount > 0 && (
-          <>
-            <span className="status-sep" />
-            <button
-              type="button"
-              className="status-btn"
-              data-testid="review-queue-button"
-              onClick={onOpenReview}
-              disabled
-              title="Review is not available yet."
-            >
-              <Inbox size={13} /> Review
-              <span className="badge">{reviewCount.toLocaleString()}</span>
-            </button>
-          </>
-        )}
+        <span className="status-sep" />
+        <button
+          type="button"
+          className="status-btn"
+          data-testid="review-queue-button"
+          onClick={onOpenReview}
+          title="Open review queue"
+        >
+          <Inbox size={13} /> Review
+          {reviewCount > 0 && <span className="badge">{reviewCount.toLocaleString()}</span>}
+        </button>
       </div>
     </footer>
     </>

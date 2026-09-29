@@ -843,6 +843,32 @@ export function isOverlayEditable(cell: GridCell): boolean {
   return Boolean(cell.allowOverlay) && !(cell as { readonly?: boolean }).readonly;
 }
 
+/**
+ * Keep empty logical lines from corrupting Glide's shared wrapping metrics.
+ *
+ * Glide 6 delegates Text-cell layout to canvas-hypertxt 1.0.3. Its first
+ * measurement of an empty newline segment stores `0 / 0` as the font's
+ * average character width. Since that cache is shared, every later paragraph
+ * using the font is then accepted as narrower than its cell and drawn whole.
+ * A display-only space gives the dependency a finite measurement while its
+ * own trimming still renders the line as empty. Cell data remains untouched
+ * for copying, editing, and accessibility.
+ */
+export function withWrapSafeDisplayData(cell: GridCell): GridCell {
+  if (
+    cell.kind !== GridCellKind.Text ||
+    cell.allowWrapping !== true ||
+    !cell.displayData.includes('\n')
+  ) {
+    return cell;
+  }
+  const displayData = cell.displayData
+    .split('\n')
+    .map((line) => (/^\r?$/.test(line) ? `${line} ` : line))
+    .join('\n');
+  return displayData === cell.displayData ? cell : { ...cell, displayData };
+}
+
 /** Whether a keydown on the currently-selected cell should open the row
  *  drawer, given the raw key and whether that SPECIFIC cell (isOverlayEditable
  *  above) is overlay-editable right now:

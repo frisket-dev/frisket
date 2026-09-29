@@ -1303,6 +1303,20 @@ const WorkspaceInspectDetailRegion = memo(function WorkspaceInspectDetailRegion(
   const selection = useSelectionHandle();
   const selectedColumnId = useSelector(selection.store, (s) => s.selectedColumnId);
   const titleColumnOrder = useTitleColumnOrder(sheet);
+  // A row fetch briefly clears rowDrawer, which unmounts the Detail column.
+  // Keep field disclosure state in this resident region so walking rows does
+  // not discard it; this remains session-local, not a browser preference.
+  const [expandedRunResultFields, setExpandedRunResultFields] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const toggleRunResultField = useCallback((fieldKey: string) => {
+    setExpandedRunResultFields((previous) => {
+      const next = new Set(previous);
+      if (next.has(fieldKey)) next.delete(fieldKey);
+      else next.add(fieldKey);
+      return next;
+    });
+  }, []);
 
   const renderRowDetailContribution = useCallback(
     (contribution: WorkbenchResolvedLayoutContribution) => {
@@ -1351,6 +1365,8 @@ const WorkspaceInspectDetailRegion = memo(function WorkspaceInspectDetailRegion(
         onOpenInDocumentView={(columnId) => openRowInDocumentView(String(rowDrawer.id), columnId)}
         onRetryCell={onRetryCell}
         titleColumnOrder={titleColumnOrder}
+        expandedRunResultFields={expandedRunResultFields}
+        onToggleRunResultField={toggleRunResultField}
       />
     </section>
   );

@@ -60,6 +60,9 @@ test('cell activation opens the drawer with justification + provenance', async (
   // Note: provenance model/recipe names are only known for runs started in
   // this browser session (src/api/real.ts colRunInfo) — for seeded runs the
   // block still renders, with confidence + justification carrying the weight.
+  const runResultToggle = drawer.getByTestId('cell-provenance-run-result-toggle').first();
+  await expect(runResultToggle).toHaveAttribute('aria-expanded', 'false');
+  await runResultToggle.click();
   await expect(drawer.getByTestId('cell-provenance').first()).toContainText('confidence');
 });
 

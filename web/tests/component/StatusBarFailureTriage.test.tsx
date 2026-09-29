@@ -179,20 +179,25 @@ describe('StatusBar queued-run feedback', () => {
 });
 
 describe('StatusBar review entry point', () => {
-  it('stays out of the idle status bar when there is nothing to review', () => {
-    renderBar(finishedRun(), { reviewCount: 0 });
-    expect(screen.queryByTestId('review-queue-button')).not.toBeInTheDocument();
+  it('opens the queue without a badge when there is nothing pending', () => {
+    const onOpenReview = vi.fn();
+    renderBar(finishedRun(), { reviewCount: 0, onOpenReview });
+    const button = screen.getByTestId('review-queue-button');
+    expect(button).toBeEnabled();
+    expect(button.querySelector('.badge')).toBeNull();
+    fireEvent.click(button);
+    expect(onOpenReview).toHaveBeenCalledOnce();
   });
 
-  it('appears disabled with its count when review work is pending', () => {
+  it('opens the queue with its count when review work is pending', () => {
     const onOpenReview = vi.fn();
     renderBar(finishedRun(), { reviewCount: 3, onOpenReview });
     const button = screen.getByTestId('review-queue-button');
     expect(button).toHaveTextContent('Review');
     expect(button).toHaveTextContent('3');
-    expect(button).toBeDisabled();
-    expect(button).toHaveAttribute('title', 'Review is not available yet.');
+    expect(button).toBeEnabled();
+    expect(button).toHaveAttribute('title', 'Open review queue');
     fireEvent.click(button);
-    expect(onOpenReview).not.toHaveBeenCalled();
+    expect(onOpenReview).toHaveBeenCalledOnce();
   });
 });

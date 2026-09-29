@@ -11,11 +11,13 @@
 
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { useState } from 'react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { RowField } from '../../src/components/RowDrawer';
+import { RowDrawerBody, RowField } from '../../src/components/RowDrawer';
 import { createProjectApi } from '../../src/api/real';
 import type { CellProvenance } from '../../src/api/types';
+import { sheetMeta } from '../support/actionFormFixtures';
 import { aiMeta, columnDef, row } from '../support/domainFixtures';
 import { installPopoverPolyfill } from '../support/domPolyfills';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
@@ -77,7 +79,7 @@ function openExplainPanelAt(rect: Partial<DOMRect>): { field: HTMLElement; panel
     },
   };
   render(
-    <RowField
+    <RowField runResultExpanded={false} onToggleRunResult={() => {}}
       col={col}
       columns={[col]}
       row={row({ topic: 'infrastructure' }, { provenance })}
@@ -94,10 +96,104 @@ function openExplainPanelAt(rect: Partial<DOMRect>): { field: HTMLElement; panel
 }
 
 describe('row drawer field action rail', () => {
+  it('keeps each run-result disclosure open independently while switching rows', () => {
+    const topic = columnDef({ id: 'topic', name: 'topic', type: 'text', ai: aiMeta() });
+    const summary = columnDef({ id: 'summary', name: 'summary', type: 'text', ai: aiMeta() });
+    const provenance = (rowId: string): Record<string, CellProvenance> => ({
+      topic: {
+        currentValueRef: { kind: 'run_result', rowId, columnId: 'topic', runId: 'run-topic', opId: null },
+        model: 'gemini/gemini-2.5-flash',
+        actionName: 'Classify topic',
+        cost: 0.01,
+        confidence: 0.92,
+        justification: 'Topic explanation remains useful without expanding the run facts.',
+        runId: 'run-topic',
+      },
+      summary: {
+        currentValueRef: { kind: 'run_result', rowId, columnId: 'summary', runId: 'run-summary', opId: null },
+        model: 'gemini/gemini-2.5-flash',
+        actionName: 'Summarize',
+        cost: 0.02,
+        confidence: 0.81,
+        justification: '',
+        runId: 'run-summary',
+      },
+    });
+    const drawerSheet = sheetMeta([topic, summary]);
+    const rowOne = row(
+      { topic: 'Infrastructure', summary: 'Road repair contract' },
+      { id: 'row-1', provenance: provenance('row-1') },
+    );
+    const rowTwo = row(
+      { topic: 'Education', summary: 'School board meeting' },
+      { id: 'row-2', provenance: provenance('row-2') },
+    );
+    function DisclosureOwner({ currentRow, visible = true }: { currentRow: typeof rowOne; visible?: boolean }) {
+      const [expandedFields, setExpandedFields] = useState<ReadonlySet<string>>(() => new Set());
+      const toggle = (fieldKey: string) => {
+        setExpandedFields((previous) => {
+          const next = new Set(previous);
+          if (next.has(fieldKey)) next.delete(fieldKey);
+          else next.add(fieldKey);
+          return next;
+        });
+      };
+      return visible ? (
+        <RowDrawerBody
+          projectId="row-field-test"
+          sheet={drawerSheet}
+          row={currentRow}
+          onEdit={noopEdit}
+          expandedRunResultFields={expandedFields}
+          onToggleRunResultField={toggle}
+        />
+      ) : null;
+    }
+    const draw = (currentRow: typeof rowOne, visible = true) => (
+      <DisclosureOwner currentRow={currentRow} visible={visible} />
+    );
+    const view = render(draw(rowOne));
+    const topicField = screen.getByTestId('row-field-topic');
+    const summaryField = screen.getByTestId('row-field-summary');
+    const topicToggle = within(topicField).getByTestId('cell-provenance-run-result-toggle');
+    const summaryToggle = within(summaryField).getByTestId('cell-provenance-run-result-toggle');
+
+    expect(topicToggle).toHaveAttribute('aria-expanded', 'false');
+    expect(summaryToggle).toHaveAttribute('aria-expanded', 'false');
+    expect(within(topicField).queryByText('Classify topic')).toBeNull();
+    expect(within(topicField).getByTestId('prov-justification')).toHaveTextContent(
+      'Topic explanation remains useful',
+    );
+
+    fireEvent.click(topicToggle);
+    expect(topicToggle).toHaveAttribute('aria-expanded', 'true');
+    expect(summaryToggle).toHaveAttribute('aria-expanded', 'false');
+    expect(within(topicField).getByText('Classify topic')).toBeInTheDocument();
+
+    // The production row fetch has this same transient null gap: the drawer
+    // body unmounts but the resident owner remains mounted.
+    view.rerender(draw(rowTwo, false));
+    expect(screen.queryByTestId('row-field-topic')).toBeNull();
+    view.rerender(draw(rowTwo));
+    const switchedTopic = screen.getByTestId('row-field-topic');
+    const switchedSummary = screen.getByTestId('row-field-summary');
+    expect(within(switchedTopic).getByTestId('cell-provenance-run-result-toggle'))
+      .toHaveAttribute('aria-expanded', 'true');
+    expect(within(switchedSummary).getByTestId('cell-provenance-run-result-toggle'))
+      .toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.click(within(switchedSummary).getByTestId('cell-provenance-run-result-toggle'));
+    view.rerender(draw(rowOne));
+    expect(within(screen.getByTestId('row-field-topic')).getByTestId('cell-provenance-run-result-toggle'))
+      .toHaveAttribute('aria-expanded', 'true');
+    expect(within(screen.getByTestId('row-field-summary')).getByTestId('cell-provenance-run-result-toggle'))
+      .toHaveAttribute('aria-expanded', 'true');
+  });
+
   it('reveals copy + edit icon actions on hover for a raw column, hidden otherwise', () => {
     const col = columnDef({ id: 'snippet', name: 'snippet', type: 'text' });
     render(
-      <RowField
+      <RowField runResultExpanded={false} onToggleRunResult={() => {}}
         col={col}
         columns={[col]}
         row={row({ snippet: 'City hall awarded a paving contract.' })}
@@ -137,7 +233,7 @@ describe('row drawer field action rail', () => {
     };
     const onEdit = vi.fn(() => Promise.resolve());
     render(
-      <RowField
+      <RowField runResultExpanded={false} onToggleRunResult={() => {}}
         col={col}
         columns={[col]}
         row={row({ cuts: value })}
@@ -178,7 +274,7 @@ describe('row drawer field action rail', () => {
     };
     const onEdit = vi.fn(() => Promise.resolve());
     render(
-      <RowField
+      <RowField runResultExpanded={false} onToggleRunResult={() => {}}
         col={col}
         columns={[col]}
         row={row({ moment: value })}
@@ -216,7 +312,7 @@ describe('row drawer field action rail', () => {
     });
     const onEdit = vi.fn(() => Promise.resolve());
     render(
-      <RowField
+      <RowField runResultExpanded={false} onToggleRunResult={() => {}}
         col={col}
         columns={[col]}
         row={row({ topics: value })}
@@ -256,7 +352,7 @@ describe('row drawer field action rail', () => {
       },
     };
     render(
-      <RowField
+      <RowField runResultExpanded={false} onToggleRunResult={() => {}}
         col={col}
         columns={[col]}
         row={row({ topic: 'infrastructure' }, { provenance })}
@@ -358,7 +454,7 @@ describe('row drawer terminal empty_output retry', () => {
     let settle!: () => void;
     const onRetryCell = vi.fn(() => new Promise<void>((resolve) => { settle = resolve; }));
     render(
-      <RowField
+      <RowField runResultExpanded={false} onToggleRunResult={() => {}}
         col={col}
         columns={[col]}
         row={emptyOutputRow()}
@@ -387,7 +483,7 @@ describe('row drawer terminal empty_output retry', () => {
   it('does not offer retry for a retryable model_error failure', () => {
     const col = aiCol();
     render(
-      <RowField
+      <RowField runResultExpanded={false} onToggleRunResult={() => {}}
         col={col}
         columns={[col]}
         row={row(
@@ -409,7 +505,7 @@ describe('row drawer terminal empty_output retry', () => {
   it('does not render without an onRetryCell handler', () => {
     const col = aiCol();
     render(
-      <RowField col={col} columns={[col]} row={emptyOutputRow()} selected onEdit={noopEdit} />,
+      <RowField runResultExpanded={false} onToggleRunResult={() => {}} col={col} columns={[col]} row={emptyOutputRow()} selected onEdit={noopEdit} />,
     );
     expect(screen.queryByTestId('cell-retry-translation')).toBeNull();
   });

@@ -38,6 +38,9 @@ export interface InspectDetailColumnProps {
    *  default-column input to `rowTitle()`. Absent/empty falls back to
    *  canonical column order. */
   titleColumnOrder?: readonly string[];
+  /** Session-local run-result disclosures, owned above the transient row fetch. */
+  expandedRunResultFields: ReadonlySet<string>;
+  onToggleRunResultField(fieldKey: string): void;
 }
 
 /**
@@ -65,6 +68,8 @@ export function InspectDetailColumn({
   onOpenInDocumentView,
   onRetryCell,
   titleColumnOrder,
+  expandedRunResultFields,
+  onToggleRunResultField,
 }: InspectDetailColumnProps) {
   const title = preview ? `${preview.column.name} · Preview` : rowTitle(sheet, row, { columnOrder: titleColumnOrder });
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -177,6 +182,7 @@ export function InspectDetailColumn({
         ) : (
           <RowDrawerBody
             sheet={sheet}
+            projectId={projectId}
             row={row}
             selectedColumnId={selectedColumnId}
             onEdit={onEdit}
@@ -185,6 +191,8 @@ export function InspectDetailColumn({
             onOpenInDocumentView={onOpenInDocumentView}
             onRetryCell={onRetryCell}
             bodyRef={bodyRef}
+            expandedRunResultFields={expandedRunResultFields}
+            onToggleRunResultField={onToggleRunResultField}
           />
         )}
       </div>
