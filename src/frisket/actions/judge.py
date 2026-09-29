@@ -31,6 +31,7 @@ class JudgeParams(ActionParams):
     guidelines: StrictStr = Field(
         title="Guidelines",
         description="Describe what a correct answer must satisfy.",
+        json_schema_extra={"x-frisket-input": "textarea"},
     )
     include_original_prompt: bool = Field(
         default=False,

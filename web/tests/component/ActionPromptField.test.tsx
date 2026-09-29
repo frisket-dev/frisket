@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ActionPromptField } from '../../src/components/action-panel/ActionPromptField';
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('ActionPromptField', () => {
   it('preserves the explicit field identity, shared classes, rows, and controlled change contract', () => {
@@ -92,7 +92,7 @@ describe('ActionPromptField', () => {
   });
 
   it('includes the border when fitting content to a border-box control', () => {
-    render(<ActionPromptField label="Prompt" value="Short prompt" onChange={() => {}} />);
+    render(<ActionPromptField label="Prompt" value="Short prompt" rows={5} onChange={() => {}} />);
     const textarea = screen.getByTestId('action-prompt');
     Object.defineProperties(textarea, {
       scrollHeight: { get: () => 72 },
@@ -101,5 +101,17 @@ describe('ActionPromptField', () => {
     });
     fireEvent.input(textarea);
     expect(textarea).toHaveStyle({ height: '74px' });
+  });
+
+  it('lets native field sizing own height without measuring the textarea', () => {
+    vi.stubGlobal('CSS', { supports: () => true });
+    render(<ActionPromptField label="Prompt" value="Short prompt" rows={5} onChange={() => {}} />);
+    const textarea = screen.getByTestId('action-prompt');
+    const measured = vi.fn(() => 72);
+    Object.defineProperty(textarea, 'scrollHeight', { get: measured });
+    textarea.style.height = '72px';
+    fireEvent.input(textarea);
+    expect(textarea.style.height).toBe('');
+    expect(measured).not.toHaveBeenCalled();
   });
 });

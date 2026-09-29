@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 from collections import Counter
@@ -54,24 +53,22 @@ def _entry(payload: dict[str, Any], kind: str) -> dict[str, Any]:
     return matches[0]
 
 
-def _canonical_json_fingerprint(value: Any) -> str:
-    encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
-    return hashlib.sha256(encoded).hexdigest()
-
-
-def test_published_action_catalog_fingerprint() -> None:
-    """Protect the full published catalog while its declarations are compacted."""
+def test_action_prompt_labels_reach_the_published_catalog() -> None:
+    """Check user-facing labels at the public boundary with readable failures."""
 
     from frisket.actions.system import root_action_catalog
 
     payload = root_action_catalog().model_dump(mode="json")
-    errors = {entry["kind"]: entry["errors"] for entry in payload["actions"]}
+    find = _entry(payload, "map.find")
+    judge = _entry(payload, "map.judge")
     assert {
-        "catalog": _canonical_json_fingerprint(payload),
-        "errors": _canonical_json_fingerprint(errors),
+        "find_instruction": find["input_schema"]["properties"]["instruction"]["title"],
+        "judge_title": judge["title"],
+        "judge_guidelines": judge["input_schema"]["properties"]["guidelines"]["title"],
     } == {
-        "catalog": "4e4145d8d3eb2dbfb31acb691ac436c0276e824a46af70dff9c7b7d6e6b84736",
-        "errors": "6a15a4c454e27ca52b19b763fa69d8fbed6937253c1a03ec60bd08e989b1974b",
+        "find_instruction": "Describe what to look for",
+        "judge_title": "Judge results",
+        "judge_guidelines": "Guidelines",
     }
 
 

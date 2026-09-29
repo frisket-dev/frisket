@@ -20,6 +20,19 @@ ROOT = Path(__file__).resolve().parents[1]
 TSC = ROOT / "web" / "node_modules" / ".bin" / "tsc"
 
 
+def test_textarea_annotation_preserves_the_declared_type() -> None:
+    schema = {
+        "type": "object",
+        "properties": {"guidelines": {"type": "string", "minLength": 1}},
+        "required": ["guidelines"],
+    }
+    annotated = deepcopy(schema)
+    annotated["properties"]["guidelines"]["x-frisket-input"] = "textarea"
+    assert render_typescript_declaration(
+        annotated, type_name="JudgeParams"
+    ) == render_typescript_declaration(schema, type_name="JudgeParams")
+
+
 def _record(type_name: str, schema: object) -> dict[str, object]:
     return {"typeName": type_name, "schema": schema}
 

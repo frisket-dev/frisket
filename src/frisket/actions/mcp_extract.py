@@ -20,8 +20,14 @@ from frisket.actions.types import ActionParams, DynamicOutput, ModelRef, Row, Ro
 class McpExtractParams(ActionParams):
     source: RichSource
     model: ModelRef
-    instruction: StrictStr = ""
-    context: StrictStr = ""
+    instruction: StrictStr = Field(
+        default="",
+        json_schema_extra={"x-frisket-input": "textarea"},
+    )
+    context: StrictStr = Field(
+        default="",
+        json_schema_extra={"x-frisket-input": "textarea"},
+    )
     fields: list[ExtractField] = Field(min_length=1, max_length=64)
     include_confidence: bool = False
     mcp_server_ids: McpServers

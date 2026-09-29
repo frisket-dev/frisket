@@ -58,7 +58,10 @@ class NerParams(ActionParams):
     engine: EngineRef[NerExtractor] = EngineRef[NerExtractor](DEFAULT_NER_ENGINE)
     threshold: float = Field(default=0.5, ge=0, le=1)
     model: ModelRef | None = None
-    extra_instructions: StrictStr = ""
+    extra_instructions: StrictStr = Field(
+        default="",
+        json_schema_extra={"x-frisket-input": "textarea"},
+    )
 
     @field_validator("source")
     @classmethod

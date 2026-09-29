@@ -59,6 +59,7 @@ class ClassifyParams(ActionParams):
     context: StrictStr = Field(
         default="",
         description="Optional context about the dataset.",
+        json_schema_extra={"x-frisket-input": "textarea"},
     )
     fields: list[ClassifyField] = Field(min_length=1, max_length=64)
     include_justification: bool = False

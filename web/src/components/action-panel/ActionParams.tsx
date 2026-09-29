@@ -541,7 +541,7 @@ export function ParamInput({
           id={id}
           className="form-input form-textarea form-textarea-autogrow"
           ref={resizeTextareaToContent}
-          rows={4}
+          rows={5}
           style={style}
           value={value}
           placeholder={param.placeholder}

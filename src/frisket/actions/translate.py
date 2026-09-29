@@ -61,7 +61,9 @@ class TranslateParams(TranslationOptions):
     engine: EngineRef[Translator] = EngineRef[Translator]("llm")
     model: ModelRef | None = None
     context: StrictStr = Field(
-        default="", description="Optional dataset context for LLM translation."
+        default="",
+        description="Optional dataset context for LLM translation.",
+        json_schema_extra={"x-frisket-input": "textarea"},
     )
 
     @field_validator("source")
