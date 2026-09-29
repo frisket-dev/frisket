@@ -103,6 +103,25 @@ export async function alivePids(pids) {
   return Array.isArray(result) ? result : [result];
 }
 
+/** Identify Windows process instances without logging arguments or credentials. */
+export async function windowsProcessDetails(pids) {
+  if (process.platform !== 'win32' || !pids.length) return [];
+  const ids = pids.map(Number).join(',');
+  const result = await powershellJson(`
+    $ids = @(${ids})
+    @(Get-CimInstance -ClassName Win32_Process | Where-Object { $ids -contains [int]$_.ProcessId } |
+      ForEach-Object {
+        [PSCustomObject]@{
+          pid = [int]$_.ProcessId
+          parent = [int]$_.ParentProcessId
+          name = $_.Name
+          started = $_.CreationDate.ToUniversalTime().ToString('O')
+        }
+      }) | ConvertTo-Json -Compress
+  `);
+  return Array.isArray(result) ? result : [result];
+}
+
 export async function runningExecutable(executable) {
   if (process.platform !== 'win32') return [];
   if (!path.isAbsolute(executable)) throw new Error('Expected an absolute executable path.');

@@ -2,7 +2,7 @@ import { test, expect, _electron } from '@playwright/test';
 import { readFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import {
-  alivePids, assertInstalledPlatform, descendants, installedExecutable, listeningPorts,
+  alivePids, assertInstalledPlatform, descendants, installedExecutable, listeningPorts, windowsProcessDetails,
 } from './installed-platform.mjs';
 
 const appPath = process.env.FRISKET_DESKTOP_APP;
@@ -52,7 +52,7 @@ async function launch(testInfo) {
       await disclosure.getByRole('checkbox').uncheck();
       await disclosure.getByRole('button', { name: 'Continue' }).click();
     }
-    return { electron, page, rendererErrors };
+    return { electron, page, rendererErrors, stderr: () => stderr };
   } catch (error) {
     await testInfo.attach('startup-stderr', { body: stderr, contentType: 'text/plain' });
     await testInfo.attach('startup-browser', {
@@ -64,20 +64,31 @@ async function launch(testInfo) {
   }
 }
 
-async function quit(electron, closeWindow = false) {
+async function quit({ electron, stderr }, testInfo, closeWindow = false) {
   // Playwright disposes the Electron channel when the process exits.
   const child = electron.process();
   const pids = await descendants(child.pid);
-  if (closeWindow) {
-    // Exercise the native close button, which app.quit() bypasses.
-    await electron.evaluate(({ BrowserWindow }) => {
-      setImmediate(() => BrowserWindow.getAllWindows()[0]?.close());
+  const before = await windowsProcessDetails(pids);
+  try {
+    if (closeWindow) {
+      // Exercise the native close button, which app.quit() bypasses.
+      await electron.evaluate(({ BrowserWindow }) => {
+        setImmediate(() => BrowserWindow.getAllWindows()[0]?.close());
+      });
+      await expect.poll(() => child.exitCode, { timeout: 20_000 }).toBe(0);
+    } else {
+      await electron.close();
+    }
+    await expect.poll(() => alivePids(pids), { timeout: 20_000 }).toEqual([]);
+  } finally {
+    await testInfo.attach(closeWindow ? 'window-close' : 'app-quit', {
+      contentType: 'application/json',
+      body: JSON.stringify({
+        pids, before, after: await windowsProcessDetails(pids),
+        exitCode: child.exitCode, signalCode: child.signalCode, stderr: stderr(),
+      }, null, 2),
     });
-    await expect.poll(() => child.exitCode, { timeout: 20_000 }).toBe(0);
-  } else {
-    await electron.close();
   }
-  await expect.poll(() => alivePids(pids), { timeout: 20_000 }).toEqual([]);
 }
 
 async function openRegex(page) {
@@ -179,7 +190,7 @@ test('installed app imports, runs its worker, exports, quits and reopens', async
     await page.getByTestId('export-dataset-download').click();
     await expect.poll(async () => readFile(exportPath, 'utf8').catch(() => ''), { timeout: 20_000 }).toContain('$4,200');
     expect(first.rendererErrors).toEqual([]);
-    await quit(running);
+    await quit(first, testInfo);
     running = undefined;
 
     const second = await launch(testInfo);
@@ -189,7 +200,7 @@ test('installed app imports, runs its worker, exports, quits and reopens', async
     expect(extracted(await sheet(second.page, projectId, sheetId))).toBe('$4,200');
     await second.page.screenshot({ path: testInfo.outputPath('reopened-project.png') });
     expect(second.rendererErrors).toEqual([]);
-    await quit(running, true);
+    await quit(second, testInfo, true);
     running = undefined;
   } finally {
     if (running) await running.close().catch(() => {});

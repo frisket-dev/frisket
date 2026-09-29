@@ -5,6 +5,7 @@ export default defineConfig({
   testMatch: 'installed.spec.mjs',
   workers: 1,
   retries: 0,
+  repeatEach: 5,
   captureGitInfo: { commit: false, diff: false },
   timeout: 600_000,
   expect: { timeout: 20_000 },
