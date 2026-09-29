@@ -446,9 +446,10 @@ const GRID_FILTER_SUMMARY_VALUE_LIMIT = 80;
 
 function summaryFilterValue(value: unknown): string {
   const text = String(value);
-  return text.length <= GRID_FILTER_SUMMARY_VALUE_LIMIT
+  const characters = Array.from(text);
+  return characters.length <= GRID_FILTER_SUMMARY_VALUE_LIMIT
     ? text
-    : `${text.slice(0, GRID_FILTER_SUMMARY_VALUE_LIMIT - 1)}…`;
+    : `${characters.slice(0, GRID_FILTER_SUMMARY_VALUE_LIMIT - 1).join('')}…`;
 }
 
 /** Chip text for an `entity_eq` filter. It must say WHICH of the three

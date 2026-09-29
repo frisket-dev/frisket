@@ -295,6 +295,13 @@ describe('gridFilterSummaryLabel — active-grid display clamp', () => {
     expect(gridFilterSummaryLabel({ tags: { in: [first, second] } }))
       .toBe(`tags is ${'a'.repeat(79)}… or ${'b'.repeat(79)}…`);
   });
+
+  it('keeps Unicode characters intact at the truncation boundary', () => {
+    expect(gridFilterSummaryLabel({ text: { contains: '😀'.repeat(81) } }))
+      .toBe(`text contains ${'😀'.repeat(79)}…`);
+    expect(gridFilterSummaryLabel({ text: { contains: '😀'.repeat(80) } }))
+      .toBe(`text contains ${'😀'.repeat(80)}`);
+  });
 });
 
 describe('entity_eq stays out of the scalar filter editor', () => {
