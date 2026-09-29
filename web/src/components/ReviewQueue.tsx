@@ -18,6 +18,7 @@ import {
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { confClass } from '../format';
 import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
+import { ReviewSourcePreview, reviewPdfMedia } from './review/ReviewSourcePreview';
 
 export interface ReviewQueueProps {
   /** Restrict the queue to one persisted action run. The global inbox omits it. */
@@ -340,44 +341,6 @@ const FIELD_SELECT_BUTTON_STYLE: CSSProperties = {
   width: '100%',
 };
 
-const REVIEW_SPLIT_STYLE: CSSProperties = {
-  alignItems: 'stretch',
-  background: 'transparent',
-  border: 0,
-  borderRadius: 0,
-  boxShadow: 'none',
-  display: 'grid',
-  gap: 16,
-  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))',
-  padding: 0,
-  width: 'min(1080px, 100%)',
-};
-
-const REVIEW_PANEL_STYLE: CSSProperties = {
-  background: 'var(--bg-panel)',
-  border: '1px solid var(--border)',
-  borderRadius: 8,
-  boxShadow: '0 4px 20px rgba(20, 26, 40, 0.05)',
-  minWidth: 0,
-  padding: '18px 20px',
-};
-
-const REVIEW_SOURCE_VALUE_STYLE: CSSProperties = {
-  color: 'var(--text)',
-  fontSize: 15,
-  fontWeight: 650,
-  lineHeight: 1.4,
-  overflowWrap: 'anywhere',
-  whiteSpace: 'pre-wrap',
-};
-
-const REVIEW_PANEL_TITLE_STYLE: CSSProperties = {
-  fontSize: 12,
-  fontWeight: 800,
-  letterSpacing: 0,
-  textTransform: 'uppercase',
-};
-
 function statusStyle(field: ReviewBundleField): CSSProperties {
   const color =
     field.reviewState === 'verified'
@@ -540,6 +503,7 @@ interface ReviewQueueController {
   reviewNote: string;
   resolving: boolean;
   resolvingFieldId: string | null;
+  projectId: string;
   resolve(
     target: ReviewBundleField | undefined,
     action: ReviewAction,
@@ -554,7 +518,7 @@ function useReviewQueueController({
   onClose,
   runId,
 }: ReviewQueueProps): ReviewQueueController {
-  const { projectApi: api } = useWorkspaceStores();
+  const { projectApi: api, chromePreferences } = useWorkspaceStores();
   const [state, dispatch] = useReducer(reviewQueueReducer, REVIEW_QUEUE_INITIAL_STATE);
   const [includeReviewed, setIncludeReviewed] = useState(false);
   const pageRequestRef = useRef(0);
@@ -720,6 +684,7 @@ function useReviewQueueController({
     reviewNote,
     resolving,
     resolvingFieldId,
+    projectId: chromePreferences.projectId,
     resolve,
     setIncludeReviewed,
     sourceEntries,
@@ -748,8 +713,13 @@ function ReviewStage({ controller }: { controller: ReviewQueueController }) {
       <div className="review-position muted">
         {cursor + 1} of {bundles.length} bundles · {bundle.sheetName} · row {bundle.rowIndex + 1}
       </div>
-      <div className="review-card" data-testid="review-card" style={REVIEW_SPLIT_STYLE}>
-        <ReviewSourcePanel bundle={bundle} sourceEntries={controller.sourceEntries} />
+      <div className="review-card" data-testid="review-card">
+        <ReviewSourcePanel
+          bundle={bundle}
+          sourceEntries={controller.sourceEntries}
+          projectId={controller.projectId}
+          activeField={controller.field}
+        />
         <ReviewOutputPanel bundle={bundle} controller={controller} />
       </div>
     </div>
@@ -759,57 +729,76 @@ function ReviewStage({ controller }: { controller: ReviewQueueController }) {
 function ReviewSourcePanel({
   bundle,
   sourceEntries,
+  projectId,
+  activeField,
 }: {
   bundle: ReviewBundle;
   sourceEntries: Array<[string, CellValue]>;
+  projectId: string;
+  activeField: ReviewBundleField | undefined;
 }) {
+  const [sourcePreviewVisible, setSourcePreviewVisible] = useState(false);
+  const sourceFields = sourceEntries.map(([name, value]) => ({
+    name,
+    value,
+    media: reviewPdfMedia(value, projectId),
+  }));
+  const sourcePdf = sourceFields.find((field) => field.media)?.media ?? null;
   return (
     <section
+      className="review-panel review-source-panel"
       data-testid="review-source-panel"
       aria-label="Source data and evidence"
-      style={REVIEW_PANEL_STYLE}
     >
       <div
         className="review-context"
         data-testid="review-bundle-context"
         style={{ borderBottom: 0, marginBottom: 0, paddingBottom: 0 }}
       >
-        <div style={REVIEW_PANEL_TITLE_STYLE}>Source data</div>
+        <div className="review-panel-title">Source data</div>
         <div className="muted" style={{ marginTop: 4 }}>
           Action input fields for this row
         </div>
-        <div data-testid="review-source-fields" style={{ display: 'grid', gap: 10, marginTop: 12 }}>
-          {sourceEntries.length > 0 ? (
-            sourceEntries.map(([name, value]) => (
+        <ReviewSourcePreview
+          key={activeField?.id ?? 'no-active-field'}
+          activeField={activeField}
+          sourcePdf={sourcePdf}
+          onVisibilityChange={setSourcePreviewVisible}
+        />
+        <details className="review-source-fields" data-testid="review-source-fields" open={!sourcePreviewVisible}>
+          <summary className="muted">Source fields</summary>
+          {sourceFields.length > 0 ? (
+            sourceFields.map(({ name, value, media }) => (
               <div
                 key={name}
+                className="review-source-field"
                 data-testid={`review-source-field-${name}`}
-                style={{
-                  borderTop: '1px solid var(--bg-hover)',
-                  display: 'grid',
-                  gap: 4,
-                  paddingTop: 10,
-                }}
               >
                 <span className="muted" style={{ fontSize: 12, fontWeight: 700 }}>{name}</span>
-                <span style={REVIEW_SOURCE_VALUE_STYLE}>{reviewCellText(value)}</span>
+                {media ? (
+                  <span className="review-source-document-label">{media.filename ?? media.label}</span>
+                ) : (
+                  <span className="review-source-value">{reviewCellText(value)}</span>
+                )}
               </div>
             ))
           ) : (
             <span className="muted">No source fields in this bundle.</span>
           )}
-        </div>
+        </details>
       </div>
-      {bundle.evidence.length > 0 && <ReviewEvidenceFields bundle={bundle} />}
+      {bundle.evidence.length > 0 && (
+        <ReviewEvidenceFields bundle={bundle} open={!sourcePreviewVisible} />
+      )}
     </section>
   );
 }
 
-function ReviewEvidenceFields({ bundle }: { bundle: ReviewBundle }) {
+function ReviewEvidenceFields({ bundle, open }: { bundle: ReviewBundle; open: boolean }) {
   return (
     <details
       data-testid="review-evidence"
-      open
+      open={open}
       style={{
         borderTop: '1px solid var(--bg-hover)',
         marginTop: 16,
@@ -817,6 +806,7 @@ function ReviewEvidenceFields({ bundle }: { bundle: ReviewBundle }) {
       }}
     >
       <summary className="muted">Evidence fields from the same run</summary>
+      <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
       <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
         {bundle.evidence.map((evidence) => (
           <div key={evidence.id} style={{ display: 'grid', gap: 3 }}>
@@ -826,6 +816,7 @@ function ReviewEvidenceFields({ bundle }: { bundle: ReviewBundle }) {
             </span>
           </div>
         ))}
+      </div>
       </div>
     </details>
   );
@@ -840,16 +831,18 @@ function ReviewOutputPanel({
 }) {
   return (
     <section
+      className="review-panel review-output-panel"
       data-testid="review-output-panel"
       aria-label="Proposed output fields and review controls"
-      style={{ ...REVIEW_PANEL_STYLE, display: 'flex', flexDirection: 'column' }}
     >
-      <div style={REVIEW_PANEL_TITLE_STYLE}>Proposed output</div>
+      <div className="review-panel-title">Proposed output</div>
       <ReviewFieldsList bundle={bundle} controller={controller} />
       <div className="review-meta" style={{ flexWrap: 'wrap' }}>
-        <span className={`conf-pill ${confClass(bundle.confidence)}`}>
-          bundle min confidence {bundle.confidence.toFixed(2)}
-        </span>
+        {bundle.confidence !== null && (
+          <span className={`conf-pill ${confClass(bundle.confidence)}`}>
+            bundle min confidence {bundle.confidence.toFixed(2)}
+          </span>
+        )}
         <span className="muted">{actionMetaLabel(bundle.actionName)} · {bundle.model}</span>
       </div>
       <ReviewActionBar controller={controller} />
@@ -866,6 +859,7 @@ function ReviewFieldsList({
 }) {
   return (
     <div
+      className="review-fields-list"
       data-testid="review-bundle-fields"
       aria-label="Review fields in this row"
       style={{ marginTop: 2 }}
@@ -922,9 +916,11 @@ function ReviewFieldCard({
           {candidate.changed && (
             <span className="muted" data-testid="review-field-changed">edited</span>
           )}
-          <span className={`conf-pill ${confClass(candidate.confidence)}`}>
-            confidence {candidate.confidence.toFixed(2)}
-          </span>
+          {candidate.confidence !== null && (
+            <span className={`conf-pill ${confClass(candidate.confidence)}`}>
+              confidence {candidate.confidence.toFixed(2)}
+            </span>
+          )}
         </span>
         <span className="review-value" style={{ display: 'block', marginTop: 8 }}>
           <ReviewFieldValue field={candidate} />

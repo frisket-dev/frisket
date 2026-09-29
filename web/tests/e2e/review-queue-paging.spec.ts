@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { createProject, importCsv, openProject, uniqueName } from './helpers';
+import { createProject, importCsv, openProject, textPdf, uniqueName } from './helpers';
 
 type WireReviewBundle = {
   id: string;
@@ -213,4 +213,89 @@ test('review overlay pages bundles and refreshes global count after decisions', 
       column_id: 2,
     },
   });
+});
+
+test('review keeps a same-row PDF and long proposed values inside a bounded, scrollable surface', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const pid = await createProject(page.request, uniqueName('e2e-review-layout'));
+  const sheetId = await importCsv(page.request, pid, 'stories.csv', 'story\n"Story 1"\n');
+  const pdfHash = 'a'.repeat(64);
+  const longValue = Array.from({ length: 160 }, () => 'A deliberately long reviewed output remains scrollable.').join(' ');
+
+  await page.route(`**/api/projects/${pid}/review/count`, async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 1 }) });
+  });
+  await page.route(`**/api/projects/${pid}/review/bundles**`, async (route) => {
+    const body = pageBody(0, 25, [1], sheetId);
+    body.bundles[0].source = {
+      story: 'Story 1',
+      filing: JSON.stringify({ blob: pdfHash, filename: 'filing.pdf', mime: 'application/pdf' }),
+    };
+    body.bundles[0].fields[0].value = longValue;
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  });
+  await page.route(`**/api/projects/${pid}/cells/1/2/evidence`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        schema_version: 'frisket.cell_evidence.v1',
+        sheet_id: sheetId,
+        row_id: 1,
+        column_id: 2,
+        current_value_ref: { kind: 'run_result', run_id: 901 },
+        links: [],
+        stale_count: 0,
+      }),
+    });
+  });
+  await page.route(`**/api/projects/${pid}/blobs/${pdfHash}`, async (route) => {
+    // The reader receives a real PDF from the same project blob route; the
+    // review surface never treats a filename-shaped string as a URL.
+    await route.fulfill({ status: 200, contentType: 'application/pdf', body: textPdf([['Review source']]) });
+  });
+
+  await openProject(page, pid, sheetId);
+  await page.getByTestId('review-queue-button').click();
+  const queue = page.getByTestId('review-queue');
+  const sourcePdf = queue.getByTestId('review-source-pdf-source');
+  const output = queue.getByTestId('review-output-panel');
+  const fields = queue.getByTestId('review-bundle-fields');
+  await expect(sourcePdf).toBeVisible();
+  await expect(output).toBeVisible();
+
+  const [queueBox, sourceBox, outputBox, actionsBox] = await Promise.all([
+    queue.boundingBox(),
+    sourcePdf.boundingBox(),
+    output.boundingBox(),
+    queue.locator('.review-actions').boundingBox(),
+  ]);
+  expect(queueBox).not.toBeNull();
+  expect(sourceBox).not.toBeNull();
+  expect(outputBox).not.toBeNull();
+  expect(actionsBox).not.toBeNull();
+  expect(queueBox!.width).toBe(1280);
+  expect(queueBox!.height).toBe(800);
+  expect(sourceBox!.x + sourceBox!.width).toBeLessThanOrEqual(queueBox!.x + queueBox!.width);
+  expect(outputBox!.x + outputBox!.width).toBeLessThanOrEqual(queueBox!.x + queueBox!.width);
+  expect(actionsBox!.y + actionsBox!.height).toBeLessThanOrEqual(outputBox!.y + outputBox!.height);
+  expect(await fields.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('review-1280x800.png') });
+
+  await page.setViewportSize({ width: 390, height: 650 });
+  await expect(sourcePdf).toBeVisible();
+  const [narrowQueue, narrowSource, narrowOutput, narrowActions] = await Promise.all([
+    queue.boundingBox(),
+    sourcePdf.boundingBox(),
+    output.boundingBox(),
+    queue.locator('.review-actions').boundingBox(),
+  ]);
+  expect(narrowQueue).not.toBeNull();
+  expect(narrowSource).not.toBeNull();
+  expect(narrowOutput).not.toBeNull();
+  expect(narrowActions).not.toBeNull();
+  expect(narrowSource!.x + narrowSource!.width).toBeLessThanOrEqual(narrowQueue!.x + narrowQueue!.width);
+  expect(narrowOutput!.x + narrowOutput!.width).toBeLessThanOrEqual(narrowQueue!.x + narrowQueue!.width);
+  expect(narrowActions!.y + narrowActions!.height).toBeLessThanOrEqual(narrowOutput!.y + narrowOutput!.height);
+  await page.screenshot({ path: testInfo.outputPath('review-390x650.png') });
 });
