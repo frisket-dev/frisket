@@ -2987,6 +2987,7 @@ kbd {
 .grid-active-bar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 6px 12px;
   border-bottom: 1px solid var(--border);
@@ -2996,9 +2997,22 @@ kbd {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
   font-size: 12px;
   color: var(--text-mid);
 }
+.active-grid-filter { flex: 1 1 280px; }
+.active-grid-filter-label {
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+.active-grid-filter .mini-btn { flex: 0 0 auto; align-self: flex-start; }
 .grid-header-menu {
   position: fixed;
   z-index: 80;

@@ -186,7 +186,7 @@ import {
   ROW_HEIGHTS,
 } from './workspace/workspaceState';
 import {
-  gridFilterLabel,
+  gridFilterSummaryLabel,
   gridSortLabel,
   loadColumnOrder,
   loadHiddenColumns,
@@ -3259,8 +3259,10 @@ function WorkspaceGridControls() {
                 <div className="grid-active-bar">
                   {scopeRowIds !== null && <span className="active-grid-state">{scopeRowIds.length} selected rows <button type="button" className="mini-btn" onClick={() => gridView.store.set((state) => ({ ...state, activeSavedViewId: null, applied: { ...state.applied, scopeRowIds: null } }))}>Clear</button></span>}
                   {activeGridFilter && (
-                    <span className="active-grid-state" data-testid="active-grid-filter">
-                      Filter: {gridFilterLabel(activeGridFilter, activeGridFilterValueLabel)}
+                    <span className="active-grid-state active-grid-filter" data-testid="active-grid-filter">
+                      <span className="active-grid-filter-label">
+                        Filter: {gridFilterSummaryLabel(activeGridFilter, activeGridFilterValueLabel)}
+                      </span>
                       <button
                         type="button"
                         className="mini-btn"
