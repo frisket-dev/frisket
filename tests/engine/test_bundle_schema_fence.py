@@ -144,7 +144,10 @@ def test_run_review_status_migration_preserves_existing_runs(tmp_path):
         db.execute("ALTER TABLE runs DROP COLUMN review_completed_at")
         db.execute(
             "UPDATE meta SET value=? WHERE key=?",
-            ("frisket.schema.v1:b540a83f8325e5cbcd52fc3fac64eeb5", SCHEMA_DIGEST_META_KEY),
+            (
+                "frisket.schema.v1:b540a83f8325e5cbcd52fc3fac64eeb5",
+                SCHEMA_DIGEST_META_KEY,
+            ),
         )
 
     migrated = Project(path)

@@ -99,9 +99,7 @@ class ProjectEntityReviewService:
         )
         return {
             **page,
-            "runs": [
-                public_review_action_payload(run) for run in page["runs"]
-            ],
+            "runs": [public_review_action_payload(run) for run in page["runs"]],
         }
 
     def set_review_run_status(
