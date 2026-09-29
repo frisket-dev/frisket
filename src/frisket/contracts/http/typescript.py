@@ -23,6 +23,7 @@ _ANNOTATION_SCHEMA_KEYS = frozenset(
         "readOnly",
         "title",
         "writeOnly",
+        "x-frisket-input",
     }
 )
 _ASSERTION_SCHEMA_KEYS = frozenset(
