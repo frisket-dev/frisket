@@ -2,7 +2,7 @@ import { test, expect, _electron } from '@playwright/test';
 import { readFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import {
-  alivePids, assertInstalledPlatform, descendants, installedExecutable, listeningPorts, windowsProcessDetails,
+  aliveProcesses, assertInstalledPlatform, descendants, installedExecutable, listeningPorts, windowsProcessDetails,
 } from './installed-platform.mjs';
 
 const appPath = process.env.FRISKET_DESKTOP_APP;
@@ -67,8 +67,8 @@ async function launch(testInfo) {
 async function quit({ electron, stderr }, testInfo, closeWindow = false) {
   // Playwright disposes the Electron channel when the process exits.
   const child = electron.process();
-  const pids = await descendants(child.pid);
-  const before = await windowsProcessDetails(pids);
+  const before = await descendants(child.pid);
+  const pids = before.map(({ pid }) => pid);
   try {
     await electron.evaluate(({ app }, repeatQuit) => {
       let requests = 0;
@@ -90,7 +90,7 @@ async function quit({ electron, stderr }, testInfo, closeWindow = false) {
       await electron.close();
     }
     await expect.poll(() => child.exitCode, { timeout: 20_000 }).toBe(0);
-    await expect.poll(() => alivePids(pids), { timeout: 20_000 }).toEqual([]);
+    await expect.poll(() => aliveProcesses(before), { timeout: 20_000 }).toEqual([]);
     expect(stderr()).toContain('Shutdown proof: will-quit');
     if (!closeWindow) {
       expect(stderr()).toContain('Shutdown proof: request 2, prevented=true');
@@ -100,7 +100,8 @@ async function quit({ electron, stderr }, testInfo, closeWindow = false) {
     await testInfo.attach(closeWindow ? 'window-close' : 'app-quit', {
       contentType: 'application/json',
       body: JSON.stringify({
-        pids, before, after: await windowsProcessDetails(pids),
+        mainPid: child.pid, before,
+        after: await windowsProcessDetails(pids).catch((error) => ({ error: error.message })),
         exitCode: child.exitCode, signalCode: child.signalCode, stderr: stderr(),
       }, null, 2),
     });
@@ -159,7 +160,7 @@ test('installed app imports, runs its worker, exports, quits and reopens', async
     const popup = await popupPromise;
     await popup.waitForURL('frisket://app/api/health');
     await popup.close();
-    const pids = await descendants(running.process().pid);
+    const pids = (await descendants(running.process().pid)).map(({ pid }) => pid);
     const ports = await listeningPorts(pids);
     const statuses = await Promise.all(ports.map(async (port) => {
       const response = await fetch(`http://127.0.0.1:${port}/api/health`);

@@ -33,31 +33,31 @@ async function powershellJson(script) {
 }
 
 export async function descendants(pid) {
-  if (process.platform !== 'win32') {
-    const { stdout } = await exec('/bin/ps', ['-axo', 'pid=,ppid=']);
-    const rows = stdout.trim().split('\n').filter(Boolean)
-      .map((line) => line.trim().split(/\s+/).map(Number));
-    const owned = new Set([pid]);
-    for (let previous = -1; previous !== owned.size;) {
-      previous = owned.size;
-      for (const [child, parent] of rows) if (owned.has(parent)) owned.add(child);
+  if (process.platform === 'win32') return selectDescendants(await windowsProcessDetails(), pid);
+  const { stdout } = await exec('/bin/ps', ['-axo', 'pid=,ppid=']);
+  const rows = stdout.trim().split('\n').filter(Boolean).map((line) => {
+    const [pid, parent] = line.trim().split(/\s+/).map(Number);
+    return { pid, parent };
+  });
+  return selectDescendants(rows, pid);
+}
+
+export function selectDescendants(rows, pid) {
+  const root = rows.find((row) => row.pid === pid);
+  if (!root) throw new Error(`Process ${pid} disappeared before its descendants could be recorded.`);
+  if ('started' in root && !root.started) throw new Error(`Process ${pid} has no creation time.`);
+  const owned = new Map([[pid, root]]);
+  for (let previous = -1; previous !== owned.size;) {
+    previous = owned.size;
+    for (const row of rows) {
+      const parent = owned.get(row.parent);
+      if (parent?.started && !row.started) throw new Error(`Process ${row.pid} has no creation time.`);
+      // Windows retains ParentProcessId after the parent dies. A process older
+      // than its purported parent belongs to a previous occupant of that PID.
+      if (parent && (!parent.started || row.started >= parent.started)) owned.set(row.pid, row);
     }
-    return [...owned];
   }
-  const script = `
-    $owned = [System.Collections.Generic.HashSet[int]]::new()
-    [void]$owned.Add(${Number(pid)})
-    $rows = Get-CimInstance -ClassName Win32_Process | ForEach-Object {
-      [PSCustomObject]@{ pid = [int]$_.ProcessId; parent = [int]$_.ParentProcessId }
-    }
-    do {
-      $before = $owned.Count
-      foreach ($row in $rows) { if ($owned.Contains($row.parent)) { [void]$owned.Add($row.pid) } }
-    } while ($before -ne $owned.Count)
-    @($owned | Sort-Object) | ConvertTo-Json -Compress
-  `;
-  const result = await powershellJson(script);
-  return Array.isArray(result) ? result : [result];
+  return [...owned.values()];
 }
 
 export async function listeningPorts(pids) {
@@ -79,43 +79,41 @@ export async function listeningPorts(pids) {
   return (Array.isArray(result) ? result : [result]).filter(Number.isFinite);
 }
 
-export async function alivePids(pids) {
-  if (!pids.length) return [];
+export async function aliveProcesses(processes) {
+  if (!processes.length) return [];
   if (process.platform !== 'win32') {
-    return pids.filter((candidate) => {
-      try { process.kill(candidate, 0); return true; } catch { return false; }
+    return processes.filter(({ pid }) => {
+      try { process.kill(pid, 0); return true; } catch { return false; }
     });
   }
-  const ids = pids.map(Number).join(',');
-  const script = `
-    $alive = foreach ($id in @(${ids})) {
-      try {
-        $process = Get-Process -Id $id -ErrorAction Stop
-      } catch {
-        if ($_.FullyQualifiedErrorId -like 'NoProcessFoundForGivenId*') { continue }
-        throw
-      }
-      if (-not $process.HasExited) { [int]$process.Id }
-    }
-    @($alive) | ConvertTo-Json -Compress
-  `;
-  const result = await powershellJson(script);
-  return Array.isArray(result) ? result : [result];
+  const current = await windowsProcessDetails(processes.map(({ pid }) => pid), true);
+  return processes.filter((record) => current.some((candidate) =>
+    candidate.pid === record.pid && candidate.started === record.started));
 }
 
 /** Identify Windows process instances without logging arguments or credentials. */
-export async function windowsProcessDetails(pids) {
-  if (process.platform !== 'win32' || !pids.length) return [];
-  const ids = pids.map(Number).join(',');
+export async function windowsProcessDetails(pids, requireAlive = false) {
+  if (process.platform !== 'win32' || pids?.length === 0) return [];
+  const ids = pids?.map(Number).join(',') || '';
   const result = await powershellJson(`
     $ids = @(${ids})
-    @(Get-CimInstance -ClassName Win32_Process | Where-Object { $ids -contains [int]$_.ProcessId } |
+    @(Get-CimInstance -ClassName Win32_Process | Where-Object { $ids.Count -eq 0 -or $ids -contains [int]$_.ProcessId } |
       ForEach-Object {
+        $row = $_
+        if (${requireAlive ? '$true' : '$false'}) {
+          try {
+            $process = Get-Process -Id $row.ProcessId -ErrorAction Stop
+          } catch {
+            if ($_.FullyQualifiedErrorId -like 'NoProcessFoundForGivenId*') { return }
+            throw
+          }
+          if ($process.HasExited) { return }
+        }
         [PSCustomObject]@{
-          pid = [int]$_.ProcessId
-          parent = [int]$_.ParentProcessId
-          name = $_.Name
-          started = $_.CreationDate.ToUniversalTime().ToString('O')
+          pid = [int]$row.ProcessId
+          parent = [int]$row.ParentProcessId
+          name = $row.Name
+          started = if ($row.CreationDate) { $row.CreationDate.ToUniversalTime().ToString('O') } else { $null }
         }
       }) | ConvertTo-Json -Compress
   `);
