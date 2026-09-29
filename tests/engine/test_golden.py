@@ -174,6 +174,7 @@ def test_vision_input_reaches_model(tmp_path, golden_model_keys):
                 runner,
                 {
                     "action_kind": "map.extract",
+                    "grounding": {"enabled": False},
                     "model": "gemini/gemini-3.5-flash",
                     "sheet_id": sheet,
                     "input_columns": ["card"],

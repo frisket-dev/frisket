@@ -163,32 +163,38 @@ try:
     }
     payloads = [
         {
-            "sponsors": [
-                {
-                    "company": "AG1",
-                    "coupon": "ROGAN",
-                    "product": "daily greens supplement",
-                },
-                {
-                    "company": "Cash App",
-                    "coupon": "signup bonus",
-                    "product": "mobile payments app",
-                },
-            ],
+            "sponsors": {
+                "value": [
+                    {
+                        "company": "AG1",
+                        "coupon": "ROGAN",
+                        "product": "daily greens supplement",
+                    },
+                    {
+                        "company": "Cash App",
+                        "coupon": "signup bonus",
+                        "product": "mobile payments app",
+                    },
+                ],
+                "evidence": [[], []],
+            },
         },
         {
-            "sponsors": [
-                {
-                    "company": "Squarespace",
-                    "coupon": "10% off",
-                    "product": "website builder",
-                },
-                {
-                    "company": "AG1",
-                    "coupon": "ROGAN",
-                    "product": "daily greens supplement",
-                },
-            ],
+            "sponsors": {
+                "value": [
+                    {
+                        "company": "Squarespace",
+                        "coupon": "10% off",
+                        "product": "website builder",
+                    },
+                    {
+                        "company": "AG1",
+                        "coupon": "ROGAN",
+                        "product": "daily greens supplement",
+                    },
+                ],
+                "evidence": [[], []],
+            },
         },
     ]
     cache = ResponseCache(project.path / "project.cache.db")
@@ -285,6 +291,7 @@ test('derive materializes arrays of typed objects into a child sheet', async ({ 
   expect(extract).toBeTruthy();
   expect(materialize).toBeTruthy();
   const extractParams = extract?.params as Record<string, unknown>;
+  expect(extractParams.grounding).toBeUndefined();
   const fields = extractParams.fields as Array<Record<string, unknown>>;
   const sponsors = fields[0];
   expect(sponsors.name).toBe('sponsors');

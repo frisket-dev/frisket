@@ -179,6 +179,7 @@ try:
                     },
                 }
             ],
+            "grounding": {"enabled": False},
         },
         "output_names": {"sponsors": "sponsors"},
         "idempotency_key": "e2e-cache-prime",
@@ -260,6 +261,7 @@ test('a derived sheet shows the derived marker; a root sheet does not', async ({
   await page.goto(`/p/${pid}`);
   await openAction(page, 'derive.table_from_list');
   await page.getByTestId('derive-source-mode-ai').click();
+  await page.getByTestId('field-citation_mode').selectOption('none');
   await selectDescriptionSource(page);
   await page.getByTestId('field-instruction').fill(DERIVE_PROMPT);
   await page.getByTestId('output-field-name').fill('sponsors');

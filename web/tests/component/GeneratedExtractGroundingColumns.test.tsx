@@ -17,6 +17,22 @@ beforeAll(installPopoverPolyfill);
 afterEach(cleanup);
 
 describe('generated Extract grounding controls', () => {
+  it('defaults a new form to visible optional citations from the served catalog', () => {
+    const entry = syntheticActionCatalogEntry('map.extract');
+    const template = generatedActionTemplateFromCatalogEntry(entry);
+    if (!template) throw new Error('Extract test template is missing');
+    render(<GeneratedActionForm catalogEntry={entry} actionTemplate={template}
+      sheet={sheetMeta([columnDef({ id: '1', name: 'body', type: 'text' })], { id: '7', rowCount: 1 })}
+      selectedRowIds={['1']} initialSourceColumn="body" running={false}
+      resolveParams={vi.fn(async () => ({ diagnostics: {}, logical_outputs: entry.ui_hints.logical_outputs }))}
+      estimateAction={vi.fn(async () => ({ cost: 0, rows: 1, billed_cost: 0 }))}
+      onExecute={vi.fn()} onClose={vi.fn()} />);
+
+    expect(screen.getByTestId('field-citation_mode')).toHaveValue('cite');
+    expect(screen.getByTestId('field-citation_mode').closest('details')).toBeNull();
+    expect(screen.getByText('Citations')).toBeVisible();
+  });
+
   it('renders the typed source-document column selector in the grounding section', () => {
     const original = syntheticActionCatalogEntry('map.extract');
     const entry = {
@@ -84,7 +100,7 @@ describe('generated Extract grounding controls', () => {
       estimateAction={vi.fn(async () => ({ cost: 0, rows: 1, billed_cost: 0 }))}
       onExecute={vi.fn()} onClose={vi.fn()} />);
 
-    expect(screen.getByText('Citations and context')).toBeVisible();
+    expect(screen.getByText('Citations')).toBeVisible();
     expect(screen.getByTestId('field-source_document_columns')).toBeInTheDocument();
     expect(screen.getByText('Citation sources')).toBeInTheDocument();
     expect(screen.getByText(/Leave empty to use the action’s source inputs/)).toBeInTheDocument();
@@ -108,6 +124,22 @@ describe('generated Extract grounding controls', () => {
 
     expect(screen.getByTestId('field-citation_mode')).toHaveValue('none');
     expect(screen.queryByTestId('field-source_document_columns')).not.toBeInTheDocument();
+    expect(setParams).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [undefined, 'cite'],
+    [null, 'none'],
+    [{ enabled: false }, 'none'],
+  ] as const)('reflects the backend default or explicit opt-out for %s', (grounding, mode) => {
+    const setParams = vi.fn();
+    render(<ExtractParamsBody sheet={sheetMeta([], { id: '7', rowCount: 1 })}
+      request={{ scope: { kind: 'sheet_rows', sheet_id: 7 }, output_names: {} }}
+      params={{ source: ['body'], model: 'anthropic/test', fields: [{ name: 'fact', type: 'text' }], grounding }}
+      setParams={setParams} errors={{}}
+      Field={({ name }) => <div data-testid={`field-${name}`} />} />);
+
+    expect(screen.getByTestId('field-citation_mode')).toHaveValue(mode);
     expect(setParams).not.toHaveBeenCalled();
   });
 

@@ -43,7 +43,7 @@ export function ExtractFieldsEditor({ fields, onChange, optional = false }: {
 
 export function ExtractParamsBody({ params, setParams, errors, Field }:
   GeneratedActionParamsBodyProps<'map.extract'>) {
-  const groundingEnabled = Boolean(params.grounding?.enabled);
+  const groundingEnabled = params.grounding === undefined || Boolean(params.grounding?.enabled);
   const citationRequired = Boolean(
     params.grounding?.citation_required || params.evidence_policy?.citation_required,
   );
@@ -73,18 +73,18 @@ export function ExtractParamsBody({ params, setParams, errors, Field }:
     <Field name="instruction" />
     <Field name="model" />
     <Field name="include_confidence" />
-    <details className="action-advanced"><summary>Citations and context</summary>
-      <label className="field-group">
-        <span className="form-label">Citations</span>
-        <PanelSelect testId="field-citation_mode" value={citationMode}
-          onValueChange={setCitationMode}
-          options={[
-            { value: 'none', label: 'Off', description: 'Extract values without citations.' },
-            { value: 'cite', label: 'Cite sources', description: 'Keep values when evidence is unavailable.' },
-            { value: 'require', label: 'Require citations', description: 'Withhold values without usable evidence.' },
-          ]} />
-        <span className="form-hint">Require citations leaves a value empty or reports a failure when no usable citation is found.</span>
-      </label>
+    <label className="field-group">
+      <span className="form-label">Citations</span>
+      <PanelSelect testId="field-citation_mode" value={citationMode}
+        onValueChange={setCitationMode}
+        options={[
+          { value: 'none', label: 'Off', description: 'Extract values without citations.' },
+          { value: 'cite', label: 'Cite sources', description: 'Keep values when evidence is unavailable.' },
+          { value: 'require', label: 'Require citations', description: 'Withhold values without usable evidence.' },
+        ]} />
+      {citationMode === 'require' && <span className="form-hint">Require citations leaves a value empty or reports a failure when no usable citation is found.</span>}
+    </label>
+    <details className="action-advanced"><summary>Advanced</summary>
       {groundingEnabled && <>
         <Field name="source_document_columns" label="Citation sources" />
         <p className="form-hint">Optional columns to check citations against. Leave empty to use the action’s source inputs.</p>
