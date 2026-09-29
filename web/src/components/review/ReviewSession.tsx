@@ -126,7 +126,7 @@ export function ReviewSession({ onClose, renderToolbar, ...options }: ReviewSess
           <ReviewSourcePreview bundle={c.bundle} activeField={c.field}
             sourceEntries={Object.entries(c.bundle.source) as Array<[string, CellValue]>} />
           <section className={styles.results} data-testid="review-output-panel" aria-label="Result fields">
-            <div className={styles.resultsHeader}>Results <span>{c.bundle.fields.length} fields</span></div>
+            <div className={styles.resultsHeader}>Results <span>{c.bundle.fields.length} {c.bundle.fields.length === 1 ? 'field' : 'fields'}</span></div>
             <div className={styles.fields} data-testid="review-bundle-fields">
               {c.bundle.fields.map((field) => <FieldDecision key={field.id} field={field} controller={c} />)}
             </div>

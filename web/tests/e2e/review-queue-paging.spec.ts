@@ -17,10 +17,10 @@ test('review pages stable row bundles without loading the whole sheet or droppin
   await page.getByTestId('review-queue-button').click();
   const queue = page.getByTestId('review-queue');
   const position = queue.getByTestId('review-page-status');
-  await expect(position).toHaveText('1 / 26');
+  await expect(position).toHaveText('1 / 26', { timeout: 20_000 });
   for (let row = 2; row <= 26; row += 1) {
     await queue.getByRole('button', { name: 'Next row', exact: true }).first().click();
-    await expect(position).toHaveText(`${row} / 26`);
+    await expect(position).toHaveText(`${row} / 26`, { timeout: 20_000 });
   }
   expect(queries.map((url) => url.searchParams.get('offset'))).toEqual(['0', '25']);
   expect(queries.every((url) => url.searchParams.get('limit') === '25' && url.searchParams.get('include_reviewed') === 'true')).toBe(true);

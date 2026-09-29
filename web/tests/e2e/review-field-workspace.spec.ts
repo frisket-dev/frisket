@@ -41,7 +41,7 @@ test('review workspace saves independent decisions, resets verdicts, and keeps a
   const note = queue.getByTestId('review-note-input');
   await note.fill(noteText);
   await queue.locator('[aria-label="Next row"]').click();
-  await expect(queue.getByTestId('review-page-status')).toContainText('2');
+  await expect(queue.getByTestId('review-page-status')).toHaveText('2 / 2');
   const runId = await queue.getByTestId('review-run-select').inputValue();
   const afterLeave = await page.request.get(`/api/projects/${pid}/review/bundles?run_id=${runId}&include_reviewed=true`);
   expect(afterLeave.ok()).toBeTruthy();
