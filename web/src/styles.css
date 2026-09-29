@@ -3318,8 +3318,10 @@ li.panel-empty { list-style: none; }
    doesn't push the run button off-panel — scrolls internally past ~50vh. */
 .form-textarea-autogrow {
   field-sizing: content;
+  /* The scrolling form owns overflow until this editor reaches its height cap. */
+  flex-shrink: 0;
   max-height: 50vh;
-  overflow-y: hidden;
+  overflow-y: auto;
 }
 @layer base {
 .form-input + .form-input { margin-top: 6px; }

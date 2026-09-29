@@ -181,14 +181,13 @@ export function resizeTextareaToContent(textarea: HTMLTextAreaElement | null) {
   // Leave no inline height to compete with it; older browsers use the fallback.
   if (typeof CSS !== 'undefined' && CSS.supports?.('field-sizing', 'content')) {
     textarea.style.removeProperty('height');
-  } else {
-    textarea.style.height = 'auto';
-    // Controls use border-box sizing; scrollHeight excludes the border. Without
-    // that extra height even a short prompt gets an unnecessary scrollbar.
-    const borderHeight = textarea.offsetHeight - textarea.clientHeight;
-    textarea.style.height = `${textarea.scrollHeight + borderHeight}px`;
+    return;
   }
-  textarea.style.overflowY = textarea.scrollHeight > textarea.clientHeight ? 'auto' : 'hidden';
+  textarea.style.height = 'auto';
+  // Controls use border-box sizing; scrollHeight excludes the border. Without
+  // that extra height even a short prompt gets an unnecessary scrollbar.
+  const borderHeight = textarea.offsetHeight - textarea.clientHeight;
+  textarea.style.height = `${textarea.scrollHeight + borderHeight}px`;
 }
 
 export function handleAutoResizeTextareaInput(event: FormEvent<HTMLTextAreaElement>) {
