@@ -94,6 +94,13 @@ describe('ReviewSourcePreview', () => {
     expect(sharedTab).toHaveAttribute('aria-selected', 'true');
     await waitFor(() => expect(screen.getByTestId('artifact-source')).toHaveAttribute('data-emphasized', 'span:one'));
 
+    const bundleWithSavedRowNote = { ...bundle, reviewNote: 'Saved note' } as ReviewBundle;
+    rerender(<ReviewSourcePreview bundle={bundleWithSavedRowNote} activeField={fieldOne} sourceEntries={[]} />);
+
+    expect(screen.getByTestId('artifact-source')).toHaveAttribute('data-source-id', 'source:shared');
+    expect(projectApi.getCellEvidence).toHaveBeenCalledTimes(2);
+    expect(projectApi.getEvidenceViewer).toHaveBeenCalledTimes(4);
+
     rerender(<ReviewSourcePreview bundle={bundle} activeField={fieldTwo} sourceEntries={[]} />);
 
     await waitFor(() => expect(screen.getByRole('tab', { name: /shared notes\.md/i })).toHaveAttribute('aria-selected', 'true'));

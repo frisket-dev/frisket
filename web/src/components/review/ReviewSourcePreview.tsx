@@ -8,8 +8,10 @@ import { reviewCitationSources, sourceLocation, sourcesForField, type ReviewCita
 import styles from './ReviewSourcePreview.module.css';
 
 type LoadState =
-  | { key: string; phase: 'ready'; payloads: ReviewCitationPayload[] }
-  | { key: string; phase: 'error' };
+  | { key: string; fields: readonly ReviewBundleField[]; phase: 'ready'; payloads: ReviewCitationPayload[] }
+  | { key: string; fields: readonly ReviewBundleField[]; phase: 'error' };
+
+const EMPTY_FIELDS: readonly ReviewBundleField[] = [];
 
 function currentEvidenceMatchesField(payload: CellEvidencePayload, field: ReviewBundleField): boolean {
   const ref = payload.current_value_ref;
@@ -35,19 +37,23 @@ export function ReviewSourcePreview({
   const [showRowFields, setShowRowFields] = useState(false);
   const viewerRef = useRef<HTMLDivElement | null>(null);
 
+  const fields = bundle?.fields ?? EMPTY_FIELDS;
   const bundleKey = bundle ? citationKey(bundle) : null;
 
   useEffect(() => {
-    if (!bundle || !bundleKey) return undefined;
+    if (!bundleKey) return undefined;
     let current = true;
-    void loadCitationPayloads(bundle.fields, api).then(
-      (payloads) => { if (current) setState({ key: bundleKey, phase: 'ready', payloads }); },
-      () => { if (current) setState({ key: bundleKey, phase: 'error' }); },
+    void loadCitationPayloads(fields, api).then(
+      (payloads) => { if (current) setState({ key: bundleKey, fields, phase: 'ready', payloads }); },
+      () => { if (current) setState({ key: bundleKey, fields, phase: 'error' }); },
     );
     return () => { current = false; };
-  }, [api, bundle, bundleKey]);
+  }, [api, bundleKey, fields]);
 
-  const currentState = state !== null && state.key === bundleKey ? state : null;
+  // A cloned bundle can preserve this field-array reference (for example, a
+  // row-note save). A changed field array immediately hides old citations
+  // until its own response lands, without deriving a large key from values.
+  const currentState = state !== null && state.key === bundleKey && state.fields === fields ? state : null;
   const sources = useMemo(() => currentState?.phase === 'ready' ? reviewCitationSources(currentState.payloads) : [], [currentState]);
   const tabs = useMemo(() => sourcesForField(sources, activeField?.id), [activeField?.id, sources]);
   const activeSource = tabs.find((source) => source.id === activeSourceId) ?? tabs[0] ?? null;
@@ -126,7 +132,7 @@ function tabLocation(source: ReturnType<typeof reviewCitationSources>[number], f
 }
 
 function citationKey(bundle: ReviewBundle): string {
-  return `${bundle.id}:${bundle.fields.map((field) => `${field.id}:${field.value}:${field.reviewDecision ?? ''}`).join('|')}`;
+  return bundle.id;
 }
 
 async function loadCitationPayloads(fields: readonly ReviewBundleField[], api: ReturnType<typeof useWorkspaceStores>['projectApi']): Promise<ReviewCitationPayload[]> {
