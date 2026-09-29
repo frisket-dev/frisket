@@ -128,6 +128,10 @@ class EvidenceArtifactReference(WireModel):
 class EvidenceProducer(WireModel):
     """Known evidence-link producer keys emitted by current writers."""
 
+    schema_version: str | None = None
+    value_hash: str | None = None
+    capability: str | None = None
+    source_row_id: int | None = None
     action_kind: str | None = None
     source_action_kind: str | None = None
     kind: str | None = None

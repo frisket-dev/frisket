@@ -152,6 +152,8 @@ def _seed_evidence(
         link_role="primary_support",
         confidence=0.91,
         producer={
+            "schema_version": "frisket.map_extract_evidence_link.v1",
+            "value_hash": "sha256:" + "c2" * 32,
             "action_kind": "map.extract",
             "model": "provider/model",
             "grounding_method": "model_bbox",
@@ -251,6 +253,10 @@ def test_http_cell_evidence_route_lists_current_links_and_stale_audit(
     assert stable_viewer["schema_version"] == "frisket.evidence_viewer.v1"
     assert stable_viewer["link"]["stable_id"] == link["stable_id"]
     assert stable_viewer["link"]["status"] == "active"
+    assert stable_viewer["link"]["producer"]["schema_version"] == (
+        "frisket.map_extract_evidence_link.v1"
+    )
+    assert stable_viewer["link"]["producer"]["value_hash"] == "sha256:" + "c2" * 32
     artifact = stable_viewer["artifacts"][0]
     assert artifact["artifact_ref"]["blob"]["url"] == (
         f"/api/projects/{project_id}/blobs/{hashes['pdf_hash']}"

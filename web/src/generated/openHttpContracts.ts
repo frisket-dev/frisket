@@ -4242,6 +4242,7 @@ type HttpEvidenceViewerResponse_EvidencePageRegion = ({
 
 type HttpEvidenceViewerResponse_EvidenceProducer = ({
   "action_kind"?: (((string)) | ((null)));
+  "capability"?: (((string)) | ((null)));
   "engine"?: (((string)) | ((null)));
   "field"?: (((string)) | ((null)));
   "grounding_method"?: (((string)) | ((null)));
@@ -4255,7 +4256,10 @@ type HttpEvidenceViewerResponse_EvidenceProducer = ({
   "render_mode"?: (((string)) | ((null)));
   "repointed_from_link_id"?: (((number)) | ((null)));
   "repointed_from_row_id"?: (((number)) | ((null)));
+  "schema_version"?: (((string)) | ((null)));
   "source_action_kind"?: (((string)) | ((null)));
+  "source_row_id"?: (((number)) | ((null)));
+  "value_hash"?: (((string)) | ((null)));
   "warnings"?: (((Array<(string)>)) | ((null)));
 });
 
