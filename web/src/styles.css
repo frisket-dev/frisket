@@ -10656,6 +10656,16 @@ dialog.modal-card::backdrop {
   position: relative;
   display: block;
 }
+.panel-select-shell.has-leading-icon > select { padding-left: 30px; }
+.panel-select-leading-icon {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 10px;
+  display: inline-flex;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
 .panel-select-note {
   position: absolute;
   right: 34px;

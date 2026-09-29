@@ -31,6 +31,7 @@ test('review selects runs and fields, reports decisions, and reopens a completed
   await page.getByTestId('review-queue-button').click();
   const queue = page.getByTestId('review-queue');
   await expect(queue.getByTestId('review-run-select')).toHaveValue(String(recent.run_id));
+  await expect(queue.getByRole('img', { name: 'No review decisions yet', exact: true })).toBeVisible();
   await expect(queue.getByRole('button', { name: 'Random', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(queue.getByRole('button', { name: 'Lowest confidence', exact: true })).toBeDisabled();
   await expect(queue.locator('.conf-pill')).toHaveCount(0);
@@ -50,6 +51,7 @@ test('review selects runs and fields, reports decisions, and reopens a completed
 
   await queue.getByTestId('review-accept').click();
   await expect(queue.getByTestId('review-run-summary')).toContainText('1 accepted');
+  await expect(queue.getByRole('img', { name: 'Review in progress', exact: true })).toBeVisible();
   await queue.getByTestId('review-reject').click();
   await expect(queue.getByTestId('review-run-summary')).toContainText('1 incorrect');
   await expect(queue.getByTestId('review-run-summary')).toContainText('50% correct among reviewed');
@@ -61,6 +63,7 @@ test('review selects runs and fields, reports decisions, and reopens a completed
   // Completing a review must not approve the unchecked sibling output.
   await queue.getByRole('button', { name: 'Mark review complete' }).click();
   await expect(queue.getByRole('button', { name: 'Reopen review' })).toBeVisible();
+  await expect(queue.getByRole('img', { name: 'Review complete', exact: true })).toBeVisible();
   await expect(queue.getByTestId('review-accept')).toBeDisabled();
   await expect(queue.getByTestId('review-edit')).toBeDisabled();
   const summary = await page.request.get(`/api/projects/${pid}/review/runs?run_id=${recent.run_id}`);
@@ -76,4 +79,5 @@ test('review selects runs and fields, reports decisions, and reopens a completed
   await page.getByRole('button', { name: 'Reopen review' }).click();
   await expect(page.getByRole('button', { name: 'Mark review complete' })).toBeVisible();
   await expect(page.getByTestId('review-run-summary')).toContainText('2 reviewed of 4');
+  await expect(page.getByRole('img', { name: 'Review in progress', exact: true })).toBeVisible();
 });

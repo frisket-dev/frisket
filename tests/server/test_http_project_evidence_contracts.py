@@ -8,11 +8,15 @@ silently pruned by a strict response model.
 
 from __future__ import annotations
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from frisket.contracts.http.project_evidence import CellEvidenceResponse
+from frisket.contracts.http.project_evidence import (
+    CellEvidenceResponse,
+    EvidenceViewerResponse,
+)
 from frisket.server.routes.project_evidence import register_project_evidence_routes
 
 
@@ -210,6 +214,25 @@ def test_project_evidence_contracts_preserve_explicit_dynamic_json_leaves() -> N
     assert artifact["spans"][0]["raw"] == {"pixel_box": [1, 2, 3, 4]}
     assert artifact["pages"][0]["regions"][0]["bbox"] == [[0, 0, 1, 1]]
     assert column.json()["rows"] == []
+
+
+@pytest.mark.parametrize(
+    "producer",
+    [
+        {"capability": "Screenshotter", "render_mode": "playwright"},
+        {"action_kind": "map.find", "source_row_id": 42},
+        {
+            "schema_version": "frisket.map_extract_item_evidence_link.v1",
+            "value_hash": "sha256:" + "ab" * 32,
+            "item_index": 0,
+        },
+    ],
+)
+def test_evidence_viewer_preserves_current_writer_metadata(producer: dict) -> None:
+    payload = _EvidenceService().evidence_viewer("project-1", "evidence_link:3")
+    payload["link"]["producer"] = producer
+    response = EvidenceViewerResponse.model_validate(payload)
+    assert response.model_dump(exclude_unset=True)["link"]["producer"] == producer
 
 
 def test_project_evidence_contracts_reject_unknown_envelope_fields() -> None:
