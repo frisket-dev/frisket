@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import {
-  alivePids, assertInstalledPlatform, descendants, installedExecutable, installedResources, listeningPorts, runningExecutable,
+  aliveProcesses, assertInstalledPlatform, descendants, installedExecutable, installedResources, listeningPorts, runningExecutable,
 } from './installed-platform.mjs';
 import { serveUpdateFeed } from './update-feed.mjs';
 
@@ -195,9 +195,9 @@ test('signed installed baseline updates through its native updater and preserves
     expect(await readFile(sentinel, 'utf8')).toBe(sentinelValue);
     expect(baseline.rendererErrors).toEqual([]);
     const child = running.process();
-    const oldPids = await descendants(child.pid);
-    const oldPorts = await listeningPorts(oldPids);
-    expect(oldPids.length).toBeGreaterThan(1);
+    const oldProcesses = await descendants(child.pid);
+    const oldPorts = await listeningPorts(oldProcesses.map(({ pid }) => pid));
+    expect(oldProcesses.length).toBeGreaterThan(1);
     expect(oldPorts.length).toBeGreaterThan(0);
     await running.evaluate(() => { globalThis.__frisketUpdateProof.restart = true; });
     await updateMenu(running);
@@ -205,7 +205,7 @@ test('signed installed baseline updates through its native updater and preserves
     // requested. Wait for actual replacement, not just update-downloaded.
     await expect.poll(() => child.exitCode, { timeout: 90_000 }).toBe(0);
     running = undefined;
-    await expect.poll(() => alivePids(oldPids), { timeout: 30_000 }).toEqual([]);
+    await expect.poll(() => aliveProcesses(oldProcesses), { timeout: 30_000 }).toEqual([]);
     await expect.poll(async () => Promise.all(oldPorts.map(async (port) => {
       try { await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(1_000) }); return true; }
       catch { return false; }
@@ -233,13 +233,13 @@ test('signed installed baseline updates through its native updater and preserves
     expect(updated.rendererErrors).toEqual([]);
     await updated.page.screenshot({ path: testInfo.outputPath('updated-reopened-project.png') });
     await testInfo.attach('installed-update-evidence', {
-      body: JSON.stringify({ baseline: '0.0.0', target: targetVersion, saved, oldPids, oldPorts, requests: feed.requests }, null, 2),
+      body: JSON.stringify({ baseline: '0.0.0', target: targetVersion, saved, oldProcesses, oldPorts, requests: feed.requests }, null, 2),
       contentType: 'application/json',
     });
-    const finalPids = await descendants(running.process().pid);
+    const finalProcesses = await descendants(running.process().pid);
     await running.close();
     running = undefined;
-    await expect.poll(() => alivePids(finalPids), { timeout: 20_000 }).toEqual([]);
+    await expect.poll(() => aliveProcesses(finalProcesses), { timeout: 20_000 }).toEqual([]);
   } finally {
     await running?.close().catch(() => {});
     await feed.close();

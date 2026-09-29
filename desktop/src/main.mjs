@@ -19,6 +19,7 @@ let backend;
 let startupTask;
 let provisioningController;
 let quitting = false;
+let quitReady = false;
 let recoveryTask;
 let cleanupFailed = false;
 let updates;
@@ -208,7 +209,10 @@ async function requestQuit(installUpdate = false) {
       app.exit(1);
     },
     finish: () => {
-      if (!installUpdate) { app.exit(0); return; }
+      // Cleanup starting is not permission for a second quit request to exit.
+      // Only resume Electron's normal lifecycle after our services have stopped.
+      quitReady = true;
+      if (!installUpdate) { app.quit(); return; }
       // The updater owns the final quit/relaunch; our before-quit handler must
       // let it proceed now that Python and its workers have stopped.
       electronUpdater.autoUpdater.once('error', async () => {
@@ -297,7 +301,7 @@ app.on('activate', () => {
   }
 });
 app.on('before-quit', (event) => {
-  if (quitting) return;
+  if (quitReady) return;
   event.preventDefault();
   void requestQuit();
 });
