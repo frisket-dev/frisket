@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { ReviewBundlePage } from '../../src/api/types';
 import { createProjectApi } from '../../src/api/real';
 import { WorkspaceStoresContext } from '../../src/bind/workspaceStoresContext';
-import { ReviewQueue } from '../../src/components/ReviewQueue';
+import { ReviewSession } from '../../src/components/review/ReviewSession';
 import { createWorkspaceStores, type WorkspaceStores } from '../../src/state/createWorkspaceStores';
 
 vi.mock('../../src/media/pdfjsSetup', () => ({
@@ -88,13 +88,13 @@ it('keeps the latest Show reviewed response when the pending response arrives la
 
   render(
     <WorkspaceStoresContext.Provider value={stores}>
-      <ReviewQueue runId="9" onClose={vi.fn()} onChanged={vi.fn()} />
+      <ReviewSession runId="9" options={{ order: 'confidence' }} onChanged={vi.fn()} />
     </WorkspaceStoresContext.Provider>,
   );
-  await waitFor(() => expect(getBundles).toHaveBeenCalledWith(0, 25, '9', false));
+  await waitFor(() => expect(getBundles).toHaveBeenCalledWith(0, 25, '9', false, { order: 'confidence' }));
 
   fireEvent.click(screen.getByRole('checkbox', { name: 'Show reviewed' }));
-  await waitFor(() => expect(getBundles).toHaveBeenLastCalledWith(0, 25, '9', true));
+  await waitFor(() => expect(getBundles).toHaveBeenLastCalledWith(0, 25, '9', true, { order: 'confidence' }));
   await act(async () => { reviewed.resolve(page('reviewed')); });
   expect(await screen.findByTestId('review-field-reviewed')).toBeVisible();
 
@@ -110,7 +110,7 @@ it('keeps an in-progress note when a refreshed page still contains its selected 
 
   render(
     <WorkspaceStoresContext.Provider value={stores}>
-      <ReviewQueue runId="9" onClose={vi.fn()} onChanged={vi.fn()} />
+      <ReviewSession runId="9" options={{ order: 'confidence' }} onChanged={vi.fn()} />
     </WorkspaceStoresContext.Provider>,
   );
   await screen.findByTestId('review-field-pending');
@@ -120,7 +120,7 @@ it('keeps an in-progress note when a refreshed page still contains its selected 
   fireEvent.click(screen.getByRole('checkbox', { name: 'Show reviewed' }));
   await screen.findByTestId('review-field-reviewed');
 
-  expect(getBundles).toHaveBeenLastCalledWith(0, 25, '9', true);
+  expect(getBundles).toHaveBeenLastCalledWith(0, 25, '9', true, { order: 'confidence' });
   expect(note).toHaveValue('Keep this note');
 });
 
@@ -161,7 +161,7 @@ it('does not attach a stale or manually-overlaid citation to the reviewed result
 
   render(
     <WorkspaceStoresContext.Provider value={stores}>
-      <ReviewQueue runId="9" onClose={vi.fn()} onChanged={vi.fn()} />
+      <ReviewSession runId="9" options={{ order: 'confidence' }} onChanged={vi.fn()} />
     </WorkspaceStoresContext.Provider>,
   );
 
@@ -210,11 +210,11 @@ it('prefers a supporting citation from the active reviewed run and keeps Review 
 
   render(
     <WorkspaceStoresContext.Provider value={stores}>
-      <ReviewQueue runId="9" onClose={vi.fn()} onChanged={vi.fn()} />
+      <ReviewSession runId="9" options={{ order: 'confidence' }} onChanged={vi.fn()} />
     </WorkspaceStoresContext.Provider>,
   );
 
   expect(await screen.findByTestId('evidence-viewer')).toHaveAttribute('data-link-id', 'citation-link');
   fireEvent.click(screen.getByRole('button', { name: 'Dismiss citation' }));
-  expect(screen.getByTestId('review-queue')).toBeVisible();
+  expect(screen.getByTestId('review-card')).toBeVisible();
 });

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { createProject, importCsv, openProject, textPdf, uniqueName } from './helpers';
 
 type WireReviewBundle = {
@@ -77,6 +77,19 @@ function pageBody(offset: number, limit: number, rowIds: number[], sheetId: numb
   };
 }
 
+async function mockRunListing(page: Page, pid: string, sheetId: number, total: number, pending: () => number) {
+  await page.route(`**/api/projects/${pid}/review/runs?**`, async (route) => {
+    const counts = { eligible_count: total, reviewed_count: total - pending(), accepted_count: total - pending(),
+      incorrect_count: 0, unreviewed_count: pending(), confidence_count: total };
+    await route.fulfill({ json: {
+      schema_version: 'frisket.review_runs_page.v1', offset: 0, limit: 50, total: 1, has_more: false, next_offset: null,
+      runs: [{ run_id: 901, sheet_id: sheetId, sheet_name: 'stories', action_kind: 'map.classify', action_name: 'Classify',
+        model: 'test-model', started_at: '2026-09-29T00:00:00Z', review_status: 'open', review_completed_at: null,
+        total: counts, fields: [{ ...counts, column_id: 2, column_name: 'beat', column_type: 'category' }] }],
+    } });
+  });
+}
+
 test('review overlay pages bundles and refreshes global count after decisions', async ({
   page,
 }) => {
@@ -85,6 +98,7 @@ test('review overlay pages bundles and refreshes global count after decisions', 
   const total = 51;
   let remainingRows = Array.from({ length: total }, (_value, index) => index + 1);
   let reviewCount = remainingRows.length;
+  await mockRunListing(page, pid, sheetId, total, () => reviewCount);
   const bundleRequests: string[] = [];
   const decisions: Array<Record<string, unknown>> = [];
   const sheetFanoutRequests: string[] = [];
@@ -161,7 +175,7 @@ test('review overlay pages bundles and refreshes global count after decisions', 
   await page.getByTestId('review-queue-button').click();
   const queue = page.getByTestId('review-queue');
   await expect(queue).toBeVisible();
-  await expect.poll(() => bundleRequests).toContain('offset=0&limit=25');
+  await expect.poll(() => bundleRequests.some((query) => new URLSearchParams(query).get('offset') === '0')).toBe(true);
   await expect(queue.getByTestId('review-page-status')).toContainText('Showing 1-25 of 51 bundles');
   const sourcePanel = queue.getByTestId('review-source-panel');
   const outputPanel = queue.getByTestId('review-output-panel');
@@ -181,25 +195,25 @@ test('review overlay pages bundles and refreshes global count after decisions', 
   expect(sourceBox!.x + sourceBox!.width).toBeLessThan(outputBox!.x);
 
   await queue.getByTestId('review-page-older').click();
-  await expect.poll(() => bundleRequests).toContain('offset=25&limit=25');
+  await expect.poll(() => bundleRequests.some((query) => new URLSearchParams(query).get('offset') === '25')).toBe(true);
   await expect(queue.getByTestId('review-page-status')).toContainText('Showing 26-50 of 51 bundles');
   await expect(sourcePanel).toContainText('Story 26');
 
   await queue.getByTestId('review-page-older').click();
-  await expect.poll(() => bundleRequests).toContain('offset=50&limit=25');
+  await expect.poll(() => bundleRequests.some((query) => new URLSearchParams(query).get('offset') === '50')).toBe(true);
   await expect(queue.getByTestId('review-page-status')).toContainText('Showing 51-51 of 51 bundles');
   await expect(sourcePanel).toContainText('Story 51');
 
-  const previousPageRequests = bundleRequests.filter((query) => query === 'offset=25&limit=25').length;
+  const previousPageRequests = bundleRequests.filter((query) => new URLSearchParams(query).get('offset') === '25').length;
   await page.getByTestId('review-accept').click();
   await expect.poll(() => decisions.length).toBe(1);
-  await expect.poll(() => bundleRequests.filter((query) => query === 'offset=25&limit=25').length)
+  await expect.poll(() => bundleRequests.filter((query) => new URLSearchParams(query).get('offset') === '25').length)
     .toBeGreaterThan(previousPageRequests);
   await expect(queue.getByTestId('review-page-status')).toContainText('Showing 26-50 of 50 bundles');
   await expect(reviewButton.locator('.badge')).toHaveText(String(total - 1));
 
   await queue.getByTestId('review-page-newer').click();
-  await expect.poll(() => bundleRequests.filter((query) => query === 'offset=0&limit=25').length)
+  await expect.poll(() => bundleRequests.filter((query) => new URLSearchParams(query).get('offset') === '0').length)
     .toBeGreaterThan(1);
   await expect(queue.getByTestId('review-page-status')).toContainText('Showing 1-25 of 50 bundles');
   expect(sheetFanoutRequests).toEqual([]);
@@ -219,6 +233,7 @@ test('review keeps a same-row PDF and long proposed values inside a bounded, scr
   await page.setViewportSize({ width: 1280, height: 800 });
   const pid = await createProject(page.request, uniqueName('e2e-review-layout'));
   const sheetId = await importCsv(page.request, pid, 'stories.csv', 'story\n"Story 1"\n');
+  await mockRunListing(page, pid, sheetId, 1, () => 1);
   const pdfHash = 'a'.repeat(64);
   const longValue = Array.from({ length: 160 }, () => 'A deliberately long reviewed output remains scrollable.').join(' ');
 
@@ -262,6 +277,7 @@ test('review keeps a same-row PDF and long proposed values inside a bounded, scr
   const output = queue.getByTestId('review-output-panel');
   const fields = queue.getByTestId('review-bundle-fields');
   await expect(sourcePdf).toBeVisible();
+  await expect(sourcePdf.locator('canvas')).toBeVisible();
   await expect(output).toBeVisible();
 
   const [queueBox, sourceBox, outputBox, actionsBox] = await Promise.all([

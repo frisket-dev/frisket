@@ -177,7 +177,7 @@ def test_review_runs_report_decisions_and_persist_workflow_status(
         (run_id, row_ids[0], columns["tone"]),
     )
     # Old reviewed rows have no durable accept-vs-edit fact. They stay in the
-    # unknown/unreviewed count rather than being credited as correct.
+    # eligible total, but not in known decisions or pending work.
     project.db.execute(
         "UPDATE results SET review_state='verified', review_decision=NULL "
         "WHERE run_id=? AND row_id=? AND column_id=?",
@@ -200,10 +200,20 @@ def test_review_runs_report_decisions_and_persist_workflow_status(
         "reviewed_count": 2,
         "accepted_count": 1,
         "incorrect_count": 1,
-        "unreviewed_count": 126,
+        "unreviewed_count": 125,
         "confidence_count": 128,
     }
     assert {field["column_name"] for field in run["fields"]} == {"risk", "tone"}
+
+    reviewed_page = client.get(
+        f"/api/projects/{project_id}/review/bundles",
+        params={
+            "run_id": run_id,
+            "field_id": columns["risk"],
+            "include_reviewed": True,
+        },
+    ).json()
+    assert any(bundle["row_id"] == row_ids[1] for bundle in reviewed_page["bundles"])
 
     completed = client.post(
         f"/api/projects/{project_id}/review/runs/{run_id}/status",

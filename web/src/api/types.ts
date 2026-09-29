@@ -3758,7 +3758,7 @@ export interface ReviewRun {
   sheetName: string;
   actionKind: string;
   actionName: string;
-  model: string;
+  model: string | null;
   startedAt: string;
   reviewStatus: ReviewRunStatus;
   reviewCompletedAt: string | null;

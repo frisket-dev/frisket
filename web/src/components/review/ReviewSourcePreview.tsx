@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
-import { type CellEvidencePayload, type CellValue, type ReviewBundleField } from '../../api/open';
+import { type CellEvidencePayload, type ReviewBundleField } from '../../api/open';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
-import { resolveMediaValue, type ResolvedMediaValue } from '../../media/resolveMediaValue';
+import { type ResolvedMediaValue } from '../../media/resolveMediaValue';
 import { DocumentReader } from '../../workbench/DocumentReader';
-import { documentMediaKind } from '../../workbench/documentMedia';
 import { EvidenceViewer } from '../EvidenceViewer';
 
 type ReviewEvidencePreviewState =
@@ -31,16 +30,12 @@ export function ReviewSourcePreview({
   onVisibilityChange?(visible: boolean): void;
 }) {
   const { projectApi: api } = useWorkspaceStores();
-  const [state, setState] = useState<ReviewEvidencePreviewState>({ phase: 'empty' });
+  const [state, setState] = useState<ReviewEvidencePreviewState>(() => ({ phase: activeField ? 'loading' : 'empty' }));
 
   useEffect(() => {
     const field = activeField;
-    if (!field) {
-      setState({ phase: 'empty' });
-      return;
-    }
+    if (!field) return;
     let active = true;
-    setState({ phase: 'loading' });
     api.getCellEvidence(field.rowId, field.columnId).then(
       (payload) => {
         if (!active) return;
@@ -89,36 +84,9 @@ export function ReviewSourcePreview({
       </div>
     );
   }
-  return null;
-}
-
-/** A review source is only opened as a document when it is an admitted blob
- * envelope or an absolute PDF URL. A filename-shaped text value is evidence,
- * not a browser navigation target. */
-export function reviewPdfMedia(value: CellValue, projectId: string): ResolvedMediaValue | null {
-  const raw = typeof value === 'string' ? value : null;
-  if (!raw) return null;
-  const isBlobEnvelope = (() => {
-    if (!raw.trimStart().startsWith('{')) return false;
-    try {
-      const envelope = JSON.parse(raw) as { blob?: unknown };
-      return typeof envelope.blob === 'string' && /^[a-f0-9]{64}$/i.test(envelope.blob);
-    } catch {
-      return false;
-    }
-  })();
-  const isPdfUrl = (() => {
-    try {
-      const url = new URL(raw);
-      return (url.protocol === 'https:' || url.protocol === 'http:')
-        && url.pathname.toLowerCase().endsWith('.pdf');
-    } catch {
-      return false;
-    }
-  })();
-  if (!isBlobEnvelope && !isPdfUrl) return null;
-  const media = resolveMediaValue(raw, projectId);
-  return documentMediaKind(media, 'file') === 'pdf' ? media : null;
+  return state.phase === 'error'
+    ? <p className="review-source-preview-notice muted" role="status">Citations could not be loaded for this result.</p>
+    : null;
 }
 
 function ReviewSourcePdf({ name, media }: { name: string; media: ResolvedMediaValue }) {

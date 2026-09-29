@@ -5,6 +5,7 @@ edit overlay (so they beat model values and are undoable)."""
 
 from __future__ import annotations
 
+from hashlib import blake2b
 from typing import Any
 
 from frisket.review_predicate import (
@@ -116,6 +117,10 @@ def review_queue(
     return out
 
 
+def _shuffle_key(seed: int, run_id: int, row_id: int) -> bytes:
+    return blake2b(f"{seed}:{run_id}:{row_id}".encode(), digest_size=8).digest()
+
+
 def review_bundles(
     project: Project,
     sheet_id: int | None = None,
@@ -142,22 +147,20 @@ def review_bundles(
     if field_id is not None:
         where += " AND res.column_id = ?"
         params.append(field_id)
-    review_where = (
-        "(res.review_state = 'unreviewed' OR res.review_decision IS NOT NULL)"
-        if include_reviewed
-        else "res.review_state = 'unreviewed'"
-    )
+    review_where = "1 = 1" if include_reviewed else "res.review_state = 'unreviewed'"
     primary_where = _primary_where("c")
     primary_params = _primary_params()
     if order == "shuffle":
+        # A seeded hash gives each row a stable shuffled rank across pages and
+        # refreshes without materializing the run's row IDs in Python.
+        project.db.create_function(
+            "review_shuffle_key", 3, _shuffle_key, deterministic=True
+        )
         shuffle_select = (
-            ", (((res.row_id * 1103515245 & 2147483647) "
-            "| (? * 2654435761 & 2147483647)) "
-            "- ((res.row_id * 1103515245 & 2147483647) "
-            "& (? * 2654435761 & 2147483647))) AS shuffle_key"
+            ", review_shuffle_key(?, res.run_id, res.row_id) AS shuffle_key"
         )
         order_by = "shuffle_key, res.row_id, res.run_id, c.sheet_id"
-        order_params: tuple[Any, ...] = (seed, seed)
+        order_params: tuple[Any, ...] = (seed,)
     else:
         shuffle_select = ""
         order_by = "confidence ASC NULLS LAST, res.row_id, res.run_id, c.sheet_id"
@@ -269,11 +272,7 @@ def review_bundle_count(
     if field_id is not None:
         where += " AND res.column_id = ?"
         params.append(field_id)
-    review_where = (
-        "(res.review_state = 'unreviewed' OR res.review_decision IS NOT NULL)"
-        if include_reviewed
-        else "res.review_state = 'unreviewed'"
-    )
+    review_where = "1 = 1" if include_reviewed else "res.review_state = 'unreviewed'"
     primary_where = _primary_where("c")
     primary_params = _primary_params()
     row = project.db.execute(
@@ -404,8 +403,8 @@ def review_runs_page(
                        AS accepted_count,
                    SUM(CASE WHEN res.review_decision IN ('edit','reject','reject_clear')
                             THEN 1 ELSE 0 END) AS incorrect_count,
-                   SUM(CASE WHEN res.review_decision IS NULL THEN 1 ELSE 0 END)
-                       AS unreviewed_count,
+                   SUM(CASE WHEN res.review_decision IS NULL AND res.review_state = 'unreviewed'
+                            THEN 1 ELSE 0 END) AS unreviewed_count,
                    SUM(CASE WHEN res.confidence IS NOT NULL THEN 1 ELSE 0 END)
                        AS confidence_count
             FROM results res
