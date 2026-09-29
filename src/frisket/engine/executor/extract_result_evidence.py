@@ -163,10 +163,11 @@ def _grounding_artifact_source(
     """Keep established PDF/OCR grounding without making the file model-visible."""
 
     source = sources[source_label]
-    use_auxiliary = source.get("producer_action_kind") == "media.ocr" or any(
+    is_ocr_source = source.get("producer_action_kind") == "media.ocr"
+    has_document_locator = any(
         entry.get(key) is not None for key in ("bbox", "page", "page_start", "page_end")
     )
-    if not use_auxiliary:
+    if not is_ocr_source and not has_document_locator:
         return source_label
     source_value = source.get("value")
     if isinstance(source_value, dict) and source_value.get("blob"):
@@ -181,7 +182,11 @@ def _grounding_artifact_source(
             and value.get("blob")
         ):
             candidates.append(name)
-    return candidates[0] if len(candidates) == 1 else None
+    if len(candidates) == 1:
+        return candidates[0]
+    if is_ocr_source and not has_document_locator and not candidates:
+        return source_label
+    return None
 
 
 class ExtractResultEvidence:
