@@ -397,7 +397,7 @@ function mapReviewBundleField(
     columnName: wire.column_name,
     columnType: (wire.column_type as ColumnType | undefined) ?? 'text',
     value: toReviewCellValue(wire.value),
-    confidence: wire.confidence ?? 0,
+    confidence: wire.confidence,
     justification: wire.justification ?? '',
     reviewDecision: wire.review_decision ?? null,
     note: wire.review_note ?? null,
@@ -436,7 +436,7 @@ function mapReviewBundles(wire: ReviewBundlesWire): ReviewBundlePage {
       actionKind: bundle.action_kind,
       actionName: bundle.action_name || actionDisplayNameFromActionKind(bundle.action_kind),
       model: bundle.model ?? '',
-      confidence: bundle.confidence ?? 0,
+      confidence: bundle.confidence,
       source,
       context: Object.entries(source)
         .map(([key, value]) => `${key}: ${String(value)}`)

@@ -601,11 +601,11 @@ describe('history and review generated HTTP reads', () => {
     const bundle = page.bundles[0];
     expect(bundle).toMatchObject({
       sheetName: 'sheet 3', rowIndex: 6,
-      actionName: 'Map Future Action', model: '', confidence: 0,
+      actionName: 'Map Future Action', model: '', confidence: null,
       source: expectedSource,
       fields: [{
         id: '9:7:5', columnType: 'text', value: '["alpha","beta"]',
-        confidence: 0, justification: '', note: null, reviewDecision: null, reviewState: 'unreviewed',
+        confidence: null, justification: '', note: null, reviewDecision: null, reviewState: 'unreviewed',
       }],
       evidence: [{ id: '9:7:6', value: temporal }],
     });

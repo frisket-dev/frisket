@@ -3680,7 +3680,7 @@ export interface ReviewBundleField {
   columnName: string;
   columnType: ColumnType;
   value: CellValue;
-  confidence: number;
+  confidence: number | null;
   justification: string;
   /** Explicit review outcome; absent for legacy review-state-only rows. */
   reviewDecision?: ReviewAction | null;
@@ -3702,7 +3702,7 @@ export interface ReviewBundle {
   actionKind: string;
   actionName: string;
   model: string;
-  confidence: number;
+  confidence: number | null;
   /** Source row values shown as the shared context for sibling outputs. */
   source: Record<string, CellValue>;
   context: string;
