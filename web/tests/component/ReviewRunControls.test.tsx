@@ -43,6 +43,8 @@ describe('ReviewRunControls', () => {
     fireEvent.mouseDown(screen.getByTestId('review-field-select'));
     fireEvent.click(within(screen.getByTestId('review-field-select-menu')).getByRole('option', { name: /Label/ }));
     expect(changedField).toHaveBeenCalledWith('5');
+    expect(screen.getByTestId('review-run-progress')).toHaveTextContent('5 of 10 reviewed');
+    fireEvent.click(screen.getByRole('button', { name: 'Review ordering and accuracy' }));
     expect(screen.getByTestId('review-run-summary')).toHaveTextContent('5 reviewed of 10');
     expect(screen.getByText('75% correct among reviewed (3/4)')).toBeInTheDocument();
   });
@@ -85,11 +87,33 @@ describe('ReviewRunControls', () => {
       />,
     );
 
+    fireEvent.click(screen.getByRole('button', { name: 'Review ordering and accuracy' }));
     const confidence = screen.getByRole('button', { name: 'Lowest confidence' });
     expect(confidence).toBeDisabled();
     expect(confidence).toHaveAttribute('title', expect.stringContaining('no confidence values'));
     fireEvent.click(confidence);
     expect(changedOrder).not.toHaveBeenCalled();
+  });
+
+  it('keeps ordering and accuracy in the compact details popover', () => {
+    const changedOrder = vi.fn();
+    render(
+      <ReviewRunControls
+        runs={[run]}
+        selectedRunId="9"
+        onSelectedRunChange={vi.fn()}
+        selectedFieldId={null}
+        onSelectedFieldChange={vi.fn()}
+        order="shuffle"
+        onOrderChange={changedOrder}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Review ordering and accuracy' }));
+    expect(screen.getByTestId('review-details')).toBeInTheDocument();
+    expect(screen.getByText('75% correct among reviewed (3/4)')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Lowest confidence' }));
+    expect(changedOrder).toHaveBeenCalledWith('confidence');
   });
 
   it('does not show accuracy without explicit outcome facts', () => {
@@ -116,5 +140,52 @@ describe('ReviewRunControls', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Mark review complete' }));
     expect(changeStatus).toHaveBeenCalledWith(run, 'complete');
+  });
+
+  it('keeps injected row controls and optional older-run paging in the toolbar', () => {
+    const loadMore = vi.fn();
+    render(
+      <ReviewRunControls
+        runs={[run]}
+        selectedRunId="9"
+        onSelectedRunChange={vi.fn()}
+        selectedFieldId={null}
+        onSelectedFieldChange={vi.fn()}
+        order="shuffle"
+        onOrderChange={vi.fn()}
+        hasMore
+        onLoadMore={loadMore}
+      >
+        <span>Row 7 · 1 of 4</span>
+      </ReviewRunControls>,
+    );
+
+    expect(screen.getByText('Row 7 · 1 of 4')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Older runs' }));
+    expect(loadMore).toHaveBeenCalledOnce();
+  });
+
+  it('disables scope, details, paging, and completion controls together', () => {
+    render(
+      <ReviewRunControls
+        runs={[run]}
+        selectedRunId="9"
+        onSelectedRunChange={vi.fn()}
+        selectedFieldId={null}
+        onSelectedFieldChange={vi.fn()}
+        order="shuffle"
+        onOrderChange={vi.fn()}
+        onRunStatusChange={vi.fn()}
+        hasMore
+        onLoadMore={vi.fn()}
+        disabled
+      />,
+    );
+
+    expect(screen.getByTestId('review-run-select')).toBeDisabled();
+    expect(screen.getByTestId('review-field-select')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Review ordering and accuracy' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Older runs' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Mark review complete' })).toBeDisabled();
   });
 });

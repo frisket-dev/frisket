@@ -1,25 +1,26 @@
-.controls {
-  display: grid;
+.toolbar {
+  display: flex;
+  align-items: center;
   gap: 10px;
-}
-
-.pickerRow {
-  display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(160px, 0.8fr);
-  gap: 10px;
-}
-
-.label {
-  display: grid;
-  gap: 4px;
-  color: var(--text-mid);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.select {
   min-width: 0;
+  height: 48px;
+  color: #4a433e;
 }
+
+.runSelect,
+.fieldSelect {
+  height: 30px;
+  min-width: 0;
+  padding: 5px 28px 5px 10px;
+  border-color: #ddd5cd;
+  border-radius: 6px;
+  background-color: #fff;
+  color: #211c19;
+  font-size: 13px;
+}
+
+.runSelect { width: min(350px, 31vw); }
+.fieldSelect { width: min(210px, 20vw); }
 
 /* Mirrors the compact state dots in the engine/model selector. The color
    reports review progress only; it does not imply correctness. */
@@ -30,77 +31,123 @@
   border-radius: 999px;
 }
 
-.reviewProgressDotcomplete { background: var(--green); }
+.reviewProgressDotcomplete { background: #1f7a5a; }
 .reviewProgressDotinProgress { background: var(--amber); }
-.reviewProgressDotunreviewed { background: var(--red); }
+.reviewProgressDotunreviewed { background: #b23a2e; }
+
+.progress {
+  flex: 0 0 auto;
+  color: #756c66;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.progress strong { color: #211c19; }
+
+.detailsTrigger,
+.loadMore {
+  flex: 0 0 auto;
+  height: 30px;
+  border: 1px solid #ddd5cd;
+  border-radius: 6px;
+  background: #fff;
+  color: #4a433e;
+  font-size: 12px;
+}
+
+.detailsTrigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 8px;
+}
+
+.loadMore { padding: 0 8px; }
+.detailsTrigger:hover:not(:disabled), .loadMore:hover:not(:disabled) { background: #f6f3f0; }
+.detailsTrigger:disabled, .loadMore:disabled { cursor: not-allowed; opacity: 0.55; }
+
+.spacer { flex: 1 1 auto; min-width: 8px; }
+.children { display: inline-flex; align-items: center; }
+
+.status {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #e3f1ea;
+  color: #1f7a5a;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.statusButton {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 5px 10px;
+  border-color: #ddd5cd;
+  border-radius: 6px;
+  background: #fff;
+  color: #4a433e;
+  font-size: 13px;
+}
+
+.detailsMenu {
+  display: grid;
+  gap: 12px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid #ddd5cd;
+  border-radius: 7px;
+  background: #fbf9f7;
+  box-shadow: 0 10px 28px rgba(40, 30, 20, 0.16);
+}
+
+.detailsMenu[popover] { inset: auto; }
+.detailsTitle { color: #211c19; font-size: 13px; font-weight: 700; }
 
 .summary {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 12px;
-  color: var(--text-mid);
+  gap: 5px 10px;
+  color: #756c66;
   font-size: 12px;
 }
 
-.bottomRow {
+.summary strong { color: #211c19; }
+
+.orderRow {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 8px 14px;
-}
-
-.summary strong {
-  color: var(--text);
-}
-
-.status {
-  padding: 2px 6px;
-  border-radius: 999px;
-  background: var(--bg-hover);
-  color: var(--text-mid);
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.statusComplete {
-  background: var(--success-bg, var(--bg-hover));
-  color: var(--success, var(--text-mid));
-}
-
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 7px;
+  gap: 10px;
+  color: #756c66;
+  font-size: 12px;
 }
 
 .order {
   display: inline-flex;
   overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 7px;
+  border: 1px solid #ddd5cd;
+  border-radius: 6px;
 }
 
 .order button {
+  min-height: 28px;
+  padding: 4px 8px;
   border: 0;
   border-radius: 0;
-  padding: 5px 8px;
-  background: var(--bg);
-  color: var(--text-mid);
+  background: #fff;
+  color: #4a433e;
   font-size: 12px;
 }
 
-.order button + button { border-left: 1px solid var(--border); }
-.order button[aria-pressed='true'] { background: var(--accent-bg); color: var(--accent); }
+.order button + button { border-left: 1px solid #ddd5cd; }
+.order button[aria-pressed='true'] { background: #e9e3dd; color: #211c19; }
 .order button:disabled { cursor: not-allowed; opacity: 0.55; }
+.noConfidence { margin: -5px 0 0; color: #756c66; font-size: 11px; }
 
-.statusButton { margin-left: auto; }
-
-@media (max-width: 620px) {
-  .pickerRow { grid-template-columns: 1fr; }
-  .bottomRow { align-items: flex-start; flex-direction: column; }
-  .statusButton { margin-left: 0; }
+@media (max-width: 780px) {
+  .runSelect { width: min(230px, 32vw); }
+  .fieldSelect { width: min(150px, 22vw); }
+  .progress { display: none; }
 }
