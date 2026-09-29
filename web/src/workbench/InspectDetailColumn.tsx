@@ -39,8 +39,8 @@ export interface InspectDetailColumnProps {
    *  canonical column order. */
   titleColumnOrder?: readonly string[];
   /** Session-local run-result disclosures, owned above the transient row fetch. */
-  expandedRunResultFields?: ReadonlySet<string>;
-  onToggleRunResultField?(fieldKey: string): void;
+  expandedRunResultFields: ReadonlySet<string>;
+  onToggleRunResultField(fieldKey: string): void;
 }
 
 /**

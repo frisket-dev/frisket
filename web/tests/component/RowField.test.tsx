@@ -79,7 +79,7 @@ function openExplainPanelAt(rect: Partial<DOMRect>): { field: HTMLElement; panel
     },
   };
   render(
-    <RowField
+    <RowField runResultExpanded={false} onToggleRunResult={() => {}}
       col={col}
       columns={[col]}
       row={row({ topic: 'infrastructure' }, { provenance })}
@@ -140,6 +140,7 @@ describe('row drawer field action rail', () => {
       };
       return visible ? (
         <RowDrawerBody
+          projectId="row-field-test"
           sheet={drawerSheet}
           row={currentRow}
           onEdit={noopEdit}
@@ -192,7 +193,7 @@ describe('row drawer field action rail', () => {
   it('reveals copy + edit icon actions on hover for a raw column, hidden otherwise', () => {
     const col = columnDef({ id: 'snippet', name: 'snippet', type: 'text' });
     render(
-      <RowField
+      <RowField runResultExpanded={false} onToggleRunResult={() => {}}
         col={col}
         columns={[col]}
         row={row({ snippet: 'City hall awarded a paving contract.' })}
@@ -232,7 +233,7 @@ describe('row drawer field action rail', () => {
     };
     const onEdit = vi.fn(() => Promise.resolve());
     render(
-      <RowField
+      <RowField runResultExpanded={false} onToggleRunResult={() => {}}
         col={col}
         columns={[col]}
         row={row({ cuts: value })}
@@ -273,7 +274,7 @@ describe('row drawer field action rail', () => {
     };
     const onEdit = vi.fn(() => Promise.resolve());
     render(
-      <RowField
+      <RowField runResultExpanded={false} onToggleRunResult={() => {}}
         col={col}
         columns={[col]}
         row={row({ moment: value })}
@@ -311,7 +312,7 @@ describe('row drawer field action rail', () => {
     });
     const onEdit = vi.fn(() => Promise.resolve());
     render(
-      <RowField
+      <RowField runResultExpanded={false} onToggleRunResult={() => {}}
         col={col}
         columns={[col]}
         row={row({ topics: value })}
@@ -351,7 +352,7 @@ describe('row drawer field action rail', () => {
       },
     };
     render(
-      <RowField
+      <RowField runResultExpanded={false} onToggleRunResult={() => {}}
         col={col}
         columns={[col]}
         row={row({ topic: 'infrastructure' }, { provenance })}
@@ -453,7 +454,7 @@ describe('row drawer terminal empty_output retry', () => {
     let settle!: () => void;
     const onRetryCell = vi.fn(() => new Promise<void>((resolve) => { settle = resolve; }));
     render(
-      <RowField
+      <RowField runResultExpanded={false} onToggleRunResult={() => {}}
         col={col}
         columns={[col]}
         row={emptyOutputRow()}
@@ -482,7 +483,7 @@ describe('row drawer terminal empty_output retry', () => {
   it('does not offer retry for a retryable model_error failure', () => {
     const col = aiCol();
     render(
-      <RowField
+      <RowField runResultExpanded={false} onToggleRunResult={() => {}}
         col={col}
         columns={[col]}
         row={row(
@@ -504,7 +505,7 @@ describe('row drawer terminal empty_output retry', () => {
   it('does not render without an onRetryCell handler', () => {
     const col = aiCol();
     render(
-      <RowField col={col} columns={[col]} row={emptyOutputRow()} selected onEdit={noopEdit} />,
+      <RowField runResultExpanded={false} onToggleRunResult={() => {}} col={col} columns={[col]} row={emptyOutputRow()} selected onEdit={noopEdit} />,
     );
     expect(screen.queryByTestId('cell-retry-translation')).toBeNull();
   });

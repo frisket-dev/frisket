@@ -38,8 +38,6 @@ import { useNativePopover } from '../hooks/useNativePopover';
 import { createAudioPlaybackSource } from '../state/audioPlaybackStore';
 
 const EMPTY_CONTRIBUTIONS: WorkbenchResolvedLayoutContribution[] = [];
-const EMPTY_RUN_RESULT_FIELDS: ReadonlySet<string> = new Set();
-const NOOP_TOGGLE_RUN_RESULT = () => {};
 
 function DetailContributionSlot({
   render,
@@ -53,7 +51,7 @@ function DetailContributionSlot({
 
 export interface RowDrawerBodyProps {
   /** Scopes ephemeral disclosure state when sheet and column IDs repeat across projects. */
-  projectId?: string;
+  projectId: string;
   sheet: SheetMeta;
   row: Row;
   selectedColumnId?: string | null;
@@ -76,8 +74,8 @@ export interface RowDrawerBodyProps {
    *  id. The promise settles when the retry run finishes. */
   onRetryCell?(columnName: string): Promise<void>;
   /** Session-local run-result disclosures, owned above a transient row fetch. */
-  expandedRunResultFields?: ReadonlySet<string>;
-  onToggleRunResultField?(fieldKey: string): void;
+  expandedRunResultFields: ReadonlySet<string>;
+  onToggleRunResultField(fieldKey: string): void;
 }
 
 /** The Inspect content — lineage chips, per-field blocks, plugin detail
@@ -94,13 +92,12 @@ export function RowDrawerBody({
   bodyRef,
   onOpenInDocumentView,
   onRetryCell,
-  expandedRunResultFields = EMPTY_RUN_RESULT_FIELDS,
+  expandedRunResultFields,
   onToggleRunResultField,
 }: RowDrawerBodyProps) {
   const fallbackRef = useRef<HTMLDivElement>(null);
   const drawerBodyRef = bodyRef ?? fallbackRef;
   const documentColumn = onOpenInDocumentView ? documentMediaColumns(sheet)[0] ?? null : null;
-  const toggleRunResultField = onToggleRunResultField ?? NOOP_TOGGLE_RUN_RESULT;
 
   useEffect(() => {
     if (!selectedColumnId || !drawerBodyRef.current) return;
@@ -164,7 +161,7 @@ export function RowDrawerBody({
         </button>
       )}
       {sheet.columns.map((col) => {
-        const fieldKey = `${projectId ?? ''}:${sheet.id}:${col.id}`;
+        const fieldKey = `${projectId}:${sheet.id}:${col.id}`;
         return (
           <RowField
             key={`${row.id}:${col.id}`}
@@ -176,7 +173,7 @@ export function RowDrawerBody({
             onEdit={onEdit}
             onRetryCell={onRetryCell}
             runResultExpanded={expandedRunResultFields.has(fieldKey)}
-            onToggleRunResult={() => toggleRunResultField(fieldKey)}
+            onToggleRunResult={() => onToggleRunResultField(fieldKey)}
           />
         );
       })}
@@ -311,8 +308,8 @@ export function RowField({
   onEdit(row: Row, col: ColumnDef, value: CellValue): Promise<void>;
   onRetryCell?(columnName: string): Promise<void>;
   /** Controlled by RowDrawerBody so this field stays expanded across rows. */
-  runResultExpanded?: boolean;
-  onToggleRunResult?(): void;
+  runResultExpanded: boolean;
+  onToggleRunResult(): void;
 }) {
   const value = row.cells?.[col.id] ?? null;
   const [fieldState, dispatch] = useReducer(rowFieldReducer, value, rowFieldInitialState);
@@ -497,8 +494,8 @@ export function RowField({
       {col.ai && prov && (
         <ProvenanceBlock
           prov={prov}
-          runResultExpanded={runResultExpanded ?? false}
-          onToggleRunResult={onToggleRunResult ?? NOOP_TOGGLE_RUN_RESULT}
+          runResultExpanded={runResultExpanded}
+          onToggleRunResult={onToggleRunResult}
         />
       )}
       {retryable && onRetryCell && (

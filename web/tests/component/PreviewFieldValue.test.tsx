@@ -28,7 +28,7 @@ function inspect(preview: PreviewCellDetail | null) {
   const retry = vi.fn();
   const fetch = vi.fn(() => { throw new Error('preview details must not resolve artifacts'); });
   vi.stubGlobal('fetch', fetch);
-  const mounted = render(<InspectDetailColumn
+  const mounted = render(<InspectDetailColumn expandedRunResultFields={new Set()} onToggleRunResultField={() => {}}
     projectId="preview-detail" sheet={sheet} row={row({ existing: 'COMMITTED VALUE' })}
     preview={preview} onClose={vi.fn()} onEdit={edit} onRetryCell={retry}
     canPrev={false} canNext={false}
