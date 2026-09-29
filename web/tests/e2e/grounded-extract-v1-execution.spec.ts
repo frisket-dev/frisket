@@ -42,7 +42,7 @@ test('grounded extract posts citation policy on map.extract and opens evidence l
 
   await openProject(page, pid, sheetId);
   await openAction(page, 'map.extract');
-  await page.getByTestId('text-source-column-select').selectOption({ label: 'Template' });
+  await page.getByTestId('text-source-mode-template').click();
   await page
     .getByTestId('text-source-template-input')
     .fill('{{title}} {{pdf}} {{notes}}');
@@ -69,8 +69,7 @@ test('grounded extract posts citation policy on map.extract and opens evidence l
   expect(posted.capabilities).toEqual(['project:write', 'model:complete']);
   const params = posted.params as Record<string, unknown>;
   expect(params.sheet_id).toBe(sheetId);
-  expect(params.input_columns).toEqual(['title', 'pdf', 'notes']);
-  expect(params.input_template).toBe('{{title}} {{pdf}} {{notes}}');
+  expect(params.source).toEqual({ text: '{{title}} {{pdf}} {{notes}}' });
   expect(params.grounding).toMatchObject({
     enabled: true,
     citation_required: true,
