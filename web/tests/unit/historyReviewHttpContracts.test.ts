@@ -174,6 +174,35 @@ const reviewBundlesFixture = {
   }],
 };
 
+const reviewRunsFixture = {
+  schema_version: 'frisket.review_runs_page.v1',
+  offset: 50,
+  limit: 50,
+  total: 101,
+  has_more: true,
+  next_offset: 100,
+  runs: [{
+    run_id: 9,
+    sheet_id: 3,
+    sheet_name: 'Articles',
+    action_kind: 'map.classify',
+    action_name: 'Classify',
+    model: 'model-1',
+    started_at: '2026-08-11T00:00:00Z',
+    review_status: 'complete',
+    review_completed_at: '2026-08-12T00:00:00Z',
+    total: {
+      eligible_count: 10, reviewed_count: 4, accepted_count: 3, incorrect_count: 1,
+      unreviewed_count: 6, confidence_count: 9,
+    },
+    fields: [{
+      column_id: 5, column_name: 'Label', column_type: 'text',
+      eligible_count: 10, reviewed_count: 4, accepted_count: 3, incorrect_count: 1,
+      unreviewed_count: 6, confidence_count: 0,
+    }],
+  }],
+};
+
 /** A history page at a given cursor, with whichever step targets the server
  * would offer there. */
 const historyPage = (state: {
@@ -330,6 +359,60 @@ describe('history and review generated HTTP reads', () => {
       '/api/projects/run-filter/review/bundles?offset=0&limit=25&run_id=9&include_reviewed=true',
       '/api/projects/run-filter/review/count?run_id=9',
     ]);
+  });
+
+  it('keeps bundle sorting request-only and exposes a bounded, pinned run page', async () => {
+    const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ input, init });
+      return jsonResponse(requests.length === 1 ? reviewBundlesFixture : reviewRunsFixture);
+    }));
+    const api = createHistoryReviewApi(
+      (status, payload) => new MappedContractError(status, payload),
+      'review-controls',
+    );
+
+    await api.getReviewBundles(0, 25, '9', false, undefined, {
+      fieldId: '5', order: 'shuffle', seed: 17,
+    });
+    await api.getReviewRuns(50, 50, { sheetId: '3', runId: '9' });
+
+    expect(requests.map((request) => String(request.input))).toEqual([
+      '/api/projects/review-controls/review/bundles?offset=0&limit=25&run_id=9&field_id=5&order=shuffle&seed=17',
+      '/api/projects/review-controls/review/runs?offset=50&limit=50&sheet_id=3&run_id=9',
+    ]);
+  });
+
+  it('maps durable run status and exact per-field counts', async () => {
+    const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ input, init });
+      return jsonResponse(requests.length === 1 ? reviewRunsFixture : {
+        schema_version: 'frisket.review_run_status.v1',
+        run_id: 9,
+        status: 'open',
+        review_completed_at: null,
+      });
+    }));
+    const api = historyReviewDomain('review-controls');
+
+    await expect(api.listReviewRuns(50, 50, { runId: '9' })).resolves.toMatchObject({
+      offset: 50,
+      nextOffset: 100,
+      runs: [{
+        runId: '9', reviewStatus: 'complete',
+        total: { reviewedCount: 4, acceptedCount: 3, incorrectCount: 1 },
+        fields: [{ columnId: '5', confidenceCount: 0 }],
+      }],
+    });
+    await expect(api.setReviewRunStatus('9', 'open')).resolves.toEqual({
+      schemaVersion: 'frisket.review_run_status.v1', runId: '9', status: 'open', reviewCompletedAt: null,
+    });
+    expect(requests.map(({ input, init }) => [String(input), init?.method])).toEqual([
+      ['/api/projects/review-controls/review/runs?offset=50&limit=50&run_id=9', 'GET'],
+      ['/api/projects/review-controls/review/runs/9/status', 'POST'],
+    ]);
+    expect(JSON.parse(String(requests[1].init?.body))).toEqual({ status: 'open' });
   });
 
   it.each([401, 403, 404, 422, 500])('maps HTTP %i through the provided error factory', async (status) => {

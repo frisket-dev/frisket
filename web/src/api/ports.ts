@@ -123,6 +123,8 @@ export interface ProjectApiPort extends
   deleteSheet: FrisketApi['deleteSheet'];
   getHistory: FrisketApi['getHistory'];
   getReviewCount: FrisketApi['getReviewCount'];
+  listReviewRuns: FrisketApi['listReviewRuns'];
+  setReviewRunStatus: FrisketApi['setReviewRunStatus'];
   undo: FrisketApi['undo'];
   redo: FrisketApi['redo'];
   stepTo: FrisketApi['stepTo'];

@@ -17,7 +17,14 @@ import type {
   HistoryState,
   ReviewAction,
   ReviewBundleField,
+  ReviewBundleOptions,
   ReviewBundlePage,
+  ReviewRun,
+  ReviewRunCounts,
+  ReviewRunsOptions,
+  ReviewRunsPage,
+  ReviewRunStatus,
+  ReviewRunStatusResult,
   RunRowErrorSummary,
 } from './types';
 
@@ -36,6 +43,10 @@ export type ReviewBundlesWire =
   HttpContractSuccessResponse<'tenant.review_bundles_ep.get'>;
 export type ReviewCountWire =
   HttpContractSuccessResponse<'tenant.review_count_ep.get'>;
+export type ReviewRunsWire =
+  HttpContractSuccessResponse<'tenant.review_runs_ep.get'>;
+export type ReviewRunStatusWire =
+  HttpContractSuccessResponse<'tenant.review_run_status_ep.post'>;
 
 export interface HistoryReviewApi {
   getColumnRuns(
@@ -60,8 +71,20 @@ export interface HistoryReviewApi {
     runId?: string,
     includeReviewed?: boolean,
     options?: HistoryReviewOptions,
+    bundleOptions?: ReviewBundleOptions,
   ): Promise<ReviewBundlesWire>;
   getReviewCount(runId?: string, options?: HistoryReviewOptions): Promise<ReviewCountWire>;
+  getReviewRuns(
+    offset?: number,
+    limit?: number,
+    runOptions?: ReviewRunsOptions,
+    options?: HistoryReviewOptions,
+  ): Promise<ReviewRunsWire>;
+  setReviewRunStatus(
+    runId: string,
+    status: ReviewRunStatus,
+    options?: HistoryReviewOptions,
+  ): Promise<ReviewRunStatusWire>;
 }
 
 /** The feature-facing history and review port: mapped reads plus the cursor
@@ -84,8 +107,15 @@ export interface HistoryReviewDomainApi {
     limit?: number,
     runId?: string,
     includeReviewed?: boolean,
+    options?: ReviewBundleOptions,
   ): Promise<ReviewBundlePage>;
   getReviewCount(runId?: string): Promise<number>;
+  listReviewRuns(
+    offset?: number,
+    limit?: number,
+    options?: ReviewRunsOptions,
+  ): Promise<ReviewRunsPage>;
+  setReviewRunStatus(runId: string, status: ReviewRunStatus): Promise<ReviewRunStatusResult>;
   undo(): Promise<HistoryState>;
   redo(): Promise<HistoryState>;
   stepTo(opIndex: number): Promise<HistoryState>;
@@ -168,7 +198,14 @@ export function createHistoryReviewApi(
       );
     },
 
-    getReviewBundles(offset = 0, limit = 25, runId, includeReviewed = false, options = {}) {
+    getReviewBundles(
+      offset = 0,
+      limit = 25,
+      runId,
+      includeReviewed = false,
+      options = {},
+      bundleOptions = {},
+    ) {
       return httpContract(
         'tenant.review_bundles_ep.get',
         {
@@ -178,6 +215,9 @@ export function createHistoryReviewApi(
             limit,
             run_id: runId === undefined ? undefined : Number(runId),
             include_reviewed: includeReviewed || undefined,
+            field_id: bundleOptions.fieldId === undefined ? undefined : Number(bundleOptions.fieldId),
+            order: bundleOptions.order,
+            seed: bundleOptions.seed,
           },
           signal: options.signal,
           headers: options.headers,
@@ -192,6 +232,38 @@ export function createHistoryReviewApi(
         {
           pathParams: { pid: projectId },
           query: { run_id: runId === undefined ? undefined : Number(runId) },
+          signal: options.signal,
+          headers: options.headers,
+          errorFactory,
+        },
+      );
+    },
+
+    getReviewRuns(offset = 0, limit = 50, runOptions = {}, options = {}) {
+      return httpContract(
+        'tenant.review_runs_ep.get',
+        {
+          pathParams: { pid: projectId },
+          query: {
+            offset,
+            limit,
+            sheet_id: runOptions.sheetId === undefined ? undefined : Number(runOptions.sheetId),
+            run_id: runOptions.runId === undefined ? undefined : Number(runOptions.runId),
+          },
+          signal: options.signal,
+          headers: options.headers,
+          errorFactory,
+        },
+      );
+    },
+
+    setReviewRunStatus(runId, status, options = {}) {
+      return httpContract(
+        'tenant.review_run_status_ep.post',
+        {
+          pathParams: { pid: projectId, run_id: Number(runId) },
+          query: {},
+          body: { status },
           signal: options.signal,
           headers: options.headers,
           errorFactory,
@@ -457,6 +529,62 @@ function mapReviewBundles(wire: ReviewBundlesWire): ReviewBundlePage {
   };
 }
 
+function mapReviewRunCounts(wire: {
+  eligible_count: number;
+  reviewed_count: number;
+  accepted_count: number;
+  incorrect_count: number;
+  unreviewed_count: number;
+  confidence_count: number;
+}): ReviewRunCounts {
+  return {
+    eligibleCount: wire.eligible_count,
+    reviewedCount: wire.reviewed_count,
+    acceptedCount: wire.accepted_count,
+    incorrectCount: wire.incorrect_count,
+    unreviewedCount: wire.unreviewed_count,
+    confidenceCount: wire.confidence_count,
+  };
+}
+
+function mapReviewRuns(wire: ReviewRunsWire): ReviewRunsPage {
+  return {
+    schemaVersion: wire.schema_version,
+    offset: wire.offset,
+    limit: wire.limit,
+    total: wire.total,
+    hasMore: wire.has_more,
+    nextOffset: wire.next_offset,
+    runs: wire.runs.map((run): ReviewRun => ({
+      runId: String(run.run_id),
+      sheetId: String(run.sheet_id),
+      sheetName: run.sheet_name,
+      actionKind: run.action_kind,
+      actionName: run.action_name,
+      model: run.model,
+      startedAt: run.started_at,
+      reviewStatus: run.review_status,
+      reviewCompletedAt: run.review_completed_at,
+      total: mapReviewRunCounts(run.total),
+      fields: run.fields.map((field) => ({
+        columnId: String(field.column_id),
+        columnName: field.column_name,
+        columnType: field.column_type as ColumnType,
+        ...mapReviewRunCounts(field),
+      })),
+    })),
+  };
+}
+
+function mapReviewRunStatus(wire: ReviewRunStatusWire): ReviewRunStatusResult {
+  return {
+    schemaVersion: wire.schema_version,
+    runId: String(wire.run_id),
+    status: wire.status,
+    reviewCompletedAt: wire.review_completed_at,
+  };
+}
+
 /** The cursor walk is bounded: the backend only exposes single-step operation
  * controls, so a stepTo() that never reaches its target stops rather than
  * posting forever. */
@@ -569,13 +697,23 @@ export function createHistoryReviewDomainApi(
       return mapHistory(await transport.getHistory(offset, limit, options));
     },
 
-    async getReviewBundles(offset = 0, limit = 25, runId, includeReviewed = false) {
-      return mapReviewBundles(await transport.getReviewBundles(offset, limit, runId, includeReviewed));
+    async getReviewBundles(offset = 0, limit = 25, runId, includeReviewed = false, options) {
+      return mapReviewBundles(
+        await transport.getReviewBundles(offset, limit, runId, includeReviewed, undefined, options),
+      );
     },
 
     async getReviewCount(runId) {
       const wire = await transport.getReviewCount(runId);
       return Number(wire.count ?? 0);
+    },
+
+    async listReviewRuns(offset = 0, limit = 50, options) {
+      return mapReviewRuns(await transport.getReviewRuns(offset, limit, options));
+    },
+
+    async setReviewRunStatus(runId, status) {
+      return mapReviewRunStatus(await transport.setReviewRunStatus(runId, status));
     },
 
     async undo() {
