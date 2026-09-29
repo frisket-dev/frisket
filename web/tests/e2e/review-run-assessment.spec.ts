@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { createProject, importCsv, openProject, uniqueName } from './helpers';
 import { seedReviewClassifyRun } from './reviewFixtures';
 
-test('review selects runs and fields, reports decisions, and reopens a completed review', async ({ page }) => {
+test('review scopes runs and fields through the toolbar, reports decisions, and reopens a completed run', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-run-assessment'));
   const firstSheet = await importCsv(page.request, pid, 'first.csv', 'story\n"First source"\n');
   const secondSheet = await importCsv(page.request, pid, 'second.csv', 'story\n"Second source"\n"Third source"\n');
@@ -32,13 +32,16 @@ test('review selects runs and fields, reports decisions, and reopens a completed
   const queue = page.getByTestId('review-queue');
   await expect(queue.getByTestId('review-run-select')).toHaveValue(String(recent.run_id));
   await expect(queue.getByRole('img', { name: 'No review decisions yet', exact: true })).toBeVisible();
-  await expect(queue.getByRole('button', { name: 'Random', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  await expect(queue.getByRole('button', { name: 'Lowest confidence', exact: true })).toBeDisabled();
-  await expect(queue.locator('.conf-pill')).toHaveCount(0);
+  await expect(queue.getByTestId('review-run-progress')).toContainText('0 of 4 reviewed');
+  await queue.getByRole('button', { name: 'Review ordering and accuracy' }).click();
+  const details = queue.getByTestId('review-details');
+  await expect(details.getByRole('button', { name: 'Random', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(details.getByRole('button', { name: 'Lowest confidence', exact: true })).toBeDisabled();
+  await queue.getByRole('button', { name: 'Review ordering and accuracy' }).click();
   await expect(queue.getByTestId('review-field-beat')).toBeVisible();
 
   await queue.getByTestId('review-run-select').selectOption(String(older.run_id));
-  await expect(queue.getByTestId('review-bundle-context')).toContainText('First source');
+  await expect(queue.getByTestId('review-field-beat')).toBeVisible();
   await queue.getByTestId('review-run-select').selectOption(String(recent.run_id));
   await queue.getByTestId('review-field-select').selectOption(String(tone.column_id));
   await expect(queue.getByTestId('review-field-tone')).toBeVisible();
@@ -49,22 +52,23 @@ test('review selects runs and fields, reports decisions, and reopens a completed
   expect(scopedQuery.searchParams.get('order')).toBe('shuffle');
   const seed = scopedQuery.searchParams.get('seed');
 
-  await queue.getByTestId('review-accept').click();
-  await expect(queue.getByTestId('review-run-summary')).toContainText('1 accepted');
-  await expect(queue.getByRole('img', { name: 'Review in progress', exact: true })).toBeVisible();
-  await queue.getByTestId('review-reject').click();
-  await expect(queue.getByTestId('review-run-summary')).toContainText('1 incorrect');
-  await expect(queue.getByTestId('review-run-summary')).toContainText('50% correct among reviewed');
-  expect(queries.at(-1)!.searchParams.get('seed')).toBe(seed);
-
+  await queue.getByRole('button', { name: 'Accept tone', exact: true }).click();
   await queue.getByTestId('review-field-select').selectOption('');
   await expect(queue.getByTestId('review-field-beat')).toBeVisible();
+  await queue.getByRole('button', { name: 'Reject beat', exact: true }).click();
+  await queue.getByRole('button', { name: 'Review ordering and accuracy' }).click();
+  await expect(queue.getByTestId('review-run-summary')).toContainText('1 accepted');
+  await expect(queue.getByTestId('review-run-summary')).toContainText('1 incorrect');
+  await expect(queue.getByTestId('review-run-summary')).toContainText('50% correct among reviewed');
+  await queue.getByRole('button', { name: 'Review ordering and accuracy' }).click();
+  expect(queries.at(-1)!.searchParams.get('seed')).toBe(seed);
+  await expect(queue.getByRole('img', { name: 'Review in progress', exact: true })).toBeVisible();
 
   // Completing a review must not approve the unchecked sibling output.
   await queue.getByRole('button', { name: 'Mark review complete' }).click();
   await expect(queue.getByRole('button', { name: 'Reopen review' })).toBeVisible();
   await expect(queue.getByRole('img', { name: 'Review complete', exact: true })).toBeVisible();
-  await expect(queue.getByTestId('review-accept')).toBeDisabled();
+  await expect(queue.getByRole('button', { name: 'Accept beat', exact: true })).toBeDisabled();
   await expect(queue.getByTestId('review-edit')).toBeDisabled();
   const summary = await page.request.get(`/api/projects/${pid}/review/runs?run_id=${recent.run_id}`);
   const completed = (await summary.json()).runs[0];
@@ -73,11 +77,8 @@ test('review selects runs and fields, reports decisions, and reopens a completed
   expect(completed.total.incorrect_count).toBe(1);
   expect(completed.total.unreviewed_count).toBe(2);
 
-  await page.reload();
-  await expect(page.getByTestId('review-queue')).toBeVisible();
-  await page.getByTestId('review-run-select').selectOption(String(recent.run_id));
-  await page.getByRole('button', { name: 'Reopen review' }).click();
-  await expect(page.getByRole('button', { name: 'Mark review complete' })).toBeVisible();
-  await expect(page.getByTestId('review-run-summary')).toContainText('2 reviewed of 4');
-  await expect(page.getByRole('img', { name: 'Review in progress', exact: true })).toBeVisible();
+  await queue.getByRole('button', { name: 'Reopen review' }).click();
+  await expect(queue.getByRole('button', { name: 'Mark review complete' })).toBeVisible();
+  await queue.getByRole('button', { name: 'Review ordering and accuracy' }).click();
+  await expect(queue.getByTestId('review-run-summary')).toContainText('2 reviewed of 4');
 });
