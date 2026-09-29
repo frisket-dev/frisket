@@ -21,6 +21,19 @@
   min-width: 0;
 }
 
+/* Mirrors the compact state dots in the engine/model selector. The color
+   reports review progress only; it does not imply correctness. */
+.reviewProgressDot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+}
+
+.reviewProgressDotcomplete { background: var(--green); }
+.reviewProgressDotinProgress { background: var(--amber); }
+.reviewProgressDotunreviewed { background: var(--red); }
+
 .summary {
   display: flex;
   flex-wrap: wrap;

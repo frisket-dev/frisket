@@ -46,6 +46,31 @@ describe('PanelSelect empty state', () => {
 });
 
 describe('PanelSelect native-option compatibility', () => {
+  it('renders an optional leading adornment in the trigger and option rows', () => {
+    function Harness() {
+      const [value, setValue] = useState('one');
+      return (
+        <PanelSelect
+          value={value}
+          onValueChange={setValue}
+          options={[
+            { value: 'one', label: 'One', leadingIcon: <span role="img" aria-label="First status">●</span> },
+            { value: 'two', label: 'Two', leadingIcon: <span role="img" aria-label="Second status">●</span> },
+          ]}
+          testId="adorned-picker"
+        />
+      );
+    }
+
+    render(<Harness />);
+
+    expect(screen.getByTestId('adorned-picker').parentElement).toHaveClass('has-leading-icon');
+    expect(screen.getByLabelText('First status')).toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByTestId('adorned-picker'));
+    fireEvent.click(within(screen.getByTestId('adorned-picker-menu')).getByRole('option', { name: /Two/ }));
+    expect(screen.getByLabelText('Second status')).toBeInTheDocument();
+  });
+
   it('keeps the value-only callback used by rich-option call sites', () => {
     const changed = vi.fn();
     render(

@@ -28,6 +28,8 @@ export interface PanelSelectOption {
   value: string;
   label: string;
   description?: string;
+  /** Optional visual cue shown before this option's copy. */
+  leadingIcon?: ReactNode;
   /** Optional native ``optgroup`` label. */
   group?: string;
   /** Mark an AI-generated column with the ⚡ badge. */
@@ -146,6 +148,7 @@ export const PanelSelect = forwardRef<HTMLSelectElement, PanelSelectProps>(funct
 
   const options = suppliedOptions ?? nativeOptions(selectRef.current);
   const selectedValue = String(value);
+  const leadingIcon = options.find((option) => option.value === selectedValue)?.leadingIcon;
 
   const choose = (next: string) => {
     if (selectRef.current) setNativeSelectValue(selectRef.current, next);
@@ -212,10 +215,11 @@ export const PanelSelect = forwardRef<HTMLSelectElement, PanelSelectProps>(funct
 
   return (
     <>
-      {note ? (
-        <span className="panel-select-shell">
+      {note || leadingIcon ? (
+        <span className={`panel-select-shell${leadingIcon ? ' has-leading-icon' : ''}`}>
           {selectEl}
-          <span className="panel-select-note" aria-hidden>{note}</span>
+          {leadingIcon && <span className="panel-select-leading-icon">{leadingIcon}</span>}
+          {note && <span className="panel-select-note" aria-hidden>{note}</span>}
         </span>
       ) : (
         selectEl
@@ -270,6 +274,7 @@ export const PanelSelect = forwardRef<HTMLSelectElement, PanelSelectProps>(funct
                     >
                       <span className="panel-select-option-main">
                         <span className="panel-select-option-label">
+                          {option.leadingIcon}
                           {option.ai && <Zap size={12} className="panel-select-ai" aria-label="AI column" />}
                           {option.label}
                         </span>

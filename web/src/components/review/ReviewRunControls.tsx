@@ -27,6 +27,26 @@ function countDescription(counts: ReviewRunCounts): string {
   return `${counts.reviewedCount}/${counts.eligibleCount} reviewed`;
 }
 
+type ReviewProgress = 'complete' | 'inProgress' | 'unreviewed';
+
+function reviewProgress(run: ReviewRun): { state: ReviewProgress; label: string } {
+  if (run.reviewStatus === 'complete') return { state: 'complete', label: 'Review complete' };
+  if (run.total.reviewedCount > 0) return { state: 'inProgress', label: 'Review in progress' };
+  return { state: 'unreviewed', label: 'No review decisions yet' };
+}
+
+function ReviewProgressDot({ run }: { run: ReviewRun }) {
+  const { state, label } = reviewProgress(run);
+  return (
+    <span
+      className={`${styles.reviewProgressDot} ${styles[`reviewProgressDot${state}`]}`}
+      role="img"
+      aria-label={label}
+      title={label}
+    />
+  );
+}
+
 function fieldOption(field: ReviewRunField): PanelSelectOption {
   return {
     value: field.columnId,
@@ -90,7 +110,8 @@ export function ReviewRunControls({
   const runOptions: PanelSelectOption[] = runs.map((candidate) => ({
     value: candidate.runId,
     label: runLabel(candidate),
-    description: `${countDescription(candidate.total)} · ${candidate.reviewStatus}`,
+    description: `${reviewProgress(candidate).label} · ${countDescription(candidate.total)}`,
+    leadingIcon: <ReviewProgressDot run={candidate} />,
   }));
   // A selected, older run can arrive via a separate targeted request while a
   // normal page is loading. Keep its value in the native select in the interim.
@@ -114,6 +135,7 @@ export function ReviewRunControls({
             value={selectedRunId ?? ''}
             onValueChange={onSelectedRunChange}
             options={runOptions}
+            ariaLabel={run ? `Run: ${reviewProgress(run).label}` : 'Run'}
             disabled={disabled || runOptions.length === 0}
             emptyMessage="No reviewable runs"
             testId="review-run-select"

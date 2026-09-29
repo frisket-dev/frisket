@@ -47,6 +47,30 @@ describe('ReviewRunControls', () => {
     expect(screen.getByText('75% correct among reviewed (3/4)')).toBeInTheDocument();
   });
 
+  it('shows review progress dots in the selected run trigger and each run option', () => {
+    const unreviewed = { ...run, total: { ...run.total, reviewedCount: 0 } };
+    const partial = { ...run, runId: '10', total: { ...run.total, reviewedCount: 1 } };
+    const complete = { ...run, runId: '11', reviewStatus: 'complete' as const };
+    render(
+      <ReviewRunControls
+        runs={[unreviewed, partial, complete]}
+        selectedRunId="10"
+        onSelectedRunChange={vi.fn()}
+        selectedFieldId={null}
+        onSelectedFieldChange={vi.fn()}
+        order="shuffle"
+        onOrderChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText('Review in progress')).toBeInTheDocument();
+    expect(screen.getByTestId('review-run-select')).toHaveAccessibleName('Run: Review in progress');
+    fireEvent.mouseDown(screen.getByTestId('review-run-select'));
+    expect(within(screen.getByTestId('review-run-select-menu')).getByLabelText('No review decisions yet')).toBeInTheDocument();
+    expect(within(screen.getByTestId('review-run-select-menu')).getByLabelText('Review in progress')).toBeInTheDocument();
+    expect(within(screen.getByTestId('review-run-select-menu')).getByLabelText('Review complete')).toBeInTheDocument();
+  });
+
   it('disables lowest-confidence order for the selected field only', () => {
     const changedOrder = vi.fn();
     render(
