@@ -70,16 +70,32 @@ async function quit({ electron, stderr }, testInfo, closeWindow = false) {
   const pids = await descendants(child.pid);
   const before = await windowsProcessDetails(pids);
   try {
+    await electron.evaluate(({ app }, repeatQuit) => {
+      let requests = 0;
+      app.on('before-quit', (event) => {
+        requests += 1;
+        process.stderr.write(`Shutdown proof: request ${requests}, prevented=${event.defaultPrevented}\n`);
+        // A second quit while asynchronous service cleanup is underway must
+        // not let Electron terminate before the cleanup acknowledgement.
+        if (repeatQuit && requests === 1) setImmediate(() => app.quit());
+      });
+      app.once('will-quit', () => process.stderr.write('Shutdown proof: will-quit\n'));
+    }, !closeWindow);
     if (closeWindow) {
       // Exercise the native close button, which app.quit() bypasses.
       await electron.evaluate(({ BrowserWindow }) => {
         setImmediate(() => BrowserWindow.getAllWindows()[0]?.close());
       });
-      await expect.poll(() => child.exitCode, { timeout: 20_000 }).toBe(0);
     } else {
       await electron.close();
     }
+    await expect.poll(() => child.exitCode, { timeout: 20_000 }).toBe(0);
     await expect.poll(() => alivePids(pids), { timeout: 20_000 }).toEqual([]);
+    expect(stderr()).toContain('Shutdown proof: will-quit');
+    if (!closeWindow) {
+      expect(stderr()).toContain('Shutdown proof: request 2, prevented=true');
+      expect(stderr()).toContain('Shutdown proof: request 3, prevented=false');
+    }
   } finally {
     await testInfo.attach(closeWindow ? 'window-close' : 'app-quit', {
       contentType: 'application/json',
