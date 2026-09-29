@@ -5,7 +5,14 @@ from __future__ import annotations
 from typing import Any
 
 from frisket.engine.runner.entities import list_entities
-from frisket.engine.runner.review import queue_count, review_bundle_page, review_queue
+from frisket.engine.runner.review import (
+    queue_count,
+    review_bundle_page,
+    review_queue,
+    review_runs_page,
+    set_review_run_status,
+)
+from frisket.server.route_errors import RouteError
 from frisket.server.review_payloads import public_review_action_payload
 from frisket.server.workspace import Workspace
 from frisket.engine.store import Project
@@ -46,6 +53,9 @@ class ProjectEntityReviewService:
         limit: int,
         run_id: int | None,
         include_reviewed: bool,
+        field_id: int | None,
+        order: str,
+        seed: int,
     ) -> dict[str, Any]:
         project = self._project(project_id)
         page = review_bundle_page(
@@ -55,6 +65,9 @@ class ProjectEntityReviewService:
             limit=limit,
             run_id=run_id,
             include_reviewed=include_reviewed,
+            field_id=field_id,
+            order=order,
+            seed=seed,
         )
         return {
             **page,
@@ -67,6 +80,39 @@ class ProjectEntityReviewService:
         self, project_id: str, *, run_id: int | None = None
     ) -> dict[str, int]:
         return {"count": queue_count(self._project(project_id), run_id=run_id)}
+
+    def review_runs(
+        self,
+        project_id: str,
+        *,
+        sheet_id: int | None,
+        run_id: int | None,
+        offset: int,
+        limit: int,
+    ) -> dict[str, Any]:
+        page = review_runs_page(
+            self._project(project_id),
+            sheet_id=sheet_id,
+            run_id=run_id,
+            offset=offset,
+            limit=limit,
+        )
+        return {
+            **page,
+            "runs": [
+                public_review_action_payload(run) for run in page["runs"]
+            ],
+        }
+
+    def set_review_run_status(
+        self, project_id: str, *, run_id: int, status: str
+    ) -> dict[str, Any]:
+        result = set_review_run_status(
+            self._project(project_id), run_id=run_id, status=status
+        )
+        if result is None:
+            raise RouteError(404, "no such reviewable run")
+        return result
 
     def _project(self, project_id: str) -> Project:
         return self._workspace.get(project_id)

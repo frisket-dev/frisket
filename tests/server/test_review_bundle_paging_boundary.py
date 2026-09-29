@@ -154,3 +154,97 @@ def test_review_bundle_page_params_are_validated(tmp_path: Path) -> None:
             params=params,
         )
         assert response.status_code == 422, response.text
+
+
+def test_review_runs_report_decisions_and_persist_workflow_status(
+    tmp_path: Path,
+) -> None:
+    client, project_id, row_ids = _seed_review_history(tmp_path)
+    project = client.app.state.workspace.get(project_id)
+    run_id = int(project.db.execute("SELECT id FROM runs").fetchone()[0])
+    columns = {
+        row["name"]: int(row["id"])
+        for row in project.db.execute("SELECT id, name FROM columns").fetchall()
+    }
+    project.db.execute(
+        "UPDATE results SET review_state='verified', review_decision='accept' "
+        "WHERE run_id=? AND row_id=? AND column_id=?",
+        (run_id, row_ids[0], columns["risk"]),
+    )
+    project.db.execute(
+        "UPDATE results SET review_state='verified', review_decision='edit' "
+        "WHERE run_id=? AND row_id=? AND column_id=?",
+        (run_id, row_ids[0], columns["tone"]),
+    )
+    # Old reviewed rows have no durable accept-vs-edit fact. They stay in the
+    # unknown/unreviewed count rather than being credited as correct.
+    project.db.execute(
+        "UPDATE results SET review_state='verified', review_decision=NULL "
+        "WHERE run_id=? AND row_id=? AND column_id=?",
+        (run_id, row_ids[1], columns["risk"]),
+    )
+    project.db.commit()
+
+    response = client.get(
+        f"/api/projects/{project_id}/review/runs",
+        params={"run_id": run_id, "limit": 1},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["schema_version"] == "frisket.review_runs_page.v1"
+    assert body["total"] == 1
+    [run] = body["runs"]
+    assert run["review_status"] == "open"
+    assert run["total"] == {
+        "eligible_count": 128,
+        "reviewed_count": 2,
+        "accepted_count": 1,
+        "incorrect_count": 1,
+        "unreviewed_count": 126,
+        "confidence_count": 128,
+    }
+    assert {field["column_name"] for field in run["fields"]} == {"risk", "tone"}
+
+    completed = client.post(
+        f"/api/projects/{project_id}/review/runs/{run_id}/status",
+        json={"status": "complete"},
+    )
+    assert completed.status_code == 200, completed.text
+    assert completed.json()["status"] == "complete"
+    assert completed.json()["review_completed_at"] is not None
+    reopened = client.post(
+        f"/api/projects/{project_id}/review/runs/{run_id}/status",
+        json={"status": "open"},
+    )
+    assert reopened.status_code == 200, reopened.text
+    assert reopened.json()["review_completed_at"] is None
+
+
+def test_review_bundle_field_and_seeded_shuffle_are_server_side_and_stable(
+    tmp_path: Path,
+) -> None:
+    client, project_id, _row_ids = _seed_review_history(tmp_path)
+    project = client.app.state.workspace.get(project_id)
+    run_id = int(project.db.execute("SELECT id FROM runs").fetchone()[0])
+    risk_id = int(
+        project.db.execute("SELECT id FROM columns WHERE name='risk'").fetchone()[0]
+    )
+
+    def shuffled(seed: int) -> list[int]:
+        response = client.get(
+            f"/api/projects/{project_id}/review/bundles",
+            params={
+                "run_id": run_id,
+                "field_id": risk_id,
+                "order": "shuffle",
+                "seed": seed,
+                "limit": 25,
+            },
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["total"] == 64
+        return [item["row_id"] for item in response.json()["bundles"]]
+
+    first = shuffled(11)
+    assert first == shuffled(11)
+    assert first != shuffled(12)

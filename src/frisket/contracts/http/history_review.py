@@ -209,6 +209,56 @@ class ReviewBundlesPage(WireModel):
     bundles: list[ReviewBundle]
 
 
+class ReviewDecisionCounts(WireModel):
+    eligible_count: int = Field(ge=0)
+    reviewed_count: int = Field(ge=0)
+    accepted_count: int = Field(ge=0)
+    incorrect_count: int = Field(ge=0)
+    unreviewed_count: int = Field(ge=0)
+    confidence_count: int = Field(ge=0)
+
+
+class ReviewRunField(ReviewDecisionCounts):
+    column_id: int = Field(gt=0)
+    column_name: str
+    column_type: str
+
+
+class ReviewRun(WireModel):
+    run_id: int = Field(gt=0)
+    sheet_id: int = Field(gt=0)
+    sheet_name: str
+    action_kind: str
+    action_name: str
+    model: str | None
+    started_at: str
+    review_status: Literal["open", "complete"]
+    review_completed_at: str | None
+    total: ReviewDecisionCounts
+    fields: list[ReviewRunField]
+
+
+class ReviewRunsPage(WireModel):
+    schema_version: Literal["frisket.review_runs_page.v1"]
+    offset: int = Field(ge=0)
+    limit: int = Field(ge=1, le=50)
+    total: int = Field(ge=0)
+    has_more: bool
+    next_offset: int | None
+    runs: list[ReviewRun]
+
+
+class ReviewRunStatusRequest(WireModel):
+    status: Literal["open", "complete"]
+
+
+class ReviewRunStatus(WireModel):
+    schema_version: Literal["frisket.review_run_status.v1"]
+    run_id: int = Field(gt=0)
+    status: Literal["open", "complete"]
+    review_completed_at: str | None
+
+
 class ReviewCount(WireModel):
     count: int = Field(ge=0)
 
@@ -228,6 +278,12 @@ __all__ = [
     "ReviewBundleItem",
     "ReviewBundlesPage",
     "ReviewCount",
+    "ReviewDecisionCounts",
+    "ReviewRun",
+    "ReviewRunField",
+    "ReviewRunsPage",
+    "ReviewRunStatus",
+    "ReviewRunStatusRequest",
     "ReviewedRunDraft",
     "ReviewedRunRevision",
     "ReviewedRunScope",

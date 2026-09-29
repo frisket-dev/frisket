@@ -291,6 +291,7 @@ def test_schema_migration_preserves_existing_bundle_and_stamps_new_digest(
         db.execute("DROP TABLE project_qa_events")
         db.execute("DROP TABLE project_qa_turns")
         db.execute("DROP TABLE project_qa_threads")
+        db.execute("ALTER TABLE runs DROP COLUMN review_completed_at")
         db.execute(
             "UPDATE meta SET value=? WHERE key=?",
             (

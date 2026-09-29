@@ -428,6 +428,7 @@ _TENANT_VIEWER: tuple[RouteSpec, ...] = (
     ("review_bundles_ep", "GET"),
     ("review_count_ep", "GET"),
     ("review_queue_ep", "GET"),
+    ("review_runs_ep", "GET"),
     ("run_rows", "GET"),
     ("search_ep", "GET"),
     ("sheet_data", "GET"),
@@ -455,6 +456,7 @@ _TENANT_VIEWER: tuple[RouteSpec, ...] = (
 # access does not mean to grant a full data takeout. One rung above the
 # ordinary per-cell/per-row reads in ``_TENANT_VIEWER``.
 _TENANT_REVIEWER: tuple[RouteSpec, ...] = (
+    ("review_run_status_ep", "POST"),
     ("export_project", "GET"),
     ("export_sheet_dataset", "GET"),
     ("export_work_log", "GET"),
@@ -835,6 +837,8 @@ _BROWSER_CLIENT_IDS = (
             "tenant.replace_rules_preview.post",
             "tenant.review_bundles_ep.get",
             "tenant.review_count_ep.get",
+            "tenant.review_runs_ep.get",
+            "tenant.review_run_status_ep.post",
             "tenant.runtime_config.get",
             "tenant.runtime_projection_artifact.post",
             "tenant.runtime_projection_build.post",

@@ -48,7 +48,7 @@ def _without_project_qa(schema: str) -> str:
 
     before, marked = schema.split("-- PROJECT_QA_BEGIN", 1)
     _removed, after = marked.split("-- PROJECT_QA_END", 1)
-    return before + after
+    return (before + after).replace("  review_completed_at TEXT,\n", "")
 
 
 def _physically_remove_current_cells_foundation(db: sqlite3.Connection) -> None:
@@ -64,6 +64,7 @@ def _physically_remove_current_cells_foundation(db: sqlite3.Connection) -> None:
     db.execute("DROP INDEX idx_cells_column")
     db.execute("ALTER TABLE cells DROP COLUMN producer_id")
     db.execute("DROP TABLE base_cell_producers")
+    db.execute("ALTER TABLE runs DROP COLUMN review_completed_at")
 
 
 def _a64_bundle(tmp_path):
@@ -128,6 +129,31 @@ def test_a64_bundle_migrates_without_losing_rows_cells_or_runs(tmp_path):
     assert project.db.execute("PRAGMA foreign_key_check").fetchall() == []
     project.close()
     Project(path).close()
+
+
+def test_run_review_status_migration_preserves_existing_runs(tmp_path):
+    path = tmp_path / "prior-review-status.frisket"
+    project = Project.create(path, name="Existing review")
+    sheet = project.add_sheet("Sheet")
+    op = project.append_op("map.classify")
+    from frisket.engine.store.runs import RunResultStore
+
+    run_id = RunResultStore(project).start_run(op, sheet, "map.classify")
+    project.close()
+    with sqlite3.connect(path / "project.db") as db:
+        db.execute("ALTER TABLE runs DROP COLUMN review_completed_at")
+        db.execute(
+            "UPDATE meta SET value=? WHERE key=?",
+            ("frisket.schema.v1:b540a83f8325e5cbcd52fc3fac64eeb5", SCHEMA_DIGEST_META_KEY),
+        )
+
+    migrated = Project(path)
+    row = migrated.db.execute(
+        "SELECT review_completed_at FROM runs WHERE id=?", (run_id,)
+    ).fetchone()
+    assert row[0] is None
+    assert migrated.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
+    migrated.close()
 
 
 def test_unknown_prior_bundle_digest_is_not_migrated(tmp_path):

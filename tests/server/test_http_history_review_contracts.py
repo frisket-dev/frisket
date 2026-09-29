@@ -124,6 +124,9 @@ class _ReviewService:
         limit: int,
         run_id: int | None,
         include_reviewed: bool,
+        field_id: int | None,
+        order: str,
+        seed: int,
     ) -> dict[str, Any]:
         item = {
             "run_id": 9,
@@ -182,6 +185,37 @@ class _ReviewService:
         if project_id == "missing":
             raise RouteError(404, "no such project")
         return {"count": 2}
+
+    def review_runs(
+        self,
+        project_id: str,
+        *,
+        sheet_id: int | None,
+        run_id: int | None,
+        offset: int,
+        limit: int,
+    ) -> dict[str, Any]:
+        return {
+            "schema_version": "frisket.review_runs_page.v1",
+            "offset": offset,
+            "limit": limit,
+            "total": 0,
+            "has_more": False,
+            "next_offset": None,
+            "runs": [],
+        }
+
+    def set_review_run_status(
+        self, project_id: str, *, run_id: int, status: str
+    ) -> dict[str, Any]:
+        return {
+            "schema_version": "frisket.review_run_status.v1",
+            "run_id": run_id,
+            "status": status,
+            "review_completed_at": (
+                "2026-09-29 00:00:00" if status == "complete" else None
+            ),
+        }
 
     def entities(self, project_id: str) -> list[dict[str, Any]]:
         return []
