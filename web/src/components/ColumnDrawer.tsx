@@ -131,6 +131,11 @@ function specFields(spec: Record<string, unknown>): OutputField[] {
   );
 }
 
+/** map.find publishes occurrence rows, not a row-replay program. */
+function supportsColumnRunRecovery(run: Pick<ColumnRun, 'actionKind'> | null | undefined): boolean {
+  return run?.actionKind !== 'map.find';
+}
+
 type ColumnSettingsDraft = {
   columnId: string;
   type: ColumnType;
@@ -788,6 +793,7 @@ function AiColumnDetails({
   const error = loaded?.id === column.id ? loaded.error ?? null : null;
   const runs = info?.runs ?? [];
   const current = info?.latestRun ?? info?.currentRun ?? runs.find((r) => r.current) ?? runs[0];
+  const canBackfill = supportsColumnRunRecovery(current);
   const prompt = current ? specPrompt(current.spec) : ai.prompt ?? '';
   const fields = current ? specFields(current.spec) : [];
   const targetLanguage = current?.spec.target_language;
@@ -925,20 +931,22 @@ function AiColumnDetails({
           <span className="prov-key">output type</span>
           <span>{column.type}</span>
         </div>
-        <div className="col-meta-row col-meta-action">
-          <span className="prov-key">backfill</span>
-          <span>
-            <button
-              type="button"
-              className="mini-btn"
-              data-testid="backfill-column-button"
-              disabled={backfill.busy}
-              onClick={() => { void runBackfill(); }}
-            >
-              <RefreshCcw size={11} /> {backfill.busy ? 'Backfilling...' : 'Run missing cells'}
-            </button>
-          </span>
-        </div>
+        {canBackfill && (
+          <div className="col-meta-row col-meta-action">
+            <span className="prov-key">backfill</span>
+            <span>
+              <button
+                type="button"
+                className="mini-btn"
+                data-testid="backfill-column-button"
+                disabled={backfill.busy}
+                onClick={() => { void runBackfill(); }}
+              >
+                <RefreshCcw size={11} /> {backfill.busy ? 'Backfilling...' : 'Run missing cells'}
+              </button>
+            </span>
+          </div>
+        )}
         {(backfill.message || backfill.error) && (
           <div
             className={`col-backfill-note${backfill.error ? ' col-backfill-error' : ''}`}
@@ -1086,7 +1094,7 @@ function VersionItem({
         )}
         {run.durationMs != null && ` · ${formatDuration(run.durationMs)}`} · {when}
       </div>
-      {run.humanScore.graded > 0 && (
+      {run.humanScore.graded > 0 && supportsColumnRunRecovery(run) && (
         <button
           type="button"
           className="mini-btn"
