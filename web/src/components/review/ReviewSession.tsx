@@ -114,7 +114,7 @@ export function ReviewSession({ onClose, renderToolbar, ...options }: ReviewSess
 
   const navigation = <RowNavigation controller={c} />;
   return <>
-    {renderToolbar ? renderToolbar(navigation, c.leave, c.busy) : navigation}
+    {renderToolbar ? renderToolbar(navigation, c.leave, c.busy && !c.loading) : navigation}
     {c.problem && <div className={styles.notice} role="alert">{c.problem}
       {c.loading === false && !c.page && <button className="btn" onClick={c.retry}>Retry</button>}
       {c.note && <button className="btn" onClick={() => { void c.saveNote(); }}>Save note</button>}

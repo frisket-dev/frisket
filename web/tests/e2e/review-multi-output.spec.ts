@@ -150,6 +150,16 @@ test('review queue groups sibling outputs and resolves fields independently', as
   // Verdict-only Reject keeps the generated value visible; clearing is the
   // separate, explicitly labelled Shift+R action.
   expect(data.rows[0].cells[String(toneColumn!.id)]).toBe('high');
+  await queue.getByRole('button', { name: 'Close review queue' }).click();
+  await page.getByTestId('review-queue-button').click();
+  await expect(page.getByTestId('review-field-beat')).toContainText('accountability');
+  await queue.getByRole('button', { name: 'Reset', exact: true }).click();
+  await expect(page.getByTestId('review-field-beat')).toHaveAttribute('data-review-state', 'unreviewed');
+  await expect(page.getByTestId('review-field-beat')).toContainText('accountability');
+  await queue.getByRole('button', { name: 'Close review queue' }).click();
+  await page.getByTestId('review-queue-button').click();
+  await expect(page.getByTestId('review-field-beat')).toContainText('accountability');
+
 });
 
 test('Shift+R rejects and clears a focused result', async ({ page }) => {

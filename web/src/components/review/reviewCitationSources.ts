@@ -43,9 +43,9 @@ export function sourceLocation(source: ReviewCitationSource, fieldId: string | u
 }
 
 function citedSpans(artifact: EvidenceArtifact): EvidenceSpan[] {
-  const active = artifact.spans.filter((span) => span.status === 'active');
-  const required = active.filter((span) => span.required);
-  return required.length > 0 ? required : active;
+  // Required describes validation policy, not which supporting occurrences a
+  // reviewer may see. Keep every active span on the supporting link.
+  return artifact.spans.filter((span) => span.status === 'active');
 }
 
 function mergeArtifacts(members: readonly SourceMember[]): EvidenceArtifact {

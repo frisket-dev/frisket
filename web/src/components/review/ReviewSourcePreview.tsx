@@ -57,6 +57,9 @@ export function ReviewSourcePreview({
   const sources = useMemo(() => currentState?.phase === 'ready' ? reviewCitationSources(currentState.payloads) : [], [currentState]);
   const tabs = useMemo(() => sourcesForField(sources, activeField?.id), [activeField?.id, sources]);
   const activeSource = tabs.find((source) => source.id === activeSourceId) ?? tabs[0] ?? null;
+  // Remember the displayed fallback, so a later field preserves that source
+  // instead of resurrecting a tab that was no longer available.
+  if (activeSource && activeSource.id !== activeSourceId) setActiveSourceId(activeSource.id);
 
   // ArtifactSource owns text/media scrolling. PDF source pages expose stable
   // anchors, so the review host can target a page without cloning its renderer.

@@ -39,6 +39,15 @@ describe('review citation source tabs', () => {
     expect(sourcesForField(sources, 'plaintiff')).toEqual(sources);
   });
 
+  it('keeps other active occurrences when one citation span is required', () => {
+    const artifact = evidenceArtifact({ spans: [
+      evidenceSpan({ stable_id: 'required', required: true }),
+      evidenceSpan({ stable_id: 'other-match', required: false }),
+    ] });
+    const sources = reviewCitationSources([{ fieldId: 'name', payload: payload('citation', artifact) }]);
+    expect(sources[0].artifact.spans.map((span) => span.stable_id)).toEqual(['required', 'other-match']);
+  });
+
   it('uses persisted page and temporal selectors as tab locations', () => {
     const pdf = evidenceArtifact({ stable_id: 'source:pdf', media_type: 'application/pdf', spans: [evidenceSpan({ selector: { page_start: 2 } })] });
     const audio = evidenceArtifact({ stable_id: 'source:audio', media_type: 'audio/mpeg', spans: [evidenceSpan({ selector: { start_ms: 849000 } })] });

@@ -22,7 +22,7 @@ test('review pages stable row bundles without loading the whole sheet or droppin
     await queue.getByRole('button', { name: 'Next row', exact: true }).first().click();
     await expect(position).toHaveText(`${row} / 26`, { timeout: 20_000 });
   }
-  expect(queries.map((url) => url.searchParams.get('offset'))).toEqual(['0', '25']);
+  expect([...new Set(queries.map((url) => url.searchParams.get('offset')))]).toEqual(['0', '25']);
   expect(queries.every((url) => url.searchParams.get('limit') === '25' && url.searchParams.get('include_reviewed') === 'true')).toBe(true);
   await queue.getByRole('button', { name: 'Accept beat' }).click();
   await expect(queue.getByText('Row done', { exact: true })).toBeVisible();

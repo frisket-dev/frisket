@@ -108,5 +108,12 @@ describe('ReviewSourcePreview', () => {
     expect(screen.getByTestId('artifact-source')).toHaveAttribute('data-emphasized', 'span:two');
     expect(projectApi.getCellEvidence).toHaveBeenCalledTimes(2);
     expect(projectApi.getEvidenceViewer).toHaveBeenCalledTimes(4);
+
+    rerender(<ReviewSourcePreview bundle={bundle} activeField={fieldOne} sourceEntries={[]} />);
+    fireEvent.click(screen.getByRole('tab', { name: /one only/i }));
+    rerender(<ReviewSourcePreview bundle={bundle} activeField={fieldTwo} sourceEntries={[]} />);
+    expect(screen.getByRole('tab', { name: /shared notes/i })).toHaveAttribute('aria-selected', 'true');
+    rerender(<ReviewSourcePreview bundle={bundle} activeField={fieldOne} sourceEntries={[]} />);
+    expect(screen.getByRole('tab', { name: /shared notes/i })).toHaveAttribute('aria-selected', 'true');
   });
 });

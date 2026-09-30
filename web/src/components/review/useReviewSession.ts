@@ -92,9 +92,9 @@ export function useReviewSession({ runId, options, readOnly = false, onDecisionS
   }, [api, readOnly, runId]);
 
   const leave = useCallback((action: () => void) => {
-    if (mutation.current || loading) return;
+    if (mutation.current) return;
     void saveNote().then((saved) => { if (saved) action(); });
-  }, [loading, saveNote]);
+  }, [saveNote]);
 
   const moveRow = (delta: -1 | 1) => leave(() => {
     if (!page) return;

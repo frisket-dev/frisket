@@ -160,6 +160,7 @@ it('waits for an in-flight blur save before closing and sends the note only once
   const note = await screen.findByTestId('review-note-input');
   fireEvent.change(note, { target: { value: 'Row note' } });
   fireEvent.blur(note);
+  expect(note).toBeDisabled();
   const button = screen.getByRole('button', { name: 'Close' });
   expect(button).toBeEnabled();
   fireEvent.click(button);
@@ -167,4 +168,12 @@ it('waits for an in-flight blur save before closing and sends the note only once
   finish();
   await waitFor(() => expect(close).toHaveBeenCalledOnce());
   expect(save).toHaveBeenCalledOnce();
+});
+
+it('lets the reviewer close while the initial page is loading', async () => {
+  vi.spyOn(stores.projectApi, 'getReviewBundles').mockReturnValue(new Promise(() => {}));
+  const close = vi.fn();
+  mount(close);
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+  await waitFor(() => expect(close).toHaveBeenCalledOnce());
 });
