@@ -225,7 +225,7 @@ def test_attaching_neutral_model_call_facts_is_idempotent_and_atomic(
         other_op_id = project.append_op("map", {"recipe": "other-find"})
         other_run_id = store.start_run(
             other_op_id,
-                store.get_run(run_id)["sheet_id"],
+            store.get_run(run_id)["sheet_id"],
             "map.find",
             row_ids=row_ids,
         )
@@ -260,9 +260,12 @@ def test_attaching_neutral_model_call_facts_is_idempotent_and_atomic(
                 action_kind="map.find",
                 params_hash="sha256:precomputed",
             )
-        assert project.db.execute(
-            "SELECT run_id FROM model_calls WHERE id='call-unattached'"
-        ).fetchone()[0] is None
+        assert (
+            project.db.execute(
+                "SELECT run_id FROM model_calls WHERE id='call-unattached'"
+            ).fetchone()[0]
+            is None
+        )
         assert store.model_calls(run_id) == []
 
         store.attach_unscoped_model_calls(
@@ -290,9 +293,12 @@ def test_attaching_neutral_model_call_facts_is_idempotent_and_atomic(
                 action_kind="map.find",
                 params_hash="sha256:precomputed",
             )
-        assert project.db.execute(
-            "SELECT run_id FROM model_calls WHERE id='call-unattached'"
-        ).fetchone()[0] is None
+        assert (
+            project.db.execute(
+                "SELECT run_id FROM model_calls WHERE id='call-unattached'"
+            ).fetchone()[0]
+            is None
+        )
         assert [call["id"] for call in store.model_calls(run_id)] == ["call-owned"]
         assert store.get_run(run_id)["cost_actual"] == pytest.approx(0.01)
     finally:
