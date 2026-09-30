@@ -311,6 +311,7 @@ _OUTPUT_REF_RESULT_BUILDERS: Mapping[str, _OutputRefResultBuilder] = {
     "query_cell_edit_batch": _receipt_edit_output,
     "edit_overlay": _receipt_edit_output,
     "review_decision": _receipt_review_output,
+    "review_note": _receipt_review_output,
     "replay_accept": _receipt_replay_output,
     "replay_accept_column": _receipt_replay_output,
     "replay_dismiss": _receipt_replay_output,

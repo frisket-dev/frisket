@@ -1,3 +1,13 @@
+import {
+  ChevronDown,
+  SlidersHorizontal,
+} from 'lucide-react';
+import {
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
 import type {
   ReviewBundleOrder,
   ReviewRun,
@@ -5,6 +15,9 @@ import type {
   ReviewRunField,
   ReviewRunStatus,
 } from '../../api/types';
+import { useAnchoredPosition } from '../../hooks/useAnchoredPosition';
+import { useNativePopover } from '../../hooks/useNativePopover';
+import { MenuPop } from '../MenuPop';
 import { PanelSelect, type PanelSelectOption } from '../PanelSelect';
 import styles from './ReviewRunControls.module.css';
 
@@ -88,6 +101,12 @@ export interface ReviewRunControlsProps {
   onRunStatusChange?(run: ReviewRun, status: ReviewRunStatus): void;
   statusBusy?: boolean;
   disabled?: boolean;
+  /** Row navigation supplied by ReviewQueue, kept beside completion controls. */
+  children?: ReactNode;
+  /** Paging stays with the queue owner; the toolbar only offers the next page. */
+  onLoadMore?(): void;
+  hasMore?: boolean;
+  loadingMore?: boolean;
 }
 
 /** Controlled run, output-field and ordering controls for ReviewQueue. The
@@ -103,10 +122,29 @@ export function ReviewRunControls({
   onRunStatusChange,
   statusBusy = false,
   disabled = false,
+  children,
+  onLoadMore,
+  hasMore = false,
+  loadingMore = false,
 }: ReviewRunControlsProps) {
   const run = runs.find((candidate) => candidate.runId === selectedRunId);
   const counts = run ? selectedCounts(run, selectedFieldId) : null;
   const confidenceAvailable = (counts?.confidenceCount ?? 0) > 0;
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const detailsTriggerRef = useRef<HTMLButtonElement>(null);
+  const detailsRef = useRef<HTMLDivElement>(null);
+  const detailsPosition = useAnchoredPosition(detailsTriggerRef, {
+    enabled: detailsOpen,
+    width: 300,
+    align: 'right',
+    gap: 6,
+    minHeight: 160,
+  });
+  useNativePopover(detailsRef, () => setDetailsOpen(false), {
+    enabled: detailsOpen,
+    ignoreSelector: '[data-review-details-trigger]',
+    focusRestore: true,
+  });
   const runOptions: PanelSelectOption[] = runs.map((candidate) => ({
     value: candidate.runId,
     label: runLabel(candidate),
@@ -126,78 +164,109 @@ export function ReviewRunControls({
   const nextStatus: ReviewRunStatus | undefined = status === 'complete' ? 'open' : 'complete';
 
   return (
-    <section className={styles.controls} aria-label="Review scope" data-testid="review-run-controls">
-      <div className={styles.pickerRow}>
-        <label className={styles.label}>
-          Run
-          <PanelSelect
-            className={`form-input ${styles.select}`}
-            value={selectedRunId ?? ''}
-            onValueChange={onSelectedRunChange}
-            options={runOptions}
-            ariaLabel={run ? `Run: ${reviewProgress(run).label}` : 'Run'}
-            disabled={disabled || runOptions.length === 0}
-            emptyMessage="No reviewable runs"
-            testId="review-run-select"
-          />
-        </label>
-        <label className={styles.label}>
-          Output field
-          <PanelSelect
-            className={`form-input ${styles.select}`}
-            value={selectedFieldId ?? ''}
-            onValueChange={(value) => onSelectedFieldChange(value || null)}
-            options={fieldOptions}
-            disabled={disabled || !run}
-            emptyMessage="No output fields"
-            testId="review-field-select"
-          />
-        </label>
-      </div>
-
-      <div className={styles.bottomRow}>
-        {run && <ReviewRunSummary run={run} fieldId={selectedFieldId} />}
-        <div className={styles.actions}>
-          <span className="muted">Order</span>
-          <div className={styles.order} role="group" aria-label="Review order">
-            <button
-              type="button"
-              aria-pressed={order === 'shuffle'}
-              onClick={() => onOrderChange('shuffle')}
-              disabled={disabled || !run}
-            >
-              Random
-            </button>
-            <button
-              type="button"
-              aria-pressed={order === 'confidence'}
-              onClick={() => onOrderChange('confidence')}
-              disabled={disabled || !run || !confidenceAvailable}
-              title={confidenceAvailable ? undefined : 'Lowest confidence is unavailable because this scope has no confidence values.'}
-            >
-              Lowest confidence
-            </button>
+    <section className={styles.toolbar} aria-label="Review scope" data-testid="review-run-controls">
+      <PanelSelect
+        className={`form-input ${styles.runSelect}`}
+        value={selectedRunId ?? ''}
+        onValueChange={onSelectedRunChange}
+        options={runOptions}
+        ariaLabel={run ? `Run: ${reviewProgress(run).label}` : 'Run'}
+        disabled={disabled || runOptions.length === 0}
+        emptyMessage="No reviewable runs"
+        testId="review-run-select"
+      />
+      {hasMore && onLoadMore && (
+        <button
+          type="button"
+          className={styles.loadMore}
+          disabled={disabled || loadingMore}
+          onClick={onLoadMore}
+        >
+          {loadingMore ? 'Loading…' : 'Older runs'}
+        </button>
+      )}
+      <PanelSelect
+        className={`form-input ${styles.fieldSelect}`}
+        value={selectedFieldId ?? ''}
+        onValueChange={(value) => onSelectedFieldChange(value || null)}
+        options={fieldOptions}
+        ariaLabel="Output field"
+        disabled={disabled || !run}
+        emptyMessage="No output fields"
+        testId="review-field-select"
+      />
+      {counts && (
+        <span className={styles.progress} data-testid="review-run-progress">
+          <strong>{counts.reviewedCount}</strong> of {counts.eligibleCount} reviewed
+        </span>
+      )}
+      <button
+        ref={detailsTriggerRef}
+        type="button"
+        className={styles.detailsTrigger}
+        data-review-details-trigger
+        aria-label="Review ordering and accuracy"
+        aria-expanded={detailsOpen}
+        disabled={disabled || !run}
+        onClick={() => setDetailsOpen((open) => !open)}
+      >
+        <SlidersHorizontal size={14} aria-hidden />
+        <ChevronDown size={13} aria-hidden />
+      </button>
+      <span className={styles.spacer} />
+      {children && <span className={styles.children}>{children}</span>}
+      {run && status === 'complete' && <span className={styles.status}>Complete</span>}
+      {run && onRunStatusChange && nextStatus && (
+        <button
+          type="button"
+          className={`btn ${styles.statusButton}`}
+          disabled={disabled || statusBusy}
+          onClick={() => onRunStatusChange(run, nextStatus)}
+        >
+          {statusBusy ? 'Saving…' : nextStatus === 'complete' ? 'Mark review complete' : 'Reopen review'}
+        </button>
+      )}
+      {detailsOpen && run && (
+        <MenuPop
+          ref={detailsRef}
+          role="dialog"
+          aria-label="Review ordering and accuracy"
+          className={styles.detailsMenu}
+          data-testid="review-details"
+          style={detailsPosition ? {
+            position: 'fixed', inset: 'auto', margin: 0,
+            top: detailsPosition.top, bottom: detailsPosition.bottom,
+            left: detailsPosition.left, width: detailsPosition.width,
+            maxHeight: detailsPosition.maxHeight,
+          } as CSSProperties : { visibility: 'hidden' }}
+        >
+          <div className={styles.detailsTitle}>Review details</div>
+          <ReviewRunSummary run={run} fieldId={selectedFieldId} />
+          <div className={styles.orderRow}>
+            <span>Order</span>
+            <div className={styles.order} role="group" aria-label="Review order">
+              <button
+                type="button"
+                aria-pressed={order === 'shuffle'}
+                onClick={() => onOrderChange('shuffle')}
+                disabled={disabled}
+              >
+                Random
+              </button>
+              <button
+                type="button"
+                aria-pressed={order === 'confidence'}
+                onClick={() => onOrderChange('confidence')}
+                disabled={disabled || !confidenceAvailable}
+                title={confidenceAvailable ? undefined : 'Lowest confidence is unavailable because this scope has no confidence values.'}
+              >
+                Lowest confidence
+              </button>
+            </div>
           </div>
-          {!confidenceAvailable && run && (
-            <span className="muted">No confidence values in this scope</span>
-          )}
-          {run && status === 'complete' && (
-            <span className={`${styles.status} ${styles.statusComplete}`}>
-              {status}
-            </span>
-          )}
-          {run && onRunStatusChange && nextStatus && (
-            <button
-              type="button"
-              className={`btn ${styles.statusButton}`}
-              disabled={disabled || statusBusy}
-              onClick={() => onRunStatusChange(run, nextStatus)}
-            >
-              {statusBusy ? 'Saving…' : nextStatus === 'complete' ? 'Mark review complete' : 'Reopen review'}
-            </button>
-          )}
-        </div>
-      </div>
+          {!confidenceAvailable && <p className={styles.noConfidence}>No confidence values in this scope.</p>}
+        </MenuPop>
+      )}
     </section>
   );
 }

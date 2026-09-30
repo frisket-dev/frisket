@@ -181,6 +181,7 @@ class ReviewBundleItem(WireModel):
     review_note: str | None
     role: Literal["field", "evidence"]
     chore: bool
+    changed: bool = False
 
 
 class ReviewBundle(WireModel):
@@ -194,6 +195,7 @@ class ReviewBundle(WireModel):
     model: str | None
     confidence: float | None
     source: dict[str, JsonValue]
+    review_note: str | None = None
     fields: list[ReviewBundleItem]
     evidence: list[ReviewBundleItem]
     items: list[ReviewBundleItem]

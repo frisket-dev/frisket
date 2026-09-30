@@ -312,6 +312,7 @@ _RUNLESS_ACTION_KINDS: frozenset[str] = frozenset(
         "resolve.replace",
         "resolve.substitute",
         "review.decision",
+        "review.note",
         "row.add",
         "row.delete",
         "sheet.refresh",
@@ -407,7 +408,11 @@ _INLINE_KINDS: Mapping[str, str] = MappingProxyType(
         "row.add": "Row add is a local, bounded sheet mutation; no network.",
         "row.delete": "Row delete is a local, bounded sheet mutation; no network.",
         "review.decision": (
-            "Review decision records a single accept/reject verdict "
+            "Review decision records or clears a single accept/reject verdict "
+            "synchronously; local, bounded."
+        ),
+        "review.note": (
+            "Review note updates the bounded result fields for one run row "
             "synchronously; local, bounded."
         ),
         "replay.accept": (

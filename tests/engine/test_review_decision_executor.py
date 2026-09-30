@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -26,13 +27,36 @@ from frisket.engine.store.evidence import (
 _UNSET = object()
 
 
-def _map_reviewable_action(sheet_id: int) -> dict[str, Any]:
+def _map_reviewable_action(
+    sheet_id: int, *, include_severity: bool = False
+) -> dict[str, Any]:
     code = "\n".join(
         [
             "risk = 'high' if 'contract' in row['story'] else 'low'",
-            "result = {'risk': risk}",
+            (
+                "result = {'risk': risk, 'severity': 'medium'}"
+                if include_severity
+                else "result = {'risk': risk}"
+            ),
         ]
     )
+    properties = {"risk": {"type": "string"}}
+    output_routes = [
+        {
+            "name": "risk",
+            "path": "$.risk",
+            "target": {"kind": "column", "type": "text"},
+        }
+    ]
+    if include_severity:
+        properties["severity"] = {"type": "string"}
+        output_routes.append(
+            {
+                "name": "severity",
+                "path": "$.severity",
+                "target": {"kind": "column", "type": "text"},
+            }
+        )
     return {
         "action_id": "map.python",
         "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
@@ -41,19 +65,10 @@ def _map_reviewable_action(sheet_id: int) -> dict[str, Any]:
             "code": code,
             "return_schema": {
                 "type": "object",
-                "required": ["risk"],
-                "properties": {"risk": {"type": "string"}},
+                "required": list(properties),
+                "properties": properties,
             },
-            "output_routes": [
-                {
-                    "name": "risk",
-                    "path": "$.risk",
-                    "target": {
-                        "kind": "column",
-                        "type": "text",
-                    },
-                }
-            ],
+            "output_routes": output_routes,
         },
         "idempotency_key": "review_map@sha256:v1",
     }
@@ -87,7 +102,9 @@ def _review_action(
     }
 
 
-def _seed(project: Project, tmp_path: Path) -> dict[str, Any]:
+def _seed_review(
+    project: Project, tmp_path: Path, *, include_severity: bool
+) -> dict[str, Any]:
     del tmp_path
     from frisket.engine.executor import run_action_spec
 
@@ -111,11 +128,13 @@ def _seed(project: Project, tmp_path: Path) -> dict[str, Any]:
         columns,
     )
     mapped = run_action_spec(
-        project, _map_reviewable_action(sheet_id), project_id="project-review-decision"
+        project,
+        _map_reviewable_action(sheet_id, include_severity=include_severity),
+        project_id="project-review-decision",
     )
     assert mapped.status == "completed", mapped.errors
     assert mapped.run_id is not None
-    return {
+    seeded = {
         "sheet_id": sheet_id,
         "run_id": mapped.run_id,
         "map_op_id": mapped.op_ids[0],
@@ -131,6 +150,22 @@ def _seed(project: Project, tmp_path: Path) -> dict[str, Any]:
             ).fetchone()["id"]
         ),
     }
+    if include_severity:
+        seeded["severity_column_id"] = int(
+            project.db.execute(
+                "SELECT id FROM columns WHERE sheet_id=? AND name='severity'",
+                (sheet_id,),
+            ).fetchone()["id"]
+        )
+    return seeded
+
+
+def _seed(project: Project, tmp_path: Path) -> dict[str, Any]:
+    return _seed_review(project, tmp_path, include_severity=False)
+
+
+def _seed_with_sibling(project: Project, tmp_path: Path) -> dict[str, Any]:
+    return _seed_review(project, tmp_path, include_severity=True)
 
 
 def _review_state(project: Project, seeded: dict[str, Any], row_id: int) -> str:
@@ -168,6 +203,19 @@ def _make_action(seeded: dict[str, Any]) -> dict[str, Any]:
         decision="accept",
         key="review_accept@sha256:v1",
     )
+
+
+def _review_note_action(seeded: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "action_id": "review.note",
+        "scope": {"kind": "project"},
+        "params": {
+            "run_id": seeded["run_id"],
+            "row_id": seeded["row_ids"][0],
+            "note": "Checked against the source row.",
+        },
+        "idempotency_key": "review_note@sha256:v1",
+    }
 
 
 def _invalid_decision_action(seeded: dict[str, Any]) -> dict[str, Any]:
@@ -250,6 +298,17 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     }
 
 
+def _check_note_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
+    [output] = result.outputs
+    assert output.kind == "review"
+    assert output.ref["kind"] == "review_note"
+    assert output.ref["column_count"] == 1
+    assert _review_metadata(project, seeded, seeded["row_ids"][0]) == (
+        None,
+        "Checked against the source row.",
+    )
+
+
 CASES = [
     ExecutorCase(
         kind="review.decision",
@@ -327,7 +386,49 @@ CASES = [
         expect_counts={"ops": 1, "edits": 0, "results": 0, "receipts": 1},
         check_state=_check_state,
         request_style="typed",
-    )
+    ),
+    ExecutorCase(
+        kind="review.note",
+        catalog=CatalogEntry(
+            execution_mode="whole_project",
+            async_mode="sync",
+            writes_project=True,
+            receipt_policy="writes_receipt",
+            required_capabilities=("project:write",),
+            side_effects=frozenset(
+                {
+                    "read_result_cell",
+                    "write_review_note",
+                    "write_review_op",
+                    "write_receipt",
+                }
+            ),
+            error_codes=frozenset(
+                {
+                    "invalid_action_request",
+                    "review_target_not_found",
+                    "review_complete",
+                    "output_column_busy",
+                    "idempotency_conflict",
+                    "project_write_failed",
+                }
+            ),
+            cost_policy_kind="none",
+            input_schema_properties=("run_id", "row_id", "note"),
+            output_schema_properties=(
+                "run_id",
+                "row_id",
+                "note",
+                "column_count",
+            ),
+            description_contains="generated result fields",
+        ),
+        seed=_seed,
+        make_action=_review_note_action,
+        expect_counts={"ops": 1, "edits": 0, "results": 0, "receipts": 1},
+        check_state=_check_note_state,
+        request_style="typed",
+    ),
 ]
 
 
@@ -350,6 +451,327 @@ def test_completed_review_requires_reopening_before_another_decision(
         accepted = env.run(action)
         assert accepted.status == "completed", accepted.errors
         assert _review_metadata(project, seeded, row_id) == ("accept", None)
+
+
+def test_clear_decision_preserves_review_note_and_visible_edit_overlay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from frisket.engine.runner.review import queue_count, review_runs_page
+
+    with case_env(CASES[0], tmp_path, monkeypatch) as env:
+        project, seeded = env.project, env.seeded
+        row_id = seeded["row_ids"][1]
+        edited = env.run(
+            _review_action(
+                run_id=seeded["run_id"],
+                row_id=row_id,
+                column_id=seeded["risk_column_id"],
+                decision="edit",
+                value="manual-medium",
+                note="Keep this row note.",
+                key="review_clear_edit@sha256:v1",
+            )
+        )
+        assert edited.status == "completed", edited.errors
+
+        cleared = env.run(
+            _review_action(
+                run_id=seeded["run_id"],
+                row_id=row_id,
+                column_id=seeded["risk_column_id"],
+                decision="clear",
+                note="This replacement must be ignored.",
+                key="review_clear@sha256:v1",
+            )
+        )
+
+        assert cleared.status == "completed", cleared.errors
+        assert cleared.outputs[0].ref["decision"] == "clear"
+        assert cleared.outputs[0].ref["review_state_after"] == "unreviewed"
+        assert _review_state(project, seeded, row_id) == "unreviewed"
+        assert _review_metadata(project, seeded, row_id) == (
+            None,
+            "Keep this row note.",
+        )
+        assert _live_risk(project, seeded, row_id) == "manual-medium"
+        page = review_bundle_page(
+            project, run_id=seeded["run_id"], include_reviewed=True
+        )
+        corrected = next(item for item in page["bundles"] if item["row_id"] == row_id)
+        assert corrected["fields"][0]["value"] == "manual-medium"
+        assert corrected["fields"][0]["changed"] is True
+        assert queue_count(project, run_id=seeded["run_id"]) == 2
+        [run] = review_runs_page(project, run_id=seeded["run_id"])["runs"]
+        assert run["total"]["reviewed_count"] == 0
+        assert run["total"]["unreviewed_count"] == 2
+
+
+def test_clear_reject_clear_keeps_the_null_overlay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with case_env(CASES[0], tmp_path, monkeypatch) as env:
+        project, seeded = env.project, env.seeded
+        row_id = seeded["row_ids"][0]
+        rejected = env.run(
+            _review_action(
+                run_id=seeded["run_id"],
+                row_id=row_id,
+                column_id=seeded["risk_column_id"],
+                decision="reject_clear",
+                note="Unsafe value.",
+                key="review_clear_null@sha256:v1",
+            )
+        )
+        assert rejected.status == "completed", rejected.errors
+        assert _live_risk(project, seeded, row_id) is None
+
+        clear = _review_action(
+            run_id=seeded["run_id"],
+            row_id=row_id,
+            column_id=seeded["risk_column_id"],
+            decision="clear",
+            key="review_clear_null_reset@sha256:v1",
+        )
+        cleared = env.run(clear)
+
+        assert cleared.status == "completed", cleared.errors
+        assert _review_metadata(project, seeded, row_id) == (None, "Unsafe value.")
+        assert _live_risk(project, seeded, row_id) is None
+        page = review_bundle_page(
+            project, run_id=seeded["run_id"], include_reviewed=True
+        )
+        cleared_field = next(
+            item for item in page["bundles"] if item["row_id"] == row_id
+        )["fields"][0]
+        assert cleared_field["value"] is None
+        assert cleared_field["changed"] is True
+
+        project.apply_edits(
+            [
+                {
+                    "row_id": row_id,
+                    "column_id": seeded["risk_column_id"],
+                    "value": "later manual edit",
+                }
+            ]
+        )
+        unrelated_page = review_bundle_page(
+            project, run_id=seeded["run_id"], include_reviewed=True
+        )
+        unrelated_field = next(
+            item for item in unrelated_page["bundles"] if item["row_id"] == row_id
+        )["fields"][0]
+        assert unrelated_field["value"] == "high"
+        assert unrelated_field["changed"] is False
+
+
+def test_decision_omitted_note_preserves_row_note_and_explicit_null_clears_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with case_env(CASES[0], tmp_path, monkeypatch) as env:
+        project, seeded = env.project, env.seeded
+        row_id = seeded["row_ids"][0]
+        noted = env.run(_review_note_action(seeded))
+        assert noted.status == "completed", noted.errors
+
+        accepted = env.run(
+            _review_action(
+                run_id=seeded["run_id"],
+                row_id=row_id,
+                column_id=seeded["risk_column_id"],
+                decision="accept",
+                key="review_note_preserved@sha256:v1",
+            )
+        )
+        assert accepted.status == "completed", accepted.errors
+        assert _review_metadata(project, seeded, row_id) == (
+            "accept",
+            "Checked against the source row.",
+        )
+
+        explicit_null = _review_action(
+            run_id=seeded["run_id"],
+            row_id=row_id,
+            column_id=seeded["risk_column_id"],
+            decision="reject",
+            key="review_note_explicit_null@sha256:v1",
+        )
+        explicit_null["params"]["note"] = None
+        rejected = env.run(explicit_null)
+        assert rejected.status == "completed", rejected.errors
+        assert _review_metadata(project, seeded, row_id) == ("reject", None)
+
+        renoted = env.run(
+            {
+                **_review_note_action(seeded),
+                "idempotency_key": "review_note_before_clear@sha256:v1",
+            }
+        )
+        assert renoted.status == "completed", renoted.errors
+        cleared = env.run(
+            _review_action(
+                run_id=seeded["run_id"],
+                row_id=row_id,
+                column_id=seeded["risk_column_id"],
+                decision="clear",
+                key="review_note_clear_preserved@sha256:v1",
+            )
+        )
+        assert cleared.status == "completed", cleared.errors
+        assert _review_metadata(project, seeded, row_id) == (
+            None,
+            "Checked against the source row.",
+        )
+
+
+def test_row_note_persists_after_all_fields_are_reviewed_and_refuses_completed_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from frisket.engine.runner.review import review_bundle_page, set_review_run_status
+
+    with case_env(CASES[0], tmp_path, monkeypatch) as env:
+        project, seeded = env.project, env.seeded
+        for index, row_id in enumerate(seeded["row_ids"]):
+            accepted = env.run(
+                _review_action(
+                    run_id=seeded["run_id"],
+                    row_id=row_id,
+                    column_id=seeded["risk_column_id"],
+                    decision="accept",
+                    key=f"review_note_accept_{index}@sha256:v1",
+                )
+            )
+            assert accepted.status == "completed", accepted.errors
+        assert review_bundle_page(project, run_id=seeded["run_id"])["total"] == 0
+
+        note_action = _review_note_action(seeded)
+        noted = env.run(note_action)
+
+        assert noted.status == "completed", noted.errors
+        assert noted.outputs[0].ref == {
+            "kind": "review_note",
+            "run_id": seeded["run_id"],
+            "row_id": seeded["row_ids"][0],
+            "note": "Checked against the source row.",
+            "column_count": 1,
+            "op_id": noted.op_ids[0],
+        }
+        assert _review_metadata(project, seeded, seeded["row_ids"][0]) == (
+            "accept",
+            "Checked against the source row.",
+        )
+        complete_page = review_bundle_page(
+            project, run_id=seeded["run_id"], include_reviewed=True
+        )
+        noted_bundle = next(
+            bundle
+            for bundle in complete_page["bundles"]
+            if bundle["row_id"] == seeded["row_ids"][0]
+        )
+        assert noted_bundle["review_note"] == "Checked against the source row."
+
+        set_review_run_status(project, run_id=seeded["run_id"], status="complete")
+        blocked = dict(note_action)
+        blocked["params"] = {**note_action["params"], "note": "Should not save."}
+        blocked["idempotency_key"] = "review_note_complete@sha256:v1"
+        refused = env.run(blocked)
+        assert refused.status == "failed"
+        assert [error.code for error in refused.errors] == ["review_complete"]
+        assert _review_metadata(project, seeded, seeded["row_ids"][0]) == (
+            "accept",
+            "Checked against the source row.",
+        )
+
+
+def test_row_note_uses_stable_legacy_note_and_normalizes_primary_siblings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from frisket.engine.runner.review import review_bundle_page
+    from frisket.engine.store.runs import RunResultStore
+
+    with case_env(
+        replace(CASES[0], seed=_seed_with_sibling), tmp_path, monkeypatch
+    ) as env:
+        project, seeded = env.project, env.seeded
+        row_id = seeded["row_ids"][0]
+        severity_column = seeded["severity_column_id"]
+        store = RunResultStore(project)
+        store.set_result_review_metadata(
+            seeded["run_id"],
+            row_id,
+            seeded["risk_column_id"],
+            None,
+            "First field note.",
+            commit=False,
+        )
+        store.set_result_review_metadata(
+            seeded["run_id"],
+            row_id,
+            severity_column,
+            None,
+            "Second field note.",
+            commit=False,
+        )
+        project.db.commit()
+
+        page = review_bundle_page(
+            project, run_id=seeded["run_id"], include_reviewed=True
+        )
+        bundle = next(item for item in page["bundles"] if item["row_id"] == row_id)
+        assert bundle["review_note"] == "First field note."
+        assert [field["review_note"] for field in bundle["fields"]] == [
+            "First field note.",
+            "Second field note.",
+        ]
+
+        noted = env.run(_review_note_action(seeded))
+
+        assert noted.status == "completed", noted.errors
+        assert noted.outputs[0].ref["column_count"] == 2
+        metadata = project.db.execute(
+            "SELECT column_id,review_decision,review_note FROM results "
+            "WHERE run_id=? AND row_id=? ORDER BY column_id",
+            (seeded["run_id"], row_id),
+        ).fetchall()
+        assert [row["review_decision"] for row in metadata] == [None, None]
+        assert {row["review_note"] for row in metadata} == {
+            "Checked against the source row."
+        }
+
+        undone = env.run(
+            operation_action(
+                "operation.undo",
+                key="undo_review_note@sha256:v1",
+                expected_op_id=noted.op_ids[0],
+            )
+        )
+        assert undone.status == "completed", undone.errors
+        restored = project.db.execute(
+            "SELECT review_note FROM results WHERE run_id=? AND row_id=? "
+            "ORDER BY column_id",
+            (seeded["run_id"], row_id),
+        ).fetchall()
+        assert [row["review_note"] for row in restored] == [
+            "First field note.",
+            "Second field note.",
+        ]
+
+        redone = env.run(
+            operation_action(
+                "operation.redo",
+                key="redo_review_note@sha256:v1",
+                expected_op_id=noted.op_ids[0],
+            )
+        )
+        assert redone.status == "completed", redone.errors
+        normalized = project.db.execute(
+            "SELECT review_note FROM results WHERE run_id=? AND row_id=? "
+            "ORDER BY column_id",
+            (seeded["run_id"], row_id),
+        ).fetchall()
+        assert {row["review_note"] for row in normalized} == {
+            "Checked against the source row."
+        }
 
 
 def test_review_edit_undo_and_two_reject_decisions_walk_exact_metadata(

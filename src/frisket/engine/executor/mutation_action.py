@@ -27,6 +27,7 @@ from frisket.actions.types import (
     QueryCellEditor,
     QueryEditedCells,
     ReviewDecision,
+    ReviewNote,
     RetypedColumn,
     RowCreator,
     RowsAppender,
@@ -1836,6 +1837,7 @@ def _family_result_and_receipt(
         returned,
         (
             ReviewDecision,
+            ReviewNote,
             AcceptedReplayValue,
             AcceptedReplayColumn,
             DismissedReplayValue,

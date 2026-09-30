@@ -1,0 +1,36 @@
+.pane { position: relative; display: flex; min-width: 0; min-height: 0; height: 100%; flex: 1 1 auto; flex-direction: column; background: var(--bg); }
+.tabs { display: flex; min-width: 0; flex: 0 0 40px; align-items: end; gap: var(--space-6); padding: 0 var(--space-10); border-bottom: 1px solid var(--border); background: var(--bg-panel); }
+.tabRow { min-width: 0; flex: 1 1 auto; }
+.tabRow > div { gap: 0; }
+.tab { display: flex; min-width: 48px; max-width: 260px; height: 34px; align-items: center; gap: var(--space-6); padding: 0 var(--space-10); overflow: hidden; border: 1px solid transparent; border-bottom: 0; border-radius: var(--radius-7) var(--radius-7) 0 0; color: var(--text-mid); background: transparent; font: inherit; text-align: left; cursor: pointer; }
+.tab[aria-selected='true'] { z-index: 1; margin-bottom: -1px; border-color: var(--border); color: var(--text); background: var(--bg); font-weight: 600; }
+.tabKind, .tabLocation { flex: 0 0 auto; color: var(--text-light); font-family: var(--mono); font-size: 10px; font-weight: 600; }
+.tabLocation { font-family: inherit; font-size: 11px; font-weight: 400; }
+.tabName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.tabOverflow { width: 28px; margin-bottom: 3px; }
+.tabMenu { max-height: min(320px, 50vh); }
+.tabMenuItem { display: block; width: 100%; padding: 7px 10px; border: 0; background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.paneActions { display: flex; flex: 0 0 auto; align-items: center; gap: var(--space-4); padding: 0 0 3px var(--space-10); border-left: 1px solid var(--border-strong); }
+.paneAction { padding: var(--space-4) var(--space-10); border: 0; border-radius: var(--radius-6); color: var(--text-mid); background: transparent; font: inherit; font-size: 12px; cursor: pointer; }
+.paneAction[aria-pressed='true'] { background: var(--bg-hover); }
+/* This host is the only scroll surface. Canonical ArtifactSource text keeps its
+   markup and highlights, while the review pane owns the reading viewport. */
+.viewer { min-width: 0; min-height: 0; flex: 1 1 auto; overflow: auto; }
+.viewer :global(.evidence-text-body) { max-height: none; overflow: visible; }
+.viewer :global(.evidence-text-highlight-emphasized) { background: var(--accent-bg); box-shadow: inset 0 -2px 0 var(--accent); }
+.viewer :global(.evidence-region-emphasized) { outline: 2px solid var(--accent); outline-offset: var(--space-4); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.viewer :global(.evidence-temporal-segment-emphasized) { background: var(--accent-bg); }
+.empty { margin: auto; padding: 32px 48px; color: var(--text-light); }
+.drawer { position: absolute; z-index: 2; top: 40px; right: 0; bottom: 0; width: 320px; overflow: auto; padding: 18px 16px; box-sizing: border-box; box-shadow: var(--shadow-drawer); background: var(--bg-panel); }
+.drawerHeader { display: flex; align-items: center; justify-content: space-between; gap: var(--space-8); }
+.drawerHeader h3 { margin: 0; font-size: 14px; }
+.drawerClose { border: 0; background: transparent; color: var(--text-mid); cursor: pointer; }
+.drawerCopy { margin: var(--space-8) 0 var(--space-16); color: var(--text-light); font-size: 12px; line-height: 1.45; }
+.rowFields { display: grid; gap: var(--space-12); margin: 0; }
+.rowFields div { display: grid; gap: 3px; }
+.rowFields dt { color: var(--text-light); font-family: var(--mono); font-size: 11px; font-weight: 500; }
+.rowFields dd { margin: 0; color: var(--text); font-size: 13.5px; overflow-wrap: anywhere; }
+/* The tab already identifies this source; keep the reader free of repeated chrome. */
+.viewer :global(.evidence-artifact-title) { display: none; }
+.viewer :global(.evidence-text-body) { margin: 0; padding: 28px 36px; border: 0; border-radius: 0; font-family: inherit; font-size: 14px; line-height: 1.75; }
+@media (max-width: 620px) { .viewer :global(.evidence-text-body) { padding: 18px 20px; } .drawer { max-width: 100%; } }

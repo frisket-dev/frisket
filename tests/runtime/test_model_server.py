@@ -140,7 +140,9 @@ def test_server_can_start_after_install_finishes(tmp_path, monkeypatch):
     owned.stop()
 
 
-def test_failed_readiness_stops_child_and_throttles_retry(tmp_path, monkeypatch):
+def test_failed_readiness_stops_child_and_throttles_retry(
+    tmp_path, monkeypatch, caplog
+):
     from frisket.runtime import model_server
 
     launches, stops = [], []
@@ -152,7 +154,13 @@ def test_failed_readiness_stops_child_and_throttles_retry(tmp_path, monkeypatch)
         "spawn_service",
         lambda *_a, **_kw: launches.append(_Process()) or launches[-1],
     )
-    monkeypatch.setattr(model_server, "stop_service", stops.append)
+
+    def stop(process):
+        stops.append(process)
+        if process is not None:
+            process.returncode = 0
+
+    monkeypatch.setattr(model_server, "stop_service", stop)
     owned = model_server.LocalModelServer(environ={})
     monkeypatch.setattr(owned, "_wait_until_ready", lambda _process: False)
     try:
@@ -161,6 +169,12 @@ def test_failed_readiness_stops_child_and_throttles_retry(tmp_path, monkeypatch)
         assert len(launches) == 1
         assert stops == launches
         assert owned._process is None
+        failure = next(
+            record
+            for record in caplog.records
+            if getattr(record, "event", None) == "local_model_server_start_failed"
+        )
+        assert failure.returncode is None
     finally:
         owned.stop()
 
@@ -193,6 +207,35 @@ def test_readiness_retries_until_authenticated_response(monkeypatch):
         "http://127.0.0.1:1234", "test-secret", stopped=lambda: True
     )
     assert len(requests) == 2
+
+
+def test_owned_server_allows_cold_start_before_authenticated_readiness(monkeypatch):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    from frisket.runtime import model_server
+
+    elapsed = 0.0
+
+    def advance(seconds):
+        nonlocal elapsed
+        elapsed += seconds
+
+    def open_request(request, *, timeout):
+        if elapsed < 12:
+            raise ConnectionRefusedError
+        return nullcontext(SimpleNamespace(status=200))
+
+    monkeypatch.setattr(model_server.time, "monotonic", lambda: elapsed)
+    monkeypatch.setattr(model_server.time, "sleep", advance)
+    monkeypatch.setattr(
+        model_server.urllib.request,
+        "build_opener",
+        lambda *_args: SimpleNamespace(open=open_request),
+    )
+    owned = model_server.LocalModelServer(environ={})
+    assert owned._wait_until_ready(_Process())
+    assert 12 <= elapsed < 13
 
 
 def test_real_server_requires_token_and_is_stopped(tmp_path, monkeypatch):

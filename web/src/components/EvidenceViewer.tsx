@@ -334,10 +334,13 @@ export function ArtifactSource({
   artifact,
   scopeSpanId,
   highlight = true,
+  emphasizedSpanIds = [],
 }: {
   artifact: EvidenceArtifact;
   scopeSpanId?: string;
   highlight?: boolean;
+  /** A host may distinguish its focused citation while retaining all support. */
+  emphasizedSpanIds?: readonly string[];
 }) {
   const blob = artifact.artifact_ref.blob;
   return (
@@ -356,10 +359,10 @@ export function ArtifactSource({
       </header>
       {artifact.pages.length > 0 ? (
         artifact.pages.map((page) => (
-          <EvidencePageView key={page.page} page={page} artifactStableId={artifact.stable_id} />
+          <EvidencePageView key={page.page} page={page} artifactStableId={artifact.stable_id} emphasizedSpanIds={emphasizedSpanIds} />
         ))
       ) : isTextRenderableMediaType(artifact.media_type) && (evidenceTextContext(artifact) !== null || textCitedSpans(artifact).length > 0) ? (
-        <TextArtifactSource artifact={artifact} scopeSpanId={scopeSpanId} highlight={highlight} />
+        <TextArtifactSource artifact={artifact} scopeSpanId={scopeSpanId} highlight={highlight} emphasizedSpanIds={emphasizedSpanIds} />
       ) : artifact.media_type === 'application/pdf' && blob ? (
         <iframe
           className="evidence-pdf"
@@ -368,7 +371,7 @@ export function ArtifactSource({
           title={`Evidence PDF: ${artifact.title || artifact.filename || artifact.media_type}`}
         />
       ) : (
-        <MediaOrFallback artifact={artifact} />
+        <MediaOrFallback artifact={artifact} emphasizedSpanIds={emphasizedSpanIds} />
       )}
     </section>
   );
@@ -381,9 +384,11 @@ function pageAnchorId(artifactStableId: string, page: number): string {
 function EvidencePageView({
   page,
   artifactStableId,
+  emphasizedSpanIds,
 }: {
   page: EvidencePage;
   artifactStableId: string;
+  emphasizedSpanIds: readonly string[];
 }) {
   if (!page.image) {
     return (
@@ -408,7 +413,7 @@ function EvidencePageView({
           data-testid="evidence-page-image"
         />
         {page.regions.map((region) => (
-          <RegionOverlay key={region.stable_id} region={region} />
+          <RegionOverlay key={region.stable_id} region={region} emphasized={emphasizedSpanIds.includes(region.stable_id)} />
         ))}
       </div>
       {page.text && <pre className="evidence-page-text" data-testid="evidence-page-text">{page.text}</pre>}
@@ -416,13 +421,14 @@ function EvidencePageView({
   );
 }
 
-function RegionOverlay({ region }: { region: EvidenceRegion }) {
+function RegionOverlay({ region, emphasized }: { region: EvidenceRegion; emphasized: boolean }) {
   const normalized = normalizedBBox(region.bbox);
   if (!normalized) return null;
   return (
     <span
-      className="evidence-region"
+      className={`evidence-region${emphasized ? ' evidence-region-emphasized' : ''}`}
       data-testid="evidence-region-highlight"
+      data-emphasized={emphasized ? 'true' : undefined}
       title={region.snippet ?? region.stable_id}
       style={normalizedRegionStyle(normalized)}
     />
@@ -474,7 +480,7 @@ function buildTemporalDisplayRuns(
   return runs;
 }
 
-function MediaOrFallback({ artifact }: { artifact: EvidenceArtifact }) {
+function MediaOrFallback({ artifact, emphasizedSpanIds }: { artifact: EvidenceArtifact; emphasizedSpanIds: readonly string[] }) {
   const blob = artifact.artifact_ref.blob;
   const captionsUrl = mediaCaptionsDataUrl(artifact);
   const label = artifact.title || artifact.filename || artifact.media_type;
@@ -646,7 +652,7 @@ function MediaOrFallback({ artifact }: { artifact: EvidenceArtifact }) {
                     <button
                       type="button"
                       ref={span.stable_id === firstCitedId ? citedRef : undefined}
-                      className={`evidence-temporal-segment${isActive ? ' evidence-temporal-segment-active' : ''}${isCited ? ' evidence-temporal-segment-cited' : ''}`}
+                      className={`evidence-temporal-segment${isActive ? ' evidence-temporal-segment-active' : ''}${isCited ? ' evidence-temporal-segment-cited' : ''}${emphasizedSpanIds.includes(span.stable_id) ? ' evidence-temporal-segment-emphasized' : ''}`}
                       data-testid="evidence-temporal-segment"
                       data-active={isActive ? 'true' : undefined}
                       data-cited={isCited ? 'true' : undefined}
@@ -827,10 +833,12 @@ function SavedTextContext({
   context,
   scopeSpanId,
   highlight,
+  emphasizedSpanIds,
 }: {
   context: EvidenceTextContext;
   scopeSpanId?: string;
   highlight: boolean;
+  emphasizedSpanIds: readonly string[];
 }) {
   const ranges = highlight
     ? scopeSpanId === undefined
@@ -838,6 +846,7 @@ function SavedTextContext({
       : context.ranges.filter((range) => range.span_id === scopeSpanId)
     : [];
   const segments = textSegments(context.text, ranges);
+  const emphasizedRanges = context.ranges.filter((range) => emphasizedSpanIds.includes(range.span_id));
   const firstHighlightIndex = segments.findIndex((segment) => segment.highlighted);
   const firstMarkRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
@@ -851,8 +860,9 @@ function SavedTextContext({
           segment.highlighted ? (
             <mark
               key={`${segment.start}:${segment.end}`}
-              className="evidence-text-highlight"
+              className={`evidence-text-highlight${emphasizedRanges.some((range) => range.start < segment.end && range.end > segment.start) ? ' evidence-text-highlight-emphasized' : ''}`}
               data-testid="evidence-text-highlight"
+              data-emphasized={emphasizedRanges.some((range) => range.start < segment.end && range.end > segment.start) ? 'true' : undefined}
               ref={index === firstHighlightIndex ? firstMarkRef : undefined}
             >
               {segment.text}
@@ -947,14 +957,16 @@ export function TextArtifactSource({
   artifact,
   scopeSpanId,
   highlight = true,
+  emphasizedSpanIds = [],
 }: {
   artifact: EvidenceArtifact;
   scopeSpanId?: string;
   highlight?: boolean;
+  emphasizedSpanIds?: readonly string[];
 }) {
   const context = evidenceTextContext(artifact);
   if (context !== null) {
-    return <SavedTextContext context={context} scopeSpanId={scopeSpanId} highlight={highlight} />;
+    return <SavedTextContext context={context} scopeSpanId={scopeSpanId} highlight={highlight} emphasizedSpanIds={emphasizedSpanIds} />;
   }
   return <LegacyTextArtifactSource artifact={artifact} />;
 }

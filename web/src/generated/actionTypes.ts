@@ -1331,8 +1331,14 @@ export type ReviewDecisionParams = ({
   "run_id": (number);
   "row_id": (number);
   "column_id": (number);
-  "decision": ("accept" | "reject" | "reject_clear" | "edit") & (string);
+  "decision": ("accept" | "reject" | "reject_clear" | "edit" | "clear") & (string);
   "value"?: ((JsonValue) | ((null)));
+  "note"?: (((string)) | ((null)));
+});
+
+export type ReviewNoteParams = ({
+  "run_id": (number);
+  "row_id": (number);
   "note"?: (((string)) | ((null)));
 });
 
@@ -1559,6 +1565,7 @@ export interface GeneratedActionParams {
   'resolve.replace': ReplaceParams;
   'resolve.substitute': SubstituteParams;
   'review.decision': ReviewDecisionParams;
+  'review.note': ReviewNoteParams;
   'row.add': RowAddParams;
   'row.delete': RowDeleteParams;
   'run.backfill': BackfillParams;

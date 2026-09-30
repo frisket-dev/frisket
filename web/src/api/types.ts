@@ -3683,7 +3683,7 @@ export interface ReviewBundleField {
   confidence: number | null;
   justification: string;
   /** Explicit review outcome; absent for legacy review-state-only rows. */
-  reviewDecision?: ReviewAction | null;
+  reviewDecision?: Exclude<ReviewAction, 'clear'> | null;
   /** Reviewer note stored for this exact run/result cell, if one was recorded. */
   note?: string | null;
   reviewState: ReviewState;
@@ -3706,6 +3706,8 @@ export interface ReviewBundle {
   /** Source row values shown as the shared context for sibling outputs. */
   source: Record<string, CellValue>;
   context: string;
+  /** Shared reviewer note for this row and run. */
+  reviewNote?: string | null;
   fields: ReviewBundleField[];
   evidence: ReviewBundleField[];
 }
@@ -3715,7 +3717,7 @@ export interface ReviewBundlePage extends PageMeta {
   bundles: ReviewBundle[];
 }
 
-export type ReviewAction = 'accept' | 'reject' | 'reject_clear' | 'edit';
+export type ReviewAction = 'accept' | 'reject' | 'reject_clear' | 'edit' | 'clear';
 
 /** Exact review facts for a run or one of its output fields. Accuracy only
  * uses the explicit accepted/incorrect denominator. */
@@ -4808,6 +4810,7 @@ export interface FrisketApi {
     options?: ReviewRunsOptions,
   ): Promise<ReviewRunsPage>;
   setReviewRunStatus(runId: string, status: ReviewRunStatus): Promise<ReviewRunStatusResult>;
+  setReviewNote(runId: string, rowId: string, note: string | null): Promise<void>;
   reviewItem(
     itemId: string,
     action: ReviewAction,

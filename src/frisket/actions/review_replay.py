@@ -18,6 +18,8 @@ from frisket.actions.types import (
     ReplayValueDismissor,
     ReviewDecider,
     ReviewDecision,
+    ReviewNote,
+    ReviewNoter,
 )
 
 
@@ -25,7 +27,7 @@ class ReviewDecisionParams(ActionParams):
     run_id: int = Field(ge=1, strict=True)
     row_id: int = Field(ge=1, strict=True)
     column_id: int = Field(ge=1, strict=True)
-    decision: Literal["accept", "reject", "reject_clear", "edit"]
+    decision: Literal["accept", "reject", "reject_clear", "edit", "clear"]
     value: Any | None = None
     note: str | None = None
 
@@ -43,6 +45,12 @@ class ReviewDecisionParams(ActionParams):
         if self.decision != "edit" and "value" in self.model_fields_set:
             raise ValueError("value is only valid for an edit decision")
         return self
+
+
+class ReviewNoteParams(ActionParams):
+    run_id: int = Field(ge=1, strict=True)
+    row_id: int = Field(ge=1, strict=True)
+    note: str | None = None
 
 
 class ReplayCellParams(ActionParams):
@@ -77,7 +85,12 @@ def decide_review(
         value=params.value,
         value_supplied="value" in params.model_fields_set,
         note=params.note,
+        note_supplied="note" in params.model_fields_set,
     )
+
+
+def note_review(params: ReviewNoteParams, reviews: ReviewNoter) -> ReviewNote:
+    return reviews.note(run_id=params.run_id, row_id=params.row_id, note=params.note)
 
 
 def accept_replay(
@@ -123,12 +136,30 @@ REVIEW_DECISION = action(
     name="decision",
     title="Review decision",
     description=(
-        "Record an accept, reject, or edit decision for the current generated "
-        "result cell, with an optional note and pinned receipt evidence."
+        "Record or clear an accept, reject, or edit decision for the current "
+        "generated result cell, with an optional note and pinned receipt evidence. "
+        "Clearing keeps the current visible cell value and its review note."
     ),
     category=ActionCategory.CLEANUP,
     run=decide_review,
     form="review_decision",
+)
+
+
+REVIEW_NOTE = action(
+    examples=(
+        ReviewNoteParams(run_id=1, row_id=1, note="Checked against the filing."),
+        ReviewNoteParams(run_id=1, row_id=1, note=None),
+    ),
+    name="note",
+    title="Review row note",
+    description=(
+        "Record one optional review note across the current generated result fields "
+        "for a run row, without changing their decisions or visible values."
+    ),
+    category=ActionCategory.CLEANUP,
+    run=note_review,
+    form="review_note",
 )
 
 REPLAY_ACCEPT = action(

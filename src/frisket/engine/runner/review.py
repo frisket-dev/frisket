@@ -33,6 +33,16 @@ _ELIGIBLE_PRIMARY_WHERE = (
     f"res.outcome IN ({REVIEWABLE_OUTCOMES_SQL}) "
     f"AND rr.hidden = 0 AND {_ACTIVE_RESULT_WHERE}"
 )
+_EXACT_REVIEW_CORRECTION = """
+    visible_cell.origin_kind = 'manual_edit'
+    AND visible_op.status = 'applied'
+    AND visible_op.kind = 'review.decision'
+    AND json_extract(visible_op.spec, '$.action_id') = 'review.decision'
+    AND json_extract(visible_op.spec, '$.params.run_id') = res.run_id
+    AND json_extract(visible_op.spec, '$.params.row_id') = res.row_id
+    AND json_extract(visible_op.spec, '$.params.column_id') = res.column_id
+    AND json_extract(visible_op.spec, '$.params.decision') IN ('edit', 'reject_clear')
+"""
 
 
 def _loads(value: str | None) -> Any:
@@ -46,15 +56,28 @@ def _loads(value: str | None) -> Any:
         return value
 
 
+def _source_contexts(
+    project: Project, keys: list[tuple[int, int]]
+) -> dict[tuple[int, int], dict[str, Any]]:
+    contexts = {key: {} for key in keys}
+    rows_by_sheet: dict[int, set[int]] = {}
+    for sheet_id, row_id in keys:
+        rows_by_sheet.setdefault(sheet_id, set()).add(row_id)
+    for sheet_id, row_ids in rows_by_sheet.items():
+        ordered_row_ids = sorted(row_ids)
+        for column in project.columns(sheet_id):
+            if column["ai_generated"]:
+                continue
+            values = project.get_values(sheet_id, column["id"], row_ids=ordered_row_ids)
+            for row_id in ordered_row_ids:
+                value = values.get(row_id)
+                if value is not None:
+                    contexts[(sheet_id, row_id)][column["name"]] = value
+    return contexts
+
+
 def _source_context(project: Project, sheet_id: int, row_id: int) -> dict[str, Any]:
-    source = {}
-    for c in project.columns(sheet_id):
-        if not c["ai_generated"]:
-            vals = project.get_values(sheet_id, c["id"], row_ids=[row_id])
-            v = vals.get(row_id)
-            if v is not None:
-                source[c["name"]] = v
-    return source
+    return _source_contexts(project, [(sheet_id, row_id)])[(sheet_id, row_id)]
 
 
 def review_queue(
@@ -185,11 +208,18 @@ def review_bundles(
         (*order_params, *params, *primary_params, limit, offset),
     ).fetchall()
 
+    source_contexts = _source_contexts(
+        project,
+        [(int(key["sheet_id"]), int(key["row_id"])) for key in keys],
+    )
     bundles: list[dict[str, Any]] = []
     for key in keys:
         cells = project.db.execute(
             f"""
-            SELECT res.run_id, res.row_id, res.column_id, res.value,
+            SELECT res.run_id, res.row_id, res.column_id,
+                   CASE WHEN {_EXACT_REVIEW_CORRECTION}
+                        THEN visible_cell.value ELSE res.value END AS value,
+                   CASE WHEN {_EXACT_REVIEW_CORRECTION} THEN 1 ELSE 0 END AS changed,
                    res.confidence, res.justification, res.error,
                    res.review_state, res.review_decision, res.review_note,
                    c.name AS column_name, c.type AS column_type,
@@ -197,6 +227,10 @@ def review_bundles(
             FROM results res
             JOIN columns c ON c.id = res.column_id
             {_ACTIVE_HEAD_JOIN}
+            LEFT JOIN current_cells visible_cell
+              ON visible_cell.column_id=res.column_id
+              AND visible_cell.row_id=res.row_id
+            LEFT JOIN ops visible_op ON visible_op.id=visible_cell.origin_op_id
             JOIN rows rr ON rr.id = res.row_id AND rr.sheet_id = c.sheet_id
             WHERE res.run_id=? AND res.row_id=? AND c.sheet_id=? AND rr.hidden=0
               AND {_ACTIVE_RESULT_WHERE}
@@ -224,6 +258,7 @@ def review_bundles(
                 "review_decision": cell["review_decision"],
                 "review_note": cell["review_note"],
                 "role": role,
+                "changed": bool(cell["changed"]),
                 "chore": role == "field"
                 and cell["review_state"] == "unreviewed"
                 and cell["error"] is None,
@@ -243,7 +278,15 @@ def review_bundles(
                 "action_kind": key["action_kind"],
                 "model": key["model"],
                 "confidence": key["confidence"],
-                "source": _source_context(project, key["sheet_id"], key["row_id"]),
+                "source": source_contexts[(key["sheet_id"], key["row_id"])],
+                "review_note": next(
+                    (
+                        field["review_note"]
+                        for field in fields
+                        if field["review_note"] not in (None, "")
+                    ),
+                    None,
+                ),
                 "fields": fields,
                 "evidence": evidence,
                 "items": items,

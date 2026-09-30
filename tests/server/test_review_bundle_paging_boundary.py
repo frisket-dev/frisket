@@ -6,6 +6,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from frisket.server.app import create_app
+from frisket.engine.runner.review import review_bundle_page
 from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
 
@@ -140,6 +141,46 @@ def test_review_bundles_return_bounded_pages_with_action_metadata(
     assert tail_body["has_more"] is False
     assert tail_body["next_offset"] is None
     assert [bundle["row_id"] for bundle in tail_body["bundles"]] == row_ids[60:]
+
+
+def test_review_bundle_page_batches_source_reads_for_all_rows(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, project_id, row_ids = _seed_review_history(tmp_path)
+    project = client.app.state.workspace.get(project_id)
+    run_id = int(project.db.execute("SELECT id FROM runs").fetchone()[0])
+    story_id = int(
+        project.db.execute("SELECT id FROM columns WHERE name='story'").fetchone()[0]
+    )
+    original_columns = project.columns
+    original_get_values = project.get_values
+    column_calls: list[int] = []
+    value_calls: list[tuple[int, int, tuple[int, ...]]] = []
+
+    def columns(sheet_id: int, include_hidden: bool = False):
+        column_calls.append(sheet_id)
+        return original_columns(sheet_id, include_hidden)
+
+    def get_values(
+        sheet_id: int,
+        column_id: int,
+        row_ids: list[int] | None = None,
+        **kwargs: Any,
+    ):
+        value_calls.append((sheet_id, column_id, tuple(row_ids or ())))
+        return original_get_values(sheet_id, column_id, row_ids, **kwargs)
+
+    monkeypatch.setattr(project, "columns", columns)
+    monkeypatch.setattr(project, "get_values", get_values)
+
+    page = review_bundle_page(project, run_id=run_id, limit=25)
+
+    sheet_id = int(page["bundles"][0]["sheet_id"])
+    assert column_calls == [sheet_id]
+    assert value_calls == [(sheet_id, story_id, tuple(row_ids[:25]))]
+    assert [bundle["source"] for bundle in page["bundles"]] == [
+        {"story": f"Story {index:02d}"} for index in range(25)
+    ]
 
 
 def test_review_bundle_page_params_are_validated(tmp_path: Path) -> None:

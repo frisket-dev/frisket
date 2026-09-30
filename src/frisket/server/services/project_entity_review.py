@@ -13,7 +13,7 @@ from frisket.engine.runner.review import (
     set_review_run_status,
 )
 from frisket.server.route_errors import RouteError
-from frisket.server.review_payloads import public_review_action_payload
+from frisket.server.review_payloads import public_review_action_payloads
 from frisket.server.workspace import Workspace
 from frisket.engine.store import Project
 
@@ -39,10 +39,9 @@ class ProjectEntityReviewService:
         run_id: int | None = None,
     ) -> list[dict[str, Any]]:
         project = self._project(project_id)
-        return [
-            public_review_action_payload(item)
-            for item in review_queue(project, sheet_id=sheet_id, run_id=run_id)
-        ]
+        return public_review_action_payloads(
+            review_queue(project, sheet_id=sheet_id, run_id=run_id)
+        )
 
     def review_bundles(
         self,
@@ -71,9 +70,7 @@ class ProjectEntityReviewService:
         )
         return {
             **page,
-            "bundles": [
-                public_review_action_payload(bundle) for bundle in page["bundles"]
-            ],
+            "bundles": public_review_action_payloads(page["bundles"]),
         }
 
     def review_count(
@@ -99,7 +96,7 @@ class ProjectEntityReviewService:
         )
         return {
             **page,
-            "runs": [public_review_action_payload(run) for run in page["runs"]],
+            "runs": public_review_action_payloads(page["runs"]),
         }
 
     def set_review_run_status(

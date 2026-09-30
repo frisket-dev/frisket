@@ -1076,4 +1076,14 @@ describe('history and review mutations owned by the domain', () => {
       message: scenario.message,
     });
   });
+  it('saves a row note through the project action path independently of decisions', async () => {
+    const exchange = stubHistoryAndPosts([], [{ result: actionResult('review.note', 'completed') }]);
+    await historyReviewDomain('118').setReviewNote('9', '7', 'Check the source');
+    expect(exchange.calls()).toEqual([['/api/projects/118/actions/v1/run', 'POST']]);
+    expect(exchange.bodies()[0]).toMatchObject({
+      action_id: 'review.note', scope: { kind: 'project' },
+      params: { run_id: 9, row_id: 7, note: 'Check the source' },
+    });
+  });
+
 });

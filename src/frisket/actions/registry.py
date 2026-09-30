@@ -92,6 +92,7 @@ from frisket.actions.review_replay import (
     REPLAY_ACCEPT_COLUMN,
     REPLAY_DISMISS,
     REVIEW_DECISION,
+    REVIEW_NOTE,
 )
 from frisket.actions.research import WEB_SEARCH
 from frisket.actions.resolve import COMBINE, FILL_MISSING, REPLACE, SUBSTITUTE
@@ -150,7 +151,7 @@ COLUMN_ACTIONS = ActionNamespace(
 CELL_ACTIONS = ActionNamespace("cell", actions=(CELL_EDIT, CELL_EDIT_QUERY))
 ROW_ACTIONS = ActionNamespace("row", actions=(ROW_ADD, ROW_DELETE))
 OPERATION_ACTIONS = ActionNamespace("operation", actions=(UNDO, REDO))
-REVIEW_ACTIONS = ActionNamespace("review", actions=(REVIEW_DECISION,))
+REVIEW_ACTIONS = ActionNamespace("review", actions=(REVIEW_DECISION, REVIEW_NOTE))
 REPLAY_ACTIONS = ActionNamespace(
     "replay", actions=(REPLAY_ACCEPT, REPLAY_ACCEPT_COLUMN, REPLAY_DISMISS)
 )
