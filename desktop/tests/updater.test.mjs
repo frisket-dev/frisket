@@ -26,16 +26,21 @@ class FakeUpdater extends EventEmitter {
   }
 }
 
-function createHarness({ response = 1, requestInstall, preferences = {} } = {}) {
+function createHarness({ response = 1, requestInstall, preferences = {}, automaticChecks = true } = {}) {
   const updater = new FakeUpdater();
   const states = [];
   const messages = [];
   const installs = [];
+  const automaticCheckWrites = [];
+  const automaticCheckChanges = [];
   const timers = { timeouts: [], intervals: [], clearedTimeouts: [], clearedIntervals: [] };
   const controller = createUpdater({
     updater,
     getSkippedVersion: () => preferences.skippedVersion,
     skipVersion: (version) => { preferences.skippedVersion = version; },
+    getAutomaticChecks: () => automaticChecks,
+    setAutomaticChecks: (enabled) => { automaticChecks = enabled; automaticCheckWrites.push(enabled); },
+    onAutomaticChecksChange: (enabled) => automaticCheckChanges.push(enabled),
     message: async (options) => { messages.push(options); return typeof response === 'function' ? response(options) : response; },
     requestInstall: async () => { installs.push(true); return requestInstall ? requestInstall() : true; },
     onState: (state) => states.push(state),
@@ -52,7 +57,11 @@ function createHarness({ response = 1, requestInstall, preferences = {} } = {}) 
     },
     clearIntervalFn: (timer) => timers.clearedIntervals.push(timer),
   });
-  return { updater, controller, states, messages, installs, timers, preferences };
+  return {
+    updater, controller, states, messages, installs, timers, preferences,
+    automaticCheckWrites, automaticCheckChanges,
+    get automaticChecks() { return automaticChecks; },
+  };
 }
 
 test('checks without downloading until consent, and never installs on quit or downgrades', () => {
@@ -66,8 +75,8 @@ test('checks without downloading until consent, and never installs on quit or do
 
 test('startup and daily checks show availability; Later keeps the app running without downloading', async () => {
   const { controller, updater, timers, messages, installs } = createHarness();
-  controller.start();
-  controller.start();
+  await controller.start();
+  await controller.start();
   assert.deepEqual(timers.timeouts.map(({ delay }) => delay), [30_000]);
   assert.deepEqual(timers.intervals.map(({ delay }) => delay), [24 * 60 * 60 * 1_000]);
   timers.timeouts[0].callback();
@@ -82,6 +91,63 @@ test('startup and daily checks show availability; Later keeps the app running wi
   assert.equal(messages.length, 2);
   assert.equal(updater.downloads, 0);
   assert.equal(installs.length, 0);
+});
+
+test('an unknown automatic-check preference is chosen once before timers or network work begin', async () => {
+  const harness = createHarness({ automaticChecks: undefined, response: 0 });
+  const start = harness.controller.start();
+  assert.equal(harness.updater.checks, 0);
+  await start;
+  assert.equal(harness.messages[0].message, 'Check for updates automatically?');
+  assert.deepEqual(harness.messages[0].buttons, ['Check automatically', 'Only when I ask']);
+  assert.deepEqual(harness.automaticCheckWrites, [true]);
+  assert.deepEqual(harness.automaticCheckChanges, [true]);
+  assert.equal(harness.controller.automaticChecksEnabled, true);
+  assert.deepEqual(harness.timers.timeouts.map(({ delay }) => delay), [30_000]);
+  assert.deepEqual(harness.timers.intervals.map(({ delay }) => delay), [24 * 60 * 60 * 1_000]);
+  await harness.controller.start();
+  assert.equal(harness.messages.length, 1);
+});
+
+test('choosing manual-only keeps automatic timers off while manual checks still work without opting in', async () => {
+  const harness = createHarness({ automaticChecks: undefined, response: 1 });
+  await harness.controller.start();
+  assert.deepEqual(harness.automaticCheckWrites, [false]);
+  assert.equal(harness.controller.automaticChecksEnabled, false);
+  assert.equal(harness.timers.timeouts.length, 0);
+  assert.equal(harness.timers.intervals.length, 0);
+  await harness.controller.check({ manual: true });
+  assert.equal(harness.updater.checks, 1);
+  assert.deepEqual(harness.automaticCheckWrites, [false]);
+  assert.equal(harness.controller.automaticChecksEnabled, false);
+});
+
+test('changing the automatic-check choice cancels work, suppresses an open automatic offer, and rearms once', async () => {
+  let respond;
+  const harness = createHarness({
+    response: () => new Promise((resolve) => { respond = resolve; }),
+  });
+  await harness.controller.start();
+  harness.timers.timeouts[0].callback();
+  await new Promise(setImmediate);
+  assert.equal(harness.messages.length, 1);
+  harness.controller.setAutomaticChecks(false);
+  assert.equal(harness.controller.automaticChecksEnabled, false);
+  assert.deepEqual(harness.automaticCheckWrites, [false]);
+  assert.deepEqual(harness.automaticCheckChanges, [false]);
+  assert.equal(harness.timers.clearedTimeouts.length, 1);
+  assert.equal(harness.timers.clearedIntervals.length, 1);
+  respond(0);
+  await new Promise(setImmediate);
+  assert.equal(harness.updater.downloads, 0);
+  assert.equal(harness.installs.length, 0);
+  harness.controller.setAutomaticChecks(true);
+  assert.equal(harness.controller.automaticChecksEnabled, true);
+  assert.deepEqual(harness.timers.timeouts.map(({ delay }) => delay), [30_000, 30_000]);
+  assert.deepEqual(harness.timers.intervals.map(({ delay }) => delay), [24 * 60 * 60 * 1_000, 24 * 60 * 60 * 1_000]);
+  harness.controller.setAutomaticChecks(true);
+  assert.equal(harness.timers.timeouts.length, 2);
+  assert.equal(harness.timers.intervals.length, 2);
 });
 
 test('one manual check offers, downloads and installs without a second menu click', async () => {
@@ -173,7 +239,7 @@ test('dispose cancels scheduled work and prevents late dialog consent from downl
   const { updater, controller, timers, installs } = createHarness({
     response: () => new Promise((resolve) => { respond = resolve; }),
   });
-  controller.start();
+  await controller.start();
   const check = controller.check();
   await new Promise(setImmediate);
   controller.dispose();
