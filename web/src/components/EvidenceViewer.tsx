@@ -572,10 +572,12 @@ function MediaOrFallback({ artifact, emphasizedSpanIds }: { artifact: EvidenceAr
   };
 
   if (!blob || !(artifact.media_type.startsWith('audio/') || artifact.media_type.startsWith('video/'))) {
+    const sourceUrl = blob?.url ?? [artifact.source_url, artifact.canonical_url, artifact.artifact_ref.source_url]
+      .find((url) => typeof url === 'string' && /^https?:\/\//i.test(url));
     return (
       <div className="evidence-page-fallback" data-testid="evidence-artifact-fallback">
         A preview is not available for this source.
-        {blob && <a href={blob.url} target="_blank" rel="noopener noreferrer">Open source</a>}
+        {sourceUrl && <a href={sourceUrl} target="_blank" rel="noopener noreferrer">Open source</a>}
       </div>
     );
   }

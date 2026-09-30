@@ -45,6 +45,14 @@ describe('ArtifactSource media coverage', () => {
     expect(screen.getByRole('link', { name: 'Open source' })).toHaveAttribute('href', '/source');
   });
 
+  it('links URL-backed sources and rejects executable URLs', () => {
+    const artifact = evidenceArtifact({ media_type: 'application/octet-stream', source_url: 'https://example.test/source', artifact_ref: artifactRef({ blob: null }) });
+    const { rerender } = render(<ArtifactSource artifact={artifact} />);
+    expect(screen.getByRole('link', { name: 'Open source' })).toHaveAttribute('href', artifact.source_url);
+    rerender(<ArtifactSource artifact={{ ...artifact, source_url: 'javascript:alert(1)' }} />);
+    expect(screen.queryByRole('link', { name: 'Open source' })).not.toBeInTheDocument();
+  });
+
   it('keeps native PDF preview when no rendered pages were saved', () => {
     render(<ArtifactSource artifact={mediaArtifact('application/pdf')} />);
     expect(screen.getByTitle('Evidence PDF: Source')).toHaveAttribute('src', '/source');
