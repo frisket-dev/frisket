@@ -236,6 +236,13 @@ function installMenu() {
     { role: 'help', submenu: [{
       id: 'desktop-update', label: 'Check for Updates…', enabled: Boolean(updates),
       click: () => void updates?.check({ manual: true }),
+    }, {
+      id: 'desktop-update-automatic', label: 'Automatically Check for Updates',
+      type: 'checkbox', enabled: Boolean(updates), checked: updates?.automaticChecksEnabled ?? false,
+      click: (item) => {
+        updates?.setAutomaticChecks(item.checked);
+        item.checked = updates?.automaticChecksEnabled ?? false;
+      },
     }] },
   ]));
 }
@@ -247,8 +254,13 @@ function setupUpdates() {
     ...updatePreferences(path.join(app.getPath('userData'), 'update-preferences.json')),
     requestInstall: () => requestQuit(true),
     message: async (options) => (await dialog.showMessageBox({
-      ...options, defaultId: 0, cancelId: Math.max(0, options.buttons.indexOf('Later')),
+      ...options, defaultId: options.defaultId ?? 0,
+      cancelId: options.cancelId ?? Math.max(0, options.buttons.indexOf('Later')),
     })).response,
+    onAutomaticChecksChange: (enabled) => {
+      const item = Menu.getApplicationMenu()?.getMenuItemById('desktop-update-automatic');
+      if (item) item.checked = enabled;
+    },
     onState: ({ phase, percent }) => {
       const item = Menu.getApplicationMenu()?.getMenuItemById('desktop-update');
       if (!item) return;
@@ -285,7 +297,7 @@ app.whenReady().then(async () => {
   installMenu();
   mainWindow = createWindow();
   await startAttempt();
-  if (!quitting) updates?.start();
+  if (!quitting) void updates?.start();
 });
 
 app.on('window-all-closed', () => void requestQuit());
