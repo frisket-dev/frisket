@@ -4,17 +4,20 @@ export interface ReviewCitationPayload { fieldId: string; payload: EvidenceViewe
 interface SourceMember { fieldId: string; artifact: EvidenceArtifact; spans: EvidenceSpan[]; }
 export interface ReviewCitationSource {
   id: string; artifact: EvidenceArtifact; fieldIds: string[]; members: SourceMember[];
-  kind: 'MD' | 'TXT' | 'PDF' | 'AUDIO' | 'FILE'; title: string;
+  kind: 'MD' | 'TXT' | 'PDF' | 'AUDIO' | 'VIDEO' | 'IMAGE' | 'FILE'; title: string;
 }
 
 /** Groups full-fidelity citations by persisted source-artifact identity. */
 export function reviewCitationSources(payloads: readonly ReviewCitationPayload[]): ReviewCitationSource[] {
   const bySource = new Map<string, SourceMember[]>();
+  const supportedFields = new Set(payloads.filter(({ payload }) => payload.link.role !== 'source_provenance'
+    && payload.artifacts.some((artifact) => citedSpans(artifact).length > 0)).map(({ fieldId }) => fieldId));
   for (const { fieldId, payload } of payloads) {
-    if (payload.link.role === 'source_provenance') continue;
+    const provenance = payload.link.role === 'source_provenance';
+    if (provenance && supportedFields.has(fieldId)) continue;
     for (const artifact of payload.artifacts) {
       const spans = citedSpans(artifact);
-      if (spans.length === 0) continue;
+      if (spans.length === 0 && !provenance) continue;
       const members = bySource.get(artifact.stable_id) ?? [];
       members.push({ fieldId, artifact, spans });
       bySource.set(artifact.stable_id, members);
@@ -101,7 +104,9 @@ function uniqueBy<T>(items: readonly T[], key: (item: T) => string): T[] {
 function sourceKind(mediaType: string): ReviewCitationSource['kind'] {
   const type = mediaType.split(';')[0].trim();
   if (type === 'application/pdf') return 'PDF';
-  if (type.startsWith('audio/') || type.startsWith('video/')) return 'AUDIO';
+  if (type.startsWith('audio/')) return 'AUDIO';
+  if (type.startsWith('video/')) return 'VIDEO';
+  if (type.startsWith('image/')) return 'IMAGE';
   if (type === 'text/markdown' || type === 'application/vnd.frisket.row+json') return 'MD';
   if (type === 'text/plain') return 'TXT';
   return 'FILE';
@@ -112,5 +117,5 @@ function sourceTitle(artifact: EvidenceArtifact): string {
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
-function finite(value: unknown): number | null { const number = typeof value === 'number' ? value : Number(value); return Number.isFinite(number) ? number : null; }
+function finite(value: unknown): number | null { if (value === null || value === undefined || value === '') return null; const number = typeof value === 'number' ? value : Number(value); return Number.isFinite(number) ? number : null; }
 function formatMs(ms: number): string { const seconds = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`; }

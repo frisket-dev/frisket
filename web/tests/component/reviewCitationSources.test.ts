@@ -39,6 +39,19 @@ describe('review citation source tabs', () => {
     expect(sourcesForField(sources, 'plaintiff')).toEqual(sources);
   });
 
+  it('shows the source document when a conversion has provenance but no quoted citations', () => {
+    const source = evidenceArtifact({ stable_id: 'source:pdf', media_type: 'application/pdf' });
+    const sources = reviewCitationSources([{ fieldId: 'markdown', payload: payload('source_provenance', source) }]);
+    expect(sources).toHaveLength(1);
+    expect(sources[0].kind).toBe('PDF');
+    expect(sources[0].artifact.spans).toEqual([]);
+  });
+
+  it.each([['image/png', 'IMAGE'], ['video/mp4', 'VIDEO'], ['audio/mpeg', 'AUDIO']])('labels %s sources as %s', (mediaType, kind) => {
+    const source = evidenceArtifact({ media_type: mediaType, spans: [evidenceSpan()] });
+    expect(reviewCitationSources([{ fieldId: 'result', payload: payload('citation', source) }])[0].kind).toBe(kind);
+  });
+
   it('keeps other active occurrences when one citation span is required', () => {
     const artifact = evidenceArtifact({ spans: [
       evidenceSpan({ stable_id: 'required', required: true }),

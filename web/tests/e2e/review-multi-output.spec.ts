@@ -84,7 +84,7 @@ test('review queue groups sibling outputs and resolves fields independently', as
   const tone = page.getByTestId('review-field-tone');
   await expect(beat).toBeVisible();
   await expect(tone).toBeVisible();
-  await queue.getByRole('button', { name: /^Row fields/ }).click();
+  await queue.getByRole('button', { name: /^Inputs/ }).click();
   await expect(queue.getByTestId('review-row-fields-drawer')).toContainText('Mayor met a lobbyist');
   await queue.getByRole('button', { name: 'Close row fields' }).click();
 
