@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { Check, ChevronLeft, ChevronRight, Pencil, X } from 'lucide-react';
 import type { CellValue, ReviewBundleField } from '../../api/types';
 import { useEscapeDismiss } from '../../hooks/useEscapeDismiss';
@@ -24,7 +24,11 @@ function RowNavigation({ controller: c }: { controller: ReviewSessionController 
 function FieldDecision({ field, controller: c }: { field: ReviewBundleField; controller: ReviewSessionController }) {
   const selected = c.field?.id === field.id;
   const editing = c.editingId === field.id;
-  return <section className={styles.field} data-selected={selected} data-review-state={field.reviewState}
+  const sectionRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (selected) sectionRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [selected]);
+  return <section ref={sectionRef} className={styles.field} data-selected={selected} data-review-state={field.reviewState}
     data-testid={`review-field-${field.columnName}`} data-review-changed={field.changed ? 'true' : 'false'}>
     <button type="button" className={styles.fieldSelect} aria-pressed={selected}
       aria-label={`Select ${field.columnName} review field`} disabled={c.busy} onClick={() => c.selectField(field.id)}>
