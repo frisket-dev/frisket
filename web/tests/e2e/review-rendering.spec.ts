@@ -204,7 +204,7 @@ test('review renders timestamped NER source and a read-only entity list', async 
   const card = page.getByTestId('review-card');
   const source = card.getByTestId('review-citation-preview');
   const entities = card.getByTestId('review-field-entities');
-  await expect(source.getByTestId('review-citation-preview')).toBeVisible();
+  await expect(source).toBeVisible();
   await expect(source.locator('audio')).toBeVisible();
 
   // The reading surface preserves the server's two actual timestamp segments;
