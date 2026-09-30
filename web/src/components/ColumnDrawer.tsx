@@ -793,7 +793,7 @@ function AiColumnDetails({
   const error = loaded?.id === column.id ? loaded.error ?? null : null;
   const runs = info?.runs ?? [];
   const current = info?.latestRun ?? info?.currentRun ?? runs.find((r) => r.current) ?? runs[0];
-  const canBackfill = supportsColumnRunRecovery(current);
+  const canBackfill = current != null && supportsColumnRunRecovery(current);
   const prompt = current ? specPrompt(current.spec) : ai.prompt ?? '';
   const fields = current ? specFields(current.spec) : [];
   const targetLanguage = current?.spec.target_language;

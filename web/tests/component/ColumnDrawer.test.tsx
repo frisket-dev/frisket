@@ -66,6 +66,13 @@ function drawer() {
 }
 
 describe('ColumnDrawer map.find recovery controls', () => {
+  it('does not offer backfill while the current run is loading', () => {
+    projectApi.getColumnRuns.mockReturnValue(new Promise(() => {}));
+    drawer();
+
+    expect(screen.queryByTestId('backfill-column-button')).not.toBeInTheDocument();
+  });
+
   it('does not offer unsupported backfill or revision for grounded-find output', async () => {
     projectApi.getColumnRuns.mockResolvedValue(columnRuns({ ...genericRun, actionKind: 'map.find', actionName: 'Find grounded occurrences' }));
     drawer();
