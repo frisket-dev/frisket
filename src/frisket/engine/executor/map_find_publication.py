@@ -667,9 +667,7 @@ def write_find_result(
             commit=False,
         )
         for column_id in write.column_ids.values():
-            run_store.point_column_at_run(
-                write.op_id, column_id, run_id, commit=False
-            )
+            run_store.point_column_at_run(write.op_id, column_id, run_id, commit=False)
         receipt = Receipt(
             receipt_id=receipt_id,
             project_id=project_id,

@@ -71,9 +71,7 @@ def test_find_occurrences_publish_reviewable_grounded_result_heads(
             {"body": body_column_id},
         )[0]
 
-        def publish(
-            *, key: str, matches: list[dict[str, Any]]
-        ) -> tuple[Any, int]:
+        def publish(*, key: str, matches: list[dict[str, Any]]) -> tuple[Any, int]:
             action = ActionRequest.model_validate(
                 {
                     "action_id": "map.find",
@@ -199,7 +197,9 @@ def test_find_occurrences_publish_reviewable_grounded_result_heads(
         assert page["total"] == 2
         assert [bundle["row_id"] for bundle in page["bundles"]] == row_ids
         for bundle, row_id in zip(page["bundles"], row_ids, strict=True):
-            assert [(field["column_name"], field["value"]) for field in bundle["fields"]] == [
+            assert [
+                (field["column_name"], field["value"]) for field in bundle["fields"]
+            ] == [
                 (name, expected_values[name][row_ids.index(row_id)])
                 for name in ("Match", "Source", "Metadata")
             ]
@@ -221,10 +221,13 @@ def test_find_occurrences_publish_reviewable_grounded_result_heads(
                     project, cell_evidence["links"][0]["stable_id"]
                 )
                 assert viewer["link"]["role"] == "primary_support"
-                assert viewer["link"]["subject_ref"] == cell_evidence["current_value_ref"]
-                assert expected_values["Match"][row_ids.index(row_id)] in viewer[
-                    "artifacts"
-                ][0]["spans"][0]["quote"]
+                assert (
+                    viewer["link"]["subject_ref"] == cell_evidence["current_value_ref"]
+                )
+                assert (
+                    expected_values["Match"][row_ids.index(row_id)]
+                    in viewer["artifacts"][0]["spans"][0]["quote"]
+                )
 
         accepted = run_action_spec(
             project,
@@ -281,7 +284,10 @@ def test_find_occurrences_publish_reviewable_grounded_result_heads(
                 "SELECT review_completed_at FROM runs WHERE id=?", (run_id,)
             ).fetchone()[0],
         }
-        assert set_review_run_status(project, run_id=run_id, status="open")["status"] == "open"
+        assert (
+            set_review_run_status(project, run_id=run_id, status="open")["status"]
+            == "open"
+        )
 
         edited_evidence = list_cell_evidence(
             project,

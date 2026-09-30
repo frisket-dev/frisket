@@ -852,50 +852,54 @@ class RunResultStore:
         ids = sorted({str(call_id) for call_id in call_ids if str(call_id)})
         if not ids:
             return
-        authority = self.db.execute(
-            "SELECT run.status AS run_status, run.action_kind AS run_action_kind, "
-            "receipt.status AS receipt_status, receipt.params_hash, "
-            "receipt.action_kind AS receipt_action_kind, op.status AS op_status "
-            "FROM runs run JOIN ops op ON op.id=run.op_id "
-            "JOIN receipts receipt ON receipt.id=? "
-            "WHERE run.id=?",
-            (receipt_id, run_id),
-        ).fetchone()
-        if (
-            authority is None
-            or authority["run_status"] != "running"
-            or authority["receipt_status"] != "running"
-            or authority["op_status"] != "applied"
-            or authority["params_hash"] != params_hash
-            or authority["run_action_kind"] != action_kind
-            or authority["receipt_action_kind"] != action_kind
-        ):
-            raise RuntimeError(
-                "model-call attachment lost its running action authority: "
-                f"{dict(authority) if authority is not None else None}"
+        with self._atomic_fact_batch():
+            authority = self.db.execute(
+                "SELECT run.status AS run_status, run.action_kind AS run_action_kind, "
+                "receipt.status AS receipt_status, receipt.run_id AS receipt_run_id, "
+                "receipt.params_hash, "
+                "receipt.action_kind AS receipt_action_kind, op.status AS op_status "
+                "FROM runs run JOIN ops op ON op.id=run.op_id "
+                "JOIN receipts receipt ON receipt.id=? "
+                "WHERE run.id=?",
+                (receipt_id, run_id),
+            ).fetchone()
+            if (
+                authority is None
+                or authority["run_status"] != "running"
+                or authority["receipt_status"] != "running"
+                or authority["receipt_run_id"] != run_id
+                or authority["op_status"] != "applied"
+                or authority["params_hash"] != params_hash
+                or authority["run_action_kind"] != action_kind
+                or authority["receipt_action_kind"] != action_kind
+            ):
+                raise RuntimeError(
+                    "model-call attachment lost its running action authority"
+                )
+            placeholders = ",".join("?" for _ in ids)
+            rows = self.db.execute(
+                "SELECT id, run_id, attempt_id, epoch_id FROM model_calls "
+                f"WHERE id IN ({placeholders}) ORDER BY id",
+                ids,
+            ).fetchall()
+            if len(rows) != len(ids):
+                raise RuntimeError("cannot attach missing model-call facts to run")
+            if any(row["run_id"] not in (None, run_id) for row in rows):
+                raise RuntimeError("cannot move model-call facts between runs")
+            if any(
+                row["attempt_id"] is not None or row["epoch_id"] is not None
+                for row in rows
+            ):
+                raise RuntimeError(
+                    "cannot attach attempt- or route-owned model-call facts"
+                )
+            self.db.execute(
+                "UPDATE model_calls SET run_id=? "
+                f"WHERE id IN ({placeholders}) AND run_id IS NULL "
+                "AND attempt_id IS NULL AND epoch_id IS NULL",
+                (run_id, *ids),
             )
-        placeholders = ",".join("?" for _ in ids)
-        rows = self.db.execute(
-            "SELECT id, run_id, attempt_id, epoch_id FROM model_calls "
-            f"WHERE id IN ({placeholders}) ORDER BY id",
-            ids,
-        ).fetchall()
-        if len(rows) != len(ids):
-            raise RuntimeError("cannot attach missing model-call facts to run")
-        if any(row["run_id"] not in (None, run_id) for row in rows):
-            raise RuntimeError("cannot move model-call facts between runs")
-        if any(
-            row["attempt_id"] is not None or row["epoch_id"] is not None
-            for row in rows
-        ):
-            raise RuntimeError("cannot attach attempt- or route-owned model-call facts")
-        self.db.execute(
-            "UPDATE model_calls SET run_id=? "
-            f"WHERE id IN ({placeholders}) AND run_id IS NULL "
-            "AND attempt_id IS NULL AND epoch_id IS NULL",
-            (run_id, *ids),
-        )
-        self._project_cost_actual(run_id)
+            self._project_cost_actual(run_id)
         if commit:
             self.db.commit()
 
@@ -924,31 +928,28 @@ class RunResultStore:
             authority is None
             or authority["run_status"] != "running"
             or authority["receipt_status"] != "running"
-            or authority["receipt_run_id"] not in (None, run_id)
+            or authority["receipt_run_id"] != run_id
             or authority["op_status"] != "applied"
             or authority["params_hash"] != params_hash
             or authority["run_action_kind"] != action_kind
             or authority["receipt_action_kind"] != action_kind
         ):
-            raise RuntimeError("precomputed results lost their running action authority")
-        placeholders = ",".join("?" for _ in column_ids)
+            raise RuntimeError(
+                "precomputed results lost their running action authority"
+            )
         claims = self.db.execute(
             "SELECT column_id, sheet_id FROM output_column_claims "
             "WHERE claim_token=? AND run_id=? AND receipt_id=? AND action_kind=? "
-            "AND status='active' "
-            f"AND column_id IN ({placeholders})",
-            (claim_token, run_id, receipt_id, action_kind, *sorted(column_ids)),
+            "AND status='active'",
+            (claim_token, run_id, receipt_id, action_kind),
         ).fetchall()
         if {int(row["column_id"]) for row in claims} != column_ids:
             raise RuntimeError("precomputed results are outside their output claim")
         if any(
-            int(row["sheet_id"]) != int(authority["run_sheet_id"])
-            for row in claims
+            int(row["sheet_id"]) != int(authority["run_sheet_id"]) for row in claims
         ):
             raise RuntimeError("precomputed result claims target another sheet")
-        coordinates = [
-            (int(item["row_id"]), int(item["column_id"])) for item in batch
-        ]
+        coordinates = [(int(item["row_id"]), int(item["column_id"])) for item in batch]
         if len(set(coordinates)) != len(coordinates):
             raise RuntimeError("precomputed result coordinates must be unique")
         scoped_rows = {
@@ -958,9 +959,7 @@ class RunResultStore:
             ).fetchall()
         }
         expected = {
-            (row_id, column_id)
-            for row_id in scoped_rows
-            for column_id in column_ids
+            (row_id, column_id) for row_id in scoped_rows for column_id in column_ids
         }
         if set(coordinates) != expected:
             raise RuntimeError("precomputed results must cover the exact run scope")
