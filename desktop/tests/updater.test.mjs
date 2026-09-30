@@ -27,7 +27,7 @@ class FakeUpdater extends EventEmitter {
 }
 
 function createHarness(options = {}) {
-  const {
+  let {
     response = 1, requestInstall, preferences = {}, automaticChecks, automaticChecksWriteError,
   } = { automaticChecks: true, ...options };
   const updater = new FakeUpdater();

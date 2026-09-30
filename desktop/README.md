@@ -22,12 +22,17 @@ Python, Homebrew, Node, or terminal setup for an app user.
    installs its runtime. OCR is ready after setup. For Parakeet or Whisper,
    open its engine details and choose **Download** before transcribing.
 
-Frisket checks for updates shortly after opening and daily while it stays open.
+On first launch, Frisket asks whether to check for updates automatically. No
+automatic update request is made before you choose. **Check automatically** enables
+checks shortly after opening and daily while the app stays open; **Only when I ask**
+leaves them off. Change this later with **Help → Automatically Check for Updates**.
 When a new version is available, a dialog offers **Update now**, **Later**, or
 **Skip this version**. Update now downloads it and restarts after stopping local
 services. Later waits until the next launch or daily check; Skip this version
 remembers your choice across launches. **Help → Check for Updates** checks manually,
-including versions you skipped. Download progress appears in the Help menu.
+including when automatic checks are off or you skipped a version. Download progress
+appears in the Help menu. This preference controls the updater, not other online
+features such as hosted AI models.
 Versions through 0.1.1a77 need one manual upgrade to gain automatic updates: quit
 Frisket Desktop, install the new DMG or EXE, then reopen it.
 Your workspace and caches survive replacement; a dependency change may require another
