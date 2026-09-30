@@ -42,14 +42,14 @@ from frisket.engine.store.cells import (
 )
 from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
 from frisket.engine.store.evidence import mark_evidence_stale_for_cell_refs
-from frisket.review_predicate import is_support_column
+from frisket.review_predicate import is_support_column, visible_result_where
 
 
 def _visible_current_review_target(
     project: Any, *, run_id: int, row_id: int, column_id: int, action_kind: str
 ) -> dict[str, Any]:
     row = project.db.execute(
-        """
+        f"""
         SELECT res.run_id, res.row_id, res.column_id, res.value,
                res.confidence, res.justification, res.error, res.review_state,
                res.review_decision, res.review_note, runs.review_completed_at,
@@ -61,7 +61,8 @@ def _visible_current_review_target(
           ON active_head.column_id=res.column_id
           AND active_head.row_id=res.row_id AND active_head.run_id=res.run_id
         JOIN rows ON rows.id=res.row_id AND rows.sheet_id=c.sheet_id
-        WHERE res.run_id=? AND res.row_id=? AND res.column_id=? AND rows.hidden=0
+        WHERE res.run_id=? AND res.row_id=? AND res.column_id=?
+          AND {visible_result_where("rows", "c")}
           AND (active_head.run_id IS NOT NULL OR (
             c.current_run_id=res.run_id AND NOT EXISTS (
               SELECT 1 FROM run_output_generations generation
@@ -111,17 +112,19 @@ def _visible_current_review_row_targets(
             field="params.run_id",
         )
     rows = project.db.execute(
-        """
+        f"""
         SELECT res.run_id, res.row_id, res.column_id, res.review_state,
                res.review_decision, res.review_note, c.sheet_id,
-               c.name AS column_name
+               c.name AS column_name, runs.action_kind
         FROM results res
+        JOIN runs ON runs.id=res.run_id
         JOIN columns c ON c.id=res.column_id
         LEFT JOIN cell_result_heads active_head
           ON active_head.column_id=res.column_id
           AND active_head.row_id=res.row_id AND active_head.run_id=res.run_id
         JOIN rows ON rows.id=res.row_id AND rows.sheet_id=c.sheet_id
-        WHERE res.run_id=? AND res.row_id=? AND rows.hidden=0
+        WHERE res.run_id=? AND res.row_id=?
+          AND {visible_result_where("rows", "c")}
           AND (active_head.run_id IS NOT NULL OR (
             c.current_run_id=res.run_id AND NOT EXISTS (
               SELECT 1 FROM run_output_generations generation
@@ -132,7 +135,13 @@ def _visible_current_review_row_targets(
         """,
         (run_id, row_id),
     ).fetchall()
-    targets = [dict(row) for row in rows if not is_support_column(row["column_name"])]
+    targets = [
+        dict(row)
+        for row in rows
+        if not is_support_column(
+            row["column_name"], action_kind=str(row["action_kind"])
+        )
+    ]
     if not targets:
         _refuse(
             "review_target_not_found",

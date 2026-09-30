@@ -114,6 +114,16 @@ PROJECT_RUN_KERNEL_ENTRIES: dict[SiteKey, Declaration] = {
         "state through the shared kernel.",
     ),
     (
+        "src/frisket/engine/executor/map_find_publication.py",
+        "write_find_result",
+        "terminalize_project_run",
+    ): (
+        1,
+        "Grounded findings publish precomputed results under their running receipt "
+        "and exact output claims, then close the run and receipt through the kernel "
+        "in the same transaction without inventing a post-effect attempt.",
+    ),
+    (
         "src/frisket/engine/executor/queued_actions.py",
         "queued_v1_terminal_receipt_transition",
         "terminalize_project_run",

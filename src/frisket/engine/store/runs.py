@@ -764,6 +764,206 @@ class RunResultStore:
         if commit:
             self.db.commit()
 
+    def write_precomputed_results(
+        self,
+        run_id: int,
+        batch: list[dict[str, Any]],
+        *,
+        receipt_id: str,
+        action_kind: str,
+        params_hash: str,
+        claim_token: str,
+        commit: bool = True,
+    ) -> None:
+        """Publish receipt-owned action outputs through the result substrate.
+
+        Some whole-action executors account for provider calls before an output
+        row exists.  Their terminal transaction still needs ordinary results,
+        generation heads, counters, and Review state, but it must not invent a
+        row-effect attempt or book the provider calls a second time.  The caller
+        owns the output claim and transaction; provider accounting remains in
+        the neutral ledger and can be attached to this run separately.
+        """
+        if not batch:
+            return
+        started_transaction = not self.db.in_transaction
+        if started_transaction:
+            self.db.execute("BEGIN IMMEDIATE")
+        savepoint = f"write_precomputed_results_{uuid.uuid4().hex}"
+        self.db.execute(f"SAVEPOINT {savepoint}")
+        try:
+            from frisket.engine.store.result_generations import ResultGenerationStore
+
+            generations = ResultGenerationStore(self.project)
+            column_ids = {int(item["column_id"]) for item in batch}
+            self._require_precomputed_result_authority(
+                run_id=run_id,
+                receipt_id=receipt_id,
+                action_kind=action_kind,
+                params_hash=params_hash,
+                claim_token=claim_token,
+                column_ids=column_ids,
+                batch=batch,
+            )
+            generations.require_effect_batch_publishable(run_id, batch)
+            for column_id in column_ids:
+                generations._require_active_claim(
+                    run_id=run_id,
+                    column_id=column_id,
+                    claim_token=claim_token,
+                )
+            rows_in_batch, before_states = self._insert_result_values_uncommitted(
+                run_id, batch
+            )
+            self._finalize_result_values_uncommitted(
+                run_id,
+                batch,
+                rows_in_batch=rows_in_batch,
+                before_states=before_states,
+                claim_token=claim_token,
+                project_heads=True,
+            )
+        except BaseException:
+            self.db.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+            self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
+            if started_transaction:
+                self.db.rollback()
+            raise
+        self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
+        if commit:
+            self.db.commit()
+
+    def attach_unscoped_model_calls(
+        self,
+        run_id: int,
+        call_ids: list[str],
+        *,
+        receipt_id: str,
+        action_kind: str,
+        params_hash: str,
+        commit: bool = True,
+    ) -> None:
+        """Associate already-accounted neutral facts with a materialized run.
+
+        This changes provenance only.  It neither inserts facts nor accrues
+        spend, so a whole-action executor can keep its established accounting
+        path while making the final run's cost and model-call history complete.
+        """
+        ids = sorted({str(call_id) for call_id in call_ids if str(call_id)})
+        if not ids:
+            return
+        with self._atomic_fact_batch():
+            authority = self.db.execute(
+                "SELECT run.status AS run_status, run.action_kind AS run_action_kind, "
+                "receipt.status AS receipt_status, receipt.run_id AS receipt_run_id, "
+                "receipt.params_hash, "
+                "receipt.action_kind AS receipt_action_kind, op.status AS op_status "
+                "FROM runs run JOIN ops op ON op.id=run.op_id "
+                "JOIN receipts receipt ON receipt.id=? "
+                "WHERE run.id=?",
+                (receipt_id, run_id),
+            ).fetchone()
+            if (
+                authority is None
+                or authority["run_status"] != "running"
+                or authority["receipt_status"] != "running"
+                or authority["receipt_run_id"] != run_id
+                or authority["op_status"] != "applied"
+                or authority["params_hash"] != params_hash
+                or authority["run_action_kind"] != action_kind
+                or authority["receipt_action_kind"] != action_kind
+            ):
+                raise RuntimeError(
+                    "model-call attachment lost its running action authority"
+                )
+            placeholders = ",".join("?" for _ in ids)
+            rows = self.db.execute(
+                "SELECT id, run_id, attempt_id, epoch_id FROM model_calls "
+                f"WHERE id IN ({placeholders}) ORDER BY id",
+                ids,
+            ).fetchall()
+            if len(rows) != len(ids):
+                raise RuntimeError("cannot attach missing model-call facts to run")
+            if any(row["run_id"] not in (None, run_id) for row in rows):
+                raise RuntimeError("cannot move model-call facts between runs")
+            if any(
+                row["attempt_id"] is not None or row["epoch_id"] is not None
+                for row in rows
+            ):
+                raise RuntimeError(
+                    "cannot attach attempt- or route-owned model-call facts"
+                )
+            self.db.execute(
+                "UPDATE model_calls SET run_id=? "
+                f"WHERE id IN ({placeholders}) AND run_id IS NULL "
+                "AND attempt_id IS NULL AND epoch_id IS NULL",
+                (run_id, *ids),
+            )
+            self._project_cost_actual(run_id)
+        if commit:
+            self.db.commit()
+
+    def _require_precomputed_result_authority(
+        self,
+        *,
+        run_id: int,
+        receipt_id: str,
+        action_kind: str,
+        params_hash: str,
+        claim_token: str,
+        column_ids: set[int],
+        batch: list[dict[str, Any]],
+    ) -> None:
+        authority = self.db.execute(
+            "SELECT run.status AS run_status, run.action_kind AS run_action_kind, "
+            "run.sheet_id AS run_sheet_id, op.status AS op_status, "
+            "receipt.status AS receipt_status, receipt.run_id AS receipt_run_id, "
+            "receipt.action_kind AS receipt_action_kind, receipt.params_hash "
+            "FROM runs run JOIN ops op ON op.id=run.op_id "
+            "JOIN receipts receipt ON receipt.id=? "
+            "WHERE run.id=?",
+            (receipt_id, run_id),
+        ).fetchone()
+        if (
+            authority is None
+            or authority["run_status"] != "running"
+            or authority["receipt_status"] != "running"
+            or authority["receipt_run_id"] != run_id
+            or authority["op_status"] != "applied"
+            or authority["params_hash"] != params_hash
+            or authority["run_action_kind"] != action_kind
+            or authority["receipt_action_kind"] != action_kind
+        ):
+            raise RuntimeError(
+                "precomputed results lost their running action authority"
+            )
+        claims = self.db.execute(
+            "SELECT column_id, sheet_id FROM output_column_claims "
+            "WHERE claim_token=? AND run_id=? AND receipt_id=? AND action_kind=? "
+            "AND status='active'",
+            (claim_token, run_id, receipt_id, action_kind),
+        ).fetchall()
+        if {int(row["column_id"]) for row in claims} != column_ids:
+            raise RuntimeError("precomputed results are outside their output claim")
+        if any(
+            int(row["sheet_id"]) != int(authority["run_sheet_id"]) for row in claims
+        ):
+            raise RuntimeError("precomputed result claims target another sheet")
+        coordinates = [(int(item["row_id"]), int(item["column_id"])) for item in batch]
+        if len(set(coordinates)) != len(coordinates):
+            raise RuntimeError("precomputed result coordinates must be unique")
+        scoped_rows = {
+            int(row["row_id"])
+            for row in self.db.execute(
+                "SELECT row_id FROM run_rows WHERE run_id=?", (run_id,)
+            ).fetchall()
+        }
+        expected = {
+            (row_id, column_id) for row_id in scoped_rows for column_id in column_ids
+        }
+        if set(coordinates) != expected:
+            raise RuntimeError("precomputed results must cover the exact run scope")
+
     def _write_results_uncommitted(
         self,
         run_id: int,
@@ -794,7 +994,32 @@ class RunResultStore:
             batch,
             authorized_attempt_id=fact_owner_attempt_id,
         )
-        rows_in_batch = {int(r["row_id"]) for r in batch}
+        rows_in_batch, before_states = self._insert_result_values_uncommitted(
+            run_id, batch
+        )
+        self.write_model_calls(
+            run_id,
+            batch,
+            writer_attempt_id=writer_attempt_id,
+            claim_token=claim_token,
+            claimless_direct_effect=claimless_direct_effect,
+            authorized_attempt_id=fact_owner_attempt_id,
+            _renew_claim=False,
+        )
+        self._write_attempt_row_outcomes(fact_attempt_id, terminal_outcomes)
+        self._finalize_result_values_uncommitted(
+            run_id,
+            batch,
+            rows_in_batch=rows_in_batch,
+            before_states=before_states,
+            claim_token=claim_token,
+            project_heads=project_heads,
+        )
+
+    def _insert_result_values_uncommitted(
+        self, run_id: int, batch: list[dict[str, Any]]
+    ) -> tuple[set[int], dict[int, bool]]:
+        rows_in_batch = {int(item["row_id"]) for item in batch}
         before_states = self.result_row_failure_states(run_id, rows_in_batch)
         self.db.executemany(
             "INSERT INTO results (run_id, row_id, column_id, value, tokens_in, "
@@ -825,16 +1050,20 @@ class RunResultStore:
                 for r in batch
             ],
         )
-        self.write_model_calls(
-            run_id,
-            batch,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
-            claimless_direct_effect=claimless_direct_effect,
-            authorized_attempt_id=fact_owner_attempt_id,
-            _renew_claim=False,
-        )
-        self._write_attempt_row_outcomes(fact_attempt_id, terminal_outcomes)
+        return rows_in_batch, before_states
+
+    def _finalize_result_values_uncommitted(
+        self,
+        run_id: int,
+        batch: list[dict[str, Any]],
+        *,
+        rows_in_batch: set[int],
+        before_states: dict[int, bool],
+        claim_token: str | None,
+        project_heads: bool,
+    ) -> None:
+        from frisket.engine.store.result_generations import ResultGenerationStore
+
         after_states = self.result_row_failure_states(run_id, rows_in_batch)
         new_rows = set(after_states) - set(before_states)
         completed_delta = len(new_rows)

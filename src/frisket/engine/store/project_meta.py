@@ -15,7 +15,11 @@ from typing import Any
 
 from filelock import FileLock
 
-from frisket.review_predicate import primary_params, primary_where
+from frisket.review_predicate import (
+    primary_params,
+    primary_where,
+    visible_result_where,
+)
 
 from .runs import REVIEWABLE_OUTCOMES_SQL
 from .schema import FORMAT_VERSION
@@ -223,8 +227,9 @@ def refresh_pending_review_summary(project: Any) -> int:
             JOIN rows rr ON rr.id = res.row_id AND rr.sheet_id = c.sheet_id
             WHERE res.review_state = 'unreviewed'
               AND res.outcome IN ({REVIEWABLE_OUTCOMES_SQL})
-              AND rr.hidden = 0 AND {_ACTIVE_REVIEW_RESULT_WHERE}
-              AND {primary_where("c")}
+              AND {visible_result_where("rr", "c")}
+              AND {_ACTIVE_REVIEW_RESULT_WHERE}
+              AND {primary_where("c", run_alias="runs")}
             GROUP BY res.run_id, res.row_id, c.sheet_id
         ) pending_bundles
         """,
