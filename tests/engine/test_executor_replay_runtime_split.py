@@ -64,6 +64,7 @@ EXPECTED_OUTPUT_REF_KINDS = {
     "manual_edit_batch",
     "edit_overlay",
     "review_decision",
+    "review_note",
     "replay_accept",
     "replay_accept_column",
     "replay_dismiss",
