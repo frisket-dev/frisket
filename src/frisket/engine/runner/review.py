@@ -46,15 +46,28 @@ def _loads(value: str | None) -> Any:
         return value
 
 
+def _source_contexts(
+    project: Project, keys: list[tuple[int, int]]
+) -> dict[tuple[int, int], dict[str, Any]]:
+    contexts = {key: {} for key in keys}
+    rows_by_sheet: dict[int, set[int]] = {}
+    for sheet_id, row_id in keys:
+        rows_by_sheet.setdefault(sheet_id, set()).add(row_id)
+    for sheet_id, row_ids in rows_by_sheet.items():
+        ordered_row_ids = sorted(row_ids)
+        for column in project.columns(sheet_id):
+            if column["ai_generated"]:
+                continue
+            values = project.get_values(sheet_id, column["id"], row_ids=ordered_row_ids)
+            for row_id in ordered_row_ids:
+                value = values.get(row_id)
+                if value is not None:
+                    contexts[(sheet_id, row_id)][column["name"]] = value
+    return contexts
+
+
 def _source_context(project: Project, sheet_id: int, row_id: int) -> dict[str, Any]:
-    source = {}
-    for c in project.columns(sheet_id):
-        if not c["ai_generated"]:
-            vals = project.get_values(sheet_id, c["id"], row_ids=[row_id])
-            v = vals.get(row_id)
-            if v is not None:
-                source[c["name"]] = v
-    return source
+    return _source_contexts(project, [(sheet_id, row_id)])[(sheet_id, row_id)]
 
 
 def review_queue(
@@ -185,6 +198,10 @@ def review_bundles(
         (*order_params, *params, *primary_params, limit, offset),
     ).fetchall()
 
+    source_contexts = _source_contexts(
+        project,
+        [(int(key["sheet_id"]), int(key["row_id"])) for key in keys],
+    )
     bundles: list[dict[str, Any]] = []
     for key in keys:
         cells = project.db.execute(
@@ -243,7 +260,7 @@ def review_bundles(
                 "action_kind": key["action_kind"],
                 "model": key["model"],
                 "confidence": key["confidence"],
-                "source": _source_context(project, key["sheet_id"], key["row_id"]),
+                "source": source_contexts[(key["sheet_id"], key["row_id"])],
                 "review_note": next(
                     (
                         field["review_note"]
