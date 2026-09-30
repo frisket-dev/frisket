@@ -494,6 +494,12 @@ def test_clear_decision_preserves_review_note_and_visible_edit_overlay(
             "Keep this row note.",
         )
         assert _live_risk(project, seeded, row_id) == "manual-medium"
+        page = review_bundle_page(
+            project, run_id=seeded["run_id"], include_reviewed=True
+        )
+        corrected = next(item for item in page["bundles"] if item["row_id"] == row_id)
+        assert corrected["fields"][0]["value"] == "manual-medium"
+        assert corrected["fields"][0]["changed"] is True
         assert queue_count(project, run_id=seeded["run_id"]) == 2
         [run] = review_runs_page(project, run_id=seeded["run_id"])["runs"]
         assert run["total"]["reviewed_count"] == 0
@@ -531,6 +537,32 @@ def test_clear_reject_clear_keeps_the_null_overlay(
         assert cleared.status == "completed", cleared.errors
         assert _review_metadata(project, seeded, row_id) == (None, "Unsafe value.")
         assert _live_risk(project, seeded, row_id) is None
+        page = review_bundle_page(
+            project, run_id=seeded["run_id"], include_reviewed=True
+        )
+        cleared_field = next(
+            item for item in page["bundles"] if item["row_id"] == row_id
+        )["fields"][0]
+        assert cleared_field["value"] is None
+        assert cleared_field["changed"] is True
+
+        project.apply_edits(
+            [
+                {
+                    "row_id": row_id,
+                    "column_id": seeded["risk_column_id"],
+                    "value": "later manual edit",
+                }
+            ]
+        )
+        unrelated_page = review_bundle_page(
+            project, run_id=seeded["run_id"], include_reviewed=True
+        )
+        unrelated_field = next(
+            item for item in unrelated_page["bundles"] if item["row_id"] == row_id
+        )["fields"][0]
+        assert unrelated_field["value"] == "high"
+        assert unrelated_field["changed"] is False
 
 
 def test_decision_omitted_note_preserves_row_note_and_explicit_null_clears_it(

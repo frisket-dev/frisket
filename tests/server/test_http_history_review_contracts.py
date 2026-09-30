@@ -288,6 +288,7 @@ def test_history_review_contracts_preserve_bytes_omissions_and_open_json() -> No
     assert [item["column_id"] for item in bundle["items"]] == [4, 5]
     assert bundle["review_note"] is None
     assert bundle["fields"][0]["review_note"] is None
+    assert bundle["fields"][0]["changed"] is False
     assert client.get("/api/projects/p/review/count").json() == {"count": 2}
 
 

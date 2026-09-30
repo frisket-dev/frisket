@@ -33,6 +33,16 @@ _ELIGIBLE_PRIMARY_WHERE = (
     f"res.outcome IN ({REVIEWABLE_OUTCOMES_SQL}) "
     f"AND rr.hidden = 0 AND {_ACTIVE_RESULT_WHERE}"
 )
+_EXACT_REVIEW_CORRECTION = """
+    visible_cell.origin_kind = 'manual_edit'
+    AND visible_op.status = 'applied'
+    AND visible_op.kind = 'review.decision'
+    AND json_extract(visible_op.spec, '$.action_id') = 'review.decision'
+    AND json_extract(visible_op.spec, '$.params.run_id') = res.run_id
+    AND json_extract(visible_op.spec, '$.params.row_id') = res.row_id
+    AND json_extract(visible_op.spec, '$.params.column_id') = res.column_id
+    AND json_extract(visible_op.spec, '$.params.decision') IN ('edit', 'reject_clear')
+"""
 
 
 def _loads(value: str | None) -> Any:
@@ -206,7 +216,10 @@ def review_bundles(
     for key in keys:
         cells = project.db.execute(
             f"""
-            SELECT res.run_id, res.row_id, res.column_id, res.value,
+            SELECT res.run_id, res.row_id, res.column_id,
+                   CASE WHEN {_EXACT_REVIEW_CORRECTION}
+                        THEN visible_cell.value ELSE res.value END AS value,
+                   CASE WHEN {_EXACT_REVIEW_CORRECTION} THEN 1 ELSE 0 END AS changed,
                    res.confidence, res.justification, res.error,
                    res.review_state, res.review_decision, res.review_note,
                    c.name AS column_name, c.type AS column_type,
@@ -214,6 +227,10 @@ def review_bundles(
             FROM results res
             JOIN columns c ON c.id = res.column_id
             {_ACTIVE_HEAD_JOIN}
+            LEFT JOIN current_cells visible_cell
+              ON visible_cell.column_id=res.column_id
+              AND visible_cell.row_id=res.row_id
+            LEFT JOIN ops visible_op ON visible_op.id=visible_cell.origin_op_id
             JOIN rows rr ON rr.id = res.row_id AND rr.sheet_id = c.sheet_id
             WHERE res.run_id=? AND res.row_id=? AND c.sheet_id=? AND rr.hidden=0
               AND {_ACTIVE_RESULT_WHERE}
@@ -241,6 +258,7 @@ def review_bundles(
                 "review_decision": cell["review_decision"],
                 "review_note": cell["review_note"],
                 "role": role,
+                "changed": bool(cell["changed"]),
                 "chore": role == "field"
                 and cell["review_state"] == "unreviewed"
                 and cell["error"] is None,

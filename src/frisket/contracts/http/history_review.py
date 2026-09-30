@@ -181,6 +181,7 @@ class ReviewBundleItem(WireModel):
     review_note: str | None
     role: Literal["field", "evidence"]
     chore: bool
+    changed: bool = False
 
 
 class ReviewBundle(WireModel):
