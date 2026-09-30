@@ -75,6 +75,9 @@ describe('ArtifactSource media coverage', () => {
     fireEvent.click(screen.getAllByTestId('evidence-temporal-segment')[1]);
     expect(media.currentTime).toBe(4);
     expect(play).toHaveBeenCalled();
+    media.currentTime = 6;
+    fireEvent.click(screen.getAllByTestId('evidence-temporal-segment')[1]);
+    expect(media.currentTime).toBe(4);
     expect(screen.getAllByTitle('Download this clip')).toHaveLength(2);
     play.mockRestore();
   });

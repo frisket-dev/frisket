@@ -1489,9 +1489,11 @@ function StructuredJsonValue({
   depth = 0,
   onSelectItem,
   selectableItemIndices,
+  disableBlobThumbnails = false,
 }: {
   value: unknown;
   depth?: number;
+  disableBlobThumbnails?: boolean;
   onSelectItem?: (index: number) => void;
   selectableItemIndices?: ReadonlySet<number>;
 }) {
@@ -1502,20 +1504,23 @@ function StructuredJsonValue({
         {keyedJsonItems(value).map(({ item, key }, index) => (
           <li key={key} data-testid={depth === 0 ? 'review-result-item' : undefined}
             {...(depth === 0 ? resultItemProps(index, onSelectItem, selectableItemIndices) : {})}>
-            <StructuredJsonValue value={item} depth={depth + 1} />
+            <StructuredJsonValue value={item} depth={depth + 1} disableBlobThumbnails={disableBlobThumbnails} />
           </li>
         ))}
       </ul>
     );
   }
   if (value !== null && typeof value === 'object') {
+    if (!disableBlobThumbnails && imageBlobEnvelope(value)) {
+      return <JsonMiniTable items={[value as Record<string, unknown>]} />;
+    }
     const entries = Object.entries(value as Record<string, unknown>);
     if (entries.length === 0) return <span className="row-field-empty">(empty object)</span>;
     return (
       <dl className={`json-object ${structuredStyles.object}`} data-testid={depth === 0 ? 'json-object' : undefined}>
         {entries.map(([key, item]) => <div key={key} className={structuredStyles.objectEntry}>
           <dt className={structuredStyles.term}>{key}</dt>
-          <dd className={structuredStyles.description}><StructuredJsonValue value={item} depth={depth + 1} /></dd>
+          <dd className={structuredStyles.description}><StructuredJsonValue value={item} depth={depth + 1} disableBlobThumbnails={disableBlobThumbnails} /></dd>
         </div>)}
       </dl>
     );
@@ -1609,16 +1614,17 @@ function JsonValue({
           />
         );
       }
-      if (items.every(isFlatRecord) && new Set(items.flatMap(Object.keys)).size <= 6) {
+      if ((!isEmailAttachments && items.every((item) => imageBlobEnvelope(item) !== null))
+        || (items.every(isFlatRecord) && new Set(items.flatMap(Object.keys)).size <= 6)) {
         return <JsonMiniTable items={items} maxKeys={6} disableBlobThumbnails={isEmailAttachments}
           onSelectItem={onSelectItem} selectableItemIndices={selectableItemIndices} />;
       }
     }
-    return <StructuredJsonValue value={parsed} onSelectItem={onSelectItem}
+    return <StructuredJsonValue value={parsed} disableBlobThumbnails={isEmailAttachments} onSelectItem={onSelectItem}
       selectableItemIndices={selectableItemIndices} />;
   }
 
-  return <StructuredJsonValue value={parsed} onSelectItem={onSelectItem}
+  return <StructuredJsonValue value={parsed} disableBlobThumbnails={isEmailAttachments} onSelectItem={onSelectItem}
     selectableItemIndices={selectableItemIndices} />;
 }
 

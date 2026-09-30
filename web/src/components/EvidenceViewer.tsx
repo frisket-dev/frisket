@@ -517,9 +517,10 @@ function MediaOrFallback({ artifact, emphasizedSpanIds }: { artifact: EvidenceAr
     if (firstCitedId) citedRef.current?.scrollIntoView({ block: 'nearest' });
   }, [firstCitedId]);
 
-  const [seekSeconds, setSeekSeconds] = useState<number | null>(() =>
-    temporalSpans.length === 0 ? null : (selectorNumber(temporalSpans[0], 'start_ms') ?? 0) / 1000,
+  const [seekRequest, setSeekRequest] = useState<{ seconds: number } | null>(() =>
+    temporalSpans.length === 0 ? null : { seconds: (selectorNumber(temporalSpans[0], 'start_ms') ?? 0) / 1000 },
   );
+  const seekSeconds = seekRequest?.seconds ?? null;
   const [playbackMs, setPlaybackMs] = useState(0);
   const [activeSpanId, setActiveSpanId] = useState<string | null>(() =>
     temporalSpans.length === 0 ? null : temporalSpans[0].stable_id,
@@ -542,7 +543,7 @@ function MediaOrFallback({ artifact, emphasizedSpanIds }: { artifact: EvidenceAr
     }
     el.addEventListener('loadedmetadata', apply, { once: true });
     return () => el.removeEventListener('loadedmetadata', apply);
-  }, [seekSeconds]);
+  }, [seekRequest, seekSeconds]);
 
   const setMediaRef = (el: HTMLMediaElement | null) => {
     mediaRef.current = el;
@@ -550,7 +551,7 @@ function MediaOrFallback({ artifact, emphasizedSpanIds }: { artifact: EvidenceAr
 
   // Seek after media readiness and remounts.
   const seekAndPlay = (ms: number, spanId: string | null) => {
-    setSeekSeconds(ms / 1000);
+    setSeekRequest({ seconds: ms / 1000 });
     setPlaybackMs(ms);
     if (spanId) setActiveSpanId(spanId);
     mediaRef.current?.play().catch(() => {

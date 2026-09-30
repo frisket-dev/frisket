@@ -88,6 +88,16 @@ describe('ReviewValue', () => {
     expect(select).toHaveBeenCalledWith(1);
   });
 
+  it('renders frame images and face crops without hiding face coordinates', () => {
+    const image = { blob: 'a'.repeat(64), mime: 'image/png', filename: 'crop.png' };
+    const { rerender } = render(<ReviewValue field={field({ value: JSON.stringify([{ t: 2, image }]) })} />);
+    expect(screen.getByTestId('json-blob-thumb')).toHaveAttribute('src', expect.stringContaining(image.blob));
+    rerender(<ReviewValue field={field({ value: JSON.stringify([{ x: 12, y: 18, w: 40, h: 28, face: image }]) })} />);
+    expect(screen.getByTestId('json-blob-thumb')).toHaveAttribute('src', expect.stringContaining(image.blob));
+    expect(screen.getByText('12')).toBeInTheDocument();
+    expect(screen.getByText('40')).toBeInTheDocument();
+  });
+
   it('keeps semantic media on the shared media renderer', () => {
     render(<ReviewValue field={field({
       columnName: 'frame', columnType: 'image', value: 'https://example.test/frame.jpg',

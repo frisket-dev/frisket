@@ -11,12 +11,10 @@ export interface ReviewSessionOptions {
   onChanged(remaining: number): void;
 }
 
-type ReviewDisplayField = ReviewBundleField & { format?: string | null };
-
 /** Corrections are text edits. Structured and typed values keep their shape. */
 export function isPlainTextReviewField(field: ReviewBundleField | null | undefined): boolean {
   if (!field || field.columnType !== 'text' || (field.value !== null && typeof field.value !== 'string')) return false;
-  const format = (field as ReviewDisplayField).format;
+  const format = field.format;
   if (format && format !== 'plain_text') return false;
   if (format === 'plain_text' || typeof field.value !== 'string') return true;
   const trimmed = field.value.trim();

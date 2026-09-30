@@ -86,6 +86,9 @@ export function ReviewSourcePreview({
   useEffect(() => {
     const activeFieldId = activeField?.id;
     if (!activeSource || !activeFieldId) return;
+    // A new item can switch source tabs. Never seek the old recording while
+    // that tab transition is pending, or an unrelated tab chosen by the user.
+    if (selectedItem && focusedSpanIds.length === 0) return;
     const viewer = viewerRef.current;
     if (!viewer) return;
     const page = selectedPage(activeSource, activeFieldId, focusedSpanIds);
