@@ -5,6 +5,8 @@ const TRANSCRIPT = 'Cedar Bridge submitted the revised plan. Cedar Bridge will a
 const FIRST_MENTION_START = TRANSCRIPT.indexOf('Cedar Bridge');
 const SECOND_MENTION_START = TRANSCRIPT.indexOf('Cedar Bridge', FIRST_MENTION_START + 1);
 const MENTION_LENGTH = 'Cedar Bridge'.length;
+const NER_LINK_ID = 'evidence-link:ner-transcript';
+const AUDIO_LINK_ID = 'evidence-link:source-audio';
 
 function reviewBundle(sheetId: number) {
   return {
@@ -54,8 +56,8 @@ function nerTextPayload(sheetId: number) {
     schema_version: 'frisket.evidence_viewer.v1',
     link: {
       id: 91,
-      stable_id: 'evidence-link:ner-transcript',
-      export_ref: 'evidence-link:ner-transcript',
+      stable_id: NER_LINK_ID,
+      export_ref: NER_LINK_ID,
       subject_kind: 'cell_value',
       subject_ref: { kind: 'run_result', run_id: 901 },
       sheet_id: sheetId,
@@ -99,7 +101,7 @@ function nerTextPayload(sheetId: number) {
         ],
         transcript: {
           schema_version: 'frisket.timestamped_text_context.v1',
-          evidence_link_stable_id: 'evidence-link:source-audio',
+          evidence_link_stable_id: AUDIO_LINK_ID,
           artifact_stable_id: 'source-artifact:source-audio',
           offset_unit: 'utf16_code_unit',
           segments: [
@@ -137,7 +139,7 @@ function sourceAudioPayload(sheetId: number) {
   const payload = nerTextPayload(sheetId);
   return {
     ...payload,
-    link: { ...payload.link, stable_id: 'evidence-link:source-audio', role: 'source_provenance' },
+    link: { ...payload.link, stable_id: AUDIO_LINK_ID, role: 'source_provenance' },
     artifacts: [{
       ...payload.artifacts[0],
       stable_id: 'source-artifact:source-audio', artifact_kind: 'av', media_type: 'audio/wav',
@@ -180,13 +182,13 @@ async function wireReviewRendering(page: Page, pid: string, sheetId: number) {
   await page.route(`**/api/projects/${pid}/cells/1/2/evidence`, (route) => route.fulfill({ json: {
     schema_version: 'frisket.cell_evidence.v1', sheet_id: sheetId, row_id: 1, column_id: 2,
     current_value_ref: { kind: 'run_result', run_id: 901 }, stale_count: 0,
-    links: [{ id: 91, stable_id: 'evidence-link:ner-transcript', export_ref: 'evidence-link:ner-transcript',
+    links: [{ id: 91, stable_id: NER_LINK_ID, export_ref: NER_LINK_ID,
       status: 'active', role: 'primary_support', evidence_kind: 'audio', span_count: 2, artifact_count: 1,
-      snippet: 'Cedar Bridge', viewer_href: '/evidence/evidence-link:ner-transcript' }],
+      snippet: 'Cedar Bridge', viewer_href: `/evidence/${NER_LINK_ID}` }],
   } }));
-  await page.route(`**/api/projects/${pid}/evidence/links/evidence-link:ner-transcript/viewer`, (route) =>
+  await page.route(`**/api/projects/${pid}/evidence/links/${encodeURIComponent(NER_LINK_ID)}/viewer`, (route) =>
     route.fulfill({ json: nerTextPayload(sheetId) }));
-  await page.route(`**/api/projects/${pid}/evidence/links/evidence-link:source-audio/viewer`, (route) =>
+  await page.route(`**/api/projects/${pid}/evidence/links/${encodeURIComponent(AUDIO_LINK_ID)}/viewer`, (route) =>
     route.fulfill({ json: sourceAudioPayload(sheetId) }));
 }
 
