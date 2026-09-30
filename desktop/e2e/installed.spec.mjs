@@ -8,7 +8,7 @@ import {
 const appPath = process.env.FRISKET_DESKTOP_APP;
 const profile = process.env.FRISKET_DESKTOP_PROFILE;
 
-async function launch(testInfo) {
+async function launch(testInfo, automaticChoice = 'Only when I ask') {
   const electron = await _electron.launch({
     executablePath: installedExecutable(appPath),
     args: [`--user-data-dir=${profile}`],
@@ -20,16 +20,28 @@ async function launch(testInfo) {
   electron.process().stderr.on('data', (chunk) => {
     stderr = `${stderr}${chunk}`.slice(-16_384);
   });
-  // A native error dialog must fail CI rather than wait for a human to click Quit.
-  await electron.evaluate(({ dialog }) => {
+  // Install this before asking for the first window, and therefore before the
+  // backend can become ready. The update preference is a native first-run
+  // decision, so a packaged harness must choose it rather than wait for CI.
+  await electron.evaluate(({ dialog }, choice) => {
+    const proof = globalThis.__frisketInstalledUpdatePreferenceProof = {
+      prompts: [], manualChecks: 0,
+    };
     const showMessageBox = dialog.showMessageBox.bind(dialog);
     dialog.showMessageBox = async (...args) => {
       const options = args.at(-1);
-      if (options.type !== 'error') return showMessageBox(...args);
-      process.stderr.write(`Desktop startup error: ${options.message} ${options.detail}\n`);
-      return { response: options.buttons.indexOf('Quit'), checkboxChecked: false };
+      if (options.message === 'Check for updates automatically?') {
+        proof.prompts.push({ message: options.message, buttons: options.buttons, choice });
+        return { response: options.buttons.indexOf(choice), checkboxChecked: false };
+      }
+      if (options.type === 'error') {
+        process.stderr.write(`Desktop startup error: ${options.message} ${options.detail}\n`);
+        return { response: options.buttons.indexOf('Quit'), checkboxChecked: false };
+      }
+      if (options.buttons?.length === 1) return { response: 0, checkboxChecked: false };
+      return showMessageBox(...args);
     };
-  });
+  }, automaticChoice);
   const page = await electron.firstWindow();
   const rendererErrors = [];
   let browserLog = '';
@@ -62,6 +74,48 @@ async function launch(testInfo) {
     await electron.close().catch(() => {});
     throw error;
   }
+}
+
+async function desktopUpdateMenu(electron, { click = false } = {}) {
+  return electron.evaluate(({ Menu }) => {
+    const find = (items) => {
+      for (const item of items) {
+        if (item.id === 'desktop-update') return item;
+        const nested = item.submenu && find(item.submenu.items);
+        if (nested) return nested;
+      }
+    };
+    const item = find(Menu.getApplicationMenu()?.items ?? []);
+    if (!item) throw new Error('Installed app has no desktop-update menu item.');
+    const state = { label: item.label, enabled: item.enabled };
+    if (click) item.click();
+    return state;
+  });
+}
+
+async function desktopAutomaticUpdateMenu(electron, { click = false } = {}) {
+  return electron.evaluate(({ Menu }) => {
+    const item = Menu.getApplicationMenu()?.getMenuItemById('desktop-update-automatic');
+    if (!item) throw new Error('Installed app has no desktop-update-automatic menu item.');
+    if (click) {
+      // Native checkbox activation flips this value before it calls the menu
+      // handler. Do the same when driving the privileged menu object directly.
+      item.checked = !item.checked;
+      item.click(item);
+    }
+    return { label: item.label, type: item.type, checked: item.checked, enabled: item.enabled };
+  });
+}
+
+async function stubManualUpdateCheck(electron) {
+  await electron.evaluate(({ app }) => {
+    const { createRequire } = process.getBuiltinModule('module');
+    const { autoUpdater } = createRequire(`${app.getAppPath()}/package.json`)('electron-updater');
+    autoUpdater.checkForUpdates = async () => {
+      globalThis.__frisketInstalledUpdatePreferenceProof.manualChecks += 1;
+      autoUpdater.emit('update-not-available');
+    };
+  });
 }
 
 async function quit({ electron, stderr }, testInfo, closeWindow = false) {
@@ -149,6 +203,29 @@ test('installed app imports, runs its worker, exports, quits and reopens', async
   let running = first.electron;
   try {
     const page = first.page;
+    expect(await running.evaluate(() => globalThis.__frisketInstalledUpdatePreferenceProof.prompts)).toEqual([{
+      message: 'Check for updates automatically?',
+      buttons: ['Check automatically', 'Only when I ask'],
+      choice: 'Only when I ask',
+    }]);
+    await expect.poll(async () => JSON.parse(await readFile(path.join(profile, 'update-preferences.json'), 'utf8')))
+      .toMatchObject({ automaticChecks: false });
+    expect(await desktopAutomaticUpdateMenu(running)).toMatchObject({
+      label: 'Automatically Check for Updates', type: 'checkbox', checked: false,
+    });
+    await desktopAutomaticUpdateMenu(running, { click: true });
+    await expect.poll(async () => JSON.parse(await readFile(path.join(profile, 'update-preferences.json'), 'utf8')))
+      .toMatchObject({ automaticChecks: true });
+    await desktopAutomaticUpdateMenu(running, { click: true });
+    await expect.poll(async () => JSON.parse(await readFile(path.join(profile, 'update-preferences.json'), 'utf8')))
+      .toMatchObject({ automaticChecks: false });
+    expect(await desktopUpdateMenu(running)).toMatchObject({ enabled: true });
+    // Opting out suppresses schedules only. A Help-menu check still reaches
+    // the updater; use a local event-emitting updater to avoid a live feed.
+    await stubManualUpdateCheck(running);
+    await desktopUpdateMenu(running, { click: true });
+    await expect.poll(async () => running.evaluate(() => globalThis.__frisketInstalledUpdatePreferenceProof.manualChecks))
+      .toBe(1);
     expect(await running.evaluate(({ app }) => app.getName())).toBe('Frisket Desktop');
     expect(await running.evaluate(({ app }) => app.getPath('userData'))).toBe(profile);
     expect(await running.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getTitle())).toBe('Frisket Desktop');
@@ -212,6 +289,11 @@ test('installed app imports, runs its worker, exports, quits and reopens', async
 
     const second = await launch(testInfo);
     running = second.electron;
+    expect(await running.evaluate(() => globalThis.__frisketInstalledUpdatePreferenceProof.prompts)).toEqual([]);
+    expect(await desktopAutomaticUpdateMenu(running)).toMatchObject({
+      label: 'Automatically Check for Updates', type: 'checkbox', checked: false,
+    });
+    expect(JSON.parse(await readFile(path.join(profile, 'update-preferences.json'), 'utf8'))).toMatchObject({ automaticChecks: false });
     await second.page.getByTestId(`project-${projectId}`).click();
     await expect(second.page.getByTestId('grid')).toBeVisible();
     expect(extracted(await sheet(second.page, projectId, sheetId))).toBe('$4,200');

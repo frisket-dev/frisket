@@ -14,7 +14,7 @@ const profile = process.env.FRISKET_DESKTOP_PROFILE;
 const targetDist = process.env.FRISKET_DESKTOP_UPDATE_TARGET_DIST;
 const targetVersion = process.env.FRISKET_DESKTOP_UPDATE_TARGET_VERSION;
 
-async function launch(feed, testInfo) {
+async function launch(feed, testInfo, automaticChoice = 'Check automatically') {
   const electron = await _electron.launch({
     executablePath: installedExecutable(appPath),
     args: [`--user-data-dir=${profile}`],
@@ -25,11 +25,17 @@ async function launch(feed, testInfo) {
   let stderr = '';
   electron.process().stderr.on('data', (chunk) => { stderr = `${stderr}${chunk}`.slice(-16_384); });
   try {
-    await electron.evaluate(async ({ app, dialog }, origin) => {
-      const proof = globalThis.__frisketUpdateProof = { downloaded: null, errors: [], prompts: [], restart: false };
+    await electron.evaluate(async ({ app, dialog }, { origin, automaticChoice }) => {
+      const proof = globalThis.__frisketUpdateProof = {
+        downloaded: null, errors: [], prompts: [], preferencePrompts: [], restart: false,
+      };
       const showMessageBox = dialog.showMessageBox.bind(dialog);
       dialog.showMessageBox = async (...args) => {
         const options = args.at(-1);
+        if (options.message === 'Check for updates automatically?') {
+          proof.preferencePrompts.push({ message: options.message, buttons: options.buttons, choice: automaticChoice });
+          return { response: options.buttons.indexOf(automaticChoice), checkboxChecked: false };
+        }
         if (options.buttons?.includes('Update now') && options.buttons.includes('Later')) {
           proof.prompts.push({ message: options.message, buttons: options.buttons });
           return { response: options.buttons.indexOf(proof.restart ? 'Update now' : 'Later'), checkboxChecked: false };
@@ -61,7 +67,7 @@ async function launch(feed, testInfo) {
         });
         autoUpdater.on('error', (error) => proof.errors.push(error.message));
       }
-    }, feed?.origin);
+    }, { origin: feed?.origin, automaticChoice });
     const page = await electron.firstWindow();
     const rendererErrors = [];
     page.on('pageerror', (error) => rendererErrors.push(error.message));
@@ -104,6 +110,14 @@ async function updateMenu(electron) {
     const label = item.label;
     item.click();
     return label;
+  });
+}
+
+async function automaticUpdateMenu(electron) {
+  return electron.evaluate(({ Menu }) => {
+    const item = Menu.getApplicationMenu()?.getMenuItemById('desktop-update-automatic');
+    if (!item) throw new Error('Installed app has no desktop-update-automatic menu item.');
+    return { label: item.label, type: item.type, checked: item.checked, enabled: item.enabled };
   });
 }
 
@@ -180,6 +194,16 @@ test('signed installed baseline updates through its native updater and preserves
     const baseline = await launch(feed, testInfo);
     running = baseline.electron;
     expect(await running.evaluate(({ app }) => app.getVersion())).toBe('0.0.0');
+    expect((await proofState(running)).preferencePrompts).toEqual([{
+      message: 'Check for updates automatically?',
+      buttons: ['Check automatically', 'Only when I ask'],
+      choice: 'Check automatically',
+    }]);
+    await expect.poll(async () => JSON.parse(await readFile(path.join(profile, 'update-preferences.json'), 'utf8')))
+      .toMatchObject({ automaticChecks: true });
+    expect(await automaticUpdateMenu(running)).toMatchObject({
+      label: 'Automatically Check for Updates', type: 'checkbox', checked: true,
+    });
     const saved = await savedProject(baseline.page); // Starts the actual private worker.
     const sentinel = path.join(profile, 'cache', 'signed-update-proof.txt');
     const sentinelValue = 'Preserve the original profile and model cache across native updates.\n';
@@ -233,6 +257,11 @@ test('signed installed baseline updates through its native updater and preserves
     const updated = await launch(feed, testInfo);
     running = updated.electron;
     expect(await running.evaluate(({ app }) => app.getVersion())).toBe(targetVersion);
+    expect((await proofState(running)).preferencePrompts).toEqual([]);
+    expect(await automaticUpdateMenu(running)).toMatchObject({
+      label: 'Automatically Check for Updates', type: 'checkbox', checked: true,
+    });
+    expect(JSON.parse(await readFile(path.join(profile, 'update-preferences.json'), 'utf8'))).toMatchObject({ automaticChecks: true });
     await updated.page.getByTestId(`project-${saved.projectId}`).click();
     await expect(updated.page.getByTestId('grid')).toBeVisible();
     expect(extracted(await sheet(updated.page, saved.projectId, saved.sheetId))).toBe('$4,200');
