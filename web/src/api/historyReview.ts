@@ -477,6 +477,7 @@ function mapReviewBundleField(
     reviewState: wire.review_state ?? 'unreviewed',
     role: wire.role,
     chore: wire.chore,
+    changed: wire.changed,
   };
 }
 

@@ -7813,6 +7813,7 @@ type HttpReviewBundlesPage_ReviewBundle = ({
 });
 
 type HttpReviewBundlesPage_ReviewBundleItem = ({
+  "changed"?: (boolean);
   "chore": (boolean);
   "column_id": (number);
   "column_name": (string);
