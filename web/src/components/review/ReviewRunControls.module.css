@@ -1,9 +1,11 @@
 .toolbar {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
   min-width: 0;
   height: 48px;
+  padding-bottom: 3px;
   color: var(--text-mid);
 }
 
@@ -44,7 +46,8 @@
 
 .progress strong { color: var(--text); }
 
-.detailsTrigger,
+.orderTrigger,
+.resultsTrigger,
 .loadMore {
   flex: 0 0 auto;
   height: 30px;
@@ -55,16 +58,17 @@
   font-size: 12px;
 }
 
-.detailsTrigger {
+.orderTrigger,
+.resultsTrigger {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
   padding: 0 8px;
 }
 
 .loadMore { padding: 0 8px; }
-.detailsTrigger:hover:not(:disabled), .loadMore:hover:not(:disabled) { background: var(--bg-hover); }
-.detailsTrigger:disabled, .loadMore:disabled { cursor: not-allowed; opacity: 0.55; }
+.orderTrigger:hover:not(:disabled), .resultsTrigger:hover:not(:disabled), .loadMore:hover:not(:disabled) { background: var(--bg-hover); }
+.orderTrigger:disabled, .resultsTrigger:disabled, .loadMore:disabled { cursor: not-allowed; opacity: 0.55; }
 
 .spacer { flex: 1 1 auto; min-width: 8px; }
 .children { display: inline-flex; align-items: center; }
@@ -91,7 +95,7 @@
   font-size: 13px;
 }
 
-.detailsMenu {
+.orderMenu {
   display: grid;
   gap: 12px;
   overflow: auto;
@@ -102,18 +106,8 @@
   box-shadow: 0 10px 28px rgba(40, 30, 20, 0.16);
 }
 
-.detailsMenu[popover] { inset: auto; }
-.detailsTitle { color: var(--text); font-size: 13px; font-weight: 700; }
-
-.summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px 10px;
-  color: var(--text-mid);
-  font-size: 12px;
-}
-
-.summary strong { color: var(--text); }
+.orderMenu[popover] { inset: auto; }
+.orderTitle { color: var(--text); font-size: 13px; font-weight: 700; }
 
 .orderRow {
   display: flex;
@@ -146,6 +140,23 @@
 .order button:disabled { cursor: not-allowed; opacity: 0.55; }
 .noConfidence { margin: -5px 0 0; color: var(--text-mid); font-size: 11px; }
 
+.progressBar {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  overflow: hidden;
+  background: var(--border);
+}
+
+.progressFill {
+  height: 100%;
+  background: var(--green);
+  opacity: 0.75;
+  transition: width 160ms ease-out;
+}
+
 @media (max-width: 780px) {
   .runSelect { width: min(230px, 32vw); }
   .fieldSelect { width: min(150px, 22vw); }
@@ -153,7 +164,7 @@
 }
 
 @media (max-width: 620px) {
-  .toolbar { height: auto; min-height: 48px; flex-wrap: wrap; gap: 6px; padding: 6px 0; }
+  .toolbar { height: auto; min-height: 48px; flex-wrap: wrap; gap: 6px; padding: 6px 0 9px; }
   .runSelect { width: 42vw; }
   .fieldSelect { width: 30vw; }
   .spacer { display: none; }

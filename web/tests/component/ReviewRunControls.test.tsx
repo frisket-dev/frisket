@@ -2,11 +2,13 @@
 
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import type { ReviewRun } from '../../src/api/types';
 import { ReviewRunControls, ReviewRunSummary } from '../../src/components/review/ReviewRunControls';
+import { installDialogPolyfill } from '../support/domPolyfills';
 
+beforeAll(installDialogPolyfill);
 afterEach(cleanup);
 
 const run: ReviewRun = {
@@ -44,9 +46,10 @@ describe('ReviewRunControls', () => {
     fireEvent.click(within(screen.getByTestId('review-field-select-menu')).getByRole('option', { name: /Label/ }));
     expect(changedField).toHaveBeenCalledWith('5');
     expect(screen.getByTestId('review-run-progress')).toHaveTextContent('5 of 10 reviewed');
-    fireEvent.click(screen.getByRole('button', { name: 'Review ordering and accuracy' }));
-    expect(screen.getByTestId('review-run-summary')).toHaveTextContent('5 reviewed of 10');
-    expect(screen.getByText('75% correct among reviewed (3/4)')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar', { name: 'Review progress' })).toHaveAttribute('aria-valuenow', '5');
+    fireEvent.click(screen.getByRole('button', { name: 'Results' }));
+    expect(screen.getByTestId('review-results')).toBeInTheDocument();
+    expect(screen.getByTestId('review-run-summary')).toHaveTextContent('75% correct among reviewed');
   });
 
   it('shows review progress dots in the selected run trigger and each run option', () => {
@@ -87,7 +90,7 @@ describe('ReviewRunControls', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Review ordering and accuracy' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Review order' }));
     const confidence = screen.getByRole('button', { name: 'Lowest confidence' });
     expect(confidence).toBeDisabled();
     expect(confidence).toHaveAttribute('title', expect.stringContaining('no confidence values'));
@@ -95,7 +98,7 @@ describe('ReviewRunControls', () => {
     expect(changedOrder).not.toHaveBeenCalled();
   });
 
-  it('keeps ordering and accuracy in the compact details popover', () => {
+  it('keeps ordering in a compact popover and exposes results separately', () => {
     const changedOrder = vi.fn();
     render(
       <ReviewRunControls
@@ -109,11 +112,15 @@ describe('ReviewRunControls', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Review ordering and accuracy' }));
-    expect(screen.getByTestId('review-details')).toBeInTheDocument();
-    expect(screen.getByText('75% correct among reviewed (3/4)')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Review order' }));
+    expect(screen.getByTestId('review-order')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Lowest confidence' }));
     expect(changedOrder).toHaveBeenCalledWith('confidence');
+    fireEvent.click(screen.getByRole('button', { name: 'Results' }));
+    expect(screen.getByTestId('review-run-summary')).toHaveTextContent('5 reviewed of 10');
+    expect(screen.getByTestId('review-run-summary')).toHaveTextContent('75% correct among reviewed (3/4)');
+    fireEvent.click(screen.getByRole('button', { name: 'Close review results' }));
+    expect(screen.queryByTestId('review-results')).not.toBeInTheDocument();
   });
 
   it('does not show accuracy without explicit outcome facts', () => {
@@ -184,7 +191,8 @@ describe('ReviewRunControls', () => {
 
     expect(screen.getByTestId('review-run-select')).toBeDisabled();
     expect(screen.getByTestId('review-field-select')).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Review ordering and accuracy' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Review order' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Results' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Older runs' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Mark review complete' })).toBeDisabled();
   });

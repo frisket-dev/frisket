@@ -1,4 +1,5 @@
 import {
+  ChartColumnIncreasing,
   ChevronDown,
   SlidersHorizontal,
 } from 'lucide-react';
@@ -19,13 +20,10 @@ import { useAnchoredPosition } from '../../hooks/useAnchoredPosition';
 import { useNativePopover } from '../../hooks/useNativePopover';
 import { MenuPop } from '../MenuPop';
 import { PanelSelect, type PanelSelectOption } from '../PanelSelect';
+import { ReviewResultsPanel } from './ReviewResultsPanel';
 import styles from './ReviewRunControls.module.css';
 
-export interface ReviewRunSummaryProps {
-  run: ReviewRun;
-  /** Limits the shown facts to one selected output column. */
-  fieldId?: string | null;
-}
+export { ReviewRunSummary } from './ReviewResultsPanel';
 
 function selectedCounts(run: ReviewRun, fieldId?: string | null): ReviewRunCounts {
   return run.fields.find((field) => field.columnId === fieldId) ?? run.total;
@@ -66,26 +64,6 @@ function fieldOption(field: ReviewRunField): PanelSelectOption {
     label: field.columnName,
     description: countDescription(field),
   };
-}
-
-/** Displays only durable observed counts. It intentionally never estimates a
- * whole-run accuracy from the reviewed subset. */
-export function ReviewRunSummary({ run, fieldId }: ReviewRunSummaryProps) {
-  const counts = selectedCounts(run, fieldId);
-  const graded = counts.acceptedCount + counts.incorrectCount;
-  const accuracy = graded === 0 ? null : Math.round((counts.acceptedCount / graded) * 100);
-  return (
-    <div className={styles.summary} data-testid="review-run-summary">
-      <span><strong>{counts.reviewedCount}</strong> reviewed of {counts.eligibleCount}</span>
-      <span><strong>{counts.acceptedCount}</strong> accepted</span>
-      <span><strong>{counts.incorrectCount}</strong> incorrect</span>
-      <span>
-        {accuracy === null
-          ? 'No graded decisions yet'
-          : `${accuracy}% correct among reviewed (${counts.acceptedCount}/${graded})`}
-      </span>
-    </div>
-  );
 }
 
 export interface ReviewRunControlsProps {
@@ -130,19 +108,20 @@ export function ReviewRunControls({
   const run = runs.find((candidate) => candidate.runId === selectedRunId);
   const counts = run ? selectedCounts(run, selectedFieldId) : null;
   const confidenceAvailable = (counts?.confidenceCount ?? 0) > 0;
-  const [detailsOpen, setDetailsOpen] = useState(false);
-  const detailsTriggerRef = useRef<HTMLButtonElement>(null);
-  const detailsRef = useRef<HTMLDivElement>(null);
-  const detailsPosition = useAnchoredPosition(detailsTriggerRef, {
-    enabled: detailsOpen,
-    width: 300,
+  const [orderOpen, setOrderOpen] = useState(false);
+  const [resultsOpen, setResultsOpen] = useState(false);
+  const orderTriggerRef = useRef<HTMLButtonElement>(null);
+  const orderRef = useRef<HTMLDivElement>(null);
+  const orderPosition = useAnchoredPosition(orderTriggerRef, {
+    enabled: orderOpen,
+    width: 250,
     align: 'right',
     gap: 6,
     minHeight: 160,
   });
-  useNativePopover(detailsRef, () => setDetailsOpen(false), {
-    enabled: detailsOpen,
-    ignoreSelector: '[data-review-details-trigger]',
+  useNativePopover(orderRef, () => setOrderOpen(false), {
+    enabled: orderOpen,
+    ignoreSelector: '[data-review-order-trigger]',
     focusRestore: true,
   });
   const runOptions: PanelSelectOption[] = runs.map((candidate) => ({
@@ -201,14 +180,24 @@ export function ReviewRunControls({
         </span>
       )}
       <button
-        ref={detailsTriggerRef}
         type="button"
-        className={styles.detailsTrigger}
-        data-review-details-trigger
-        aria-label="Review ordering and accuracy"
-        aria-expanded={detailsOpen}
+        className={styles.resultsTrigger}
+        aria-haspopup="dialog"
         disabled={disabled || !run}
-        onClick={() => setDetailsOpen((open) => !open)}
+        onClick={() => setResultsOpen(true)}
+      >
+        <ChartColumnIncreasing size={15} aria-hidden />
+        Results
+      </button>
+      <button
+        ref={orderTriggerRef}
+        type="button"
+        className={styles.orderTrigger}
+        data-review-order-trigger
+        aria-label="Review order"
+        aria-expanded={orderOpen}
+        disabled={disabled || !run}
+        onClick={() => setOrderOpen((open) => !open)}
       >
         <SlidersHorizontal size={14} aria-hidden />
         <ChevronDown size={13} aria-hidden />
@@ -226,22 +215,21 @@ export function ReviewRunControls({
           {statusBusy ? 'Saving…' : nextStatus === 'complete' ? 'Mark review complete' : 'Reopen review'}
         </button>
       )}
-      {detailsOpen && run && (
+      {orderOpen && run && (
         <MenuPop
-          ref={detailsRef}
+          ref={orderRef}
           role="dialog"
-          aria-label="Review ordering and accuracy"
-          className={styles.detailsMenu}
-          data-testid="review-details"
-          style={detailsPosition ? {
+          aria-label="Review order"
+          className={styles.orderMenu}
+          data-testid="review-order"
+          style={orderPosition ? {
             position: 'fixed', inset: 'auto', margin: 0,
-            top: detailsPosition.top, bottom: detailsPosition.bottom,
-            left: detailsPosition.left, width: detailsPosition.width,
-            maxHeight: detailsPosition.maxHeight,
+            top: orderPosition.top, bottom: orderPosition.bottom,
+            left: orderPosition.left, width: orderPosition.width,
+            maxHeight: orderPosition.maxHeight,
           } as CSSProperties : { visibility: 'hidden' }}
         >
-          <div className={styles.detailsTitle}>Review details</div>
-          <ReviewRunSummary run={run} fieldId={selectedFieldId} />
+          <div className={styles.orderTitle}>Review order</div>
           <div className={styles.orderRow}>
             <span>Order</span>
             <div className={styles.order} role="group" aria-label="Review order">
@@ -266,6 +254,20 @@ export function ReviewRunControls({
           </div>
           {!confidenceAvailable && <p className={styles.noConfidence}>No confidence values in this scope.</p>}
         </MenuPop>
+      )}
+      {resultsOpen && run && <ReviewResultsPanel run={run} onClose={() => setResultsOpen(false)} />}
+      {counts && (
+        <div
+          className={styles.progressBar}
+          role="progressbar"
+          aria-label="Review progress"
+          aria-valuemin={0}
+          aria-valuemax={counts.eligibleCount}
+          aria-valuenow={counts.reviewedCount}
+          aria-valuetext={`${counts.reviewedCount} of ${counts.eligibleCount} reviewed`}
+        >
+          <div className={styles.progressFill} style={{ width: `${counts.eligibleCount === 0 ? 0 : Math.min(100, (counts.reviewedCount / counts.eligibleCount) * 100)}%` }} />
+        </div>
       )}
     </section>
   );

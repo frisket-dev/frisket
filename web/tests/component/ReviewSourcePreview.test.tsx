@@ -76,7 +76,7 @@ describe('ReviewSourcePreview', () => {
     vi.stubGlobal('ResizeObserver', ResizeObserver);
   });
 
-  it('loads citations asynchronously and preserves the selected shared source across fields', async () => {
+  it('keeps cited sources mounted across cloned decision, edit and note updates, then reloads for another row', async () => {
     projectApi.getCellEvidence.mockImplementation((_rowId: string, columnId: string) => Promise.resolve(
       columnId === 'column-one' ? cellEvidence(['link:shared-one', 'link:one-only']) : cellEvidence(['link:shared-two', 'link:two-only']),
     ));
@@ -93,27 +93,62 @@ describe('ReviewSourcePreview', () => {
     fireEvent.click(sharedTab);
     expect(sharedTab).toHaveAttribute('aria-selected', 'true');
     await waitFor(() => expect(screen.getByTestId('artifact-source')).toHaveAttribute('data-emphasized', 'span:one'));
+    const sourceRenderer = screen.getByTestId('artifact-source');
 
-    const bundleWithSavedRowNote = { ...bundle, reviewNote: 'Saved note' } as ReviewBundle;
-    rerender(<ReviewSourcePreview bundle={bundleWithSavedRowNote} activeField={fieldOne} sourceEntries={[]} />);
+    const acceptedBundle = clonedBundle({ reviewDecision: 'accept', reviewState: 'verified' });
+    rerender(<ReviewSourcePreview bundle={acceptedBundle} activeField={acceptedBundle.fields[0]} sourceEntries={[]} />);
+    expect(screen.getByTestId('artifact-source')).toBe(sourceRenderer);
 
+    const rejectedBundle = clonedBundle({ reviewDecision: 'reject', reviewState: 'rejected' });
+    rerender(<ReviewSourcePreview bundle={rejectedBundle} activeField={rejectedBundle.fields[0]} sourceEntries={[]} />);
+    expect(screen.getByTestId('artifact-source')).toBe(sourceRenderer);
+
+    const editedBundle = clonedBundle({ value: 'Edited field one value' });
+    rerender(<ReviewSourcePreview bundle={editedBundle} activeField={editedBundle.fields[0]} sourceEntries={[]} />);
+    expect(screen.getByTestId('artifact-source')).toBe(sourceRenderer);
+
+    const bundleWithSavedRowNote = clonedBundle({}, 'Saved note');
+    rerender(<ReviewSourcePreview bundle={bundleWithSavedRowNote} activeField={bundleWithSavedRowNote.fields[0]} sourceEntries={[]} />);
+    expect(screen.getByTestId('artifact-source')).toBe(sourceRenderer);
     expect(screen.getByTestId('artifact-source')).toHaveAttribute('data-source-id', 'source:shared');
     expect(projectApi.getCellEvidence).toHaveBeenCalledTimes(2);
     expect(projectApi.getEvidenceViewer).toHaveBeenCalledTimes(4);
 
-    rerender(<ReviewSourcePreview bundle={bundle} activeField={fieldTwo} sourceEntries={[]} />);
+    rerender(<ReviewSourcePreview bundle={bundleWithSavedRowNote} activeField={bundleWithSavedRowNote.fields[1]} sourceEntries={[]} />);
 
     await waitFor(() => expect(screen.getByRole('tab', { name: /shared notes\.md/i })).toHaveAttribute('aria-selected', 'true'));
     expect(screen.getByTestId('artifact-source')).toHaveAttribute('data-source-id', 'source:shared');
     expect(screen.getByTestId('artifact-source')).toHaveAttribute('data-emphasized', 'span:two');
+    expect(screen.getByTestId('artifact-source')).toBe(sourceRenderer);
     expect(projectApi.getCellEvidence).toHaveBeenCalledTimes(2);
     expect(projectApi.getEvidenceViewer).toHaveBeenCalledTimes(4);
 
-    rerender(<ReviewSourcePreview bundle={bundle} activeField={fieldOne} sourceEntries={[]} />);
+    rerender(<ReviewSourcePreview bundle={bundleWithSavedRowNote} activeField={bundleWithSavedRowNote.fields[0]} sourceEntries={[]} />);
     fireEvent.click(screen.getByRole('tab', { name: /one only/i }));
-    rerender(<ReviewSourcePreview bundle={bundle} activeField={fieldTwo} sourceEntries={[]} />);
+    rerender(<ReviewSourcePreview bundle={bundleWithSavedRowNote} activeField={bundleWithSavedRowNote.fields[1]} sourceEntries={[]} />);
     expect(screen.getByRole('tab', { name: /shared notes/i })).toHaveAttribute('aria-selected', 'true');
-    rerender(<ReviewSourcePreview bundle={bundle} activeField={fieldOne} sourceEntries={[]} />);
+    rerender(<ReviewSourcePreview bundle={bundleWithSavedRowNote} activeField={bundleWithSavedRowNote.fields[0]} sourceEntries={[]} />);
     expect(screen.getByRole('tab', { name: /shared notes/i })).toHaveAttribute('aria-selected', 'true');
+
+    const otherRowBundle = clonedBundle({ rowId: 'row-4' }, undefined, { id: 'bundle-2', rowId: 'row-4', rowIndex: 3 });
+    rerender(<ReviewSourcePreview bundle={otherRowBundle} activeField={otherRowBundle.fields[0]} sourceEntries={[]} />);
+
+    await waitFor(() => expect(projectApi.getCellEvidence).toHaveBeenCalledTimes(4));
+    expect(projectApi.getCellEvidence).toHaveBeenCalledWith('row-4', 'column-one');
+    expect(projectApi.getCellEvidence).toHaveBeenCalledWith('row-4', 'column-two');
+    await waitFor(() => expect(projectApi.getEvidenceViewer).toHaveBeenCalledTimes(8));
   });
 });
+
+function clonedBundle(
+  fieldUpdate: Partial<ReviewBundleField>,
+  reviewNote?: string,
+  bundleUpdate: Partial<ReviewBundle> = {},
+): ReviewBundle {
+  return {
+    ...bundle,
+    ...bundleUpdate,
+    reviewNote,
+    fields: bundle.fields.map((field) => ({ ...field, ...fieldUpdate })),
+  };
+}

@@ -8,12 +8,17 @@ import { reviewCitationSources, sourceLocation, sourcesForField, type ReviewCita
 import styles from './ReviewSourcePreview.module.css';
 
 type LoadState =
-  | { key: string; fields: readonly ReviewBundleField[]; phase: 'ready'; payloads: ReviewCitationPayload[] }
-  | { key: string; fields: readonly ReviewBundleField[]; phase: 'error' };
+  | { key: string; phase: 'ready'; payloads: ReviewCitationPayload[] }
+  | { key: string; phase: 'error' };
 
-const EMPTY_FIELDS: readonly ReviewBundleField[] = [];
+interface CitationTarget {
+  fieldId: string;
+  runId: string;
+  rowId: string;
+  columnId: string;
+}
 
-function currentEvidenceMatchesField(payload: CellEvidencePayload, field: ReviewBundleField): boolean {
+function currentEvidenceMatchesField(payload: CellEvidencePayload, field: Pick<ReviewBundleField, 'runId'>): boolean {
   const ref = payload.current_value_ref;
   if (!ref || typeof ref !== 'object' || Array.isArray(ref)) return false;
   const runId = (ref as Record<string, unknown>).run_id;
@@ -37,23 +42,23 @@ export function ReviewSourcePreview({
   const [showRowFields, setShowRowFields] = useState(false);
   const viewerRef = useRef<HTMLDivElement | null>(null);
 
-  const fields = bundle?.fields ?? EMPTY_FIELDS;
-  const bundleKey = bundle ? citationKey(bundle) : null;
+  const citationTargetsKey = bundle ? citationKey(bundle) : null;
 
   useEffect(() => {
-    if (!bundleKey) return undefined;
+    if (!citationTargetsKey) return undefined;
     let current = true;
-    void loadCitationPayloads(fields, api).then(
-      (payloads) => { if (current) setState({ key: bundleKey, fields, phase: 'ready', payloads }); },
-      () => { if (current) setState({ key: bundleKey, fields, phase: 'error' }); },
+    // This key is serialized from our typed fields below, not external JSON.
+    const targets = JSON.parse(citationTargetsKey) as CitationTarget[];
+    void loadCitationPayloads(targets, api).then(
+      (payloads) => { if (current) setState({ key: citationTargetsKey, phase: 'ready', payloads }); },
+      () => { if (current) setState({ key: citationTargetsKey, phase: 'error' }); },
     );
     return () => { current = false; };
-  }, [api, bundleKey, fields]);
+  }, [api, citationTargetsKey]);
 
-  // A cloned bundle can preserve this field-array reference (for example, a
-  // row-note save). A changed field array immediately hides old citations
-  // until its own response lands, without deriving a large key from values.
-  const currentState = state !== null && state.key === bundleKey && state.fields === fields ? state : null;
+  // Decision, edit and note saves clone fields, but they do not change which
+  // result cells own citations. Hide old payloads only for a new target set.
+  const currentState = state !== null && state.key === citationTargetsKey ? state : null;
   const sources = useMemo(() => currentState?.phase === 'ready' ? reviewCitationSources(currentState.payloads) : [], [currentState]);
   const tabs = useMemo(() => sourcesForField(sources, activeField?.id), [activeField?.id, sources]);
   const activeSource = tabs.find((source) => source.id === activeSourceId) ?? tabs[0] ?? null;
@@ -135,18 +140,18 @@ function tabLocation(source: ReturnType<typeof reviewCitationSources>[number], f
 }
 
 function citationKey(bundle: ReviewBundle): string {
-  return bundle.id;
+  return JSON.stringify(bundle.fields.map(({ id: fieldId, runId, rowId, columnId }) => ({ fieldId, runId, rowId, columnId })));
 }
 
-async function loadCitationPayloads(fields: readonly ReviewBundleField[], api: ReturnType<typeof useWorkspaceStores>['projectApi']): Promise<ReviewCitationPayload[]> {
-  const perField = await Promise.all(fields.map(async (field) => {
-    const cell = await api.getCellEvidence(field.rowId, field.columnId);
-    if (!currentEvidenceMatchesField(cell, field)) return [];
+async function loadCitationPayloads(targets: readonly CitationTarget[], api: ReturnType<typeof useWorkspaceStores>['projectApi']): Promise<ReviewCitationPayload[]> {
+  const perField = await Promise.all(targets.map(async (target) => {
+    const cell = await api.getCellEvidence(target.rowId, target.columnId);
+    if (!currentEvidenceMatchesField(cell, target)) return [];
     const links = cell.links.filter((link) => link.status === 'active' && link.role !== 'source_provenance');
     const viewers = await Promise.all(links.map(async (link) => {
       try { return await api.getEvidenceViewer(link.stable_id); } catch { return null; }
     }));
-    return viewers.flatMap((payload) => payload === null ? [] : [{ fieldId: field.id, payload }]);
+    return viewers.flatMap((payload) => payload === null ? [] : [{ fieldId: target.fieldId, payload }]);
   }));
   return perField.flat();
 }
