@@ -70,7 +70,7 @@ export function ReviewSourcePreview({
   const tabs = useMemo(() => sourcesForField(sources, activeField?.id), [activeField?.id, sources]);
   const itemLocations = useMemo(() => reviewItemLocations(sources, bundle?.fields ?? []), [sources, bundle?.fields]);
   useEffect(() => { onItemLocations?.(itemLocations); }, [itemLocations, onItemLocations]);
-  const focusedLocations = selectedItem?.fieldId === activeField?.id
+  const focusedLocations = selectedItem && selectedItem.fieldId === activeField?.id
     ? itemLocations.filter((location) => location.fieldId === selectedItem.fieldId && location.index === selectedItem.index) : [];
   const focusedSourceId = focusedLocations[0]?.sourceId;
   useEffect(() => { if (focusedSourceId) setActiveSourceId(focusedSourceId); }, [focusedSourceId, selectedItem]);

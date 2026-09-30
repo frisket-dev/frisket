@@ -11,7 +11,7 @@ import {
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { readEvidenceTextResource } from '../api/raw/blobText';
 import { PanelLoading } from './PanelPrimitives';
-import { SavedTextContext, textSegments } from './EvidenceTextContext';
+import { SavedTextContext, textSegments, type TextSegment } from './EvidenceTextContext';
 
 export interface EvidenceViewerProps {
   evidenceLinkId: string | number;

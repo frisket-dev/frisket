@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { EvidenceArtifact } from '../api/types';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 
-interface TextSegment {
+export interface TextSegment {
   text: string;
   highlighted: boolean;
   start: number;
@@ -121,18 +121,18 @@ function TimestampedTextContext({ context, scopeSpanId, highlight, emphasizedSpa
   }, [projectApi, key, transcript.evidence_link_stable_id, transcript.artifact_stable_id]);
   const artifact = source?.key === key ? source.artifact : null;
   const blob = artifact?.artifact_ref.blob;
-  const [seekMs, setSeekMs] = useState<number | null>(null);
+  const [seekRequest, setSeekRequest] = useState<{ ms: number } | null>(null);
   useEffect(() => {
     const player = playerRef.current;
-    if (!player || seekMs === null) return;
-    const seek = () => { player.currentTime = seekMs / 1000; void player.play().catch(() => {}); };
+    if (!player || seekRequest === null) return;
+    const seek = () => { player.currentTime = seekRequest.ms / 1000; void player.play().catch(() => {}); };
     if (player.readyState >= 1) { seek(); return; }
     player.addEventListener('loadedmetadata', seek, { once: true });
     return () => player.removeEventListener('loadedmetadata', seek);
-  }, [seekMs, blob?.url]);
+  }, [seekRequest, blob?.url]);
   const sourceSpans = new Map(artifact?.spans.map((span) => [span.stable_id, span]) ?? []);
   const ranges = highlight ? context.ranges.filter((range) => !scopeSpanId || range.span_id === scopeSpanId) : [];
-  const mediaProps = { controls: true, preload: 'metadata', src: blob?.url, ref: playerRef, 'aria-label': artifact?.title || 'Source recording' };
+  const mediaProps = { controls: true, preload: 'metadata', src: blob?.url, ref: (node: HTMLMediaElement | null) => { playerRef.current = node; }, 'aria-label': artifact?.title || 'Source recording' };
   return <div className="evidence-annotated-transcript" data-testid="evidence-annotated-transcript">
     <div className="evidence-annotated-player">
       {blob && (artifact?.media_type.startsWith('video/') ? <video {...mediaProps}><track kind="captions" /></video> : <audio {...mediaProps}><track kind="captions" /></audio>)}
@@ -145,7 +145,7 @@ function TimestampedTextContext({ context, scopeSpanId, highlight, emphasizedSpa
           start: Math.max(0, range.start - segment.start), end: Math.min(segment.end, range.end) - segment.start,
         })));
         return <div className="evidence-transcript-line" data-testid="evidence-transcript-line" key={segment.span_id}>
-          <button type="button" className="evidence-annotated-timestamp" disabled={!blob} onClick={() => setSeekMs(segment.start_ms)}
+          <button type="button" className="evidence-annotated-timestamp" disabled={!blob} onClick={() => setSeekRequest({ ms: segment.start_ms })}
             aria-label={`Play at ${formatTimestamp(segment.start_ms)}`}>{formatTimestamp(segment.start_ms)}</button>
           <span className="evidence-annotated-text">
             {segment.speaker && <strong>{segment.speaker}: </strong>}

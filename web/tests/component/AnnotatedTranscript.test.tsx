@@ -44,6 +44,10 @@ it('keeps full transcript context and entity highlights alongside its saved sour
   fireEvent.click(screen.getByRole('button', { name: 'Play at 0:04' }));
   expect(audio.currentTime).toBe(4);
   expect(play).toHaveBeenCalledOnce();
+  audio.currentTime = 6;
+  fireEvent.click(screen.getByRole('button', { name: 'Play at 0:04' }));
+  expect(audio.currentTime).toBe(4);
+  expect(play).toHaveBeenCalledTimes(2);
   expect(screen.getByRole('link', { name: 'Download clip at 0:04' })).toHaveAttribute('href', '/clip/2');
   rerender(<SavedTextContext context={context} highlight emphasizedSpanIds={['entity:1']} />);
   expect(screen.getByLabelText('Council recording')).toBe(audio);
