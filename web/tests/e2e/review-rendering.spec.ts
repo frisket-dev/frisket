@@ -19,7 +19,8 @@ function reviewBundle(sheetId: number) {
     action_name: 'Extract entities',
     model: 'local/test',
     confidence: 0.92,
-    source: [{
+    source: { Transcript: TRANSCRIPT },
+    sources: [{
       column_id: 1,
       column_name: 'Transcript',
       column_type: 'text',
@@ -201,7 +202,7 @@ test('review renders timestamped NER source and a read-only entity list', async 
   await openProject(page, pid, sheetId);
   await page.getByTestId('review-queue-button').click();
   const card = page.getByTestId('review-card');
-  const source = card.getByTestId('review-source-panel');
+  const source = card.getByTestId('review-citation-preview');
   const entities = card.getByTestId('review-field-entities');
   await expect(source.getByTestId('review-citation-preview')).toBeVisible();
   await expect(source.locator('audio')).toBeVisible();
