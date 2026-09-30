@@ -89,7 +89,7 @@ test('review queue groups sibling outputs and resolves fields independently', as
   await queue.getByRole('button', { name: 'Close row fields' }).click();
 
   await queue.getByRole('button', { name: 'Select beat review field' }).click();
-  await page.getByTestId('review-edit').click();
+  await queue.getByRole('button', { name: 'Edit beat', exact: true }).click();
   await page.getByTestId('review-edit-input').fill('accountability');
   await queue.getByRole('button', { name: 'Save edit' }).click();
 
@@ -147,8 +147,7 @@ test('review queue groups sibling outputs and resolves fields independently', as
   expect(beatColumn).toBeTruthy();
   expect(toneColumn).toBeTruthy();
   expect(data.rows[0].cells[String(beatColumn!.id)]).toBe('accountability');
-  // Verdict-only Reject keeps the generated value visible; clearing is the
-  // separate, explicitly labelled Shift+R action.
+  // Reject keeps the generated value visible.
   expect(data.rows[0].cells[String(toneColumn!.id)]).toBe('high');
   await queue.getByRole('button', { name: 'Close review queue' }).click();
   await page.getByTestId('review-queue-button').click();
@@ -162,7 +161,7 @@ test('review queue groups sibling outputs and resolves fields independently', as
 
 });
 
-test('Shift+R rejects and clears a focused result', async ({ page }) => {
+test('Right arrow rejects a focused result without erasing it', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-review-clear'));
   const sheetId = await importCsv(page.request, pid, 'review-clear.csv', CSV);
   seedReviewClassifyRun({
@@ -183,18 +182,17 @@ test('Shift+R rejects and clears a focused result', async ({ page }) => {
   await openProject(page, pid, sheetId);
   await expect(page.getByTestId('review-queue-button')).toBeEnabled();
   await page.getByTestId('review-queue-button').click();
-  const clear = page.getByTestId('review-reject-clear');
-  await expect(clear).toHaveAccessibleName('Reject and clear');
-  await page.keyboard.press('Shift+R');
+  await expect(page.getByRole('button', { name: 'Reject beat', exact: true })).toBeVisible();
+  await page.keyboard.press('ArrowRight');
   await expect(page.getByText('Row done', { exact: true })).toBeVisible();
 
   expect(decisions).toHaveLength(1);
   expect(decisions[0]).toMatchObject({
     action_id: 'review.decision',
-    params: { decision: 'reject_clear' },
+    params: { decision: 'reject' },
   });
   const columns = await sheetColumns(page.request, pid, sheetId);
   const data = await sheetData(page.request, pid, sheetId);
   const beatColumn = columns.find((column) => column.name === 'beat');
-  expect(data.rows[0].cells[String(beatColumn!.id)]).toBeNull();
+  expect(data.rows[0].cells[String(beatColumn!.id)]).toBe('civic');
 });

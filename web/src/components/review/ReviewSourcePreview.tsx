@@ -47,7 +47,8 @@ export function ReviewSourcePreview({
   useEffect(() => {
     if (!citationTargetsKey) return undefined;
     let current = true;
-    const targets = citationTargets(citationTargetsKey);
+    // This key is serialized from our typed fields below, not external JSON.
+    const targets = JSON.parse(citationTargetsKey) as CitationTarget[];
     void loadCitationPayloads(targets, api).then(
       (payloads) => { if (current) setState({ key: citationTargetsKey, phase: 'ready', payloads }); },
       () => { if (current) setState({ key: citationTargetsKey, phase: 'error' }); },
@@ -139,18 +140,7 @@ function tabLocation(source: ReturnType<typeof reviewCitationSources>[number], f
 }
 
 function citationKey(bundle: ReviewBundle): string {
-  return JSON.stringify(bundle.fields.map((field) => [field.id, field.runId, field.rowId, field.columnId]));
-}
-
-function citationTargets(key: string): CitationTarget[] {
-  const encoded: unknown = JSON.parse(key);
-  if (!Array.isArray(encoded)) return [];
-  return encoded.flatMap((candidate): CitationTarget[] => {
-    if (!Array.isArray(candidate)) return [];
-    const [fieldId, runId, rowId, columnId] = candidate;
-    if (typeof fieldId !== 'string' || typeof runId !== 'string' || typeof rowId !== 'string' || typeof columnId !== 'string') return [];
-    return [{ fieldId, runId, rowId, columnId }];
-  });
+  return JSON.stringify(bundle.fields.map(({ id: fieldId, runId, rowId, columnId }) => ({ fieldId, runId, rowId, columnId })));
 }
 
 async function loadCitationPayloads(targets: readonly CitationTarget[], api: ReturnType<typeof useWorkspaceStores>['projectApi']): Promise<ReviewCitationPayload[]> {

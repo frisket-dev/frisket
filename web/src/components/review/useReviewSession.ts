@@ -110,16 +110,17 @@ export function useReviewSession({ runId, options, readOnly = false, onDecisionS
     const index = bundle.fields.findIndex((item) => item.id === field.id);
     selectField(bundle.fields[(index + delta + bundle.fields.length) % bundle.fields.length].id);
   };
-  const startEdit = () => {
-    if (!field || busy || readOnly) return;
-    setEditingId(field.id);
-    setEditValue(field.value === null ? '' : String(field.value));
+  const startEdit = (target = field) => {
+    if (!target || busy || readOnly) return;
+    setSelectedId(target.id);
+    setEditingId(target.id);
+    setEditValue(target.value === null ? '' : String(target.value));
   };
 
   const resolve = async (targets: ReviewBundleField[], action: ReviewAction, value?: CellValue) => {
-    if (readOnly || mutation.current || !bundle || !targets.length || loading) return;
+    if (readOnly || mutation.current || !bundle || !targets.length || loading) return false;
     mutation.current = true;
-    if (!await saveNote()) { mutation.current = false; return; }
+    if (!await saveNote()) { mutation.current = false; return false; }
     setBusy(true);
     setProblem(null);
     let updated = { ...bundle, reviewNote: noteDraft.current.saved.trim() || null };
@@ -134,9 +135,11 @@ export function useReviewSession({ runId, options, readOnly = false, onDecisionS
       }
       setSelectedId(action === 'clear' ? targets[0].id : nextUndecidedField(updated, targets[targets.length - 1].id));
       setEditingId(null);
+      return true;
     } catch {
       if (saved) setSelectedId(nextUndecidedField(updated, targets[saved - 1].id));
       setProblem(saved ? `${saved} decisions saved; the remaining decisions could not be saved. Please try again.` : 'Could not save your review decision. Please try again.');
+      return false;
     } finally {
       mutation.current = false;
       setBusy(false);
@@ -151,7 +154,10 @@ export function useReviewSession({ runId, options, readOnly = false, onDecisionS
     const active = verdict === 'accept' ? target.reviewDecision === 'accept' : target.reviewState === 'rejected';
     void resolve([target], active ? 'clear' : verdict);
   };
-  const acceptRemaining = () => { if (bundle) void resolve(bundle.fields.filter((item) => !isDecided(item)), 'accept'); };
+  const acceptRemaining = () => {
+    if (bundle) void resolve(bundle.fields.filter((item) => !isDecided(item)), 'accept')
+      .then((saved) => { if (saved) moveRow(1); });
+  };
   const reset = () => { if (bundle) void resolve(bundle.fields.filter(isDecided), 'clear'); };
 
   return {

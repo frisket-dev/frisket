@@ -29,7 +29,7 @@ function FieldDecision({ field, controller: c }: { field: ReviewBundleField; con
     if (selected) sectionRef.current?.scrollIntoView?.({ block: 'nearest' });
   }, [selected]);
   return <section ref={sectionRef} className={styles.field} data-selected={selected} data-review-state={field.reviewState}
-    data-testid={`review-field-${field.columnName}`} data-review-changed={field.changed ? 'true' : 'false'}>
+    data-testid={`review-field-${field.columnName}`} data-review-changed={field.changed ? 'true' : 'false'} data-review-decision={field.reviewDecision}>
     <button type="button" className={styles.fieldSelect} aria-pressed={selected}
       aria-label={`Select ${field.columnName} review field`} disabled={c.busy} onClick={() => c.selectField(field.id)}>
       <span className={styles.fieldHeading}><strong>{field.columnName}</strong>
@@ -41,12 +41,15 @@ function FieldDecision({ field, controller: c }: { field: ReviewBundleField; con
       {field.confidence !== null && <small className={styles.confidence}>Confidence {field.confidence.toFixed(2)}</small>}
     </button>
     <div className={styles.verdict} role="group" aria-label={`Decision for ${field.columnName}`}>
-      <button type="button" aria-label={`Accept ${field.columnName}`} title="Accept (A)"
+      <button type="button" aria-label={`Accept ${field.columnName}`} title="Accept (← or A)"
         aria-pressed={field.reviewDecision === 'accept'} disabled={c.busy || c.readOnly}
         className={styles.accept} onClick={() => c.toggle(field, 'accept')}><Check size={16} /></button>
-      <button type="button" aria-label={`Reject ${field.columnName}`} title="Reject (R)"
+      <button type="button" aria-label={`Reject ${field.columnName}`} title="Reject (→ or D)"
         aria-pressed={field.reviewState === 'rejected'} disabled={c.busy || c.readOnly}
         className={styles.reject} onClick={() => c.toggle(field, 'reject')}><X size={16} /></button>
+      <button type="button" aria-label={`Edit ${field.columnName}`} title="Edit (E) — counts as incorrect"
+        aria-pressed={editing || field.reviewDecision === 'edit'} disabled={c.busy || c.readOnly}
+        className={styles.edit} onClick={() => c.startEdit(field)}><Pencil size={14} /></button>
     </div>
     {editing && <div className={styles.editor}>
       <textarea ref={(node) => { if (node && document.activeElement !== node) { node.focus(); resizeTextareaToContent(node); } }}
@@ -74,11 +77,6 @@ function ReviewFooter({ controller: c }: { controller: ReviewSessionController }
       <span>{count} of {fields.length} decided</span>
       <button className={styles.textButton} disabled={c.busy || c.readOnly || !count} onClick={c.reset}>Reset</button>
     </div>
-    <div className={styles.editActions}>
-      <button className={styles.textButton} disabled={c.busy || c.readOnly || !c.field} onClick={c.startEdit} data-testid="review-edit"><Pencil size={12} /> Edit value</button>
-      <button className={styles.textButton} disabled={c.busy || c.readOnly || !c.field}
-        onClick={() => { if (c.field) void c.resolve([c.field], 'reject_clear'); }} data-testid="review-reject-clear">Reject and clear</button>
-    </div>
     <textarea className={`form-input form-textarea ${styles.note}`} rows={2}
       placeholder="Note for this row (optional)" aria-label="Review note for this row" data-testid="review-note-input"
       value={c.note} disabled={c.readOnly || c.busy || c.savingNote} onChange={(event) => c.changeNote(event.target.value)}
@@ -89,7 +87,7 @@ function ReviewFooter({ controller: c }: { controller: ReviewSessionController }
       </button> : <span className={styles.rowDone}><Check size={14} /> Row done</span>}
       <button className="btn" disabled={c.busy || !c.canNext} onClick={() => c.moveRow(1)}>Next row <ChevronRight size={14} /></button>
     </div>
-    <p className={styles.shortcuts}><kbd>A</kbd> accept · <kbd>R</kbd> reject · <kbd>J</kbd>/<kbd>K</kbd> field · <kbd>Shift A</kbd> accept remaining</p>
+    <p className={styles.shortcuts}><kbd>↑↓</kbd> / <kbd>W S</kbd> field · <kbd>←</kbd>/<kbd>A</kbd> yes · <kbd>→</kbd>/<kbd>D</kbd> no · <kbd>Shift A</kbd> accept + next</p>
   </footer>;
 }
 
@@ -98,15 +96,16 @@ export function ReviewSession({ onClose, renderToolbar, ...options }: ReviewSess
   useEscapeDismiss(() => { if (onClose && !c.editingId) c.leave(onClose); }, { enabled: !!onClose, typingGuard: true });
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || c.busy || c.editingId) return;
+      if (event.defaultPrevented || event.repeat || event.isComposing || event.ctrlKey || event.metaKey || event.altKey || c.busy || c.editingId) return;
       const target = event.target instanceof HTMLElement ? event.target : null;
       if (target?.closest('input, textarea, select, [contenteditable="true"], [role="menu"], [role="listbox"]')) return;
       if (document.querySelector(':popover-open, :modal')) return;
       switch (event.key.toLowerCase()) {
-        case 'j': c.moveField(1); break;
-        case 'k': c.moveField(-1); break;
+        case 'arrowdown': case 's': case 'j': c.moveField(1); break;
+        case 'arrowup': case 'w': case 'k': c.moveField(-1); break;
+        case 'arrowleft': if (c.field) c.toggle(c.field, 'accept'); break;
+        case 'arrowright': case 'd': case 'r': if (c.field) c.toggle(c.field, 'reject'); break;
         case 'a': if (event.shiftKey) c.acceptRemaining(); else if (c.field) c.toggle(c.field, 'accept'); break;
-        case 'r': if (c.field) { if (event.shiftKey) void c.resolve([c.field], 'reject_clear'); else c.toggle(c.field, 'reject'); } break;
         case 'e': c.startEdit(); break;
         default: return;
       }

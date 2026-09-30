@@ -98,9 +98,11 @@ it('accepts remaining fields without replacing a rejection, then resets decision
   vi.spyOn(stores.projectApi, 'getReviewCount').mockResolvedValue(1);
   mount();
   fireEvent.click(await screen.findByRole('button', { name: 'Accept remaining' }));
-  await screen.findByText('Row done');
+  await waitFor(() => expect(screen.getByTestId('review-page-status')).toHaveTextContent('2 / 2'));
   expect(decide).toHaveBeenCalledTimes(1);
   expect(decide).toHaveBeenCalledWith('9:3:5', 'accept', undefined);
+  fireEvent.click(screen.getByRole('button', { name: 'Previous row' }));
+  await screen.findByText('Row done');
   fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
   await waitFor(() => expect(decide).toHaveBeenCalledTimes(3));
   expect(screen.getByTestId('review-field-first')).toHaveTextContent('corrected value');
@@ -145,8 +147,9 @@ it('keeps a partial bulk save visible and does not resend it when accepting rema
   fireEvent.click(await screen.findByRole('button', { name: 'Accept all' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('1 decisions saved');
   expect(screen.getByTestId('review-field-first')).toHaveAttribute('data-review-state', 'verified');
+  expect(screen.getByTestId('review-page-status')).toHaveTextContent('1 / 2');
   fireEvent.click(screen.getByRole('button', { name: 'Accept remaining' }));
-  await screen.findByText('Row done');
+  await waitFor(() => expect(screen.getByTestId('review-page-status')).toHaveTextContent('2 / 2'));
   expect(decide.mock.calls.map((call) => call[0])).toEqual(['9:3:4', '9:3:5', '9:3:5']);
 });
 
@@ -168,6 +171,74 @@ it('waits for an in-flight blur save before closing and sends the note only once
   finish();
   await waitFor(() => expect(close).toHaveBeenCalledOnce());
   expect(save).toHaveBeenCalledOnce();
+});
+
+it.each(['ArrowDown', 's', 'ArrowUp', 'w'])('%s selects another result without moving rows', async (key) => {
+  vi.spyOn(stores.projectApi, 'getReviewBundles').mockResolvedValue(multiPage());
+  mount();
+  await screen.findByRole('button', { name: 'Select first review field' });
+  fireEvent.keyDown(window, { key });
+  expect(screen.getByRole('button', { name: 'Select second review field' })).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByTestId('review-page-status')).toHaveTextContent('1 / 2');
+});
+
+it.each([['ArrowLeft', 'accept'], ['a', 'accept'], ['ArrowRight', 'reject'], ['d', 'reject']])('%s records %s', async (key, decision) => {
+  vi.spyOn(stores.projectApi, 'getReviewBundles').mockResolvedValue(multiPage());
+  const decide = vi.spyOn(stores.projectApi, 'reviewItem').mockResolvedValue();
+  vi.spyOn(stores.projectApi, 'getReviewCount').mockResolvedValue(1);
+  mount();
+  const note = await screen.findByTestId('review-note-input');
+  fireEvent.keyDown(note, { key });
+  fireEvent.keyDown(window, { key, repeat: true });
+  fireEvent.keyDown(window, { key, isComposing: true });
+  expect(decide).not.toHaveBeenCalled();
+  fireEvent.keyDown(window, { key });
+  await waitFor(() => expect(decide).toHaveBeenCalledWith('9:3:4', decision, undefined));
+});
+
+it('edits the field whose pencil was clicked and records a correction', async () => {
+  vi.spyOn(stores.projectApi, 'getReviewBundles').mockResolvedValue(multiPage());
+  const decide = vi.spyOn(stores.projectApi, 'reviewItem').mockResolvedValue();
+  vi.spyOn(stores.projectApi, 'getReviewCount').mockResolvedValue(1);
+  mount();
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit second', exact: true }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Edit proposed second value' }), { target: { value: 'Fixed' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save edit' }));
+  await waitFor(() => expect(screen.getByTestId('review-field-second')).toHaveTextContent('Fixed'));
+  expect(decide).toHaveBeenCalledWith('9:3:5', 'edit', 'Fixed');
+  expect(screen.getByRole('button', { name: 'Edit second', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByRole('button', { name: 'Accept second' })).toHaveAttribute('aria-pressed', 'false');
+  expect(screen.getByTestId('review-field-second')).toHaveAttribute('data-review-decision', 'edit');
+  expect(screen.queryByRole('button', { name: 'Reject and clear' })).not.toBeInTheDocument();
+});
+
+it('accepts the final row without navigating beyond it', async () => {
+  const load = vi.spyOn(stores.projectApi, 'getReviewBundles').mockResolvedValue(page('last'));
+  vi.spyOn(stores.projectApi, 'reviewItem').mockResolvedValue();
+  vi.spyOn(stores.projectApi, 'getReviewCount').mockResolvedValue(0);
+  mount();
+  fireEvent.click(await screen.findByRole('button', { name: 'Accept all' }));
+  await screen.findByText('Row done');
+  expect(screen.getByTestId('review-page-status')).toHaveTextContent('1 / 1');
+  expect(load).toHaveBeenCalledOnce();
+});
+
+it('waits for a complete bulk save before advancing across the page boundary', async () => {
+  const first = page('first');
+  Object.assign(first, { total: 2, limit: 1, hasMore: true, nextOffset: 1 });
+  const next = page('next');
+  Object.assign(next, { offset: 1, total: 2, limit: 1 });
+  const load = vi.spyOn(stores.projectApi, 'getReviewBundles').mockResolvedValueOnce(first).mockResolvedValueOnce(next);
+  let finish!: () => void;
+  vi.spyOn(stores.projectApi, 'reviewItem').mockReturnValue(new Promise<void>((resolve) => { finish = resolve; }));
+  vi.spyOn(stores.projectApi, 'getReviewCount').mockResolvedValue(1);
+  mount();
+  fireEvent.click(await screen.findByRole('button', { name: 'Accept all' }));
+  expect(screen.getByTestId('review-page-status')).toHaveTextContent('1 / 2');
+  expect(load).toHaveBeenCalledOnce();
+  finish();
+  await waitFor(() => expect(screen.getByTestId('review-page-status')).toHaveTextContent('2 / 2'));
+  expect(load).toHaveBeenLastCalledWith(1, 25, '9', true, options);
 });
 
 it('lets the reviewer close while the initial page is loading', async () => {

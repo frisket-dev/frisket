@@ -13,21 +13,21 @@
 .field[data-review-state='rejected'] .value { text-decoration: line-through; color: var(--text-mid); }
 .field[data-review-state='verified'] .fieldHeading small { color: var(--green); }
 .field[data-review-state='rejected'] .fieldHeading small { color: var(--red); }
+.field[data-review-decision='edit'] .fieldHeading small { color: var(--red); }
 .confidence { display: block; font-size: 10px; margin-top: 6px; }
 .verdict { display: flex; align-self: start; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
 .verdict button { display: grid; place-items: center; width: 31px; height: 28px; border: 0; background: var(--bg-panel); color: var(--text-mid); cursor: pointer; }
 .verdict button + button { border-left: 1px solid var(--border); }
 .verdict .accept[aria-pressed='true'] { color: var(--green); background: var(--green-bg); }
-.verdict .reject[aria-pressed='true'] { color: var(--red); background: var(--red-bg); }
+.verdict .reject[aria-pressed='true'], .verdict .edit[aria-pressed='true'] { color: var(--red); background: var(--red-bg); }
 .verdict button:hover:not(:disabled) { background: var(--bg-hover); }
 .verdict button:disabled, .textButton:disabled { opacity: .45; cursor: default; }
 .justification { grid-column: 1 / -1; font-size: 12px; line-height: 1.6; color: var(--text-mid); margin: 0; }
 .editor { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap; }
 .editor textarea { flex-basis: 100%; width: 100%; font-size: 13px; }
 .footer { flex: 0 0 auto; padding: 14px 20px 10px; border-top: 1px solid var(--border); font-size: 12px; }
-.footerLine, .footerButtons, .editActions { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.footerLine, .footerButtons { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .footerLine { margin-bottom: 8px; }
-.editActions { justify-content: flex-start; margin-bottom: 8px; }
 .textButton { display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; color: var(--text-mid); padding: 0; font: inherit; font-size: 11px; cursor: pointer; }
 .note { width: 100%; margin: 0 0 10px; font-size: 12px; min-height: 48px; max-height: 100px; resize: none; }
 .rowDone { color: var(--green); display: flex; align-items: center; gap: 6px; }

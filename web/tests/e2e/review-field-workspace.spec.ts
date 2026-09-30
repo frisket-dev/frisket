@@ -40,7 +40,7 @@ test('review workspace saves independent decisions, resets verdicts, and keeps a
   const noteText = 'The first filing needs source verification.';
   const note = queue.getByTestId('review-note-input');
   await note.fill(noteText);
-  await queue.locator('[aria-label="Next row"]').click();
+  await queue.getByRole('button', { name: 'Accept all', exact: true }).click();
   await expect(queue.getByTestId('review-page-status')).toHaveText('2 / 2');
   const runId = await queue.getByTestId('review-run-select').inputValue();
   const afterLeave = await page.request.get(`/api/projects/${pid}/review/bundles?run_id=${runId}&include_reviewed=true`);
@@ -74,6 +74,10 @@ test('review workspace saves independent decisions, resets verdicts, and keeps a
 test('review uses cited-source tabs and the canonical text highlighter without nested scrolling', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('review-cited-source'));
   const seeded = extractRecordedContent(pid);
+  const citationRequests: string[] = [];
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname.includes('/evidence')) citationRequests.push(request.url());
+  });
   await openProject(page, pid, seeded.sheetId);
   await page.getByTestId('review-queue-button').click();
   const queue = page.getByTestId('review-queue');
@@ -82,6 +86,13 @@ test('review uses cited-source tabs and the canonical text highlighter without n
   const source = queue.getByTestId('evidence-text-body');
   await expect(source).toContainText('EMPLOYMENT DISCRIMINATION COMPLAINT');
   await expect(queue.getByTestId('evidence-text-highlight').first()).toBeVisible();
+  const loadedRequests = citationRequests.length;
+  expect(loadedRequests).toBeGreaterThan(0);
+  const sourceElement = await source.elementHandle();
+  await queue.getByRole('button', { name: /^Accept / }).first().click();
+  await expect(queue.getByTestId('review-bundle-fields').locator('[data-review-state="verified"]').first()).toBeVisible();
+  expect(citationRequests).toHaveLength(loadedRequests);
+  expect(await sourceElement!.evaluate((element) => element.isConnected)).toBe(true);
   expect(await source.evaluate((element) => getComputedStyle(element).maxHeight)).toBe('none');
   expect(await source.evaluate((element) => getComputedStyle(element).overflowY)).toBe('visible');
   const card = await queue.getByTestId('review-card').boundingBox();
