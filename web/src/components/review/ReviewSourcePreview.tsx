@@ -50,6 +50,8 @@ export function ReviewSourcePreview({
   const viewerRef = useRef<HTMLDivElement | null>(null);
 
   const citationTargetsKey = bundle ? citationKey(bundle) : null;
+  const inputEntries: Array<[string, CellValue]> = bundle?.sources
+    ? bundle.sources.map((source) => [source.columnName, source.value]) : sourceEntries;
 
   useEffect(() => {
     if (!citationTargetsKey) return undefined;
@@ -132,7 +134,7 @@ export function ReviewSourcePreview({
         <div className={styles.paneActions}>
           <button type="button" className={styles.paneAction} aria-pressed={showRowFields}
             onClick={() => setShowRowFields((shown) => !shown)}>
-            Inputs · {sourceEntries.length}
+            Inputs · {inputEntries.length}
           </button>
         </div>
       </div>
@@ -143,7 +145,7 @@ export function ReviewSourcePreview({
           emphasizedSpanIds={focusedSpanIds.length ? focusedSpanIds : selectedSpanIds(activeSource, activeField?.id)} />}
         {currentState?.phase === 'ready' && !activeSource && <p className={styles.empty}>No cited sources are recorded for this field.</p>}
       </div>
-      {showRowFields && <RowFieldsDrawer entries={sourceEntries} bundle={bundle} onClose={() => setShowRowFields(false)} />}
+      {showRowFields && <RowFieldsDrawer entries={inputEntries} bundle={bundle} onClose={() => setShowRowFields(false)} />}
     </section>
   );
 }

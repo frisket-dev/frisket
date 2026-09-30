@@ -14,6 +14,9 @@ const projectApi = vi.hoisted(() => ({
 vi.mock('../../src/bind/useWorkspaceStores', () => ({
   useWorkspaceStores: () => ({ projectApi }),
 }));
+vi.mock('../../src/components/RowDrawer', () => ({
+  FieldValue: ({ value }: { value: unknown }) => <span>{value == null ? '(empty)' : String(value)}</span>,
+}));
 vi.mock('../../src/components/EvidenceViewer', () => ({
   ArtifactSource: ({ artifact, emphasizedSpanIds }: { artifact: { stable_id: string }; emphasizedSpanIds?: string[] }) => (
     <div data-testid="artifact-source" data-source-id={artifact.stable_id} data-emphasized={emphasizedSpanIds?.join(',') ?? ''}>
@@ -80,6 +83,18 @@ describe('ReviewSourcePreview', () => {
       disconnect() {}
     }
     vi.stubGlobal('ResizeObserver', ResizeObserver);
+  });
+
+  it('keeps declared null inputs visible alongside saved citations', async () => {
+    projectApi.getCellEvidence.mockResolvedValue(cellEvidence(['link:a']));
+    projectApi.getEvidenceViewer.mockResolvedValue(viewer('link:a', 'source:a', 'span:a', 'Notes'));
+    const row = { ...bundle, sources: [{ columnId: 'input-1', columnName: 'Empty input',
+      columnType: 'text' as const, value: null }] };
+    render(<ReviewSourcePreview bundle={row} activeField={fieldOne} sourceEntries={[]} />);
+    await screen.findByTestId('artifact-source');
+    fireEvent.click(screen.getByRole('button', { name: 'Inputs · 1' }));
+    expect(screen.getByTestId('review-row-fields-drawer')).toHaveTextContent('Empty input');
+    expect(screen.getByTestId('review-row-fields-drawer')).toHaveTextContent('(empty)');
   });
 
   it('does not seek the old source when an item selects another recording', async () => {
