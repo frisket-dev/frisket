@@ -4,8 +4,9 @@ import type { CellValue, ReviewBundleField } from '../../api/types';
 import { useEscapeDismiss } from '../../hooks/useEscapeDismiss';
 import { handleAutoResizeTextareaInput, resizeTextareaToContent } from '../action-panel/formControlHelpers';
 import { ReviewSourcePreview } from './ReviewSourcePreview';
+import { ReviewValue } from './ReviewValue';
 import { decisionLabel, isDecided } from './reviewDecisions';
-import { useReviewSession, type ReviewSessionController, type ReviewSessionOptions } from './useReviewSession';
+import { isPlainTextReviewField, useReviewSession, type ReviewSessionController, type ReviewSessionOptions } from './useReviewSession';
 import styles from './ReviewWorkspace.module.css';
 
 export interface ReviewSessionProps extends ReviewSessionOptions {
@@ -28,6 +29,7 @@ function FieldDecision({ field, controller: c }: { field: ReviewBundleField; con
   useEffect(() => {
     if (selected) sectionRef.current?.scrollIntoView?.({ block: 'nearest' });
   }, [selected]);
+  const editable = isPlainTextReviewField(field);
   return <section ref={sectionRef} className={styles.field} data-selected={selected} data-review-state={field.reviewState}
     data-testid={`review-field-${field.columnName}`} data-review-changed={field.changed ? 'true' : 'false'} data-review-decision={field.reviewDecision}>
     <button type="button" className={styles.fieldSelect} aria-pressed={selected}
@@ -35,9 +37,6 @@ function FieldDecision({ field, controller: c }: { field: ReviewBundleField; con
       <span className={styles.fieldHeading}><strong>{field.columnName}</strong>
         {isDecided(field) && <small>{decisionLabel(field)}</small>}
       </span>
-      <span className={styles.value}>{field.columnType === 'image' && field.value
-        ? <img src={String(field.value)} alt={`${field.columnName} value`} />
-        : field.value === null ? '—' : String(field.value)}</span>
       {field.confidence !== null && <small className={styles.confidence}>Confidence {field.confidence.toFixed(2)}</small>}
     </button>
     <div className={styles.verdict} role="group" aria-label={`Decision for ${field.columnName}`}>
@@ -48,8 +47,14 @@ function FieldDecision({ field, controller: c }: { field: ReviewBundleField; con
         aria-pressed={field.reviewState === 'rejected'} disabled={c.busy || c.readOnly}
         className={styles.reject} onClick={() => c.toggle(field, 'reject')}><X size={16} /></button>
       <button type="button" aria-label={`Edit ${field.columnName}`} title="Edit (E) — counts as incorrect"
-        aria-pressed={editing || field.reviewDecision === 'edit'} disabled={c.busy || c.readOnly}
+        aria-pressed={editing || field.reviewDecision === 'edit'} disabled={c.busy || c.readOnly || !editable}
         className={styles.edit} onClick={() => c.startEdit(field)}><Pencil size={14} /></button>
+    </div>
+    <div className={styles.value} onClick={(event) => {
+      const target = event.target;
+      if (!c.busy && (!(target instanceof Element) || !target.closest('a, button, input, select, textarea, [role="button"]'))) c.selectField(field.id);
+    }}>
+      <ReviewValue field={field} />
     </div>
     {editing && <div className={styles.editor}>
       <textarea ref={(node) => { if (node && document.activeElement !== node) { node.focus(); resizeTextareaToContent(node); } }}

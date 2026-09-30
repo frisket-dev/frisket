@@ -1,0 +1,13 @@
+.reviewValue { min-width: 0; }
+.reviewValue :global(.row-field-value),
+.reviewValue :global(.row-field-json),
+.reviewValue :global(.json-list),
+.reviewValue :global(.json-object) { margin: 0; }
+.object { display: grid; gap: 7px; }
+.objectEntry { display: grid; grid-template-columns: minmax(72px, .35fr) minmax(0, 1fr); gap: 4px 12px; align-items: start; }
+.term { min-width: 0; color: var(--text-mid); font-size: 11px; font-weight: 600; overflow-wrap: anywhere; }
+.description { min-width: 0; margin: 0; }
+.list { padding-left: 20px; }
+.reviewValue :global([data-review-result-selectable='true']) { cursor: pointer; }
+.reviewValue :global([data-review-result-selectable='true']:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 620px) { .objectEntry { grid-template-columns: 1fr; } }

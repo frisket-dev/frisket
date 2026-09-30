@@ -8,7 +8,8 @@
 .fieldSelect { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; min-width: 0; }
 .fieldHeading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; }
 .fieldHeading small { font-size: 10px; color: var(--text-mid); }
-.value { display: block; margin-top: 6px; font-size: 13px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.value { grid-column: 1 / -1; display: block; font-size: 13px; line-height: 1.6; white-space: normal; overflow-wrap: anywhere; }
+.value :global(.row-field-value), .value :global(.row-field-json) { white-space: pre-wrap; }
 .value img { max-width: 100%; max-height: 240px; }
 .field[data-review-state='rejected'] .value { text-decoration: line-through; color: var(--text-mid); }
 .field[data-review-state='verified'] .fieldHeading small { color: var(--green); }
