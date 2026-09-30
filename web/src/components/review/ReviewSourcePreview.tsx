@@ -46,6 +46,7 @@ export function ReviewSourcePreview({
   const { projectApi: api } = useWorkspaceStores();
   const [state, setState] = useState<LoadState | null>(null);
   const [activeSourceId, setActiveSourceId] = useState<string | null>(null);
+  const [previousFocus, setPreviousFocus] = useState<{ item: ReviewItemSelection | null; sourceId?: string }>({ item: null });
   const [showRowFields, setShowRowFields] = useState(false);
   const viewerRef = useRef<HTMLDivElement | null>(null);
 
@@ -75,10 +76,12 @@ export function ReviewSourcePreview({
   const focusedLocations = selectedItem && selectedItem.fieldId === activeField?.id
     ? itemLocations.filter((location) => location.fieldId === selectedItem.fieldId && location.index === selectedItem.index) : [];
   const focusedSourceId = focusedLocations[0]?.sourceId;
-  useEffect(() => { if (focusedSourceId) setActiveSourceId(focusedSourceId); }, [focusedSourceId, selectedItem]);
-  const activeSource = tabs.find((source) => source.id === activeSourceId) ?? tabs[0] ?? null;
-  const focusedSpanIds = focusedLocations.filter((location) => location.sourceId === activeSource?.id).map((location) => location.spanId);
-  const focusedSpanKey = focusedSpanIds.join('|');
+  const focusChanged = previousFocus.item !== (selectedItem ?? null) || previousFocus.sourceId !== focusedSourceId;
+  if (focusChanged) setPreviousFocus({ item: selectedItem ?? null, sourceId: focusedSourceId });
+  const sourceId = focusChanged && focusedSourceId ? focusedSourceId : activeSourceId;
+  const activeSource = tabs.find((source) => source.id === sourceId) ?? tabs[0] ?? null;
+  const focusedSpanKey = focusedLocations.filter((location) => location.sourceId === activeSource?.id).map((location) => location.spanId).join('|');
+  const focusedSpanIds = useMemo(() => focusedSpanKey ? focusedSpanKey.split('|') : [], [focusedSpanKey]);
   // Remember the displayed fallback, so a later field preserves that source
   // instead of resurrecting a tab that was no longer available.
   if (activeSource && activeSource.id !== activeSourceId) setActiveSourceId(activeSource.id);
@@ -105,7 +108,7 @@ export function ReviewSourcePreview({
     // the autoplay-rejection guard. Reuse that behavior when a shared source
     // remains selected while the reviewer moves to a different field.
     viewer.querySelector<HTMLButtonElement>('.evidence-temporal-segment-emphasized')?.click();
-  }, [activeField?.id, activeSource, focusedSpanKey, selectedItem]);
+  }, [activeField?.id, activeSource, focusedSpanIds, selectedItem]);
 
   if (currentState?.phase === 'ready' && tabs.length === 0 && bundle?.sources?.length) {
     return <ReviewInputSources bundle={bundle} />;
