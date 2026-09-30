@@ -97,12 +97,8 @@ async function desktopAutomaticUpdateMenu(electron, { click = false } = {}) {
   return electron.evaluate(({ Menu }, shouldClick) => {
     const item = Menu.getApplicationMenu()?.getMenuItemById('desktop-update-automatic');
     if (!item) throw new Error('Installed app has no desktop-update-automatic menu item.');
-    if (shouldClick) {
-      // Native checkbox activation flips this value before it calls the menu
-      // handler. Do the same when driving the privileged menu object directly.
-      item.checked = !item.checked;
-      item.click(item);
-    }
+    // Electron's click wrapper flips checkbox state before calling our handler.
+    if (shouldClick) item.click();
     return { label: item.label, type: item.type, checked: item.checked, enabled: item.enabled };
   }, click);
 }
