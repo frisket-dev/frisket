@@ -29,17 +29,35 @@ SUPPORT_COLUMN_SUFFIXES = (
 )
 
 
-def is_support_column(column_name: str) -> bool:
+def is_support_column(column_name: str, *, action_kind: str | None = None) -> bool:
+    # Every declared map.find output is authored result data.  A caller may
+    # legitimately name a detail "source" or "confidence"; the generic
+    # name convention must not silently remove it from Review.
+    if action_kind == "map.find":
+        return False
     name = column_name.lower()
     return name in SUPPORT_COLUMN_NAMES or name.endswith(SUPPORT_COLUMN_SUFFIXES)
 
 
-def primary_where(alias: str = "c") -> str:
+def primary_where(alias: str = "c", *, run_alias: str | None = None) -> str:
     name = f"lower({alias}.name)"
     clauses = [f"{name} NOT IN ({','.join('?' for _ in SUPPORT_COLUMN_NAMES)})"]
     for suffix in SUPPORT_COLUMN_SUFFIXES:
         clauses.append(f"{name} NOT LIKE ? ESCAPE '\\'")
-    return " AND ".join(clauses)
+    conventional = " AND ".join(clauses)
+    if run_alias is None:
+        return conventional
+    return f"({run_alias}.action_kind='map.find' OR ({conventional}))"
+
+
+def visible_result_where(row_alias: str = "rr", column_alias: str = "c") -> str:
+    """SQL predicate shared by Review reads and mutations."""
+    return (
+        f"{row_alias}.hidden = 0 AND EXISTS ("
+        "SELECT 1 FROM sheets review_sheet "
+        f"WHERE review_sheet.id={column_alias}.sheet_id "
+        "AND review_sheet.hidden=0)"
+    )
 
 
 def primary_params() -> tuple[str, ...]:

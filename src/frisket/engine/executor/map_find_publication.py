@@ -404,13 +404,9 @@ def write_find_result(
     )
     rows = [
         AggregateMaterializedRow(
-            values={
-                params.output_names["match"]: _match_value(match),
-                **{
-                    params.output_names[key]: value
-                    for key, value in _match_details(match).items()
-                },
-            },
+            # Generated values are published through results below.  The
+            # aggregate helper owns only the sheet, rows, and source membership.
+            values={},
             source_row_ids=[match.source.row_id],
         )
         for match in scan.matches
@@ -482,8 +478,113 @@ def write_find_result(
         write = write_aggregate_sheet(project.db.cursor(), plan)
         if replacing:
             project.db.execute("UPDATE ops SET barrier=1 WHERE id=?", (write.op_id,))
+        from frisket.engine.executor.project_run_terminalization import (
+            UnclaimedRunTerminalAuthority,
+            terminalize_project_run,
+        )
+        from frisket.engine.runner.publication import PUBLISH_NULL, PUBLISH_VALUE
+        from frisket.engine.runner.result_generations import _compatibility_key
+        from frisket.engine.store.output_claims import OutputColumnClaimStore
+        from frisket.engine.store.result_generations import ResultGenerationStore
+
+        run_store = RunResultStore(project)
+        run_id = run_store.start_run(
+            write.op_id,
+            write.sheet_id,
+            action.kind,
+            model=params.model,
+            prompt_hash=admitted["resolved_prompt_hash"],
+            params=op_spec["params"],
+            total_rows=len(scan.matches),
+            cost_estimate=admitted["estimate"].get("cost"),
+            row_ids=write.row_ids,
+            commit=False,
+        )
+        receipts = ReceiptStore(project)
+        stored_receipt = receipts.parsed_by_id(receipt_id)
+        if stored_receipt is None or not receipts.update_body_status(
+            stored_receipt.model_copy(update={"run_id": run_id}),
+            require_status="running",
+            commit=False,
+        ):
+            raise RuntimeError("map.find running receipt was lost")
+        run_store.write_unscoped_model_calls(
+            calls, row_id=None, column_id=None, commit=False
+        )
+        run_store.attach_unscoped_model_calls(
+            run_id,
+            [str(call["id"]) for call in calls],
+            receipt_id=receipt_id,
+            action_kind=action.kind,
+            params_hash=params_hash,
+            commit=False,
+        )
+        output_fields = [
+            {"name": column.name, "column_type": column.type} for column in columns
+        ]
+        claim_token = f"output-claim:{receipt_id}"
+        claims, conflict = OutputColumnClaimStore(project).acquire(
+            sheet_id=write.sheet_id,
+            output_names=[field["name"] for field in output_fields],
+            action_kind=action.kind,
+            receipt_id=receipt_id,
+            run_id=run_id,
+            op_id=write.op_id,
+            claim_token=claim_token,
+            details={"output_fields": output_fields},
+            commit=False,
+        )
+        if conflict is not None or len(claims) != len(output_fields):
+            raise RuntimeError("map.find could not acquire its exact output claim")
+        generations = ResultGenerationStore(project)
+        for field in output_fields:
+            column_id = write.column_ids[str(field["name"])]
+            generations.declare(
+                run_id,
+                column_id,
+                output_role=str(field["name"]),
+                compatibility_key=_compatibility_key(field=field),
+                write_mode="create",
+                claim_token=claim_token,
+                commit=False,
+            )
+        result_batch: list[dict[str, Any]] = []
+        for child_row_id, match in zip(write.row_ids, scan.matches, strict=True):
+            values = {
+                params.output_names["match"]: _match_value(match),
+                **{
+                    params.output_names[key]: value
+                    for key, value in _match_details(match).items()
+                },
+            }
+            for field in output_fields:
+                value = values.get(str(field["name"]))
+                result_batch.append(
+                    {
+                        "row_id": child_row_id,
+                        "column_id": write.column_ids[str(field["name"])],
+                        "value": value,
+                        "confidence": None,
+                        "justification": None,
+                        "error": None,
+                        "error_code": None,
+                        "publication_effect": (
+                            PUBLISH_NULL if value is None else PUBLISH_VALUE
+                        ),
+                    }
+                )
+        run_store.write_precomputed_results(
+            run_id,
+            result_batch,
+            receipt_id=receipt_id,
+            action_kind=action.kind,
+            params_hash=params_hash,
+            claim_token=claim_token,
+            commit=False,
+        )
         artifact_cache: dict[tuple[int, int], dict[str, Any]] = {}
         link_ids: list[str] = []
+        result_link_ids: list[str] = []
         for child_row_id, match in zip(write.row_ids, scan.matches, strict=True):
             spans = _match_span_refs(project, match, artifact_cache=artifact_cache)
             if not spans:
@@ -526,16 +627,55 @@ def write_find_result(
                 },
             )
             link_ids.append(str(link["stable_id"]))
-        RunResultStore(project).write_unscoped_model_calls(
-            calls, row_id=None, column_id=None, commit=False
-        )
+            for column_id in write.column_ids.values():
+                result_link = record_evidence_link(
+                    project,
+                    subject_kind="cell",
+                    subject_ref={
+                        "kind": "run_result",
+                        "op_id": write.op_id,
+                        "row_id": child_row_id,
+                        "column_id": column_id,
+                        "run_id": run_id,
+                    },
+                    spans=spans,
+                    sheet_id=write.sheet_id,
+                    row_id=child_row_id,
+                    column_id=column_id,
+                    run_id=run_id,
+                    op_id=write.op_id,
+                    receipt_id=receipt_id,
+                    link_role="primary_support",
+                    pinned=True,
+                    producer={
+                        "action_kind": action.kind,
+                        "source_row_id": match.source.row_id,
+                    },
+                    metadata={
+                        "schema_version": "frisket.map_find_match.v1",
+                        "source_snapshot": match.source.source_snapshot,
+                    },
+                )
+                result_link_ids.append(str(result_link["stable_id"]))
         outputs = _action_outputs(params, write)
         result_status = "completed" if not scan.issues else "partial"
+        generations.seal(
+            run_id,
+            list(write.column_ids.values()),
+            claim_token=claim_token,
+            terminal_disposition=result_status,
+            commit=False,
+        )
+        for column_id in write.column_ids.values():
+            run_store.point_column_at_run(
+                write.op_id, column_id, run_id, commit=False
+            )
         receipt = Receipt(
             receipt_id=receipt_id,
             project_id=project_id,
             action_id=action_id,
             action_kind=action.kind,
+            run_id=run_id,
             op_ids=[write.op_id],
             idempotency_key=action.idempotency_key,
             params_hash=params_hash,
@@ -580,18 +720,39 @@ def write_find_result(
                     retention="pinned",
                 ),
                 ReceiptEvidence(
+                    ref={
+                        "kind": "map_find_result_evidence",
+                        "evidence_link_ids": result_link_ids,
+                    },
+                    retention="pinned",
+                ),
+                ReceiptEvidence(
                     ref=write.materialized_row_sources_ref,
                     retention="pinned",
                 ),
             ],
             errors=list(scan.issues),
         )
-        updated = ReceiptStore(project).update_body_status(
-            receipt, require_status="running", commit=False
+        terminalization = terminalize_project_run(
+            project,
+            run_id=run_id,
+            receipt_id=receipt_id,
+            status=result_status,
+            run_status="completed",
+            authority=UnclaimedRunTerminalAuthority(),
+            terminal_receipt=receipt,
+            receipt_source_statuses={"running"},
+            commit=False,
         )
-        if not updated:
-            raise RuntimeError("map.find running receipt was lost")
+        if (
+            terminalization.disposition != "terminalized"
+            or terminalization.receipt_disposition != "updated"
+        ):
+            raise RuntimeError(
+                terminalization.reason or "map.find terminalization was refused"
+            )
         project.db.commit()
+        project.refresh_pending_review_summary()
     except _FindPublicationRefusal as exc:
         project.db.rollback()
         return _failure_after_egress(
@@ -613,6 +774,7 @@ def write_find_result(
         action=ActionIdentity(kind=action.kind, action_id=action_id),
         status="completed" if not scan.issues else "partial",
         project_id=project_id,
+        run_id=run_id,
         op_ids=[write.op_id],
         outputs=outputs,
         receipt_id=receipt_id,

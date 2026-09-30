@@ -12,6 +12,7 @@ from frisket.review_predicate import (
     is_support_column,
     primary_params as _primary_params,
     primary_where as _primary_where,
+    visible_result_where as _visible_result_where,
 )
 from frisket.server.paging import offset_page_payload
 from frisket.engine.store import Project
@@ -31,7 +32,7 @@ _ACTIVE_RESULT_WHERE = (
 )
 _ELIGIBLE_PRIMARY_WHERE = (
     f"res.outcome IN ({REVIEWABLE_OUTCOMES_SQL}) "
-    f"AND rr.hidden = 0 AND {_ACTIVE_RESULT_WHERE}"
+    f"AND {_visible_result_where('rr', 'c')} AND {_ACTIVE_RESULT_WHERE}"
 )
 _EXACT_REVIEW_CORRECTION = """
     visible_cell.origin_kind = 'manual_edit'
@@ -155,7 +156,7 @@ def review_queue(
     if run_id is not None:
         where += " AND res.run_id = ?"
         params.append(run_id)
-    primary_where = _primary_where("c")
+    primary_where = _primary_where("c", run_alias="runs")
     primary_params = _primary_params()
     rows = project.db.execute(
         f"""
@@ -230,7 +231,7 @@ def review_bundles(
         where += " AND res.column_id = ?"
         params.append(field_id)
     review_where = "1 = 1" if include_reviewed else "res.review_state = 'unreviewed'"
-    primary_where = _primary_where("c")
+    primary_where = _primary_where("c", run_alias="runs")
     primary_params = _primary_params()
     if order == "shuffle":
         # A seeded hash gives each row a stable shuffled rank across pages and
@@ -305,7 +306,13 @@ def review_bundles(
         fields = []
         evidence = []
         for cell in cells:
-            role = "evidence" if is_support_column(cell["column_name"]) else "field"
+            role = (
+                "evidence"
+                if is_support_column(
+                    cell["column_name"], action_kind=str(key["action_kind"])
+                )
+                else "field"
+            )
             item = {
                 "run_id": cell["run_id"],
                 "row_id": cell["row_id"],
@@ -386,7 +393,7 @@ def review_bundle_count(
         where += " AND res.column_id = ?"
         params.append(field_id)
     review_where = "1 = 1" if include_reviewed else "res.review_state = 'unreviewed'"
-    primary_where = _primary_where("c")
+    primary_where = _primary_where("c", run_alias="runs")
     primary_params = _primary_params()
     row = project.db.execute(
         f"""
@@ -473,7 +480,7 @@ def review_runs_page(
 ) -> dict[str, Any]:
     """List runs with active, visible primary results and decision counts."""
     where, params = _eligible_run_where(sheet_id=sheet_id, run_id=run_id)
-    primary_where = _primary_where("c")
+    primary_where = _primary_where("c", run_alias="runs")
     primary_params = _primary_params()
     eligible_from = f"""
         FROM results res
@@ -523,6 +530,7 @@ def review_runs_page(
             FROM results res
             JOIN columns c ON c.id = res.column_id
             {_ACTIVE_HEAD_JOIN}
+            JOIN runs ON runs.id = res.run_id
             JOIN rows rr ON rr.id = res.row_id AND rr.sheet_id = c.sheet_id
             WHERE res.run_id IN ({placeholders})
               AND {_ELIGIBLE_PRIMARY_WHERE} AND {primary_where}
@@ -580,7 +588,7 @@ def set_review_run_status(
     project: Project, *, run_id: int, status: str
 ) -> dict[str, Any] | None:
     """Set workflow status only when the run still has reviewable active output."""
-    primary_where = _primary_where("c")
+    primary_where = _primary_where("c", run_alias="runs")
     db = project.db
     db.execute("BEGIN IMMEDIATE")
     try:
@@ -620,7 +628,7 @@ def set_review_run_status(
 
 
 def queue_count(project: Project, *, run_id: int | None = None) -> int:
-    primary_where = _primary_where("c")
+    primary_where = _primary_where("c", run_alias="runs")
     run_where = "AND res.run_id=?" if run_id is not None else ""
     params = (*_primary_params(), *((run_id,) if run_id is not None else ()))
     return project.db.execute(
@@ -628,6 +636,7 @@ def queue_count(project: Project, *, run_id: int | None = None) -> int:
         SELECT COUNT(*) FROM results res
         JOIN columns c ON c.id = res.column_id
         {_ACTIVE_HEAD_JOIN}
+        JOIN runs ON runs.id = res.run_id
         JOIN rows rr ON rr.id = res.row_id AND rr.sheet_id = c.sheet_id
         WHERE res.review_state = 'unreviewed' AND {_ELIGIBLE_PRIMARY_WHERE}
           AND {primary_where} {run_where}
