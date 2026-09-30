@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from frisket.authoring.action_metadata import action_metadata_for_action_kind
 from frisket.contracts.action import ActionResult
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
+from frisket.server import review_payloads
 from frisket.server.app import create_app
 from http_test_helpers import drain_queue, post_v1_action_with_exact_confirmation
 
@@ -43,6 +44,31 @@ def test_action_metadata_uses_stable_unknown_fallback() -> None:
         "action_kind": "unknown",
         "action_name": "Unknown action",
     }
+
+
+def test_review_payload_page_resolves_each_action_kind_once(monkeypatch) -> None:
+    calls: list[str] = []
+
+    def metadata(kind: object) -> dict[str, str]:
+        value = str(kind)
+        calls.append(value)
+        return {"action_kind": value, "action_name": f"Title {value}"}
+
+    monkeypatch.setattr(review_payloads, "action_metadata_for_action_kind", metadata)
+    payloads = review_payloads.public_review_action_payloads(
+        [
+            {"action_kind": "map.classify", "row_id": 1},
+            {"action_kind": "map.classify", "row_id": 2},
+            {"action_kind": "map.extract", "row_id": 3},
+        ]
+    )
+
+    assert calls == ["map.classify", "map.extract"]
+    assert [item["action_name"] for item in payloads] == [
+        "Title map.classify",
+        "Title map.classify",
+        "Title map.extract",
+    ]
 
 
 def test_http_review_queue_and_bundles_use_action_metadata(tmp_path) -> None:
@@ -138,6 +164,7 @@ def test_http_review_queue_and_bundles_use_action_metadata(tmp_path) -> None:
             "review_note": None,
             "role": "field",
             "chore": True,
+            "changed": False,
         }
     ]
     assert {item["column_name"] for item in bundle["evidence"]} == {
