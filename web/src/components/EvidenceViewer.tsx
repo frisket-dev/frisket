@@ -364,7 +364,7 @@ export function ArtifactSource({
           <EvidencePageView key={page.page} page={page} artifactStableId={artifact.stable_id} emphasizedSpanIds={emphasizedSpanIds} />
         ))
       ) : isTextRenderableMediaType(artifact.media_type) && (evidenceTextContext(artifact) !== null || textCitedSpans(artifact).length > 0) ? (
-        <TextArtifactSource artifact={artifact} scopeSpanId={scopeSpanId} highlight={highlight} emphasizedSpanIds={emphasizedSpanIds} />
+        <TextArtifactSource key={artifact.stable_id} artifact={artifact} scopeSpanId={scopeSpanId} highlight={highlight} emphasizedSpanIds={emphasizedSpanIds} />
       ) : artifact.media_type.startsWith('image/') && blob ? (
         <div className="evidence-page-image-frame">
           <img className="evidence-page-image" src={blob.url} alt={artifact.title || artifact.filename || 'Source image'} />
@@ -380,7 +380,7 @@ export function ArtifactSource({
           title={`Evidence PDF: ${artifact.title || artifact.filename || artifact.media_type}`}
         />
       ) : (
-        <MediaOrFallback artifact={artifact} emphasizedSpanIds={emphasizedSpanIds} />
+        <MediaOrFallback key={artifact.stable_id} artifact={artifact} emphasizedSpanIds={emphasizedSpanIds} />
       )}
     </section>
   );

@@ -69,6 +69,18 @@ describe('ArtifactSource media coverage', () => {
     expect(screen.getByTestId('evidence-text-highlight')).toHaveAttribute('data-emphasized', 'true');
   });
 
+  it('resets the media reader only when the source artifact changes', () => {
+    const first = { ...mediaArtifact('audio/mpeg'), stable_id: 'first' };
+    const { container, rerender } = render(<ArtifactSource artifact={first} />);
+    const player = container.querySelector('audio')!;
+    player.currentTime = 17;
+    rerender(<ArtifactSource artifact={{ ...first }} />);
+    expect(container.querySelector('audio')).toBe(player);
+    rerender(<ArtifactSource artifact={{ ...first, stable_id: 'second', artifact_ref: artifactRef({ blob: blobRef('/second') }) }} />);
+    expect(container.querySelector('audio')).not.toBe(player);
+    expect(container.querySelector('audio')!.currentTime).toBe(0);
+  });
+
   it.each(['audio/mpeg', 'video/mp4'])('renders %s with separate timestamped segments and working seek', (mediaType) => {
     const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
     const artifact = mediaArtifact(mediaType);
