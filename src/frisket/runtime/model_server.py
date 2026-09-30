@@ -25,7 +25,6 @@ from frisket.runtime.supervisor import spawn_service, stop_service
 LOCAL_MODELS_URL_ENV = "FRISKET_LOCAL_MODELS_URL"
 LOCAL_MODELS_TOKEN_ENV = "FRISKET_LOCAL_MODELS_TOKEN"
 _POLL_SECONDS = 1.0
-_STARTUP_TIMEOUT_SECONDS = 10.0
 _RETRY_SECONDS = 30.0
 
 logger = logging.getLogger(__name__)
@@ -155,6 +154,7 @@ class LocalModelServer:
                 extra={"event": "local_model_server_ready", "url": self.url},
             )
             return True
+        returncode = process.poll()
         with self._lock:
             if self._process is process:
                 self._process = None
@@ -166,7 +166,11 @@ class LocalModelServer:
         logger.error(
             "Local model server did not become ready; will retry. "
             "If this persists, restart Frisket to choose a fresh port.",
-            extra={"event": "local_model_server_start_failed", "url": self.url},
+            extra={
+                "event": "local_model_server_start_failed",
+                "url": self.url,
+                "returncode": returncode,
+            },
         )
         return False
 
@@ -176,7 +180,6 @@ class LocalModelServer:
             self.url,
             self._token,
             stopped=lambda: self._stop.is_set() or process.poll() is not None,
-            timeout=_STARTUP_TIMEOUT_SECONDS,
         )
 
     def start(self) -> None:
