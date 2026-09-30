@@ -5,6 +5,7 @@ import {
   type TimedTranscriptDocument,
   type TimedTranscriptSegment,
 } from './timedTranscriptModel';
+import styles from './TimedTranscript.module.css';
 
 function formatSeconds(seconds: number): string {
   const total = Math.max(0, Math.floor(seconds));
@@ -69,14 +70,14 @@ export function TimedTranscript({
   );
 
   return (
-    <div className="evidence-temporal-layout document-temporal-layout" data-testid="document-temporal-transcript">
-      <div className="evidence-temporal-player-sticky">{player}</div>
-      <div className="evidence-temporal-segments" data-testid="document-transcript-segments">
+    <div className={`${styles.layout} evidence-temporal-layout document-temporal-layout`} data-testid="document-temporal-transcript">
+      <div className={`${styles.player} evidence-temporal-player-sticky`}>{player}</div>
+      <div className={`${styles.segments} evidence-temporal-segments`} data-testid="document-transcript-segments">
         {segments.length > 0 ? segments.map((segment) => (
           <button
             type="button"
             key={`${segment.index}:${segment.start}`}
-            className={`evidence-temporal-segment${segment.index === activeIndex ? ' evidence-temporal-segment-active' : ''}`}
+            className={`${styles.segment} evidence-temporal-segment${segment.index === activeIndex ? ' evidence-temporal-segment-active' : ''}`}
             data-testid="document-transcript-segment"
             data-active={segment.index === activeIndex ? 'true' : undefined}
             onClick={() => seek(segment)}

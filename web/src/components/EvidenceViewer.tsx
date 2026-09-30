@@ -11,6 +11,8 @@ import {
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { readEvidenceTextResource } from '../api/raw/blobText';
 import { PanelLoading } from './PanelPrimitives';
+import { SavedTextContext } from './EvidenceTextContext';
+import { textSegments, type TextSegment } from './evidenceTextSegments';
 
 export interface EvidenceViewerProps {
   evidenceLinkId: string | number;
@@ -362,7 +364,14 @@ export function ArtifactSource({
           <EvidencePageView key={page.page} page={page} artifactStableId={artifact.stable_id} emphasizedSpanIds={emphasizedSpanIds} />
         ))
       ) : isTextRenderableMediaType(artifact.media_type) && (evidenceTextContext(artifact) !== null || textCitedSpans(artifact).length > 0) ? (
-        <TextArtifactSource artifact={artifact} scopeSpanId={scopeSpanId} highlight={highlight} emphasizedSpanIds={emphasizedSpanIds} />
+        <TextArtifactSource key={artifact.stable_id} artifact={artifact} scopeSpanId={scopeSpanId} highlight={highlight} emphasizedSpanIds={emphasizedSpanIds} />
+      ) : artifact.media_type.startsWith('image/') && blob ? (
+        <div className="evidence-page-image-frame">
+          <img className="evidence-page-image" src={blob.url} alt={artifact.title || artifact.filename || 'Source image'} />
+          {artifact.spans.map((span) => <RegionOverlay key={span.stable_id}
+            region={{ id: span.id, stable_id: span.stable_id, bbox: (jsonRecord(span.selector)?.bbox ?? null) as EvidenceRegion['bbox'], snippet: span.quote || span.snippet, raw: span.raw }}
+            emphasized={emphasizedSpanIds.includes(span.stable_id)} />)}
+        </div>
       ) : artifact.media_type === 'application/pdf' && blob ? (
         <iframe
           className="evidence-pdf"
@@ -371,7 +380,7 @@ export function ArtifactSource({
           title={`Evidence PDF: ${artifact.title || artifact.filename || artifact.media_type}`}
         />
       ) : (
-        <MediaOrFallback artifact={artifact} emphasizedSpanIds={emphasizedSpanIds} />
+        <MediaOrFallback key={artifact.stable_id} artifact={artifact} emphasizedSpanIds={emphasizedSpanIds} />
       )}
     </section>
   );
@@ -421,8 +430,10 @@ function EvidencePageView({
   );
 }
 
-function RegionOverlay({ region, emphasized }: { region: EvidenceRegion; emphasized: boolean }) {
-  const normalized = normalizedBBox(region.bbox);
+function RegionOverlay({ region, emphasized, coordinateSpace = 'page_normalized' }: {
+  region: EvidenceRegion; emphasized: boolean; coordinateSpace?: 'page_normalized' | 'frame_normalized';
+}) {
+  const normalized = normalizedBBox(region.bbox, coordinateSpace);
   if (!normalized) return null;
   return (
     <span
@@ -507,9 +518,11 @@ function MediaOrFallback({ artifact, emphasizedSpanIds }: { artifact: EvidenceAr
     if (firstCitedId) citedRef.current?.scrollIntoView({ block: 'nearest' });
   }, [firstCitedId]);
 
-  const [seekSeconds, setSeekSeconds] = useState<number | null>(() =>
-    temporalSpans.length === 0 ? null : (selectorNumber(temporalSpans[0], 'start_ms') ?? 0) / 1000,
+  const [seekRequest, setSeekRequest] = useState<{ seconds: number } | null>(() =>
+    temporalSpans.length === 0 ? null : { seconds: (selectorNumber(temporalSpans[0], 'start_ms') ?? 0) / 1000 },
   );
+  const seekSeconds = seekRequest?.seconds ?? null;
+  const [playbackMs, setPlaybackMs] = useState(0);
   const [activeSpanId, setActiveSpanId] = useState<string | null>(() =>
     temporalSpans.length === 0 ? null : temporalSpans[0].stable_id,
   );
@@ -531,7 +544,7 @@ function MediaOrFallback({ artifact, emphasizedSpanIds }: { artifact: EvidenceAr
     }
     el.addEventListener('loadedmetadata', apply, { once: true });
     return () => el.removeEventListener('loadedmetadata', apply);
-  }, [seekSeconds]);
+  }, [seekRequest, seekSeconds]);
 
   const setMediaRef = (el: HTMLMediaElement | null) => {
     mediaRef.current = el;
@@ -539,7 +552,8 @@ function MediaOrFallback({ artifact, emphasizedSpanIds }: { artifact: EvidenceAr
 
   // Seek after media readiness and remounts.
   const seekAndPlay = (ms: number, spanId: string | null) => {
-    setSeekSeconds(ms / 1000);
+    setSeekRequest({ seconds: ms / 1000 });
+    setPlaybackMs(ms);
     if (spanId) setActiveSpanId(spanId);
     mediaRef.current?.play().catch(() => {
       // Browser autoplay may reject playback.
@@ -549,6 +563,7 @@ function MediaOrFallback({ artifact, emphasizedSpanIds }: { artifact: EvidenceAr
 
   const handleTimeUpdate = (event: { currentTarget: HTMLMediaElement }) => {
     const ms = event.currentTarget.currentTime * 1000;
+    setPlaybackMs(ms);
     const match = temporalSpans.find((span) => {
       const start = selectorNumber(span, 'start_ms') ?? 0;
       const end = selectorNumber(span, 'end_ms') ?? start;
@@ -558,9 +573,12 @@ function MediaOrFallback({ artifact, emphasizedSpanIds }: { artifact: EvidenceAr
   };
 
   if (!blob || !(artifact.media_type.startsWith('audio/') || artifact.media_type.startsWith('video/'))) {
+    const sourceUrl = blob?.url ?? [artifact.source_url, artifact.canonical_url, artifact.artifact_ref.source_url]
+      .find((url) => typeof url === 'string' && /^https?:\/\//i.test(url));
     return (
       <div className="evidence-page-fallback" data-testid="evidence-artifact-fallback">
-        No first-party renderer is available for this source artifact. The source ref and span selectors remain inspectable.
+        A preview is not available for this source.
+        {sourceUrl && <a href={sourceUrl} target="_blank" rel="noopener noreferrer">Open source</a>}
       </div>
     );
   }
@@ -579,9 +597,18 @@ function MediaOrFallback({ artifact, emphasizedSpanIds }: { artifact: EvidenceAr
   };
 
   const player = isVideo ? (
-    <video {...shared} data-testid="evidence-video" aria-label={`Evidence video: ${label}`}>
-      <track kind="captions" src={captionsUrl} srcLang="en" label="Evidence captions" default />
-    </video>
+    <div className="evidence-video-frame">
+      <video {...shared} data-testid="evidence-video" aria-label={`Evidence video: ${label}`}>
+        <track kind="captions" src={captionsUrl} srcLang="en" label="Evidence captions" default />
+      </video>
+      {artifact.spans.filter((span) => {
+        const start = selectorNumber(span, 'start_ms');
+        const end = selectorNumber(span, 'end_ms');
+        return start !== null && end !== null && playbackMs >= start && playbackMs <= end;
+      }).map((span) => <RegionOverlay key={span.stable_id}
+        region={{ id: span.id, stable_id: span.stable_id, bbox: (jsonRecord(span.selector)?.bbox ?? null) as EvidenceRegion['bbox'], snippet: span.quote || span.snippet, raw: span.raw }}
+        emphasized={emphasizedSpanIds.includes(span.stable_id)} coordinateSpace="frame_normalized" />)}
+    </div>
   ) : (
     <audio {...shared} data-testid="evidence-audio" aria-label={`Evidence audio: ${label}`}>
       <track kind="captions" src={captionsUrl} srcLang="en" label="Evidence captions" default />
@@ -620,7 +647,7 @@ function MediaOrFallback({ artifact, emphasizedSpanIds }: { artifact: EvidenceAr
               </button>
               {run.clipUrl && (
                 <a
-                  className="evidence-temporal-run-clip"
+                  className="evidence-temporal-run-clip evidence-contextual-download"
                   data-testid="evidence-temporal-run-clip"
                   href={run.clipUrl}
                   download
@@ -648,7 +675,7 @@ function MediaOrFallback({ artifact, emphasizedSpanIds }: { artifact: EvidenceAr
                 const isActive = span.stable_id === activeSpanId;
                 const isCited = citedSpanIds.has(span.stable_id);
                 return (
-                  <span key={span.stable_id}>
+                  <span key={span.stable_id} className="evidence-transcript-line" data-testid="evidence-transcript-line">
                     <button
                       type="button"
                       ref={span.stable_id === firstCitedId ? citedRef : undefined}
@@ -681,7 +708,7 @@ function MediaOrFallback({ artifact, emphasizedSpanIds }: { artifact: EvidenceAr
                         )}
                         {span.clip_url && (
                           <a
-                            className="evidence-temporal-segment-action"
+                            className="evidence-temporal-segment-action evidence-contextual-download"
                             data-testid="evidence-temporal-download-clip"
                             href={span.clip_url}
                             download
@@ -768,52 +795,10 @@ function TextQuoteBlocks({ artifact, spans }: { artifact: EvidenceArtifact; span
   );
 }
 
-interface TextSegment {
-  text: string;
-  highlighted: boolean;
-  start: number;
-  end: number;
-}
-
 type EvidenceTextContext = NonNullable<EvidenceArtifact['text_context']>;
-type EvidenceTextContextRange = EvidenceTextContext['ranges'][number];
 
 function evidenceTextContext(artifact: EvidenceArtifact): EvidenceTextContext | null {
   return artifact.text_context ?? null;
-}
-
-function textSegments(sourceText: string, ranges: readonly Pick<EvidenceTextContextRange, 'start' | 'end'>[]): TextSegment[] {
-  if (sourceText.length === 0) return [];
-  const ordered = ranges
-    .filter((range) => Number.isInteger(range.start) && Number.isInteger(range.end)
-      && range.start >= 0 && range.start < range.end && range.end <= sourceText.length)
-    .slice()
-    .sort((a, b) => a.start - b.start || b.end - a.end);
-  const merged: Array<{ start: number; end: number }> = [];
-  for (const range of ordered) {
-    const last = merged[merged.length - 1];
-    // Overlaps are one visual mark. Adjacent, separately cited passages stay
-    // separate so the renderer does not erase their boundary.
-    if (last && range.start < last.end) {
-      last.end = Math.max(last.end, range.end);
-    } else {
-      merged.push({ start: range.start, end: range.end });
-    }
-  }
-  if (merged.length === 0) return [{ text: sourceText, highlighted: false, start: 0, end: sourceText.length }];
-  const segments: TextSegment[] = [];
-  let cursor = 0;
-  for (const range of merged) {
-    if (range.start > cursor) {
-      segments.push({ text: sourceText.slice(cursor, range.start), highlighted: false, start: cursor, end: range.start });
-    }
-    segments.push({ text: sourceText.slice(range.start, range.end), highlighted: true, start: range.start, end: range.end });
-    cursor = range.end;
-  }
-  if (cursor < sourceText.length) {
-    segments.push({ text: sourceText.slice(cursor), highlighted: false, start: cursor, end: sourceText.length });
-  }
-  return segments;
 }
 
 /* Legacy quote-only records have no persisted coordinates. */
@@ -827,58 +812,6 @@ function highlightQuotes(sourceText: string, spans: EvidenceSpan[]): TextSegment
     ranges.push({ start, end: start + quote.length });
   }
   return textSegments(sourceText, ranges);
-}
-
-function SavedTextContext({
-  context,
-  scopeSpanId,
-  highlight,
-  emphasizedSpanIds,
-}: {
-  context: EvidenceTextContext;
-  scopeSpanId?: string;
-  highlight: boolean;
-  emphasizedSpanIds: readonly string[];
-}) {
-  const ranges = highlight
-    ? scopeSpanId === undefined
-      ? context.ranges
-      : context.ranges.filter((range) => range.span_id === scopeSpanId)
-    : [];
-  const segments = textSegments(context.text, ranges);
-  const emphasizedRanges = context.ranges.filter((range) => emphasizedSpanIds.includes(range.span_id));
-  const firstHighlightIndex = segments.findIndex((segment) => segment.highlighted);
-  const firstMarkRef = useRef<HTMLElement | null>(null);
-  useEffect(() => {
-    if (firstHighlightIndex >= 0) firstMarkRef.current?.scrollIntoView({ block: 'nearest' });
-  }, [firstHighlightIndex]);
-
-  return (
-    <div className="evidence-text-source" data-testid="evidence-text-source" data-source-version="saved">
-      <pre className="evidence-text-body" data-testid="evidence-text-body">
-        {segments.map((segment, index) => (
-          segment.highlighted ? (
-            <mark
-              key={`${segment.start}:${segment.end}`}
-              className={`evidence-text-highlight${emphasizedRanges.some((range) => range.start < segment.end && range.end > segment.start) ? ' evidence-text-highlight-emphasized' : ''}`}
-              data-testid="evidence-text-highlight"
-              data-emphasized={emphasizedRanges.some((range) => range.start < segment.end && range.end > segment.start) ? 'true' : undefined}
-              ref={index === firstHighlightIndex ? firstMarkRef : undefined}
-            >
-              {segment.text}
-            </mark>
-          ) : (
-            <span key={`${segment.start}:${segment.end}`}>{segment.text}</span>
-          )
-        ))}
-      </pre>
-      {highlight && context.ranges.length > 0 && firstHighlightIndex < 0 && (
-        <div className="evidence-viewer-warning" data-testid="evidence-text-context-unavailable">
-          This citation has no displayable passage in the saved source.
-        </div>
-      )}
-    </div>
-  );
 }
 
 type TextBlobState =
@@ -1132,7 +1065,7 @@ function stringField(record: unknown, field: string): string | null {
   return typeof value === 'string' && value.trim() ? value : null;
 }
 
-function normalizedBBox(boxes: unknown): {
+function normalizedBBox(boxes: unknown, coordinateSpace: 'page_normalized' | 'frame_normalized'): {
   x0: number;
   y0: number;
   x1: number;
@@ -1142,7 +1075,7 @@ function normalizedBBox(boxes: unknown): {
   for (const value of boxes) {
     const box = jsonRecord(value);
     if (!box) continue;
-    if (box.space !== 'page_normalized' && box.space !== 'frame_normalized') continue;
+    if (box.space !== coordinateSpace) continue;
     const x0 = finiteNumber(box.x0);
     const y0 = finiteNumber(box.y0);
     const x1 = finiteNumber(box.x1);

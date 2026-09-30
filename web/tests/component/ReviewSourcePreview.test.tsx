@@ -1,10 +1,11 @@
 /** @vitest-environment jsdom */
 import '@testing-library/jest-dom/vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CellEvidencePayload, EvidenceViewerPayload, ReviewBundle, ReviewBundleField } from '../../src/api/types';
 import { evidenceArtifact, evidenceSpan } from '../support/evidenceFixtures';
 
+const seeks = vi.hoisted(() => vi.fn());
 const projectApi = vi.hoisted(() => ({
   getCellEvidence: vi.fn(),
   getEvidenceViewer: vi.fn(),
@@ -13,9 +14,15 @@ const projectApi = vi.hoisted(() => ({
 vi.mock('../../src/bind/useWorkspaceStores', () => ({
   useWorkspaceStores: () => ({ projectApi }),
 }));
+vi.mock('../../src/components/RowDrawer', () => ({
+  FieldValue: ({ value }: { value: unknown }) => <span>{value == null ? '(empty)' : String(value)}</span>,
+}));
 vi.mock('../../src/components/EvidenceViewer', () => ({
   ArtifactSource: ({ artifact, emphasizedSpanIds }: { artifact: { stable_id: string }; emphasizedSpanIds?: string[] }) => (
-    <div data-testid="artifact-source" data-source-id={artifact.stable_id} data-emphasized={emphasizedSpanIds?.join(',') ?? ''} />
+    <div data-testid="artifact-source" data-source-id={artifact.stable_id} data-emphasized={emphasizedSpanIds?.join(',') ?? ''}>
+      <button className={emphasizedSpanIds?.length ? 'evidence-temporal-segment-emphasized' : ''}
+        onClick={() => seeks(artifact.stable_id)}>Play</button>
+    </div>
   ),
 }));
 
@@ -64,6 +71,8 @@ function viewer(linkId: string, sourceId: string, spanId: string, title: string)
   };
 }
 
+afterEach(cleanup);
+
 describe('ReviewSourcePreview', () => {
   beforeEach(() => {
     projectApi.getCellEvidence.mockReset();
@@ -74,6 +83,36 @@ describe('ReviewSourcePreview', () => {
       disconnect() {}
     }
     vi.stubGlobal('ResizeObserver', ResizeObserver);
+  });
+
+  it('keeps declared null inputs visible alongside saved citations', async () => {
+    projectApi.getCellEvidence.mockResolvedValue(cellEvidence(['link:a']));
+    projectApi.getEvidenceViewer.mockResolvedValue(viewer('link:a', 'source:a', 'span:a', 'Notes'));
+    const row = { ...bundle, sources: [{ columnId: 'input-1', columnName: 'Empty input',
+      columnType: 'text' as const, value: null }] };
+    render(<ReviewSourcePreview bundle={row} activeField={fieldOne} sourceEntries={[]} />);
+    await screen.findByTestId('artifact-source');
+    fireEvent.click(screen.getByRole('button', { name: 'Inputs · 1' }));
+    expect(screen.getByTestId('review-row-fields-drawer')).toHaveTextContent('Empty input');
+    expect(screen.getByTestId('review-row-fields-drawer')).toHaveTextContent('(empty)');
+  });
+
+  it('does not seek the old source when an item selects another recording', async () => {
+    const field = { ...fieldOne, columnType: 'json', value: '["first","second"]' } as ReviewBundleField;
+    const row = { ...bundle, fields: [field] };
+    projectApi.getCellEvidence.mockResolvedValue(cellEvidence(['link:a', 'link:b']));
+    projectApi.getEvidenceViewer.mockImplementation((id: string) => {
+      const payload = viewer(id, id === 'link:a' ? 'source:a' : 'source:b', id, id);
+      payload.link.item_index = id === 'link:a' ? 0 : 1;
+      return Promise.resolve(payload);
+    });
+    const { rerender } = render(<ReviewSourcePreview bundle={row} activeField={field} sourceEntries={[]} />);
+    await screen.findByTestId('artifact-source');
+    seeks.mockClear();
+    rerender(<ReviewSourcePreview bundle={row} activeField={field} sourceEntries={[]}
+      selectedItem={{ fieldId: field.id, index: 1 }} />);
+    await waitFor(() => expect(seeks).toHaveBeenCalledWith('source:b'));
+    expect(seeks).not.toHaveBeenCalledWith('source:a');
   });
 
   it('keeps cited sources mounted across cloned decision, edit and note updates, then reloads for another row', async () => {

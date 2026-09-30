@@ -3,6 +3,9 @@ import { X } from 'lucide-react';
 import { type CellEvidencePayload, type CellValue, type ReviewBundle, type ReviewBundleField } from '../../api/open';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 import { ArtifactSource } from '../EvidenceViewer';
+import { ReviewInputSources } from './ReviewInputSources';
+import { FieldValue } from '../RowDrawer';
+import { reviewItemLocations, type ReviewItemLocation, type ReviewItemSelection } from './reviewItemLocations';
 import { OverflowRow } from '../OverflowRow';
 import { reviewCitationSources, sourceLocation, sourcesForField, type ReviewCitationPayload } from './reviewCitationSources';
 import styles from './ReviewSourcePreview.module.css';
@@ -31,18 +34,25 @@ export function ReviewSourcePreview({
   bundle,
   activeField,
   sourceEntries,
+  selectedItem,
+  onItemLocations,
 }: {
   bundle: ReviewBundle | undefined;
   activeField: ReviewBundleField | undefined;
   sourceEntries: Array<[string, CellValue]>;
+  selectedItem?: ReviewItemSelection | null;
+  onItemLocations?: (locations: ReviewItemLocation[]) => void;
 }) {
   const { projectApi: api } = useWorkspaceStores();
   const [state, setState] = useState<LoadState | null>(null);
   const [activeSourceId, setActiveSourceId] = useState<string | null>(null);
+  const [previousFocus, setPreviousFocus] = useState<{ item: ReviewItemSelection | null; sourceId?: string }>({ item: null });
   const [showRowFields, setShowRowFields] = useState(false);
   const viewerRef = useRef<HTMLDivElement | null>(null);
 
   const citationTargetsKey = bundle ? citationKey(bundle) : null;
+  const inputEntries: Array<[string, CellValue]> = bundle?.sources
+    ? bundle.sources.map((source) => [source.columnName, source.value]) : sourceEntries;
 
   useEffect(() => {
     if (!citationTargetsKey) return undefined;
@@ -61,7 +71,17 @@ export function ReviewSourcePreview({
   const currentState = state !== null && state.key === citationTargetsKey ? state : null;
   const sources = useMemo(() => currentState?.phase === 'ready' ? reviewCitationSources(currentState.payloads) : [], [currentState]);
   const tabs = useMemo(() => sourcesForField(sources, activeField?.id), [activeField?.id, sources]);
-  const activeSource = tabs.find((source) => source.id === activeSourceId) ?? tabs[0] ?? null;
+  const itemLocations = useMemo(() => reviewItemLocations(sources, bundle?.fields ?? []), [sources, bundle?.fields]);
+  useEffect(() => { onItemLocations?.(itemLocations); }, [itemLocations, onItemLocations]);
+  const focusedLocations = selectedItem && selectedItem.fieldId === activeField?.id
+    ? itemLocations.filter((location) => location.fieldId === selectedItem.fieldId && location.index === selectedItem.index) : [];
+  const focusedSourceId = focusedLocations[0]?.sourceId;
+  const focusChanged = previousFocus.item !== (selectedItem ?? null) || previousFocus.sourceId !== focusedSourceId;
+  if (focusChanged) setPreviousFocus({ item: selectedItem ?? null, sourceId: focusedSourceId });
+  const sourceId = focusChanged && focusedSourceId ? focusedSourceId : activeSourceId;
+  const activeSource = tabs.find((source) => source.id === sourceId) ?? tabs[0] ?? null;
+  const focusedSpanKey = focusedLocations.filter((location) => location.sourceId === activeSource?.id).map((location) => location.spanId).join('|');
+  const focusedSpanIds = useMemo(() => focusedSpanKey ? focusedSpanKey.split('|') : [], [focusedSpanKey]);
   // Remember the displayed fallback, so a later field preserves that source
   // instead of resurrecting a tab that was no longer available.
   if (activeSource && activeSource.id !== activeSourceId) setActiveSourceId(activeSource.id);
@@ -71,20 +91,28 @@ export function ReviewSourcePreview({
   useEffect(() => {
     const activeFieldId = activeField?.id;
     if (!activeSource || !activeFieldId) return;
+    // A new item can switch source tabs. Never seek the old recording while
+    // that tab transition is pending, or an unrelated tab chosen by the user.
+    if (selectedItem && focusedSpanIds.length === 0) return;
     const viewer = viewerRef.current;
     if (!viewer) return;
-    const page = selectedPage(activeSource, activeFieldId);
+    const page = selectedPage(activeSource, activeFieldId, focusedSpanIds);
     if (page !== null) {
       viewer.querySelector<HTMLElement>(`#evidence-page-${CSS.escape(activeSource.id)}-${page}`)
         ?.scrollIntoView({ block: 'start' });
     }
-    viewer.querySelector<HTMLElement>('[data-emphasized="true"]')
-      ?.scrollIntoView({ block: 'center' });
+    const emphasized = viewer.querySelector<HTMLElement>('[data-emphasized="true"]');
+    emphasized?.scrollIntoView({ block: 'center' });
+    if (selectedItem) emphasized?.closest('.evidence-transcript-line')?.querySelector<HTMLButtonElement>('button')?.click();
     // The canonical temporal segment button owns media readiness, seeking and
     // the autoplay-rejection guard. Reuse that behavior when a shared source
     // remains selected while the reviewer moves to a different field.
     viewer.querySelector<HTMLButtonElement>('.evidence-temporal-segment-emphasized')?.click();
-  }, [activeField?.id, activeSource]);
+  }, [activeField?.id, activeSource, focusedSpanIds, selectedItem]);
+
+  if (currentState?.phase === 'ready' && tabs.length === 0 && bundle?.sources?.length) {
+    return <ReviewInputSources bundle={bundle} />;
+  }
 
   return (
     <section className={styles.pane} data-testid="review-citation-preview" aria-label="Cited sources">
@@ -109,7 +137,7 @@ export function ReviewSourcePreview({
         <div className={styles.paneActions}>
           <button type="button" className={styles.paneAction} aria-pressed={showRowFields}
             onClick={() => setShowRowFields((shown) => !shown)}>
-            Row fields · {sourceEntries.length}
+            Inputs · {inputEntries.length}
           </button>
         </div>
       </div>
@@ -117,10 +145,10 @@ export function ReviewSourcePreview({
         {currentState === null && <p className={styles.empty}>Loading cited sources…</p>}
         {currentState?.phase === 'error' && <p className={styles.empty} role="status">Citations could not be loaded for this result.</p>}
         {currentState?.phase === 'ready' && activeSource && <ArtifactSource artifact={activeSource.artifact}
-          emphasizedSpanIds={selectedSpanIds(activeSource, activeField?.id)} />}
+          emphasizedSpanIds={focusedSpanIds.length ? focusedSpanIds : selectedSpanIds(activeSource, activeField?.id)} />}
         {currentState?.phase === 'ready' && !activeSource && <p className={styles.empty}>No cited sources are recorded for this field.</p>}
       </div>
-      {showRowFields && <RowFieldsDrawer entries={sourceEntries} rowIndex={bundle?.rowIndex} onClose={() => setShowRowFields(false)} />}
+      {showRowFields && <RowFieldsDrawer entries={inputEntries} bundle={bundle} onClose={() => setShowRowFields(false)} />}
     </section>
   );
 }
@@ -147,7 +175,7 @@ async function loadCitationPayloads(targets: readonly CitationTarget[], api: Ret
   const perField = await Promise.all(targets.map(async (target) => {
     const cell = await api.getCellEvidence(target.rowId, target.columnId);
     if (!currentEvidenceMatchesField(cell, target)) return [];
-    const links = cell.links.filter((link) => link.status === 'active' && link.role !== 'source_provenance');
+    const links = cell.links.filter((link) => link.status === 'active');
     const viewers = await Promise.all(links.map(async (link) => {
       try { return await api.getEvidenceViewer(link.stable_id); } catch { return null; }
     }));
@@ -156,8 +184,9 @@ async function loadCitationPayloads(targets: readonly CitationTarget[], api: Ret
   return perField.flat();
 }
 
-function selectedPage(source: ReturnType<typeof reviewCitationSources>[number], fieldId: string): number | null {
-  const span = source.members.find((item) => item.fieldId === fieldId)?.spans[0];
+function selectedPage(source: ReturnType<typeof reviewCitationSources>[number], fieldId: string, focusedSpanIds: readonly string[]): number | null {
+  const spans = source.members.filter((item) => item.fieldId === fieldId).flatMap((item) => item.spans);
+  const span = spans.find((item) => focusedSpanIds.includes(item.stable_id)) ?? spans[0];
   if (!span || span.selector === null || typeof span.selector !== 'object' || Array.isArray(span.selector)) return null;
   const raw = (span.selector as Record<string, unknown>).page_start;
   const page = typeof raw === 'number' ? raw : Number(raw);
@@ -169,11 +198,18 @@ function selectedSpanIds(source: ReturnType<typeof reviewCitationSources>[number
     .flatMap((member) => member.spans.map((span) => span.stable_id));
 }
 
-function RowFieldsDrawer({ entries, rowIndex, onClose }: { entries: Array<[string, CellValue]>; rowIndex: number | undefined; onClose(): void; }) {
-  return <aside className={styles.drawer} aria-label="Other row fields" data-testid="review-row-fields-drawer">
-    <div className={styles.drawerHeader}><h3>Other data on row {rowIndex === undefined ? '—' : rowIndex + 1}</h3>
+function RowFieldsDrawer({ entries, bundle, onClose }: { entries: Array<[string, CellValue]>; bundle: ReviewBundle | undefined; onClose(): void; }) {
+  const columns = (bundle?.sources ?? []).map((source) => ({ id: source.columnId, name: source.columnName,
+    type: source.columnType, format: source.format, semanticType: source.semanticType }));
+  const row = { id: bundle?.rowId ?? '', index: bundle?.rowIndex ?? 0,
+    cells: Object.fromEntries((bundle?.sources ?? []).map((source) => [source.columnId, source.value])), provenance: {} };
+  return <aside className={styles.drawer} aria-label="Current input values" data-testid="review-row-fields-drawer">
+    <div className={styles.drawerHeader}><h3>Inputs on row {bundle === undefined ? '—' : bundle.rowIndex + 1}</h3>
       <button type="button" className={styles.drawerClose} aria-label="Close row fields" onClick={onClose}><X size={16} /></button></div>
-    <p className={styles.drawerCopy}>Not a record of what was sent to the model.</p>
-    <dl className={styles.rowFields}>{entries.map(([name, value]) => <div key={name}><dt>{name}</dt><dd>{value === null ? '∅' : String(value)}</dd></div>)}</dl>
+    <p className={styles.drawerCopy}>Current values. Saved citations show what was used for this result.</p>
+    <dl className={styles.rowFields}>{entries.map(([name, value]) => {
+      const column = columns.find((item) => item.name === name) ?? { id: name, name, type: 'text' as const };
+      return <div key={name}><dt>{name}</dt><dd><FieldValue col={column} columns={columns} row={row} sheetId={bundle?.sheetId} value={value} /></dd></div>;
+    })}</dl>
   </aside>;
 }

@@ -34,3 +34,6 @@
 .viewer :global(.evidence-artifact-title) { display: none; }
 .viewer :global(.evidence-text-body) { margin: 0; padding: 28px 36px; border: 0; border-radius: 0; font-family: inherit; font-size: 14px; line-height: 1.75; }
 @media (max-width: 620px) { .viewer :global(.evidence-text-body) { padding: 18px 20px; } .drawer { max-width: 100%; } }
+.inputNotice { margin: 12px 20px; color: var(--text-light); font-size: 12px; }
+.inputValue { padding: 8px 20px 24px; overflow-wrap: anywhere; }
+.inputValue :global(.row-field-media) { max-width: 100%; }

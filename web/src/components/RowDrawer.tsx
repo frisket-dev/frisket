@@ -1,5 +1,5 @@
 import { Check, ChevronDown, ChevronRight, Copy, FileSearch2, MapPin, Pause, Pencil, Play, RefreshCcw, X, Zap } from 'lucide-react';
-import { useCallback, useEffect, useReducer, useRef, useState, type CSSProperties, type FocusEvent, type ReactNode, type RefObject } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from 'react';
 import { type CellEvidencePayload, type CellProvenance, type CellValue, type ColumnDef, type Row, type RunTraceRowEvidence, type SheetMeta } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { useSelector } from '../bind/useSelector';
@@ -33,6 +33,7 @@ import { RowInspectorEvidenceSectionFrame } from '../workbench/contributions';
 import { documentMediaColumns } from '../workbench/documentMedia';
 import type { WorkbenchResolvedLayoutContribution } from '../workbench/layout';
 import { CitationChip } from './evidence/CitationChip';
+import structuredStyles from './StructuredValue.module.css';
 import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
 import { useNativePopover } from '../hooks/useNativePopover';
 import { createAudioPlaybackSource } from '../state/audioPlaybackStore';
@@ -712,12 +713,16 @@ export function FieldValue({
   row,
   sheetId = '',
   value,
+  onSelectItem,
+  selectableItemIndices,
 }: {
   col: ColumnDef;
   columns: ColumnDef[];
   row: Row;
   sheetId?: string;
   value: Row['cells'][string];
+  onSelectItem?(index: number): void;
+  selectableItemIndices?: ReadonlySet<number>;
 }) {
   const { chromePreferences: { projectId } } = useWorkspaceStores();
   // Explicit "(empty)" for a real null/empty value so the detail panel never
@@ -812,7 +817,8 @@ export function FieldValue({
     case 'boolean':
       return <div className="row-field-value">{value ? 'true' : 'false'}</div>;
     case 'json':
-      return <JsonValue value={value} isEmailAttachments={col.name === 'attachments'} />;
+      return <JsonValue value={value} isEmailAttachments={col.name === 'attachments'}
+        semanticType={col.semanticType} onSelectItem={onSelectItem} selectableItemIndices={selectableItemIndices} />;
   }
 
   if (col.type === 'number' || col.type === 'integer') {
@@ -826,10 +832,15 @@ export function FieldValue({
 
   const formatted = formatCell(value, col.format);
   if (formatted) return <div className="row-field-value">{formatted}</div>;
+  if (typeof value === 'object') {
+    return <JsonValue value={value} semanticType={col.semanticType}
+      onSelectItem={onSelectItem} selectableItemIndices={selectableItemIndices} />;
+  }
   if (typeof value === 'string') {
     const trimmed = value.trim();
     if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
-      return <JsonValue value={value} />;
+      return <JsonValue value={value} semanticType={col.semanticType}
+        onSelectItem={onSelectItem} selectableItemIndices={selectableItemIndices} />;
     }
     const rendered = col.ai ? decodeEscapedText(value) : value;
     if (looksLikeHtml(value) || looksLikeHtml(rendered)) {
@@ -1303,16 +1314,22 @@ export function JsonMiniTable({
   showHidden = false,
   maxKeys = null,
   testId = 'json-mini-table',
+  itemTestId = 'review-result-item',
   disableBlobThumbnails = false,
+  onSelectItem,
+  selectableItemIndices,
 }: {
   items: Record<string, unknown>[];
   hiddenKeys?: ReadonlySet<string>;
   showHidden?: boolean;
   maxKeys?: number | null;
   testId?: string;
+  itemTestId?: string;
   /** Email attachment fallbacks retain their generic JSON table rather than
    * turning image-like malformed envelopes into resource-loading previews. */
   disableBlobThumbnails?: boolean;
+  onSelectItem?(index: number): void;
+  selectableItemIndices?: ReadonlySet<number>;
 }) {
   const { chromePreferences: { projectId } } = useWorkspaceStores();
   // A homogeneous list of image-blob envelopes (e.g. the `Extract frames`
@@ -1324,24 +1341,10 @@ export function JsonMiniTable({
       <div className="json-blob-thumbs" data-testid="json-blob-thumbs">
         {envelopes.map((e, i) => {
           const env = e as ImageBlobEnvelope;
-          const time = env.t != null ? formatTimecode(Math.round(env.t * 1000)) : null;
-          const caption = env.filename ?? `${env.blob?.slice(0, 10)}…`;
-          const alt = time ? `${caption} (${time})` : caption;
           return (
-            <figure className="json-blob-thumb" key={`${env.blob}-${i}`}>
-              {env.omitted ? <span className="muted" data-testid="json-blob-thumb-omitted">
-                Preview image omitted (size or image-count limit).
-              </span> : <img
-                data-testid="json-blob-thumb"
-                src={env.inlineDataUrl ?? projectBlobUrl(projectId, env.blob!)}
-                alt={alt}
-                title={alt}
-                loading="lazy"
-              />}
-              <figcaption>
-                {caption}
-                {time ? <span className="json-blob-thumb-time"> {time}</span> : null}
-              </figcaption>
+            <figure className="json-blob-thumb" key={`${env.blob}-${i}`}
+              data-testid={itemTestId} {...resultItemProps(i, onSelectItem, selectableItemIndices)}>
+              <ImageBlobContent envelope={env} projectId={projectId} />
             </figure>
           );
         })}
@@ -1369,8 +1372,8 @@ export function JsonMiniTable({
           <tr>{shownKeys.map((k) => <th key={k}>{k}</th>)}</tr>
         </thead>
         <tbody>
-          {keyedJsonItems(items).map(({ item: it, key }) => (
-            <tr key={key}>
+          {keyedJsonItems(items).map(({ item: it, key }, index) => (
+            <tr key={key} data-testid={itemTestId} {...resultItemProps(index, onSelectItem, selectableItemIndices)}>
               {shownKeys.map((k) => {
                 const v = it[k];
                 return (
@@ -1427,20 +1430,128 @@ function isTranscriptSegmentArray(items: Record<string, unknown>[]): boolean {
   return items.every((it) => 'segment_index' in it && 'text' in it);
 }
 
+type ResultItemProps = {
+  'data-review-result-index': number;
+  'data-review-result-selectable'?: 'true';
+  'aria-label'?: string;
+  tabIndex?: number;
+  onClick?: (event: ReactMouseEvent<HTMLElement>) => void;
+  onKeyDown?: (event: ReactKeyboardEvent<HTMLElement>) => void;
+};
+
+function resultItemProps(
+  index: number,
+  onSelectItem?: (index: number) => void,
+  selectableItemIndices?: ReadonlySet<number>,
+): ResultItemProps {
+  const selectable = Boolean(onSelectItem && selectableItemIndices?.has(index));
+  if (!selectable || !onSelectItem) return { 'data-review-result-index': index };
+  const select = () => onSelectItem(index);
+  return {
+    'data-review-result-index': index,
+    'data-review-result-selectable': 'true',
+    'aria-label': `Show source for result item ${index + 1}`,
+    tabIndex: 0,
+    onClick: (event) => {
+      const target = event.target;
+      if (target instanceof Element && target !== event.currentTarget && target.closest('a, button, input, select, textarea')) return;
+      select();
+    },
+    onKeyDown: (event) => {
+      if (event.target !== event.currentTarget || !['Enter', ' '].includes(event.key)) return;
+      event.preventDefault();
+      select();
+    },
+  };
+}
+
+function ImageBlobContent({ envelope: env, projectId }: { envelope: ImageBlobEnvelope; projectId: string }) {
+  const time = env.t != null ? formatTimecode(Math.round(env.t * 1000)) : null;
+  const caption = env.filename ?? `${env.blob?.slice(0, 10)}…`;
+  const alt = time ? `${caption} (${time})` : caption;
+  return <>
+    {env.omitted ? <span className="muted" data-testid="json-blob-thumb-omitted">
+      Preview image omitted (size or image-count limit).
+    </span> : <img data-testid="json-blob-thumb" src={env.inlineDataUrl ?? projectBlobUrl(projectId, env.blob!)}
+      alt={alt} title={alt} loading="lazy" />}
+    <figcaption>{caption}{time ? <span className="json-blob-thumb-time"> {time}</span> : null}</figcaption>
+  </>;
+}
+
+function isFlatRecord(item: Record<string, unknown>): boolean {
+  return Object.values(item).every((value) => value === null || typeof value !== 'object');
+}
+
+function StructuredJsonValue({
+  value,
+  depth = 0,
+  onSelectItem,
+  selectableItemIndices,
+  disableBlobThumbnails = false,
+}: {
+  value: unknown;
+  depth?: number;
+  disableBlobThumbnails?: boolean;
+  onSelectItem?: (index: number) => void;
+  selectableItemIndices?: ReadonlySet<number>;
+}) {
+  const { chromePreferences: { projectId } } = useWorkspaceStores();
+  if (Array.isArray(value)) {
+    if (value.length === 0) return <span className="row-field-empty">(empty list)</span>;
+    return (
+      <ul className={`json-list ${structuredStyles.list}`} data-testid={depth === 0 ? 'json-list' : undefined}>
+        {keyedJsonItems(value).map(({ item, key }, index) => (
+          <li key={key} data-testid={depth === 0 ? 'review-result-item' : undefined}
+            {...(depth === 0 ? resultItemProps(index, onSelectItem, selectableItemIndices) : {})}>
+            <StructuredJsonValue value={item} depth={depth + 1} disableBlobThumbnails={disableBlobThumbnails} />
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  if (value !== null && typeof value === 'object') {
+    const envelope = disableBlobThumbnails ? null : imageBlobEnvelope(value);
+    if (envelope) {
+      return <figure className="json-blob-thumb"><ImageBlobContent envelope={envelope} projectId={projectId} /></figure>;
+    }
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length === 0) return <span className="row-field-empty">(empty object)</span>;
+    return (
+      <dl className={`json-object ${structuredStyles.object}`} data-testid={depth === 0 ? 'json-object' : undefined}>
+        {entries.map(([key, item]) => <div key={key} className={structuredStyles.objectEntry}>
+          <dt className={structuredStyles.term}>{key}</dt>
+          <dd className={structuredStyles.description}><StructuredJsonValue value={item} depth={depth + 1} disableBlobThumbnails={disableBlobThumbnails} /></dd>
+        </div>)}
+      </dl>
+    );
+  }
+  if (value === null || value === undefined || value === '') return <span className="row-field-empty">(empty)</span>;
+  return <>{typeof value === 'string' ? linkify(value) : String(value)}</>;
+}
+
 function JsonValue({
   value,
   isEmailAttachments = false,
+  semanticType,
+  onSelectItem,
+  selectableItemIndices,
 }: {
   value: CellValue;
   isEmailAttachments?: boolean;
+  semanticType?: string | null;
+  onSelectItem?: (index: number) => void;
+  selectableItemIndices?: ReadonlySet<number>;
 }) {
   const { chromePreferences: { projectId } } = useWorkspaceStores();
-  const raw = String(value);
   let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return <pre className="row-field-json">{linkify(raw)}</pre>;
+  if (typeof value === 'string') {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      return <pre className="row-field-json">{linkify(value)}</pre>;
+    }
+  } else {
+    parsed = value;
   }
 
   if (Array.isArray(parsed) && parsed.length > 0) {
@@ -1452,10 +1563,11 @@ function JsonValue({
     if (isEmailAttachments && downloads.every((download) => download !== null)) {
       return (
         <ul className="json-blob-downloads" data-testid="json-blob-downloads">
-          {downloads.map((download) => {
+          {downloads.map((download, index) => {
             const attachment = download as DownloadBlobEnvelope;
             return (
-              <li key={attachment.blob}>
+              <li key={attachment.blob} data-testid="review-result-item"
+                {...resultItemProps(index, onSelectItem, selectableItemIndices)}>
                 <a
                   className="row-field-link"
                   href={projectBlobUrl(projectId, attachment.blob)}
@@ -1475,13 +1587,16 @@ function JsonValue({
       // Entity mentions ({text, type, start, end, score, fingerprint?}) show
       // only the two fields that read as data — text and type. The offsets,
       // model score, and grouping fingerprint are plumbing, not content.
-      if (isEntityArray(items)) {
+      if (semanticType === 'entity_mentions' || isEntityArray(items)) {
         return (
           <JsonMiniTable
             items={items}
             hiddenKeys={ENTITY_HIDDEN_KEYS}
             testId="entity-mini-table"
+            itemTestId="review-entity-item"
             disableBlobThumbnails={isEmailAttachments}
+            onSelectItem={onSelectItem}
+            selectableItemIndices={selectableItemIndices}
           />
         );
       }
@@ -1494,24 +1609,23 @@ function JsonValue({
             hiddenKeys={TRANSCRIPT_SEGMENT_HIDDEN_KEYS}
             testId="transcript-segment-mini-table"
             disableBlobThumbnails={isEmailAttachments}
+            onSelectItem={onSelectItem}
+            selectableItemIndices={selectableItemIndices}
           />
         );
       }
-      return <JsonMiniTable items={items} maxKeys={6} disableBlobThumbnails={isEmailAttachments} />;
+      if ((!isEmailAttachments && items.every((item) => imageBlobEnvelope(item) !== null))
+        || (items.every(isFlatRecord) && new Set(items.flatMap(Object.keys)).size <= 6)) {
+        return <JsonMiniTable items={items} maxKeys={6} disableBlobThumbnails={isEmailAttachments}
+          onSelectItem={onSelectItem} selectableItemIndices={selectableItemIndices} />;
+      }
     }
-    // Array of scalars → list.
-    if (parsed.every((x) => typeof x !== 'object' || x === null)) {
-      return (
-        <ul className="json-list" data-testid="json-list">
-          {keyedJsonItems(parsed as unknown[]).map(({ item: x, key }) => (
-            <li key={key}>{linkify(cellText(x))}</li>
-          ))}
-        </ul>
-      );
-    }
+    return <StructuredJsonValue value={parsed} disableBlobThumbnails={isEmailAttachments} onSelectItem={onSelectItem}
+      selectableItemIndices={selectableItemIndices} />;
   }
 
-  return <pre className="row-field-json">{linkify(JSON.stringify(parsed, null, 2))}</pre>;
+  return <StructuredJsonValue value={parsed} disableBlobThumbnails={isEmailAttachments} onSelectItem={onSelectItem}
+    selectableItemIndices={selectableItemIndices} />;
 }
 
 // ---------------------------------------------------------------------------

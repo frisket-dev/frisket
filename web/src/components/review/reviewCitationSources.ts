@@ -1,22 +1,25 @@
 import type { EvidenceArtifact, EvidenceCitationRun, EvidenceSpan, EvidenceViewerPayload } from '../../api/types';
 
 export interface ReviewCitationPayload { fieldId: string; payload: EvidenceViewerPayload; }
-interface SourceMember { fieldId: string; artifact: EvidenceArtifact; spans: EvidenceSpan[]; }
+interface SourceMember { fieldId: string; itemIndex?: number | null; artifact: EvidenceArtifact; spans: EvidenceSpan[]; }
 export interface ReviewCitationSource {
   id: string; artifact: EvidenceArtifact; fieldIds: string[]; members: SourceMember[];
-  kind: 'MD' | 'TXT' | 'PDF' | 'AUDIO' | 'FILE'; title: string;
+  kind: 'MD' | 'TXT' | 'PDF' | 'AUDIO' | 'VIDEO' | 'IMAGE' | 'FILE'; title: string;
 }
 
 /** Groups full-fidelity citations by persisted source-artifact identity. */
 export function reviewCitationSources(payloads: readonly ReviewCitationPayload[]): ReviewCitationSource[] {
   const bySource = new Map<string, SourceMember[]>();
+  const supportedFields = new Set(payloads.filter(({ payload }) => payload.link.role !== 'source_provenance'
+    && payload.artifacts.some((artifact) => citedSpans(artifact).length > 0)).map(({ fieldId }) => fieldId));
   for (const { fieldId, payload } of payloads) {
-    if (payload.link.role === 'source_provenance') continue;
+    const provenance = payload.link.role === 'source_provenance';
+    if (provenance && supportedFields.has(fieldId)) continue;
     for (const artifact of payload.artifacts) {
       const spans = citedSpans(artifact);
-      if (spans.length === 0) continue;
+      if (spans.length === 0 && !provenance) continue;
       const members = bySource.get(artifact.stable_id) ?? [];
-      members.push({ fieldId, artifact, spans });
+      members.push({ fieldId, itemIndex: payload.link.item_index, artifact, spans });
       bySource.set(artifact.stable_id, members);
     }
   }
@@ -51,7 +54,20 @@ function citedSpans(artifact: EvidenceArtifact): EvidenceSpan[] {
 function mergeArtifacts(members: readonly SourceMember[]): EvidenceArtifact {
   const first = members[0].artifact;
   const spanIds = new Set(members.flatMap((member) => member.spans.map((span) => span.stable_id)));
-  const spans = uniqueBy(members.flatMap((member) => member.spans), (span) => span.stable_id);
+  // Backend run indices are local to each evidence link. Reindex before
+  // combining artifacts so a result cannot download another result's clip.
+  const runs: EvidenceCitationRun[] = [];
+  const spans = uniqueBy(members.flatMap((member) => {
+    const indices = new Map<number, number>();
+    for (const run of member.artifact.runs) {
+      const index = runs.length;
+      indices.set(run.index, index);
+      runs.push({ ...run, index });
+    }
+    return member.spans.map((span) => ({ ...span,
+      run_index: span.run_index == null ? null : indices.get(span.run_index) ?? null,
+    }));
+  }), (span) => span.stable_id);
   const pages = uniqueBy(members.flatMap((member) => member.artifact.pages), (page) => String(page.page)).map((page) => ({
     ...page,
     regions: uniqueBy(members.flatMap((member) => member.artifact.pages)
@@ -61,28 +77,9 @@ function mergeArtifacts(members: readonly SourceMember[]): EvidenceArtifact {
   const textContext = mergeTextContext(members, spanIds);
   return {
     ...first, spans, pages,
-    runs: mergeRuns(members),
+    runs,
     ...(textContext === null ? {} : { text_context: textContext }),
   };
-}
-
-function mergeRuns(members: readonly SourceMember[]): EvidenceCitationRun[] {
-  const byIndex = new Map<number, EvidenceCitationRun>();
-  for (const run of members.flatMap((member) => member.artifact.runs)) {
-    const current = byIndex.get(run.index);
-    if (!current) {
-      byIndex.set(run.index, { ...run, span_ids: [...new Set(run.span_ids)] });
-      continue;
-    }
-    byIndex.set(run.index, {
-      ...current,
-      start_ms: Math.min(current.start_ms, run.start_ms),
-      end_ms: Math.max(current.end_ms, run.end_ms),
-      clip_url: current.clip_url ?? run.clip_url,
-      span_ids: [...new Set([...current.span_ids, ...run.span_ids])],
-    });
-  }
-  return [...byIndex.values()];
 }
 
 function mergeTextContext(members: readonly SourceMember[], spanIds: ReadonlySet<string>) {
@@ -101,7 +98,9 @@ function uniqueBy<T>(items: readonly T[], key: (item: T) => string): T[] {
 function sourceKind(mediaType: string): ReviewCitationSource['kind'] {
   const type = mediaType.split(';')[0].trim();
   if (type === 'application/pdf') return 'PDF';
-  if (type.startsWith('audio/') || type.startsWith('video/')) return 'AUDIO';
+  if (type.startsWith('audio/')) return 'AUDIO';
+  if (type.startsWith('video/')) return 'VIDEO';
+  if (type.startsWith('image/')) return 'IMAGE';
   if (type === 'text/markdown' || type === 'application/vnd.frisket.row+json') return 'MD';
   if (type === 'text/plain') return 'TXT';
   return 'FILE';
@@ -112,5 +111,5 @@ function sourceTitle(artifact: EvidenceArtifact): string {
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
-function finite(value: unknown): number | null { const number = typeof value === 'number' ? value : Number(value); return Number.isFinite(number) ? number : null; }
+function finite(value: unknown): number | null { if (value === null || value === undefined || value === '') return null; const number = typeof value === 'number' ? value : Number(value); return Number.isFinite(number) ? number : null; }
 function formatMs(ms: number): string { const seconds = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`; }

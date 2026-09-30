@@ -845,6 +845,17 @@ def test_find_action_job_writes_one_grounded_row_per_match(tmp_path: Path) -> No
         span = viewer["artifacts"][0]["spans"][0]
         assert span["span_kind"] == "text"
         assert "China trade policy" in span["quote"]
+        text_context = viewer["artifacts"][0]["text_context"]
+        assert text_context["text"] == (
+            "Opening remarks. China trade policy changed this year. Closing remarks."
+        )
+        assert text_context["ranges"] == [
+            {
+                "span_id": span["stable_id"],
+                "start": 17,
+                "end": 35,
+            }
+        ]
         receipt = ReceiptStore(project).parsed_by_id(reserved["receipt_id"])
         assert receipt is not None
         assert receipt.status == "completed"

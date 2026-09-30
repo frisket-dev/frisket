@@ -171,6 +171,8 @@ class ReviewBundleItem(WireModel):
     column_id: int
     column_name: str
     column_type: str
+    semantic_type: str | None = None
+    format: str | None = None
     sheet_id: int
     value: JsonValue
     confidence: float | None
@@ -184,6 +186,15 @@ class ReviewBundleItem(WireModel):
     changed: bool = False
 
 
+class ReviewBundleSource(WireModel):
+    column_id: int
+    column_name: str
+    column_type: str
+    semantic_type: str | None = None
+    format: str | None = None
+    value: JsonValue
+
+
 class ReviewBundle(WireModel):
     id: str
     run_id: int
@@ -195,6 +206,7 @@ class ReviewBundle(WireModel):
     model: str | None
     confidence: float | None
     source: dict[str, JsonValue]
+    sources: list[ReviewBundleSource] = Field(default_factory=list)
     review_note: str | None = None
     fields: list[ReviewBundleItem]
     evidence: list[ReviewBundleItem]
@@ -278,6 +290,7 @@ __all__ = [
     "JudgeReviewScore",
     "ReviewBundle",
     "ReviewBundleItem",
+    "ReviewBundleSource",
     "ReviewBundlesPage",
     "ReviewCount",
     "ReviewDecisionCounts",

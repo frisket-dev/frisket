@@ -11,6 +11,22 @@ export interface ReviewSessionOptions {
   onChanged(remaining: number): void;
 }
 
+/** Corrections are text edits. Structured and typed values keep their shape. */
+export function isPlainTextReviewField(field: ReviewBundleField | null | undefined): boolean {
+  if (!field || field.columnType !== 'text' || (field.value !== null && typeof field.value !== 'string')) return false;
+  const format = field.format;
+  if (format && format !== 'plain_text') return false;
+  if (format === 'plain_text' || typeof field.value !== 'string') return true;
+  const trimmed = field.value.trim();
+  if (!trimmed.startsWith('[') && !trimmed.startsWith('{')) return true;
+  try {
+    const parsed = JSON.parse(trimmed);
+    return parsed === null || typeof parsed !== 'object';
+  } catch {
+    return true;
+  }
+}
+
 /** Keeps a stable page of row bundles. Decisions never remove the current row. */
 export function useReviewSession({ runId, options, readOnly = false, onDecisionSaved, onChanged }: ReviewSessionOptions) {
   const { projectApi: api, chromePreferences } = useWorkspaceStores();
@@ -111,7 +127,7 @@ export function useReviewSession({ runId, options, readOnly = false, onDecisionS
     selectField(bundle.fields[(index + delta + bundle.fields.length) % bundle.fields.length].id);
   };
   const startEdit = (target = field) => {
-    if (!target || busy || readOnly) return;
+    if (!target || !isPlainTextReviewField(target) || busy || readOnly) return;
     setSelectedId(target.id);
     setEditingId(target.id);
     setEditValue(target.value === null ? '' : String(target.value));

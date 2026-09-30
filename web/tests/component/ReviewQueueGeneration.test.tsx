@@ -212,6 +212,30 @@ it('edits the field whose pencil was clicked and records a correction', async ()
   expect(screen.queryByRole('button', { name: 'Reject and clear' })).not.toBeInTheDocument();
 });
 
+it('allows edits only for plain text results through both buttons and keyboard shortcuts', async () => {
+  const value = multiPage();
+  value.bundles[0].fields[1] = {
+    ...value.bundles[0].fields[1],
+    columnType: 'json',
+    value: JSON.stringify([{ text: 'Ada Lovelace', type: 'PERSON', start: 0 }]),
+  };
+  vi.spyOn(stores.projectApi, 'getReviewBundles').mockResolvedValue(value);
+  mount();
+
+  const structuredEdit = await screen.findByRole('button', { name: 'Edit second', exact: true });
+  expect(structuredEdit).toBeDisabled();
+  const structuredSelect = screen.getByRole('button', { name: 'Select second review field' });
+  expect(structuredSelect.querySelector('table, a, img, audio, video')).toBeNull();
+  expect(screen.getByTestId('review-field-second')).toContainElement(screen.getByTestId('entity-mini-table'));
+  fireEvent.click(structuredSelect);
+  fireEvent.keyDown(window, { key: 'e' });
+  expect(screen.queryByTestId('review-edit-input')).toBeNull();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Select first review field' }));
+  fireEvent.keyDown(window, { key: 'e' });
+  expect(screen.getByRole('textbox', { name: 'Edit proposed first value' })).toBeVisible();
+});
+
 it('accepts the final row without navigating beyond it', async () => {
   const load = vi.spyOn(stores.projectApi, 'getReviewBundles').mockResolvedValue(page('last'));
   vi.spyOn(stores.projectApi, 'reviewItem').mockResolvedValue();

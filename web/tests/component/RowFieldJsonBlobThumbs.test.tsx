@@ -98,16 +98,28 @@ describe('row drawer json image-blob thumbnails', () => {
     expect(screen.queryByTestId('json-mini-table')).not.toBeInTheDocument();
   });
 
+  it('shows face crops alongside their geometry instead of hiding either', () => {
+    const col = columnDef({ id: 'results', name: 'results', type: 'json' });
+    const faces = [{ x: 11, y: 22, w: 33, h: 44,
+      face: { blob: 'a'.repeat(64), mime: 'image/jpeg', filename: 'face.jpg' } }];
+    render(<RowField runResultExpanded={false} onToggleRunResult={() => {}} col={col} columns={[col]}
+      row={row({ results: JSON.stringify(faces) })} selected onEdit={noopEdit} />);
+    expect(screen.getByTestId('json-blob-thumb')).toHaveAttribute('src', `/api/projects/proj-frames/blobs/${'a'.repeat(64)}`);
+    for (const text of ['x', '11', 'y', '22', 'w', '33', 'h', '44']) {
+      expect(screen.getByText(text)).toBeInTheDocument();
+    }
+  });
+
   it.each([
-    [{ x: 1, y: 2, w: 3, h: 4, face: { blob: 'a'.repeat(64), mime: 'image/jpeg', filename: 'face.jpg' } }],
     [{ t: 1, image: { blob: 'data:image/jpeg;base64,/9j/2Q==', mime: 'image/jpeg', filename: 'bad.jpg' } }],
     [{ t: 1, image: { inline_data_url: 'https://example.test/image.jpg', mime: 'image/jpeg', filename: 'bad.jpg' } }],
-  ])('keeps geometry and malformed image payloads in ordinary JSON: %j', (...items) => {
+  ])('keeps malformed image payloads readable without loading them as images: %j', (...items) => {
     const col = columnDef({ id: 'results', name: 'results', type: 'json' });
     render(<RowField runResultExpanded={false} onToggleRunResult={() => {}} col={col} columns={[col]} row={row({ results: JSON.stringify(items) })}
       selected onEdit={noopEdit} />);
     expect(screen.queryByTestId('json-blob-thumb')).not.toBeInTheDocument();
-    expect(screen.getByTestId('json-mini-table')).toBeInTheDocument();
+    expect(screen.getByText('bad.jpg')).toBeInTheDocument();
+    expect(screen.getByText('image')).toBeInTheDocument();
   });
 
   it('still renders a list of non-image objects as the text table (no thumbnails)', () => {

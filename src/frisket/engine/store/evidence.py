@@ -862,6 +862,14 @@ def resolve_evidence_viewer(
 
     metadata = _json_loads(link["metadata"], {})
     producer = _json_loads(link["producer_json"], {})
+    raw_item_index = metadata.get("item_index")
+    item_index = (
+        raw_item_index
+        if isinstance(raw_item_index, int)
+        and not isinstance(raw_item_index, bool)
+        and raw_item_index >= 0
+        else None
+    )
     if isinstance(producer.get("source"), str):
         for artifact in artifacts.values():
             artifact["title"] = producer["source"]
@@ -885,6 +893,7 @@ def resolve_evidence_viewer(
             "run_id": link["run_id"],
             "op_id": link["op_id"],
             "receipt_id": link["receipt_id"],
+            "item_index": item_index,
             "role": link["link_role"],
             "status": link["status"],
             "confidence": link["confidence"],
@@ -1085,11 +1094,46 @@ def _artifact_text_context(artifact: dict[str, Any]) -> dict[str, Any] | None:
         )
     if not ranges:
         return None
-    return {
+    context = {
         "text": text,
         "offset_unit": "utf16_code_unit",
         "ranges": ranges,
     }
+    raw_transcript = metadata.get("timestamped_transcript")
+    if (
+        isinstance(raw_transcript, dict)
+        and raw_transcript.get("schema_version")
+        == "frisket.timestamped_text_context.v1"
+        and raw_transcript.get("offset_unit") == "unicode_codepoint"
+        and isinstance(raw_transcript.get("segments"), list)
+    ):
+        segments = []
+        for raw_segment in raw_transcript["segments"]:
+            if not isinstance(raw_segment, dict):
+                break
+            start, end = raw_segment.get("start"), raw_segment.get("end")
+            if (
+                type(start) is not int
+                or type(end) is not int
+                or start < 0
+                or end <= start
+                or end > len(text)
+            ):
+                break
+            segments.append(
+                {
+                    **raw_segment,
+                    "start": _utf16_offset(text, start),
+                    "end": _utf16_offset(text, end),
+                }
+            )
+        else:
+            context["transcript"] = {
+                **raw_transcript,
+                "offset_unit": "utf16_code_unit",
+                "segments": segments,
+            }
+    return context
 
 
 def _stable_id(prefix: str) -> str:

@@ -52,7 +52,10 @@ def _seed_review_history(tmp_path: Path) -> tuple[TestClient, str, list[int]]:
         sheet_id,
         "map.classify",
         model="anthropic/claude-haiku-4-5",
-        params={"fields": [{"name": "risk"}, {"name": "tone"}]},
+        params={
+            "input_columns": ["story"],
+            "fields": [{"name": "risk"}, {"name": "tone"}],
+        },
         total_rows=len(row_ids),
         row_ids=row_ids,
     )

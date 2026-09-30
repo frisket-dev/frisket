@@ -5856,10 +5856,17 @@ audio.evidence-media {
   line-height: 1.65;
   color: var(--text);
 }
-/* Normal flowing text, not a pill/box — a subtle inline highlight only.
-   answers-view-evidence-refinement-v1's "cited" tint carries over; -active
-   is the karaoke marker (the currently-spoken span, driven by the media
-   element's timeupdate — MediaOrFallback's handleTimeUpdate). */
+/* Timestamped passages read as individual lines; clip downloads are secondary. */
+.evidence-transcript-line { display: block; padding: 3px 0; overflow-wrap: anywhere; }
+@media (hover: hover) {
+  .evidence-contextual-download { opacity: 0; pointer-events: none; }
+  .evidence-transcript-line:hover .evidence-contextual-download,
+  .evidence-transcript-line:focus-within .evidence-contextual-download,
+  .evidence-temporal-run-header:hover .evidence-contextual-download,
+  .evidence-temporal-run-header:focus-within .evidence-contextual-download {
+    opacity: 1; pointer-events: auto;
+  }
+}
 .evidence-temporal-segment {
   display: inline;
   border: none;
@@ -12569,3 +12576,17 @@ dialog.modal-card::backdrop {
 }
 
 .workbench-body { display: flex; flex: 1; min-height: 0; min-width: 0; }
+
+/* Align frame-normalized regions with the native video surface. */
+.evidence-video-frame { position: relative; line-height: 0; }
+.evidence-video-frame video { display: block; width: 100%; max-height: none; }
+.evidence-video-frame .evidence-region { pointer-events: none; }
+
+.evidence-annotated-transcript { min-width: 0; }
+.evidence-annotated-player { position: sticky; top: 0; z-index: 2; padding: 12px 16px; background: var(--bg); border-bottom: 1px solid var(--border); }
+.evidence-annotated-player audio, .evidence-annotated-player video { display: block; width: 100%; }
+.evidence-annotated-lines { padding: 16px 24px; }
+.evidence-annotated-lines .evidence-transcript-line { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
+.evidence-annotated-timestamp { flex: 0 0 auto; border: 0; padding: 2px; background: transparent; color: var(--accent); font-family: var(--mono); font-size: 11px; cursor: pointer; }
+.evidence-annotated-timestamp:disabled { color: var(--text-light); cursor: default; }
+.evidence-annotated-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.65; }

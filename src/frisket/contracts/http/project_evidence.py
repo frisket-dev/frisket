@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import JsonValue
+from pydantic import Field, JsonValue
 
 from frisket.contracts.action import ActionError
 from frisket.contracts.http.models import HttpError, WireModel
@@ -163,6 +163,7 @@ class EvidenceViewerLink(WireModel):
     run_id: int | None
     op_id: int | None
     receipt_id: str | None
+    item_index: int | None = Field(default=None, ge=0)
     role: str
     status: str
     confidence: float | None
@@ -238,10 +239,28 @@ class EvidenceTextRange(WireModel):
     end: int
 
 
+class EvidenceTranscriptSegment(WireModel):
+    span_id: str
+    start: int
+    end: int
+    start_ms: int
+    end_ms: int
+    speaker: str | None = None
+
+
+class EvidenceTranscriptContext(WireModel):
+    schema_version: Literal["frisket.timestamped_text_context.v1"]
+    evidence_link_stable_id: str
+    artifact_stable_id: str
+    offset_unit: Literal["utf16_code_unit"]
+    segments: list[EvidenceTranscriptSegment]
+
+
 class EvidenceTextContext(WireModel):
     text: str
     offset_unit: Literal["utf16_code_unit"]
     ranges: list[EvidenceTextRange]
+    transcript: EvidenceTranscriptContext | None = None
 
 
 class EvidenceViewerArtifact(WireModel):
@@ -295,6 +314,8 @@ __all__ = [
     "EvidenceTemporalRun",
     "EvidenceTextContext",
     "EvidenceTextRange",
+    "EvidenceTranscriptContext",
+    "EvidenceTranscriptSegment",
     "EvidenceViewerArtifact",
     "EvidenceViewerLink",
     "EvidenceViewerPage",

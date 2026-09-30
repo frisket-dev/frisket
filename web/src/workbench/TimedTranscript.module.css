@@ -1,0 +1,57 @@
+/* The document reader has one scrolling surface. Keep the audio/video control
+   visible at the top of its left column while transcript rows continue beside
+   it. This stays local to the document reader: EvidenceViewer intentionally
+   renders cited temporal spans as flowing prose. */
+.layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+.player {
+  flex: 0 0 min(100%, 380px);
+  width: min(100%, 380px);
+  position: sticky;
+  top: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.player audio,
+.player video {
+  width: 100%;
+  max-width: 100%;
+}
+
+.segments {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 0;
+}
+
+/* A parsed segment has a real start time, so it earns its own reading line.
+   The text-only fallback remains ordinary prose because it has no timestamp
+   to show honestly. */
+.segments .segment {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 860px) {
+  .layout {
+    flex-direction: column;
+  }
+
+  .player {
+    position: static;
+    flex-basis: auto;
+    width: 100%;
+  }
+}

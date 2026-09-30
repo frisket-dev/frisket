@@ -1,11 +1,13 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Check, ChevronLeft, ChevronRight, Pencil, X } from 'lucide-react';
 import type { CellValue, ReviewBundleField } from '../../api/types';
 import { useEscapeDismiss } from '../../hooks/useEscapeDismiss';
 import { handleAutoResizeTextareaInput, resizeTextareaToContent } from '../action-panel/formControlHelpers';
 import { ReviewSourcePreview } from './ReviewSourcePreview';
+import { ReviewValue } from './ReviewValue';
+import type { ReviewItemLocation, ReviewItemSelection } from './reviewItemLocations';
 import { decisionLabel, isDecided } from './reviewDecisions';
-import { useReviewSession, type ReviewSessionController, type ReviewSessionOptions } from './useReviewSession';
+import { isPlainTextReviewField, useReviewSession, type ReviewSessionController, type ReviewSessionOptions } from './useReviewSession';
 import styles from './ReviewWorkspace.module.css';
 
 export interface ReviewSessionProps extends ReviewSessionOptions {
@@ -21,13 +23,17 @@ function RowNavigation({ controller: c }: { controller: ReviewSessionController 
   </nav>;
 }
 
-function FieldDecision({ field, controller: c }: { field: ReviewBundleField; controller: ReviewSessionController }) {
+function FieldDecision({ field, controller: c, onSelectItem, selectableItemIndices }: {
+  field: ReviewBundleField; controller: ReviewSessionController;
+  onSelectItem(index: number): void; selectableItemIndices: ReadonlySet<number>;
+}) {
   const selected = c.field?.id === field.id;
   const editing = c.editingId === field.id;
   const sectionRef = useRef<HTMLElement>(null);
   useEffect(() => {
     if (selected) sectionRef.current?.scrollIntoView?.({ block: 'nearest' });
   }, [selected]);
+  const editable = isPlainTextReviewField(field);
   return <section ref={sectionRef} className={styles.field} data-selected={selected} data-review-state={field.reviewState}
     data-testid={`review-field-${field.columnName}`} data-review-changed={field.changed ? 'true' : 'false'} data-review-decision={field.reviewDecision}>
     <button type="button" className={styles.fieldSelect} aria-pressed={selected}
@@ -35,9 +41,6 @@ function FieldDecision({ field, controller: c }: { field: ReviewBundleField; con
       <span className={styles.fieldHeading}><strong>{field.columnName}</strong>
         {isDecided(field) && <small>{decisionLabel(field)}</small>}
       </span>
-      <span className={styles.value}>{field.columnType === 'image' && field.value
-        ? <img src={String(field.value)} alt={`${field.columnName} value`} />
-        : field.value === null ? '—' : String(field.value)}</span>
       {field.confidence !== null && <small className={styles.confidence}>Confidence {field.confidence.toFixed(2)}</small>}
     </button>
     <div className={styles.verdict} role="group" aria-label={`Decision for ${field.columnName}`}>
@@ -48,8 +51,14 @@ function FieldDecision({ field, controller: c }: { field: ReviewBundleField; con
         aria-pressed={field.reviewState === 'rejected'} disabled={c.busy || c.readOnly}
         className={styles.reject} onClick={() => c.toggle(field, 'reject')}><X size={16} /></button>
       <button type="button" aria-label={`Edit ${field.columnName}`} title="Edit (E) — counts as incorrect"
-        aria-pressed={editing || field.reviewDecision === 'edit'} disabled={c.busy || c.readOnly}
+        aria-pressed={editing || field.reviewDecision === 'edit'} disabled={c.busy || c.readOnly || !editable}
         className={styles.edit} onClick={() => c.startEdit(field)}><Pencil size={14} /></button>
+    </div>
+    <div className={styles.value} onClick={(event) => {
+      const target = event.target;
+      if (!c.busy && (!(target instanceof Element) || !target.closest('a, button, input, select, textarea, [role="button"]'))) c.selectField(field.id);
+    }}>
+      <ReviewValue field={field} onSelectItem={c.busy ? undefined : onSelectItem} selectableItemIndices={selectableItemIndices} />
     </div>
     {editing && <div className={styles.editor}>
       <textarea ref={(node) => { if (node && document.activeElement !== node) { node.focus(); resizeTextareaToContent(node); } }}
@@ -93,6 +102,8 @@ function ReviewFooter({ controller: c }: { controller: ReviewSessionController }
 
 export function ReviewSession({ onClose, renderToolbar, ...options }: ReviewSessionProps) {
   const c = useReviewSession(options);
+  const [selectedItem, setSelectedItem] = useState<ReviewItemSelection | null>(null);
+  const [itemLocations, setItemLocations] = useState<ReviewItemLocation[]>([]);
   useEscapeDismiss(() => { if (onClose && !c.editingId) c.leave(onClose); }, { enabled: !!onClose, typingGuard: true });
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -126,12 +137,14 @@ export function ReviewSession({ onClose, renderToolbar, ...options }: ReviewSess
     {c.loading && !c.page ? <div className={styles.empty}>Loading review…</div>
       : !c.bundle ? <div className={styles.empty} data-testid="review-empty">No results to review.</div>
         : <main className={styles.workspace} data-testid="review-card" aria-busy={c.busy}>
-          <ReviewSourcePreview bundle={c.bundle} activeField={c.field}
+          <ReviewSourcePreview bundle={c.bundle} activeField={c.field} selectedItem={selectedItem} onItemLocations={setItemLocations}
             sourceEntries={Object.entries(c.bundle.source) as Array<[string, CellValue]>} />
           <section className={styles.results} data-testid="review-output-panel" aria-label="Result fields">
             <div className={styles.resultsHeader}>Results <span>{c.bundle.fields.length} {c.bundle.fields.length === 1 ? 'field' : 'fields'}</span></div>
             <div className={styles.fields} data-testid="review-bundle-fields">
-              {c.bundle.fields.map((field) => <FieldDecision key={field.id} field={field} controller={c} />)}
+              {c.bundle.fields.map((field) => <FieldDecision key={field.id} field={field} controller={c}
+                selectableItemIndices={new Set(itemLocations.filter((location) => location.fieldId === field.id).map((location) => location.index))}
+                onSelectItem={(index) => { c.selectField(field.id); setSelectedItem({ fieldId: field.id, index }); }} />)}
             </div>
             <ReviewFooter controller={c} />
           </section>
