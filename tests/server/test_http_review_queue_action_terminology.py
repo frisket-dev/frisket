@@ -154,6 +154,8 @@ def test_http_review_queue_and_bundles_use_action_metadata(tmp_path) -> None:
             "column_id": queue[0]["column_id"],
             "column_name": "beat",
             "column_type": "category",
+            "semantic_type": None,
+            "format": None,
             "sheet_id": sheet_id,
             "value": "civic",
             "confidence": 0.41,
