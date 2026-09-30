@@ -5,27 +5,39 @@ import { createUpdater } from '../src/updater.mjs';
 
 class FakeUpdater extends EventEmitter {
   checks = 0;
-  result = {};
+  downloads = 0;
+  version = '1.2.3';
   failure;
+  downloadFailure;
 
   async checkForUpdates() {
     this.checks += 1;
     if (this.failure) throw this.failure;
-    return this.result;
+    this.emit(this.version ? 'update-available' : 'update-not-available', { version: this.version });
+    return {};
+  }
+
+  async downloadUpdate() {
+    this.downloads += 1;
+    if (this.downloadFailure) throw this.downloadFailure;
+    this.emit('download-progress', { percent: 47.5 });
+    this.emit('update-downloaded', { version: this.version });
+    return [];
   }
 }
 
-function createHarness({ response = 1, requestInstall = async () => true } = {}) {
+function createHarness({ response = 1, requestInstall, preferences = {} } = {}) {
   const updater = new FakeUpdater();
   const states = [];
-  const notifications = [];
   const messages = [];
+  const installs = [];
   const timers = { timeouts: [], intervals: [], clearedTimeouts: [], clearedIntervals: [] };
   const controller = createUpdater({
     updater,
-    notify: (title, body, onClick) => notifications.push({ title, body, onClick }),
-    message: async (options) => { messages.push(options); return response; },
-    requestInstall,
+    getSkippedVersion: () => preferences.skippedVersion,
+    skipVersion: (version) => { preferences.skippedVersion = version; },
+    message: async (options) => { messages.push(options); return typeof response === 'function' ? response(options) : response; },
+    requestInstall: async () => { installs.push(true); return requestInstall ? requestInstall() : true; },
     onState: (state) => states.push(state),
     setTimeoutFn: (callback, delay) => {
       const timer = { callback, delay };
@@ -40,99 +52,101 @@ function createHarness({ response = 1, requestInstall = async () => true } = {})
     },
     clearIntervalFn: (timer) => timers.clearedIntervals.push(timer),
   });
-  return { updater, controller, states, notifications, messages, timers };
+  return { updater, controller, states, messages, installs, timers, preferences };
 }
 
-test('configures automatic background downloads without install-on-quit or downgrades', () => {
+test('checks without downloading until consent, and never installs on quit or downgrades', () => {
   const { updater } = createHarness();
-  assert.equal(updater.autoDownload, true);
+  assert.equal(updater.autoDownload, false);
   assert.equal(updater.autoInstallOnAppQuit, false);
   assert.equal(updater.allowPrerelease, true);
   assert.equal(updater.channel, 'latest');
   assert.equal(updater.allowDowngrade, false);
 });
 
-test('starts one delayed check and a daily recurring check', async () => {
-  const { controller, updater, timers } = createHarness();
+test('startup and daily checks show availability; Later keeps the app running without downloading', async () => {
+  const { controller, updater, timers, messages, installs } = createHarness();
   controller.start();
   controller.start();
   assert.deepEqual(timers.timeouts.map(({ delay }) => delay), [30_000]);
   assert.deepEqual(timers.intervals.map(({ delay }) => delay), [24 * 60 * 60 * 1_000]);
   timers.timeouts[0].callback();
   await new Promise(setImmediate);
+  assert.equal(messages.length, 1);
+  assert.match(messages[0].message, /new version of Frisket Desktop is available/i);
+  assert.deepEqual(messages[0].buttons, ['Update now', 'Later', 'Skip this version']);
+  assert.match(messages[0].detail, /1\.2\.3/);
   timers.intervals[0].callback();
   await new Promise(setImmediate);
   assert.equal(updater.checks, 2);
+  assert.equal(messages.length, 2);
+  assert.equal(updater.downloads, 0);
+  assert.equal(installs.length, 0);
 });
 
-test('coalesces overlapping checks and lets a manual click receive that check feedback', async () => {
-  const { controller, updater, messages } = createHarness();
-  let resolveCheck;
-  updater.checkForUpdates = () => {
-    updater.checks += 1;
-    return new Promise((resolve) => { resolveCheck = resolve; });
-  };
-  const background = controller.check();
+test('one manual check offers, downloads and installs without a second menu click', async () => {
+  const { controller, updater, states, messages, installs } = createHarness({ response: 0 });
+  await controller.check({ manual: true });
+  assert.equal(messages.length, 1);
+  assert.equal(updater.downloads, 1);
+  assert.equal(installs.length, 1);
+  assert.ok(states.some((state) => state.phase === 'downloading' && state.percent === 47.5));
+  assert.deepEqual(controller.state, { phase: 'installing', version: '1.2.3' });
+});
+
+test('coalesces checks and dialogs, including manual use while the automatic offer is open', async () => {
+  let respond;
+  const { controller, updater, messages, installs } = createHarness({
+    response: () => new Promise((resolve) => { respond = resolve; }),
+  });
+  const automatic = controller.check();
+  await new Promise(setImmediate);
   const manual = controller.check({ manual: true });
-  await new Promise(setImmediate);
-  updater.emit('update-not-available');
-  resolveCheck({});
-  await Promise.all([background, manual]);
+  assert.equal(messages.length, 1);
+  respond(0);
+  await Promise.all([automatic, manual]);
   assert.equal(updater.checks, 1);
-  assert.equal(messages[0].title, 'Frisket is up to date');
+  assert.equal(updater.downloads, 1);
+  assert.equal(installs.length, 1);
 });
 
-test('publishes download progress and gives a ready notification whose click opens the install dialog', async () => {
-  const { updater, controller, states, notifications, messages } = createHarness();
-  updater.emit('update-available', { version: '1.2.3-alpha.1' });
-  updater.emit('download-progress', { percent: 47.5 });
-  updater.emit('update-downloaded', { version: '1.2.3-alpha.1' });
-
-  assert.deepEqual(states.at(-2), { phase: 'downloading', percent: 47.5, version: '1.2.3-alpha.1' });
-  assert.deepEqual(controller.state, { phase: 'ready', version: '1.2.3-alpha.1' });
-  assert.equal(notifications.length, 1);
-  notifications[0].onClick();
-  await new Promise(setImmediate);
-  assert.deepEqual(messages[0].buttons, ['Restart to update', 'Later']);
-  await controller.check();
-  assert.equal(updater.checks, 0);
-  assert.equal(controller.state.phase, 'ready');
+test('Skip suppresses only that version across controllers; manual checks override it', async () => {
+  const preferences = {};
+  const first = createHarness({ preferences, response: 2 });
+  await first.controller.check();
+  assert.equal(preferences.skippedVersion, '1.2.3');
+  assert.equal(first.updater.downloads, 0);
+  first.controller.dispose();
+  const next = createHarness({ preferences });
+  await next.controller.check();
+  assert.equal(next.messages.length, 0);
+  await next.controller.check({ manual: true });
+  assert.equal(next.messages.length, 1);
+  next.updater.version = '1.2.4';
+  await next.controller.check();
+  assert.equal(next.messages.length, 2);
 });
 
-test('Later keeps an update ready and manual check opens its restart dialog', async () => {
-  const { updater, controller, messages } = createHarness({ response: 1 });
-  updater.emit('update-downloaded', { version: '1.2.3' });
+test('cleanup refusal keeps downloaded update ready and manual retry does not download again', async () => {
+  const { controller, updater, installs } = createHarness({ response: 0, requestInstall: () => false });
   await controller.check({ manual: true });
   assert.equal(controller.state.phase, 'ready');
-  assert.equal(messages.length, 1);
-  assert.deepEqual(messages[0].buttons, ['Restart to update', 'Later']);
+  await controller.check({ manual: true });
+  assert.equal(installs.length, 2);
+  assert.equal(updater.downloads, 1);
+  assert.equal(controller.state.phase, 'ready');
 });
 
-test('explicit restart requests cleanup-aware install once and preserves ready state on refusal', async () => {
-  let installs = 0;
-  const { updater, controller } = createHarness({
-    response: 0,
-    requestInstall: async () => { installs += 1; return false; },
-  });
-  updater.emit('update-downloaded', { version: '1.2.3' });
-  await Promise.all([controller.check({ manual: true }), controller.check({ manual: true })]);
-  assert.equal(installs, 1);
-  assert.deepEqual(controller.state, { phase: 'ready', version: '1.2.3' });
-});
-
-test('manual checks report unavailable and download failures while background failures stay quiet', async () => {
+test('manual unavailable and failed checks show feedback; automatic check failures stay quiet', async () => {
   const unavailable = createHarness();
-  const unavailableCheck = unavailable.controller.check({ manual: true });
-  unavailable.updater.emit('update-not-available');
-  await unavailableCheck;
+  unavailable.updater.version = null;
+  await unavailable.controller.check({ manual: true });
   assert.equal(unavailable.messages[0].title, 'Frisket is up to date');
-
   const failed = createHarness();
-  failed.updater.result = { downloadPromise: Promise.reject(new Error('offline')) };
+  failed.updater.failure = new Error('offline');
   await failed.controller.check({ manual: true });
   assert.equal(failed.controller.state.phase, 'error');
   assert.match(failed.messages[0].message, /Check your internet connection/);
-
   const background = createHarness();
   background.updater.failure = new Error('offline');
   await background.controller.check();
@@ -140,12 +154,33 @@ test('manual checks report unavailable and download failures while background fa
   assert.equal(background.messages.length, 0);
 });
 
-test('dispose removes updater listeners and cancels scheduled work', () => {
-  const { updater, controller, notifications, timers } = createHarness();
+test('accepted automatic offer reports a download failure once and never installs', async () => {
+  const { controller, updater, messages, installs } = createHarness({ response: 0 });
+  updater.downloadUpdate = async () => {
+    const error = new Error('download interrupted');
+    updater.emit('error', error);
+    throw error;
+  };
+  await controller.check();
+  assert.equal(messages.length, 2);
+  assert.match(messages[1].message, /Check your internet connection/);
+  assert.equal(installs.length, 0);
+  assert.equal(controller.state.phase, 'error');
+});
+
+test('dispose cancels scheduled work and prevents late dialog consent from downloading', async () => {
+  let respond;
+  const { updater, controller, timers, installs } = createHarness({
+    response: () => new Promise((resolve) => { respond = resolve; }),
+  });
   controller.start();
+  const check = controller.check();
+  await new Promise(setImmediate);
   controller.dispose();
-  updater.emit('update-downloaded', { version: '1.2.3' });
-  assert.equal(notifications.length, 0);
+  respond(0);
+  await check;
+  assert.equal(updater.downloads, 0);
+  assert.equal(installs.length, 0);
   assert.equal(timers.clearedTimeouts.length, 1);
   assert.equal(timers.clearedIntervals.length, 1);
   assert.equal(updater.listenerCount('error'), 0);

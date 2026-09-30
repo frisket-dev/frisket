@@ -23,9 +23,11 @@ Python, Homebrew, Node, or terminal setup for an app user.
    open its engine details and choose **Download** before transcribing.
 
 Frisket checks for updates shortly after opening and daily while it stays open.
-Updates download in the background. Choose **Help → Restart to update** when you
-are ready; **Later** leaves the app open. **Help → Check for Updates** checks manually.
-Frisket stops its local services before installing and never restarts automatically.
+When a new version is available, a dialog offers **Update now**, **Later**, or
+**Skip this version**. Update now downloads it and restarts after stopping local
+services. Later waits until the next launch or daily check; Skip this version
+remembers your choice across launches. **Help → Check for Updates** checks manually,
+including versions you skipped. Download progress appears in the Help menu.
 Versions through 0.1.1a77 need one manual upgrade to gain automatic updates: quit
 Frisket Desktop, install the new DMG or EXE, then reopen it.
 Your workspace and caches survive replacement; a dependency change may require another

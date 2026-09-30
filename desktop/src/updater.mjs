@@ -2,15 +2,15 @@ const STARTUP_DELAY_MS = 30_000;
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1_000;
 
 /**
- * Connect electron-updater to the desktop shell without giving it ownership of
- * application shutdown. The caller performs local cleanup before requestInstall
- * quits and installs the downloaded update.
+ * Offer updates before downloading. The caller owns preferences and performs
+ * local cleanup before requestInstall quits and installs the downloaded update.
  *
  * @param {{
- *   updater: import('node:events').EventEmitter & { checkForUpdates(): Promise<unknown> },
- *   notify?: (title: string, body: string, onClick: () => void) => void,
- *   message?: (options: { title: string, message: string, buttons: string[] }) => Promise<number | { response: number }> | number | { response: number },
+ *   updater: import('node:events').EventEmitter & { checkForUpdates(): Promise<unknown>, downloadUpdate(): Promise<unknown> },
+ *   message?: (options: { title: string, message: string, detail?: string, buttons: string[] }) => Promise<number | { response: number }> | number | { response: number },
  *   requestInstall?: () => Promise<boolean> | boolean,
+ *   getSkippedVersion?: () => string | undefined,
+ *   skipVersion?: (version: string) => void,
  *   onState?: (state: { phase: string, percent?: number, version?: string }) => void,
  *   setTimeoutFn?: typeof setTimeout,
  *   clearTimeoutFn?: typeof clearTimeout,
@@ -20,9 +20,10 @@ const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1_000;
  */
 export function createUpdater({
   updater,
-  notify = () => {},
   message = () => ({ response: 1 }),
   requestInstall = () => false,
+  getSkippedVersion = () => undefined,
+  skipVersion = () => {},
   onState = () => {},
   setTimeoutFn = setTimeout,
   clearTimeoutFn = clearTimeout,
@@ -34,14 +35,12 @@ export function createUpdater({
   let startupTimer;
   let intervalTimer;
   let checkTask;
-  let readyDialogTask;
-  let installTask;
   let attempt;
   let state = { phase: 'idle' };
 
-  // electron-updater's channel setter enables downgrades. Set it first, then
-  // restore the policy we want for production releases.
-  updater.autoDownload = true;
+  // electron-updater's channel setter enables downgrades. Restore our policy
+  // after choosing the release feed.
+  updater.autoDownload = false;
   updater.autoInstallOnAppQuit = false;
   updater.allowPrerelease = true;
   updater.channel = 'latest';
@@ -53,110 +52,91 @@ export function createUpdater({
     onState({ ...state });
   }
 
-  function updateVersion(info) {
-    return typeof info?.version === 'string' ? info.version : undefined;
-  }
-
-  function manualUnavailable() {
-    if (!attempt?.manual || attempt.unavailableShown) return;
-    attempt.unavailableShown = true;
-    void Promise.resolve(message({
-      title: 'Frisket is up to date',
-      message: 'You already have the latest version of Frisket Desktop.',
-      buttons: ['OK'],
-    })).catch(() => {});
-  }
-
-  function reportFailure(error, failedAttempt = attempt) {
-    if (disposed || failedAttempt?.failureShown) return;
-    if (failedAttempt) failedAttempt.failureShown = true;
+  function reportFailure() {
+    if (disposed || attempt?.failureShown) return;
+    if (attempt) attempt.failureShown = true;
     publish({ phase: 'error' });
-    if (!failedAttempt?.manual) return;
+    if (!attempt?.manual && !attempt?.accepted) return;
     void Promise.resolve(message({
-      title: 'Could not check for updates',
+      title: 'Could not update Frisket Desktop',
       message: 'Frisket Desktop could not check for or download an update. Check your internet connection and try again later.',
       buttons: ['OK'],
     })).catch(() => {});
   }
 
-  async function showReadyDialog() {
+  async function offerUpdate() {
+    const { version, phase } = state;
+    if (disposed || !version || (!attempt.manual && getSkippedVersion() === version)) return;
+    const result = await message({
+      title: 'Frisket Desktop update',
+      message: 'A new version of Frisket Desktop is available.',
+      detail: `Version ${version}. ${phase === 'ready' ? 'The update is downloaded.' : 'Frisket will download the update.'} Updating will restart the app.`,
+      buttons: ['Update now', 'Later', 'Skip this version'],
+    });
+    if (disposed) return;
+    const response = typeof result === 'number' ? result : result?.response;
+    if (response === 2) {
+      try { skipVersion(version); }
+      catch {
+        await message({
+          title: 'Could not save update preference',
+          message: 'Frisket could not remember this choice. You may be offered this version again.',
+          buttons: ['OK'],
+        });
+      }
+      return;
+    }
+    if (response !== 0) return;
+    attempt.accepted = true;
+    if (phase !== 'ready') {
+      publish({ phase: 'downloading', version });
+      await updater.downloadUpdate();
+    }
     if (disposed || state.phase !== 'ready') return;
-    if (readyDialogTask) return readyDialogTask;
-    readyDialogTask = (async () => {
-      const result = await message({
-        title: 'Update ready to install',
-        message: 'A Frisket Desktop update has downloaded and is ready to install.',
-        buttons: ['Restart to update', 'Later'],
-      });
-      const response = typeof result === 'number' ? result : result?.response;
-      if (response !== 0 || disposed) return;
-      if (installTask) return installTask;
-      installTask = Promise.resolve(requestInstall())
-        .then((installed) => {
-          if (installed !== false) publish({ phase: 'installing', version: state.version });
-        })
-        .catch(() => {})
-        .finally(() => { installTask = undefined; });
-      return installTask;
-    })().finally(() => { readyDialogTask = undefined; });
-    return readyDialogTask;
+    // A refused shutdown keeps the download ready for a later retry.
+    if (await requestInstall() !== false) publish({ phase: 'installing', version });
   }
 
   const listeners = {
-    checking: () => publish({ phase: 'checking' }),
-    available: (info) => publish({ phase: 'downloading', version: updateVersion(info) }),
-    unavailable: () => {
-      publish({ phase: 'up-to-date' });
-      manualUnavailable();
-    },
-    progress: (progress) => {
+    'checking-for-update': () => publish({ phase: 'checking' }),
+    'update-available': (info) => publish({ phase: 'available', version: info.version }),
+    'update-not-available': () => publish({ phase: 'up-to-date' }),
+    'download-progress': (progress) => {
       const percent = Number(progress?.percent);
-      publish({ phase: 'downloading', ...(Number.isFinite(percent) ? { percent } : {}), ...(state.version ? { version: state.version } : {}) });
+      publish({ phase: 'downloading', version: state.version, ...(Number.isFinite(percent) ? { percent } : {}) });
     },
-    downloaded: (info) => {
-      const version = updateVersion(info) ?? state.version;
-      publish({ phase: 'ready', ...(version ? { version } : {}) });
-      try {
-        notify('Update ready', 'A Frisket Desktop update has downloaded and is ready to install.', () => { void showReadyDialog(); });
-      } catch {}
-    },
-    error: (error) => reportFailure(error),
+    'update-downloaded': (info) => publish({ phase: 'ready', version: info.version }),
+    error: reportFailure,
   };
-
-  updater.on('checking-for-update', listeners.checking);
-  updater.on('update-available', listeners.available);
-  updater.on('update-not-available', listeners.unavailable);
-  updater.on('download-progress', listeners.progress);
-  updater.on('update-downloaded', listeners.downloaded);
-  updater.on('error', listeners.error);
+  for (const [event, listener] of Object.entries(listeners)) updater.on(event, listener);
 
   function check({ manual = false } = {}) {
-    if (disposed) return Promise.resolve();
-    if (state.phase === 'ready') return manual ? showReadyDialog() : Promise.resolve();
+    if (disposed || state.phase === 'installing') return Promise.resolve();
     if (checkTask) {
-      if (manual && attempt) attempt.manual = true;
+      if (manual) attempt.manual = true;
       return checkTask;
     }
-
-    attempt = { manual, failureShown: false, unavailableShown: false };
-    publish({ phase: 'checking' });
-    const currentAttempt = attempt;
-    checkTask = Promise.resolve()
-      .then(() => updater.checkForUpdates())
-      .then(async (result) => {
-        // Some electron-updater versions expose the automatic download as a
-        // result promise. Awaiting and handling it keeps the next timer/manual
-        // check from starting a duplicate download and consumes its rejection.
-        if (result?.downloadPromise && typeof result.downloadPromise.then === 'function') {
-          try { await result.downloadPromise; } catch (error) { reportFailure(error, currentAttempt); }
-        }
-        return result;
-      })
-      .catch((error) => { reportFailure(error, currentAttempt); })
-      .finally(() => {
-        if (attempt === currentAttempt) attempt = undefined;
-        checkTask = undefined;
-      });
+    attempt = { manual, accepted: false, failureShown: false };
+    // Own the whole interaction, including the dialog and download, so manual
+    // clicks and scheduled checks cannot open competing prompts or installers.
+    checkTask = Promise.resolve().then(async () => {
+      if (state.phase !== 'ready') {
+        publish({ phase: 'checking' });
+        await updater.checkForUpdates();
+      }
+      if (disposed) return;
+      if (['available', 'ready'].includes(state.phase)) await offerUpdate();
+      else if (state.phase === 'up-to-date' && attempt.manual) {
+        await message({
+          title: 'Frisket is up to date',
+          message: 'You already have the latest version of Frisket Desktop.',
+          buttons: ['OK'],
+        });
+      }
+    }).catch(reportFailure).finally(() => {
+      attempt = undefined;
+      checkTask = undefined;
+    });
     return checkTask;
   }
 
@@ -172,20 +152,8 @@ export function createUpdater({
     disposed = true;
     if (startupTimer !== undefined) clearTimeoutFn(startupTimer);
     if (intervalTimer !== undefined) clearIntervalFn(intervalTimer);
-    for (const [event, listener] of Object.entries({
-      'checking-for-update': listeners.checking,
-      'update-available': listeners.available,
-      'update-not-available': listeners.unavailable,
-      'download-progress': listeners.progress,
-      'update-downloaded': listeners.downloaded,
-      error: listeners.error,
-    })) updater.removeListener(event, listener);
+    for (const [event, listener] of Object.entries(listeners)) updater.removeListener(event, listener);
   }
 
-  return {
-    check,
-    start,
-    dispose,
-    get state() { return { ...state }; },
-  };
+  return { check, start, dispose, get state() { return { ...state }; } };
 }
