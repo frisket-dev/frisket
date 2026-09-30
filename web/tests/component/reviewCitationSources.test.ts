@@ -73,26 +73,21 @@ describe('review citation source tabs', () => {
     expect(sourceLocation(sources[1], 'relief')).toBe('14:09');
   });
 
-  it('unions span references for one temporal run cited by separate fields', () => {
-    const firstField = evidenceArtifact({
-      stable_id: 'source:recording', media_type: 'audio/mpeg',
-      spans: [evidenceSpan({ stable_id: 'span:intro', selector: { start_ms: 1_000, end_ms: 3_000 } })],
-      runs: [{ index: 4, start_ms: 1_000, end_ms: 5_000, span_ids: ['span:intro'], clip_url: 'https://example.test/clip' }],
-    });
-    const secondField = {
-      ...firstField,
-      spans: [evidenceSpan({ stable_id: 'span:detail', selector: { start_ms: 3_000, end_ms: 5_000 } })],
-      runs: [{ index: 4, start_ms: 1_000, end_ms: 5_000, span_ids: ['span:detail'], clip_url: 'https://example.test/clip' }],
-    };
-
-    const source = reviewCitationSources([
-      { fieldId: 'summary', payload: payload('citation', firstField) },
-      { fieldId: 'finding', payload: payload('citation', secondField) },
-    ])[0];
-
-    expect(source.artifact.runs).toEqual([
-      { index: 4, start_ms: 1_000, end_ms: 5_000, span_ids: ['span:intro', 'span:detail'], clip_url: 'https://example.test/clip' },
-    ]);
+  it('keeps link-local clip indices separate when combining one source', () => {
+    const inputs = [1000, 90000].map((start, index) => ({ fieldId: 'results',
+      payload: payload('citation', evidenceArtifact({
+        stable_id: 'source:recording', media_type: 'audio/mpeg',
+        spans: [evidenceSpan({ stable_id: `span:${index}`, run_index: 0,
+          selector: { start_ms: start, end_ms: start + 1000 } })],
+        runs: [{ index: 0, start_ms: start, end_ms: start + 1000,
+          span_ids: [`span:${index}`], clip_url: `/clip/${index}` }],
+      })),
+    }));
+    const source = reviewCitationSources(inputs)[0];
+    expect(source.artifact.runs).toHaveLength(2);
+    for (const [index, span] of source.artifact.spans.entries()) {
+      expect(source.artifact.runs.find((run) => run.index === span.run_index)?.clip_url).toBe(`/clip/${index}`);
+    }
   });
 
   it('labels plain-text sources as TXT', () => {

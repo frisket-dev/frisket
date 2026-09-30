@@ -54,7 +54,20 @@ function citedSpans(artifact: EvidenceArtifact): EvidenceSpan[] {
 function mergeArtifacts(members: readonly SourceMember[]): EvidenceArtifact {
   const first = members[0].artifact;
   const spanIds = new Set(members.flatMap((member) => member.spans.map((span) => span.stable_id)));
-  const spans = uniqueBy(members.flatMap((member) => member.spans), (span) => span.stable_id);
+  // Backend run indices are local to each evidence link. Reindex before
+  // combining artifacts so a result cannot download another result's clip.
+  const runs: EvidenceCitationRun[] = [];
+  const spans = uniqueBy(members.flatMap((member) => {
+    const indices = new Map<number, number>();
+    for (const run of member.artifact.runs) {
+      const index = runs.length;
+      indices.set(run.index, index);
+      runs.push({ ...run, index });
+    }
+    return member.spans.map((span) => ({ ...span,
+      run_index: span.run_index == null ? null : indices.get(span.run_index) ?? null,
+    }));
+  }), (span) => span.stable_id);
   const pages = uniqueBy(members.flatMap((member) => member.artifact.pages), (page) => String(page.page)).map((page) => ({
     ...page,
     regions: uniqueBy(members.flatMap((member) => member.artifact.pages)
@@ -64,28 +77,9 @@ function mergeArtifacts(members: readonly SourceMember[]): EvidenceArtifact {
   const textContext = mergeTextContext(members, spanIds);
   return {
     ...first, spans, pages,
-    runs: mergeRuns(members),
+    runs,
     ...(textContext === null ? {} : { text_context: textContext }),
   };
-}
-
-function mergeRuns(members: readonly SourceMember[]): EvidenceCitationRun[] {
-  const byIndex = new Map<number, EvidenceCitationRun>();
-  for (const run of members.flatMap((member) => member.artifact.runs)) {
-    const current = byIndex.get(run.index);
-    if (!current) {
-      byIndex.set(run.index, { ...run, span_ids: [...new Set(run.span_ids)] });
-      continue;
-    }
-    byIndex.set(run.index, {
-      ...current,
-      start_ms: Math.min(current.start_ms, run.start_ms),
-      end_ms: Math.max(current.end_ms, run.end_ms),
-      clip_url: current.clip_url ?? run.clip_url,
-      span_ids: [...new Set([...current.span_ids, ...run.span_ids])],
-    });
-  }
-  return [...byIndex.values()];
 }
 
 function mergeTextContext(members: readonly SourceMember[], spanIds: ReadonlySet<string>) {
