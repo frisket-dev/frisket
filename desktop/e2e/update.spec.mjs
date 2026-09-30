@@ -30,9 +30,9 @@ async function launch(feed, testInfo) {
       const showMessageBox = dialog.showMessageBox.bind(dialog);
       dialog.showMessageBox = async (...args) => {
         const options = args.at(-1);
-        if (options.buttons?.includes('Restart to update') && options.buttons.includes('Later')) {
+        if (options.buttons?.includes('Update now') && options.buttons.includes('Later')) {
           proof.prompts.push({ message: options.message, buttons: options.buttons });
-          return { response: options.buttons.indexOf(proof.restart ? 'Restart to update' : 'Later'), checkboxChecked: false };
+          return { response: options.buttons.indexOf(proof.restart ? 'Update now' : 'Later'), checkboxChecked: false };
         }
         if (options.type === 'error') {
           proof.errors.push(`${options.message} ${options.detail ?? ''}`);
@@ -56,6 +56,8 @@ async function launch(feed, testInfo) {
         autoUpdater.on('update-downloaded', (info) => {
           proof.downloaded = info.version;
           proof.installer = info.downloadedFile;
+          const fs = process.getBuiltinModule('fs');
+          fs.writeFileSync(`${app.getPath('userData')}/installed-update-download.json`, JSON.stringify({ version: info.version, installer: info.downloadedFile }));
         });
         autoUpdater.on('error', (error) => proof.errors.push(error.message));
       }
@@ -178,18 +180,17 @@ test('signed installed baseline updates through its native updater and preserves
     const baseline = await launch(feed, testInfo);
     running = baseline.electron;
     expect(await running.evaluate(({ app }) => app.getVersion())).toBe('0.0.0');
-    expect(await updateMenu(running)).toMatch(/Check for Updates/);
     const saved = await savedProject(baseline.page); // Starts the actual private worker.
     const sentinel = path.join(profile, 'cache', 'signed-update-proof.txt');
     const sentinelValue = 'Preserve the original profile and model cache across native updates.\n';
     await mkdir(path.dirname(sentinel), { recursive: true });
     await writeFile(sentinel, sentinelValue);
-    await expect.poll(async () => (await proofState(running)).downloaded, { timeout: 180_000 }).toBe(targetVersion);
-    const installer = (await proofState(running)).installer;
-    if (process.platform === 'win32') expect(path.isAbsolute(installer)).toBeTruthy();
-    expect(feed.requests.some((request) => request.method === 'GET' && feed.artifacts.includes(request.name))).toBeTruthy();
-    expect(await updateMenu(running)).toMatch(/Restart to update/);
-    await expect.poll(async () => (await proofState(running)).prompts.length).toBe(1);
+    // The startup check must offer the update without a menu click. Choosing
+    // Later must leave both the workspace and the download untouched.
+    await expect.poll(async () => (await proofState(running)).prompts.length, { timeout: 60_000 }).toBe(1);
+    expect((await proofState(running)).prompts[0].buttons).toEqual(['Update now', 'Later', 'Skip this version']);
+    expect((await proofState(running)).downloaded).toBeNull();
+    expect(feed.requests.some((request) => request.method === 'GET' && feed.artifacts.includes(request.name))).toBeFalsy();
     expect(running.process().exitCode).toBeNull();
     expect(extracted(await sheet(baseline.page, saved.projectId, saved.sheetId))).toBe('$4,200');
     expect(await readFile(sentinel, 'utf8')).toBe(sentinelValue);
@@ -200,11 +201,17 @@ test('signed installed baseline updates through its native updater and preserves
     expect(oldProcesses.length).toBeGreaterThan(1);
     expect(oldPorts.length).toBeGreaterThan(0);
     await running.evaluate(() => { globalThis.__frisketUpdateProof.restart = true; });
-    await updateMenu(running);
+    expect(await updateMenu(running)).toMatch(/Update available/);
+    // One manual interaction accepts, downloads and installs. No second menu click.
     // Mac stages the downloaded ZIP through Squirrel only after restart is
     // requested. Wait for actual replacement, not just update-downloaded.
-    await expect.poll(() => child.exitCode, { timeout: 90_000 }).toBe(0);
+    await expect.poll(() => child.exitCode, { timeout: 240_000 }).toBe(0);
     running = undefined;
+    const download = JSON.parse(await readFile(path.join(profile, 'installed-update-download.json'), 'utf8'));
+    expect(download.version).toBe(targetVersion);
+    const installer = download.installer;
+    if (process.platform === 'win32') expect(path.isAbsolute(installer)).toBeTruthy();
+    expect(feed.requests.some((request) => request.method === 'GET' && feed.artifacts.includes(request.name))).toBeTruthy();
     await expect.poll(() => aliveProcesses(oldProcesses), { timeout: 30_000 }).toEqual([]);
     await expect.poll(async () => Promise.all(oldPorts.map(async (port) => {
       try { await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(1_000) }); return true; }

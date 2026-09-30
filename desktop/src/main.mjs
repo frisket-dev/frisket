@@ -2,13 +2,14 @@ import { mkdir } from 'node:fs/promises';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { app, BrowserWindow, Menu, Notification, dialog, session, shell, protocol } from 'electron';
+import { app, BrowserWindow, Menu, dialog, session, shell, protocol } from 'electron';
 import electronUpdater from 'electron-updater';
 import { prepareRuntime } from './provision.mjs';
 import { appUrl, installProtocol, APP_ORIGIN, APP_SCHEME } from './protocol.mjs';
 import { startBackend } from './backend.mjs';
 import { CleanupError } from './errors.mjs';
 import { createUpdater } from './updater.mjs';
+import { updatePreferences } from './update-preferences.mjs';
 import { createBackendStopper, shutdownDesktop } from './shutdown.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -243,20 +244,16 @@ function setupUpdates() {
   if (!app.isPackaged || !['darwin', 'win32'].includes(process.platform)) return;
   updates = createUpdater({
     updater: electronUpdater.autoUpdater,
+    ...updatePreferences(path.join(app.getPath('userData'), 'update-preferences.json')),
     requestInstall: () => requestQuit(true),
     message: async (options) => (await dialog.showMessageBox({
-      ...options, defaultId: options.buttons.length - 1, cancelId: options.buttons.length - 1,
+      ...options, defaultId: 0, cancelId: Math.max(0, options.buttons.indexOf('Later')),
     })).response,
-    notify: (title, body, onClick) => {
-      if (!Notification.isSupported()) return;
-      const notification = new Notification({ title, body });
-      notification.once('click', onClick);
-      notification.show();
-    },
     onState: ({ phase, percent }) => {
       const item = Menu.getApplicationMenu()?.getMenuItemById('desktop-update');
       if (!item) return;
       item.label = phase === 'ready' ? 'Restart to update…'
+        : phase === 'available' ? 'Update available…'
         : phase === 'checking' ? 'Checking for updates…'
           : phase === 'downloading' ? `Downloading update${Number.isFinite(percent) ? ` (${Math.floor(percent)}%)` : ''}…`
             : 'Check for Updates…';
