@@ -40,6 +40,11 @@ describe('ArtifactSource media coverage', () => {
     expect(screen.queryByTestId('evidence-region-highlight')).not.toBeInTheDocument();
   });
 
+  it('keeps an actionable source link for file types without an inline preview', () => {
+    render(<ArtifactSource artifact={mediaArtifact('application/octet-stream')} />);
+    expect(screen.getByRole('link', { name: 'Open source' })).toHaveAttribute('href', '/source');
+  });
+
   it('keeps native PDF preview when no rendered pages were saved', () => {
     render(<ArtifactSource artifact={mediaArtifact('application/pdf')} />);
     expect(screen.getByTitle('Evidence PDF: Source')).toHaveAttribute('src', '/source');

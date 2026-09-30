@@ -573,7 +573,8 @@ function MediaOrFallback({ artifact, emphasizedSpanIds }: { artifact: EvidenceAr
   if (!blob || !(artifact.media_type.startsWith('audio/') || artifact.media_type.startsWith('video/'))) {
     return (
       <div className="evidence-page-fallback" data-testid="evidence-artifact-fallback">
-        A preview is not available for this file. Open the source to view it.
+        A preview is not available for this source.
+        {blob && <a href={blob.url} target="_blank" rel="noopener noreferrer">Open source</a>}
       </div>
     );
   }

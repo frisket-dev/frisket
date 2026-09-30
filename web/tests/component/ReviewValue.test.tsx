@@ -63,6 +63,13 @@ describe('ReviewValue', () => {
     expect(container.querySelector('pre.row-field-json')).toBeNull();
   });
 
+  it('does not silently drop fields after the sixth key of a result object', () => {
+    const value = JSON.stringify([{ one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seventh: 'Still visible' }]);
+    render(<ReviewValue field={field({ value })} />);
+    expect(screen.getByText('seventh')).toBeInTheDocument();
+    expect(screen.getByText('Still visible')).toBeInTheDocument();
+  });
+
   it('only activates top-level result items whose grounded indices were supplied', () => {
     const select = vi.fn();
     const value = JSON.stringify([
