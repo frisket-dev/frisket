@@ -1,7 +1,7 @@
 import type { EvidenceArtifact, EvidenceCitationRun, EvidenceSpan, EvidenceViewerPayload } from '../../api/types';
 
 export interface ReviewCitationPayload { fieldId: string; payload: EvidenceViewerPayload; }
-interface SourceMember { fieldId: string; artifact: EvidenceArtifact; spans: EvidenceSpan[]; }
+interface SourceMember { fieldId: string; itemIndex?: number | null; artifact: EvidenceArtifact; spans: EvidenceSpan[]; }
 export interface ReviewCitationSource {
   id: string; artifact: EvidenceArtifact; fieldIds: string[]; members: SourceMember[];
   kind: 'MD' | 'TXT' | 'PDF' | 'AUDIO' | 'VIDEO' | 'IMAGE' | 'FILE'; title: string;
@@ -19,7 +19,7 @@ export function reviewCitationSources(payloads: readonly ReviewCitationPayload[]
       const spans = citedSpans(artifact);
       if (spans.length === 0 && !provenance) continue;
       const members = bySource.get(artifact.stable_id) ?? [];
-      members.push({ fieldId, artifact, spans });
+      members.push({ fieldId, itemIndex: payload.link.item_index, artifact, spans });
       bySource.set(artifact.stable_id, members);
     }
   }

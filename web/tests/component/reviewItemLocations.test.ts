@@ -30,6 +30,13 @@ describe('review item locations', () => {
     ]);
   });
 
+  it('uses a list extraction link item index for all of its supporting spans', () => {
+    const cited = source([evidenceSpan({ stable_id: 'box' }), evidenceSpan({ stable_id: 'time' })]);
+    cited.members[0].itemIndex = 1;
+    expect(reviewItemLocations([cited], [field(['first', 'second'])]).map(({ index, spanId }) => ({ index, spanId })))
+      .toEqual([{ index: 1, spanId: 'box' }, { index: 1, spanId: 'time' }]);
+  });
+
   it('recovers old NER locations only from exact quote and offsets, never list order', () => {
     const value = field([{ text: 'Michigan', start: 10, end: 18 }]);
     const sources = [source([

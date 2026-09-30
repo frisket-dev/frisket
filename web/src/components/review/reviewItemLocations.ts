@@ -15,7 +15,7 @@ export function reviewItemLocations(sources: readonly ReviewCitationSource[], fi
       for (const member of source.members.filter((candidate) => candidate.fieldId === field.id)) {
         for (const span of member.spans) {
           const raw = record(span.raw);
-          const index = raw?.item_index;
+          const index = member.itemIndex ?? raw?.item_index;
           if (typeof index === 'number' && Number.isInteger(index) && index >= 0 && index < value.length) {
             locations.push({ fieldId: field.id, index, sourceId: source.id, spanId: span.stable_id });
             continue;
