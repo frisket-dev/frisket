@@ -56,28 +56,87 @@ def _loads(value: str | None) -> Any:
         return value
 
 
+def _run_source_names(project: Project, run_id: int) -> tuple[str, ...]:
+    """Return the exact ordered input-column roster persisted for one run.
+
+    Both the legacy MapRunner and native typed-row executor persist their
+    admitted references as ``input_columns``.  Review must use that durable
+    declaration: generated inputs (notably timestamped transcripts) are real
+    sources, while unrelated imported columns are not.
+    """
+
+    row = project.db.execute("SELECT params FROM runs WHERE id=?", (run_id,)).fetchone()
+    spec = _loads(row["params"]) if row is not None else None
+    raw = spec.get("input_columns") if isinstance(spec, dict) else None
+    if not isinstance(raw, list):
+        return ()
+    names: list[str] = []
+    for value in raw:
+        if isinstance(value, str) and value and value not in names:
+            names.append(value)
+    return tuple(names)
+
+
 def _source_contexts(
-    project: Project, keys: list[tuple[int, int]]
-) -> dict[tuple[int, int], dict[str, Any]]:
-    contexts = {key: {} for key in keys}
-    rows_by_sheet: dict[int, set[int]] = {}
-    for sheet_id, row_id in keys:
-        rows_by_sheet.setdefault(sheet_id, set()).add(row_id)
-    for sheet_id, row_ids in rows_by_sheet.items():
-        ordered_row_ids = sorted(row_ids)
-        for column in project.columns(sheet_id):
-            if column["ai_generated"]:
+    project: Project, keys: list[tuple[int, int, int]]
+) -> dict[tuple[int, int, int], dict[str, Any]]:
+    contexts: dict[tuple[int, int, int], dict[str, Any]] = {}
+    rows_by_run_sheet: dict[tuple[int, int], list[int]] = {}
+    for run_id, sheet_id, row_id in keys:
+        rows = rows_by_run_sheet.setdefault((run_id, sheet_id), [])
+        if row_id not in rows:
+            rows.append(row_id)
+    for (run_id, sheet_id), row_ids in rows_by_run_sheet.items():
+        columns = {
+            str(column["name"]): column
+            for column in project.columns(sheet_id, include_hidden=True)
+        }
+        source_columns = []
+        for name in _run_source_names(project, run_id):
+            column = columns.get(name)
+            if column is None or bool(column["hidden"]):
                 continue
-            values = project.get_values(sheet_id, column["id"], row_ids=ordered_row_ids)
-            for row_id in ordered_row_ids:
-                value = values.get(row_id)
-                if value is not None:
-                    contexts[(sheet_id, row_id)][column["name"]] = value
+            source_columns.append((name, column))
+        values_by_column = {
+            int(column["id"]): project.get_values(
+                sheet_id, int(column["id"]), row_ids=row_ids
+            )
+            for _name, column in source_columns
+        }
+        for row_id in row_ids:
+            items = [
+                {
+                    "column_id": int(column["id"]),
+                    "column_name": name,
+                    "column_type": str(column["type"]),
+                    "semantic_type": column["semantic_type"],
+                    "format": column["format"],
+                    "value": values_by_column[int(column["id"])].get(row_id),
+                }
+                for name, column in source_columns
+            ]
+            contexts[(run_id, sheet_id, row_id)] = {
+                "source": {
+                    item["column_name"]: item["value"]
+                    for item in items
+                    if item["value"] is not None
+                },
+                "sources": items,
+            }
     return contexts
 
 
 def _source_context(project: Project, sheet_id: int, row_id: int) -> dict[str, Any]:
-    return _source_contexts(project, [(sheet_id, row_id)])[(sheet_id, row_id)]
+    """Legacy queue context has no grouped-run source projection."""
+
+    context: dict[str, Any] = {}
+    for column in project.columns(sheet_id):
+        if column["ai_generated"]:
+            continue
+        value = project.get_values(sheet_id, column["id"], row_ids=[row_id]).get(row_id)
+        if value is not None:
+            context[column["name"]] = value
+    return context
 
 
 def review_queue(
@@ -210,7 +269,10 @@ def review_bundles(
 
     source_contexts = _source_contexts(
         project,
-        [(int(key["sheet_id"]), int(key["row_id"])) for key in keys],
+        [
+            (int(key["run_id"]), int(key["sheet_id"]), int(key["row_id"]))
+            for key in keys
+        ],
     )
     bundles: list[dict[str, Any]] = []
     for key in keys:
@@ -223,6 +285,7 @@ def review_bundles(
                    res.confidence, res.justification, res.error,
                    res.review_state, res.review_decision, res.review_note,
                    c.name AS column_name, c.type AS column_type,
+                   c.semantic_type, c.format,
                    c.sheet_id
             FROM results res
             JOIN columns c ON c.id = res.column_id
@@ -249,6 +312,8 @@ def review_bundles(
                 "column_id": cell["column_id"],
                 "column_name": cell["column_name"],
                 "column_type": cell["column_type"],
+                "semantic_type": cell["semantic_type"],
+                "format": cell["format"],
                 "sheet_id": cell["sheet_id"],
                 "value": _loads(cell["value"]),
                 "confidence": cell["confidence"],
@@ -278,7 +343,12 @@ def review_bundles(
                 "action_kind": key["action_kind"],
                 "model": key["model"],
                 "confidence": key["confidence"],
-                "source": source_contexts[(key["sheet_id"], key["row_id"])],
+                "source": source_contexts[
+                    (key["run_id"], key["sheet_id"], key["row_id"])
+                ]["source"],
+                "sources": source_contexts[
+                    (key["run_id"], key["sheet_id"], key["row_id"])
+                ]["sources"],
                 "review_note": next(
                     (
                         field["review_note"]

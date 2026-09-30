@@ -13,6 +13,7 @@ from frisket.engine.executor.temporal_transcripts import (
     project_transcript,
     resolve_compatible_transcripts,
     resolve_timestamped_transcript,
+    timestamped_transcript_text_context,
     revalidate_transcript,
 )
 from frisket.engine.store import Project
@@ -152,6 +153,102 @@ def _seed_source(project: Project):
         lease=lease,
     )
     return source, transcript_column_id, link
+
+
+def test_timestamped_text_context_requires_complete_exact_transcript(
+    tmp_path: Path,
+) -> None:
+    project = Project.create(tmp_path / "timestamped-text-context.frisket")
+    try:
+        source, transcript_column_id, link = _seed_source(project)
+        values, refs = project.get_values_with_refs(
+            source.sheet_id,
+            transcript_column_id,
+            row_ids=[source.row_id],
+        )
+        context = timestamped_transcript_text_context(
+            project,
+            sheet_id=source.sheet_id,
+            row_id=source.row_id,
+            column_id=transcript_column_id,
+            text=values[source.row_id],
+            value_ref=refs[source.row_id],
+        )
+        assert context == {
+            "schema_version": "frisket.timestamped_text_context.v1",
+            "evidence_link_stable_id": link["stable_id"],
+            "artifact_stable_id": source.lease.anchor.artifact_stable_id,
+            "offset_unit": "unicode_codepoint",
+            "segments": [
+                {
+                    "span_id": context["segments"][0]["span_id"],
+                    "start": 0,
+                    "end": 15,
+                    "start_ms": 1000,
+                    "end_ms": 3000,
+                },
+                {
+                    "span_id": context["segments"][1]["span_id"],
+                    "start": 16,
+                    "end": 32,
+                    "start_ms": 3000,
+                    "end_ms": 6000,
+                },
+            ],
+        }
+        assert (
+            timestamped_transcript_text_context(
+                project,
+                sheet_id=source.sheet_id,
+                row_id=source.row_id,
+                column_id=transcript_column_id,
+                text=values[source.row_id],
+                value_ref={**refs[source.row_id], "run_id": -1},
+            )
+            is None
+        )
+    finally:
+        project.close()
+
+
+def test_timestamped_text_context_rejects_uncovered_non_whitespace(
+    tmp_path: Path,
+) -> None:
+    project = Project.create(tmp_path / "timestamped-text-context-gap.frisket")
+    try:
+        sheet_id = project.add_sheet("Media")
+        row_id = project.add_rows(sheet_id, [{}], {})[0]
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="av",
+            media_type="audio/mpeg",
+            duration_ms=2000,
+        )
+        column_id, _link = _add_timestamped_transcript(
+            project,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            artifact_id=int(artifact["id"]),
+            name="transcript",
+            text="First omitted Second",
+            span_values=[(0, 1000, "First"), (1000, 2000, "Second")],
+        )
+        values, refs = project.get_values_with_refs(
+            sheet_id, column_id, row_ids=[row_id]
+        )
+        assert (
+            timestamped_transcript_text_context(
+                project,
+                sheet_id=sheet_id,
+                row_id=row_id,
+                column_id=column_id,
+                text=values[row_id],
+                value_ref=refs[row_id],
+            )
+            is None
+        )
+    finally:
+        project.close()
 
 
 def test_resolve_project_persist_and_staleness(tmp_path: Path) -> None:

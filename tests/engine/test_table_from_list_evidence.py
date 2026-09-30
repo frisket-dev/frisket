@@ -13,7 +13,11 @@ import pytest
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
 from frisket.engine.store.media_blobs import media_cell
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import list_row_evidence, resolve_evidence_viewer
+from frisket.engine.store.evidence import (
+    list_cell_evidence,
+    list_row_evidence,
+    resolve_evidence_viewer,
+)
 from runner_test_helpers import run_action_with_exact_confirmation
 from tests.engine.extract_typed_chain_helpers import typed_extract_request
 
@@ -223,6 +227,16 @@ def test_moments_table_row_citation_opens_at_its_item_span(
     seeded = _run_to_extracted_moments(tmp_path, monkeypatch)
     project: Project = seeded["project"]
     try:
+        source_evidence = list_cell_evidence(
+            project,
+            sheet_id=seeded["sheet_id"],
+            row_id=seeded["row_ids"][0],
+            column_id=seeded["moments_column_id"],
+        )
+        assert {
+            resolve_evidence_viewer(project, link["stable_id"])["link"]["item_index"]
+            for link in source_evidence["links"]
+        } == {0, 1, 2}
         derived = run_action_with_exact_confirmation(
             project,
             _derive_action(

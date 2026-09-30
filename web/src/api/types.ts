@@ -3679,6 +3679,8 @@ export interface ReviewBundleField {
   columnId: string;
   columnName: string;
   columnType: ColumnType;
+  semanticType?: string | null;
+  format?: string | null;
   value: CellValue;
   confidence: number | null;
   justification: string;
@@ -3690,6 +3692,15 @@ export interface ReviewBundleField {
   role: 'field' | 'evidence';
   chore: boolean;
   changed?: boolean;
+}
+
+export interface ReviewBundleSource {
+  columnId: string;
+  columnName: string;
+  columnType: ColumnType;
+  semanticType: string | null;
+  format: string | null;
+  value: CellValue;
 }
 
 export interface ReviewBundle {
@@ -3705,6 +3716,8 @@ export interface ReviewBundle {
   confidence: number | null;
   /** Source row values shown as the shared context for sibling outputs. */
   source: Record<string, CellValue>;
+  /** Typed source columns declared by the producing run, in input order. */
+  sources?: ReviewBundleSource[];
   context: string;
   /** Shared reviewer note for this row and run. */
   reviewNote?: string | null;

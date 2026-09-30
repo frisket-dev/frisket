@@ -296,7 +296,32 @@ def _write_entity_spans(
             validated_positions.append(valid)
 
         surface_id = None
+        captured_text = None
+        transcript_context = None
         if surface_spec is not None and any(validated_positions):
+            source_column_id = int(surface_spec["column_id"])
+            source_values, source_refs = project.get_values_with_refs(
+                sheet_id, source_column_id, row_ids=[row_id]
+            )
+            candidate_text = source_values.get(row_id)
+            if (
+                isinstance(candidate_text, str)
+                and _text_hash(candidate_text) == surface_spec.get("content_hash")
+                and source_refs.get(row_id) == surface_spec.get("value_ref")
+            ):
+                captured_text = candidate_text
+                from frisket.engine.executor.temporal_transcripts import (
+                    timestamped_transcript_text_context,
+                )
+
+                transcript_context = timestamped_transcript_text_context(
+                    project,
+                    sheet_id=sheet_id,
+                    row_id=row_id,
+                    column_id=source_column_id,
+                    text=candidate_text,
+                    value_ref=source_refs.get(row_id),
+                )
             surface = record_text_surface(
                 project,
                 surface_kind="cell",
@@ -322,10 +347,25 @@ def _write_entity_spans(
                 if surface_spec is not None
                 else first_input_column_id
             ),
-            metadata={"engine": engine, "op": "map.ner"},
+            metadata={
+                "engine": engine,
+                "op": "map.ner",
+                **(
+                    {"captured_text": captured_text}
+                    if captured_text is not None
+                    else {}
+                ),
+                **(
+                    {"timestamped_transcript": transcript_context}
+                    if transcript_context is not None
+                    else {}
+                ),
+            },
         )
         span_entries: list[tuple[dict[str, Any], bool]] = []
-        for entity, entity_positions in zip(entities, validated_positions, strict=True):
+        for item_index, (entity, entity_positions) in enumerate(
+            zip(entities, validated_positions, strict=True)
+        ):
             emitted_positions: list[tuple[int, int] | None] = (
                 list(entity_positions) if entity_positions else [None]
             )
@@ -351,7 +391,13 @@ def _write_entity_spans(
                             text_surface_id=surface_id
                             if position is not None
                             else None,
-                            metadata={"entity_type": entity.get("type")},
+                            metadata={
+                                "entity_type": entity.get("type"),
+                                "raw": {
+                                    "item_index": item_index,
+                                    "entity_type": entity.get("type"),
+                                },
+                            },
                         ),
                         position is not None,
                     )

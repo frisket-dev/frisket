@@ -330,6 +330,70 @@ def resolve_timestamped_transcript(
     )
 
 
+def timestamped_transcript_text_context(
+    project: Any,
+    *,
+    sheet_id: int,
+    row_id: int,
+    column_id: int,
+    text: str,
+    value_ref: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Bind a frozen text surface to its exact transcript timing evidence.
+
+    Segment quotes are located monotonically in the full transcript.  Any
+    mismatch drops the optional timing projection; callers can still present
+    the frozen text without inventing timestamps.
+    """
+
+    resolved = resolve_timestamped_transcript(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_id,
+        column_id=column_id,
+    )
+    if (
+        resolved is None
+        or resolved.transcript_value != text
+        or dict(value_ref or {}) != resolved.transcript_value_ref
+    ):
+        return None
+    cursor = 0
+    segments: list[dict[str, Any]] = []
+    for span in resolved.spans:
+        quote = span["quote"]
+        start = text.find(quote, cursor)
+        if start < 0 or text[cursor:start].strip():
+            return None
+        end = start + len(quote)
+        selector = span.get("selector")
+        speaker = selector.get("speaker") if isinstance(selector, Mapping) else None
+        segments.append(
+            {
+                "span_id": span["stable_id"],
+                "start": start,
+                "end": end,
+                "start_ms": span["start_ms"],
+                "end_ms": span["end_ms"],
+                **(
+                    {"speaker": speaker.strip()}
+                    if isinstance(speaker, str) and speaker.strip()
+                    else {}
+                ),
+            }
+        )
+        cursor = end
+    if text[cursor:].strip():
+        return None
+    return {
+        "schema_version": "frisket.timestamped_text_context.v1",
+        "evidence_link_stable_id": resolved.evidence_link_stable_id,
+        "artifact_stable_id": resolved.artifact_stable_id,
+        "offset_unit": "unicode_codepoint",
+        "segments": segments,
+    }
+
+
 def bind_transcript_to_source(
     project: Any,
     transcript: ResolvedTranscriptSource,
@@ -652,5 +716,6 @@ __all__ = [
     "project_transcript",
     "resolve_compatible_transcripts",
     "resolve_timestamped_transcript",
+    "timestamped_transcript_text_context",
     "revalidate_transcript",
 ]

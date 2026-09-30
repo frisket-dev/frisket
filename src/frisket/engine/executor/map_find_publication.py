@@ -163,6 +163,18 @@ def _materialize_text_spans(
     cache_key = (source.row_id, source.column_id)
     artifact = artifact_cache.get(cache_key)
     if artifact is None:
+        from frisket.engine.executor.temporal_transcripts import (
+            timestamped_transcript_text_context,
+        )
+
+        transcript_context = timestamped_transcript_text_context(
+            project,
+            sheet_id=source.sheet_id,
+            row_id=source.row_id,
+            column_id=source.column_id,
+            text=text,
+            value_ref=source.value_ref,
+        )
         artifact = record_source_artifact(
             project,
             artifact_kind="row",
@@ -170,7 +182,15 @@ def _materialize_text_spans(
             source_sheet_id=source.sheet_id,
             source_row_id=source.row_id,
             source_column_id=source.column_id,
-            metadata={"source_column": source.column_id},
+            metadata={
+                "source_column": source.column_id,
+                "captured_text": text,
+                **(
+                    {"timestamped_transcript": transcript_context}
+                    if transcript_context is not None
+                    else {}
+                ),
+            },
         )
         artifact_cache[cache_key] = artifact
     if len(match.span_ids) != 2 or any(span_id >= 0 for span_id in match.span_ids):

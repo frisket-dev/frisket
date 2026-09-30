@@ -4282,12 +4282,30 @@ type HttpEvidenceViewerResponse_EvidenceTextContext = ({
   "offset_unit": ("utf16_code_unit") & (string);
   "ranges": (Array<(HttpEvidenceViewerResponse_EvidenceTextRange)>);
   "text": (string);
+  "transcript"?: (((HttpEvidenceViewerResponse_EvidenceTranscriptContext)) | ((null)));
 });
 
 type HttpEvidenceViewerResponse_EvidenceTextRange = ({
   "end": (number);
   "span_id": (string);
   "start": (number);
+});
+
+type HttpEvidenceViewerResponse_EvidenceTranscriptContext = ({
+  "artifact_stable_id": (string);
+  "evidence_link_stable_id": (string);
+  "offset_unit": ("utf16_code_unit") & (string);
+  "schema_version": ("frisket.timestamped_text_context.v1") & (string);
+  "segments": (Array<(HttpEvidenceViewerResponse_EvidenceTranscriptSegment)>);
+});
+
+type HttpEvidenceViewerResponse_EvidenceTranscriptSegment = ({
+  "end": (number);
+  "end_ms": (number);
+  "span_id": (string);
+  "speaker"?: (((string)) | ((null)));
+  "start": (number);
+  "start_ms": (number);
 });
 
 type HttpEvidenceViewerResponse_EvidenceViewerArtifact = ({
@@ -4318,6 +4336,7 @@ type HttpEvidenceViewerResponse_EvidenceViewerLink = ({
   "created_at": (string);
   "export_ref": (string);
   "id": (number);
+  "item_index"?: (((number)) | ((null)));
   "op_id": (((number)) | ((null)));
   "pinned": (boolean);
   "producer": (HttpEvidenceViewerResponse_EvidenceProducer);
@@ -7810,6 +7829,7 @@ type HttpReviewBundlesPage_ReviewBundle = ({
   "source": ({
   [key: string]: (HttpReviewBundlesPage_JsonValue);
 });
+  "sources"?: (Array<(HttpReviewBundlesPage_ReviewBundleSource)>);
 });
 
 type HttpReviewBundlesPage_ReviewBundleItem = ({
@@ -7820,6 +7840,7 @@ type HttpReviewBundlesPage_ReviewBundleItem = ({
   "column_type": (string);
   "confidence": (((number)) | ((null)));
   "error": (((string)) | ((null)));
+  "format"?: (((string)) | ((null)));
   "justification": (((string)) | ((null)));
   "review_decision": ((("accept" | "reject" | "reject_clear" | "edit") & (string)) | ((null)));
   "review_note": (((string)) | ((null)));
@@ -7827,7 +7848,17 @@ type HttpReviewBundlesPage_ReviewBundleItem = ({
   "role": ("field" | "evidence") & (string);
   "row_id": (number);
   "run_id": (number);
+  "semantic_type"?: (((string)) | ((null)));
   "sheet_id": (number);
+  "value": (HttpReviewBundlesPage_JsonValue);
+});
+
+type HttpReviewBundlesPage_ReviewBundleSource = ({
+  "column_id": (number);
+  "column_name": (string);
+  "column_type": (string);
+  "format"?: (((string)) | ((null)));
+  "semantic_type"?: (((string)) | ((null)));
   "value": (HttpReviewBundlesPage_JsonValue);
 });
 

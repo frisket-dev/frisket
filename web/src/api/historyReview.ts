@@ -469,6 +469,8 @@ function mapReviewBundleField(
     columnId: String(wire.column_id),
     columnName: wire.column_name,
     columnType: (wire.column_type as ColumnType | undefined) ?? 'text',
+    semanticType: wire.semantic_type ?? null,
+    format: wire.format ?? null,
     value: toReviewCellValue(wire.value),
     confidence: wire.confidence,
     justification: wire.justification ?? '',
@@ -500,6 +502,14 @@ function mapReviewBundles(wire: ReviewBundlesWire): ReviewBundlePage {
         toReviewCellValue(value),
       ]),
     );
+    const sources = (bundle.sources ?? []).map((item) => ({
+      columnId: String(item.column_id),
+      columnName: item.column_name,
+      columnType: (item.column_type as ColumnType | undefined) ?? 'text',
+      semanticType: item.semantic_type ?? null,
+      format: item.format ?? null,
+      value: toReviewCellValue(item.value),
+    }));
     return {
       id: bundle.id,
       runId: String(bundle.run_id),
@@ -512,6 +522,7 @@ function mapReviewBundles(wire: ReviewBundlesWire): ReviewBundlePage {
       model: bundle.model ?? '',
       confidence: bundle.confidence,
       source,
+      sources,
       context: Object.entries(source)
         .map(([key, value]) => `${key}: ${String(value)}`)
         .join('  ·  ')

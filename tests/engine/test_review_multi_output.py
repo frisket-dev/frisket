@@ -115,8 +115,34 @@ def test_multi_output_review_groups_sibling_fields_and_evidence(tmp_path):
     assert all(field["chore"] for field in first["fields"])
     assert not any(item["chore"] for item in first["evidence"])
     assert first["source"]["story"]
+    assert first["sources"] == [
+        {
+            "column_id": next(
+                int(column["id"])
+                for column in project.columns(sheet_id)
+                if column["name"] == "story"
+            ),
+            "column_name": "story",
+            "column_type": "text",
+            "semantic_type": None,
+            "format": None,
+            "value": first["source"]["story"],
+        }
+    ]
+
+    # Declared provenance remains the source even when an upstream generated
+    # column feeds this run; source selection is not an imported-column filter.
+    project.db.execute(
+        "UPDATE columns SET ai_generated=1 WHERE id=?",
+        (first["sources"][0]["column_id"],),
+    )
+    project.db.commit()
+    regenerated = review_bundles(project, sheet_id=sheet_id)
+    assert regenerated[0]["sources"][0]["column_name"] == "story"
 
     beat = next(field for field in first["fields"] if field["column_name"] == "beat")
+    assert beat["semantic_type"] is None
+    assert beat["format"] is None
     accepted_beat = run_action_spec(
         project,
         {

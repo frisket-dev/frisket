@@ -16,7 +16,11 @@ from frisket.ops.ner_local import LocalNerExtractor
 from typed_model_fixtures import model_request, render_ner
 from frisket.ai.llm import ModelRouter
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import _text_hash, list_cell_evidence
+from frisket.engine.store.evidence import (
+    _text_hash,
+    list_cell_evidence,
+    resolve_evidence_viewer,
+)
 from frisket.ops.ner_evidence import (
     capture_result_evidence,
     _NER_CAPTURE_PREFIX,
@@ -135,6 +139,34 @@ def test_single_column_writes_cell_surface(tmp_path, monkeypatch):
             for r in project.db.execute("SELECT span_role FROM evidence_link_spans")
         }
         assert roles == {"annotation"}
+        evidence = list_cell_evidence(
+            project,
+            sheet_id=sheet_id,
+            row_id=project.visible_row_ids(sheet_id)[0],
+            column_id=next(
+                int(column["id"])
+                for column in project.columns(sheet_id)
+                if column["name"] == "entities"
+            ),
+        )
+        viewer = resolve_evidence_viewer(
+            project, evidence["links"][0]["stable_id"], project_id=PROJECT_ID
+        )
+        assert viewer["artifacts"][0]["text_context"] == {
+            "text": "Ada Lovelace",
+            "offset_unit": "utf16_code_unit",
+            "ranges": [
+                {
+                    "span_id": viewer["artifacts"][0]["spans"][0]["stable_id"],
+                    "start": 0,
+                    "end": 12,
+                }
+            ],
+        }
+        assert viewer["artifacts"][0]["spans"][0]["raw"] == {
+            "item_index": 0,
+            "entity_type": "person",
+        }
         assert (
             project.db.execute("SELECT justification FROM results").fetchone()[
                 "justification"
