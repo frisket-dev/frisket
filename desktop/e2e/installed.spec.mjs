@@ -77,7 +77,7 @@ async function launch(testInfo, automaticChoice = 'Only when I ask') {
 }
 
 async function desktopUpdateMenu(electron, { click = false } = {}) {
-  return electron.evaluate(({ Menu }) => {
+  return electron.evaluate(({ Menu }, shouldClick) => {
     const find = (items) => {
       for (const item of items) {
         if (item.id === 'desktop-update') return item;
@@ -88,23 +88,23 @@ async function desktopUpdateMenu(electron, { click = false } = {}) {
     const item = find(Menu.getApplicationMenu()?.items ?? []);
     if (!item) throw new Error('Installed app has no desktop-update menu item.');
     const state = { label: item.label, enabled: item.enabled };
-    if (click) item.click();
+    if (shouldClick) item.click();
     return state;
-  });
+  }, click);
 }
 
 async function desktopAutomaticUpdateMenu(electron, { click = false } = {}) {
-  return electron.evaluate(({ Menu }) => {
+  return electron.evaluate(({ Menu }, shouldClick) => {
     const item = Menu.getApplicationMenu()?.getMenuItemById('desktop-update-automatic');
     if (!item) throw new Error('Installed app has no desktop-update-automatic menu item.');
-    if (click) {
+    if (shouldClick) {
       // Native checkbox activation flips this value before it calls the menu
       // handler. Do the same when driving the privileged menu object directly.
       item.checked = !item.checked;
       item.click(item);
     }
     return { label: item.label, type: item.type, checked: item.checked, enabled: item.enabled };
-  });
+  }, click);
 }
 
 async function stubManualUpdateCheck(electron) {
@@ -203,11 +203,12 @@ test('installed app imports, runs its worker, exports, quits and reopens', async
   let running = first.electron;
   try {
     const page = first.page;
-    expect(await running.evaluate(() => globalThis.__frisketInstalledUpdatePreferenceProof.prompts)).toEqual([{
-      message: 'Check for updates automatically?',
-      buttons: ['Check automatically', 'Only when I ask'],
-      choice: 'Only when I ask',
-    }]);
+    await expect.poll(async () => running.evaluate(() => globalThis.__frisketInstalledUpdatePreferenceProof.prompts))
+      .toEqual([{
+        message: 'Check for updates automatically?',
+        buttons: ['Check automatically', 'Only when I ask'],
+        choice: 'Only when I ask',
+      }]);
     await expect.poll(async () => JSON.parse(await readFile(path.join(profile, 'update-preferences.json'), 'utf8')))
       .toMatchObject({ automaticChecks: false });
     expect(await desktopAutomaticUpdateMenu(running)).toMatchObject({

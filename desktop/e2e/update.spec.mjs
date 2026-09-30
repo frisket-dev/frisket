@@ -194,7 +194,7 @@ test('signed installed baseline updates through its native updater and preserves
     const baseline = await launch(feed, testInfo);
     running = baseline.electron;
     expect(await running.evaluate(({ app }) => app.getVersion())).toBe('0.0.0');
-    expect((await proofState(running)).preferencePrompts).toEqual([{
+    await expect.poll(async () => (await proofState(running)).preferencePrompts).toEqual([{
       message: 'Check for updates automatically?',
       buttons: ['Check automatically', 'Only when I ask'],
       choice: 'Check automatically',
