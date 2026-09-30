@@ -1341,25 +1341,10 @@ export function JsonMiniTable({
       <div className="json-blob-thumbs" data-testid="json-blob-thumbs">
         {envelopes.map((e, i) => {
           const env = e as ImageBlobEnvelope;
-          const time = env.t != null ? formatTimecode(Math.round(env.t * 1000)) : null;
-          const caption = env.filename ?? `${env.blob?.slice(0, 10)}…`;
-          const alt = time ? `${caption} (${time})` : caption;
           return (
             <figure className="json-blob-thumb" key={`${env.blob}-${i}`}
               data-testid={itemTestId} {...resultItemProps(i, onSelectItem, selectableItemIndices)}>
-              {env.omitted ? <span className="muted" data-testid="json-blob-thumb-omitted">
-                Preview image omitted (size or image-count limit).
-              </span> : <img
-                data-testid="json-blob-thumb"
-                src={env.inlineDataUrl ?? projectBlobUrl(projectId, env.blob!)}
-                alt={alt}
-                title={alt}
-                loading="lazy"
-              />}
-              <figcaption>
-                {caption}
-                {time ? <span className="json-blob-thumb-time"> {time}</span> : null}
-              </figcaption>
+              <ImageBlobContent envelope={env} projectId={projectId} />
             </figure>
           );
         })}
@@ -1480,6 +1465,19 @@ function resultItemProps(
   };
 }
 
+function ImageBlobContent({ envelope: env, projectId }: { envelope: ImageBlobEnvelope; projectId: string }) {
+  const time = env.t != null ? formatTimecode(Math.round(env.t * 1000)) : null;
+  const caption = env.filename ?? `${env.blob?.slice(0, 10)}…`;
+  const alt = time ? `${caption} (${time})` : caption;
+  return <>
+    {env.omitted ? <span className="muted" data-testid="json-blob-thumb-omitted">
+      Preview image omitted (size or image-count limit).
+    </span> : <img data-testid="json-blob-thumb" src={env.inlineDataUrl ?? projectBlobUrl(projectId, env.blob!)}
+      alt={alt} title={alt} loading="lazy" />}
+    <figcaption>{caption}{time ? <span className="json-blob-thumb-time"> {time}</span> : null}</figcaption>
+  </>;
+}
+
 function isFlatRecord(item: Record<string, unknown>): boolean {
   return Object.values(item).every((value) => value === null || typeof value !== 'object');
 }
@@ -1497,6 +1495,7 @@ function StructuredJsonValue({
   onSelectItem?: (index: number) => void;
   selectableItemIndices?: ReadonlySet<number>;
 }) {
+  const { chromePreferences: { projectId } } = useWorkspaceStores();
   if (Array.isArray(value)) {
     if (value.length === 0) return <span className="row-field-empty">(empty list)</span>;
     return (
@@ -1511,8 +1510,9 @@ function StructuredJsonValue({
     );
   }
   if (value !== null && typeof value === 'object') {
-    if (!disableBlobThumbnails && imageBlobEnvelope(value)) {
-      return <JsonMiniTable items={[value as Record<string, unknown>]} />;
+    const envelope = disableBlobThumbnails ? null : imageBlobEnvelope(value);
+    if (envelope) {
+      return <figure className="json-blob-thumb"><ImageBlobContent envelope={envelope} projectId={projectId} /></figure>;
     }
     const entries = Object.entries(value as Record<string, unknown>);
     if (entries.length === 0) return <span className="row-field-empty">(empty object)</span>;
