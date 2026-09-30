@@ -49,7 +49,7 @@ describe('ReviewRunControls', () => {
     expect(screen.getByRole('progressbar', { name: 'Review progress' })).toHaveAttribute('aria-valuenow', '5');
     fireEvent.click(screen.getByRole('button', { name: 'Results' }));
     expect(screen.getByTestId('review-results')).toBeInTheDocument();
-    expect(screen.getByText('75%')).toBeInTheDocument();
+    expect(screen.getByTestId('review-run-summary')).toHaveTextContent('75% correct among reviewed');
   });
 
   it('shows review progress dots in the selected run trigger and each run option', () => {
@@ -118,7 +118,7 @@ describe('ReviewRunControls', () => {
     expect(changedOrder).toHaveBeenCalledWith('confidence');
     fireEvent.click(screen.getByRole('button', { name: 'Results' }));
     expect(screen.getByTestId('review-run-summary')).toHaveTextContent('5 reviewed of 10');
-    expect(screen.getByText('75% correct among reviewed (3/4)')).toBeInTheDocument();
+    expect(screen.getByTestId('review-run-summary')).toHaveTextContent('75% correct among reviewed (3/4)');
     fireEvent.click(screen.getByRole('button', { name: 'Close review results' }));
     expect(screen.queryByTestId('review-results')).not.toBeInTheDocument();
   });

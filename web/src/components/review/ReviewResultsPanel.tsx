@@ -18,7 +18,7 @@ function correctness(counts: ReviewRunCounts): string | null {
   return graded === 0 ? null : `${Math.round((counts.acceptedCount / graded) * 100)}%`;
 }
 
-/** A compact summary remains available for consumers that only need one scope. */
+/** Observed outcomes for the reviewed sample, not an estimate of the whole run. */
 export function ReviewRunSummary({ run, fieldId }: ReviewRunSummaryProps) {
   const counts = selectedCounts(run, fieldId);
   const graded = counts.acceptedCount + counts.incorrectCount;
@@ -31,7 +31,7 @@ export function ReviewRunSummary({ run, fieldId }: ReviewRunSummaryProps) {
       <span>
         {accuracy === null
           ? 'No graded decisions yet'
-          : `${accuracy} correct among reviewed (${counts.acceptedCount}/${graded})`}
+          : <><strong>{accuracy}</strong> correct among reviewed ({counts.acceptedCount}/{graded})</>}
       </span>
     </div>
   );
@@ -99,7 +99,6 @@ export function ReviewResultsPanel({ run, onClose }: ReviewResultsPanelProps) {
       </header>
       <section className={styles.section} aria-labelledby="review-results-overall">
         <h3 id="review-results-overall">Overall</h3>
-        <ResultRow label="All output fields" counts={run.total} />
         <ReviewRunSummary run={run} />
       </section>
       <section className={styles.section} aria-labelledby="review-results-fields">

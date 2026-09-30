@@ -1,4 +1,4 @@
-.resultsDialog {
+.resultsDialog:global(.modal-card) {
   width: min(720px, calc(100vw - 32px));
   gap: 20px;
 }
@@ -70,17 +70,21 @@
 }
 
 .summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px 10px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  padding: 12px 0 18px;
   color: var(--text-mid);
   font-size: 12px;
 }
 
-.summary strong { color: var(--text); }
+.summary strong { display: block; color: var(--text); font-size: 28px; font-weight: 600; margin-bottom: 4px; }
+.summary > span:nth-child(2) strong { color: var(--green); }
+.summary > span:nth-child(3) strong { color: var(--red); }
 
 @media (max-width: 620px) {
-  .resultsDialog { width: min(480px, calc(100vw - 20px)); padding: 14px; }
+  .resultsDialog:global(.modal-card) { width: min(480px, calc(100vw - 20px)); padding: 14px; }
   .resultRow { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .resultLabel { grid-column: 1 / -1; }
+  .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
