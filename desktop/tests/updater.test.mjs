@@ -26,7 +26,10 @@ class FakeUpdater extends EventEmitter {
   }
 }
 
-function createHarness({ response = 1, requestInstall, preferences = {}, automaticChecks = true } = {}) {
+function createHarness(options = {}) {
+  const {
+    response = 1, requestInstall, preferences = {}, automaticChecks, automaticChecksWriteError,
+  } = { automaticChecks: true, ...options };
   const updater = new FakeUpdater();
   const states = [];
   const messages = [];
@@ -39,7 +42,11 @@ function createHarness({ response = 1, requestInstall, preferences = {}, automat
     getSkippedVersion: () => preferences.skippedVersion,
     skipVersion: (version) => { preferences.skippedVersion = version; },
     getAutomaticChecks: () => automaticChecks,
-    setAutomaticChecks: (enabled) => { automaticChecks = enabled; automaticCheckWrites.push(enabled); },
+    setAutomaticChecks: (enabled) => {
+      automaticCheckWrites.push(enabled);
+      if (automaticChecksWriteError) throw automaticChecksWriteError;
+      automaticChecks = enabled;
+    },
     onAutomaticChecksChange: (enabled) => automaticCheckChanges.push(enabled),
     message: async (options) => { messages.push(options); return typeof response === 'function' ? response(options) : response; },
     requestInstall: async () => { installs.push(true); return requestInstall ? requestInstall() : true; },
@@ -120,6 +127,40 @@ test('choosing manual-only keeps automatic timers off while manual checks still 
   assert.equal(harness.updater.checks, 1);
   assert.deepEqual(harness.automaticCheckWrites, [false]);
   assert.equal(harness.controller.automaticChecksEnabled, false);
+});
+
+test('a saved manual-only preference starts without a choice dialog or automatic check', async () => {
+  const harness = createHarness({ automaticChecks: false });
+  await harness.controller.start();
+  assert.equal(harness.messages.length, 0);
+  assert.equal(harness.updater.checks, 0);
+  assert.equal(harness.timers.timeouts.length, 0);
+  assert.equal(harness.timers.intervals.length, 0);
+});
+
+test('turning automatic checks off before a queued timer check runs prevents that check', async () => {
+  const harness = createHarness();
+  await harness.controller.start();
+  harness.timers.timeouts[0].callback();
+  harness.controller.setAutomaticChecks(false);
+  await new Promise(setImmediate);
+  assert.equal(harness.updater.checks, 0);
+  assert.equal(harness.messages.length, 0);
+});
+
+test('a failed automatic-check preference write leaves checks off for this session and reports the error', async () => {
+  const harness = createHarness({
+    automaticChecks: undefined,
+    automaticChecksWriteError: new Error('disk full'),
+    response: 0,
+  });
+  await harness.controller.start();
+  assert.equal(harness.controller.automaticChecksEnabled, false);
+  assert.equal(harness.timers.timeouts.length, 0);
+  assert.equal(harness.timers.intervals.length, 0);
+  assert.equal(harness.messages.length, 2);
+  assert.equal(harness.messages[1].title, 'Could not save update preference');
+  assert.deepEqual(harness.messages[1].buttons, ['OK']);
 });
 
 test('changing the automatic-check choice cancels work, suppresses an open automatic offer, and rearms once', async () => {
