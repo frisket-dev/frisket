@@ -57,11 +57,32 @@ describe('TimedTranscript', () => {
     expect(audio).toHaveAttribute('src', '/recording.mp3');
     const segments = screen.getAllByTestId('document-transcript-segment');
     expect(segments).toHaveLength(2);
+    expect(segments[0]).toHaveTextContent('0:00');
     expect(segments[0]).toHaveTextContent('Chair: Opening remarks.');
+    expect(segments[1]).toHaveTextContent('0:04');
+    expect(segments).toEqual(
+      Array.from(screen.getByTestId('document-transcript-segments').children),
+    );
 
     fireEvent.click(segments[1]);
     expect(audio.currentTime).toBe(4.5);
     expect(play).toHaveBeenCalledOnce();
     expect(segments[1]).toHaveAttribute('data-active', 'true');
+  });
+
+  it('does not fabricate timestamp rows when the segment companion is unusable', () => {
+    render(
+      <TimedTranscript
+        document={{
+          ...document,
+          row: { ...document.row, cells: { ...document.row.cells, '3': 'not JSON' } },
+        }}
+      />,
+    );
+
+    expect(screen.queryByTestId('document-transcript-segment')).toBeNull();
+    expect(screen.getByTestId('document-transcript-text')).toHaveTextContent(
+      'Opening remarks. Contract discussion.',
+    );
   });
 });
