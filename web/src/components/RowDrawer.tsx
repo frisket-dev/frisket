@@ -33,7 +33,7 @@ import { RowInspectorEvidenceSectionFrame } from '../workbench/contributions';
 import { documentMediaColumns } from '../workbench/documentMedia';
 import type { WorkbenchResolvedLayoutContribution } from '../workbench/layout';
 import { CitationChip } from './evidence/CitationChip';
-import structuredStyles from './review/ReviewValue.module.css';
+import structuredStyles from './StructuredValue.module.css';
 import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
 import { useNativePopover } from '../hooks/useNativePopover';
 import { createAudioPlaybackSource } from '../state/audioPlaybackStore';
@@ -1609,7 +1609,7 @@ function JsonValue({
           />
         );
       }
-      if (items.every(isFlatRecord)) {
+      if (items.every(isFlatRecord) && new Set(items.flatMap(Object.keys)).size <= 6) {
         return <JsonMiniTable items={items} maxKeys={6} disableBlobThumbnails={isEmailAttachments}
           onSelectItem={onSelectItem} selectableItemIndices={selectableItemIndices} />;
       }
