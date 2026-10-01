@@ -1999,6 +1999,7 @@ CREATE TABLE IF NOT EXISTS project_qa_research_runs (
     ('ask_each','ask_overwrite','full_access')),
   max_turns INTEGER CHECK (max_turns IS NULL OR max_turns > 0),
   turn_count INTEGER NOT NULL DEFAULT 0 CHECK (turn_count >= 0),
+  skills_json TEXT NOT NULL DEFAULT '[]',
   saved_messages_json TEXT NOT NULL DEFAULT '[]',
   pending_approval_json TEXT,
   output_grants_json TEXT NOT NULL DEFAULT '[]',

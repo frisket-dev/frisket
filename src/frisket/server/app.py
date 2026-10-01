@@ -759,6 +759,7 @@ def create_app(
 
         return sidecar_capabilities_cache.get((base, token), _probe)
 
+    project_qa_service.configure_actions(sidecar_capabilities=_sidecar_capabilities)
     register_admin_pricing_routes(app, service=AdminPricingService())
 
     register_action_registry_routes(app, service=ActionRegistryService(ws))

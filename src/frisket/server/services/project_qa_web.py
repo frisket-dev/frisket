@@ -9,6 +9,8 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from frisket.ai.research.row_answer import FETCH_CHARS, FETCH_TIMEOUT_SECONDS
+from frisket.ai.research.search import SearchResponse
+from dataclasses import asdict
 from frisket.redaction import redact_text
 
 
@@ -64,7 +66,7 @@ def _retrieved_at() -> str:
 async def search_web(
     query: str,
     *,
-    search: Callable[..., Awaitable[list[dict[str, str]]]],
+    search: Callable[..., Awaitable[SearchResponse | list[dict[str, str]]]],
     timeout: float = FETCH_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     """Return structured, bounded public search results with safe URLs only."""
@@ -72,6 +74,13 @@ async def search_web(
     if not isinstance(query, str) or not query.strip() or len(query) > 500:
         raise ValueError("query must be a non-empty string up to 500 characters")
     records = await asyncio.wait_for(search(query, timeout=timeout), timeout)
+    metadata = {}
+    if isinstance(records, SearchResponse):
+        metadata = {"provider": records.provider, "usage": asdict(records.usage)}
+        records = [
+            {"title": hit.title, "url": hit.url, "snippet": hit.excerpt}
+            for hit in records.results
+        ]
     results: list[dict[str, str]] = []
     for record in records[:MAX_WEB_RESULTS]:
         url = safe_web_url(record.get("url"))
@@ -87,7 +96,12 @@ async def search_web(
                 "snippet": safe_web_text(snippet, limit=MAX_WEB_SNIPPET_CHARS),
             }
         )
-    return {"query": query, "results": results, "retrieved_at": _retrieved_at()}
+    return {
+        "query": query,
+        "results": results,
+        "retrieved_at": _retrieved_at(),
+        **metadata,
+    }
 
 
 async def fetch_web_page(

@@ -22,6 +22,7 @@ from frisket.contracts.http.project_qa import (
     AskThreadCreate,
     AskThreadUpdate,
     AskTurnRequest,
+    AskResearchResume,
 )
 from frisket.engine.runner import ProviderKeyRefusal
 from frisket.engine.store import Project
@@ -43,6 +44,13 @@ from frisket.server.thread_worker import await_thread_worker
 from frisket.server.workspace import Workspace
 from frisket.server.project_qa_runtime import ProjectQATurnRuntime
 from frisket.server.services.project_qa_authority import BackgroundAskContext
+from frisket.server.services.project_qa_research import ResearchSession
+from frisket.server.services.project_qa_capabilities import ProjectQACapabilityError
+from frisket.engine.store.project_qa_research import (
+    ProjectQAResearchStore,
+    ProjectQAResearchNotFound,
+)
+from frisket.execution.pricing_policy import usd_to_micros
 from frisket.redaction import safe_error
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 
@@ -120,6 +128,17 @@ class ProjectQAService:
             None
         )
         self._skill_library: Callable[[], Any] | None = None
+        self._research_sessions: dict[tuple[Project, str], ResearchSession] = {}
+        self._search_service_factory: Callable[[], Any] | None = None
+        self._sidecar_capabilities: Callable[[], dict[str, Any]] = lambda: {}
+
+    def configure_actions(
+        self, *, sidecar_capabilities: Callable[[], dict[str, Any]]
+    ) -> None:
+        self._sidecar_capabilities = sidecar_capabilities
+
+    def configure_search(self, factory: Callable[[], Any]) -> None:
+        self._search_service_factory = factory
 
     def configure_research(
         self,
@@ -130,6 +149,114 @@ class ProjectQAService:
         """Supply edition-owned live authorization and an isolated skill library."""
         self._research_authorize = authorize
         self._skill_library = skills
+
+    def _default_research_budget(self, project_id, project, context):
+        from frisket.engine.store.execution_routes import (
+            ConsentRegistry,
+            instance_principal,
+            standing_cost_threshold,
+        )
+
+        factory = self.workspace.executor_deps_factory
+        coverage = factory(project_id, context).consent_coverage if factory else None
+        if coverage is not None:
+            return coverage.threshold_usd
+        return standing_cost_threshold(
+            ConsentRegistry(project).standing_consents(),
+            principal=instance_principal(project),
+        )
+
+    async def research_options(self, project_id, *, request_context=None):
+        context = BackgroundAskContext.capture(request_context, self.workspace)
+
+        def describe():
+            project = self.workspace.get(project_id)
+            available = self._research_authorize is not None
+            if available:
+                try:
+                    self._research_authorize(project_id, context)
+                except PermissionError:
+                    available = False
+            budget = self._default_research_budget(project_id, project, context)
+            enabled = self._skill_library().enabled() if self._skill_library else []
+            search = (
+                self._search_service_factory() if self._search_service_factory else None
+            )
+            return {
+                "available": available,
+                "budget_usd": str(budget) if budget is not None else None,
+                "skills": [
+                    {"name": item["name"], "description": item["description"]}
+                    for item in enabled
+                ],
+                "web_provider": search.provider if search is not None else None,
+            }
+
+        return await await_thread_worker(describe)
+
+    def _research_setup(self, project_id, project, options, context):
+        if self._research_authorize is None:
+            raise PermissionError(
+                "Automatic research is not configured for this server."
+            )
+        self._research_authorize(project_id, context)
+        requested = options.get("budget_usd")
+        if requested is None:
+            requested = self._default_research_budget(project_id, project, context)
+            if requested is None:
+                raise ValueError("Set a total research budget before starting.")
+        selected = set(options["skills"]) if options.get("skills") is not None else None
+        enabled = self._skill_library().enabled() if self._skill_library else []
+        if selected is not None and selected - {item["name"] for item in enabled}:
+            raise ValueError("One of the selected skills is no longer enabled.")
+        snapshots = [
+            {key: item[key] for key in ("name", "content", "revision")}
+            for item in enabled
+            if selected is None or item["name"] in selected
+        ]
+        return {
+            "budget_micros": usd_to_micros(requested),
+            "currency": "USD",
+            "write_mode": options["write_mode"],
+            "max_turns": options["max_turns"],
+            "skills": snapshots,
+        }
+
+    @staticmethod
+    def _research_projection(project, turn):
+        if not turn or not turn.get("research"):
+            return turn
+        ledger = ProjectQAResearchStore(project)
+        try:
+            current = ledger.get_for_turn(turn["id"])
+        except ProjectQAResearchNotFound:
+            return turn
+        budget = ledger.budget_summary(current["id"])
+        state = {
+            key: current[key]
+            for key in (
+                "id",
+                "revision",
+                "state",
+                "currency",
+                "write_mode",
+                "max_turns",
+                "turn_count",
+                "pending_approval",
+            )
+        }
+        state.update(
+            {
+                key: budget[key]
+                for key in (
+                    "budget_micros",
+                    "reserved_micros",
+                    "settled_micros",
+                    "remaining_micros",
+                )
+            }
+        )
+        return {**turn, "research_state": state}
 
     async def _failure_diagnostic(
         self,
@@ -185,6 +312,9 @@ class ProjectQAService:
                 await await_thread_worker(
                     store.reconcile_abandoned_turns, live_turn_ids=[]
                 )
+                await await_thread_worker(
+                    ProjectQAResearchStore(project).interrupt_abandoned
+                )
                 self._seen.add(project)
         return store
 
@@ -233,6 +363,7 @@ class ProjectQAService:
             detail["history"] = self._project_page(
                 project_id, {**detail["history"], "active_turn": detail["active_turn"]}
             )
+            detail["active_turn"] = detail["history"]["active_turn"]
             return detail
 
         return await await_thread_worker(read)
@@ -274,7 +405,11 @@ class ProjectQAService:
                 except ProjectQANotFoundError:
                     continue
             events.append({**event, "citations": citations})
-        return {**page, "events": events}
+        return {
+            **page,
+            "events": events,
+            "active_turn": self._research_projection(project, page.get("active_turn")),
+        }
 
     async def citation(self, project_id: str, thread_id: str, citation_id: str) -> dict:
         project = await await_thread_worker(self.workspace.get, project_id)
@@ -289,11 +424,18 @@ class ProjectQAService:
         body: AskTurnRequest,
         *,
         actor: str | None = None,
+        request_context: Any = None,
     ) -> dict:
         # Once durable admission starts, a disconnected HTTP caller must not
         # strand a running row without its task or hosted runtime cleanup.
         admission = asyncio.create_task(
-            self._submit_owned(project_id, thread_id, body, actor=actor)
+            self._submit_owned(
+                project_id,
+                thread_id,
+                body,
+                actor=actor,
+                context=BackgroundAskContext.capture(request_context, self.workspace),
+            )
         )
         try:
             return await asyncio.shield(admission)
@@ -308,6 +450,7 @@ class ProjectQAService:
         body: AskTurnRequest,
         *,
         actor: str | None,
+        context: BackgroundAskContext,
     ) -> dict:
         store = await self.store(project_id)
         project = await await_thread_worker(self.workspace.get, project_id)
@@ -321,7 +464,29 @@ class ProjectQAService:
                 values = body.model_dump()
                 values["scope"] = body.scope.model_dump(exclude_none=True)
                 validate_scope(project, values["scope"])
-                return store.submit_turn(thread_id, **values, submitted_by=actor)
+                setup = (
+                    self._research_setup(
+                        project_id, project, values["research"], context
+                    )
+                    if body.research
+                    else None
+                )
+                turn = store.submit_turn(thread_id, **values, submitted_by=actor)
+                if setup is not None:
+                    ledger = ProjectQAResearchStore(project)
+                    try:
+                        ledger.get_for_turn(turn["id"])
+                    except ProjectQAResearchNotFound:
+                        try:
+                            ledger.create(turn_id=turn["id"], actor=actor, **setup)
+                        except Exception:
+                            store.finalize_turn(
+                                turn["id"],
+                                status="failed",
+                                error_summary="This research could not be started. Please try again.",
+                            )
+                            raise
+                return turn
 
             turn = await await_thread_worker(admit)
             key = (project, turn["id"])
@@ -344,12 +509,33 @@ class ProjectQAService:
                         error_summary="This question could not be started. Please try again.",
                     )
                     raise
-                task = asyncio.create_task(self._run(project, turn, store, runtime))
+                research = None
+                if turn.get("research"):
+                    ledger = ProjectQAResearchStore(project)
+                    record = await await_thread_worker(ledger.get_for_turn, turn["id"])
+                    research = ResearchSession(
+                        ledger,
+                        record["id"],
+                        authorize=lambda: self._research_authorize(project_id, context),
+                        context=context,
+                    )
+                    self._research_sessions[key] = research
+                task = asyncio.create_task(
+                    self._run(
+                        project,
+                        turn,
+                        store,
+                        runtime,
+                        research=research,
+                        project_id=project_id,
+                        context=context,
+                    )
+                )
                 self._tasks[key] = task
                 task.add_done_callback(
                     lambda completed: self._finished(key, completed, runtime)
                 )
-            return turn
+            return await await_thread_worker(self._research_projection, project, turn)
 
     async def _run(
         self,
@@ -357,13 +543,17 @@ class ProjectQAService:
         turn: dict,
         store: ProjectQAStore,
         runtime: ProjectQATurnRuntime | None = None,
+        *,
+        research: ResearchSession | None = None,
+        project_id: str = "",
+        context: BackgroundAskContext | None = None,
     ) -> None:
         self._started.add((project, turn["id"]))
         status = "interrupted"
         error = None
         diagnostic = None
         model = turn["model"]
-        budget = asyncio.timeout(180)
+        budget = asyncio.timeout(None if research else 180)
         try:
             if (await await_thread_worker(store.get_turn, turn["id"]))[
                 "status"
@@ -387,6 +577,18 @@ class ProjectQAService:
                     result = await self._runner(project, router, turn, store)
                 else:
                     from frisket.server.services.project_qa_runner import run_turn
+                    from frisket.server.services.project_qa_action_host import (
+                        ProjectAskActionHost,
+                    )
+
+                    host = ProjectAskActionHost(
+                        self.workspace,
+                        project_id,
+                        context_provider=lambda: (
+                            research.context if research else context
+                        ),
+                        sidecar_capabilities_provider=self._sidecar_capabilities,
+                    )
 
                     result = await run_turn(
                         project,
@@ -401,6 +603,13 @@ class ProjectQAService:
                         ),
                         instrumentation=(
                             tracing.instrumentation if tracing is not None else None
+                        ),
+                        research=research,
+                        action_host=host,
+                        search_service=(
+                            self._search_service_factory()
+                            if self._search_service_factory
+                            else None
                         ),
                     )
             if isinstance(result, dict) and result.get("limited"):
@@ -419,6 +628,13 @@ class ProjectQAService:
             )
         except ProviderKeyRefusal as exc:
             status, error = "failed", exc.action_message()
+        except PermissionError:
+            status, error = (
+                "interrupted",
+                "Your access changed. Research has stopped; completed work is saved.",
+            )
+        except ProjectQACapabilityError as exc:
+            status, error = "failed", str(exc)
         except LLMError as exc:
             status = "failed"
             error = classify_llm_error(
@@ -450,6 +666,17 @@ class ProjectQAService:
                 "please try again."
             )
         finally:
+            if research is not None:
+
+                def finish_research():
+                    current = research.store.get(research.id)
+                    research.store.update(
+                        research.id,
+                        expected_revision=current["revision"],
+                        state="completed" if status == "completed" else "interrupted",
+                    )
+
+                await await_thread_worker(finish_research)
             await await_thread_worker(
                 store.finalize_turn,
                 turn["id"],
@@ -484,6 +711,7 @@ class ProjectQAService:
             )
             return
         self._tasks.pop(key, None)
+        self._research_sessions.pop(key, None)
 
     async def stop(self, project_id: str, thread_id: str, turn_id: str) -> dict:
         store = await self.store(project_id)
@@ -505,6 +733,76 @@ class ProjectQAService:
             )
             self._tasks.pop((project, turn_id), None)
         return turn
+
+    async def resume_research(
+        self,
+        project_id: str,
+        thread_id: str,
+        turn_id: str,
+        body: AskResearchResume,
+        *,
+        actor: str | None,
+        request_context: Any,
+    ) -> dict:
+        store = await self.store(project_id)
+        project = await await_thread_worker(self.workspace.get, project_id)
+        context = BackgroundAskContext.capture(request_context, self.workspace)
+        if self._research_authorize is None:
+            raise PermissionError(
+                "Automatic research is not configured for this server."
+            )
+        await await_thread_worker(self._research_authorize, project_id, context)
+        async with self._admission:
+            session = self._research_sessions.get((project, turn_id))
+            task = self._tasks.get((project, turn_id))
+            if session is None or task is None or task.done():
+                raise ProjectQAConflictError(
+                    "This research run is no longer active. Start a new question to continue."
+                )
+
+            def resume():
+                turn = store.get_turn(turn_id)
+                if turn["thread_id"] != thread_id:
+                    raise ProjectQANotFoundError("Turn not found in this conversation.")
+                if turn["submitted_by"] != actor:
+                    raise PermissionError(
+                        "Only the person who started this run can approve it."
+                    )
+                if turn["status"] != "running":
+                    raise ProjectQAConflictError("This research run has stopped.")
+                current = session.store.get(session.id)
+                approval = current["pending_approval"] or {}
+                if (
+                    current["state"] != "paused"
+                    or approval.get("id") != body.approval_id
+                ):
+                    raise ProjectQAConflictError("This approval is no longer pending.")
+                if approval.get("kind") == "unknown_cost":
+                    raise ValueError(
+                        "Cost is unavailable. Stop this run and choose a priced model or engine."
+                    )
+                if approval.get("kind") == "action" and body.decision not in {
+                    "approve",
+                    "skip",
+                }:
+                    raise ValueError("Approve or skip this action.")
+                changes = {"state": "running", "pending_approval": None}
+                if body.budget_usd is not None:
+                    changes["budget_micros"] = usd_to_micros(body.budget_usd)
+                if "max_turns" in body.model_fields_set:
+                    changes["max_turns"] = body.max_turns
+                if body.write_mode is not None:
+                    changes["write_mode"] = body.write_mode
+                session.store.update(
+                    session.id, expected_revision=body.expected_revision, **changes
+                )
+                return turn
+
+            turn = await await_thread_worker(resume)
+            session.authorize = lambda: self._research_authorize(project_id, context)
+            session.context = context
+            session.wake(body.decision)
+            return await await_thread_worker(self._research_projection, project, turn)
 
     async def shutdown(self) -> None:
         async with self._admission:
@@ -532,6 +830,9 @@ class ProjectQAService:
                 await await_thread_worker(
                     ProjectQAStore(project).reconcile_abandoned_turns,
                     live_turn_ids=[],
+                )
+                await await_thread_worker(
+                    ProjectQAResearchStore(project).interrupt_abandoned
                 )
             self._tasks.clear()
         finally:

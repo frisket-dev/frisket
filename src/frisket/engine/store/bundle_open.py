@@ -54,7 +54,7 @@ _RUN_REVIEW_STATUS_TO_DIGEST = "frisket.schema.v1:caa3ac7c8aaa66153dd8e2cad59509
 # Research options on Ask records plus resumable child state and its exact-cost
 # operation ledger. Existing Ask and project data remain untouched.
 _PROJECT_QA_RESEARCH_FROM_DIGEST = _RUN_REVIEW_STATUS_TO_DIGEST
-_PROJECT_QA_RESEARCH_TO_DIGEST = "frisket.schema.v1:12917f42847b1f7e910c0cde9e4d2776"
+_PROJECT_QA_RESEARCH_TO_DIGEST = "frisket.schema.v1:21bac5506d1f7cc240dbc519139168db"
 
 # The frontend fires hot read endpoints (/sheets, /review/queue) concurrently,
 # so two threads can open the same per-project DB at once. Both open-time
@@ -410,6 +410,7 @@ def _migrate_project_qa_research(db: sqlite3.Connection) -> None:
                 "write_mode TEXT NOT NULL CHECK (write_mode IN ('ask_each','ask_overwrite','full_access')),"
                 "max_turns INTEGER CHECK (max_turns IS NULL OR max_turns > 0),"
                 "turn_count INTEGER NOT NULL DEFAULT 0 CHECK (turn_count >= 0),"
+                "skills_json TEXT NOT NULL DEFAULT '[]',"
                 "saved_messages_json TEXT NOT NULL DEFAULT '[]',"
                 "pending_approval_json TEXT,"
                 "output_grants_json TEXT NOT NULL DEFAULT '[]',"

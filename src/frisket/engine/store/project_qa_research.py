@@ -141,6 +141,7 @@ class ProjectQAResearchStore:
             "write_mode": row["write_mode"],
             "max_turns": row["max_turns"],
             "turn_count": row["turn_count"],
+            "skills": json.loads(row["skills_json"]),
             "saved_messages": json.loads(row["saved_messages_json"]),
             "pending_approval": (
                 json.loads(row["pending_approval_json"])
@@ -192,14 +193,18 @@ class ProjectQAResearchStore:
         currency: str,
         write_mode: str,
         max_turns: int | None,
+        skills: Sequence[Mapping[str, Any]] = (),
     ) -> dict[str, Any]:
         turn_id = _nonempty(turn_id, name="turn_id")
         if actor is not None:
             actor = _nonempty(actor, name="actor")
         budget_micros = _nonnegative_int(budget_micros, name="budget_micros")
         currency = _nonempty(currency, name="currency").upper()
+        if currency != "USD":
+            raise ValueError("Research budgets currently use USD.")
         write_mode = _choice(write_mode, name="write_mode", choices=WRITE_MODES)
         max_turns = _positive_int_or_none(max_turns, name="max_turns")
+        skills_json = _json([_mapping(skill, name="skill") for skill in skills])
 
         def write(db: sqlite3.Connection) -> dict[str, Any]:
             existing = db.execute(
@@ -212,6 +217,7 @@ class ProjectQAResearchStore:
                     and existing["currency"] == currency
                     and existing["write_mode"] == write_mode
                     and existing["max_turns"] == max_turns
+                    and existing["skills_json"] == skills_json
                 )
                 if not equivalent:
                     raise ProjectQAResearchConflictError(
@@ -223,8 +229,8 @@ class ProjectQAResearchStore:
             db.execute(
                 "INSERT INTO project_qa_research_runs "
                 "(id,turn_id,actor,state,budget_micros,currency,write_mode,max_turns,"
-                "turn_count,saved_messages_json,pending_approval_json,output_grants_json,"
-                "revision,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,0,'[]',NULL,'[]',1,?,?)",
+                "turn_count,skills_json,saved_messages_json,pending_approval_json,output_grants_json,"
+                "revision,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,0,?,'[]',NULL,'[]',1,?,?)",
                 (
                     research_id,
                     turn_id,
@@ -234,6 +240,7 @@ class ProjectQAResearchStore:
                     currency,
                     write_mode,
                     max_turns,
+                    skills_json,
                     now,
                     now,
                 ),
@@ -329,6 +336,17 @@ class ProjectQAResearchStore:
             ).fetchone()
         )
 
+    def interrupt_abandoned(self) -> None:
+        """Follow parent reconciliation; never recover or dispatch saved work."""
+        self._write(
+            lambda db: db.execute(
+                "UPDATE project_qa_research_runs SET state='interrupted',revision=revision+1,updated_at=? "
+                "WHERE state IN ('running','paused') AND turn_id IN "
+                "(SELECT id FROM project_qa_turns WHERE status NOT IN ('running','stopping'))",
+                (_now(),),
+            )
+        )
+
     def operations(self, research_id: str) -> list[dict[str, Any]]:
         rows = self.db.execute(
             "SELECT * FROM project_qa_research_operations WHERE research_id=? "
@@ -381,12 +399,14 @@ class ProjectQAResearchStore:
                     )
                 return self._operation_record(existing)
             run = db.execute(
-                "SELECT budget_micros,max_turns,turn_count "
-                "FROM project_qa_research_runs WHERE id=?",
+                "SELECT r.budget_micros,r.max_turns,r.turn_count,r.state,t.status "
+                "FROM project_qa_research_runs r JOIN project_qa_turns t ON t.id=r.turn_id WHERE r.id=?",
                 (research_id,),
             ).fetchone()
             if run is None:
                 raise ProjectQAResearchNotFound("research run not found")
+            if run["state"] != "running" or run["status"] != "running":
+                raise ProjectQAResearchConflictError("Research is not running.")
             if (
                 operation_kind == "model"
                 and run["max_turns"] is not None

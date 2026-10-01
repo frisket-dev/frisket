@@ -211,6 +211,9 @@ class ProjectQAStore:
             "model": row["model"],
             "web": bool(row["web"]),
             "suggest_actions": bool(row["suggest_actions"]),
+            "research": json.loads(row["research_json"])
+            if row["research_json"]
+            else None,
             "revision": row["revision"],
             "created_by": row["created_by"],
             "created_at": row["created_at"],
@@ -230,6 +233,9 @@ class ProjectQAStore:
             "model": row["model"],
             "web": bool(row["web"]),
             "suggest_actions": bool(row["suggest_actions"]),
+            "research": json.loads(row["research_json"])
+            if row["research_json"]
+            else None,
             "status": row["status"],
             "submitted_by": row["submitted_by"],
             "started_at": row["started_at"],
@@ -247,6 +253,7 @@ class ProjectQAStore:
         model: str | None = None,
         web: bool = False,
         suggest_actions: bool = True,
+        research: Mapping[str, Any] | None = None,
         created_by: str | None = None,
     ) -> dict[str, Any]:
         if not isinstance(title, str) or not title.strip():
@@ -256,6 +263,9 @@ class ProjectQAStore:
         ):
             raise ValueError("created_by must be a non-empty string or null")
         saved_scope, saved_model = _scope(scope), _model(model)
+        saved_research = (
+            _json_object(research, name="research") if research is not None else None
+        )
         saved_web, saved_suggest = (
             _bool(web, name="web"),
             _bool(suggest_actions, name="suggest_actions"),
@@ -265,8 +275,8 @@ class ProjectQAStore:
         def write(db: sqlite3.Connection) -> dict[str, Any]:
             db.execute(
                 "INSERT INTO project_qa_threads "
-                "(id,title,scope_json,model,web,suggest_actions,revision,created_by,created_at,updated_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                "(id,title,scope_json,model,web,suggest_actions,research_json,revision,created_by,created_at,updated_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     thread_id,
                     title,
@@ -274,6 +284,7 @@ class ProjectQAStore:
                     saved_model,
                     int(saved_web),
                     int(saved_suggest),
+                    _json(saved_research),
                     1,
                     created_by,
                     now,
@@ -324,6 +335,7 @@ class ProjectQAStore:
         model: str | None | object = _UNSET,
         web: bool | None = None,
         suggest_actions: bool | None = None,
+        research: Mapping[str, Any] | None | object = _UNSET,
     ) -> dict[str, Any]:
         if (
             isinstance(expected_revision, bool)
@@ -356,6 +368,7 @@ class ProjectQAStore:
                 "model": current["model"],
                 "web": int(current["web"]),
                 "suggest_actions": int(current["suggest_actions"]),
+                "research_json": _json(current["research"]),
             }
             if title is not None:
                 values["title"] = title
@@ -367,9 +380,15 @@ class ProjectQAStore:
                 values["web"] = int(web)
             if suggest_actions is not None:
                 values["suggest_actions"] = int(suggest_actions)
+            if research is not _UNSET:
+                values["research_json"] = _json(
+                    _json_object(research, name="research")
+                    if research is not None
+                    else None
+                )
             now = _now()
             db.execute(
-                "UPDATE project_qa_threads SET title=?,scope_json=?,model=?,web=?,suggest_actions=?,revision=revision+1,updated_at=? WHERE id=?",
+                "UPDATE project_qa_threads SET title=?,scope_json=?,model=?,web=?,suggest_actions=?,research_json=?,revision=revision+1,updated_at=? WHERE id=?",
                 (*values.values(), now, thread_id),
             )
             return self._thread_record(
@@ -423,6 +442,7 @@ class ProjectQAStore:
         model: str | None = None,
         web: bool = False,
         suggest_actions: bool = True,
+        research: Mapping[str, Any] | None = None,
         submitted_by: str | None = None,
     ) -> dict[str, Any]:
         if not isinstance(request_id, str) or not request_id:
@@ -434,6 +454,9 @@ class ProjectQAStore:
         ):
             raise ValueError("submitted_by must be a non-empty string or null")
         saved_scope, saved_model = _scope(scope), _model(model)
+        saved_research = (
+            _json_object(research, name="research") if research is not None else None
+        )
         saved_web, saved_suggest = (
             _bool(web, name="web"),
             _bool(suggest_actions, name="suggest_actions"),
@@ -457,6 +480,7 @@ class ProjectQAStore:
                     saved_model,
                     saved_web,
                     saved_suggest,
+                    saved_research,
                 )
                 actual = (
                     turn["question"],
@@ -464,6 +488,7 @@ class ProjectQAStore:
                     turn["model"],
                     turn["web"],
                     turn["suggest_actions"],
+                    turn["research"],
                 )
                 if actual != expected:
                     raise ProjectQAConflictError(
@@ -480,7 +505,7 @@ class ProjectQAStore:
                 raise ProjectQAActiveTurnError("thread already has an active turn")
             now, turn_id = _now(), _id("qa_turn")
             db.execute(
-                "INSERT INTO project_qa_turns (id,thread_id,request_id,question,scope_json,model,web,suggest_actions,status,submitted_by,started_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO project_qa_turns (id,thread_id,request_id,question,scope_json,model,web,suggest_actions,research_json,status,submitted_by,started_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     turn_id,
                     thread_id,
@@ -490,6 +515,7 @@ class ProjectQAStore:
                     saved_model,
                     int(saved_web),
                     int(saved_suggest),
+                    _json(saved_research),
                     "running",
                     submitted_by,
                     now,
@@ -508,15 +534,17 @@ class ProjectQAStore:
                 thread["model"],
                 thread["web"],
                 thread["suggest_actions"],
-            ) != (saved_scope, saved_model, saved_web, saved_suggest)
+                thread["research"],
+            ) != (saved_scope, saved_model, saved_web, saved_suggest, saved_research)
             if preferences_changed:
                 db.execute(
-                    "UPDATE project_qa_threads SET scope_json=?,model=?,web=?,suggest_actions=?,revision=revision+1,updated_at=? WHERE id=?",
+                    "UPDATE project_qa_threads SET scope_json=?,model=?,web=?,suggest_actions=?,research_json=?,revision=revision+1,updated_at=? WHERE id=?",
                     (
                         _json(saved_scope),
                         saved_model,
                         int(saved_web),
                         int(saved_suggest),
+                        _json(saved_research),
                         now,
                         thread_id,
                     ),
