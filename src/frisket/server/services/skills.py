@@ -42,10 +42,14 @@ def _frontmatter(content: str) -> tuple[str, str]:
     if "\x00" in content:
         raise SkillLibraryError("SKILL.md must be text without NUL bytes.")
     if not content.startswith("---\n"):
-        raise SkillLibraryError("SKILL.md must start with name and description frontmatter.")
+        raise SkillLibraryError(
+            "SKILL.md must start with name and description frontmatter."
+        )
     end = content.find("\n---\n", 4)
     if end < 0:
-        raise SkillLibraryError("SKILL.md frontmatter must end with a closing --- line.")
+        raise SkillLibraryError(
+            "SKILL.md frontmatter must end with a closing --- line."
+        )
     try:
         metadata = yaml.safe_load(content[4:end])
     except yaml.YAMLError as exc:
@@ -63,7 +67,11 @@ def _frontmatter(content: str) -> tuple[str, str]:
         raise SkillLibraryError(
             "SKILL.md name must use lowercase letters, digits, and hyphens."
         )
-    if not isinstance(description, str) or not description.strip() or len(description) > 200:
+    if (
+        not isinstance(description, str)
+        or not description.strip()
+        or len(description) > 200
+    ):
         raise SkillLibraryError("SKILL.md description must be 1 to 200 characters.")
     if not content[end + 5 :].strip():
         raise SkillLibraryError("SKILL.md needs a Markdown instruction body.")
@@ -91,17 +99,28 @@ class SkillLibrary:
         ):
             raise SkillLibraryError("Stored skills have an unsupported format.")
         required = {
-            "id", "name", "description", "content", "enabled", "revision",
-            "created_at", "updated_at",
+            "id",
+            "name",
+            "description",
+            "content",
+            "enabled",
+            "revision",
+            "created_at",
+            "updated_at",
         }
-        if any(not isinstance(record, dict) or not required <= set(record) for record in document["skills"]):
+        if any(
+            not isinstance(record, dict) or not required <= set(record)
+            for record in document["skills"]
+        ):
             raise SkillLibraryError("Stored skills have an unsupported format.")
         return document
 
     def _write(self, document: dict[str, Any]) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         encoded = json.dumps(document, ensure_ascii=False, indent=2) + "\n"
-        fd, temporary = tempfile.mkstemp(prefix="skills-", suffix=".json", dir=self._path.parent)
+        fd, temporary = tempfile.mkstemp(
+            prefix="skills-", suffix=".json", dir=self._path.parent
+        )
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 handle.write(encoded)
@@ -157,7 +176,9 @@ class SkillLibrary:
             return self._public(record)
 
     def _record(self, document: dict[str, Any], skill_id: str) -> dict[str, Any]:
-        record = next((item for item in document["skills"] if item.get("id") == skill_id), None)
+        record = next(
+            (item for item in document["skills"] if item.get("id") == skill_id), None
+        )
         if not isinstance(record, dict):
             raise SkillNotFound("Skill not found.")
         return record
@@ -167,7 +188,9 @@ class SkillLibrary:
         if int(record["revision"]) != expected_revision:
             raise SkillRevisionConflict("This skill changed. Refresh before saving.")
 
-    def update(self, skill_id: str, *, expected_revision: int, content: str) -> dict[str, Any]:
+    def update(
+        self, skill_id: str, *, expected_revision: int, content: str
+    ) -> dict[str, Any]:
         if len(content.encode("utf-8")) > MAX_SKILL_BYTES:
             raise SkillLibraryError("SKILL.md must be at most 128 KiB.")
         name, description = _frontmatter(content)
@@ -175,7 +198,10 @@ class SkillLibrary:
             document = self._read()
             record = self._record(document, skill_id)
             self._check_revision(record, expected_revision)
-            if any(item.get("name") == name and item.get("id") != skill_id for item in document["skills"]):
+            if any(
+                item.get("name") == name and item.get("id") != skill_id
+                for item in document["skills"]
+            ):
                 raise SkillLibraryError(f"A skill named '{name}' already exists.")
             record.update(
                 name=name,
@@ -187,12 +213,16 @@ class SkillLibrary:
             self._write(document)
             return self._public(record)
 
-    def set_enabled(self, skill_id: str, *, expected_revision: int, enabled: bool) -> dict[str, Any]:
+    def set_enabled(
+        self, skill_id: str, *, expected_revision: int, enabled: bool
+    ) -> dict[str, Any]:
         with self._lock:
             document = self._read()
             record = self._record(document, skill_id)
             self._check_revision(record, expected_revision)
-            record.update(enabled=enabled, revision=int(record["revision"]) + 1, updated_at=_now())
+            record.update(
+                enabled=enabled, revision=int(record["revision"]) + 1, updated_at=_now()
+            )
             self._write(document)
             return self._public(record)
 

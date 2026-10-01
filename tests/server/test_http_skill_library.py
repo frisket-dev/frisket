@@ -86,10 +86,14 @@ def test_skill_editor_upload_and_activation_keep_an_admitted_revision(tmp_path) 
         "DELETE", f"/api/skills/{skill['id']}", json={"expectedRevision": 3}
     )
     assert deleted.status_code == 204
-    assert [item["id"] for item in client.get("/api/skills").json()["skills"]] == [uploaded.json()["id"]]
+    assert [item["id"] for item in client.get("/api/skills").json()["skills"]] == [
+        uploaded.json()["id"]
+    ]
 
 
-def test_skill_library_refuses_invalid_or_unsupported_packages_and_enforces_authority(tmp_path) -> None:
+def test_skill_library_refuses_invalid_or_unsupported_packages_and_enforces_authority(
+    tmp_path,
+) -> None:
     client = _client(tmp_path)
     invalid = client.post("/api/skills", json={"content": "# No frontmatter"})
     assert invalid.status_code == 422
@@ -97,7 +101,11 @@ def test_skill_library_refuses_invalid_or_unsupported_packages_and_enforces_auth
 
     extra_frontmatter = client.post(
         "/api/skills",
-        json={"content": SKILL.replace("description:", "allowed-tools: shell\ndescription:")},
+        json={
+            "content": SKILL.replace(
+                "description:", "allowed-tools: shell\ndescription:"
+            )
+        },
     )
     assert extra_frontmatter.status_code == 422
     assert "unsupported" in extra_frontmatter.json()["detail"]
@@ -109,6 +117,57 @@ def test_skill_library_refuses_invalid_or_unsupported_packages_and_enforces_auth
     )
     assert wrong_upload.status_code == 415
 
+    malformed_upload = client.post(
+        "/api/skills/upload",
+        content=b"\xff\xfe",
+        headers={"content-type": "text/markdown"},
+    )
+    assert malformed_upload.status_code == 422
+    assert "UTF-8" in malformed_upload.json()["detail"]
+
     denied = _client(tmp_path / "denied", allowed=False)
     assert denied.get("/api/skills").status_code == 403
     assert denied.post("/api/skills", json={"content": SKILL}).status_code == 403
+
+
+def test_team_library_factory_isolated_by_authorized_request_tenant(tmp_path) -> None:
+    app = FastAPI()
+    resolved: list[str] = []
+
+    def require_manager(request: Request) -> None:
+        if request.headers.get("x-org") not in {"alpha", "beta"}:
+            raise HTTPException(403, "organization administrator required")
+
+    def library_for(request: Request) -> SkillLibrary:
+        org = request.headers["x-org"]
+        resolved.append(org)
+        return SkillLibrary(tmp_path / "organizations" / org)
+
+    register_skill_routes(app, library=library_for, require_manager=require_manager)
+    client = TestClient(app)
+
+    alpha = client.post(
+        "/api/skills", headers={"x-org": "alpha"}, json={"content": SKILL}
+    )
+    beta = client.post(
+        "/api/skills",
+        headers={"x-org": "beta"},
+        json={"content": SKILL.replace("investigate-documents", "source-reading", 1)},
+    )
+    assert alpha.status_code == 200 and beta.status_code == 200
+    assert [
+        item["name"]
+        for item in client.get("/api/skills", headers={"x-org": "alpha"}).json()[
+            "skills"
+        ]
+    ] == ["investigate-documents"]
+    assert [
+        item["name"]
+        for item in client.get("/api/skills", headers={"x-org": "beta"}).json()[
+            "skills"
+        ]
+    ] == ["source-reading"]
+
+    before_denial = list(resolved)
+    assert client.get("/api/skills", headers={"x-org": "untrusted"}).status_code == 403
+    assert resolved == before_denial
