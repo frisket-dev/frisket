@@ -191,7 +191,7 @@ class AdmittedWebSearcher:
                 response = await self._call(query, max_results, attempt, timeout)
             except _SearchUnavailable as exc:
                 last_error = exc.error
-                if self._service.provider == "ddgs" or attempt < max_attempts:
+                if attempt < max_attempts:
                     await asyncio.sleep(1.5 * attempt)
             else:
                 return response

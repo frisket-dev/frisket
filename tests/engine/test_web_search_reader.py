@@ -62,7 +62,7 @@ def test_search_retains_four_attempts_backoff_without_provider_error_text(monkey
     with pytest.raises(RowError, match="bounded retries") as failure:
         asyncio.run(AdmittedWebSearcher(_context()).search(canary, max_results=2))
     assert calls == [(canary, 2)] * 4
-    assert delays == [1.5, 3.0, 4.5, 6.0]
+    assert delays == [1.5, 3.0, 4.5]
     assert canary not in str(failure.value)
     assert canary not in "".join(traceback.format_exception(failure.value))
 
