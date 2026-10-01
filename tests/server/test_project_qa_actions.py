@@ -32,6 +32,18 @@ def _draft(sheet_id: int) -> dict[str, object]:
     }
 
 
+def _quote(action: dict[str, object]) -> dict[str, object]:
+    assert action["idempotency_key"].startswith("ask-action:")
+    return {
+        "estimate": {
+            "billed_cost": 17,
+            "policy_id": "normal-policy",
+            "promise_set_hash": "confirmation-hash",
+            "requires_confirmation": True,
+        }
+    }
+
+
 def test_prepared_ask_event_revalidates_then_uses_budget_and_action_services(tmp_path):
     project = Project.create(tmp_path / "project.frisket")
     try:
@@ -44,16 +56,27 @@ def test_prepared_ask_event_revalidates_then_uses_budget_and_action_services(tmp
             title="Greet people",
             draft=_draft(sheet_id),
             catalog_payload=catalog,
+            quote_provider=_quote,
         )
         assert saved.event["payload"]["proposal"] == saved.proposal
         assert saved.event["payload"]["prepared_action"]["payload_identity"] == (
             saved.payload_identity
         )
+        stored = saved.event["payload"]["prepared_action"]
+        assert stored["effects"] == {
+            "kind": "typed_map_rows",
+            "output_names": {"rendered": "rendered"},
+            "output_target_preconditions": {"rendered": None},
+            "replace_existing": False,
+        }
+        assert stored["quote"]["estimate"]["billed_cost"] == 17
 
         admitted: list[dict[str, object]] = []
         launched: list[tuple[str, dict[str, object]]] = []
         service = ProjectAskActionService(
             catalog_payload_provider=lambda: catalog,
+            quote_provider=_quote,
+            research_for_turn=lambda turn_id: {"id": "research-1", "turn_id": turn_id},
             admit_operation=lambda research_id, **kwargs: admitted.append(
                 {"research_id": research_id, **kwargs}
             ),
@@ -66,8 +89,6 @@ def test_prepared_ask_event_revalidates_then_uses_budget_and_action_services(tmp
             store,
             saved.reference,
             project_id="project",
-            research_id="research-1",
-            estimate_micros=17,
             confirmation_hash="confirmation-hash",
         ) == {"status": "queued"}
         assert admitted == [
@@ -110,9 +131,12 @@ def test_prepared_ask_action_refuses_catalog_drift_before_budget_admission(tmp_p
             title="Greet people",
             draft=_draft(sheet_id),
             catalog_payload=root_action_catalog_payload(),
+            quote_provider=_quote,
         )
         service = ProjectAskActionService(
             catalog_payload_provider=lambda: {"actions": []},
+            quote_provider=_quote,
+            research_for_turn=lambda turn_id: {"id": "research-1", "turn_id": turn_id},
             admit_operation=lambda *_args, **_kwargs: pytest.fail("must not admit"),
             run_action=lambda *_args, **_kwargs: pytest.fail("must not run"),
         )
@@ -122,8 +146,103 @@ def test_prepared_ask_action_refuses_catalog_drift_before_budget_admission(tmp_p
                 store,
                 saved.reference,
                 project_id="project",
-                research_id="research-1",
-                estimate_micros=None,
             )
+    finally:
+        project.close()
+
+
+def test_launch_uses_the_saved_normal_quote_not_a_caller_price(tmp_path):
+    project = Project.create(tmp_path / "project.frisket")
+    try:
+        store, turn, sheet_id = _turn(project)
+        saved = save_prepared_project_ask_action(
+            project,
+            turn,
+            store,
+            title="Greet people",
+            draft=_draft(sheet_id),
+            catalog_payload=root_action_catalog_payload(),
+            quote_provider=_quote,
+        )
+        admitted: list[dict[str, object]] = []
+        service = ProjectAskActionService(
+            catalog_payload_provider=root_action_catalog_payload,
+            quote_provider=_quote,
+            research_for_turn=lambda turn_id: {"id": "research-1", "turn_id": turn_id},
+            admit_operation=lambda research_id, **kwargs: admitted.append(
+                {"research_id": research_id, **kwargs}
+            ),
+            run_action=lambda *_args: {"status": "queued"},
+        )
+
+        service.launch(
+            project,
+            store,
+            saved.reference,
+            project_id="project",
+            confirmation_hash="confirmation-hash",
+        )
+        assert admitted[0]["estimate_micros"] == 17
+        with pytest.raises(TypeError):
+            service.launch(
+                project,
+                store,
+                saved.reference,
+                project_id="project",
+                confirmation_hash="confirmation-hash",
+                estimate_micros=0,
+            )
+    finally:
+        project.close()
+
+
+def test_launch_requires_its_research_turn_before_repreparing(tmp_path):
+    project = Project.create(tmp_path / "project.frisket")
+    try:
+        store, turn, sheet_id = _turn(project)
+        saved = save_prepared_project_ask_action(
+            project,
+            turn,
+            store,
+            title="Greet people",
+            draft=_draft(sheet_id),
+            catalog_payload=root_action_catalog_payload(),
+            quote_provider=_quote,
+        )
+        service = ProjectAskActionService(
+            catalog_payload_provider=lambda: pytest.fail("must not read catalog"),
+            quote_provider=lambda _action: pytest.fail("must not quote"),
+            research_for_turn=lambda turn_id: {"id": "other", "turn_id": "other-turn"},
+            admit_operation=lambda *_args, **_kwargs: pytest.fail("must not admit"),
+            run_action=lambda *_args: pytest.fail("must not run"),
+        )
+        with pytest.raises(ValueError, match="research turn"):
+            service.launch(project, store, saved.reference, project_id="project")
+    finally:
+        project.close()
+
+
+def test_unquoted_proposals_remain_visible_but_cannot_launch(tmp_path):
+    project = Project.create(tmp_path / "project.frisket")
+    try:
+        store, turn, sheet_id = _turn(project)
+        saved = save_prepared_project_ask_action(
+            project,
+            turn,
+            store,
+            title="Greet people",
+            draft=_draft(sheet_id),
+            catalog_payload=root_action_catalog_payload(),
+        )
+        assert saved.event["payload"]["proposal"] == saved.proposal
+        service = ProjectAskActionService(
+            catalog_payload_provider=root_action_catalog_payload,
+            quote_provider=_quote,
+            research_for_turn=lambda turn_id: {"id": "research-1", "turn_id": turn_id},
+            admit_operation=lambda *_args, **_kwargs: pytest.fail("must not admit"),
+            run_action=lambda *_args: pytest.fail("must not run"),
+        )
+        with pytest.raises(ValueError, match="changed; reprepare"):
+            service.launch(project, store, saved.reference, project_id="project")
     finally:
         project.close()

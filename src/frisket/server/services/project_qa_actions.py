@@ -8,9 +8,14 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
+from frisket.actions.core import MapRows, ModelRows, SemanticJoin
 from frisket.authoring.project_ask_actions import (
     PreparedProjectAskDraft,
     prepare_validated_project_ask_draft,
+)
+from frisket.engine.executor.map_rows_action import (
+    TypedMapRowsPlanError,
+    build_typed_map_rows_plan,
 )
 from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAStore
@@ -18,6 +23,8 @@ from frisket.features.watchlists.specs import canonical_json
 
 
 CatalogPayloadProvider = Callable[[], Mapping[str, Any]]
+QuoteProvider = Callable[[dict[str, Any]], Mapping[str, Any]]
+ResearchForTurn = Callable[[str], Mapping[str, Any]]
 ActionRunner = Callable[[str, dict[str, Any]], Any]
 OperationAdmitter = Callable[..., Any]
 
@@ -56,21 +63,102 @@ def _implementation_identity(prepared: PreparedProjectAskDraft) -> dict[str, Any
     }
 
 
-def _prepared_payload(
+def _action_body(
     prepared: PreparedProjectAskDraft, *, dispatch_id: str
 ) -> dict[str, Any]:
-    """Canonical stored facts that a later launch must reproduce exactly."""
+    """The ordinary ActionRun request, with a server-owned dispatch key."""
 
-    effects = sorted(
-        effect
-        for effect in prepared.catalog_entry.get("side_effects", [])
-        if isinstance(effect, str)
+    return {
+        **prepared.request.model_dump(mode="json"),
+        "idempotency_key": dispatch_id,
+    }
+
+
+def _prepared_target_facts(
+    project: Project, prepared: PreparedProjectAskDraft
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Freeze normal typed-map output preconditions, never an Ask-local plan."""
+
+    terminal = prepared.bound.action.definition.run
+    if not isinstance(terminal, (MapRows, ModelRows)) or isinstance(
+        terminal, SemanticJoin
+    ):
+        return None, "normal prepared output facts are unavailable for this action"
+    if prepared.request.replace_existing:
+        return None, "replacing an existing output requires explicit approval"
+    try:
+        plan = build_typed_map_rows_plan(project, prepared.bound)
+    except TypedMapRowsPlanError as error:
+        return None, f"normal output preparation refused: {error.code}"
+    except (KeyError, TypeError, ValueError):
+        return None, "normal prepared output facts are unavailable for this action"
+    return (
+        {
+            "kind": "typed_map_rows",
+            "output_names": dict(plan.output_names),
+            "output_target_preconditions": dict(plan.output_target_preconditions),
+            "replace_existing": False,
+        },
+        None,
     )
+
+
+def _quote_facts(
+    quote_provider: QuoteProvider | None, action: dict[str, Any]
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Accept only a normal server estimate with an integer billed amount."""
+
+    if quote_provider is None:
+        return None, "normal action quote is unavailable"
+    try:
+        result = quote_provider(action)
+    except (KeyError, TypeError, ValueError):
+        return None, "normal action quote is unavailable"
+    estimate = result.get("estimate") if isinstance(result, Mapping) else None
+    if not isinstance(estimate, Mapping):
+        return None, "normal action quote is unavailable"
+    billed_cost = estimate.get("billed_cost")
+    if (
+        isinstance(billed_cost, bool)
+        or not isinstance(billed_cost, int)
+        or billed_cost < 0
+    ):
+        return None, "normal action quote has unknown cost"
+    requires_confirmation = estimate.get("requires_confirmation")
+    if not isinstance(requires_confirmation, bool):
+        return None, "normal action quote is malformed"
+    promise_set_hash = estimate.get("promise_set_hash")
+    if requires_confirmation and (
+        not isinstance(promise_set_hash, str) or not promise_set_hash
+    ):
+        return None, "normal action quote is missing its confirmation promise"
+    policy_id = estimate.get("policy_id")
+    if not isinstance(policy_id, str) or not policy_id:
+        return None, "normal action quote is missing its policy"
+    return {"estimate": dict(estimate)}, None
+
+
+def _prepared_payload(
+    project: Project,
+    prepared: PreparedProjectAskDraft,
+    *,
+    dispatch_id: str,
+    quote_provider: QuoteProvider | None,
+) -> dict[str, Any]:
+    """Canonical facts a launch must reproduce before budget admission."""
+
+    action = _action_body(prepared, dispatch_id=dispatch_id)
+    effects, effects_reason = _prepared_target_facts(project, prepared)
+    quote, quote_reason = _quote_facts(quote_provider, action)
+    automatic_reason = effects_reason or quote_reason
     authority = {
         "dispatch_id": dispatch_id,
         "draft": prepared.draft,
+        "request": action,
         "implementation_identity": _implementation_identity(prepared),
         "effects": effects,
+        "quote": quote,
+        "automatic_reason": automatic_reason,
         "scope": prepared.request.scope.model_dump(mode="json"),
     }
     return {**authority, "payload_identity": _hash(authority)}
@@ -84,8 +172,14 @@ def save_prepared_project_ask_action(
     title: str,
     draft: Mapping[str, Any],
     catalog_payload: Mapping[str, Any],
+    quote_provider: QuoteProvider | None = None,
 ) -> PreparedProjectAskAction:
-    """Validate and persist a canonical action proposal on its Ask event."""
+    """Validate and persist a canonical action proposal on its Ask event.
+
+    A proposal remains visible to the existing frontend if normal automatic
+    preparation cannot quote or freeze its output facts. Such a proposal is
+    review-only and cannot enter the automatic dispatch path.
+    """
 
     prepared = prepare_validated_project_ask_draft(
         project,
@@ -95,7 +189,12 @@ def save_prepared_project_ask_action(
     )
     proposal = {"title": title, "spec": prepared.draft}
     dispatch_id = f"ask-action:{uuid4()}"
-    stored = _prepared_payload(prepared, dispatch_id=dispatch_id)
+    stored = _prepared_payload(
+        project,
+        prepared,
+        dispatch_id=dispatch_id,
+        quote_provider=quote_provider,
+    )
     event = store.append_event(
         str(turn["id"]),
         kind="action_proposal",
@@ -151,16 +250,20 @@ def _stored_prepared_action(
 
 
 class ProjectAskActionService:
-    """Revalidate and dispatch prepared Ask actions without a new executor path."""
+    """Revalidate and dispatch prepared Ask actions through normal services."""
 
     def __init__(
         self,
         *,
         catalog_payload_provider: CatalogPayloadProvider,
+        quote_provider: QuoteProvider,
+        research_for_turn: ResearchForTurn,
         admit_operation: OperationAdmitter,
         run_action: ActionRunner,
     ) -> None:
         self._catalog_payload_provider = catalog_payload_provider
+        self._quote_provider = quote_provider
+        self._research_for_turn = research_for_turn
         self._admit_operation = admit_operation
         self._run_action = run_action
 
@@ -171,16 +274,22 @@ class ProjectAskActionService:
         reference: PreparedActionReference,
         *,
         project_id: str,
-        research_id: str,
-        estimate_micros: int | None,
         confirmation_hash: str | None = None,
     ) -> Any:
-        """Revalidate, admit once, then invoke the ordinary action-run service.
+        """Reprepare, quote, admit once, then invoke ordinary ActionRun.
 
-        The caller owns budget and approval policy through ``admit_operation``.
-        This method deliberately does not inspect or mint output grants.
+        The research record binds a proposal event to its owning research turn;
+        callers never supply a research id or billable amount.
         """
 
+        research = self._research_for_turn(reference.turn_id)
+        research_id = research.get("id") if isinstance(research, Mapping) else None
+        if (
+            not isinstance(research_id, str)
+            or not research_id
+            or research.get("turn_id") != reference.turn_id
+        ):
+            raise ValueError("prepared action does not belong to this research turn")
         event = _stored_event(store, reference)
         proposal, stored = _stored_prepared_action(event, reference)
         turn = store.get_turn(reference.turn_id)
@@ -192,10 +301,24 @@ class ProjectAskActionService:
             catalog_payload=self._catalog_payload_provider(),
             scope=turn["scope"],
         )
-        current = _prepared_payload(prepared, dispatch_id=reference.dispatch_id)
+        current = _prepared_payload(
+            project,
+            prepared,
+            dispatch_id=reference.dispatch_id,
+            quote_provider=self._quote_provider,
+        )
         if current != stored:
             raise ValueError("prepared action changed; reprepare it before launch")
-        if confirmation_hash is not None and (
+        if current["automatic_reason"] is not None:
+            raise ValueError(str(current["automatic_reason"]))
+        estimate = current["quote"]["estimate"]
+        promise_set_hash = estimate.get("promise_set_hash")
+        if estimate["requires_confirmation"]:
+            if confirmation_hash != promise_set_hash:
+                raise ValueError(
+                    "confirmation_hash does not match the normal action quote"
+                )
+        elif confirmation_hash is not None and (
             not isinstance(confirmation_hash, str) or not confirmation_hash
         ):
             raise ValueError("confirmation_hash must be a non-empty string")
@@ -204,15 +327,14 @@ class ProjectAskActionService:
             operation_id=reference.dispatch_id,
             payload_identity=current["payload_identity"],
             operation_kind="action",
-            estimate_micros=estimate_micros,
+            estimate_micros=estimate["billed_cost"],
             metadata={
                 "prepared_event_seq": reference.event_seq,
                 "prepared_turn_id": reference.turn_id,
                 "action_id": prepared.request.action_id,
             },
         )
-        body = prepared.request.model_dump(mode="json")
-        body["idempotency_key"] = reference.dispatch_id
+        body = _action_body(prepared, dispatch_id=reference.dispatch_id)
         if confirmation_hash is not None:
             body["confirmation"] = confirmation_hash
         return self._run_action(project_id, body)

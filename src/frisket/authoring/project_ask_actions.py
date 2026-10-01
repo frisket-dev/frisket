@@ -19,6 +19,8 @@ from frisket.actions.types import (
     ActionRequest,
     ColumnTransformContext,
     InputReference,
+    SheetColumnRef,
+    SheetRef,
     discover_references,
 )
 from frisket.authoring.project_ask import ProjectAskRegisteredActionDraft
@@ -27,6 +29,8 @@ from frisket.engine.store import Project
 
 logger = logging.getLogger("frisket.project_ask")
 _DRAFT_IDEMPOTENCY_KEY = "project-ask-draft"
+_ASK_FORBIDDEN_CAPABILITIES = frozenset({"unsafe:local_code"})
+_ASK_FORBIDDEN_EFFECTS = frozenset({"execute_trusted_local_python"})
 
 
 @dataclass(frozen=True)
@@ -69,7 +73,32 @@ def project_ask_action_catalog(
     """Return the exact builtin and enabled-plugin entries for one project."""
 
     return tuple(
-        entry for _, entry in sorted(_catalog_entries(catalog_payload).items())
+        entry
+        for _, entry in sorted(_catalog_entries(catalog_payload).items())
+        if _available_for_project_ask(entry)
+    )
+
+
+def _available_for_project_ask(entry: Mapping[str, Any]) -> bool:
+    """Generated local code never enters an Ask proposal or automatic path."""
+
+    raw_capabilities = entry.get("required_capabilities")
+    raw_effects = entry.get("side_effects")
+    if (
+        not isinstance(raw_capabilities, list)
+        or not isinstance(raw_effects, list)
+        or not all(isinstance(value, str) for value in raw_capabilities)
+        or not all(isinstance(value, str) for value in raw_effects)
+    ):
+        return False
+    hints = entry.get("ui_hints")
+    if isinstance(hints, Mapping) and hints.get("unavailable_reason"):
+        return False
+    capabilities = set(raw_capabilities)
+    effects = set(raw_effects)
+    return not (
+        capabilities.intersection(_ASK_FORBIDDEN_CAPABILITIES)
+        or effects.intersection(_ASK_FORBIDDEN_EFFECTS)
     )
 
 
@@ -80,7 +109,8 @@ def describe_project_ask_action(
 
     if not isinstance(action_id, str) or not action_id:
         return None
-    return _catalog_entries(catalog_payload).get(action_id)
+    entry = _catalog_entries(catalog_payload).get(action_id)
+    return entry if entry is not None and _available_for_project_ask(entry) else None
 
 
 def search_project_ask_actions(
@@ -206,8 +236,23 @@ def _project_reference_error(
     prepared: PreparedProjectAskDraft,
 ) -> tuple[str, dict[str, Any]] | None:
     draft = prepared.draft
+    raw_reference_error = _proposal_project_reference_error(
+        sheet_columns, draft["params"]
+    )
+    if raw_reference_error is not None:
+        return raw_reference_error
+    for reference in _bound_sheet_references(prepared.bound.params):
+        sheet = sheet_columns.get(reference.sheet_id)
+        if sheet is None:
+            return "unknown_sheet_id", {"sheet_id": reference.sheet_id}
+        if isinstance(reference, SheetColumnRef) and reference.column not in sheet[1]:
+            return "unknown_input_columns", {
+                "sheet_id": reference.sheet_id,
+                "param": "params",
+                "unknown_columns": [reference.column],
+            }
     if draft["scope"]["kind"] == "project":
-        return _proposal_project_reference_error(sheet_columns, draft["params"])
+        return None
     sheet_id = draft["scope"]["sheet_id"]
     sheet = sheet_columns.get(sheet_id)
     if sheet is None:
@@ -291,6 +336,53 @@ def _project_reference_error(
                 "error_message": str(error),
             }
     return None
+
+
+def _bound_sheet_references(value: Any) -> tuple[SheetRef, ...]:
+    """Find typed secondary project references without action-name branches."""
+
+    from pydantic import BaseModel
+
+    found: list[SheetRef] = []
+    seen: set[int] = set()
+
+    def visit(item: Any) -> None:
+        if id(item) in seen:
+            return
+        if isinstance(item, SheetRef):
+            seen.add(id(item))
+            found.append(item)
+            return
+        if isinstance(item, BaseModel):
+            seen.add(id(item))
+            for field in type(item).model_fields:
+                visit(getattr(item, field))
+        elif isinstance(item, Mapping):
+            seen.add(id(item))
+            for nested in item.values():
+                visit(nested)
+        elif isinstance(item, (list, tuple)):
+            seen.add(id(item))
+            for nested in item:
+                visit(nested)
+
+    visit(value)
+    return tuple(found)
+
+
+def _secondary_references_fit_scope(
+    references: tuple[SheetRef, ...], source_scope: Mapping[str, Any]
+) -> bool:
+    """Whole-sheet secondary reads need an explicitly selected whole sheet."""
+
+    if source_scope.get("kind") == "project":
+        return True
+    full_sheets = {
+        source.get("sheet_id")
+        for source in source_scope.get("sources", [])
+        if isinstance(source, Mapping) and source.get("kind") == "sheet"
+    }
+    return all(reference.sheet_id in full_sheets for reference in references)
 
 
 def _references_fit_selected_cells(
@@ -402,6 +494,10 @@ def prepare_validated_project_ask_draft(
         prepared = _bind_project_ask_draft(
             project, prepared.draft, catalog_payload=catalog_payload
         )
+        if not _secondary_references_fit_scope(
+            _bound_sheet_references(prepared.bound.params), scope
+        ):
+            raise ValueError("action draft reads a sheet outside the Ask source scope")
     sheet_columns: dict[int, tuple[set[int], dict[str, str]]] = {}
     for sheet in project.sheets():
         columns = project.columns(sheet["id"])
