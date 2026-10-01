@@ -7,7 +7,6 @@ from typing import Literal
 from pydantic import Field, JsonValue, model_validator
 
 from frisket.ai.llm import ModelRouter
-from frisket.actions.types import ProjectScope
 from frisket.contracts.http.models import WireModel
 
 
@@ -50,6 +49,12 @@ class ProjectAskRegisteredSheetRowsScope(WireModel):
         return self
 
 
+class ProjectAskRegisteredProjectScope(WireModel):
+    """Explicit project scope at the action-authoring wire boundary."""
+
+    kind: Literal["project"]
+
+
 class ProjectAskRegisteredActionDraft(WireModel):
     """A keyless, execution-neutral ``ActionRequest`` draft.
 
@@ -59,8 +64,8 @@ class ProjectAskRegisteredActionDraft(WireModel):
     """
 
     action_id: str = Field(min_length=1)
-    scope: ProjectScope | ProjectAskRegisteredSheetRowsScope = Field(
-        discriminator="kind"
+    scope: ProjectAskRegisteredProjectScope | ProjectAskRegisteredSheetRowsScope = (
+        Field(discriminator="kind")
     )
     params: dict[str, JsonValue]
     output_names: dict[str, str] = Field(default_factory=dict)

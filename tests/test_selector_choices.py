@@ -1085,9 +1085,24 @@ def test_model_choices_reuse_provider_setup_credential_and_spend_facts_within_re
     ]
     assert len(openai) > 1
     assert all(row["can_run"] for row in openai)
-    assert setup_reads == Counter({"anthropic": 1, "gemini": 1, "openrouter": 1})
+    assert setup_reads == Counter(
+        {
+            "anthropic": 1,
+            "gemini": 1,
+            "openrouter": 1,
+            "exa": 1,
+            "tavily": 1,
+        }
+    )
     assert source_reads == Counter(
-        {"anthropic": 1, "openai": 1, "gemini": 1, "openrouter": 1}
+        {
+            "anthropic": 1,
+            "openai": 1,
+            "gemini": 1,
+            "openrouter": 1,
+            "exa": 1,
+            "tavily": 1,
+        }
     )
     assert spend_reads == Counter({"openai": 1})
     refreshed = client.post(
@@ -1105,9 +1120,24 @@ def test_model_choices_reuse_provider_setup_credential_and_spend_facts_within_re
         row["blocker"]["code"] == "provider_spend_cap_exceeded"
         for row in refreshed_openai
     )
-    assert setup_reads == Counter({"anthropic": 2, "gemini": 2, "openrouter": 2})
+    assert setup_reads == Counter(
+        {
+            "anthropic": 2,
+            "gemini": 2,
+            "openrouter": 2,
+            "exa": 2,
+            "tavily": 2,
+        }
+    )
     assert source_reads == Counter(
-        {"anthropic": 2, "openai": 2, "gemini": 2, "openrouter": 2}
+        {
+            "anthropic": 2,
+            "openai": 2,
+            "gemini": 2,
+            "openrouter": 2,
+            "exa": 2,
+            "tavily": 2,
+        }
     )
     assert spend_reads == Counter({"openai": 2})
 

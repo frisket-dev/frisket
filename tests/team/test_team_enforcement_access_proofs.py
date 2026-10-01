@@ -12,6 +12,8 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from frisket.server.app import create_app
+from frisket.server.routes.skills import register_skill_routes
+from frisket.server.services.skills import SkillLibrary
 from frisket.team.app import TeamProjectAccess
 from frisket.team.enforcement import protect_core_app
 from frisket.team.invite_service import InviteConflict, InviteForbidden, InviteService
@@ -55,12 +57,18 @@ class _RecordingProjectAccess:
 
 
 def _core(tmp_path: Path, name: str) -> FastAPI:
-    return create_app(
+    app = create_app(
         tmp_path / name,
         serve_spa=False,
         enable_provider_config=False,
         edition="team",
     )
+    register_skill_routes(
+        app,
+        library=SkillLibrary(tmp_path / name),
+        require_manager=lambda _request: None,
+    )
+    return app
 
 
 def _protect(

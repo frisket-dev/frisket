@@ -13,6 +13,8 @@ from frisket.authoring.workbench.installed_actions import resolve_installed_acti
 from frisket.engine.executor.actions import run_action_spec
 from frisket.plugins.manifest_generate import generate_manifest_text
 from frisket.server.app import create_app
+from frisket.server.routes.skills import register_skill_routes
+from frisket.server.services.skills import SkillLibrary
 from tests.deterministic_time import controlled_time
 
 
@@ -87,6 +89,11 @@ def installed_table(tmp_path, monkeypatch):
         enable_provider_config=False,
         edition="team",
         serve_spa=False,
+    )
+    register_skill_routes(
+        app,
+        library=SkillLibrary(tmp_path / "workspace"),
+        require_manager=lambda _request: None,
     )
     project_id = app.state.workspace.create("Plugin tables")["id"]
     project = app.state.workspace.get(project_id)
