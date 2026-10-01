@@ -1,47 +1,78 @@
-export interface InstructionSkill {
-  id: string;
-  name: string;
-  description: string;
-  content: string;
-  enabled: boolean;
-  revision: number;
-  createdAt: string;
-  updatedAt: string;
+import { httpContract } from "./httpContract";
+import type {
+  HttpInstructionSkill,
+  HttpInstructionSkillList,
+} from "../generated/openHttpContracts";
+
+export type InstructionSkill = HttpInstructionSkill;
+export type SkillsEnvelope = HttpInstructionSkillList;
+
+function skillRequestError(_status: number, payload: unknown): Error {
+  const detail =
+    typeof payload === "object" && payload !== null && "detail" in payload
+      ? payload.detail
+      : undefined;
+  const message = Array.isArray(detail) ? detail[0]?.msg : detail;
+  return new Error(
+    typeof message === "string" ? message : "Could not save skills.",
+  );
 }
 
-interface SkillsEnvelope {
-  schemaVersion: 'frisket.skills.v1';
-  skills: InstructionSkill[];
-}
-
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    headers: { 'content-type': 'application/json', ...init?.headers },
+async function uploadSkill(content: string): Promise<InstructionSkill> {
+  const response = await fetch("/api/skills/upload", {
+    method: "POST",
+    headers: { "content-type": "text/markdown; charset=utf-8" },
+    body: content,
   });
   if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    const detail = Array.isArray(payload.detail) ? payload.detail[0]?.msg : payload.detail;
-    throw new Error(typeof detail === 'string' ? detail : 'Could not save skills.');
+    const payload: unknown = await response.json().catch(() => ({}));
+    throw skillRequestError(response.status, payload);
   }
-  return response.status === 204 ? undefined as T : response.json() as Promise<T>;
+  return response.json() as Promise<InstructionSkill>;
 }
 
 export const skillsApi = {
-  list: () => request<SkillsEnvelope>('/api/skills'),
-  create: (content: string) => request<InstructionSkill>('/api/skills', {
-    method: 'POST', body: JSON.stringify({ content, enabled: true }),
-  }),
-  upload: (content: string) => request<InstructionSkill>('/api/skills/upload', {
-    method: 'POST', headers: { 'content-type': 'text/markdown; charset=utf-8' }, body: content,
-  }),
-  update: (skill: InstructionSkill, content: string) => request<InstructionSkill>(`/api/skills/${skill.id}`, {
-    method: 'PUT', body: JSON.stringify({ expectedRevision: skill.revision, content }),
-  }),
-  setEnabled: (skill: InstructionSkill, enabled: boolean) => request<InstructionSkill>(`/api/skills/${skill.id}/enabled`, {
-    method: 'PATCH', body: JSON.stringify({ expectedRevision: skill.revision, enabled }),
-  }),
-  delete: (skill: InstructionSkill) => request<void>(`/api/skills/${skill.id}`, {
-    method: 'DELETE', body: JSON.stringify({ expectedRevision: skill.revision }),
-  }),
+  list: (): Promise<SkillsEnvelope> =>
+    httpContract("tenant.list_skills.get", {
+      pathParams: {},
+      query: {},
+      errorFactory: skillRequestError,
+    }),
+  create: (content: string): Promise<InstructionSkill> =>
+    httpContract("tenant.create_skill.post", {
+      pathParams: {},
+      query: {},
+      body: { content, enabled: true },
+      errorFactory: skillRequestError,
+    }),
+  // Upload remains a raw text request because its contract intentionally
+  // declares no JSON or multipart body; the route accepts SKILL.md bytes.
+  upload: uploadSkill,
+  update: (
+    skill: InstructionSkill,
+    content: string,
+  ): Promise<InstructionSkill> =>
+    httpContract("tenant.update_skill.put", {
+      pathParams: { skill_id: skill.id },
+      query: {},
+      body: { expectedRevision: skill.revision, content },
+      errorFactory: skillRequestError,
+    }),
+  setEnabled: (
+    skill: InstructionSkill,
+    enabled: boolean,
+  ): Promise<InstructionSkill> =>
+    httpContract("tenant.set_skill_enabled.patch", {
+      pathParams: { skill_id: skill.id },
+      query: {},
+      body: { expectedRevision: skill.revision, enabled },
+      errorFactory: skillRequestError,
+    }),
+  delete: (skill: InstructionSkill): Promise<void> =>
+    httpContract("tenant.delete_skill.delete", {
+      pathParams: { skill_id: skill.id },
+      query: {},
+      body: { expectedRevision: skill.revision },
+      errorFactory: skillRequestError,
+    }),
 };
