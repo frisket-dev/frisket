@@ -931,6 +931,24 @@ def resolve_search_credentials(
     }
 
 
+def configured_search_service(root: str | Path, *, effective_keys: Mapping[str, str]):
+    """Build search from caller-authorized keys and persisted preference."""
+
+    from frisket.ai.research.search import SearchService
+
+    return SearchService(
+        preference=load_search_provider(root), effective_keys=effective_keys
+    )
+
+
+def local_search_service(root: str | Path):
+    """Build the effective local-tier search service for one workspace."""
+
+    return configured_search_service(
+        root, effective_keys=resolve_search_credentials(root)
+    )
+
+
 SEARCH_PROVIDER_CONFIG_KEY = "search_provider_v1"
 
 

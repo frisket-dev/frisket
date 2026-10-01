@@ -397,21 +397,18 @@ class Workspace:
     def search_service(self):
         """Build the effective search provider from this edition's keys."""
 
-        from frisket.ai.research.search import SearchService
         from frisket.server.provider_config import (
-            load_search_provider,
-            resolve_search_credentials,
+            configured_search_service,
+            local_search_service,
         )
 
         if self._search_provider_keys_resolver is not None:
             keys = dict(self._search_provider_keys_resolver())
         elif self.edition == "solo":
-            keys = resolve_search_credentials(self.root)
+            return local_search_service(self.root)
         else:
             keys = {}
-        return SearchService(
-            preference=load_search_provider(self.root), effective_keys=keys
-        )
+        return configured_search_service(self.root, effective_keys=keys)
 
     def router_for(self, project: Project) -> ModelRouter:
         """Return the ordinary workspace router for non-action consumers."""

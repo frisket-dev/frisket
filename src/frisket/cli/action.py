@@ -78,8 +78,9 @@ def action(argv: list[str]) -> int:
 
     if args.command == "run":
         from frisket.authoring.plugin_registry import default_registry
-        from frisket.engine.executor import run_action_spec
+        from frisket.engine.executor import ExecutorDeps, run_action_spec
         from frisket.engine.store import Project
+        from frisket.server.provider_config import local_search_service
 
         default_registry()
         project_path = Path(args.project)
@@ -101,6 +102,11 @@ def action(argv: list[str]) -> int:
                 project,
                 data,
                 project_id=project_id,
+                deps=ExecutorDeps(
+                    search_service_factory=lambda: local_search_service(
+                        project_path.parent
+                    )
+                ),
             )
         finally:
             project.close()

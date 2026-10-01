@@ -383,6 +383,14 @@ async def search_web(
         response = await search_web_results(query, service=service, timeout=timeout)
     except SearchProviderError as exc:
         raise RuntimeError(str(exc)) from exc
+    return search_observation(query, response)
+
+
+def search_observation(
+    query: str, response: SearchResponse
+) -> ResearchSearchObservation:
+    """Format one admitted search response for the research agent."""
+
     results = response.results
     if not results:
         text = "empty query" if not query.strip() else ""

@@ -8,7 +8,7 @@ import copy
 from frisket.actions.research_types import ResearchAnswer
 from frisket.actions.types import RowError
 from frisket.ai.llm import LLMError
-from frisket.ai.research.row_answer import fetch_page, run_research, search_web
+from frisket.ai.research.row_answer import fetch_page, run_research, search_observation
 from frisket.engine.executor.agent_model_calls import (
     AccountedAgentRouter,
     require_agent_attempt,
@@ -19,7 +19,10 @@ from frisket.ops.base import RecipeInvocationHalt
 
 class AdmittedResearcher:
     def __init__(self, ctx, *, model: str):
+        from frisket.engine.executor.web_search_read import AdmittedWebSearcher
+
         self._ctx, self._model = ctx, model
+        self._searcher = AdmittedWebSearcher(ctx)
         self._started = self._closed = False
         self._tasks = set()
         self._rows = set()
@@ -46,16 +49,30 @@ class AdmittedResearcher:
             task.cancel()
         for task in tuple(self._tasks):
             await _settle(task)
+        await self._searcher.aclose()
 
     def bind_row(self, row, *, sheet_id, row_id, sources, ctx):
         if not self._started or self._closed:
             raise RuntimeError("Research requires an active invocation")
-        return _BoundResearcher(self, row, row_id, ctx)
+        return _BoundResearcher(
+            self,
+            row,
+            row_id,
+            ctx,
+            self._searcher.bind_row(
+                row,
+                sheet_id=sheet_id,
+                row_id=row_id,
+                sources=sources,
+                ctx=ctx,
+            ),
+        )
 
 
 class _BoundResearcher:
-    def __init__(self, owner, row, row_id, ctx):
+    def __init__(self, owner, row, row_id, ctx, searcher):
         self._owner, self._row, self._row_id, self._ctx = owner, row, row_id, ctx
+        self._searcher = searcher
 
     async def answer(self, row, *, goal, context):
         owner = self._owner
@@ -84,7 +101,7 @@ class _BoundResearcher:
                 model_id=owner._model,
                 router=router,
                 recipe_version="1",
-                search=search_web,
+                search=self._search,
                 fetch=lambda url: fetch_page(url, ctx.http),
             )
         except LLMError as exc:
@@ -114,3 +131,7 @@ class _BoundResearcher:
             }
         ]
         return result
+
+    async def _search(self, query):
+        response = await self._searcher.search_response(query, max_results=6)
+        return search_observation(query, response)

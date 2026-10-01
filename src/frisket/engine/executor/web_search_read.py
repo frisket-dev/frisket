@@ -30,9 +30,10 @@ class AdmittedWebSearcher:
         self._closed = False
         self._owner = self
         self._calls = set()
+        factory = ctx.extras.get("search_service_factory")
         self._service = (
             search_service
-            or ctx.extras.get("search_service")
+            or (factory() if callable(factory) else None)
             or SearchService(preference="ddgs", effective_keys={})
         )
         self._check_active()
@@ -66,12 +67,14 @@ class AdmittedWebSearcher:
         bound._owner = self
         return bound
 
-    async def _call(self, query, max_results, attempt):
+    async def _call(self, query, max_results, attempt, timeout):
         from frisket.engine.executor.visual_cuts_read import _settle
 
         quote = self._service.quote(max_results=max_results)
         task = asyncio.create_task(
-            self._service.search(query, max_results=max_results, quote=quote)
+            self._service.search(
+                query, max_results=max_results, timeout=timeout, quote=quote
+            )
         )
         self._owner._calls.add(task)
         try:
@@ -161,7 +164,9 @@ class AdmittedWebSearcher:
             claim_token=ctx.extras["claim_token"],
         )
 
-    async def search(self, query: str, *, max_results: int) -> list[SearchResult]:
+    async def search_response(
+        self, query: str, *, max_results: int, timeout: float = 20.0
+    ) -> SearchResponse:
         self._check_active()
         if self._ctx.project is not None:
             from frisket.execution.attempt import attempt_in_scope
@@ -183,23 +188,23 @@ class AdmittedWebSearcher:
         for attempt in range(1, max_attempts + 1):
             self._check_active()
             try:
-                results = await self._call(query, max_results, attempt)
+                response = await self._call(query, max_results, attempt, timeout)
             except _SearchUnavailable as exc:
                 last_error = exc.error
                 if self._service.provider == "ddgs" or attempt < max_attempts:
                     await asyncio.sleep(1.5 * attempt)
             else:
-                return [
-                    SearchResult(
-                        title=item.title,
-                        url=item.url,
-                        snippet=item.excerpt,
-                    )
-                    for item in results.results
-                ]
+                return response
         if last_error is not None and self._service.provider != "ddgs":
             raise RowError(f"search_{last_error.code}", str(last_error)) from None
         raise RowError("search_failed", "Search failed after bounded retries") from None
+
+    async def search(self, query: str, *, max_results: int) -> list[SearchResult]:
+        response = await self.search_response(query, max_results=max_results)
+        return [
+            SearchResult(title=item.title, url=item.url, snippet=item.excerpt)
+            for item in response.results
+        ]
 
 
 def search_provider_use(recorded, facts):

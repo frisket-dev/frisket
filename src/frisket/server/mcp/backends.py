@@ -467,7 +467,7 @@ class LocalBackend:
         confirmed: bool = False,
         consented_promise_set_hash: str | None = None,
     ) -> dict:
-        from frisket.engine.executor import run_action_spec
+        from frisket.engine.executor import ExecutorDeps, run_action_spec
 
         p = self.ws.get(project_id)
         action = _backfill_action_payload(
@@ -491,6 +491,7 @@ class LocalBackend:
             action,
             project_id=project_id,
             router=self.ws.router_for(p),
+            deps=ExecutorDeps(search_service_factory=self.ws.search_service),
         )
         return _backfill_tool_response(result.model_dump(mode="json"))
 

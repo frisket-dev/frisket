@@ -11,7 +11,7 @@ from typing import Any, Callable
 from frisket.actions.core import SemanticJoin, _ProjectAction
 from frisket.actions.python_types import PythonEvaluator
 from frisket.actions.http_types import HttpRequester
-from frisket.actions.research_types import WebSearcher
+from frisket.actions.research_types import Researcher, WebSearcher
 from frisket.actions.file_types import FileFetcher
 from frisket.actions.screenshot_types import Screenshotter
 from frisket.actions.row_media_types import FrameExtractor, FaceExtractor
@@ -161,8 +161,6 @@ def run_typed_backfill_action(
     bound: BoundTypedActionRequest,
     router: Any,
     map_runner_factory: Callable[..., Any],
-    *,
-    search_service_factory: Callable[[], Any] | None = None,
 ) -> ActionResult:
     action = _TypedExecutionEnvelope(
         kind=bound.action.action_id,
@@ -236,6 +234,7 @@ def run_typed_backfill_action(
             for capability in (
                 PythonEvaluator,
                 HttpRequester,
+                Researcher,
                 WebSearcher,
                 TopicSectionsReader,
                 PdfTablesReader,
@@ -254,22 +253,6 @@ def run_typed_backfill_action(
                 output_names=MappingProxyType(dict(spec["output_names"])),
                 output_fields=tuple(program.output_fields(spec)),
             )
-        if (
-            producer_plan is not None
-            and WebSearcher
-            in getattr(typed_program.action.definition.run, "capabilities", ())
-            and search_service_factory is not None
-        ):
-            base_factory = map_runner_factory
-            search_service = search_service_factory()
-
-            def map_runner_factory(current, current_router):
-                runner = base_factory(current, current_router)
-                runner.op_context_extras = {
-                    **runner.op_context_extras,
-                    "search_service": search_service,
-                }
-                return runner
     except BackfillRefused as exc:
         return _failed_result(
             project_id=project_id, action_kind=action.kind, error=exc.error

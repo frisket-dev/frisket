@@ -372,11 +372,10 @@ def build_run_search_service(
     control_database_url: str | None,
     allow_local_credentials: bool,
 ) -> Any:
-    from frisket.ai.research.search import SearchService
-    from frisket.server.provider_config import load_search_provider
+    from frisket.server.provider_config import configured_search_service
 
-    return SearchService(
-        preference=load_search_provider(workspace_root),
+    return configured_search_service(
+        workspace_root,
         effective_keys=resolve_run_search_credentials(
             workspace_root,
             handler_context=handler_context,
@@ -926,21 +925,22 @@ def register_project_run_handler(
                 if executor_deps_factory is not None
                 else None
             )
-            from frisket.actions.research_types import WebSearcher
-
-            search_service = (
-                executor_deps.search_service if executor_deps is not None else None
+            search_service_factory = (
+                executor_deps.search_service_factory
+                if executor_deps is not None
+                else None
             )
-            if search_service is None and WebSearcher in getattr(
-                getattr(recipe, "_terminal", recipe), "capabilities", ()
-            ):
-                search_service = build_run_search_service(
-                    root,
-                    handler_context=handler_context,
-                    ports=ports,
-                    control_database_url=db_url,
-                    allow_local_credentials=not require_storage_identity,
-                )
+            if search_service_factory is None:
+
+                def search_service_factory():
+                    return build_run_search_service(
+                        root,
+                        handler_context=handler_context,
+                        ports=ports,
+                        control_database_url=db_url,
+                        allow_local_credentials=not require_storage_identity,
+                    )
+
             runner = MapRunner(
                 project,
                 effective_router,
@@ -953,7 +953,7 @@ def register_project_run_handler(
                         if executor_deps is not None
                         else None
                     ),
-                    "search_service": search_service,
+                    "search_service_factory": search_service_factory,
                 },
                 allow_action_lifecycle_only_recipes=(
                     queued_v1_run_authorizes_action_lifecycle(

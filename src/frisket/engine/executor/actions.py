@@ -387,14 +387,14 @@ def _executor_deps_with_defaults(
             }
             return runner
 
-    if base.search_service is not None:
+    if base.search_service_factory is not None:
         base_factory = map_runner_factory
 
         def map_runner_factory(project, router, _factory=base_factory):
             runner = _factory(project, router)
             runner.op_context_extras = {
                 **runner.op_context_extras,
-                "search_service": base.search_service,
+                "search_service_factory": base.search_service_factory,
             }
             return runner
 
@@ -417,7 +417,6 @@ def _executor_deps_with_defaults(
             if url_capture_browser is not None
             else base.url_capture_browser
         ),
-        search_service=base.search_service,
         search_service_factory=base.search_service_factory,
         map_runner_factory=map_runner_factory,
         reserved_maprunner_write_overrides=base.reserved_maprunner_write_overrides,
@@ -690,7 +689,6 @@ def run_action_spec(
                 typed,
                 executor_deps.router,
                 executor_deps.map_runner_factory,
-                search_service_factory=executor_deps.search_service_factory,
             )
         if owners[0] == "plugin":
             return run_typed_plugin_load_action(project, project_id, typed)

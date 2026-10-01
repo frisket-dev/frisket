@@ -3071,7 +3071,10 @@ def _typed_receipt(
             }
             for (provider, service, remote), count in grouped.items()
         )
-    if WebSearcher in getattr(plan.action.definition.run, "capabilities", ()):
+    if any(
+        capability in getattr(plan.action.definition.run, "capabilities", ())
+        for capability in (Researcher, WebSearcher)
+    ):
         from frisket.engine.executor.web_search_read import search_provider_use
         from frisket.engine.store.receipts import ReceiptStore
 

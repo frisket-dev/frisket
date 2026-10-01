@@ -138,12 +138,9 @@ class ExecutorDeps:
     enclosure_fetcher: Any | None = None
     url_capture_fetcher: Any | None = None
     url_capture_browser: Any | None = None
-    # Request/run-scoped web-search provider. The host resolves credentials;
-    # action code only receives the already tenant-bound service.
-    search_service: Any | None = None
-    # Direct backfill discovers the original program only after preparation.
-    # Keep provider selection lazy so unrelated backfills do not require a
-    # configured search provider merely because one is selected in settings.
+    # The host-owned, request/run-scoped web-search provider factory. Keep
+    # selection lazy so actions without a search capability never resolve
+    # credentials merely because a provider is selected in settings.
     search_service_factory: Callable[[], Any] | None = None
     map_runner_factory: _MapRunnerFactory | None = None
     reserved_maprunner_write_overrides: _ReservedMaprunnerWriteOverrides | None = None

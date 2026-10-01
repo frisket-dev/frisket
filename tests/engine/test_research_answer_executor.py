@@ -20,6 +20,14 @@ from frisket.ai.llm import LLMError, LLMRequest, LLMResponse, ModelRouter
 from frisket.ai.llm.adapters import OpenAICompatAdapter
 from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 from frisket.ai.llm.pricing import cost_of_with_source
+from frisket.ai.research.search import (
+    SearchHit,
+    SearchProviderError,
+    SearchResponse,
+    SearchService,
+    SearchUsage,
+    SearchUsageUnit,
+)
 from frisket.engine.store import Project
 from frisket.engine.executor import ExecutorDeps
 from frisket.engine.store.execution_routes import instance_principal
@@ -190,13 +198,13 @@ def _patch_agent(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     _ADAPTER.clear()
     _SEARCH_CALLS.clear()
 
-    async def fake_search(query: str) -> tuple[str, list[str]]:
+    async def fake_search(_bound, query: str) -> tuple[str, list[str]]:
         _SEARCH_CALLS.append(query)
         idx = len(_SEARCH_CALLS)
         url = f"https://example.test/research/source-{idx}"
         return f"Source {idx} says the claim is cited. {url}", [url]
 
-    monkeypatch.setattr(research_read, "search_web", fake_search)
+    monkeypatch.setattr(research_read._BoundResearcher, "_search", fake_search)  # noqa: SLF001
     router, adapter = _router()
     _ADAPTER.append(adapter)
     return {"router": router}
@@ -262,12 +270,12 @@ def test_research_answer_persists_pricing_source_by_value(
 
     search_calls: list[str] = []
 
-    async def fake_search(query: str) -> tuple[str, list[str]]:
+    async def fake_search(_bound, query: str) -> tuple[str, list[str]]:
         search_calls.append(query)
         url = f"https://example.test/research/source-{len(search_calls)}"
         return f"A cited source. {url}", [url]
 
-    monkeypatch.setattr(research_read, "search_web", fake_search)
+    monkeypatch.setattr(research_read._BoundResearcher, "_search", fake_search)  # noqa: SLF001
     adapter = _PricedResearchAdapter()
     if model.startswith("ollama/"):
         router = ModelRouter(
@@ -567,6 +575,137 @@ def test_typed_research_publishes_complete_durable_facts(
         _check_state(env.project, env.seeded, result)
 
 
+def test_research_answer_uses_configured_search_and_receipts_its_cost(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from frisket.contracts.action import Receipt
+    from frisket.engine.executor import research_read
+
+    admitted_search = research_read._BoundResearcher._search  # noqa: SLF001
+
+    calls: list[str] = []
+
+    async def fake_search(
+        service: SearchService,
+        query: str,
+        *,
+        max_results: int = 6,
+        timeout: float = 20.0,
+        quote=None,
+    ) -> SearchResponse:
+        del timeout
+        quote = quote or service.quote(max_results=max_results)
+        calls.append(query)
+        return SearchResponse(
+            provider=service.provider,
+            results=(
+                SearchHit(
+                    title="Source",
+                    url=f"https://example.test/search/{len(calls)}",
+                    excerpt="Cited evidence",
+                    retrieved_at="2026-10-01T00:00:00Z",
+                    published_at=None,
+                    provider=service.provider,
+                ),
+            ),
+            usage=SearchUsage(
+                provider=service.provider,
+                service=f"{service.provider}.search",
+                request_count=1,
+                provider_reported_cost_usd=None,
+                provider_cost_usd=quote.estimated_cost_usd,
+                cost_source="configured_catalog",
+                units=(SearchUsageUnit(name=quote.unit, quantity=1),),
+                quote=quote,
+            ),
+        )
+
+    monkeypatch.setattr(SearchService, "search", fake_search)
+    with case_env(CASES[0], tmp_path, monkeypatch) as env:
+        monkeypatch.setattr(  # noqa: SLF001
+            research_read._BoundResearcher, "_search", admitted_search
+        )
+        service = SearchService(
+            preference="exa", effective_keys={"exa": "exa-test-key"}
+        )
+        env.run_kwargs["deps"] = ExecutorDeps(search_service_factory=lambda: service)
+
+        result = env.run_primary()
+
+        assert result.status == "completed", result.errors
+        assert calls == ["official source 1", "official source 3"]
+        receipt = Receipt.model_validate_json(
+            env.project.db.execute(
+                "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
+            ).fetchone()["body"]
+        )
+        search_use = next(
+            item for item in receipt.provider_use if item.get("provider") == "exa"
+        )
+        assert search_use["service"] == "exa.search"
+        assert search_use["operation_call_count"] == 2
+        assert search_use["cost_actual"] is not None
+        search_evidence = [
+            item.ref
+            for item in receipt.evidence
+            if item.ref.get("kind") == "web_search_call"
+        ]
+        assert len(search_evidence) == 2
+        assert all(item["succeeded"] for item in search_evidence)
+
+
+def test_research_answer_receipts_failed_paid_search_as_unknown_cost(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from frisket.contracts.action import Receipt
+    from frisket.engine.executor import research_read
+
+    admitted_search = research_read._BoundResearcher._search  # noqa: SLF001
+
+    async def fail_search(
+        _service: SearchService,
+        _query: str,
+        *,
+        max_results: int = 6,
+        timeout: float = 20.0,
+        quote=None,
+    ) -> SearchResponse:
+        del max_results, timeout, quote
+        raise SearchProviderError("exa", "quota", "Exa quota unavailable.")
+
+    monkeypatch.setattr(SearchService, "search", fail_search)
+    with case_env(CASES[0], tmp_path, monkeypatch) as env:
+        monkeypatch.setattr(  # noqa: SLF001
+            research_read._BoundResearcher, "_search", admitted_search
+        )
+        service = SearchService(
+            preference="exa", effective_keys={"exa": "exa-test-key"}
+        )
+        env.run_kwargs["deps"] = ExecutorDeps(search_service_factory=lambda: service)
+
+        result = env.run_primary()
+
+        assert result.receipt_id is not None
+        receipt = Receipt.model_validate_json(
+            env.project.db.execute(
+                "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
+            ).fetchone()["body"]
+        )
+        search_evidence = [
+            item.ref
+            for item in receipt.evidence
+            if item.ref.get("kind") == "web_search_call"
+        ]
+        assert search_evidence
+        assert all(item["succeeded"] is False for item in search_evidence)
+        assert all(item["cost_actual"] is None for item in search_evidence)
+        assert all(item["error_code"] == "quota" for item in search_evidence)
+        search_use = next(
+            item for item in receipt.provider_use if item.get("provider") == "exa"
+        )
+        assert search_use["cost_actual"] is None
+
+
 def test_unconfirmed_run_pauses_before_model_or_search_work(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -838,10 +977,11 @@ def test_all_rows_failed_writes_failed_receipt_and_replays_it(
     from frisket.contracts.action import Receipt
     from frisket.engine.executor import research_read
 
-    async def fake_search(query: str) -> tuple[str, list[str]]:
+    async def fake_search(_bound, query: str) -> tuple[str, list[str]]:
+        del query
         return "unused", []
 
-    monkeypatch.setattr(research_read, "search_web", fake_search)
+    monkeypatch.setattr(research_read._BoundResearcher, "_search", fake_search)  # noqa: SLF001
     router, adapter = _failing_router()
     project = Project.create(tmp_path / "failed.frisket", name="research failed")
     try:
@@ -977,12 +1117,12 @@ def _run_with_scripted_adapter(
 
     calls: list[str] = []
 
-    async def fake_search(query: str) -> tuple[str, list[str]]:
+    async def fake_search(_bound, query: str) -> tuple[str, list[str]]:
         calls.append(query)
         url = f"https://example.test/research/source-{len(calls)}"
         return f"Source {len(calls)} says the claim is cited. {url}", [url]
 
-    monkeypatch.setattr(research_read, "search_web", fake_search)
+    monkeypatch.setattr(research_read._BoundResearcher, "_search", fake_search)  # noqa: SLF001
     router = ModelRouter(
         keys={"anthropic": "k"}, cache=None, cache_mode="off", max_retries=0
     )

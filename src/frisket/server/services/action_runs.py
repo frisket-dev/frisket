@@ -278,10 +278,7 @@ class ActionRunService:
                     else None
                 )
                 request_deps = resolved or ExecutorDeps()
-                if (
-                    request_deps.search_service is None
-                    and request_deps.search_service_factory is None
-                ):
+                if request_deps.search_service_factory is None:
                     request_deps = replace(
                         request_deps,
                         search_service_factory=self._workspace.search_service,
