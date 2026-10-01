@@ -51,6 +51,11 @@ _PROJECT_QA_TO_DIGEST = "frisket.schema.v1:b540a83f8325e5cbcd52fc3fac64eeb5"
 _RUN_REVIEW_STATUS_FROM_DIGEST = _PROJECT_QA_TO_DIGEST
 _RUN_REVIEW_STATUS_TO_DIGEST = "frisket.schema.v1:caa3ac7c8aaa66153dd8e2cad5950942"
 
+# Research options on Ask records plus resumable child state and its exact-cost
+# operation ledger. Existing Ask and project data remain untouched.
+_PROJECT_QA_RESEARCH_FROM_DIGEST = _RUN_REVIEW_STATUS_TO_DIGEST
+_PROJECT_QA_RESEARCH_TO_DIGEST = "frisket.schema.v1:12917f42847b1f7e910c0cde9e4d2776"
+
 # The frontend fires hot read endpoints (/sheets, /review/queue) concurrently,
 # so two threads can open the same per-project DB at once. Both open-time
 # reconciliations below are read-then-write with no CAS: two threads that both
@@ -83,6 +88,7 @@ def open_bundle(project: Any) -> None:
         _migrate_cell_validity(project.db)
         _migrate_project_qa(project.db)
         _migrate_run_review_status(project.db)
+        _migrate_project_qa_research(project.db)
         require_current_schema(project.db, bundle_path=project.path)
         _reconcile_open_time_policy(project)
 
@@ -370,6 +376,64 @@ def _migrate_run_review_status(db: sqlite3.Connection) -> None:
             db.execute(
                 "UPDATE meta SET value=? WHERE key=?",
                 (_RUN_REVIEW_STATUS_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
+            )
+        db.commit()
+    except BaseException:
+        db.rollback()
+        raise
+
+
+def _migrate_project_qa_research(db: sqlite3.Connection) -> None:
+    """Add research settings, continuation state, and exact-cost operations."""
+
+    query = "SELECT value FROM meta WHERE key=?"
+    try:
+        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
+    except sqlite3.DatabaseError:
+        return
+    if row is None or row[0] != _PROJECT_QA_RESEARCH_FROM_DIGEST:
+        return
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
+        if row is not None and row[0] == _PROJECT_QA_RESEARCH_FROM_DIGEST:
+            db.execute("ALTER TABLE project_qa_threads ADD COLUMN research_json TEXT")
+            db.execute("ALTER TABLE project_qa_turns ADD COLUMN research_json TEXT")
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS project_qa_research_runs ("
+                "id TEXT PRIMARY KEY,"
+                "turn_id TEXT NOT NULL UNIQUE REFERENCES project_qa_turns(id) ON DELETE CASCADE,"
+                "actor TEXT,"
+                "state TEXT NOT NULL CHECK (state IN ('running','paused','interrupted','completed')),"
+                "budget_micros INTEGER NOT NULL CHECK (budget_micros >= 0),"
+                "currency TEXT NOT NULL,"
+                "write_mode TEXT NOT NULL CHECK (write_mode IN ('ask_each','ask_overwrite','full_access')),"
+                "max_turns INTEGER CHECK (max_turns IS NULL OR max_turns > 0),"
+                "turn_count INTEGER NOT NULL DEFAULT 0 CHECK (turn_count >= 0),"
+                "saved_messages_json TEXT NOT NULL DEFAULT '[]',"
+                "pending_approval_json TEXT,"
+                "output_grants_json TEXT NOT NULL DEFAULT '[]',"
+                "revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),"
+                "created_at TEXT NOT NULL,updated_at TEXT NOT NULL)"
+            )
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS project_qa_research_operations ("
+                "research_id TEXT NOT NULL REFERENCES project_qa_research_runs(id) ON DELETE CASCADE,"
+                "operation_id TEXT NOT NULL,payload_identity TEXT NOT NULL,"
+                "operation_kind TEXT NOT NULL CHECK (operation_kind IN ('model','action','search')),"
+                "estimate_micros INTEGER NOT NULL CHECK (estimate_micros >= 0),"
+                "actual_micros INTEGER CHECK (actual_micros IS NULL OR actual_micros >= 0),"
+                "metadata_json TEXT NOT NULL DEFAULT '{}',created_at TEXT NOT NULL,settled_at TEXT,"
+                "PRIMARY KEY (research_id, operation_id)) WITHOUT ROWID"
+            )
+            db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_project_qa_research_operations_unsettled "
+                "ON project_qa_research_operations(research_id) "
+                "WHERE actual_micros IS NULL"
+            )
+            db.execute(
+                "UPDATE meta SET value=? WHERE key=?",
+                (_PROJECT_QA_RESEARCH_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
             )
         db.commit()
     except BaseException:
