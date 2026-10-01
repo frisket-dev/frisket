@@ -52,6 +52,18 @@ class OutputGrantResolution:
     unavailable: tuple[UnavailableOutput, ...]
 
 
+def output_grant_allows(
+    grants: Iterable[OutputReadGrant], *, sheet_id: int, row_id: int, column_id: int
+) -> bool:
+    """Check a cell against receipt-proven grants without expanding their axes."""
+    return any(
+        grant.sheet_id == sheet_id
+        and (grant.row_ids is None or row_id in grant.row_ids)
+        and (grant.column_ids is None or column_id in grant.column_ids)
+        for grant in grants
+    )
+
+
 def _positive_int(value: object) -> int | None:
     if isinstance(value, int) and not isinstance(value, bool) and value > 0:
         return value
