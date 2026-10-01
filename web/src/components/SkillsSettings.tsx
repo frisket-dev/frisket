@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FileText, Plus, RefreshCw, Save, Trash2, Upload } from 'lucide-react';
 import { skillsApi, type InstructionSkill } from '../api/skills';
 
@@ -16,31 +16,50 @@ export function SkillsSettings() {
   const [skills, setSkills] = useState<InstructionSkill[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState(starter);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const mutationGeneration = useRef(0);
   const writeInFlight = useRef(false);
   const selected = skills.find((skill) => skill.id === selectedId) ?? null;
 
-  const load = useCallback(async () => {
+  const load = async () => {
     const generation = mutationGeneration.current;
     setBusy(true);
     setError(null);
     try {
       const result = await skillsApi.list();
       if (generation !== mutationGeneration.current) return;
+      const nextSelected = result.skills.find((skill) => skill.id === selectedId) ?? result.skills[0] ?? null;
       setSkills(result.skills);
-      setSelectedId((current) => current && result.skills.some((skill) => skill.id === current)
-        ? current : (result.skills[0]?.id ?? null));
+      setSelectedId(nextSelected?.id ?? null);
+      setDraft(nextSelected?.content ?? starter);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not load skills.');
+      if (generation === mutationGeneration.current) {
+        setError(cause instanceof Error ? cause.message : 'Could not load skills.');
+      }
     } finally {
-      if (!writeInFlight.current) setBusy(false);
+      if (generation === mutationGeneration.current && !writeInFlight.current) setBusy(false);
     }
-  }, []);
+  };
 
-  useEffect(() => { void load(); }, [load]);
-  useEffect(() => { if (selected) setDraft(selected.content); }, [selected]);
+  useEffect(() => {
+    let active = true;
+    const generation = mutationGeneration.current;
+    void skillsApi.list().then((result) => {
+      if (!active || generation !== mutationGeneration.current) return;
+      const nextSelected = result.skills[0] ?? null;
+      setSkills(result.skills);
+      setSelectedId(nextSelected?.id ?? null);
+      setDraft(nextSelected?.content ?? starter);
+    }).catch((cause: unknown) => {
+      if (active && generation === mutationGeneration.current) {
+        setError(cause instanceof Error ? cause.message : 'Could not load skills.');
+      }
+    }).finally(() => {
+      if (active && generation === mutationGeneration.current && !writeInFlight.current) setBusy(false);
+    });
+    return () => { active = false; };
+  }, []);
 
   const save = async () => {
     if (writeInFlight.current) return;
@@ -56,6 +75,7 @@ export function SkillsSettings() {
         ? current.map((skill) => skill.id === saved.id ? saved : skill)
         : [...current, saved]);
       setSelectedId(saved.id);
+      setDraft(saved.content);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not save skill.');
     } finally {
@@ -111,6 +131,7 @@ export function SkillsSettings() {
       const saved = await skillsApi.upload(content);
       setSkills((current) => [...current, saved]);
       setSelectedId(saved.id);
+      setDraft(saved.content);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not upload SKILL.md.');
     } finally {
@@ -135,7 +156,7 @@ export function SkillsSettings() {
       {error && <p className="settings-error" role="alert">{error}</p>}
       <div className="skills-settings-split">
         <div className="skills-settings-list" aria-label="Saved skills">
-          {skills.map((skill) => <button key={skill.id} type="button" className={`skills-settings-list-item${skill.id === selectedId ? ' selected' : ''}`} onClick={() => setSelectedId(skill.id)} disabled={busy}><strong>{skill.name}</strong><span>{skill.enabled ? 'Enabled' : 'Disabled'}</span></button>)}
+          {skills.map((skill) => <button key={skill.id} type="button" className={`skills-settings-list-item${skill.id === selectedId ? ' selected' : ''}`} onClick={() => { setSelectedId(skill.id); setDraft(skill.content); }} disabled={busy}><strong>{skill.name}</strong><span>{skill.enabled ? 'Enabled' : 'Disabled'}</span></button>)}
           {skills.length === 0 && <p className="muted">No skills saved yet.</p>}
         </div>
         <div className="skills-settings-editor">

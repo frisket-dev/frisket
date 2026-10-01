@@ -12,6 +12,9 @@ export interface AskResearchSettingsProps {
   availableSkills: readonly AskResearchSkill[];
   effectiveWebProvider?: string | null;
   defaultBudgetUsd?: string | null;
+  availabilityMessage?: string | null;
+  loading?: boolean;
+  onRetry?(): void;
   disabled?: boolean;
 }
 
@@ -30,6 +33,9 @@ export function AskResearchSettings({
   availableSkills,
   effectiveWebProvider,
   defaultBudgetUsd,
+  availabilityMessage,
+  loading = false,
+  onRetry,
   disabled = false,
 }: AskResearchSettingsProps) {
   const selectedSkills = new Set(value?.skills ?? availableSkills.map((skill) => skill.name));
@@ -57,6 +63,10 @@ export function AskResearchSettings({
       />
       <span><strong>Run actions</strong><small>Continue investigating and running approved actions in the background.</small></span>
     </label>
+    {availabilityMessage && <p className="ask-research-availability" role={onRetry ? 'alert' : undefined}>
+      <span>{availabilityMessage}</span>
+      {onRetry && <button type="button" className="btn" disabled={loading} onClick={onRetry}>{loading ? 'Retrying…' : 'Retry'}</button>}
+    </p>}
 
     {value && <div className="ask-research-fields">
       <label className="ask-research-field">

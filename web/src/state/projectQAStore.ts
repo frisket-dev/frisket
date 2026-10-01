@@ -19,6 +19,8 @@ interface AskState {
   suggestActions: boolean;
   research: AskResearchOptions | null;
   researchConfiguration: AskResearchConfiguration | null;
+  researchConfigurationError: string | null;
+  researchConfigurationLoading: boolean;
   busy: boolean;
   loaded: boolean;
   error: string | null;
@@ -27,6 +29,7 @@ interface AskState {
 const initial = (): AskState => ({
   threads: [], hasMoreThreads: false, thread: null, events: [], hasEarlier: false, activeTurn: null, draft: '', scope: null,
   scopeFollowsContext: true, model: null, web: false, suggestActions: true, research: null, researchConfiguration: null,
+  researchConfigurationError: null, researchConfigurationLoading: false,
   busy: false, loaded: false, error: null,
 });
 
@@ -43,6 +46,7 @@ function researchOptions(value: AskThread['research']): AskResearchOptions | nul
 export function createProjectQAStore(api: ProjectQAApi) {
   const store = createStore<AskState>(initial());
   let generation = 0;
+  let configurationGeneration = 0;
   let contextScope: AskScope | null = null;
   let controller = new AbortController();
   let pending: { threadId: string; body: AskTurnRequest } | null = null;
@@ -50,6 +54,19 @@ export function createProjectQAStore(api: ProjectQAApi) {
   const mergeEvents = (events: AskEvent[]) => store.set((s) => ({
     ...s, events: [...new Map([...s.events, ...events].map((event) => [event.seq, event])).values()].sort((a, b) => a.seq - b.seq),
   }));
+
+  async function loadResearchConfiguration() {
+    if (store.get().researchConfigurationLoading) return;
+    const current = ++configurationGeneration;
+    store.set((s) => ({ ...s, researchConfigurationLoading: true, researchConfigurationError: null }));
+    try {
+      const researchConfiguration = await api.researchOptions();
+      if (current === configurationGeneration) store.set((s) => ({ ...s, researchConfiguration, researchConfigurationLoading: false }));
+    } catch {
+      if (current === configurationGeneration) store.set((s) => ({ ...s, researchConfiguration: null,
+        researchConfigurationLoading: false, researchConfigurationError: 'Couldn’t load Run actions settings.' }));
+    }
+  }
 
   async function open(threadId: string) {
     const current = ++generation;
@@ -130,7 +147,9 @@ export function createProjectQAStore(api: ProjectQAApi) {
         generation += 1; controller.abort(); controller = new AbortController(); pending = null;
         store.set((s) => ({ ...initial(), loaded: true, hasMoreThreads: s.hasMoreThreads,
           threads: s.threads.filter((item) => item.id !== thread.id), scope: contextScope ?? s.scope,
-          model: s.model, researchConfiguration: s.researchConfiguration }));
+          model: s.model, researchConfiguration: s.researchConfiguration,
+          researchConfigurationError: s.researchConfigurationError,
+          researchConfigurationLoading: s.researchConfigurationLoading }));
         return true;
       } catch (exc) {
         if (current === generation) store.set((s) => ({ ...s, error: error(exc) }));
@@ -161,15 +180,12 @@ export function createProjectQAStore(api: ProjectQAApi) {
         if (current !== generation) return;
         store.set((s) => ({ ...s, threads, hasMoreThreads: threads.length === 100, loaded: true, busy: false }));
         if (threads[0]) await open(threads[0].id);
-        const optionsGeneration = generation;
-        try {
-          const researchConfiguration = await api.researchOptions(controller.signal);
-          if (optionsGeneration === generation) store.set((s) => ({ ...s, researchConfiguration }));
-        } catch { /* Research availability must not prevent ordinary Ask. */ }
+        await loadResearchConfiguration();
       } catch (exc) {
         if (current === generation) store.set((s) => ({ ...s, busy: false, error: error(exc) }));
       }
     },
+    loadResearchConfiguration,
     syncContextScope(scope: AskScope) {
       contextScope = scope;
       const state = store.get();
@@ -253,9 +269,10 @@ export function createProjectQAStore(api: ProjectQAApi) {
     },
     dispose() {
       generation += 1;
+      configurationGeneration += 1;
       controller.abort();
       controller = new AbortController();
-      store.set((s) => ({ ...s, busy: false, loaded: false }));
+      store.set((s) => ({ ...s, busy: false, loaded: false, researchConfigurationLoading: false }));
     },
   };
 }

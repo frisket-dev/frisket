@@ -3,6 +3,7 @@ import type {
   HttpInstructionSkill,
   HttpInstructionSkillList,
 } from "../generated/openHttpContracts";
+import { uploadSkillMarkdown } from "./raw/skillMarkdownUpload";
 
 export type InstructionSkill = HttpInstructionSkill;
 export type SkillsEnvelope = HttpInstructionSkillList;
@@ -16,19 +17,6 @@ function skillRequestError(_status: number, payload: unknown): Error {
   return new Error(
     typeof message === "string" ? message : "Could not save skills.",
   );
-}
-
-async function uploadSkill(content: string): Promise<InstructionSkill> {
-  const response = await fetch("/api/skills/upload", {
-    method: "POST",
-    headers: { "content-type": "text/markdown; charset=utf-8" },
-    body: content,
-  });
-  if (!response.ok) {
-    const payload: unknown = await response.json().catch(() => ({}));
-    throw skillRequestError(response.status, payload);
-  }
-  return response.json() as Promise<InstructionSkill>;
 }
 
 export const skillsApi = {
@@ -47,7 +35,8 @@ export const skillsApi = {
     }),
   // Upload remains a raw text request because its contract intentionally
   // declares no JSON or multipart body; the route accepts SKILL.md bytes.
-  upload: uploadSkill,
+  upload: (content: string): Promise<InstructionSkill> =>
+    uploadSkillMarkdown(content, skillRequestError),
   update: (
     skill: InstructionSkill,
     content: string,

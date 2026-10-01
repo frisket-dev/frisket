@@ -162,12 +162,17 @@ it('persists research preferences and resumes the exact pending approval revisio
 
 it('keeps ordinary Ask available when research configuration cannot load', async () => {
   const api = fixture();
-  vi.mocked(api.researchOptions).mockRejectedValueOnce(new Error('Research is not configured'));
+  vi.mocked(api.researchOptions).mockRejectedValueOnce(new Error('Research is not configured'))
+    .mockResolvedValueOnce({ available: false, budget_usd: null, skills: [], web_provider: null });
   const handle = createProjectQAStore(api);
   await handle.initialize({ kind: 'project' });
   expect(handle.store.get().loaded).toBe(true);
   expect(handle.store.get().researchConfiguration).toBeNull();
+  expect(handle.store.get().researchConfigurationError).toBe('Couldn’t load Run actions settings.');
   expect(handle.store.get().error).toBeNull();
+  await handle.loadResearchConfiguration();
+  expect(handle.store.get().researchConfiguration?.available).toBe(false);
+  expect(handle.store.get().researchConfigurationError).toBeNull();
 });
 
 it('renames and deletes the saved conversation without executing an action', async () => {

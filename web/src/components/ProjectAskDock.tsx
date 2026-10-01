@@ -219,7 +219,11 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
               availableSkills={state.researchConfiguration?.skills ?? []}
               effectiveWebProvider={state.researchConfiguration?.web_provider}
               defaultBudgetUsd={state.researchConfiguration?.budget_usd}
-              disabled={!state.researchConfiguration?.available || !!state.activeTurn || state.busy}
+              availabilityMessage={state.researchConfigurationError
+                ?? (state.researchConfiguration?.available === false ? state.researchConfiguration.reason ?? 'Run actions is unavailable.' : null)}
+              loading={state.researchConfigurationLoading}
+              disabled={!state.researchConfiguration?.available || state.researchConfigurationLoading || !!state.activeTurn || state.busy}
+              onRetry={state.researchConfigurationError ? () => void qa.loadResearchConfiguration() : undefined}
               onChange={(research) => qa.setOptions({ research: research ?? null })}
             />
             <div className="ask-option-model"><SelectorField projectId={projectId} label="Model" recentNamespace={`${projectId}:ask`}

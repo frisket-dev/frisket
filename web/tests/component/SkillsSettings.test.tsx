@@ -29,6 +29,19 @@ it('keeps unsaved SKILL.md text visible when save validation fails', async () =>
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
 });
 
+it('loads the selected skill content without an effect-driven draft reset', async () => {
+  const second = { ...skill, id: 'skill-2', name: 'table-investigation', content: '# Tables' };
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
+    schemaVersion: 'frisket.skills.v1', skills: [skill, second],
+  })));
+  render(<SkillsSettings />);
+  const editor = screen.getByTestId('skills-editor');
+  await waitFor(() => expect(editor).toHaveValue(skill.content));
+
+  fireEvent.click(screen.getByRole('button', { name: /table-investigation/i }));
+  expect(editor).toHaveValue('# Tables');
+});
+
 
 it('keeps an admitted upload when a stale initial list resolves afterwards', async () => {
   let resolveList!: (response: Response) => void;
