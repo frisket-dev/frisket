@@ -21,7 +21,10 @@ from frisket.ai.llm.structured import FrisketRouterModel
 from frisket.ai.llm.types import LLMRequest, LLMResponse, provider_from_model_id
 from frisket.ai.models.accounting import wire_accounting_meta
 from frisket.ai.research.row_answer import fetch_page, search_web_results
-from frisket.authoring.project_ask import default_project_ask_model
+from frisket.authoring.project_ask import (
+    ProjectAskRegisteredActionDraft,
+    default_project_ask_model,
+)
 from frisket.engine.runner.validation import assert_provider_spend_cap
 from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAConflictError, ProjectQAStore
@@ -466,7 +469,9 @@ async def run_turn(
         """Discover actions and exact generic Markdown links to their normal forms."""
         return await source_tool("search_actions", tools.search_actions, query, limit)
 
-    async def propose_action(title: str, draft: dict[str, Any]) -> dict[str, Any]:
+    async def propose_action(
+        title: str, draft: ProjectAskRegisteredActionDraft
+    ) -> dict[str, Any]:
         """Save a prepared review-only action and return its exact Markdown link.
 
         Use the canonical draft contract from ``describe_action``. Preparing is
@@ -477,19 +482,32 @@ async def run_turn(
             if research is not None:
                 await research.check_authority()
             async with tool_lock:
-                return await await_thread_worker(tools.propose_action, title, draft)
+                return await await_thread_worker(
+                    tools.propose_action,
+                    title,
+                    draft.model_dump(mode="json", exclude_none=True),
+                )
         except ValueError as error:
             raise ModelRetry(
                 "That prepared action is unavailable. Follow describe_action's canonical "
                 "proposal contract, or use its generic reference instead."
             ) from error
 
-    async def prepare_action(title: str, draft: dict[str, Any]) -> dict[str, Any]:
-        """Prepare a normal action for execution; use describe_action's exact contract."""
+    async def prepare_action(
+        title: str, draft: ProjectAskRegisteredActionDraft
+    ) -> dict[str, Any]:
+        """Prepare an action using describe_action's parameter schema.
+
+        Put all action-specific settings (source, engine, fields, instruction)
+        inside draft.params. draft.output_names maps logical outputs to new column
+        names; draft.scope selects the sheet and optional rows.
+        """
         await progress("prepare_action", "started", title=title)
         try:
             async with tool_lock:
-                result = await execution.prepare_action(title, draft)
+                result = await execution.prepare_action(
+                    title, draft.model_dump(mode="json", exclude_none=True)
+                )
                 target = tools.register_prepared_action(
                     result["event_ref"]["event_seq"]
                 )

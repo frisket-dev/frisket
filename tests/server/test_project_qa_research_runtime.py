@@ -211,3 +211,50 @@ async def test_cancellation_during_usage_recording_still_settles_actual_cost(
         release.set()
         await router.aclose()
         project.close()
+
+
+@pytest.mark.anyio
+async def test_action_tool_exposes_and_validates_the_canonical_draft(tmp_path) -> None:
+    """A misplaced setting is corrected before an execution service sees it."""
+    draft = {
+        "action_id": "media.to_markdown",
+        "scope": {"kind": "sheet_rows", "sheet_id": 1},
+        "params": {"source": "PDF", "engine": "markitdown"},
+        "output_names": {"markdown": "Text"},
+    }
+    wrong = {**draft, "engine": "markitdown"}
+    replies = []
+    for index, args in enumerate((wrong, draft)):
+        reply = _response()
+        reply.tool_calls = [
+            {
+                "name": "prepare_action",
+                "args": {"title": "Convert PDFs", "draft": args},
+                "id": f"prepare-{index}",
+            }
+        ]
+        replies.append(reply)
+    replies.append(_response(text="Action prepared."))
+    project, qa, ledger, research, session, router, adapter = _runtime(
+        tmp_path, name="typed-action", max_turns=None, responses=replies
+    )
+    prepared = []
+
+    class Execution:
+        async def prepare_action(self, title, value):
+            prepared.append(value)
+            return {
+                "proposal": {"title": title, "spec": value},
+                "event_ref": {"event_seq": 5, "dispatch_id": "prepared-1"},
+            }
+
+    try:
+        turn = qa.get_turn(research["turn_id"])
+        result = await run_turn(
+            project, router, turn, qa, research=session, execution=Execution()
+        )
+        assert result["text"] == "Action prepared."
+        assert prepared == [draft]
+        assert adapter.calls == 3
+    finally:
+        project.close()
