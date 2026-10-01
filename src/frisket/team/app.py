@@ -68,7 +68,11 @@ from frisket.team.browser_auth_routes import register_browser_auth_routes
 from frisket.team.admin_browser_routes import register_admin_browser_routes
 from frisket.team.admin_browser_service import AdminMembershipService
 from frisket.team.config import TeamConfig, team_config_from_env
-from frisket.team.control_plane import TeamOrgKeyCredentialPort, org_provider_keys
+from frisket.team.control_plane import (
+    TeamOrgKeyCredentialPort,
+    TeamOrgSearchKeyCredentialPort,
+    org_provider_keys,
+)
 from frisket.team.db import atomic_upsert, locked_transaction
 from frisket.team.admin_routes import register_admin_api_routes
 from frisket.team.enforcement import protect_core_app
@@ -1013,6 +1017,7 @@ def create_team_app(
         ),
         worker_ports=WorkerPorts(
             credential_port=TeamOrgKeyCredentialPort(secret_box.decrypt),
+            search_credential_port=TeamOrgSearchKeyCredentialPort(secret_box.decrypt),
             models_gateway_port=TeamOrgModelsGatewayPort(secret_box.decrypt),
         ),
         require_explicit_provider_keys=True,

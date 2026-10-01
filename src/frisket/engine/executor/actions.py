@@ -387,6 +387,17 @@ def _executor_deps_with_defaults(
             }
             return runner
 
+    if base.search_service is not None:
+        base_factory = map_runner_factory
+
+        def map_runner_factory(project, router):
+            runner = base_factory(project, router)
+            runner.op_context_extras = {
+                **runner.op_context_extras,
+                "search_service": base.search_service,
+            }
+            return runner
+
     return _runtime_inventory.ExecutorDeps(
         router=router if router is not None else base.router,
         execution_composition=execution_composition,
@@ -406,6 +417,7 @@ def _executor_deps_with_defaults(
             if url_capture_browser is not None
             else base.url_capture_browser
         ),
+        search_service=base.search_service,
         map_runner_factory=map_runner_factory,
         reserved_maprunner_write_overrides=base.reserved_maprunner_write_overrides,
         connected_account_resolver=base.connected_account_resolver,

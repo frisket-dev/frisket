@@ -138,6 +138,9 @@ class ExecutorDeps:
     enclosure_fetcher: Any | None = None
     url_capture_fetcher: Any | None = None
     url_capture_browser: Any | None = None
+    # Request/run-scoped web-search provider. The host resolves credentials;
+    # action code only receives the already tenant-bound service.
+    search_service: Any | None = None
     map_runner_factory: _MapRunnerFactory | None = None
     reserved_maprunner_write_overrides: _ReservedMaprunnerWriteOverrides | None = None
     connected_account_resolver: _ConnectedAccountResolver | None = None

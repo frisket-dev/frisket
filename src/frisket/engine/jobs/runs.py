@@ -336,6 +336,52 @@ def resolve_run_keys(
     return (keys or None), "local"
 
 
+def resolve_run_search_credentials(
+    workspace_root: str | Path,
+    *,
+    handler_context: JobHandlerContext,
+    ports: WorkerPorts,
+    control_database_url: str | None,
+) -> dict[str, str]:
+    """Resolve only search keys from the worker's trusted tenant context."""
+
+    trusted_org_id = handler_context.trusted_job_org_id
+    if isinstance(trusted_org_id, int):
+        port = ports.search_credentials()
+        if port is None or not control_database_url:
+            return {}
+        return dict(
+            port.search_provider_keys(
+                org_id=trusted_org_id,
+                control_database_url=control_database_url,
+            )
+        )
+    from frisket.server.provider_config import resolve_search_credentials
+
+    return resolve_search_credentials(workspace_root)
+
+
+def build_run_search_service(
+    workspace_root: str | Path,
+    *,
+    handler_context: JobHandlerContext,
+    ports: WorkerPorts,
+    control_database_url: str | None,
+) -> Any:
+    from frisket.ai.research.search import SearchService
+    from frisket.server.provider_config import load_search_provider
+
+    return SearchService(
+        preference=load_search_provider(workspace_root),
+        effective_keys=resolve_run_search_credentials(
+            workspace_root,
+            handler_context=handler_context,
+            ports=ports,
+            control_database_url=control_database_url,
+        ),
+    )
+
+
 def _router_for(
     project: Project,
     router: ModelRouter | None,
@@ -875,6 +921,20 @@ def register_project_run_handler(
                 if executor_deps_factory is not None
                 else None
             )
+            from frisket.actions.research_types import WebSearcher
+
+            search_service = (
+                executor_deps.search_service if executor_deps is not None else None
+            )
+            if search_service is None and WebSearcher in getattr(
+                getattr(recipe, "_terminal", recipe), "capabilities", ()
+            ):
+                search_service = build_run_search_service(
+                    root,
+                    handler_context=handler_context,
+                    ports=ports,
+                    control_database_url=db_url,
+                )
             runner = MapRunner(
                 project,
                 effective_router,
@@ -886,7 +946,8 @@ def register_project_run_handler(
                         executor_deps.url_capture_browser
                         if executor_deps is not None
                         else None
-                    )
+                    ),
+                    "search_service": search_service,
                 },
                 allow_action_lifecycle_only_recipes=(
                     queued_v1_run_authorizes_action_lifecycle(

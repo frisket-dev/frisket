@@ -9,6 +9,8 @@ import pytest
 
 from frisket.actions.types import RowError
 from frisket.ai.research.search import SearchService
+from frisket.engine.executor.action_inventory import ExecutorDeps
+from frisket.engine.executor.actions import _executor_deps_with_defaults
 from frisket.engine.executor.web_search_read import (
     AdmittedWebSearcher,
     search_provider_use,
@@ -199,3 +201,24 @@ def test_closing_invocation_revokes_bound_searchers(monkeypatch):
             await bound.search("query", max_results=1)
 
     asyncio.run(run())
+
+
+def test_search_service_dependency_reaches_map_runner_context() -> None:
+    service = object()
+    runner = SimpleNamespace(op_context_extras={"existing": object()})
+    deps = _executor_deps_with_defaults(
+        deps=ExecutorDeps(
+            search_service=service,
+            map_runner_factory=lambda _project, _router: runner,
+        ),
+        router=None,
+        rss_fetcher=None,
+        enclosure_fetcher=None,
+        url_capture_fetcher=None,
+        url_capture_browser=None,
+    )
+
+    assert deps.search_service is service
+    assert deps.map_runner_factory(object(), None) is runner
+    assert runner.op_context_extras["search_service"] is service
+    assert "existing" in runner.op_context_extras

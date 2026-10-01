@@ -28,6 +28,7 @@ from pathlib import Path
 
 from frisket.ai.llm import ModelRouter
 from frisket.engine.jobs import runs as run_jobs
+from frisket.engine.jobs.ports import JobHandlerContext, WorkerPorts
 from frisket.server import provider_config
 
 
@@ -86,6 +87,76 @@ def test_hosted_branch_keeps_the_credentials_port(tmp_path) -> None:
 
     assert source == "org_byok"
     assert keys == {"anthropic": "org-key"}
+
+
+def test_local_run_search_uses_workspace_search_credentials(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.delenv("EXA_API_KEY", raising=False)
+    root = tmp_path / "ws"
+    provider_config.save_local_provider_key(root, "exa", "local-exa")
+
+    keys = run_jobs.resolve_run_search_credentials(
+        root,
+        handler_context=JobHandlerContext.without_job_row(),
+        ports=WorkerPorts(),
+        control_database_url=None,
+    )
+
+    assert keys == {"exa": "local-exa"}
+    provider_config.save_search_provider(root, "auto")
+    assert (
+        run_jobs.build_run_search_service(
+            root,
+            handler_context=JobHandlerContext.without_job_row(),
+            ports=WorkerPorts(),
+            control_database_url=None,
+        ).provider
+        == "exa"
+    )
+
+
+def test_org_run_search_uses_only_its_search_credential_port(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("EXA_API_KEY", "worker-env-must-not-leak")
+    provider_config.save_local_provider_key(tmp_path, "exa", "local-must-not-leak")
+
+    class SearchPort:
+        def search_provider_keys(self, *, org_id: int, control_database_url: str):
+            assert org_id == 7
+            assert control_database_url == "postgres://control"
+            return {"tavily": "tenant-seven"}
+
+    keys = run_jobs.resolve_run_search_credentials(
+        tmp_path,
+        handler_context=JobHandlerContext.from_claimed_job(trusted_org_id=7),
+        ports=WorkerPorts(search_credential_port=SearchPort()),
+        control_database_url="postgres://control",
+    )
+
+    assert keys == {"tavily": "tenant-seven"}
+    provider_config.save_search_provider(tmp_path, "auto")
+    assert (
+        run_jobs.build_run_search_service(
+            tmp_path,
+            handler_context=JobHandlerContext.from_claimed_job(trusted_org_id=7),
+            ports=WorkerPorts(search_credential_port=SearchPort()),
+            control_database_url="postgres://control",
+        ).provider
+        == "tavily"
+    )
+
+
+def test_org_run_search_without_explicit_port_fails_closed(tmp_path) -> None:
+    keys = run_jobs.resolve_run_search_credentials(
+        tmp_path,
+        handler_context=JobHandlerContext.from_claimed_job(trusted_org_id=7),
+        ports=WorkerPorts(),
+        control_database_url="postgres://control",
+    )
+
+    assert keys == {}
 
 
 def test_org_without_control_db_never_claims_an_org_key_was_read(

@@ -48,6 +48,15 @@ class CredentialPort(Protocol):
 
 
 @runtime_checkable
+class SearchCredentialPort(Protocol):
+    """Resolves only web-search keys for one trusted organization."""
+
+    def search_provider_keys(
+        self, *, org_id: int, control_database_url: str | None
+    ) -> Mapping[str, str]: ...
+
+
+@runtime_checkable
 class ModelsGatewayPort(Protocol):
     """Resolves an org gateway through row-backed trusted worker context."""
 
@@ -212,9 +221,16 @@ class WorkerPorts:
     models_gateway_port: ModelsGatewayPort | None = dataclasses.field(
         default_factory=EnvironmentModelsGatewayPort
     )
+    # Deliberately absent by default. An org-scoped edition must opt into its
+    # own search-secret authority; worker environment keys never fill this.
+    # Kept last so the existing positional carrier order remains compatible.
+    search_credential_port: SearchCredentialPort | None = None
 
     def __post_init__(self) -> None:
         _require_port(self.credential_port, CredentialPort, "credential")
+        _require_port(
+            self.search_credential_port, SearchCredentialPort, "search credential"
+        )
         _require_port(
             self.models_gateway_port,
             ModelsGatewayPort,
@@ -226,6 +242,9 @@ class WorkerPorts:
     def credentials(self) -> CredentialPort:
         """The credential port, falling back to the OPEN default."""
         return self.credential_port or OrgKeyCredentialPort()
+
+    def search_credentials(self) -> SearchCredentialPort | None:
+        return self.search_credential_port
 
     def models_gateway(self) -> ModelsGatewayPort:
         """The gateway port, falling back to the operator environment."""
