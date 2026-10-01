@@ -1,0 +1,27 @@
+.ask-research-settings { border-top: 1px solid var(--border); margin-top: 3px; padding-top: 3px; }
+.ask-research-toggle > span { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.ask-research-toggle strong { color: var(--text); font-size: 12px; }
+.ask-research-toggle small,
+.ask-research-field small,
+.ask-research-skills small { color: var(--text-muted); font-size: 10.5px; font-weight: 400; line-height: 1.35; }
+.ask-research-fields { display: flex; flex-direction: column; gap: 9px; padding: 7px 8px 5px 30px; }
+.ask-research-field { display: flex; flex-direction: column; gap: 4px; color: var(--text-mid); font-size: 11px; font-weight: 600; }
+.ask-research-field .form-input { width: 100%; margin: 0; }
+.ask-research-skills { display: flex; flex-direction: column; gap: 5px; min-width: 0; border: 0; margin: 0; padding: 0; }
+.ask-research-skills legend { margin-bottom: 4px; color: var(--text-mid); font-size: 11px; font-weight: 600; }
+.ask-research-skills label,
+.ask-research-no-limit { display: flex; align-items: center; gap: 7px; color: var(--text-mid); font-size: 11px; font-weight: 400; }
+.ask-research-skills input,
+.ask-research-no-limit input { margin: 0; }
+.ask-research-provider { margin: 0; color: var(--text-muted); font-size: 10.5px; }
+
+.ask-research-approval { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--accent); border-radius: var(--radius-8); padding: 11px; background: var(--accent-bg); }
+.ask-research-approval h3 { margin: 0; color: var(--text); font-size: 13px; }
+.ask-research-approval p { margin: 0; color: var(--text-mid); font-size: 11.5px; line-height: 1.4; }
+.ask-research-approval .ask-research-targets { color: var(--text); font-weight: 600; }
+.ask-research-approval .ask-research-estimate { color: var(--text); }
+.ask-research-approval-field { display: flex; flex-direction: column; gap: 4px; color: var(--text-mid); font-size: 11px; font-weight: 600; }
+.ask-research-approval-field .form-input { width: 100%; margin: 0; }
+.ask-research-approval-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.ask-research-approval-actions .btn { min-height: 28px; padding: 4px 9px; }
+.ask-research-approval-actions .btn:last-child { margin-left: auto; }
