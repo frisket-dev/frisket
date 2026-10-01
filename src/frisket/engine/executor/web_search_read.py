@@ -114,12 +114,21 @@ class AdmittedWebSearcher:
         provider = response.provider if response is not None else self._service.provider
         usage = response.usage if response is not None else None
         max_attempts = MAX_ATTEMPTS if provider == "ddgs" else 1
+        service = (
+            usage.service
+            if usage is not None
+            else {
+                "ddgs": "ddgs.text",
+                "exa": "exa.search",
+                "tavily": "tavily.search",
+            }[provider]
+        )
         evidence = {
             "kind": "web_search_call",
             "call_id": uuid.uuid4().hex,
             "row_id": ctx.extras["row_id"],
             "provider": provider,
-            "service": usage.service if usage is not None else f"{provider}.search",
+            "service": service,
             "external_api": True,
             "attempt": attempt,
             "max_attempts_per_row": max_attempts,
