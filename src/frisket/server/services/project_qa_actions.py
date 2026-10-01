@@ -65,14 +65,22 @@ def _implementation_identity(prepared: PreparedProjectAskDraft) -> dict[str, Any
 
 
 def _action_body(
-    prepared: PreparedProjectAskDraft, *, dispatch_id: str
+    prepared: PreparedProjectAskDraft,
+    *,
+    dispatch_id: str,
+    effects: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The ordinary ActionRun request, with a server-owned dispatch key."""
 
-    return {
+    body = {
         **prepared.request.model_dump(mode="json"),
         "idempotency_key": dispatch_id,
     }
+    if isinstance(effects, Mapping) and isinstance(
+        effects.get("output_target_preconditions"), Mapping
+    ):
+        body["expected_output_columns"] = dict(effects["output_target_preconditions"])
+    return body
 
 
 def _prepared_target_facts(
@@ -146,8 +154,12 @@ def _prepared_payload(
 ) -> dict[str, Any]:
     """Canonical facts a launch must reproduce before budget admission."""
 
-    action = _action_body(prepared, dispatch_id=dispatch_id)
     effects, effects_reason = _prepared_target_facts(project, prepared)
+    action = _action_body(
+        prepared,
+        dispatch_id=dispatch_id,
+        effects=effects,
+    )
     quote, quote_reason = _quote_facts(quote_provider, action)
     catalog_effects = prepared.catalog_entry.get("side_effects")
     required_capabilities = prepared.catalog_entry.get("required_capabilities")
@@ -354,7 +366,11 @@ class ProjectAskActionService:
                 "action_id": prepared.request.action_id,
             },
         )
-        body = _action_body(prepared, dispatch_id=reference.dispatch_id)
+        body = _action_body(
+            prepared,
+            dispatch_id=reference.dispatch_id,
+            effects=current["effects"],
+        )
         if confirmation_hash is not None:
             body["confirmation"] = confirmation_hash
         return self._run_action(project_id, body)

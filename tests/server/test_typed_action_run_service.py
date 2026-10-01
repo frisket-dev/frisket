@@ -139,6 +139,69 @@ def test_typed_action_uses_request_deps_and_root_dispatch(
     assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 1
 
 
+def test_typed_action_fences_a_replaced_output_target_at_reservation(
+    tmp_path: Path,
+) -> None:
+    workspace, sheet_id, row_ids = _seed_workspace(tmp_path / "workspace")
+    service = ActionRunService(workspace)
+    first = service.run_action("typed-actions", _template_request(sheet_id, row_ids))
+    assert first.status_code == 200, first.payload
+    project = workspace.get("typed-actions")
+    original_id = int(
+        next(
+            column["id"]
+            for column in project.columns(sheet_id)
+            if column["name"] == "display_name"
+        )
+    )
+    replacement = {
+        **_template_request(sheet_id, row_ids),
+        "idempotency_key": "typed-template@replace-original",
+        "replace_existing": True,
+        "expected_output_columns": {"display_name": original_id},
+    }
+    accepted = service.run_action("typed-actions", replacement)
+    assert accepted.status_code == 200, accepted.payload
+    assert accepted.payload["status"] == "completed"
+
+    recreated = service.run_action(
+        "typed-actions",
+        {
+            **_template_request(sheet_id, row_ids),
+            "idempotency_key": "typed-template@create-replacement-target",
+            "output_names": {"rendered": "recreated_target"},
+        },
+    )
+    assert recreated.status_code == 200, recreated.payload
+    recreated_id = int(
+        next(
+            column["id"]
+            for column in project.columns(sheet_id)
+            if column["name"] == "recreated_target"
+        )
+    )
+    project.db.execute(
+        "UPDATE columns SET name=? WHERE id=?", ("display_name_old", original_id)
+    )
+    project.db.execute(
+        "UPDATE columns SET name=? WHERE id=?", ("display_name", recreated_id)
+    )
+    project.db.commit()
+    runs_before = project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+    refused = service.run_action(
+        "typed-actions",
+        {
+            **replacement,
+            "idempotency_key": "typed-template@replace-recreated",
+        },
+    )
+
+    assert refused.status_code == 400
+    assert refused.payload["status"] == "failed"
+    assert refused.payload["errors"][0]["code"] == "output_target_changed"
+    assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == runs_before
+
+
 def test_invalid_typed_request_is_a_400_from_root_dispatch(
     tmp_path: Path,
 ) -> None:

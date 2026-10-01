@@ -1590,6 +1590,7 @@ def build_typed_map_rows_plan(
             bound,
             allow_idempotent_outputs=_allow_existing_outputs,
         )
+        _require_expected_output_columns(request, output_target_preconditions)
     else:
         output_names = {
             field.key: field.materialized_name(bound.request.output_names)
@@ -1622,6 +1623,21 @@ def _resolve_typed_output_targets(
         bound.output_fields,
         allow_idempotent_outputs=allow_idempotent_outputs,
     )
+
+
+def _require_expected_output_columns(
+    request: ActionRequest, actual: Mapping[str, int | None]
+) -> None:
+    """Refuse a named output target that changed after its caller prepared it."""
+
+    expected = request.expected_output_columns
+    if expected is not None and dict(expected) != dict(actual):
+        raise TypedMapRowsPlanError(
+            "output_target_changed",
+            "output targets changed after this action was prepared",
+            field="expected_output_columns",
+            details={"expected": dict(expected), "actual": dict(actual)},
+        )
 
 
 def resolve_row_output_targets(

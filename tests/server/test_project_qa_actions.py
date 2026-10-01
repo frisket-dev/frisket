@@ -116,6 +116,7 @@ def test_prepared_ask_event_revalidates_then_uses_budget_and_action_services(tmp
                 {
                     **saved.prepared.request.model_dump(mode="json"),
                     "idempotency_key": saved.reference.dispatch_id,
+                    "expected_output_columns": {"rendered": None},
                     "confirmation": "confirmation-hash",
                 },
             )

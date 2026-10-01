@@ -249,6 +249,30 @@ def test_plan_resolves_semantic_refs_and_logical_output_names(
     }
 
 
+def test_expected_output_columns_refuses_a_target_created_after_preparation(
+    project: tuple[Project, int, list[int]],
+) -> None:
+    store, sheet_id, row_ids = project
+    request = ActionRequest(
+        action_id="map.render_test",
+        scope=SheetRows(sheet_id=sheet_id, row_ids=tuple(row_ids)),
+        params={"source": "source", "template": {"text": "{{note}}"}},
+        output_names={"rendered": "combined"},
+        expected_output_columns={"combined": None},
+        idempotency_key="render@expected-output",
+    )
+    bound = BoundTypedActionRequest.bind(REGISTRY.get(request.action_id), request)
+    assert build_typed_map_rows_plan(store, bound).output_target_preconditions == {
+        "combined": None
+    }
+
+    store.add_column(sheet_id, "combined", ai_generated=True)
+
+    with pytest.raises(TypedMapRowsPlanError) as error:
+        build_typed_map_rows_plan(store, bound)
+    assert error.value.code in {"output_target_changed", "output_column_exists"}
+
+
 def test_program_previews_sync_handler_without_registry_or_writes(
     project: tuple[Project, int, list[int]],
     monkeypatch: pytest.MonkeyPatch,
