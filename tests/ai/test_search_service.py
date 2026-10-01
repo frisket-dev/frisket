@@ -176,7 +176,7 @@ async def test_auto_without_paid_keys_uses_ddgs_and_normalizes_results() -> None
     assert calls == [("query", 4)]
     assert result.provider == "ddgs"
     assert result.results[0].excerpt == "Snippet"
-    assert result.usage.provider_reported_cost_usd == 0.0
+    assert result.usage.provider_reported_cost_usd is None
     assert result.usage.provider_cost_usd == 0.0
     assert result.usage.cost_source == "free"
 
