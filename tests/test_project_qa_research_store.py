@@ -218,7 +218,7 @@ def test_two_connections_cannot_overcommit_one_budget(tmp_path) -> None:
 
 
 def test_research_schema_migration_preserves_existing_project_data(tmp_path) -> None:
-    project, _store, _research_row = _research(tmp_path)
+    project, _store, research_row = _research(tmp_path)
     path = project.path
     project.db.execute("INSERT INTO sheets (name) VALUES ('Existing')")
     project.db.commit()
@@ -240,6 +240,10 @@ def test_research_schema_migration_preserves_existing_project_data(tmp_path) -> 
         assert (
             reopened.db.execute("SELECT name FROM sheets").fetchone()[0] == "Existing"
         )
+        qa = ProjectQAStore(reopened)
+        turn = qa.get_turn(research_row["turn_id"])
+        assert turn["question"] == "Why?"
+        assert qa.get_thread(turn["thread_id"])["title"] == "Investigate"
         assert reopened.db.execute("PRAGMA foreign_key_check").fetchall() == []
         tables = {
             row[0]

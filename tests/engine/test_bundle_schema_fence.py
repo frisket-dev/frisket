@@ -46,15 +46,34 @@ def _without_current_cells_foundation(schema: str) -> str:
 def _without_project_qa(schema: str) -> str:
     """Reconstruct the predecessor DDL for the pinned a62/a64 fixtures."""
 
-    before, marked = schema.split("-- PROJECT_QA_BEGIN", 1)
+    prior = _without_project_qa_research(schema)
+    before, marked = prior.split("-- PROJECT_QA_BEGIN", 1)
     _removed, after = marked.split("-- PROJECT_QA_END", 1)
     return (before + after).replace("  review_completed_at TEXT,\n", "")
+
+
+def _without_project_qa_research(schema: str) -> str:
+    """Reconstruct the schema after Ask history but before research state."""
+
+    before, marked = schema.split("-- PROJECT_QA_RESEARCH_BEGIN", 1)
+    _removed, after = marked.split("-- PROJECT_QA_RESEARCH_END", 1)
+    return (before + after).replace("  research_json TEXT,\n", "")
+
+
+def _physically_remove_project_qa_research(db: sqlite3.Connection) -> None:
+    """Restore the pre-research Ask tables after seeding with today's schema."""
+
+    db.execute("DROP TABLE project_qa_research_operations")
+    db.execute("DROP TABLE project_qa_research_runs")
+    db.execute("ALTER TABLE project_qa_turns DROP COLUMN research_json")
+    db.execute("ALTER TABLE project_qa_threads DROP COLUMN research_json")
 
 
 def _physically_remove_current_cells_foundation(db: sqlite3.Connection) -> None:
     """Restore the exact predecessor tables after seeding with today's facade."""
 
     db.execute("PRAGMA foreign_keys=OFF")
+    _physically_remove_project_qa_research(db)
     db.execute("DROP TABLE project_qa_usage_calls")
     db.execute("DROP TABLE project_qa_citations")
     db.execute("DROP TABLE project_qa_events")
@@ -132,6 +151,12 @@ def test_a64_bundle_migrates_without_losing_rows_cells_or_runs(tmp_path):
 
 
 def test_run_review_status_migration_preserves_existing_runs(tmp_path):
+    prior_digest = "frisket.schema.v1:b540a83f8325e5cbcd52fc3fac64eeb5"
+    prior_ddl = _without_project_qa_research(SCHEMA).replace(
+        "  review_completed_at TEXT,\n", ""
+    )
+    assert schema_digest(prior_ddl) == prior_digest
+
     path = tmp_path / "prior-review-status.frisket"
     project = Project.create(path, name="Existing review")
     sheet = project.add_sheet("Sheet")
@@ -141,13 +166,11 @@ def test_run_review_status_migration_preserves_existing_runs(tmp_path):
     run_id = RunResultStore(project).start_run(op, sheet, "map.classify")
     project.close()
     with sqlite3.connect(path / "project.db") as db:
+        _physically_remove_project_qa_research(db)
         db.execute("ALTER TABLE runs DROP COLUMN review_completed_at")
         db.execute(
             "UPDATE meta SET value=? WHERE key=?",
-            (
-                "frisket.schema.v1:b540a83f8325e5cbcd52fc3fac64eeb5",
-                SCHEMA_DIGEST_META_KEY,
-            ),
+            (prior_digest, SCHEMA_DIGEST_META_KEY),
         )
 
     migrated = Project(path)
