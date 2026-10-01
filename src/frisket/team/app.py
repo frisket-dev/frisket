@@ -48,6 +48,8 @@ from frisket.contracts.http.organization_operations import (
 from frisket.engine.executor import ExecutorDeps
 from frisket.engine.jobs import WorkerPorts, open_queue
 from frisket.server.app import create_app
+from frisket.server.routes.skills import register_skill_routes
+from frisket.server.services.skills import SkillLibrary
 from frisket.server.services.selector_choices import SelectorCapabilities
 from frisket.team.gateway_routes import (
     TeamOrgModelsGatewayPort,
@@ -1046,6 +1048,17 @@ def create_team_app(
     for pending_slug in pending_slugs:
         _complete_project_intent(engine, core.state.workspace, slug=pending_slug)
 
+    # This Team server is single-org today, but skill material remains below
+    # an explicit active-org root so the trusted runtime seam cannot silently
+    # turn into a process-wide library when the composition grows tenants.
+    team_skill_library = SkillLibrary(config.data_dir / "organizations" / str(org_id))
+    core.state.skill_library = team_skill_library
+    register_skill_routes(
+        core,
+        library=lambda _request: team_skill_library,
+        require_manager=lambda request: require_user(request, browser=True, admin=True),
+    )
+
     def current_owner_emails() -> set[str]:
         with engine.connect() as cx:
             return {
@@ -1071,6 +1084,7 @@ def create_team_app(
     app.state.control_engine = engine
     app.state.team_org_id = org_id
     app.state.workspace = core.state.workspace
+    app.state.skill_library = core.state.skill_library
     app.state.project_qa_service = core.state.project_qa_service
     app.router.add_event_handler("shutdown", core.state.project_qa_service.shutdown)
     app.state.product_telemetry = core.state.product_telemetry

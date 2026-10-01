@@ -86,6 +86,7 @@ from frisket.server.routes.instance import (
     register_product_telemetry_routes,
 )
 from frisket.server.routes.runtime_config import register_runtime_config_routes
+from frisket.server.routes.skills import register_skill_routes
 from frisket.server.routes.notifications import register_notification_routes
 from frisket.server.routes.project_actions import (
     register_project_action_data_routes,
@@ -116,6 +117,7 @@ from frisket.server.services.selector_choices import (
     SelectorCapabilitiesFor,
     SelectorModelsGatewayStatusFor,
 )
+from frisket.server.services.skills import SkillLibrary
 from frisket.server.routes.project_research import (
     register_project_backfill_activity_routes,
     register_project_entity_review_routes,
@@ -497,6 +499,12 @@ def create_app(
             float(queue_timeout_seconds) if queue_timeout_seconds > 0 else None
         )
     app.state.workspace = ws
+    # This is the application-scoped trusted read seam for a later Ask
+    # runtime injection. It contains admitted revisions; it is not a module
+    # global and no runtime code obtains instructions through the admin HTTP
+    # routes. Team replaces it with its active-organization library before
+    # registering its admin-gated routes.
+    app.state.skill_library = SkillLibrary(Path(workspace_root))
     project_qa_service = ProjectQAService(ws)
     app.state.project_qa_service = project_qa_service
     app.router.add_event_handler("shutdown", project_qa_service.shutdown)
@@ -571,6 +579,16 @@ def create_app(
     )
 
     register_walkthrough_routes(app)
+
+    if edition == "solo":
+        register_skill_routes(
+            app,
+            library=app.state.skill_library,
+            # Local Frisket has one workspace owner: the operating-system user
+            # starting the server. Team supplies its own organization-admin
+            # authority before its route policy is compiled.
+            require_manager=lambda _request: None,
+        )
 
     # ---------- projects ----------
 

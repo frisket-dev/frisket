@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
+import pytest
 
+from frisket.contracts.http.endpoint_catalog import base_endpoint_groups
 from frisket.server.routes.skills import register_skill_routes
 from frisket.server.services.skills import SkillLibrary
 
@@ -171,3 +173,25 @@ def test_team_library_factory_isolated_by_authorized_request_tenant(tmp_path) ->
     before_denial = list(resolved)
     assert client.get("/api/skills", headers={"x-org": "untrusted"}).status_code == 403
     assert resolved == before_denial
+
+
+def test_team_endpoint_policy_classifies_each_skill_management_route() -> None:
+    ids = {endpoint.id for endpoint in base_endpoint_groups()["tenant.admin"]}
+    assert {
+        "tenant.list_skills.get",
+        "tenant.create_skill.post",
+        "tenant.upload_skill.post",
+        "tenant.update_skill.put",
+        "tenant.set_skill_enabled.patch",
+        "tenant.delete_skill.delete",
+    } <= ids
+
+
+def test_solo_app_registers_the_workspace_skill_library(tmp_path) -> None:
+    pytest.importorskip("opentelemetry.exporter.otlp.proto.http.trace_exporter")
+    from frisket.server.app import create_app
+
+    with TestClient(create_app(tmp_path / "workspace")) as client:
+        response = client.get("/api/skills")
+    assert response.status_code == 200
+    assert response.json() == {"schemaVersion": "frisket.skills.v1", "skills": []}

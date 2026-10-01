@@ -576,6 +576,15 @@ _TENANT_ACTION_RUN: tuple[RouteSpec, ...] = (("v1_action_run", "POST"),)
 
 _TENANT_ACTION_PREVIEW: tuple[RouteSpec, ...] = (("v1_action_preview_start", "POST"),)
 
+_TENANT_SKILLS: tuple[RouteSpec, ...] = (
+    ("list_skills", "GET"),
+    ("create_skill", "POST"),
+    ("upload_skill", "POST"),
+    ("update_skill", "PUT"),
+    ("set_skill_enabled", "PATCH"),
+    ("delete_skill", "DELETE"),
+)
+
 _TENANT_EDITOR: tuple[RouteSpec, ...] = (
     ("qa_create_thread", "POST"),
     ("qa_update_thread", "PATCH"),
@@ -816,6 +825,7 @@ _BROWSER_CLIENT_IDS = (
             "tenant.list_projects.get",
             "tenant.list_project_column_types.get",
             "tenant.list_sheets.get",
+            "tenant.list_skills.get",
             "tenant.list_sources.get",
             "tenant.list_views.get",
             "tenant.list_watch_run_events.get",
@@ -851,6 +861,11 @@ _BROWSER_CLIENT_IDS = (
             "tenant.test_notification_route.post",
             "tenant.translate_compare_scratch.post",
             "tenant.unack_notification.post",
+            "tenant.create_skill.post",
+            "tenant.upload_skill.post",
+            "tenant.update_skill.put",
+            "tenant.set_skill_enabled.patch",
+            "tenant.delete_skill.delete",
             "tenant.project_v1_action_catalog.get",
             "tenant.selector_choices.post",
             "tenant.project_diagnose.get",
@@ -946,7 +961,9 @@ _BASE_GROUPS: dict[str, tuple[EndpointPolicy, ...]] = {
     ),
     "outer.session": declare_endpoints("outer", "session_or_pat", _OUTER_SESSION),
     "tenant.public": declare_endpoints("tenant", "public", _TENANT_PUBLIC),
-    "tenant.admin": declare_endpoints("tenant", "admin", _TENANT_ADMIN),
+    "tenant.admin": declare_endpoints(
+        "tenant", "admin", _TENANT_ADMIN + _TENANT_SKILLS
+    ),
     "tenant.session": declare_endpoints(
         "tenant",
         "session_or_pat",

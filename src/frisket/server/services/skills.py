@@ -152,6 +152,19 @@ class SkillLibrary:
                 "skills": [self._public(record) for record in document["skills"]],
             }
 
+    def enabled(self) -> tuple[dict[str, Any], ...]:
+        """Trusted runtime read of the exact enabled admitted revisions.
+
+        Ask receives this directly from the composition, never by calling the
+        management HTTP endpoints or accepting a browser-provided file path.
+        """
+        with self._lock:
+            return tuple(
+                self._public(record)
+                for record in self._read()["skills"]
+                if bool(record["enabled"])
+            )
+
     def create(self, content: str, *, enabled: bool = True) -> dict[str, Any]:
         if len(content.encode("utf-8")) > MAX_SKILL_BYTES:
             raise SkillLibraryError("SKILL.md must be at most 128 KiB.")

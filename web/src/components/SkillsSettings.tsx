@@ -1,16 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { FileText, Plus, RefreshCw, Save, Trash2, Upload } from 'lucide-react';
-
-interface InstructionSkill {
-  id: string;
-  name: string;
-  description: string;
-  content: string;
-  enabled: boolean;
-  revision: number;
-  createdAt: string;
-  updatedAt: string;
-}
+import { skillsApi, type InstructionSkill } from '../api/skills';
 
 const starter = `---
 name: document-investigation
@@ -21,19 +11,6 @@ description: Check representative records, alternatives, coverage, and citations
 
 Use existing actions, inspect their results, and cite the outputs you use.
 `;
-
-async function skillRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    headers: { 'content-type': 'application/json', ...init?.headers },
-  });
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    const detail = Array.isArray(payload.detail) ? payload.detail[0]?.msg : payload.detail;
-    throw new Error(typeof detail === 'string' ? detail : 'Could not save skills.');
-  }
-  return response.status === 204 ? undefined as T : response.json() as Promise<T>;
-}
 
 export function SkillsSettings() {
   const [skills, setSkills] = useState<InstructionSkill[]>([]);
@@ -47,7 +24,7 @@ export function SkillsSettings() {
     setBusy(true);
     setError(null);
     try {
-      const result = await skillRequest<{ skills: InstructionSkill[] }>('/api/skills');
+      const result = await skillsApi.list();
       setSkills(result.skills);
       setSelectedId((current) => current && result.skills.some((skill) => skill.id === current)
         ? current : (result.skills[0]?.id ?? null));
@@ -66,12 +43,8 @@ export function SkillsSettings() {
     setError(null);
     try {
       const saved = selected
-        ? await skillRequest<InstructionSkill>(`/api/skills/${selected.id}`, {
-          method: 'PUT', body: JSON.stringify({ expectedRevision: selected.revision, content: draft }),
-        })
-        : await skillRequest<InstructionSkill>('/api/skills', {
-          method: 'POST', body: JSON.stringify({ content: draft, enabled: true }),
-        });
+        ? await skillsApi.update(selected, draft)
+        : await skillsApi.create(draft);
       setSkills((current) => selected
         ? current.map((skill) => skill.id === saved.id ? saved : skill)
         : [...current, saved]);
@@ -88,9 +61,7 @@ export function SkillsSettings() {
     setBusy(true);
     setError(null);
     try {
-      const saved = await skillRequest<InstructionSkill>(`/api/skills/${selected.id}/enabled`, {
-        method: 'PATCH', body: JSON.stringify({ expectedRevision: selected.revision, enabled: !selected.enabled }),
-      });
+      const saved = await skillsApi.setEnabled(selected, !selected.enabled);
       setSkills((current) => current.map((skill) => skill.id === saved.id ? saved : skill));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not update skill.');
@@ -104,9 +75,7 @@ export function SkillsSettings() {
     setBusy(true);
     setError(null);
     try {
-      await skillRequest(`/api/skills/${selected.id}`, {
-        method: 'DELETE', body: JSON.stringify({ expectedRevision: selected.revision }),
-      });
+      await skillsApi.delete(selected);
       setSkills((current) => current.filter((skill) => skill.id !== selected.id));
       setSelectedId(null);
       setDraft(starter);
@@ -123,9 +92,7 @@ export function SkillsSettings() {
     setError(null);
     try {
       const content = await file.text();
-      const saved = await skillRequest<InstructionSkill>('/api/skills/upload', {
-        method: 'POST', headers: { 'content-type': 'text/markdown; charset=utf-8' }, body: content,
-      });
+      const saved = await skillsApi.upload(content);
       setSkills((current) => [...current, saved]);
       setSelectedId(saved.id);
     } catch (cause) {
