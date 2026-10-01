@@ -100,7 +100,19 @@ def test_literal_find_returns_exact_offsets_and_scan_coverage(source):
 
 def test_action_discovery_is_bounded_and_obeys_suggestions_setting(source):
     project, store, _, turn, sheet, _, _ = source
-    tools = ProjectQATools(project, turn, store)
+    tools = ProjectQATools(
+        project,
+        turn,
+        store,
+        quote_provider=lambda _action: {
+            "estimate": {
+                "billed_cost": 17,
+                "policy_id": "normal-policy",
+                "promise_set_hash": "confirmation-hash",
+                "requires_confirmation": True,
+            }
+        },
+    )
     found = tools.search_actions("transcribe", limit=3)
     assert 0 < len(found["actions"]) <= 3
     assert all("input_schema" not in item for item in found["actions"])
@@ -166,6 +178,12 @@ def test_action_discovery_is_bounded_and_obeys_suggestions_setting(source):
     assert prepared["proposal"] == {
         "title": "Transcribe council audio",
         "spec": draft,
+    }
+    assert event["payload"]["prepared_action"]["quote"]["estimate"] == {
+        "billed_cost": 17,
+        "policy_id": "normal-policy",
+        "promise_set_hash": "confirmation-hash",
+        "requires_confirmation": True,
     }
     assert prepared["reference"] == (
         f"[Transcribe council audio](#action-{event['seq']})"

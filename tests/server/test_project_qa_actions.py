@@ -44,6 +44,10 @@ def _quote(action: dict[str, object]) -> dict[str, object]:
     }
 
 
+def _approval(authority: dict[str, object]) -> dict[str, object]:
+    return {"payload_identity": authority["payload_identity"]}
+
+
 def test_prepared_ask_event_revalidates_then_uses_budget_and_action_services(tmp_path):
     project = Project.create(tmp_path / "project.frisket")
     try:
@@ -77,6 +81,7 @@ def test_prepared_ask_event_revalidates_then_uses_budget_and_action_services(tmp
             catalog_payload_provider=lambda: catalog,
             quote_provider=_quote,
             research_for_turn=lambda turn_id: {"id": "research-1", "turn_id": turn_id},
+            authorize_dispatch=_approval,
             admit_operation=lambda research_id, **kwargs: admitted.append(
                 {"research_id": research_id, **kwargs}
             ),
@@ -137,6 +142,7 @@ def test_prepared_ask_action_refuses_catalog_drift_before_budget_admission(tmp_p
             catalog_payload_provider=lambda: {"actions": []},
             quote_provider=_quote,
             research_for_turn=lambda turn_id: {"id": "research-1", "turn_id": turn_id},
+            authorize_dispatch=lambda _authority: pytest.fail("must not authorize"),
             admit_operation=lambda *_args, **_kwargs: pytest.fail("must not admit"),
             run_action=lambda *_args, **_kwargs: pytest.fail("must not run"),
         )
@@ -169,6 +175,7 @@ def test_launch_uses_the_saved_normal_quote_not_a_caller_price(tmp_path):
             catalog_payload_provider=root_action_catalog_payload,
             quote_provider=_quote,
             research_for_turn=lambda turn_id: {"id": "research-1", "turn_id": turn_id},
+            authorize_dispatch=_approval,
             admit_operation=lambda research_id, **kwargs: admitted.append(
                 {"research_id": research_id, **kwargs}
             ),
@@ -213,6 +220,7 @@ def test_launch_requires_its_research_turn_before_repreparing(tmp_path):
             catalog_payload_provider=lambda: pytest.fail("must not read catalog"),
             quote_provider=lambda _action: pytest.fail("must not quote"),
             research_for_turn=lambda turn_id: {"id": "other", "turn_id": "other-turn"},
+            authorize_dispatch=lambda _authority: pytest.fail("must not authorize"),
             admit_operation=lambda *_args, **_kwargs: pytest.fail("must not admit"),
             run_action=lambda *_args: pytest.fail("must not run"),
         )
@@ -239,10 +247,61 @@ def test_unquoted_proposals_remain_visible_but_cannot_launch(tmp_path):
             catalog_payload_provider=root_action_catalog_payload,
             quote_provider=_quote,
             research_for_turn=lambda turn_id: {"id": "research-1", "turn_id": turn_id},
+            authorize_dispatch=lambda _authority: pytest.fail("must not authorize"),
             admit_operation=lambda *_args, **_kwargs: pytest.fail("must not admit"),
             run_action=lambda *_args: pytest.fail("must not run"),
         )
         with pytest.raises(ValueError, match="changed; reprepare"):
             service.launch(project, store, saved.reference, project_id="project")
+    finally:
+        project.close()
+
+
+def test_current_exact_approval_can_dispatch_a_non_map_action(tmp_path):
+    project = Project.create(tmp_path / "project.frisket")
+    try:
+        store, turn, sheet_id = _turn(project)
+        saved = save_prepared_project_ask_action(
+            project,
+            turn,
+            store,
+            title="Match people",
+            draft={
+                "action_id": "join.semantic",
+                "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
+                "params": {
+                    "source": "Name",
+                    "target": {"sheet_id": sheet_id, "column": "Name"},
+                },
+                "output_names": {},
+                "sheet_name": "Matches",
+            },
+            catalog_payload=root_action_catalog_payload(),
+            quote_provider=_quote,
+        )
+        approved: list[dict[str, object]] = []
+        service = ProjectAskActionService(
+            catalog_payload_provider=root_action_catalog_payload,
+            quote_provider=_quote,
+            research_for_turn=lambda turn_id: {"id": "research-1", "turn_id": turn_id},
+            authorize_dispatch=lambda authority: (
+                approved.append(dict(authority))
+                or {"payload_identity": authority["payload_identity"]}
+            ),
+            admit_operation=lambda *_args, **_kwargs: None,
+            run_action=lambda _project_id, body: {"action_id": body["action_id"]},
+        )
+        assert service.launch(
+            project,
+            store,
+            saved.reference,
+            project_id="project",
+            confirmation_hash="confirmation-hash",
+        ) == {"action_id": "join.semantic"}
+        assert approved[0]["automatic_eligible"] is False
+        assert (
+            approved[0]["catalog_effects"]
+            == saved.event["payload"]["prepared_action"]["catalog_effects"]
+        )
     finally:
         project.close()

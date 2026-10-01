@@ -24,7 +24,10 @@ from frisket.authoring.project_ask_actions import (
     describe_project_ask_action,
     search_project_ask_actions,
 )
-from frisket.server.services.project_qa_actions import save_prepared_project_ask_action
+from frisket.server.services.project_qa_actions import (
+    QuoteProvider,
+    save_prepared_project_ask_action,
+)
 from frisket.server.services.project_qa_web import safe_web_text, safe_web_url
 from frisket.server.services.project_qa_sources import (
     read_source_text,
@@ -109,6 +112,7 @@ class ProjectQATools:
         store: ProjectQAStore,
         *,
         catalog_payload_provider: Callable[[], Mapping[str, Any]] | None = None,
+        quote_provider: QuoteProvider | None = None,
     ) -> None:
         self.project = project
         self.turn = dict(turn)
@@ -123,6 +127,7 @@ class ProjectQATools:
         self._project_action_catalog_payload = (
             catalog_payload_provider or root_action_catalog_payload
         )
+        self._project_action_quote = quote_provider
         validate_scope(project, self.turn["scope"])
 
     @property
@@ -1063,6 +1068,7 @@ class ProjectQATools:
                 title=title,
                 draft=draft,
                 catalog_payload=catalog_payload,
+                quote_provider=self._project_action_quote,
             )
         except ValueError as exc:
             raise ProjectQAScopeError(

@@ -25,6 +25,7 @@ from frisket.features.watchlists.specs import canonical_json
 CatalogPayloadProvider = Callable[[], Mapping[str, Any]]
 QuoteProvider = Callable[[dict[str, Any]], Mapping[str, Any]]
 ResearchForTurn = Callable[[str], Mapping[str, Any]]
+DispatchAuthorizer = Callable[[Mapping[str, Any]], Mapping[str, Any] | None]
 ActionRunner = Callable[[str, dict[str, Any]], Any]
 OperationAdmitter = Callable[..., Any]
 
@@ -84,8 +85,6 @@ def _prepared_target_facts(
         terminal, SemanticJoin
     ):
         return None, "normal prepared output facts are unavailable for this action"
-    if prepared.request.replace_existing:
-        return None, "replacing an existing output requires explicit approval"
     try:
         plan = build_typed_map_rows_plan(project, prepared.bound)
     except TypedMapRowsPlanError as error:
@@ -97,7 +96,7 @@ def _prepared_target_facts(
             "kind": "typed_map_rows",
             "output_names": dict(plan.output_names),
             "output_target_preconditions": dict(plan.output_target_preconditions),
-            "replace_existing": False,
+            "replace_existing": prepared.request.replace_existing,
         },
         None,
     )
@@ -150,15 +149,28 @@ def _prepared_payload(
     action = _action_body(prepared, dispatch_id=dispatch_id)
     effects, effects_reason = _prepared_target_facts(project, prepared)
     quote, quote_reason = _quote_facts(quote_provider, action)
-    automatic_reason = effects_reason or quote_reason
+    catalog_effects = prepared.catalog_entry.get("side_effects")
+    required_capabilities = prepared.catalog_entry.get("required_capabilities")
+    if not isinstance(catalog_effects, list) or not isinstance(
+        required_capabilities, list
+    ):
+        raise ValueError("prepared action catalog facts are malformed")
+    automatic_eligible = (
+        effects_reason is None
+        and quote_reason is None
+        and not prepared.request.replace_existing
+    )
     authority = {
         "dispatch_id": dispatch_id,
         "draft": prepared.draft,
         "request": action,
         "implementation_identity": _implementation_identity(prepared),
         "effects": effects,
+        "catalog_effects": list(catalog_effects),
+        "required_capabilities": list(required_capabilities),
         "quote": quote,
-        "automatic_reason": automatic_reason,
+        "automatic_eligible": automatic_eligible,
+        "preparation_reason": effects_reason or quote_reason,
         "scope": prepared.request.scope.model_dump(mode="json"),
     }
     return {**authority, "payload_identity": _hash(authority)}
@@ -258,12 +270,14 @@ class ProjectAskActionService:
         catalog_payload_provider: CatalogPayloadProvider,
         quote_provider: QuoteProvider,
         research_for_turn: ResearchForTurn,
+        authorize_dispatch: DispatchAuthorizer,
         admit_operation: OperationAdmitter,
         run_action: ActionRunner,
     ) -> None:
         self._catalog_payload_provider = catalog_payload_provider
         self._quote_provider = quote_provider
         self._research_for_turn = research_for_turn
+        self._authorize_dispatch = authorize_dispatch
         self._admit_operation = admit_operation
         self._run_action = run_action
 
@@ -309,8 +323,14 @@ class ProjectAskActionService:
         )
         if current != stored:
             raise ValueError("prepared action changed; reprepare it before launch")
-        if current["automatic_reason"] is not None:
-            raise ValueError(str(current["automatic_reason"]))
+        if current["quote"] is None:
+            raise ValueError(str(current["preparation_reason"]))
+        approval = self._authorize_dispatch(current)
+        if (
+            not isinstance(approval, Mapping)
+            or approval.get("payload_identity") != current["payload_identity"]
+        ):
+            raise ValueError("prepared action requires current approval")
         estimate = current["quote"]["estimate"]
         promise_set_hash = estimate.get("promise_set_hash")
         if estimate["requires_confirmation"]:
