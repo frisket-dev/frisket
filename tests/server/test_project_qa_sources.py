@@ -100,7 +100,19 @@ def test_literal_find_returns_exact_offsets_and_scan_coverage(source):
 
 def test_action_discovery_is_bounded_and_obeys_suggestions_setting(source):
     project, store, _, turn, sheet, _, _ = source
-    tools = ProjectQATools(project, turn, store)
+    tools = ProjectQATools(
+        project,
+        turn,
+        store,
+        quote_provider=lambda _action: {
+            "estimate": {
+                "billed_cost": 17,
+                "policy_id": "normal-policy",
+                "promise_set_hash": "confirmation-hash",
+                "requires_confirmation": True,
+            }
+        },
+    )
     found = tools.search_actions("transcribe", limit=3)
     assert 0 < len(found["actions"]) <= 3
     assert all("input_schema" not in item for item in found["actions"])
@@ -110,6 +122,10 @@ def test_action_discovery_is_bounded_and_obeys_suggestions_setting(source):
     assert transcribe["reference"] == "[Transcribe](#action/media.transcribe)"
     described = tools.describe_action(transcribe["action_id"])
     assert described["input_schema"]
+    assert described["output_schema"]
+    markdown = tools.describe_action("media.to_markdown")
+    assert {item["key"] for item in markdown["logical_outputs"]} >= {"markdown"}
+    assert tools.describe_action("map.extract")["dynamic_outputs"] is True
     assert described["reference"] == transcribe["reference"]
     assert described["required_params"] == ["source"]
     assert described["defaults"]["engine"] == "parakeet-tdt"
@@ -167,6 +183,12 @@ def test_action_discovery_is_bounded_and_obeys_suggestions_setting(source):
         "title": "Transcribe council audio",
         "spec": draft,
     }
+    assert event["payload"]["prepared_action"]["quote"]["estimate"] == {
+        "billed_cost": 17,
+        "policy_id": "normal-policy",
+        "promise_set_hash": "confirmation-hash",
+        "requires_confirmation": True,
+    }
     assert prepared["reference"] == (
         f"[Transcribe council audio](#action-{event['seq']})"
     )
@@ -211,7 +233,6 @@ def test_action_discovery_is_bounded_and_obeys_suggestions_setting(source):
         },
         {**draft, "confirmation": "consent-hash"},
         {**draft, "idempotency_key": "ask-must-not-authorize"},
-        {**draft, "replace_existing": False},
         {**draft, "confirmed": True},
         {**draft, "consented_promise_set_hash": "consent-hash"},
         {**draft, "authoring_contract_version": "v1"},

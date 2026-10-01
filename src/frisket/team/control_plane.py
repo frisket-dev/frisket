@@ -30,6 +30,8 @@ from frisket.team.schema import org_keys
 # The providers a run's model router can be keyed for. Mirrors the provider
 # names written by the org-BYOK routes.
 MODEL_KEY_PROVIDERS: tuple[str, ...] = ("anthropic", "openai", "gemini", "openrouter")
+SEARCH_KEY_PROVIDERS: tuple[str, ...] = ("exa", "tavily")
+ORG_KEY_PROVIDERS: tuple[str, ...] = (*MODEL_KEY_PROVIDERS, *SEARCH_KEY_PROVIDERS)
 
 # Engines are cached per URL: a worker resolves keys once per claimed job and
 # must not open a fresh pool every time.
@@ -106,5 +108,24 @@ class TeamOrgKeyCredentialPort:
         return org_provider_keys(
             control_plane_engine(control_database_url),
             org_id=org_id,
+            decryptor=self._decryptor,
+        )
+
+
+class TeamOrgSearchKeyCredentialPort:
+    """Team worker lookup restricted to the two supported search providers."""
+
+    def __init__(self, decryptor: Callable[[str], str]):
+        self._decryptor = decryptor
+
+    def search_provider_keys(
+        self, *, org_id: int, control_database_url: str | None
+    ) -> Mapping[str, str]:
+        if not control_database_url:
+            return {}
+        return org_provider_keys(
+            control_plane_engine(control_database_url),
+            org_id=org_id,
+            providers=SEARCH_KEY_PROVIDERS,
             decryptor=self._decryptor,
         )

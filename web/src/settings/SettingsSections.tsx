@@ -109,6 +109,7 @@ import {
 } from '../api/projectRole';
 import { ModelPullProgress } from '../components/ModelPullProgress';
 import { NotificationSettingsPanel } from '../components/NotificationSettingsPanel';
+import { SkillsSettings } from '../components/SkillsSettings';
 import { PanelSelect, type PanelSelectOption } from '../components/PanelSelect';
 import { ConfirmTypeInput, StatusChip, type StatusTone } from '../components/PanelPrimitives';
 import { formatNumberDisplay, formatUsdOrNone } from '../format';
@@ -3294,6 +3295,8 @@ export function SettingsSectionRenderer({
         return <WorkspaceAiProvidersSettings />;
       case 'personal.diagnostics':
         return <DiagnosticsSettings />;
+      case 'personal.skills':
+        return <SkillsSettings />;
       case 'organization.aiProviders':
         return <OrganizationAiProvidersSettings />;
       case 'organization.secrets':
@@ -3302,6 +3305,8 @@ export function SettingsSectionRenderer({
         return <OrganizationApiKeysSettings />;
       case 'organization.spend':
         return <OrganizationSpendSettings />;
+      case 'organization.skills':
+        return <SkillsSettings />;
       case 'project.general':
         return <ProjectGeneralSettings project={project} />;
       case 'project.access':

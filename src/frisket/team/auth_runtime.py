@@ -130,6 +130,16 @@ async def validate_provider_credential(provider: str, secret: str) -> bool:
             {},
             {"key": secret},
         ),
+        "exa": (
+            "https://api.exa.ai/v0/teams/me",
+            {"x-api-key": secret},
+            None,
+        ),
+        "tavily": (
+            "https://api.tavily.com/usage",
+            {"Authorization": f"Bearer {secret}"},
+            None,
+        ),
     }
     if provider not in requests:
         return False

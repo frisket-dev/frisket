@@ -336,6 +336,56 @@ def resolve_run_keys(
     return (keys or None), "local"
 
 
+def resolve_run_search_credentials(
+    workspace_root: str | Path,
+    *,
+    handler_context: JobHandlerContext,
+    ports: WorkerPorts,
+    control_database_url: str | None,
+    allow_local_credentials: bool,
+) -> dict[str, str]:
+    """Resolve only search keys from the worker's trusted tenant context."""
+
+    trusted_org_id = handler_context.trusted_job_org_id
+    if isinstance(trusted_org_id, int):
+        port = ports.search_credentials()
+        if port is None or not control_database_url:
+            return {}
+        return dict(
+            port.search_provider_keys(
+                org_id=trusted_org_id,
+                control_database_url=control_database_url,
+            )
+        )
+    if not allow_local_credentials:
+        return {}
+    from frisket.server.provider_config import resolve_search_credentials
+
+    return resolve_search_credentials(workspace_root)
+
+
+def build_run_search_service(
+    workspace_root: str | Path,
+    *,
+    handler_context: JobHandlerContext,
+    ports: WorkerPorts,
+    control_database_url: str | None,
+    allow_local_credentials: bool,
+) -> Any:
+    from frisket.server.provider_config import configured_search_service
+
+    return configured_search_service(
+        workspace_root,
+        effective_keys=resolve_run_search_credentials(
+            workspace_root,
+            handler_context=handler_context,
+            ports=ports,
+            control_database_url=control_database_url,
+            allow_local_credentials=allow_local_credentials,
+        ),
+    )
+
+
 def _router_for(
     project: Project,
     router: ModelRouter | None,
@@ -875,6 +925,22 @@ def register_project_run_handler(
                 if executor_deps_factory is not None
                 else None
             )
+            search_service_factory = (
+                executor_deps.search_service_factory
+                if executor_deps is not None
+                else None
+            )
+            if search_service_factory is None:
+
+                def search_service_factory():
+                    return build_run_search_service(
+                        root,
+                        handler_context=handler_context,
+                        ports=ports,
+                        control_database_url=db_url,
+                        allow_local_credentials=not require_storage_identity,
+                    )
+
             runner = MapRunner(
                 project,
                 effective_router,
@@ -886,7 +952,8 @@ def register_project_run_handler(
                         executor_deps.url_capture_browser
                         if executor_deps is not None
                         else None
-                    )
+                    ),
+                    "search_service_factory": search_service_factory,
                 },
                 allow_action_lifecycle_only_recipes=(
                     queued_v1_run_authorizes_action_lifecycle(

@@ -53,11 +53,36 @@ class AskScope(WireModel):
         return self
 
 
+class AskResearchOptions(WireModel):
+    """Explicit authority for one research run, never project permissions."""
+
+    write_mode: Literal["ask_each", "ask_overwrite", "full_access"] = "ask_overwrite"
+    budget_usd: str | None = Field(
+        default=None, pattern=r"^(0|[1-9][0-9]*)(\.[0-9]{1,6})?$", max_length=20
+    )
+    max_turns: int | None = Field(default=None, gt=0)
+    skills: list[str] | None = Field(default=None, max_length=100)
+
+
+class AskSkillSummary(WireModel):
+    name: str
+    description: str
+
+
+class AskResearchConfiguration(WireModel):
+    available: bool
+    reason: str | None = None
+    budget_usd: str | None
+    skills: list[AskSkillSummary]
+    web_provider: str | None
+
+
 class AskOptions(WireModel):
     scope: AskScope
     model: str | None = Field(default=None, min_length=1, max_length=200)
     web: bool = False
     suggest_actions: bool = True
+    research: AskResearchOptions | None = None
 
 
 class AskThreadCreate(AskOptions):
@@ -71,6 +96,7 @@ class AskThreadUpdate(WireModel):
     model: str | None = Field(default=None, min_length=1, max_length=200)
     web: bool | None = None
     suggest_actions: bool | None = None
+    research: AskResearchOptions | None = None
 
     @field_validator("title", "model")
     @classmethod
@@ -105,6 +131,32 @@ AskTurnStatus = Literal[
 ]
 
 
+class AskResearchState(WireModel):
+    id: str
+    revision: int
+    state: Literal["running", "paused", "interrupted", "completed"]
+    budget_micros: int
+    reserved_micros: int
+    settled_micros: int
+    remaining_micros: int
+    currency: Literal["USD"]
+    write_mode: Literal["ask_each", "ask_overwrite", "full_access"]
+    max_turns: int | None
+    turn_count: int
+    pending_approval: dict[str, JsonValue] | None
+
+
+class AskResearchResume(WireModel):
+    expected_revision: int = Field(ge=1)
+    approval_id: str = Field(min_length=1, max_length=100)
+    decision: Literal["continue", "approve", "skip"] = "continue"
+    budget_usd: str | None = Field(
+        default=None, pattern=r"^(0|[1-9][0-9]*)(\.[0-9]{1,6})?$", max_length=20
+    )
+    max_turns: int | None = Field(default=None, gt=0)
+    write_mode: Literal["ask_each", "ask_overwrite", "full_access"] | None = None
+
+
 class AskTurn(AskOptions):
     id: str
     thread_id: str
@@ -117,6 +169,7 @@ class AskTurn(AskOptions):
     usage: dict[str, JsonValue] | None
     cost_actual: float | None
     error_summary: str | None
+    research_state: AskResearchState | None = None
 
 
 class AskCellTarget(WireModel):
@@ -181,6 +234,7 @@ class AskEvent(WireModel):
         "answer",
         "result_suggestion",
         "action_proposal",
+        "research_child",
         "usage",
         "status",
     ]

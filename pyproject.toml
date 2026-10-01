@@ -96,9 +96,11 @@ dependencies = [
     # available, every base install" claim needs an owned constraint, not a
     # dependency that can silently disappear with an unrelated package.
     "text-unidecode>=1.3",
-    # Structured-output retry/dialect engine. Use slim core without provider
-    # SDKs; Frisket owns transport, jsonschema validation, and pricing.
-    "pydantic-ai-slim>=2.2.0",
+    # Keep the official capability library on its matching Pydantic AI release.
+    # Frisket still owns provider transport and pricing; the Harness supplies
+    # instruction skills and model-agnostic context compaction only.
+    "pydantic-ai-slim==2.52.0",
+    "pydantic-ai-harness[skills]==0.52.0",
     # Project Ask can export its own Pydantic AI spans over standard OTLP/HTTP.
     "opentelemetry-sdk>=1.43.0,<2",
     "opentelemetry-exporter-otlp-proto-http>=1.43.0,<2",
@@ -239,6 +241,10 @@ packages = ["src/frisket"]
 
 [tool.uv]
 exclude-newer = "1 week"
+# This matched release train is pinned above and landed inside the normal
+# one-week quarantine. Exact versions plus uv.lock hashes keep the exception
+# narrow while allowing the official Harness APIs this release introduces.
+exclude-newer-package = { pydantic-ai-harness = "2026-10-01", pydantic-ai-slim = "2026-10-01", pydantic-graph = "2026-10-01", genai-prices = "2026-10-01" }
 
 [dependency-groups]
 dev = [

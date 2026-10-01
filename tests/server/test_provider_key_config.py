@@ -79,6 +79,44 @@ def test_env_var_wins_over_file_key(tmp_path, monkeypatch) -> None:
     assert status["openai"]["source"] == "env"
 
 
+def test_search_keys_and_preference_are_workspace_scoped(tmp_path) -> None:
+    root = tmp_path / "ws"
+    provider_config.save_local_provider_key(root, "exa", "exa-file-key")
+    provider_config.save_local_provider_key(root, "tavily", "tvly-file-key")
+    assert provider_config.save_search_provider(root, "tavily") == "tavily"
+
+    assert provider_config.load_search_provider(root) == "tavily"
+    assert provider_config.resolve_search_credentials(
+        root, {"EXA_API_KEY": "exa-env-key"}
+    ) == {"exa": "exa-env-key", "tavily": "tvly-file-key"}
+    assert provider_config.load_local_provider_keys(root) == {
+        "exa": "exa-file-key",
+        "tavily": "tvly-file-key",
+    }
+
+
+def test_search_key_probe_uses_non_search_usage_endpoints() -> None:
+    seen: list[tuple[str, str | None, str | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(
+            (
+                str(request.url),
+                request.headers.get("x-api-key"),
+                request.headers.get("authorization"),
+            )
+        )
+        return httpx.Response(200, json={})
+
+    client = _mock_client(handler)
+    assert provider_config.probe_provider("exa", "exa-key", client=client)["ok"]
+    assert provider_config.probe_provider("tavily", "tvly-key", client=client)["ok"]
+    assert seen == [
+        ("https://api.exa.ai/v0/teams/me", "exa-key", None),
+        ("https://api.tavily.com/usage", None, "Bearer tvly-key"),
+    ]
+
+
 def test_status_reports_local_file_source_and_hint_only(tmp_path, monkeypatch) -> None:
     root = tmp_path / "ws"
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)

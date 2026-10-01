@@ -783,8 +783,28 @@ def test_runner_combines_read_and_typed_output_repairs_citations_and_accounts(
             for tool in adapter.requests[0].tools or []
             if tool["name"] == "propose_action"
         )
+        query_tool = next(
+            tool
+            for tool in adapter.requests[0].tools or []
+            if tool["name"] == "query_rows"
+        )
+        query_schema = query_tool["parameters"]["properties"]["query"]
+        assert "scope.sheet_id" in query_schema["description"]
+        assert "observed column names" in query_schema["description"]
+        assert "eq, in, neq" in query_schema["description"]
+        assert query_schema["examples"][0]["filter"]["Public agency"] == {"eq": "true"}
+        analytics_tool = next(
+            tool
+            for tool in adapter.requests[0].tools or []
+            if tool["name"] == "analytics"
+        )
+        analytics_filter = analytics_tool["parameters"]["properties"]["filter"]
+        assert "separate `sheet_id` field" in analytics_filter["description"]
+        assert analytics_filter["examples"][0]["Public agency"] == {"eq": "true"}
         assert set(proposal_tool["parameters"]["properties"]) == {"title", "draft"}
-        assert "action_id" not in str(proposal_tool["parameters"])
+        draft_ref = proposal_tool["parameters"]["properties"]["draft"]["$ref"]
+        draft_schema = proposal_tool["parameters"]["$defs"][draft_ref.rsplit("/", 1)[1]]
+        assert "action_id" in draft_schema["properties"]
         observations = [
             str(message["content"])
             for request in adapter.requests[1:]

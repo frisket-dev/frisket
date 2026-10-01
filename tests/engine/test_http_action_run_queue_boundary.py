@@ -2561,13 +2561,13 @@ def test_v1_action_run_queues_research_answer_and_worker_finalizes_receipt(
 
     search_calls: list[dict[str, Any]] = []
 
-    async def fake_search(query: str) -> tuple[str, list[str]]:
+    async def fake_search(_bound, query: str) -> tuple[str, list[str]]:
         search_calls.append({"query": query})
         idx = len(search_calls)
         url = f"https://example.test/research/source-{idx}"
         return f"Source {idx} says the claim is cited. {url}", [url]
 
-    monkeypatch.setattr(research_read, "search_web", fake_search)
+    monkeypatch.setattr(research_read._BoundResearcher, "_search", fake_search)  # noqa: SLF001
     router, adapter = _research_router()
     client = TestClient(
         create_app(tmp_path / "ws", router=router, run_status_grace_seconds=3600.0)

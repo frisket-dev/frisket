@@ -48,6 +48,9 @@ from frisket.contracts.http.organization_operations import (
 from frisket.engine.executor import ExecutorDeps
 from frisket.engine.jobs import WorkerPorts, open_queue
 from frisket.server.app import create_app
+from frisket.server.routes.skills import register_skill_routes
+from frisket.server.services.skills import SkillLibrary
+from frisket.server.services.project_qa_authority import BackgroundAskContext
 from frisket.server.services.selector_choices import SelectorCapabilities
 from frisket.team.gateway_routes import (
     TeamOrgModelsGatewayPort,
@@ -65,7 +68,12 @@ from frisket.team.browser_auth_routes import register_browser_auth_routes
 from frisket.team.admin_browser_routes import register_admin_browser_routes
 from frisket.team.admin_browser_service import AdminMembershipService
 from frisket.team.config import TeamConfig, team_config_from_env
-from frisket.team.control_plane import TeamOrgKeyCredentialPort, org_provider_keys
+from frisket.team.control_plane import (
+    SEARCH_KEY_PROVIDERS,
+    TeamOrgKeyCredentialPort,
+    TeamOrgSearchKeyCredentialPort,
+    org_provider_keys,
+)
 from frisket.team.db import atomic_upsert, locked_transaction
 from frisket.team.admin_routes import register_admin_api_routes
 from frisket.team.enforcement import protect_core_app
@@ -920,7 +928,10 @@ def create_team_app(
         )
 
     def require_user(
-        request: Request, *, browser: bool = False, admin: bool = False
+        request: Request | BackgroundAskContext,
+        *,
+        browser: bool = False,
+        admin: bool = False,
     ) -> dict[str, Any]:
         authorization = request.headers.get("authorization", "")
         session_token = request.cookies.get(SESSION_COOKIE, "")
@@ -952,7 +963,7 @@ def create_team_app(
             raise HTTPException(403, str(exc)) from exc
 
     def require_org_member(
-        request: Request, *, browser: bool = False
+        request: Request | BackgroundAskContext, *, browser: bool = False
     ) -> dict[str, Any]:
         user = require_user(request, browser=browser)
         if _membership_role(engine, int(user["id"]), org_id) is None:
@@ -1005,8 +1016,15 @@ def create_team_app(
         provider_keys_resolver=lambda: org_provider_keys(
             engine, org_id=org_id, decryptor=secret_box.decrypt
         ),
+        search_provider_keys_resolver=lambda: org_provider_keys(
+            engine,
+            org_id=org_id,
+            providers=SEARCH_KEY_PROVIDERS,
+            decryptor=secret_box.decrypt,
+        ),
         worker_ports=WorkerPorts(
             credential_port=TeamOrgKeyCredentialPort(secret_box.decrypt),
+            search_credential_port=TeamOrgSearchKeyCredentialPort(secret_box.decrypt),
             models_gateway_port=TeamOrgModelsGatewayPort(secret_box.decrypt),
         ),
         require_explicit_provider_keys=True,
@@ -1046,6 +1064,33 @@ def create_team_app(
     for pending_slug in pending_slugs:
         _complete_project_intent(engine, core.state.workspace, slug=pending_slug)
 
+    # This Team server is single-org today, but skill material remains below
+    # an explicit active-org root so the trusted runtime seam cannot silently
+    # turn into a process-wide library when the composition grows tenants.
+    team_skill_library = SkillLibrary(config.data_dir / "organizations" / str(org_id))
+    core.state.skill_library = team_skill_library
+    register_skill_routes(
+        core,
+        library=lambda _request: team_skill_library,
+        require_manager=lambda request: require_user(request, browser=True, admin=True),
+    )
+
+    def authorize_research(project_id: str, context: BackgroundAskContext) -> None:
+        try:
+            actor = require_org_member(context)
+        except HTTPException as exc:
+            if exc.status_code not in {401, 403}:
+                raise
+            raise PermissionError("Your project access changed.") from exc
+        if not access.can_on_project(org_id, project_id, int(actor["id"]), "editor"):
+            raise PermissionError("Project editor access is required.")
+
+    core.state.project_qa_service.configure_search(core.state.workspace.search_service)
+    core.state.project_qa_service.configure_research(
+        authorize=authorize_research,
+        skills=lambda: team_skill_library,
+    )
+
     def current_owner_emails() -> set[str]:
         with engine.connect() as cx:
             return {
@@ -1071,6 +1116,7 @@ def create_team_app(
     app.state.control_engine = engine
     app.state.team_org_id = org_id
     app.state.workspace = core.state.workspace
+    app.state.skill_library = core.state.skill_library
     app.state.project_qa_service = core.state.project_qa_service
     app.router.add_event_handler("shutdown", core.state.project_qa_service.shutdown)
     app.state.product_telemetry = core.state.product_telemetry

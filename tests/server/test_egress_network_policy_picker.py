@@ -29,7 +29,7 @@ def test_build_provider_catalog_network_off_keeps_only_local(tmp_path) -> None:
 def test_build_provider_catalog_default_is_unfiltered(tmp_path) -> None:
     catalog = provider_config.build_provider_catalog(tmp_path / "ws", {})
     ids = {p["id"] for p in catalog["providers"]}
-    assert ids == {"anthropic", "openai", "gemini", "openrouter"}
+    assert ids == {"anthropic", "openai", "gemini", "openrouter", "exa", "tavily"}
     assert "network" not in catalog
 
 
@@ -48,6 +48,8 @@ def test_providers_route_threads_project_network_policy(tmp_path) -> None:
         "openai",
         "gemini",
         "openrouter",
+        "exa",
+        "tavily",
     }
 
     client.patch(f"/api/projects/{pid}/network", json={"mode": "off"})
@@ -62,6 +64,8 @@ def test_providers_route_threads_project_network_policy(tmp_path) -> None:
         "openai",
         "gemini",
         "openrouter",
+        "exa",
+        "tavily",
     }
 
     assert (

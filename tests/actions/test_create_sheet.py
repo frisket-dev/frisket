@@ -36,20 +36,21 @@ class SchemaParams(ActionParams):
     column_type: str
 
 
-def test_create_sheet_is_not_a_row_scoped_copilot_proposal():
+def test_project_ask_draft_is_not_limited_to_a_static_action_id_union():
     from frisket.authoring.project_ask import (
         ProjectAskRegisteredActionDraft as CopilotRegisteredActionDraft,
     )
 
-    with pytest.raises(ValueError, match="action_id"):
-        CopilotRegisteredActionDraft.model_validate(
-            {
-                "action_id": "import.rows",
-                "scope": {"kind": "sheet_rows", "sheet_id": 1},
-                "params": {},
-                "output_names": {"text": "Text"},
-            }
-        )
+    draft = CopilotRegisteredActionDraft.model_validate(
+        {
+            "action_id": "import.rows",
+            "scope": {"kind": "project"},
+            "sheet_name": "Imported rows",
+            "params": {},
+            "output_names": {"text": "Text"},
+        }
+    )
+    assert draft.action_id == "import.rows"
 
 
 @pytest.mark.parametrize("column_type", ["unregistered_type", "disabled_plugin_type"])

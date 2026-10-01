@@ -30,6 +30,7 @@ from frisket.actions.system import BoundTypedActionRequest
 from frisket.engine.executor.map_rows_action import (
     TypedMapRowsPlanError,
     build_typed_map_rows_plan,
+    typed_request_hash,
 )
 from frisket.engine.runner import MapRunner, validation
 from frisket.engine.runner.row_execution import AdaptiveThrottle, execute_row
@@ -247,6 +248,50 @@ def test_plan_resolves_semantic_refs_and_logical_output_names(
         "replace_existing": False,
         "row_ids": row_ids,
     }
+
+
+def test_expected_output_columns_refuses_a_target_created_after_preparation(
+    project: tuple[Project, int, list[int]],
+) -> None:
+    store, sheet_id, row_ids = project
+    request = ActionRequest(
+        action_id="map.render_test",
+        scope=SheetRows(sheet_id=sheet_id, row_ids=tuple(row_ids)),
+        params={"source": "source", "template": {"text": "{{note}}"}},
+        output_names={"rendered": "combined"},
+        expected_output_columns={"combined": None},
+        idempotency_key="render@expected-output",
+    )
+    bound = BoundTypedActionRequest.bind(REGISTRY.get(request.action_id), request)
+    assert build_typed_map_rows_plan(store, bound).output_target_preconditions == {
+        "combined": None
+    }
+
+    store.add_column(sheet_id, "combined", ai_generated=True)
+
+    with pytest.raises(TypedMapRowsPlanError) as error:
+        build_typed_map_rows_plan(store, bound)
+    assert error.value.code in {"output_target_changed", "output_column_exists"}
+
+
+def test_expected_output_columns_are_part_of_the_typed_request_identity(
+    project: tuple[Project, int, list[int]],
+) -> None:
+    store, sheet_id, row_ids = project
+    base = {
+        "action_id": "map.render_test",
+        "scope": SheetRows(sheet_id=sheet_id, row_ids=tuple(row_ids)),
+        "params": {"source": "source", "template": {"text": "{{note}}"}},
+        "output_names": {"rendered": "combined"},
+        "idempotency_key": "render@identity",
+    }
+    ordinary = ActionRequest(**base)
+    constrained = ActionRequest(**base, expected_output_columns={"combined": None})
+    assert typed_request_hash(
+        BoundTypedActionRequest.bind(REGISTRY.get(ordinary.action_id), ordinary)
+    ) != typed_request_hash(
+        BoundTypedActionRequest.bind(REGISTRY.get(constrained.action_id), constrained)
+    )
 
 
 def test_program_previews_sync_handler_without_registry_or_writes(

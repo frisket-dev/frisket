@@ -60,7 +60,7 @@ from frisket.team.admin_browser_service import (
     AdminMembershipNotFound,
     AdminMembershipService,
 )
-from frisket.team.control_plane import MODEL_KEY_PROVIDERS
+from frisket.team.control_plane import ORG_KEY_PROVIDERS
 from frisket.team.db import atomic_upsert, locked_transaction
 from frisket.team.diagnostics import sanitize_text
 from frisket.team.observability_routes import sanitize_client_tree
@@ -163,7 +163,7 @@ def register_operational_routes(
     ) -> dict[str, str]:
         actor = require_owner(request)
         provider, value = body.provider.lower().strip(), body.key
-        if provider not in MODEL_KEY_PROVIDERS:
+        if provider not in ORG_KEY_PROVIDERS:
             raise HTTPException(400, "unsupported provider")
         if not value.strip():
             raise HTTPException(400, "provider key must not be empty")
@@ -208,7 +208,7 @@ def register_operational_routes(
     )
     def delete_org_key(provider: str, request: Request) -> dict[str, bool]:
         actor = require_owner(request)
-        if provider not in MODEL_KEY_PROVIDERS:
+        if provider not in ORG_KEY_PROVIDERS:
             raise HTTPException(400, "unsupported provider")
         with locked_transaction(engine, lock_scope=("org-key", org_id, provider)) as cx:
             require_owner_in_transaction(cx, actor)
@@ -231,7 +231,7 @@ def register_operational_routes(
     ) -> dict[str, Any]:
         actor = require_owner(request)
         provider = body.provider.lower().strip()
-        if provider not in MODEL_KEY_PROVIDERS:
+        if provider not in ORG_KEY_PROVIDERS:
             raise HTTPException(400, "unsupported provider")
         candidate = body.key.strip()
         if candidate:

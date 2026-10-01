@@ -313,6 +313,7 @@ _TENANT_SPEND: tuple[RouteSpec, ...] = (("spend", "GET"),)
 
 _TENANT_VIEWER: tuple[RouteSpec, ...] = (
     ("qa_threads", "GET"),
+    ("qa_research_options", "GET"),
     ("qa_thread", "GET"),
     ("qa_events", "GET"),
     ("qa_citation", "GET"),
@@ -576,12 +577,22 @@ _TENANT_ACTION_RUN: tuple[RouteSpec, ...] = (("v1_action_run", "POST"),)
 
 _TENANT_ACTION_PREVIEW: tuple[RouteSpec, ...] = (("v1_action_preview_start", "POST"),)
 
+_TENANT_SKILLS: tuple[RouteSpec, ...] = (
+    ("list_skills", "GET"),
+    ("create_skill", "POST"),
+    ("upload_skill", "POST"),
+    ("update_skill", "PUT"),
+    ("set_skill_enabled", "PATCH"),
+    ("delete_skill", "DELETE"),
+)
+
 _TENANT_EDITOR: tuple[RouteSpec, ...] = (
     ("qa_create_thread", "POST"),
     ("qa_update_thread", "PATCH"),
     ("qa_delete_thread", "DELETE"),
     ("qa_submit_turn", "POST"),
     ("qa_stop_turn", "POST"),
+    ("qa_resume_research", "POST"),
     (
         "ack_notification",
         "POST",
@@ -744,6 +755,7 @@ _BROWSER_CLIENT_IDS = (
             "tenant.column_values_preview.post",
             "tenant.column_stats.get",
             "tenant.qa_threads.get",
+            "tenant.qa_research_options.get",
             "tenant.qa_thread.get",
             "tenant.qa_events.get",
             "tenant.qa_citation.get",
@@ -753,6 +765,7 @@ _BROWSER_CLIENT_IDS = (
             "tenant.qa_delete_thread.delete",
             "tenant.qa_submit_turn.post",
             "tenant.qa_stop_turn.post",
+            "tenant.qa_resume_research.post",
             "tenant.create_lens.post",
             "tenant.create_notification_channel.post",
             "tenant.create_notification_route.post",
@@ -816,6 +829,7 @@ _BROWSER_CLIENT_IDS = (
             "tenant.list_projects.get",
             "tenant.list_project_column_types.get",
             "tenant.list_sheets.get",
+            "tenant.list_skills.get",
             "tenant.list_sources.get",
             "tenant.list_views.get",
             "tenant.list_watch_run_events.get",
@@ -851,6 +865,11 @@ _BROWSER_CLIENT_IDS = (
             "tenant.test_notification_route.post",
             "tenant.translate_compare_scratch.post",
             "tenant.unack_notification.post",
+            "tenant.create_skill.post",
+            "tenant.upload_skill.post",
+            "tenant.update_skill.put",
+            "tenant.set_skill_enabled.patch",
+            "tenant.delete_skill.delete",
             "tenant.project_v1_action_catalog.get",
             "tenant.selector_choices.post",
             "tenant.project_diagnose.get",
@@ -946,7 +965,9 @@ _BASE_GROUPS: dict[str, tuple[EndpointPolicy, ...]] = {
     ),
     "outer.session": declare_endpoints("outer", "session_or_pat", _OUTER_SESSION),
     "tenant.public": declare_endpoints("tenant", "public", _TENANT_PUBLIC),
-    "tenant.admin": declare_endpoints("tenant", "admin", _TENANT_ADMIN),
+    "tenant.admin": declare_endpoints(
+        "tenant", "admin", _TENANT_ADMIN + _TENANT_SKILLS
+    ),
     "tenant.session": declare_endpoints(
         "tenant",
         "session_or_pat",

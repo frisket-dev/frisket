@@ -20,10 +20,12 @@ export type SettingsSectionComponentKey =
   | 'personal.privacy'
   | 'personal.aiProviders'
   | 'personal.diagnostics'
+  | 'personal.skills'
   | 'organization.aiProviders'
   | 'organization.secrets'
   | 'organization.apiKeys'
   | 'organization.spend'
+  | 'organization.skills'
   | 'project.general'
   | 'project.access'
   | 'project.aiProviders'
@@ -155,6 +157,19 @@ export const SETTINGS_SECTIONS: readonly OpenSettingsSectionDefinition[] = [
     permission: 'personal',
     component: 'personal.diagnostics',
     summary: 'Self-probe: model providers, local engines, and sidecars.',
+  },
+  {
+    id: 'personal.skills',
+    scope: 'personal',
+    section: 'skills',
+    routePattern: globalRoute('personal', 'skills'),
+    title: 'Skills',
+    navGroup: 'Personal',
+    searchLabels: ['skills', 'ask', 'instructions', 'skill.md'],
+    visibility: 'local-only',
+    permission: 'personal',
+    component: 'personal.skills',
+    summary: 'Instruction-only skills available to Ask.',
   },
   {
     id: 'project.general',
@@ -295,6 +310,19 @@ export const SETTINGS_SECTIONS: readonly OpenSettingsSectionDefinition[] = [
     permission: 'organization-admin',
     component: 'organization.spend',
     summary: 'Provider usage and estimated spend.',
+  },
+  {
+    id: 'organization.skills',
+    scope: 'organization',
+    section: 'skills',
+    routePattern: globalRoute('organization', 'skills'),
+    title: 'Skills',
+    navGroup: 'Organization',
+    searchLabels: ['skills', 'ask', 'instructions', 'skill.md'],
+    visibility: 'hosted-only',
+    permission: 'organization-admin',
+    component: 'organization.skills',
+    summary: 'Admitted instruction-only skills available to Ask.',
   },
 ];
 

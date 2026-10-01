@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 
 from frisket.ops import media_proxy as media_proxy_config
 from frisket.server.provider_config import ENV_VAR
-from frisket.team.control_plane import MODEL_KEY_PROVIDERS
+from frisket.team.control_plane import ORG_KEY_PROVIDERS
 from frisket.team.db import atomic_upsert, locked_transaction
 from frisket.team.identity_service import IdentityAuthService
 from frisket.team.invite_service import (
@@ -276,7 +276,7 @@ def register_admin_api_routes(
                     "env_var": ENV_VAR.get(provider),
                     "env_present": bool(os.environ.get(ENV_VAR.get(provider, ""))),
                 }
-                for provider in MODEL_KEY_PROVIDERS
+                for provider in ORG_KEY_PROVIDERS
             ]
         }
 
@@ -286,7 +286,7 @@ def register_admin_api_routes(
     ) -> dict[str, Any]:
         actor = require_admin(request)
         clean_provider = provider.lower().strip()
-        if clean_provider not in MODEL_KEY_PROVIDERS:
+        if clean_provider not in ORG_KEY_PROVIDERS:
             raise HTTPException(400, "unsupported provider")
         value = body.key
         if not value.strip():
@@ -358,7 +358,7 @@ def register_admin_api_routes(
     def admin_delete_secret(provider: str, request: Request) -> dict[str, Any]:
         actor = require_admin(request)
         clean_provider = provider.lower().strip()
-        if clean_provider not in MODEL_KEY_PROVIDERS:
+        if clean_provider not in ORG_KEY_PROVIDERS:
             raise HTTPException(400, "unsupported provider")
         with locked_transaction(
             engine, lock_scope=("org-key", org_id, clean_provider)

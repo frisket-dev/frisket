@@ -1590,6 +1590,7 @@ def build_typed_map_rows_plan(
             bound,
             allow_idempotent_outputs=_allow_existing_outputs,
         )
+        _require_expected_output_columns(request, output_target_preconditions)
     else:
         output_names = {
             field.key: field.materialized_name(bound.request.output_names)
@@ -1622,6 +1623,21 @@ def _resolve_typed_output_targets(
         bound.output_fields,
         allow_idempotent_outputs=allow_idempotent_outputs,
     )
+
+
+def _require_expected_output_columns(
+    request: ActionRequest, actual: Mapping[str, int | None]
+) -> None:
+    """Refuse a named output target that changed after its caller prepared it."""
+
+    expected = request.expected_output_columns
+    if expected is not None and dict(expected) != dict(actual):
+        raise TypedMapRowsPlanError(
+            "output_target_changed",
+            "output targets changed after this action was prepared",
+            field="expected_output_columns",
+            details={"expected": dict(expected), "actual": dict(actual)},
+        )
 
 
 def resolve_row_output_targets(
@@ -1757,6 +1773,7 @@ def bound_typed_program_request_from_runner_spec(
                 if not field.hidden
             },
             "replace_existing": runner_spec.get("replace_existing", False),
+            "expected_output_columns": runner_spec.get("expected_output_columns"),
             "idempotency_key": "internal-run-backfill-program",
             **(
                 {
@@ -1830,6 +1847,7 @@ def typed_program_from_runner_spec(
         "input_columns",
         "params",
         "output_names",
+        "expected_output_columns",
         "replace_existing",
         "model",
         "engine",
@@ -2274,6 +2292,8 @@ def _typed_map_rows_plan(
         ]
     if target_preconditions:
         spec["output_target_preconditions"] = target_preconditions
+    if request.expected_output_columns is not None:
+        spec["expected_output_columns"] = dict(request.expected_output_columns)
     spec["replace_existing"] = request.replace_existing
     if request.replace_existing:
         spec["overwrite"] = True
@@ -2402,6 +2422,8 @@ def normalized_typed_request_identity(
         "output_names": output_names,
         "replace_existing": request.replace_existing,
     }
+    if request.expected_output_columns is not None:
+        payload["expected_output_columns"] = dict(request.expected_output_columns)
     if bound.implementation_identity is not None:
         payload["implementation_identity"] = bound.implementation_identity
     if request.sheet_name is not None:
@@ -3049,7 +3071,10 @@ def _typed_receipt(
             }
             for (provider, service, remote), count in grouped.items()
         )
-    if WebSearcher in getattr(plan.action.definition.run, "capabilities", ()):
+    if any(
+        capability in getattr(plan.action.definition.run, "capabilities", ())
+        for capability in (Researcher, WebSearcher)
+    ):
         from frisket.engine.executor.web_search_read import search_provider_use
         from frisket.engine.store.receipts import ReceiptStore
 

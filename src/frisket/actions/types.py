@@ -2072,6 +2072,7 @@ class ActionRequest(BaseModel):
     scope: ProjectScope | SheetRows = Field(discriminator="kind")
     params: dict[str, Any]
     output_names: dict[str, str] = Field(default_factory=dict)
+    expected_output_columns: dict[str, StrictInt | None] | None = None
     replace_existing: bool = Field(default=False, strict=True)
     sheet_name: str | None = None
     idempotency_key: str = Field(min_length=1)
@@ -2087,6 +2088,25 @@ class ActionRequest(BaseModel):
             raise ValueError("output names must be non-empty and trimmed")
         if len(value.values()) != len(set(value.values())):
             raise ValueError("final output names must be unique")
+        return value
+
+    @field_validator("expected_output_columns")
+    @classmethod
+    def _valid_expected_output_columns(
+        cls, value: dict[str, int | None] | None
+    ) -> dict[str, int | None] | None:
+        if value is None:
+            return None
+        if any(
+            not name
+            or name != name.strip()
+            or isinstance(column_id, bool)
+            or (column_id is not None and column_id <= 0)
+            for name, column_id in value.items()
+        ):
+            raise ValueError(
+                "expected output columns must have trimmed names and positive ids"
+            )
         return value
 
     @field_validator("sheet_name")

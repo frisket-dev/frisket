@@ -3,30 +3,31 @@
 from __future__ import annotations
 
 import hashlib
+import heapq
 import json
 import threading
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAStore
+from frisket.actions.system import root_action_catalog_payload
 from frisket.features.watchlists.specs import canonical_json
 from frisket.server.services.project_qa_query import (
     AnalyticsRequest,
     evaluate_analytics,
     evaluate_query,
 )
-from frisket.actions.system import root_action_catalog
 from frisket.search import search_cells_scoped
 from frisket.semantic import semantic_passage_search
-from frisket.authoring.action_proposals import (
-    proposal_action_ids,
-    validate_action_proposal,
+from frisket.authoring.project_ask_actions import (
+    describe_project_ask_action,
+    search_project_ask_actions,
 )
-from frisket.authoring.project_ask import (
-    PROJECT_ASK_CREATE_SHEET_KINDS,
-    PROJECT_ASK_ROW_CREATE_SHEET_KINDS,
+from frisket.server.services.project_qa_actions import (
+    QuoteProvider,
+    save_prepared_project_ask_action,
 )
 from frisket.server.services.project_qa_web import safe_web_text, safe_web_url
 from frisket.server.services.project_qa_sources import (
@@ -35,6 +36,11 @@ from frisket.server.services.project_qa_sources import (
     read_prepared_passages,
     read_source_with_prepared,
     resolve_prepared_source,
+)
+from frisket.server.services.project_qa_output_scope import (
+    OutputGrantResolution,
+    OutputReadGrant,
+    output_grant_allows,
 )
 
 
@@ -106,7 +112,15 @@ class ProjectQATools:
     """Read project cells only through the immutable submitted turn scope."""
 
     def __init__(
-        self, project: Project, turn: Mapping[str, Any], store: ProjectQAStore
+        self,
+        project: Project,
+        turn: Mapping[str, Any],
+        store: ProjectQAStore,
+        *,
+        catalog_payload_provider: Callable[[], Mapping[str, Any]] | None = None,
+        quote_provider: QuoteProvider | None = None,
+        output_grants_provider: Callable[[], OutputGrantResolution] | None = None,
+        research: bool = False,
     ) -> None:
         self.project = project
         self.turn = dict(turn)
@@ -117,7 +131,13 @@ class ProjectQATools:
         self._source_handles: dict[str, dict[str, Any]] = {}
         self._source_chars = 0
         self._new_embeddings = 0
+        self._output_grants_provider = output_grants_provider
+        self._research = research
         self.cancel_event = threading.Event()
+        self._project_action_catalog_payload = (
+            catalog_payload_provider or root_action_catalog_payload
+        )
+        self._project_action_quote = quote_provider
         validate_scope(project, self.turn["scope"])
 
     @property
@@ -130,21 +150,33 @@ class ProjectQATools:
 
         return frozenset(self._action_references)
 
+    def register_prepared_action(self, event_seq: int) -> str:
+        target = f"#action-{event_seq}"
+        self._action_references.add(target)
+        return target
+
     def inspect_sheets(self) -> dict[str, Any]:
         """Return schema/count metadata for sheets the turn may inspect."""
 
-        allowed = self._allowed_sheets()
+        output_grants = self._current_output_grants()
+        allowed = self._allowed_sheets(output_grants)
         out = []
         for sheet in self.project.sheets():
             sheet_id = int(sheet["id"])
             if allowed is not None and sheet_id not in allowed:
                 continue
-            allowed_rows, file_cells = self._sheet_access(sheet_id)
-            columns = self._visible_columns(sheet_id, allowed_rows, file_cells)
+            allowed_rows, file_cells, sheet_grants = self._sheet_access(
+                sheet_id, output_grants
+            )
+            columns = self._visible_columns(
+                sheet_id, allowed_rows, file_cells, sheet_grants
+            )
             entry = {
                 "sheet_id": sheet_id,
                 "name": str(sheet["name"]),
-                "row_count": self._visible_count(sheet_id),
+                "row_count": self._visible_count(
+                    sheet_id, allowed_rows, file_cells, sheet_grants
+                ),
                 "columns": [
                     {
                         "column_id": int(column["id"]),
@@ -174,9 +206,12 @@ class ProjectQATools:
             or not 1 <= limit <= MAX_READ_ROWS
         ):
             raise ValueError(f"limit must be between 1 and {MAX_READ_ROWS}")
-        allowed_rows, file_cells = self._sheet_access(sheet_id)
+        output_grants = self._current_output_grants()
+        allowed_rows, file_cells, sheet_grants = self._sheet_access(
+            sheet_id, output_grants
+        )
         selected_rows = self._rows_for_read(
-            sheet_id, row_ids, allowed_rows, file_cells, limit
+            sheet_id, row_ids, allowed_rows, file_cells, sheet_grants, limit
         )
         requested_columns = self._requested_columns(sheet_id, column_ids)
 
@@ -192,6 +227,7 @@ class ProjectQATools:
                 row_id,
                 allowed_rows,
                 file_cells,
+                sheet_grants,
                 explicit_columns=column_ids is not None,
             )
             cells: list[dict[str, Any]] = []
@@ -251,6 +287,23 @@ class ProjectQATools:
         count_by: int | None = None,
     ) -> dict[str, Any]:
         """Run a canonical sheet filter within the frozen source scope."""
+        return self._query_rows(
+            query,
+            limit=limit,
+            offset=offset,
+            count_by=count_by,
+            output_grants=self._current_output_grants(),
+        )
+
+    def _query_rows(
+        self,
+        query: dict[str, Any],
+        *,
+        limit: int,
+        offset: int,
+        count_by: int | None,
+        output_grants: tuple[OutputReadGrant, ...],
+    ) -> dict[str, Any]:
         if not isinstance(query, dict):
             raise ProjectQAScopeError("query must be a frisket.query.v1 object")
         if (
@@ -263,7 +316,9 @@ class ProjectQATools:
             evaluated = evaluate_query(
                 self.project,
                 query,
-                self._query_scope(query),
+                self._query_scope(
+                    query, output_grants=output_grants, count_by=count_by
+                ),
                 limit=limit,
                 offset=offset,
                 count_by=count_by,
@@ -311,7 +366,22 @@ class ProjectQATools:
 
     def analytics(self, request: AnalyticsRequest) -> dict[str, Any]:
         """Calculate across the full filtered scope; return ordinary query citations."""
-        scope = self._query_scope({"scope": {"sheet_id": request.sheet_id}})
+        output_grants = self._current_output_grants()
+        scope = self._query_scope(
+            {
+                "scope": {"sheet_id": request.sheet_id},
+                "filter": request.filter,
+            },
+            output_grants=output_grants,
+            requested_column_ids={
+                *(group.column_id for group in request.groups),
+                *(
+                    metric.column_id
+                    for metric in request.metrics
+                    if metric.column_id is not None
+                ),
+            },
+        )
         result = evaluate_analytics(
             self.project, request, scope, cancel_event=self.cancel_event
         )
@@ -377,7 +447,9 @@ class ProjectQATools:
                 file_cells=target_cells,
                 query=query,
                 limit=limit,
-                remaining_embeddings=64 - self._new_embeddings,
+                remaining_embeddings=64
+                if self._research
+                else 64 - self._new_embeddings,
                 cancel_event=self.cancel_event,
             )
             self._new_embeddings += searched["new_embeddings"]
@@ -562,7 +634,10 @@ class ProjectQATools:
             or not 1 <= limit <= MAX_READ_ROWS
         ):
             raise ValueError(f"limit must be between 1 and {MAX_READ_ROWS}")
-        allowed_rows, file_cells = self._sheet_access(sheet_id)
+        output_grants = self._current_output_grants()
+        allowed_rows, file_cells, _sheet_grants = self._sheet_access(
+            sheet_id, output_grants
+        )
         file_only_cells = (
             set()
             if allowed_rows is None
@@ -693,7 +768,11 @@ class ProjectQATools:
         self._citation_ids.add(citation["id"])
         return citation
 
-    def _source_citation(self, citation_id: str) -> dict[str, Any]:
+    def _source_citation(
+        self,
+        citation_id: str,
+        output_grants: tuple[OutputReadGrant, ...],
+    ) -> dict[str, Any]:
         citation = self.store.get_citation(citation_id)
         if (
             self.store.get_turn(citation["turn_id"])["thread_id"]
@@ -702,17 +781,26 @@ class ProjectQATools:
             raise ProjectQAScopeError("source belongs to another conversation")
         locator = citation["locator"]
         if citation["source_kind"] == "query":
-            self._query_scope(locator["query"])
+            self._query_scope(locator["query"], output_grants=output_grants)
         elif citation["source_kind"] in {"cell", "evidence"}:
             sheet_id, row_id, column_id = (
                 int(locator[key]) for key in ("sheet_id", "row_id", "column_id")
             )
-            allowed_rows, file_cells = self._sheet_access(sheet_id)
+            allowed_rows, file_cells, sheet_grants = self._sheet_access(
+                sheet_id, output_grants
+            )
             self._requested_columns(sheet_id, [column_id])
-            if not self._rows_for_read(sheet_id, [row_id], allowed_rows, file_cells, 1):
+            if not self._rows_for_read(
+                sheet_id, [row_id], allowed_rows, file_cells, sheet_grants, 1
+            ):
                 raise ProjectQAScopeError("source row is hidden or no longer available")
             self._columns_for_row(
-                [column_id], row_id, allowed_rows, file_cells, explicit_columns=True
+                [column_id],
+                row_id,
+                allowed_rows,
+                file_cells,
+                sheet_grants,
+                explicit_columns=True,
             )
         elif citation["source_kind"] != "web":
             raise ProjectQAScopeError("source kind cannot be opened")
@@ -773,10 +861,11 @@ class ProjectQATools:
             "WHERE t.thread_id=? ORDER BY c.created_at DESC,c.id DESC LIMIT ? OFFSET ?",
             (self.turn["thread_id"], limit + 1, offset),
         ).fetchall()
+        output_grants = self._current_output_grants()
         sources = []
         for row in candidates[:limit]:
             try:
-                citation = self._source_citation(row["id"])
+                citation = self._source_citation(row["id"], output_grants)
             except (ValueError, LookupError):
                 continue
             sources.append(
@@ -796,13 +885,20 @@ class ProjectQATools:
         self, citation_id: str, cursor: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         """Read near a hit or continue it, including prior same-thread sources."""
-        citation = self._source_citation(citation_id)
+        output_grants = self._current_output_grants()
+        citation = self._source_citation(citation_id, output_grants)
         locator = citation["locator"]
         if citation["source_kind"] == "query":
-            result = self.query_rows(locator["query"])
+            result = self._query_rows(
+                locator["query"],
+                limit=50,
+                offset=0,
+                count_by=None,
+                output_grants=output_grants,
+            )
             result["scope_changed"] = locator.get("scope") != result["scope"]
             return result
-        remaining = 64_000 - self._source_chars
+        remaining = MAX_SOURCE_CHARS if self._research else 64_000 - self._source_chars
         if remaining <= 0:
             return {
                 "available": True,
@@ -947,7 +1043,9 @@ class ProjectQATools:
                     or locator["prepared_value_ref"] != observed["value_ref"]
                 )
             ),
-            "remaining_read_chars": 64_000 - self._source_chars,
+            "remaining_read_chars": (
+                None if self._research else 64_000 - self._source_chars
+            ),
             "needs_preparation": source["column_type"]
             in {"file", "pdf", "image", "audio", "video"}
             and prepared_source is None,
@@ -956,10 +1054,10 @@ class ProjectQATools:
     def find_in_source(
         self, citation_id: str, literal: str, cursor: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        citation = self._source_citation(citation_id)
+        citation = self._source_citation(citation_id, self._current_output_grants())
         if citation["source_kind"] not in {"cell", "evidence"}:
             raise ValueError("literal find requires a project text source")
-        if self._source_chars >= 64_000:
+        if not self._research and self._source_chars >= 64_000:
             return {
                 "matches": [],
                 "reached_end": False,
@@ -971,8 +1069,13 @@ class ProjectQATools:
             self.project, cell, literal, cursor=cursor, cancel=self.cancel_event
         )
         matches = []
+        call_chars = 0
         for match in result["matches"]:
-            remaining = 64_000 - self._source_chars
+            remaining = (
+                MAX_SOURCE_CHARS - call_chars
+                if self._research
+                else 64_000 - self._source_chars
+            )
             if remaining <= 0:
                 result["reached_end"] = False
                 break
@@ -1006,6 +1109,7 @@ class ProjectQATools:
             )
             matches.append({**match, "citation_id": current["id"]})
             self._source_chars += len(match["text"])
+            call_chars += len(match["text"])
         return {
             "matches": matches,
             "scanned_range": result["scanned_range"],
@@ -1015,63 +1119,56 @@ class ProjectQATools:
 
     def search_actions(self, query: str, limit: int = 8) -> dict[str, Any]:
         """Discover compact action descriptions; load a chosen schema separately."""
-        if not self.turn["suggest_actions"]:
+        if not self.turn["suggest_actions"] and not self._research:
             raise ProjectQAScopeError("action suggestions are disabled for this turn")
         if not query.strip() or len(query) > 500 or not 1 <= limit <= 20:
             raise ValueError("use a short action query and limit 1–20")
-        terms = query.casefold().split()
-        allowed = proposal_action_ids()
-        ranked = []
-        for entry in root_action_catalog().actions:
-            if entry.kind not in allowed:
-                continue
-            text = f"{entry.kind} {entry.title} {entry.description}".casefold()
-            score = sum(term in text for term in terms)
-            if score:
-                ranked.append((score, entry))
-        ranked.sort(key=lambda item: (-item[0], item[1].kind))
+        catalog_payload = self._project_action_catalog_payload()
+        ranked, has_more = search_project_ask_actions(catalog_payload, query, limit)
         actions = []
-        for _, entry in ranked[:limit]:
-            target = f"#action/{entry.kind}"
+        for entry in ranked:
+            action_id = str(entry["kind"])
+            title = str(entry["title"])
+            target = f"#action/{action_id}"
             self._action_references.add(target)
             actions.append(
                 {
-                    "action_id": entry.kind,
-                    "title": entry.title,
-                    "description": entry.description,
-                    "reference": f"[{entry.title}]({target})",
+                    "action_id": action_id,
+                    "title": title,
+                    "description": str(entry["description"]),
+                    "reference": f"[{title}]({target})",
                 }
             )
         return {
             "actions": actions,
-            "has_more": len(ranked) > limit,
+            "has_more": has_more,
         }
 
     def propose_action(self, title: str, draft: dict[str, Any]) -> dict[str, Any]:
         """Validate and save one canonical review-only action draft."""
-        if not self.turn["suggest_actions"]:
+        if not self.turn["suggest_actions"] and not self._research:
             raise ProjectQAScopeError("action suggestions are disabled for this turn")
-        title = " ".join(title.split())
-        if not title or len(title) > 80 or any(char in title for char in "[]"):
-            raise ValueError(
-                "proposal title must be concise plain text without Markdown brackets"
+        catalog_payload = self._project_action_catalog_payload()
+        try:
+            saved = save_prepared_project_ask_action(
+                self.project,
+                self.turn,
+                self.store,
+                title=title,
+                draft=draft,
+                catalog_payload=catalog_payload,
+                quote_provider=self._project_action_quote,
+                output_grants=self._output_grants_provider().grants
+                if self._output_grants_provider
+                else (),
+                output_grant_allows=output_grant_allows,
             )
-        spec = validate_action_proposal(
-            self.project,
-            draft,
-            scope=self.turn["scope"],
-            title=title,
-        )
-        if spec is None:
+        except ValueError as exc:
             raise ProjectQAScopeError(
                 "proposal is not an available action for this project"
-            )
-        proposal = {"title": title, "spec": spec}
-        event = self.store.append_event(
-            self.turn_id, kind="action_proposal", payload={"proposal": proposal}
-        )
-        target = f"#action-{event['seq']}"
-        self._action_references.add(target)
+            ) from exc
+        proposal = saved.proposal
+        target = self.register_prepared_action(saved.event["seq"])
         return {
             "proposal": proposal,
             "reference": f"[{proposal['title']}]({target})",
@@ -1080,22 +1177,21 @@ class ProjectQATools:
     def describe_action(self, action_id: str) -> dict[str, Any]:
         """Return catalog facts and the canonical review-only draft contract."""
 
-        if not self.turn["suggest_actions"]:
+        if not self.turn["suggest_actions"] and not self._research:
             raise ProjectQAScopeError("action suggestions are disabled for this turn")
         if not isinstance(action_id, str) or not action_id:
             raise ValueError("action_id must be a non-empty string")
-        if action_id not in proposal_action_ids():
+        catalog_payload = self._project_action_catalog_payload()
+        entry = describe_project_ask_action(catalog_payload, action_id)
+        if entry is None:
             raise ProjectQAScopeError("action is not available")
-        try:
-            entry = next(
-                item for item in root_action_catalog().actions if item.kind == action_id
-            )
-        except StopIteration as exc:
-            raise ProjectQAScopeError("action is not available") from exc
-        properties = entry.input_schema.get("properties", {})
+        input_schema = entry.get("input_schema")
+        if not isinstance(input_schema, Mapping):
+            raise ProjectQAScopeError("action is not available")
+        properties = input_schema.get("properties", {})
         if not isinstance(properties, dict):
             properties = {}
-        required_params = entry.input_schema.get("required", [])
+        required_params = input_schema.get("required", [])
         if not isinstance(required_params, list):
             required_params = []
         required_params = [
@@ -1110,27 +1206,40 @@ class ProjectQATools:
             and isinstance(schema, dict)
             and "default" in schema
         }
-        if entry.kind in PROJECT_ASK_CREATE_SHEET_KINDS:
-            scope_contract = (
-                {"kind": "sheet_rows", "requires_sheet_id": True}
-                if entry.kind in PROJECT_ASK_ROW_CREATE_SHEET_KINDS
-                else {"kind": "project"}
-            )
+        row_scope_policy = entry.get("row_scope_policy")
+        if (
+            isinstance(row_scope_policy, Mapping)
+            and row_scope_policy.get("kind") == "project"
+        ):
+            scope_contract = {"kind": "project"}
         else:
             scope_contract = {"kind": "sheet_rows", "requires_sheet_id": True}
-        target = f"#action/{entry.kind}"
+        title = str(entry.get("title", action_id))
+        description = str(entry.get("description", ""))
+        ui_hints = entry.get("ui_hints")
+        if not isinstance(ui_hints, Mapping):
+            ui_hints = {}
+        typed_action = ui_hints.get("typed_action")
+        creates_sheet = (
+            isinstance(typed_action, Mapping)
+            and typed_action.get("creates_sheet") is True
+        )
+        target = f"#action/{action_id}"
         self._action_references.add(target)
         return {
-            "action_id": entry.kind,
-            "title": entry.title,
-            "description": entry.description,
-            "reference": f"[{entry.title}]({target})",
-            "input_schema": entry.input_schema,
+            "action_id": action_id,
+            "title": title,
+            "description": description,
+            "reference": f"[{title}]({target})",
+            "input_schema": dict(input_schema),
             "required_params": required_params,
             "defaults": defaults,
-            "source_requirements": entry.ui_hints.get("source_requirements", []),
+            "source_requirements": ui_hints.get("source_requirements", []),
+            "output_schema": entry.get("output_schema", {}),
+            "logical_outputs": ui_hints.get("logical_outputs", []),
+            "dynamic_outputs": ui_hints.get("dynamic_outputs", False),
             "proposal_contract": {
-                "fixed_fields": {"action_id": entry.kind},
+                "fixed_fields": {"action_id": action_id},
                 "scope": scope_contract,
                 "params": {
                     "required": required_params,
@@ -1141,22 +1250,87 @@ class ProjectQATools:
                 "output_names": "optional logical-output to column-name mapping",
                 **(
                     {"sheet_name": "required non-empty output sheet name"}
-                    if entry.kind in PROJECT_ASK_CREATE_SHEET_KINDS
+                    if creates_sheet
                     else {}
                 ),
             },
         }
 
-    def _query_scope(self, query: Mapping[str, Any]) -> dict[str, Any]:
+    def _query_scope(
+        self,
+        query: Mapping[str, Any],
+        *,
+        output_grants: tuple[OutputReadGrant, ...],
+        count_by: int | None = None,
+        requested_column_ids: set[int] | None = None,
+    ) -> dict[str, Any]:
         """Translate frozen sources into a replayable query constraint."""
 
         scope = query.get("scope")
         if not isinstance(scope, Mapping) or not isinstance(scope.get("sheet_id"), int):
             raise ProjectQAScopeError("query scope must name a sheet")
         sheet_id = int(scope["sheet_id"])
-        allowed_rows, file_cells = self._sheet_access(sheet_id)
+        allowed_rows, file_cells, sheet_grants = self._sheet_access(
+            sheet_id, output_grants
+        )
         if allowed_rows is None:
             return {"kind": "sheet", "sheet_id": sheet_id}
+        if sheet_grants:
+            used_columns = set(requested_column_ids or ())
+            if count_by is not None:
+                used_columns.add(count_by)
+            by_name = {
+                str(column["name"]): int(column["id"])
+                for column in self.project.columns(sheet_id)
+            }
+            filter_ = query.get("filter")
+            names = set(filter_) if isinstance(filter_, Mapping) else set()
+            sort = query.get("sort")
+            if isinstance(sort, list):
+                names.update(
+                    str(item["column"])
+                    for item in sort
+                    if isinstance(item, Mapping) and isinstance(item.get("column"), str)
+                )
+            used_columns.update(
+                column_id
+                for name in names
+                if (column_id := by_name.get(str(name))) is not None
+            )
+            if used_columns:
+                readable_by_column = [
+                    allowed_rows
+                    | {
+                        row_id
+                        for row_id, column_id in file_cells
+                        if column_id == requested_column
+                    }
+                    | {
+                        row_id
+                        for grant in sheet_grants
+                        if grant.column_ids is not None
+                        and grant.row_ids is not None
+                        and requested_column in grant.column_ids
+                        for row_id in grant.row_ids
+                    }
+                    for requested_column in used_columns
+                ]
+                rows = set.intersection(*readable_by_column)
+            else:
+                rows = allowed_rows | {row_id for row_id, _column_id in file_cells}
+                for grant in sheet_grants:
+                    if grant.row_ids is not None:
+                        rows.update(grant.row_ids)
+            if not rows:
+                raise ProjectQAScopeError("query scope has no readable rows")
+            result: dict[str, Any] = {
+                "kind": "rows",
+                "sheet_id": sheet_id,
+                "row_ids": sorted(rows),
+            }
+            if used_columns:
+                result["column_ids"] = sorted(used_columns)
+            return result
         file_rows = {row_id for row_id, _column_id in file_cells}
         if file_cells and allowed_rows and not file_rows <= allowed_rows:
             columns = {column_id for _row_id, column_id in file_cells}
@@ -1188,25 +1362,39 @@ class ProjectQATools:
             result["column_ids"] = sorted(columns)
         return result
 
-    def _allowed_sheets(self) -> set[int] | None:
+    def _current_output_grants(self) -> tuple[OutputReadGrant, ...]:
+        if self._output_grants_provider is None:
+            return ()
+        return self._output_grants_provider().grants
+
+    def _allowed_sheets(
+        self, output_grants: tuple[OutputReadGrant, ...]
+    ) -> set[int] | None:
         scope = self.turn["scope"]
         if scope["kind"] == "project":
             return None
-        return {int(source["sheet_id"]) for source in scope["sources"]}
+        return {
+            *(int(source["sheet_id"]) for source in scope["sources"]),
+            *(grant.sheet_id for grant in output_grants),
+        }
 
     def _sheet_access(
-        self, sheet_id: int
-    ) -> tuple[set[int] | None, set[tuple[int, int]]]:
+        self,
+        sheet_id: int,
+        output_grants: tuple[OutputReadGrant, ...],
+    ) -> tuple[
+        set[int] | None,
+        set[tuple[int, int]],
+        tuple[OutputReadGrant, ...],
+    ]:
         if sheet_id not in {int(sheet["id"]) for sheet in self.project.sheets()}:
             raise ProjectQAScopeError("sheet is outside this turn's scope")
-        if (
-            self._allowed_sheets() is not None
-            and sheet_id not in self._allowed_sheets()
-        ):
+        allowed_sheets = self._allowed_sheets(output_grants)
+        if allowed_sheets is not None and sheet_id not in allowed_sheets:
             raise ProjectQAScopeError("sheet is outside this turn's scope")
         scope = self.turn["scope"]
         if scope["kind"] == "project":
-            return None, set()
+            return None, set(), set()
         rows: set[int] = set()
         whole_sheet = False
         file_cells: set[tuple[int, int]] = set()
@@ -1219,7 +1407,35 @@ class ProjectQATools:
                 rows.update(int(row_id) for row_id in source["row_ids"])
             elif source["kind"] == "file":
                 file_cells.add((int(source["row_id"]), int(source["column_id"])))
-        return (None if whole_sheet else rows), file_cells
+        sheet_grants: list[OutputReadGrant] = []
+        for grant in output_grants:
+            if grant.sheet_id != sheet_id:
+                continue
+            if grant.column_ids is None and grant.row_ids is None:
+                whole_sheet = True
+            elif grant.column_ids is not None and grant.row_ids is not None:
+                sheet_grants.append(grant)
+        return (None if whole_sheet else rows), file_cells, tuple(sheet_grants)
+
+    @staticmethod
+    def _smallest_ids(limit: int, *collections: Any) -> list[int]:
+        """Select bounded stable row IDs without expanding structural grants."""
+
+        selected: set[int] = set()
+        largest_first: list[int] = []
+        for collection in collections:
+            for row_id in collection:
+                row_id = int(row_id)
+                if row_id in selected:
+                    continue
+                if len(selected) < limit:
+                    selected.add(row_id)
+                    heapq.heappush(largest_first, -row_id)
+                elif row_id < -largest_first[0]:
+                    removed = -heapq.heapreplace(largest_first, -row_id)
+                    selected.remove(removed)
+                    selected.add(row_id)
+        return sorted(selected)
 
     def _rows_for_read(
         self,
@@ -1227,6 +1443,7 @@ class ProjectQATools:
         requested: list[int] | None,
         allowed_rows: set[int] | None,
         file_cells: set[tuple[int, int]],
+        sheet_grants: tuple[OutputReadGrant, ...],
         limit: int,
     ) -> list[int]:
         if requested is not None:
@@ -1236,17 +1453,25 @@ class ProjectQATools:
             ):
                 raise ProjectQAScopeError("row_ids must contain integers")
             candidate = list(dict.fromkeys(requested))
-            permitted_rows = (allowed_rows or set()) | {
-                row_id for row_id, _column_id in file_cells
-            }
-            if allowed_rows is not None and not set(candidate) <= permitted_rows:
+            if allowed_rows is not None and any(
+                row_id not in allowed_rows
+                and not any(file_row_id == row_id for file_row_id, _ in file_cells)
+                and not any(
+                    grant.row_ids is not None and row_id in grant.row_ids
+                    for grant in sheet_grants
+                )
+                for row_id in candidate
+            ):
                 raise ProjectQAScopeError("row is outside this turn's scope")
             if len(candidate) > limit:
                 raise ValueError(f"read may include at most {limit} rows")
         elif allowed_rows is not None:
-            candidate = sorted(
-                allowed_rows | {row_id for row_id, _column_id in file_cells}
-            )[:limit]
+            candidate = self._smallest_ids(
+                limit,
+                allowed_rows,
+                (row_id for row_id, _column_id in file_cells),
+                *(grant.row_ids for grant in sheet_grants if grant.row_ids is not None),
+            )
         else:
             candidate = [
                 int(row["id"])
@@ -1281,11 +1506,15 @@ class ProjectQATools:
         sheet_id: int,
         allowed_rows: set[int] | None,
         file_cells: set[tuple[int, int]],
+        sheet_grants: tuple[OutputReadGrant, ...],
     ) -> list[Any]:
         columns = self.project.columns(sheet_id)
         if allowed_rows is None or allowed_rows:
             return columns
         allowed_column_ids = {column_id for _row_id, column_id in file_cells}
+        for grant in sheet_grants:
+            if grant.column_ids is not None:
+                allowed_column_ids.update(grant.column_ids)
         return [column for column in columns if int(column["id"]) in allowed_column_ids]
 
     @staticmethod
@@ -1294,6 +1523,7 @@ class ProjectQATools:
         row_id: int,
         allowed_rows: set[int] | None,
         file_cells: set[tuple[int, int]],
+        sheet_grants: tuple[OutputReadGrant, ...],
         *,
         explicit_columns: bool,
     ) -> list[int]:
@@ -1304,6 +1534,13 @@ class ProjectQATools:
         allowed_file_columns = {
             column_id for file_row_id, column_id in file_cells if file_row_id == row_id
         }
+        for grant in sheet_grants:
+            if (
+                grant.column_ids is not None
+                and grant.row_ids is not None
+                and row_id in grant.row_ids
+            ):
+                allowed_file_columns.update(grant.column_ids)
         if explicit_columns and not set(requested_columns) <= allowed_file_columns:
             raise ProjectQAScopeError("file scope may read only the selected file cell")
         selected = [
@@ -1315,11 +1552,19 @@ class ProjectQATools:
             raise ProjectQAScopeError("file scope may read only the selected file cell")
         return selected
 
-    def _visible_count(self, sheet_id: int) -> int:
-        allowed_rows, file_cells = self._sheet_access(sheet_id)
+    def _visible_count(
+        self,
+        sheet_id: int,
+        allowed_rows: set[int] | None,
+        file_cells: set[tuple[int, int]],
+        sheet_grants: tuple[OutputReadGrant, ...],
+    ) -> int:
         if allowed_rows is None:
             return self.project.row_count(sheet_id)
         row_ids = allowed_rows | {row_id for row_id, _column_id in file_cells}
+        for grant in sheet_grants:
+            if grant.row_ids is not None:
+                row_ids.update(grant.row_ids)
         return len(self.project.visible_row_ids(sheet_id, sorted(row_ids)))
 
     def _sheet_name(self, sheet_id: int) -> str:

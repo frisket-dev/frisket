@@ -53,17 +53,32 @@ from frisket.team.security.secrets import key_hint
 # and team composition share one canonical endpoint record and model grammar.
 
 # Providers that take an API key the local UI can manage.
-KEY_PROVIDERS: tuple[str, ...] = ("anthropic", "openai", "gemini", "openrouter")
+MODEL_KEY_PROVIDERS: tuple[str, ...] = (
+    "anthropic",
+    "openai",
+    "gemini",
+    "openrouter",
+)
+SEARCH_KEY_PROVIDERS: tuple[str, ...] = ("exa", "tavily")
+# Existing model selection/admission imports use this model-only name.
+KEY_PROVIDERS: tuple[str, ...] = MODEL_KEY_PROVIDERS
+WORKSPACE_KEY_PROVIDERS: tuple[str, ...] = (
+    *MODEL_KEY_PROVIDERS,
+    *SEARCH_KEY_PROVIDERS,
+)
 # Datalab supports project keys, without a workspace key resolver or LLM models.
-PROJECT_KEY_PROVIDERS: tuple[str, ...] = (*KEY_PROVIDERS, "datalab")
+PROJECT_KEY_PROVIDERS: tuple[str, ...] = (*MODEL_KEY_PROVIDERS, "datalab")
+VALIDATION_KEY_PROVIDERS: tuple[str, ...] = (*WORKSPACE_KEY_PROVIDERS, "datalab")
 
-PROVIDER_ORDER: tuple[str, ...] = (*KEY_PROVIDERS, "ollama")
+PROVIDER_ORDER: tuple[str, ...] = (*WORKSPACE_KEY_PROVIDERS, "ollama")
 
 PROVIDER_LABELS: dict[str, str] = {
     "anthropic": "Anthropic",
     "openai": "OpenAI",
     "gemini": "Gemini",
     "openrouter": "OpenRouter",
+    "exa": "Exa",
+    "tavily": "Tavily",
     "datalab": "Datalab",
     # Qualified model IDs retain the ``ollama`` provider segment, while each
     # endpoint has its own ordinary endpoint_id. The slot supports any
@@ -77,6 +92,8 @@ ENV_VAR: dict[str, str] = {
     "openai": "OPENAI_API_KEY",
     "gemini": "GEMINI_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
+    "exa": "EXA_API_KEY",
+    "tavily": "TAVILY_API_KEY",
     "datalab": "DATALAB_API_KEY",
 }
 
@@ -87,6 +104,8 @@ PROVIDER_KIND: dict[str, str] = {
     "openai": "platform_api",
     "gemini": "platform_api",
     "openrouter": "platform_api",
+    "exa": "platform_api",
+    "tavily": "platform_api",
     "ollama": "local_http",
 }
 
@@ -97,6 +116,11 @@ _PROBE_BASE: dict[str, str] = {
     "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
     "openrouter": "https://openrouter.ai/api/v1",
     "anthropic": "https://api.anthropic.com/v1",
+}
+
+_SEARCH_PROBE: dict[str, str] = {
+    "exa": "https://api.exa.ai/v0/teams/me",
+    "tavily": "https://api.tavily.com/usage",
 }
 
 VALIDATION_TOKEN_TTL_SECONDS = 10 * 60
@@ -123,7 +147,7 @@ class InvalidProviderConfigError(ValueError):
 
 def normalize_provider(value: str) -> str:
     clean = (value or "").strip().lower()
-    if clean not in KEY_PROVIDERS:
+    if clean not in WORKSPACE_KEY_PROVIDERS:
         raise UnknownProviderError(f"unsupported provider: {value}")
     return clean
 
@@ -134,7 +158,7 @@ def _b64url_encode(raw: bytes) -> str:
 
 def _normalize_validation_provider(value: str) -> str:
     clean = (value or "").strip().lower()
-    if clean not in PROJECT_KEY_PROVIDERS:
+    if clean not in VALIDATION_KEY_PROVIDERS:
         raise UnknownProviderError(f"unsupported provider: {value}")
     return clean
 
@@ -366,7 +390,7 @@ def load_local_provider_keys(root: str | Path) -> dict[str, str]:
     return {
         provider: value
         for provider, value in _read_config_file(root).items()
-        if provider in KEY_PROVIDERS
+        if provider in WORKSPACE_KEY_PROVIDERS
     }
 
 
@@ -894,6 +918,65 @@ def resolve_effective_keys(
     return out
 
 
+def resolve_search_credentials(
+    root: str | Path, env: Mapping[str, str] | None = None
+) -> dict[str, str]:
+    """Actual effective local search keys; never consult this inside adapters."""
+    env = os.environ if env is None else env
+    stored = load_local_provider_keys(root)
+    return {
+        provider: str(env.get(ENV_VAR[provider]) or stored.get(provider) or "")
+        for provider in SEARCH_KEY_PROVIDERS
+        if env.get(ENV_VAR[provider]) or stored.get(provider)
+    }
+
+
+def configured_search_service(root: str | Path, *, effective_keys: Mapping[str, str]):
+    """Build search from caller-authorized keys and persisted preference."""
+
+    from frisket.ai.research.search import SearchService
+
+    return SearchService(
+        preference=load_search_provider(root), effective_keys=effective_keys
+    )
+
+
+def local_search_service(root: str | Path):
+    """Build the effective local-tier search service for one workspace."""
+
+    return configured_search_service(
+        root, effective_keys=resolve_search_credentials(root)
+    )
+
+
+SEARCH_PROVIDER_CONFIG_KEY = "search_provider_v1"
+
+
+def load_search_provider(root: str | Path) -> str:
+    from frisket.ai.research.search import normalize_search_preference
+
+    raw = _read_config_file(root).get(SEARCH_PROVIDER_CONFIG_KEY)
+    try:
+        return normalize_search_preference(raw)
+    except ValueError as exc:
+        raise InvalidProviderConfigError(
+            "cannot safely read invalid search provider settings"
+        ) from exc
+
+
+def save_search_provider(root: str | Path, provider: str) -> str:
+    from frisket.ai.research.search import normalize_search_preference
+
+    selected = normalize_search_preference(provider)
+
+    def save(config: dict[str, str]) -> tuple[str, bool]:
+        changed = config.get(SEARCH_PROVIDER_CONFIG_KEY) != selected
+        config[SEARCH_PROVIDER_CONFIG_KEY] = selected
+        return selected, changed
+
+    return _mutate_config_file(root, save)
+
+
 def provider_key_status(
     root: str | Path, env: dict[str, str] | None = None
 ) -> list[dict[str, Any]]:
@@ -902,7 +985,7 @@ def provider_key_status(
     env = os.environ if env is None else env
     file_keys = load_local_provider_keys(root)
     rows: list[dict[str, Any]] = []
-    for provider in KEY_PROVIDERS:
+    for provider in WORKSPACE_KEY_PROVIDERS:
         env_value = env.get(ENV_VAR[provider])
         if env_value:
             rows.append(
@@ -960,7 +1043,7 @@ def probe_provider(
     """
     provider = (provider or "").strip().lower()
     base = _PROBE_BASE.get(provider)
-    if base is None and provider != "datalab":
+    if base is None and provider != "datalab" and provider not in _SEARCH_PROBE:
         return {
             "provider": provider,
             "reachable": False,
@@ -973,12 +1056,14 @@ def probe_provider(
     url = (
         "https://www.datalab.to/api/v1/user_health"
         if provider == "datalab"
-        else f"{base}/models"
+        else _SEARCH_PROBE.get(provider, f"{base}/models")
     )
     if provider == "datalab":
         headers = {"X-API-Key": key}
     elif provider == "anthropic":
         headers = {"x-api-key": key, "anthropic-version": "2023-06-01"}
+    elif provider == "exa":
+        headers = {"x-api-key": key}
     else:
         headers = {"Authorization": f"Bearer {key}"}
 

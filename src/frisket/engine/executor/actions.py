@@ -379,11 +379,22 @@ def _executor_deps_with_defaults(
     if browser_renderer is not None:
         base_factory = map_runner_factory
 
-        def map_runner_factory(project, router):
-            runner = base_factory(project, router)
+        def map_runner_factory(project, router, _factory=base_factory):
+            runner = _factory(project, router)
             runner.op_context_extras = {
                 **runner.op_context_extras,
                 "url_capture_browser": browser_renderer,
+            }
+            return runner
+
+    if base.search_service_factory is not None:
+        base_factory = map_runner_factory
+
+        def map_runner_factory(project, router, _factory=base_factory):
+            runner = _factory(project, router)
+            runner.op_context_extras = {
+                **runner.op_context_extras,
+                "search_service_factory": base.search_service_factory,
             }
             return runner
 
@@ -406,6 +417,7 @@ def _executor_deps_with_defaults(
             if url_capture_browser is not None
             else base.url_capture_browser
         ),
+        search_service_factory=base.search_service_factory,
         map_runner_factory=map_runner_factory,
         reserved_maprunner_write_overrides=base.reserved_maprunner_write_overrides,
         connected_account_resolver=base.connected_account_resolver,

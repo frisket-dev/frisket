@@ -4,10 +4,17 @@ import traceback
 from types import SimpleNamespace
 
 import ddgs
+import httpx
 import pytest
 
 from frisket.actions.types import RowError
-from frisket.engine.executor.web_search_read import AdmittedWebSearcher
+from frisket.ai.research.search import SearchService
+from frisket.engine.executor.action_inventory import ExecutorDeps
+from frisket.engine.executor.actions import _executor_deps_with_defaults
+from frisket.engine.executor.web_search_read import (
+    AdmittedWebSearcher,
+    search_provider_use,
+)
 from frisket.ops.base import OpContext, RecipeInvocationHalt
 
 
@@ -40,6 +47,9 @@ def test_search_retains_four_attempts_backoff_without_provider_error_text(monkey
     canary = "private-query-provider-error-canary"
 
     class Failing:
+        def __init__(self, *, timeout):
+            pass
+
         def text(self, query, max_results):
             calls.append((query, max_results))
             raise RuntimeError(canary)
@@ -52,7 +62,7 @@ def test_search_retains_four_attempts_backoff_without_provider_error_text(monkey
     with pytest.raises(RowError, match="bounded retries") as failure:
         asyncio.run(AdmittedWebSearcher(_context()).search(canary, max_results=2))
     assert calls == [(canary, 2)] * 4
-    assert delays == [1.5, 3.0, 4.5, 6.0]
+    assert delays == [1.5, 3.0, 4.5]
     assert canary not in str(failure.value)
     assert canary not in "".join(traceback.format_exception(failure.value))
 
@@ -61,11 +71,14 @@ def test_receipt_write_failure_does_not_retry_provider(monkeypatch):
     calls = []
 
     class Provider:
+        def __init__(self, *, timeout):
+            pass
+
         def text(self, query, max_results):
             calls.append(query)
             return []
 
-    def failed_record(self, attempt, succeeded):
+    def failed_record(self, attempt, *, response, error, quote):
         raise RuntimeError("receipt write failed")
 
     monkeypatch.setattr(ddgs, "DDGS", Provider)
@@ -80,6 +93,9 @@ def test_cancelled_search_settles_and_records_the_returned_provider_call(monkeyp
     observed = []
 
     class Provider:
+        def __init__(self, *, timeout):
+            pass
+
         def text(self, query, max_results):
             started.set()
             assert finish.wait(5)
@@ -89,7 +105,9 @@ def test_cancelled_search_settles_and_records_the_returned_provider_call(monkeyp
     monkeypatch.setattr(
         AdmittedWebSearcher,
         "_record",
-        lambda self, attempt, succeeded: observed.append((attempt, succeeded)),
+        lambda self, attempt, *, response, error, quote: observed.append(
+            (attempt, response is not None)
+        ),
     )
 
     async def run():
@@ -109,6 +127,66 @@ def test_cancelled_search_settles_and_records_the_returned_provider_call(monkeyp
     assert observed == [(1, True)]
 
 
+def test_paid_provider_failure_is_visible_and_never_retried() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(429, json={"detail": "quota"})
+
+    async def run() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            service = SearchService(
+                preference="tavily",
+                effective_keys={"tavily": "secret"},
+                http=http,
+            )
+            with pytest.raises(RowError, match="quota or billing limit") as failure:
+                await AdmittedWebSearcher(_context(), search_service=service).search(
+                    "query", max_results=1
+                )
+            assert failure.value.code == "search_quota"
+
+    asyncio.run(run())
+    assert calls == 1
+
+
+def test_paid_provider_use_preserves_credit_and_captured_rate_identity() -> None:
+    recorded = [
+        SimpleNamespace(
+            ref={
+                "provider": "tavily",
+                "service": "tavily.search",
+                "max_attempts_per_row": 1,
+                "cost_actual": 0.008,
+                "units": {"credits": 1},
+                "pricing_key": "tavily.search.credit",
+                "pricing_unit": "credit",
+                "unit_price_usd": "0.008",
+            }
+        )
+    ]
+    facts = SimpleNamespace(total_rows=1, completed_rows=1, failed_rows=0)
+    assert search_provider_use(recorded, facts) == [
+        {
+            "provider": "tavily",
+            "service": "tavily.search",
+            "external_api": True,
+            "selected_row_count": 1,
+            "successful_row_count": 1,
+            "failed_row_count": 0,
+            "max_attempts_per_row": 1,
+            "operation_call_count": 1,
+            "cost_actual": 0.008,
+            "units": {"credits": 1},
+            "pricing_key": "tavily.search.credit",
+            "pricing_unit": "credit",
+            "unit_price_usd": "0.008",
+        }
+    ]
+
+
 def test_closing_invocation_revokes_bound_searchers(monkeypatch):
     def forbidden():
         pytest.fail("closed handle must not call DDGS")
@@ -123,3 +201,30 @@ def test_closing_invocation_revokes_bound_searchers(monkeypatch):
             await bound.search("query", max_results=1)
 
     asyncio.run(run())
+
+
+def test_search_service_dependency_reaches_map_runner_context() -> None:
+    service = object()
+
+    def factory():
+        return service
+
+    browser = object()
+    runner = SimpleNamespace(op_context_extras={"existing": object()})
+    deps = _executor_deps_with_defaults(
+        deps=ExecutorDeps(
+            search_service_factory=factory,
+            map_runner_factory=lambda _project, _router: runner,
+        ),
+        router=None,
+        rss_fetcher=None,
+        enclosure_fetcher=None,
+        url_capture_fetcher=None,
+        url_capture_browser=browser,
+    )
+
+    assert deps.search_service_factory is factory
+    assert deps.map_runner_factory(object(), None) is runner
+    assert runner.op_context_extras["search_service_factory"] is factory
+    assert runner.op_context_extras["url_capture_browser"] is browser
+    assert "existing" in runner.op_context_extras

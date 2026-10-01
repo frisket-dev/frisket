@@ -86,6 +86,7 @@ from frisket.server.routes.instance import (
     register_product_telemetry_routes,
 )
 from frisket.server.routes.runtime_config import register_runtime_config_routes
+from frisket.server.routes.skills import register_skill_routes
 from frisket.server.routes.notifications import register_notification_routes
 from frisket.server.routes.project_actions import (
     register_project_action_data_routes,
@@ -116,6 +117,7 @@ from frisket.server.services.selector_choices import (
     SelectorCapabilitiesFor,
     SelectorModelsGatewayStatusFor,
 )
+from frisket.server.services.skills import SkillLibrary
 from frisket.server.routes.project_research import (
     register_project_backfill_activity_routes,
     register_project_entity_review_routes,
@@ -328,6 +330,7 @@ def create_app(
     | None = None,
     models_gateway_status_for: SelectorModelsGatewayStatusFor | None = None,
     provider_keys_resolver: Callable[[], Mapping[str, str]] | None = None,
+    search_provider_keys_resolver: Callable[[], Mapping[str, str]] | None = None,
     worker_ports: WorkerPorts | None = None,
     project_blob_store_factory: Callable[[str], Any] | None = None,
     project_opener: ProjectOpener | None = None,
@@ -456,6 +459,7 @@ def create_app(
         notification_secret_resolver=notification_secret_resolver,
         notification_delivery_runtime=notification_delivery_runtime,
         provider_keys_resolver=provider_keys_resolver,
+        search_provider_keys_resolver=search_provider_keys_resolver,
         models_gateway_connection_resolver=models_gateway_connection_resolver,
         worker_ports=worker_ports,
         project_blob_store_factory=project_blob_store_factory,
@@ -497,7 +501,19 @@ def create_app(
             float(queue_timeout_seconds) if queue_timeout_seconds > 0 else None
         )
     app.state.workspace = ws
+    # This is the application-scoped trusted read seam for a later Ask
+    # runtime injection. It contains admitted revisions; it is not a module
+    # global and no runtime code obtains instructions through the admin HTTP
+    # routes. Team replaces it with its active-organization library before
+    # registering its admin-gated routes.
+    app.state.skill_library = SkillLibrary(Path(workspace_root))
     project_qa_service = ProjectQAService(ws)
+    if edition == "solo":
+        project_qa_service.configure_search(ws.search_service)
+        project_qa_service.configure_research(
+            authorize=lambda _project_id, _context: None,
+            skills=lambda: app.state.skill_library,
+        )
     app.state.project_qa_service = project_qa_service
     app.router.add_event_handler("shutdown", project_qa_service.shutdown)
     action_preview_job_registry = ActionPreviewJobRegistry()
@@ -571,6 +587,16 @@ def create_app(
     )
 
     register_walkthrough_routes(app)
+
+    if edition == "solo":
+        register_skill_routes(
+            app,
+            library=app.state.skill_library,
+            # Local Frisket has one workspace owner: the operating-system user
+            # starting the server. Team supplies its own organization-admin
+            # authority before its route policy is compiled.
+            require_manager=lambda _request: None,
+        )
 
     # ---------- projects ----------
 
@@ -724,6 +750,7 @@ def create_app(
 
         return sidecar_capabilities_cache.get((base, token), _probe)
 
+    project_qa_service.configure_actions(sidecar_capabilities=_sidecar_capabilities)
     register_admin_pricing_routes(app, service=AdminPricingService())
 
     register_action_registry_routes(app, service=ActionRegistryService(ws))

@@ -88,8 +88,43 @@ DATALAB_CONVERT_PAGE = "datalab.convert.page"
 DATALAB_OCR_PAGE = "datalab.ocr.page"
 DEEPL_TRANSLATE_CHAR = "deepl.translate.char"
 GOOGLE_TRANSLATE_CHAR = "google.translate.char"
+EXA_SEARCH_REQUEST = "exa.search.request"
+TAVILY_SEARCH_CREDIT = "tavily.search.credit"
 
 CATALOG: dict[str, ExternalPricingEntry] = {
+    EXA_SEARCH_REQUEST: ExternalPricingEntry(
+        key=EXA_SEARCH_REQUEST,
+        label="Exa Search request",
+        provider="Exa",
+        unit="request",
+        # Exa's published standard Search price is $7 per 1,000 requests,
+        # including up to 10 results: https://exa.ai/pricing
+        default_unit_price_usd=Decimal("0.007"),
+        env_var=None,
+        billable=True,
+        external_api=True,
+        description=(
+            "Published self-serve price for one ordinary Exa Search request "
+            "with up to 10 results and no optional paid extras."
+        ),
+    ),
+    TAVILY_SEARCH_CREDIT: ExternalPricingEntry(
+        key=TAVILY_SEARCH_CREDIT,
+        label="Tavily API credit",
+        provider="Tavily",
+        unit="credit",
+        # Tavily publishes $0.008 per PAYG credit and documents a basic
+        # search as one credit: https://www.tavily.com/pricing and
+        # https://docs.tavily.com/documentation/api-credits
+        default_unit_price_usd=Decimal("0.008"),
+        env_var=None,
+        billable=True,
+        external_api=True,
+        description=(
+            "Published pay-as-you-go price per Tavily API credit; ordinary "
+            "basic search is quoted as one credit."
+        ),
+    ),
     GEOCODE_EXTERNAL_GEOCODER: ExternalPricingEntry(
         key=GEOCODE_EXTERNAL_GEOCODER,
         label="OpenCage geocoder request",

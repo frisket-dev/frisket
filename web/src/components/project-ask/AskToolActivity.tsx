@@ -7,6 +7,7 @@ const labels: Record<string, string> = {
   open_source: 'Reading a source', find_in_source: 'Finding text in a source', list_sources: 'Checking earlier sources',
   search_actions: 'Finding an action', describe_action: 'Checking action settings',
   propose_action: 'Preparing an action suggestion', search_web: 'Searching the web', open_web_page: 'Reading a web page',
+  prepare_action: 'Preparing an action', execute_action: 'Running an action',
 };
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;

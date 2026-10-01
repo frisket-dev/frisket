@@ -1,11 +1,20 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
+from frisket.ai.research.search import (
+    SearchHit,
+    SearchResponse,
+    SearchService,
+    SearchUsage,
+    SearchUsageUnit,
+)
+from frisket.server import provider_config
 from frisket.server.app import create_app
 from http_test_helpers import (
     confirmation_hash_from_action_result,
@@ -66,14 +75,107 @@ def _classify_spec(sheet_id: int) -> dict:
     }
 
 
-def _backfill_action(sheet_id: int, *, key: str = "backfill@sha256:test") -> dict:
+def _backfill_action(
+    sheet_id: int,
+    *,
+    column: str = "beat",
+    key: str = "backfill@sha256:test",
+) -> dict:
     return {
         "action_id": "run.backfill",
         "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
-        "params": {"column": "beat"},
+        "params": {"column": column},
         "output_names": {},
         "idempotency_key": key,
     }
+
+
+def _web_search_spec(sheet_id: int) -> dict:
+    return {
+        "action_id": "research.web_search",
+        "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
+        "params": {"query": {"text": "Background on {{story}}"}, "max_results": 1},
+        "output_names": {"search_results": "sources"},
+        "idempotency_key": "backfill-source-web-search",
+    }
+
+
+def test_web_search_backfill_reuses_configured_search_provider(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client = TestClient(create_app(tmp_path / "workspace"))
+    provider_config.save_local_provider_key(
+        client.app.state.workspace.root, "exa", "exa-local-test-key"
+    )
+    provider_config.save_search_provider(client.app.state.workspace.root, "auto")
+    calls: list[tuple[str, str]] = []
+
+    async def fake_search(
+        service: SearchService,
+        query: str,
+        *,
+        max_results: int = 6,
+        timeout: float = 20.0,
+        quote=None,
+    ) -> SearchResponse:
+        del timeout
+        quote = quote or service.quote(max_results=max_results)
+        calls.append((service.provider, query))
+        return SearchResponse(
+            provider=service.provider,
+            results=(
+                SearchHit(
+                    title="Result",
+                    url="https://example.test/result",
+                    excerpt="Evidence",
+                    retrieved_at=datetime.now(UTC).isoformat(),
+                    published_at=None,
+                    provider=service.provider,
+                ),
+            ),
+            usage=SearchUsage(
+                provider=service.provider,
+                service=f"{service.provider}.search",
+                request_count=1,
+                provider_reported_cost_usd=None,
+                provider_cost_usd=quote.estimated_cost_usd,
+                cost_source="configured_catalog",
+                units=(SearchUsageUnit(name=quote.unit, quantity=1),),
+                quote=quote,
+            ),
+        )
+
+    monkeypatch.setattr(SearchService, "search", fake_search)
+    pid, sheet_id = _seed_project(client)
+    source = post_v1_action_with_exact_confirmation(
+        client, pid, _web_search_spec(sheet_id)
+    )
+    assert source.status_code == 200, source.text
+    drain_queue(client)
+    assert [provider for provider, _query in calls] == ["exa", "exa"]
+
+    added = post_row_add_as_v1_action(client, pid, sheet_id, {"story": "late story"})
+    assert added.status_code == 200, added.text
+    backfill = post_v1_action_with_exact_confirmation(
+        client,
+        pid,
+        _backfill_action(
+            sheet_id, column="sources", key="web-search-backfill@sha256:test"
+        ),
+    )
+
+    assert backfill.status_code == 200, backfill.text
+    assert backfill.json()["status"] == "completed"
+    assert calls[-1] == ("exa", "Background on late story")
+    receipt = (
+        client.app.state.workspace.get(pid)
+        .db.execute(
+            "SELECT body FROM receipts WHERE id=?", (backfill.json()["receipt_id"],)
+        )
+        .fetchone()
+    )
+    assert receipt is not None
+    assert json.loads(receipt["body"])["provider_use"][0]["provider"] == "exa"
 
 
 def test_run_backfill_action_creates_fresh_generation_for_missing_cells(

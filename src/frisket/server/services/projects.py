@@ -147,6 +147,24 @@ PROVIDER_CATALOG: list[dict[str, Any]] = [
     },
 ]
 
+ORGANIZATION_PROVIDER_CATALOG: list[dict[str, Any]] = [
+    *PROVIDER_CATALOG,
+    {
+        "id": "exa",
+        "label": "Exa",
+        "secret_name": "EXA_API_KEY",
+        "kind": "search",
+        "policy_fields": [],
+    },
+    {
+        "id": "tavily",
+        "label": "Tavily",
+        "secret_name": "TAVILY_API_KEY",
+        "kind": "search",
+        "policy_fields": [],
+    },
+]
+
 SECRET_CONSUMER_KINDS = {"plugin", "source", "job", "mcp_connector"}
 
 
@@ -542,7 +560,7 @@ class ProjectLifecycleService:
     def provider_catalog(self) -> dict[str, Any]:
         return {
             "schemaVersion": "frisket.provider_catalog.v1",
-            "providers": PROVIDER_CATALOG,
+            "providers": ORGANIZATION_PROVIDER_CATALOG,
         }
 
     def project_provider_keys(self, project_id: str) -> dict[str, Any]:

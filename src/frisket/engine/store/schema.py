@@ -1912,6 +1912,7 @@ CREATE TABLE IF NOT EXISTS project_qa_threads (
   model TEXT,
   web INTEGER NOT NULL DEFAULT 0 CHECK (web IN (0,1)),
   suggest_actions INTEGER NOT NULL DEFAULT 1 CHECK (suggest_actions IN (0,1)),
+  research_json TEXT,
   revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
   created_by TEXT,
   created_at TEXT NOT NULL,
@@ -1929,6 +1930,7 @@ CREATE TABLE IF NOT EXISTS project_qa_turns (
   model TEXT,
   web INTEGER NOT NULL CHECK (web IN (0,1)),
   suggest_actions INTEGER NOT NULL CHECK (suggest_actions IN (0,1)),
+  research_json TEXT,
   status TEXT NOT NULL CHECK (status IN
     ('running','stopping','completed','stopped','failed','interrupted')),
   submitted_by TEXT,
@@ -1978,6 +1980,52 @@ CREATE TABLE IF NOT EXISTS project_qa_usage_calls (
   PRIMARY KEY (turn_id, call_id)
 ) WITHOUT ROWID;
 -- PROJECT_QA_END
+
+-- A research run is a resumable child of one Ask turn. The parent Ask turn
+-- remains the conversation authority; this row owns only research settings,
+-- continuation state, and its optimistic revision. Integer micros avoid
+-- floating-point comparisons at the budget boundary.
+-- PROJECT_QA_RESEARCH_BEGIN
+CREATE TABLE IF NOT EXISTS project_qa_research_runs (
+  id TEXT PRIMARY KEY,
+  turn_id TEXT NOT NULL UNIQUE
+    REFERENCES project_qa_turns(id) ON DELETE CASCADE,
+  actor TEXT,
+  state TEXT NOT NULL CHECK (state IN
+    ('running','paused','interrupted','completed')),
+  budget_micros INTEGER NOT NULL CHECK (budget_micros >= 0),
+  currency TEXT NOT NULL,
+  write_mode TEXT NOT NULL CHECK (write_mode IN
+    ('ask_each','ask_overwrite','full_access')),
+  max_turns INTEGER CHECK (max_turns IS NULL OR max_turns > 0),
+  turn_count INTEGER NOT NULL DEFAULT 0 CHECK (turn_count >= 0),
+  skills_json TEXT NOT NULL DEFAULT '[]',
+  saved_messages_json TEXT NOT NULL DEFAULT '[]',
+  pending_approval_json TEXT,
+  output_grants_json TEXT NOT NULL DEFAULT '[]',
+  revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS project_qa_research_operations (
+  research_id TEXT NOT NULL
+    REFERENCES project_qa_research_runs(id) ON DELETE CASCADE,
+  operation_id TEXT NOT NULL,
+  payload_identity TEXT NOT NULL,
+  operation_kind TEXT NOT NULL CHECK (operation_kind IN
+    ('model','action','search')),
+  estimate_micros INTEGER NOT NULL CHECK (estimate_micros >= 0),
+  actual_micros INTEGER CHECK (actual_micros IS NULL OR actual_micros >= 0),
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  settled_at TEXT,
+  PRIMARY KEY (research_id, operation_id)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS idx_project_qa_research_operations_unsettled
+  ON project_qa_research_operations(research_id)
+  WHERE actual_micros IS NULL;
+-- PROJECT_QA_RESEARCH_END
 """
 
 # The run queue (jobs + worker_heartbeats) lives in its OWN database, never a

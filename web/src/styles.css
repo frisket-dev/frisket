@@ -8787,6 +8787,27 @@ dialog.modal-card::backdrop {
   gap: 8px;
   align-items: center;
 }
+.skills-settings-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: start;
+}
+.skills-settings-head h2 { display: flex; align-items: center; gap: 7px; margin: 0; font-size: 15px; }
+.skills-settings-head p { margin: 5px 0 0; color: var(--text-light); font-size: 12px; }
+.skills-settings .settings-error { margin: 0; color: var(--red); font-size: 12px; }
+.skills-settings-split { display: grid; grid-template-columns: minmax(180px, 0.32fr) minmax(0, 1fr); gap: 12px; }
+.skills-settings-list { display: flex; flex-direction: column; gap: 5px; }
+.skills-settings-list-item { display: grid; gap: 2px; width: 100%; padding: 8px; text-align: left; border: 1px solid var(--border); border-radius: var(--radius-6); background: var(--bg); color: var(--text); cursor: pointer; }
+.skills-settings-list-item.selected { border-color: var(--accent); background: var(--accent-bg); }
+.skills-settings-list-item span { color: var(--text-light); font-size: 11px; }
+.skills-settings-editor { display: grid; gap: 7px; min-width: 0; }
+.skills-settings-editor > label { color: var(--text-mid); font-size: 12px; font-weight: 650; }
+.skills-settings-editor textarea { width: 100%; min-height: 280px; font: 12px/1.45 var(--font-mono, monospace); resize: vertical; }
+@media (max-width: 720px) {
+  .skills-settings-head { flex-direction: column; }
+  .skills-settings-split { grid-template-columns: minmax(0, 1fr); }
+}
 
 .settings-subsection {
   display: grid;

@@ -36,6 +36,7 @@ def test_threads_keep_project_scope_preferences_creator_and_revision(tmp_path) -
             "model": None,
             "web": False,
             "suggest_actions": True,
+            "research": None,
             "revision": 1,
             "created_by": "reporter",
             "created_at": thread["created_at"],

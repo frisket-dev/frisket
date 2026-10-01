@@ -1,4 +1,4 @@
-"""Host-owned DDGS search, including bounded retries and observed provider use."""
+"""Host-owned web search, including admission and observed provider use."""
 
 from __future__ import annotations
 
@@ -7,21 +7,35 @@ import uuid
 
 from frisket.actions.research_types import SearchResult
 from frisket.actions.types import RowError
+from frisket.ai.research.search import (
+    SearchProviderError,
+    SearchQuote,
+    SearchResponse,
+    SearchService,
+)
 from frisket.ops.base import RecipeInvocationHalt
 
 MAX_ATTEMPTS = 4
 
 
 class _SearchUnavailable(Exception):
-    pass
+    def __init__(self, error: SearchProviderError) -> None:
+        super().__init__(str(error))
+        self.error = error
 
 
 class AdmittedWebSearcher:
-    def __init__(self, ctx):
+    def __init__(self, ctx, *, search_service: SearchService | None = None):
         self._ctx = ctx
         self._closed = False
         self._owner = self
         self._calls = set()
+        factory = ctx.extras.get("search_service_factory")
+        self._service = (
+            search_service
+            or (factory() if callable(factory) else None)
+            or SearchService(preference="ddgs", effective_keys={})
+        )
         self._check_active()
 
     def _check_active(self):
@@ -49,29 +63,47 @@ class AdmittedWebSearcher:
 
     def bind_row(self, row, *, sheet_id, row_id, sources, ctx):
         self._check_active()
-        bound = AdmittedWebSearcher(ctx)
+        bound = AdmittedWebSearcher(ctx, search_service=self._service)
         bound._owner = self
         return bound
 
-    async def _call(self, query, max_results, attempt):
-        from ddgs import DDGS
+    async def _call(self, query, max_results, attempt, timeout):
         from frisket.engine.executor.visual_cuts_read import _settle
 
+        quote = self._service.quote(max_results=max_results)
         task = asyncio.create_task(
-            asyncio.to_thread(lambda: DDGS().text(query, max_results=max_results))
+            self._service.search(
+                query, max_results=max_results, timeout=timeout, quote=quote
+            )
         )
         self._owner._calls.add(task)
         try:
             try:
                 return await asyncio.shield(task)
-            except Exception:  # noqa: BLE001 — DDGS raises plain exceptions
-                raise _SearchUnavailable from None
+            except SearchProviderError as exc:
+                raise _SearchUnavailable(exc) from None
         finally:
             await _settle(task)
             self._owner._calls.discard(task)
-            self._record(attempt, task.exception() is None)
+            response = None
+            error = None
+            if not task.cancelled():
+                try:
+                    response = task.result()
+                except SearchProviderError as exc:
+                    error = exc
+                except Exception:  # receipt records failure; original propagates
+                    pass
+            self._record(attempt, response=response, error=error, quote=quote)
 
-    def _record(self, attempt, succeeded):
+    def _record(
+        self,
+        attempt: int,
+        *,
+        response: SearchResponse | None,
+        error: SearchProviderError | None,
+        quote: SearchQuote,
+    ) -> None:
         ctx = self._ctx
         if ctx.project is None:
             # Explicit standalone `op try` has no project receipt.
@@ -82,25 +114,59 @@ class AdmittedWebSearcher:
         writer = attempt_in_scope(ctx.extras)
         if writer is None:
             raise RuntimeError("Web search requires its admitted output writer")
-        ReceiptStore(ctx.project)._record_writer_evidence(
+        provider = response.provider if response is not None else self._service.provider
+        usage = response.usage if response is not None else None
+        max_attempts = MAX_ATTEMPTS if provider == "ddgs" else 1
+        service = (
+            usage.service
+            if usage is not None
+            else {
+                "ddgs": "ddgs.text",
+                "exa": "exa.search",
+                "tavily": "tavily.search",
+            }[provider]
+        )
+        evidence = {
+            "kind": "web_search_call",
+            "call_id": uuid.uuid4().hex,
+            "row_id": ctx.extras["row_id"],
+            "provider": provider,
+            "service": service,
+            "external_api": True,
+            "attempt": attempt,
+            "max_attempts_per_row": max_attempts,
+            "succeeded": response is not None,
+            "cost_actual": (
+                usage.provider_cost_usd
+                if usage is not None
+                else (0.0 if provider == "ddgs" else None)
+            ),
+            "cost_source": usage.cost_source if usage is not None else "unknown",
+        }
+        if usage is not None and usage.units:
+            evidence["units"] = {unit.name: unit.quantity for unit in usage.units}
+        if usage is not None:
+            evidence["provider_reported_cost_usd"] = usage.provider_reported_cost_usd
+        evidence.update(
             {
-                "kind": "web_search_call",
-                "call_id": uuid.uuid4().hex,
-                "row_id": ctx.extras["row_id"],
-                "provider": "ddgs",
-                "service": "ddgs.text",
-                "external_api": True,
-                "attempt": attempt,
-                "max_attempts_per_row": MAX_ATTEMPTS,
-                "succeeded": succeeded,
-                "cost_actual": 0.0,
-            },
+                "pricing_key": quote.pricing_key,
+                "pricing_unit": quote.unit,
+                "unit_price_usd": quote.unit_price_usd,
+                "estimated_cost_usd": quote.estimated_cost_usd,
+            }
+        )
+        if error is not None:
+            evidence["error_code"] = error.code
+        ReceiptStore(ctx.project)._record_writer_evidence(
+            evidence,
             run_id=ctx.extras["run_id"],
             writer_attempt_id=writer.attempt_id,
             claim_token=ctx.extras["claim_token"],
         )
 
-    async def search(self, query: str, *, max_results: int) -> list[SearchResult]:
+    async def search_response(
+        self, query: str, *, max_results: int, timeout: float = 20.0
+    ) -> SearchResponse:
         self._check_active()
         if self._ctx.project is not None:
             from frisket.execution.attempt import attempt_in_scope
@@ -113,22 +179,32 @@ class AdmittedWebSearcher:
             raise RowError(
                 "invalid_params", "Search result limit must be between 1 and 20"
             )
-        for attempt in range(1, MAX_ATTEMPTS + 1):
+        if self._service.provider != "ddgs" and max_results > 10:
+            raise RowError(
+                "invalid_params", "Paid search result limit must be between 1 and 10"
+            )
+        max_attempts = MAX_ATTEMPTS if self._service.provider == "ddgs" else 1
+        last_error: SearchProviderError | None = None
+        for attempt in range(1, max_attempts + 1):
             self._check_active()
             try:
-                results = await self._call(query, max_results, attempt)
-            except _SearchUnavailable:
-                await asyncio.sleep(1.5 * attempt)
+                response = await self._call(query, max_results, attempt, timeout)
+            except _SearchUnavailable as exc:
+                last_error = exc.error
+                if attempt < max_attempts:
+                    await asyncio.sleep(1.5 * attempt)
             else:
-                return [
-                    SearchResult(
-                        title=item.get("title"),
-                        url=item.get("href"),
-                        snippet=item.get("body"),
-                    )
-                    for item in (results or [])
-                ]
+                return response
+        if last_error is not None and self._service.provider != "ddgs":
+            raise RowError(f"search_{last_error.code}", str(last_error)) from None
         raise RowError("search_failed", "Search failed after bounded retries") from None
+
+    async def search(self, query: str, *, max_results: int) -> list[SearchResult]:
+        response = await self.search_response(query, max_results=max_results)
+        return [
+            SearchResult(title=item.title, url=item.url, snippet=item.excerpt)
+            for item in response.results
+        ]
 
 
 def search_provider_use(recorded, facts):
@@ -136,16 +212,31 @@ def search_provider_use(recorded, facts):
     if not recorded:
         return []
     calls = [item.ref for item in recorded]
-    return [
-        {
-            "provider": calls[0]["provider"],
-            "service": calls[0]["service"],
-            "external_api": True,
-            "selected_row_count": facts.total_rows,
-            "successful_row_count": max(0, facts.completed_rows - facts.failed_rows),
-            "failed_row_count": facts.failed_rows,
-            "max_attempts_per_row": max(call["max_attempts_per_row"] for call in calls),
-            "operation_call_count": len(calls),
-            "cost_actual": sum(call["cost_actual"] for call in calls),
-        }
-    ]
+    costs = [call.get("cost_actual") for call in calls]
+    cost_actual = None if any(cost is None for cost in costs) else sum(costs)
+    units: dict[str, int | float] = {}
+    for call in calls:
+        for name, quantity in call.get("units", {}).items():
+            units[name] = units.get(name, 0) + quantity
+    provider_use = {
+        "provider": calls[0]["provider"],
+        "service": calls[0]["service"],
+        "external_api": True,
+        "selected_row_count": facts.total_rows,
+        "successful_row_count": max(0, facts.completed_rows - facts.failed_rows),
+        "failed_row_count": facts.failed_rows,
+        "max_attempts_per_row": max(call["max_attempts_per_row"] for call in calls),
+        "operation_call_count": len(calls),
+        "cost_actual": cost_actual,
+    }
+    if units:
+        provider_use["units"] = units
+    if calls[0].get("pricing_key") is not None:
+        provider_use.update(
+            {
+                "pricing_key": calls[0]["pricing_key"],
+                "pricing_unit": calls[0]["pricing_unit"],
+                "unit_price_usd": calls[0]["unit_price_usd"],
+            }
+        )
+    return [provider_use]

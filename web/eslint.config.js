@@ -60,6 +60,7 @@ export default defineConfig([
       'src/api/raw/browserAuth.ts',
       'src/api/raw/blobText.ts',
       'src/api/raw/mapPointsArrow.ts',
+      'src/api/raw/skillMarkdownUpload.ts',
       '**/*.{test,spec}.{ts,tsx}',
       '**/__tests__/**',
       '**/tests/**',

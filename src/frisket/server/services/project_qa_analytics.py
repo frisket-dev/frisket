@@ -114,7 +114,21 @@ class AnalyticsSort(_ClosedModel):
 
 class AnalyticsRequest(_ClosedModel):
     sheet_id: int = Field(ge=1)
-    filter: dict[str, Any] = Field(default_factory=dict)
+    filter: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Optional canonical sheet filter. Each key is an observed column name, "
+            "and each value is an object with exactly one built-in operator and its "
+            "value. `sheet_id` belongs in this request's separate `sheet_id` field, "
+            "never in `filter`. Supported operators: "
+            + ", ".join(BUILTIN_FILTER_OPERATORS)
+            + ". Boolean values use the canonical strings `true` or `false`."
+        ),
+        examples=[
+            {"Public agency": {"eq": "true"}},
+            {"Defendant": {"contains": "county"}},
+        ],
+    )
     groups: list[AnalyticsGroup] = Field(default_factory=list, max_length=4)
     metrics: list[AnalyticsMetric] = Field(min_length=1, max_length=12)
     having: list[AnalyticsHaving] = Field(default_factory=list, max_length=8)

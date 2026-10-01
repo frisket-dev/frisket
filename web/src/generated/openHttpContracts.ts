@@ -562,6 +562,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
+      "id": "tenant.create_skill.post",
+      "method": "POST",
+      "path": "/api/skills",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "tenant.create_view.post",
       "method": "POST",
       "path": "/api/projects/{pid}/views",
@@ -623,6 +632,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "method": "DELETE",
       "path": "/api/projects/{pid}/sheets/{sheet_id}",
       "request": null
+    },
+    {
+      "id": "tenant.delete_skill.delete",
+      "method": "DELETE",
+      "path": "/api/skills/{skill_id}",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
     },
     {
       "id": "tenant.delete_view_ep.delete",
@@ -1015,6 +1033,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "tenant.list_skills.get",
+      "method": "GET",
+      "path": "/api/skills",
+      "request": null
+    },
+    {
       "id": "tenant.list_sources.get",
       "method": "GET",
       "path": "/api/projects/{pid}/sources",
@@ -1243,6 +1267,21 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "tenant.qa_research_options.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/qa/research-options",
+      "request": null
+    },
+    {
+      "id": "tenant.qa_resume_research.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/qa/threads/{thread_id}/turns/{turn_id}/resume",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "tenant.qa_stop_turn.post",
       "method": "POST",
       "path": "/api/projects/{pid}/qa/threads/{thread_id}/turns/{turn_id}/stop",
@@ -1438,6 +1477,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
+      "id": "tenant.set_skill_enabled.patch",
+      "method": "PATCH",
+      "path": "/api/skills/{skill_id}/enabled",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "tenant.setup_model_engine.post",
       "method": "POST",
       "path": "/api/providers/models/setup",
@@ -1606,6 +1654,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
+      "id": "tenant.update_skill.put",
+      "method": "PUT",
+      "path": "/api/skills/{skill_id}",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "tenant.update_xlsx.post",
       "method": "POST",
       "path": "/api/projects/{pid}/import/xlsx/update",
@@ -1613,6 +1670,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
         "mediaType": "multipart/form-data",
         "required": true
       }
+    },
+    {
+      "id": "tenant.upload_skill.post",
+      "method": "POST",
+      "path": "/api/skills/upload",
+      "request": null
     },
     {
       "id": "tenant.v1_action_catalog.get",
@@ -2842,7 +2905,7 @@ type HttpAskEventsPage_AskCitation = ({
 type HttpAskEventsPage_AskEvent = ({
   "citations"?: (Array<(HttpAskEventsPage_AskCitation)>);
   "created_at": (string);
-  "kind": ("question" | "assistant" | "tool_started" | "tool_completed" | "answer" | "result_suggestion" | "action_proposal" | "usage" | "status") & (string);
+  "kind": ("question" | "assistant" | "tool_started" | "tool_completed" | "answer" | "result_suggestion" | "action_proposal" | "research_child" | "usage" | "status") & (string);
   "payload": ({
   [key: string]: (HttpAskEventsPage_JsonValue);
 });
@@ -2881,6 +2944,30 @@ type HttpAskEventsPage_AskQueryTarget = ({
   "total": (number);
 });
 
+type HttpAskEventsPage_AskResearchOptions = ({
+  "budget_usd"?: (((string)) | ((null)));
+  "max_turns"?: (((number)) | ((null)));
+  "skills"?: (((Array<(string)>)) | ((null)));
+  "write_mode"?: ("ask_each" | "ask_overwrite" | "full_access") & (string);
+});
+
+type HttpAskEventsPage_AskResearchState = ({
+  "budget_micros": (number);
+  "currency": ("USD") & (string);
+  "id": (string);
+  "max_turns": (((number)) | ((null)));
+  "pending_approval": ((({
+  [key: string]: (HttpAskEventsPage_JsonValue);
+})) | ((null)));
+  "remaining_micros": (number);
+  "reserved_micros": (number);
+  "revision": (number);
+  "settled_micros": (number);
+  "state": ("running" | "paused" | "interrupted" | "completed") & (string);
+  "turn_count": (number);
+  "write_mode": ("ask_each" | "ask_overwrite" | "full_access") & (string);
+});
+
 type HttpAskEventsPage_AskRowsSource = ({
   "kind": ("rows") & (string);
   "row_ids": (Array<(number)>);
@@ -2905,6 +2992,8 @@ type HttpAskEventsPage_AskTurn = ({
   "model"?: (((string)) | ((null)));
   "question": (string);
   "request_id": (string);
+  "research"?: (((HttpAskEventsPage_AskResearchOptions)) | ((null)));
+  "research_state"?: (((HttpAskEventsPage_AskResearchState)) | ((null)));
   "scope": (HttpAskEventsPage_AskScope);
   "started_at": (string);
   "status": ("running" | "stopping" | "completed" | "stopped" | "failed" | "interrupted") & (string);
@@ -2937,11 +3026,40 @@ export type HttpAskReport = ({
   "markdown": (string);
 });
 
+type HttpAskResearchConfiguration_AskSkillSummary = ({
+  "description": (string);
+  "name": (string);
+});
+
+export type HttpAskResearchConfiguration = ({
+  "available": (boolean);
+  "budget_usd": (((string)) | ((null)));
+  "reason"?: (((string)) | ((null)));
+  "skills": (Array<(HttpAskResearchConfiguration_AskSkillSummary)>);
+  "web_provider": (((string)) | ((null)));
+});
+
+export type HttpAskResearchResume = ({
+  "approval_id": (string);
+  "budget_usd"?: (((string)) | ((null)));
+  "decision"?: ("continue" | "approve" | "skip") & (string);
+  "expected_revision": (number);
+  "max_turns"?: (((number)) | ((null)));
+  "write_mode"?: ((("ask_each" | "ask_overwrite" | "full_access") & (string)) | ((null)));
+});
+
 type HttpAskThread_AskFileSource = ({
   "column_id": (number);
   "kind": ("file") & (string);
   "row_id": (number);
   "sheet_id": (number);
+});
+
+type HttpAskThread_AskResearchOptions = ({
+  "budget_usd"?: (((string)) | ((null)));
+  "max_turns"?: (((number)) | ((null)));
+  "skills"?: (((Array<(string)>)) | ((null)));
+  "write_mode"?: ("ask_each" | "ask_overwrite" | "full_access") & (string);
 });
 
 type HttpAskThread_AskRowsSource = ({
@@ -2965,6 +3083,7 @@ export type HttpAskThread = ({
   "created_by": (((string)) | ((null)));
   "id": (string);
   "model"?: (((string)) | ((null)));
+  "research"?: (((HttpAskThread_AskResearchOptions)) | ((null)));
   "revision": (number);
   "scope": (HttpAskThread_AskScope);
   "suggest_actions"?: (boolean);
@@ -2978,6 +3097,13 @@ type HttpAskThreadCreate_AskFileSource = ({
   "kind": ("file") & (string);
   "row_id": (number);
   "sheet_id": (number);
+});
+
+type HttpAskThreadCreate_AskResearchOptions = ({
+  "budget_usd"?: (((string)) | ((null)));
+  "max_turns"?: (((number)) | ((null)));
+  "skills"?: (((Array<(string)>)) | ((null)));
+  "write_mode"?: ("ask_each" | "ask_overwrite" | "full_access") & (string);
 });
 
 type HttpAskThreadCreate_AskRowsSource = ({
@@ -2998,6 +3124,7 @@ type HttpAskThreadCreate_AskSheetSource = ({
 
 export type HttpAskThreadCreate = ({
   "model"?: (((string)) | ((null)));
+  "research"?: (((HttpAskThreadCreate_AskResearchOptions)) | ((null)));
   "scope": (HttpAskThreadCreate_AskScope);
   "suggest_actions"?: (boolean);
   "title"?: (string);
@@ -3024,7 +3151,7 @@ type HttpAskThreadDetail_AskCitation = ({
 type HttpAskThreadDetail_AskEvent = ({
   "citations"?: (Array<(HttpAskThreadDetail_AskCitation)>);
   "created_at": (string);
-  "kind": ("question" | "assistant" | "tool_started" | "tool_completed" | "answer" | "result_suggestion" | "action_proposal" | "usage" | "status") & (string);
+  "kind": ("question" | "assistant" | "tool_started" | "tool_completed" | "answer" | "result_suggestion" | "action_proposal" | "research_child" | "usage" | "status") & (string);
   "payload": ({
   [key: string]: (HttpAskThreadDetail_JsonValue);
 });
@@ -3070,6 +3197,30 @@ type HttpAskThreadDetail_AskQueryTarget = ({
   "total": (number);
 });
 
+type HttpAskThreadDetail_AskResearchOptions = ({
+  "budget_usd"?: (((string)) | ((null)));
+  "max_turns"?: (((number)) | ((null)));
+  "skills"?: (((Array<(string)>)) | ((null)));
+  "write_mode"?: ("ask_each" | "ask_overwrite" | "full_access") & (string);
+});
+
+type HttpAskThreadDetail_AskResearchState = ({
+  "budget_micros": (number);
+  "currency": ("USD") & (string);
+  "id": (string);
+  "max_turns": (((number)) | ((null)));
+  "pending_approval": ((({
+  [key: string]: (HttpAskThreadDetail_JsonValue);
+})) | ((null)));
+  "remaining_micros": (number);
+  "reserved_micros": (number);
+  "revision": (number);
+  "settled_micros": (number);
+  "state": ("running" | "paused" | "interrupted" | "completed") & (string);
+  "turn_count": (number);
+  "write_mode": ("ask_each" | "ask_overwrite" | "full_access") & (string);
+});
+
 type HttpAskThreadDetail_AskRowsSource = ({
   "kind": ("rows") & (string);
   "row_ids": (Array<(number)>);
@@ -3091,6 +3242,7 @@ type HttpAskThreadDetail_AskThread = ({
   "created_by": (((string)) | ((null)));
   "id": (string);
   "model"?: (((string)) | ((null)));
+  "research"?: (((HttpAskThreadDetail_AskResearchOptions)) | ((null)));
   "revision": (number);
   "scope": (HttpAskThreadDetail_AskScope);
   "suggest_actions"?: (boolean);
@@ -3107,6 +3259,8 @@ type HttpAskThreadDetail_AskTurn = ({
   "model"?: (((string)) | ((null)));
   "question": (string);
   "request_id": (string);
+  "research"?: (((HttpAskThreadDetail_AskResearchOptions)) | ((null)));
+  "research_state"?: (((HttpAskThreadDetail_AskResearchState)) | ((null)));
   "scope": (HttpAskThreadDetail_AskScope);
   "started_at": (string);
   "status": ("running" | "stopping" | "completed" | "stopped" | "failed" | "interrupted") & (string);
@@ -3141,6 +3295,13 @@ type HttpAskThreadUpdate_AskFileSource = ({
   "sheet_id": (number);
 });
 
+type HttpAskThreadUpdate_AskResearchOptions = ({
+  "budget_usd"?: (((string)) | ((null)));
+  "max_turns"?: (((number)) | ((null)));
+  "skills"?: (((Array<(string)>)) | ((null)));
+  "write_mode"?: ("ask_each" | "ask_overwrite" | "full_access") & (string);
+});
+
 type HttpAskThreadUpdate_AskRowsSource = ({
   "kind": ("rows") & (string);
   "row_ids": (Array<(number)>);
@@ -3160,6 +3321,7 @@ type HttpAskThreadUpdate_AskSheetSource = ({
 export type HttpAskThreadUpdate = ({
   "expected_revision": (number);
   "model"?: (((string)) | ((null)));
+  "research"?: (((HttpAskThreadUpdate_AskResearchOptions)) | ((null)));
   "scope"?: (((HttpAskThreadUpdate_AskScope)) | ((null)));
   "suggest_actions"?: (((boolean)) | ((null)));
   "title"?: (((string)) | ((null)));
@@ -3171,6 +3333,30 @@ type HttpAskTurn_AskFileSource = ({
   "kind": ("file") & (string);
   "row_id": (number);
   "sheet_id": (number);
+});
+
+type HttpAskTurn_AskResearchOptions = ({
+  "budget_usd"?: (((string)) | ((null)));
+  "max_turns"?: (((number)) | ((null)));
+  "skills"?: (((Array<(string)>)) | ((null)));
+  "write_mode"?: ("ask_each" | "ask_overwrite" | "full_access") & (string);
+});
+
+type HttpAskTurn_AskResearchState = ({
+  "budget_micros": (number);
+  "currency": ("USD") & (string);
+  "id": (string);
+  "max_turns": (((number)) | ((null)));
+  "pending_approval": ((({
+  [key: string]: (HttpAskTurn_JsonValue);
+})) | ((null)));
+  "remaining_micros": (number);
+  "reserved_micros": (number);
+  "revision": (number);
+  "settled_micros": (number);
+  "state": ("running" | "paused" | "interrupted" | "completed") & (string);
+  "turn_count": (number);
+  "write_mode": ("ask_each" | "ask_overwrite" | "full_access") & (string);
 });
 
 type HttpAskTurn_AskRowsSource = ({
@@ -3199,6 +3385,8 @@ export type HttpAskTurn = ({
   "model"?: (((string)) | ((null)));
   "question": (string);
   "request_id": (string);
+  "research"?: (((HttpAskTurn_AskResearchOptions)) | ((null)));
+  "research_state"?: (((HttpAskTurn_AskResearchState)) | ((null)));
   "scope": (HttpAskTurn_AskScope);
   "started_at": (string);
   "status": ("running" | "stopping" | "completed" | "stopped" | "failed" | "interrupted") & (string);
@@ -3216,6 +3404,13 @@ type HttpAskTurnRequest_AskFileSource = ({
   "kind": ("file") & (string);
   "row_id": (number);
   "sheet_id": (number);
+});
+
+type HttpAskTurnRequest_AskResearchOptions = ({
+  "budget_usd"?: (((string)) | ((null)));
+  "max_turns"?: (((number)) | ((null)));
+  "skills"?: (((Array<(string)>)) | ((null)));
+  "write_mode"?: ("ask_each" | "ask_overwrite" | "full_access") & (string);
 });
 
 type HttpAskTurnRequest_AskRowsSource = ({
@@ -3238,6 +3433,7 @@ export type HttpAskTurnRequest = ({
   "model"?: (((string)) | ((null)));
   "question": (string);
   "request_id": (string);
+  "research"?: (((HttpAskTurnRequest_AskResearchOptions)) | ((null)));
   "scope": (HttpAskTurnRequest_AskScope);
   "suggest_actions"?: (boolean);
   "web"?: (boolean);
@@ -5295,6 +5491,13 @@ type HttpInline_64f1fc6f91179544_AskFileSource = ({
   "sheet_id": (number);
 });
 
+type HttpInline_64f1fc6f91179544_AskResearchOptions = ({
+  "budget_usd"?: (((string)) | ((null)));
+  "max_turns"?: (((number)) | ((null)));
+  "skills"?: (((Array<(string)>)) | ((null)));
+  "write_mode"?: ("ask_each" | "ask_overwrite" | "full_access") & (string);
+});
+
 type HttpInline_64f1fc6f91179544_AskRowsSource = ({
   "kind": ("rows") & (string);
   "row_ids": (Array<(number)>);
@@ -5316,6 +5519,7 @@ type HttpInline_64f1fc6f91179544_AskThread = ({
   "created_by": (((string)) | ((null)));
   "id": (string);
   "model"?: (((string)) | ((null)));
+  "research"?: (((HttpInline_64f1fc6f91179544_AskResearchOptions)) | ((null)));
   "revision": (number);
   "scope": (HttpInline_64f1fc6f91179544_AskScope);
   "suggest_actions"?: (boolean);
@@ -6045,6 +6249,10 @@ export type HttpInline_eabc0e7195ba3d01 = ({
   "sort"?: (((string)) | ((null)));
 });
 
+export type HttpInline_ec5c454245a08c93 = ({
+  "skill_id": (string);
+});
+
 export type HttpInline_ecf7142947bec4dd = ({
   "channel_id"?: (((number)) | ((null)));
   "limit"?: (number);
@@ -6208,6 +6416,33 @@ export type HttpInline_fedabfd6f2269abd = (((HttpInline_fedabfd6f2269abd_ActionE
 export type HttpInstanceInfoResponse = ({
   "display_name": (string);
   "support_contact": (((string)) | ((null)));
+});
+
+export type HttpInstructionSkill = ({
+  "content": (string);
+  "createdAt": (string);
+  "description": (string);
+  "enabled": (boolean);
+  "id": (string);
+  "name": (string);
+  "revision": (number);
+  "updatedAt": (string);
+});
+
+type HttpInstructionSkillList_InstructionSkill = ({
+  "content": (string);
+  "createdAt": (string);
+  "description": (string);
+  "enabled": (boolean);
+  "id": (string);
+  "name": (string);
+  "revision": (number);
+  "updatedAt": (string);
+});
+
+export type HttpInstructionSkillList = ({
+  "schemaVersion": (string);
+  "skills": (Array<(HttpInstructionSkillList_InstructionSkill)>);
 });
 
 type HttpLocalEndpointCatalog_LocalHttpEndpointProvider = ({
@@ -8702,6 +8937,25 @@ export type HttpSheetRowLocation = ({
   "sheet_id": (number);
 });
 
+export type HttpSkillDeleteRequest = ({
+  "expectedRevision": (number);
+});
+
+export type HttpSkillEnabledRequest = ({
+  "enabled": (boolean);
+  "expectedRevision": (number);
+});
+
+export type HttpSkillSaveRequest = ({
+  "content": (string);
+  "enabled"?: (boolean);
+});
+
+export type HttpSkillUpdateRequest = ({
+  "content": (string);
+  "expectedRevision": (number);
+});
+
 type HttpSpendReport_SpendRow = ({
   "cost": (number);
   "model": (((string)) | ((null)));
@@ -10680,6 +10934,21 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.create_skill.post": {
+    readonly pathParams: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpSkillSaveRequest;
+    readonly responses: {
+      readonly "200": HttpInstructionSkill;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "415": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
   readonly "tenant.create_view.post": {
     readonly pathParams: HttpInline_87cacc773db826e7;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -10794,6 +11063,21 @@ export type HttpContractOperationMap = {
       readonly "403": HttpError;
       readonly "404": HttpError;
       readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.delete_skill.delete": {
+    readonly pathParams: HttpInline_ec5c454245a08c93;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpSkillDeleteRequest;
+    readonly responses: {
+      readonly "204": undefined;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "415": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
     };
@@ -11517,6 +11801,21 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.list_skills.get": {
+    readonly pathParams: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpInstructionSkillList;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "415": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
   readonly "tenant.list_sources.get": {
     readonly pathParams: HttpInline_87cacc773db826e7;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -11940,6 +12239,34 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.qa_research_options.get": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpAskResearchConfiguration;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.qa_resume_research.post": {
+    readonly pathParams: HttpInline_00e48418ac223a62;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpAskResearchResume;
+    readonly responses: {
+      readonly "200": HttpAskTurn;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
   readonly "tenant.qa_stop_turn.post": {
     readonly pathParams: HttpInline_00e48418ac223a62;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -12294,6 +12621,21 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.set_skill_enabled.patch": {
+    readonly pathParams: HttpInline_ec5c454245a08c93;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpSkillEnabledRequest;
+    readonly responses: {
+      readonly "200": HttpInstructionSkill;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "415": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
   readonly "tenant.setup_model_engine.post": {
     readonly pathParams: HttpInline_d746974fa9afd5e9;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -12582,6 +12924,21 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.update_skill.put": {
+    readonly pathParams: HttpInline_ec5c454245a08c93;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpSkillUpdateRequest;
+    readonly responses: {
+      readonly "200": HttpInstructionSkill;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "415": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
   readonly "tenant.update_xlsx.post": {
     readonly pathParams: HttpInline_87cacc773db826e7;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -12597,6 +12954,21 @@ export type HttpContractOperationMap = {
       readonly "413": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpInline_5a665aadb5efda0c;
+    };
+  };
+  readonly "tenant.upload_skill.post": {
+    readonly pathParams: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpInstructionSkill;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "415": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
     };
   };
   readonly "tenant.v1_action_catalog.get": {

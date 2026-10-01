@@ -127,6 +127,11 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
             "POST",
         ): "tenant.column_values_preview.post",
         ("tenant", "qa_threads", "GET"): "tenant.qa_threads.get",
+        (
+            "tenant",
+            "qa_research_options",
+            "GET",
+        ): "tenant.qa_research_options.get",
         ("tenant", "qa_thread", "GET"): "tenant.qa_thread.get",
         ("tenant", "qa_events", "GET"): "tenant.qa_events.get",
         ("tenant", "qa_citation", "GET"): "tenant.qa_citation.get",
@@ -136,7 +141,21 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
         ("tenant", "qa_delete_thread", "DELETE"): "tenant.qa_delete_thread.delete",
         ("tenant", "qa_submit_turn", "POST"): "tenant.qa_submit_turn.post",
         ("tenant", "qa_stop_turn", "POST"): "tenant.qa_stop_turn.post",
+        (
+            "tenant",
+            "qa_resume_research",
+            "POST",
+        ): "tenant.qa_resume_research.post",
         ("tenant", "create_lens", "POST"): "tenant.create_lens.post",
+        ("tenant", "create_skill", "POST"): "tenant.create_skill.post",
+        ("tenant", "upload_skill", "POST"): "tenant.upload_skill.post",
+        ("tenant", "update_skill", "PUT"): "tenant.update_skill.put",
+        (
+            "tenant",
+            "set_skill_enabled",
+            "PATCH",
+        ): "tenant.set_skill_enabled.patch",
+        ("tenant", "delete_skill", "DELETE"): "tenant.delete_skill.delete",
         (
             "tenant",
             "create_notification_channel",
@@ -269,6 +288,7 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
             "GET",
         ): "tenant.get_source_health_ep.get",
         ("tenant", "list_column_types", "GET"): "tenant.list_column_types.get",
+        ("tenant", "list_skills", "GET"): "tenant.list_skills.get",
         ("tenant", "list_walkthroughs", "GET"): "tenant.list_walkthroughs.get",
         ("tenant", "list_lenses", "GET"): "tenant.list_lenses.get",
         (

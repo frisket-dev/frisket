@@ -3,8 +3,10 @@ from fastapi.testclient import TestClient
 
 from frisket.ai.external_pricing import (
     CENSUS_US_ACS,
+    EXA_SEARCH_REQUEST,
     GEOCODE_EXTERNAL_GEOCODER,
     GEOCODE_NOMINATIM_ROW,
+    TAVILY_SEARCH_CREDIT,
     estimate_external_cost,
     external_pricing_catalog,
 )
@@ -40,6 +42,10 @@ def test_catalog_defaults_and_env_overrides(monkeypatch):
     assert CENSUS_US_ACS not in catalog
     assert estimate_external_cost(GEOCODE_EXTERNAL_GEOCODER, 1802)["cost"] == (
         pytest.approx(18.02)
+    )
+    assert estimate_external_cost(EXA_SEARCH_REQUEST, 1)["cost"] == pytest.approx(0.007)
+    assert estimate_external_cost(TAVILY_SEARCH_CREDIT, 1)["cost"] == pytest.approx(
+        0.008
     )
 
     monkeypatch.setenv("FRISKET_GEOCODE_USD_PER_ROW", "0.02")
