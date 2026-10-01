@@ -12,6 +12,7 @@ from frisket.server.services.action_runs import ActionRunResponse
 from frisket.server.services.project_qa_child_runs import (
     ChildRunDrainTimeout,
     ChildRunDispatch,
+    ChildRunOutcome,
     ProjectQAChildRunService,
 )
 
@@ -230,7 +231,7 @@ def test_task_cancellation_cancels_and_bounds_child_drain() -> None:
         def job_detail(self, _project_id: str, _job_id: int) -> dict[str, Any]:
             return {"job_id": 9, "status": "running", "receipt_id": "rcpt_1"}
 
-    async def scenario() -> tuple[list[tuple[str, int]], int]:
+    async def scenario() -> tuple[list[tuple[str, int]], int, list[ChildRunDispatch]]:
         sleeps = 0
 
         async def sleep(_delay: float) -> None:
@@ -240,6 +241,7 @@ def test_task_cancellation_cancels_and_bounds_child_drain() -> None:
 
         action_runs = _NeverTerminal([], _receipt())
         cancel = _RunCancel()
+        terminal_records: list[ChildRunDispatch] = []
         service = ProjectQAChildRunService(
             object(),
             action_runs=action_runs,  # type: ignore[arg-type]
@@ -253,6 +255,7 @@ def test_task_cancellation_cancels_and_bounds_child_drain() -> None:
                 project_id="project-1",
                 response=_response(),
                 record_dispatch=lambda _dispatch: None,
+                record_terminal=lambda outcome: terminal_records.append(outcome.dispatch),
             )
         )
         await asyncio.sleep(0)
@@ -263,11 +266,64 @@ def test_task_cancellation_cancels_and_bounds_child_drain() -> None:
             pass
         else:  # pragma: no cover - assertion message is clearer than raises check
             raise AssertionError("child waiter swallowed task cancellation")
-        return cancel.calls, sleeps
+        return cancel.calls, sleeps, terminal_records
 
-    calls, sleeps = asyncio.run(scenario())
+    calls, sleeps, terminal_records = asyncio.run(scenario())
     assert calls == [("project-1", 7)]
     assert sleeps > 0
+    assert terminal_records == []
+
+
+def test_task_cancellation_records_known_terminal_outcome_before_propagating() -> None:
+    async def scenario() -> tuple[list[str], list[ChildRunDispatch]]:
+        reached_poll_wait = asyncio.Event()
+        events: list[str] = []
+        terminal_records: list[ChildRunDispatch] = []
+
+        async def sleep(_delay: float) -> None:
+            reached_poll_wait.set()
+            await asyncio.Event().wait()
+
+        async def record_terminal(outcome: ChildRunOutcome) -> None:
+            events.append("terminal")
+            assert outcome.status == "cancelled"
+            assert outcome.provider_cost_usd == 0.02
+            assert outcome.billed_cost_micros == 20_000
+            terminal_records.append(outcome.dispatch)
+
+        action_runs = _ActionRuns(
+            [
+                {"job_id": 9, "status": "running", "receipt_id": "rcpt_1"},
+                {"job_id": 9, "status": "cancelled", "receipt_id": "rcpt_1"},
+            ],
+            {**_receipt(cost=0.02), "status": "cancelled"},
+        )
+        service = ProjectQAChildRunService(
+            object(),
+            action_runs=action_runs,  # type: ignore[arg-type]
+            action_run_cancel=_RunCancel(),  # type: ignore[arg-type]
+            sleep=sleep,
+        )
+        task = asyncio.create_task(
+            service.wait(
+                project=_Project(_Db()),  # type: ignore[arg-type]
+                project_id="project-1",
+                response=_response(),
+                record_dispatch=lambda _dispatch: None,
+                rate_actual_cost=lambda usd: round(usd * 1_000_000),
+                record_terminal=record_terminal,
+            )
+        )
+        await reached_poll_wait.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        events.append("cancelled")
+        return events, terminal_records
+
+    events, terminal_records = asyncio.run(scenario())
+    assert events == ["terminal", "cancelled"]
+    assert terminal_records[0].idempotency_key == "research:turn:operation"
 
 
 def test_stop_timeout_preserves_dispatch_and_raises_typed_unresolved_child() -> None:

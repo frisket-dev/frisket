@@ -80,6 +80,7 @@ class RateActualCost(Protocol):
 
 Sleep = Callable[[float], Awaitable[None]]
 StopRequested = Callable[[], bool | Awaitable[bool]]
+RecordChildTerminal = Callable[[ChildRunOutcome], None | Awaitable[None]]
 
 
 class ProjectQAChildRunService:
@@ -118,6 +119,7 @@ class ProjectQAChildRunService:
         record_dispatch: RecordChildDispatch,
         stop_requested: StopRequested = lambda: False,
         rate_actual_cost: RateActualCost | None = None,
+        record_terminal: RecordChildTerminal | None = None,
     ) -> ChildRunOutcome:
         """Record one launch, await it, and return its bounded durable result.
 
@@ -126,6 +128,11 @@ class ProjectQAChildRunService:
         idempotency key. This narrows the launch-to-wait process-death window
         without adding another scheduler; it cannot make a crashed process
         recover work that was never persisted.
+
+        If caller cancellation reaches a terminal child during its bounded
+        drain, ``record_terminal`` receives that durable outcome before the
+        cancellation is propagated. Normal completions return to their caller
+        without invoking it.
         """
 
         initial = V1ActionResult.model_validate(response.payload)
@@ -232,9 +239,25 @@ class ProjectQAChildRunService:
                     async with asyncio.timeout(
                         self._cancellation_drain_timeout_seconds
                     ):
-                        await self._drain_job(project_id, initial.job_id)
+                        public_job_status = await self._drain_job(
+                            project_id, initial.job_id
+                        )
                 except TimeoutError:
                     pass
+                else:
+                    receipt_id = _optional_string(public_job_status.get("receipt_id"))
+                    receipt = await self._receipt_if_present(
+                        project_id, receipt_id or dispatch.receipt_id
+                    )
+                    outcome = await self._outcome(
+                        project=project,
+                        dispatch=dispatch,
+                        fallback=_job_fallback(initial, public_job_status),
+                        receipt=receipt,
+                        public_job_status=public_job_status,
+                        rate_actual_cost=rate_actual_cost,
+                    )
+                    await _record_terminal(record_terminal, outcome)
             raise
 
     async def _drain_job(self, project_id: str, job_id: int) -> dict[str, Any]:
@@ -325,6 +348,16 @@ async def _requested(callback: StopRequested) -> bool:
     if inspect.isawaitable(result):
         result = await result
     return bool(result)
+
+
+async def _record_terminal(
+    callback: RecordChildTerminal | None, outcome: ChildRunOutcome
+) -> None:
+    if callback is None:
+        return
+    result = callback(outcome)
+    if inspect.isawaitable(result):
+        await result
 
 
 def _optional_string(value: Any) -> str | None:
