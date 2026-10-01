@@ -9,7 +9,10 @@ import pytest
 
 from frisket.actions.types import RowError
 from frisket.ai.research.search import SearchService
-from frisket.engine.executor.web_search_read import AdmittedWebSearcher
+from frisket.engine.executor.web_search_read import (
+    AdmittedWebSearcher,
+    search_provider_use,
+)
 from frisket.ops.base import OpContext, RecipeInvocationHalt
 
 
@@ -145,6 +148,41 @@ def test_paid_provider_failure_is_visible_and_never_retried() -> None:
 
     asyncio.run(run())
     assert calls == 1
+
+
+def test_paid_provider_use_preserves_credit_and_captured_rate_identity() -> None:
+    recorded = [
+        SimpleNamespace(
+            ref={
+                "provider": "tavily",
+                "service": "tavily.search",
+                "max_attempts_per_row": 1,
+                "cost_actual": 0.008,
+                "units": {"credits": 1},
+                "pricing_key": "tavily.search.credit",
+                "pricing_unit": "credit",
+                "unit_price_usd": "0.008",
+            }
+        )
+    ]
+    facts = SimpleNamespace(total_rows=1, completed_rows=1, failed_rows=0)
+    assert search_provider_use(recorded, facts) == [
+        {
+            "provider": "tavily",
+            "service": "tavily.search",
+            "external_api": True,
+            "selected_row_count": 1,
+            "successful_row_count": 1,
+            "failed_row_count": 0,
+            "max_attempts_per_row": 1,
+            "operation_call_count": 1,
+            "cost_actual": 0.008,
+            "units": {"credits": 1},
+            "pricing_key": "tavily.search.credit",
+            "pricing_unit": "credit",
+            "unit_price_usd": "0.008",
+        }
+    ]
 
 
 def test_closing_invocation_revokes_bound_searchers(monkeypatch):

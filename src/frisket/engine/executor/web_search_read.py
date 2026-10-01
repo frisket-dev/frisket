@@ -217,4 +217,12 @@ def search_provider_use(recorded, facts):
     }
     if units:
         provider_use["units"] = units
+    if calls[0].get("pricing_key") is not None:
+        provider_use.update(
+            {
+                "pricing_key": calls[0]["pricing_key"],
+                "pricing_unit": calls[0]["pricing_unit"],
+                "unit_price_usd": calls[0]["unit_price_usd"],
+            }
+        )
     return [provider_use]
