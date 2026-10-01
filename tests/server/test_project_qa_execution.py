@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import asyncio
+import copy
+import inspect
+import threading
 from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
@@ -9,6 +13,7 @@ import pytest
 from frisket.actions.system import root_action_catalog_payload
 from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAStore
+from frisket.engine.store.runs import RunResultStore
 from frisket.server.services.action_runs import ActionRunResponse
 from frisket.server.services.project_qa_child_runs import (
     ChildRunDispatch,
@@ -373,6 +378,124 @@ async def test_replay_keeps_one_budget_operation_and_one_usage_event(tmp_path):
         ]
         assert len(session.store.admissions) == 1
         assert len(session.store.settlements) == 1
+        assert len(store.research_children) == 2
+        usage = [
+            event
+            for event in store.events(str(turn["thread_id"]))["events"]
+            if event["kind"] == "usage"
+            and event["payload"].get("operation") == "action"
+        ]
+        assert len(usage) == 1
+    finally:
+        project.close()
+
+
+@pytest.mark.asyncio
+async def test_cancellation_during_launch_links_stops_and_settles_child(tmp_path):
+    project, sheet_id, turn, store, session = _project_state(tmp_path)
+    launch_started = threading.Event()
+    release_launch = threading.Event()
+    stop_checks: list[bool] = []
+
+    def run_action(_project_id: str, body: dict[str, Any]) -> ActionRunResponse:
+        launch_started.set()
+        assert release_launch.wait(timeout=5)
+        return _response(body["idempotency_key"])
+
+    async def wait_child(**kwargs: Any) -> ChildRunOutcome:
+        stop = kwargs["stop_requested"]()
+        if inspect.isawaitable(stop):
+            stop = await stop
+        stop_checks.append(bool(stop))
+        outcome = _outcome(
+            kwargs["response"].payload["idempotency_key"],
+            kwargs["record_dispatch"],
+        )
+        return replace(outcome, status="cancelled", outputs=())
+
+    service = ProjectQAExecutionService(
+        project,
+        "project-1",
+        turn,
+        store,
+        session,
+        catalog_payload_provider=root_action_catalog_payload,
+        quote_provider=_quote,
+        run_action=run_action,
+        wait_child=wait_child,
+    )
+    try:
+        prepared = await service.prepare_action("Greet", _draft(sheet_id))
+        task = asyncio.create_task(service.execute_action(prepared["event_ref"]))
+        assert await asyncio.to_thread(launch_started.wait, 5)
+        task.cancel()
+        release_launch.set()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert stop_checks == [True]
+        assert len(store.research_children) == 2
+        assert store.research_children[-1]["payload"]["job_id"] == 9
+        assert session.store.settlements == [
+            {
+                "research_id": "research-1",
+                "operation_id": prepared["event_ref"]["dispatch_id"],
+                "payload_identity": session.store.admissions[0]["payload_identity"],
+                "actual_micros": 23,
+            }
+        ]
+        usage = [
+            event
+            for event in store.events(str(turn["thread_id"]))["events"]
+            if event["kind"] == "usage"
+            and event["payload"].get("operation") == "action"
+        ]
+        assert len(usage) == 1
+    finally:
+        release_launch.set()
+        project.close()
+
+
+@pytest.mark.asyncio
+async def test_cancellation_while_waiting_settles_terminal_callback(tmp_path):
+    project, sheet_id, turn, store, session = _project_state(tmp_path)
+    wait_started = asyncio.Event()
+
+    async def wait_child(**kwargs: Any) -> ChildRunOutcome:
+        outcome = _outcome(
+            kwargs["response"].payload["idempotency_key"],
+            kwargs["record_dispatch"],
+        )
+        wait_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            terminal = replace(outcome, status="cancelled", outputs=())
+            await kwargs["record_terminal"](terminal)
+            raise
+
+    service = ProjectQAExecutionService(
+        project,
+        "project-1",
+        turn,
+        store,
+        session,
+        catalog_payload_provider=root_action_catalog_payload,
+        quote_provider=_quote,
+        run_action=lambda _project_id, body: _response(body["idempotency_key"]),
+        wait_child=wait_child,
+    )
+    try:
+        prepared = await service.prepare_action("Greet", _draft(sheet_id))
+        task = asyncio.create_task(service.execute_action(prepared["event_ref"]))
+        await wait_started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert len(store.research_children) == 2
+        assert session.store.settlements[0]["actual_micros"] == 23
         usage = [
             event
             for event in store.events(str(turn["thread_id"]))["events"]
@@ -443,6 +566,152 @@ async def test_external_action_needs_approval_even_in_full_access(tmp_path):
         with pytest.raises(ResearchActionSkipped):
             await service.execute_action(prepared["event_ref"])
         assert session.pauses[0]["reason"] == "external_effect"
+    finally:
+        project.close()
+
+
+@pytest.mark.asyncio
+async def test_unknown_catalog_effect_needs_approval_even_in_full_access(tmp_path):
+    project, sheet_id, turn, store, session = _project_state(
+        tmp_path, write_mode="full_access"
+    )
+    session.decisions[:] = ["skip"]
+
+    def catalog_with_unknown_effect() -> dict[str, Any]:
+        payload = copy.deepcopy(root_action_catalog_payload())
+        entry = next(
+            item for item in payload["actions"] if item["kind"] == "map.template"
+        )
+        entry["side_effects"].append("erase_records")
+        return payload
+
+    service = ProjectQAExecutionService(
+        project,
+        "project-1",
+        turn,
+        store,
+        session,
+        catalog_payload_provider=catalog_with_unknown_effect,
+        quote_provider=_quote,
+        run_action=lambda *_args: pytest.fail("must not dispatch"),
+        wait_child=lambda **_kwargs: pytest.fail("must not wait"),
+    )
+    try:
+        prepared = await service.prepare_action("Greet", _draft(sheet_id))
+        with pytest.raises(ResearchActionSkipped):
+            await service.execute_action(prepared["event_ref"])
+        assert session.pauses[0]["reason"] == "unknown_effect"
+        assert session.store.admissions == []
+    finally:
+        project.close()
+
+
+@pytest.mark.asyncio
+async def test_quote_becoming_unknown_pauses_before_admission_or_dispatch(tmp_path):
+    project, sheet_id, turn, store, session = _project_state(tmp_path)
+    session.decisions[:] = ["skip"]
+    quote_calls = 0
+
+    def changing_quote(action: dict[str, Any]) -> dict[str, Any]:
+        nonlocal quote_calls
+        quote_calls += 1
+        return _quote(action) if quote_calls == 1 else {}
+
+    service = ProjectQAExecutionService(
+        project,
+        "project-1",
+        turn,
+        store,
+        session,
+        catalog_payload_provider=root_action_catalog_payload,
+        quote_provider=changing_quote,
+        run_action=lambda *_args: pytest.fail("must not dispatch"),
+        wait_child=lambda **_kwargs: pytest.fail("must not wait"),
+    )
+    try:
+        prepared = await service.prepare_action("Greet", _draft(sheet_id))
+        with pytest.raises(ResearchActionSkipped, match="unknown cost"):
+            await service.execute_action(prepared["event_ref"])
+
+        assert session.pauses == [
+            {
+                "kind": "unknown_cost",
+                "operation": "action",
+                "operation_id": prepared["event_ref"]["dispatch_id"],
+                "action_id": "map.template",
+                "payload_identity": session.pauses[0]["payload_identity"],
+                "reason": "normal action quote is unavailable",
+            }
+        ]
+        assert session.store.admissions == []
+    finally:
+        project.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("write_mode", "decision", "should_launch"),
+    [("ask_overwrite", "skip", False), ("full_access", None, True)],
+)
+async def test_replacement_respects_write_mode_at_frozen_target(
+    tmp_path, write_mode, decision, should_launch
+):
+    project, sheet_id, turn, store, session = _project_state(
+        tmp_path, write_mode=write_mode
+    )
+    greeting_column = project.add_column(
+        sheet_id, "Greeting", type="text", ai_generated=True
+    )
+    op_id = project.append_op("map.template", {"output": "Greeting"})
+    run_id = RunResultStore(project).start_run(op_id, sheet_id, "map.template")
+    project.db.execute(
+        "INSERT INTO run_output_generations "
+        "(run_id,column_id,output_role,compatibility_key,write_mode,state,"
+        "claim_token,terminal_disposition,sealed_at) "
+        "VALUES (?,?,?,?,?,'sealed',?,'completed',datetime('now'))",
+        (run_id, greeting_column, "rendered", "text", "create", "prior-claim"),
+    )
+    project.db.commit()
+    if decision is not None:
+        session.decisions[:] = [decision]
+    launched: list[str] = []
+
+    async def wait_child(**kwargs: Any) -> ChildRunOutcome:
+        return _outcome(
+            kwargs["response"].payload["idempotency_key"],
+            kwargs["record_dispatch"],
+        )
+
+    service = ProjectQAExecutionService(
+        project,
+        "project-1",
+        turn,
+        store,
+        session,
+        catalog_payload_provider=root_action_catalog_payload,
+        quote_provider=_quote,
+        run_action=lambda _project_id, body: (
+            launched.append(body["idempotency_key"])
+            or _response(body["idempotency_key"])
+        ),
+        wait_child=wait_child,
+    )
+    draft = {
+        **_draft(sheet_id),
+        "output_names": {"rendered": "Greeting"},
+        "replace_existing": True,
+    }
+    try:
+        prepared = await service.prepare_action("Replace names", draft)
+        if should_launch:
+            await service.execute_action(prepared["event_ref"])
+            assert launched == [prepared["event_ref"]["dispatch_id"]]
+            assert session.pauses == []
+        else:
+            with pytest.raises(ResearchActionSkipped):
+                await service.execute_action(prepared["event_ref"])
+            assert launched == []
+            assert session.pauses[0]["reason"] == "overwrite_or_delete"
     finally:
         project.close()
 

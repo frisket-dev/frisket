@@ -8,6 +8,7 @@ lifecycle.
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import asdict, dataclass
@@ -21,6 +22,7 @@ from frisket.server.services.project_qa_actions import (
     CatalogPayloadProvider,
     PreparedActionReference,
     PreparedProjectAskAction,
+    ProjectAskActionUnpriced,
     ProjectAskActionService,
     OutputGrantsProvider,
     QuoteProvider,
@@ -28,9 +30,9 @@ from frisket.server.services.project_qa_actions import (
 )
 from frisket.server.services.project_qa_child_runs import (
     ChildRunDispatch,
+    ChildRunDrainTimeout,
     ChildRunOutcome,
     RateActualCost,
-    StopRequested,
 )
 from frisket.server.thread_worker import await_thread_worker
 
@@ -42,14 +44,23 @@ _FORBIDDEN_ACTION_IDS = frozenset({"map.mcp_extract", "map.python", "plugin.load
 _FORBIDDEN_CAPABILITY_PREFIXES = ("admin:", "unsafe:")
 _FORBIDDEN_CAPABILITIES = frozenset({"plugin:load"})
 _FORBIDDEN_EFFECT_MARKERS = ("execute_code", "execute_trusted_local_python")
-_DESTRUCTIVE_EFFECT_MARKERS = (
-    "cascade_",
-    "delete_",
-    "hide_",
-    "replace_",
-    "transition_operation_status",
-    "update_",
-    "write_edit_overlay",
+_TYPED_MAP_CATALOG_EFFECTS = frozenset(
+    {
+        "read_input_rows",
+        "read_pdf_blob_cells",
+        "call_natural_pdf_adapter",
+        "read_media_blobs",
+        "call_local_metadata_adapters",
+        "write_media_metadata_cache",
+        "call_model_router",
+        "call_external_provider",
+        "create_generated_columns",
+        "write_run_results",
+        "write_map_op",
+        "write_model_calls",
+        "write_trace",
+        "write_receipt",
+    }
 )
 
 
@@ -58,7 +69,6 @@ class ResearchSessionLike(Protocol):
 
     store: Any
     id: str
-    context: Mapping[str, Any]
 
     async def check_authority(self) -> None: ...
 
@@ -72,10 +82,6 @@ class ResearchSessionLike(Protocol):
         estimate: int | None,
         *,
         metadata: dict[str, Any] | None = None,
-    ) -> dict[str, Any]: ...
-
-    async def checkpoint(
-        self, messages: list[Any], **changes: Any
     ) -> dict[str, Any]: ...
 
 
@@ -122,6 +128,24 @@ class _AdmissionBlocked(Exception):
         self.admission = admission
         self.cause = cause
         super().__init__(str(cause))
+
+
+async def _await_launch_result(awaitable: Awaitable[Any]) -> tuple[Any, bool]:
+    """Keep a canonical launch result available when its caller is cancelled."""
+
+    task = asyncio.create_task(awaitable)
+    cancelled = False
+    while True:
+        try:
+            return await asyncio.shield(task), cancelled
+        except asyncio.CancelledError:
+            if task.done() and task.cancelled():
+                raise
+            cancelled = True
+        except BaseException:
+            if cancelled:
+                raise asyncio.CancelledError from None
+            raise
 
 
 def _strings(value: object, *, name: str) -> tuple[str, ...]:
@@ -179,28 +203,32 @@ def _approval_reason(
     capabilities: tuple[str, ...],
     effects: tuple[str, ...],
 ) -> str | None:
+    if mode not in {"ask_each", "ask_overwrite", "full_access"}:
+        raise ProjectQAExecutionRefused(f"unsupported research write mode: {mode}")
     if mode == "ask_each":
         return "ask_each"
     if any(capability.startswith("external:") for capability in capabilities) or any(
-        effect.startswith(("call_external_", "fetch_external_", "write_google_"))
-        for effect in effects
+        effect.startswith(("fetch_external_", "write_google_")) for effect in effects
     ):
         return "external_effect"
     output_effects = authority.get("effects")
     if not isinstance(output_effects, Mapping):
         return "unknown_effect"
-    if mode == "ask_overwrite":
-        request = authority.get("request")
-        if isinstance(request, Mapping) and request.get("replace_existing") is True:
-            return "overwrite_or_delete"
-        if any(
-            marker in effect.casefold()
-            for effect in effects
-            for marker in _DESTRUCTIVE_EFFECT_MARKERS
-        ):
-            return "overwrite_or_delete"
-    if mode not in {"ask_overwrite", "full_access"}:
-        raise ProjectQAExecutionRefused(f"unsupported research write mode: {mode}")
+    request = authority.get("request")
+    request_replace = (
+        request.get("replace_existing") if isinstance(request, Mapping) else None
+    )
+    prepared_replace = output_effects.get("replace_existing")
+    if (
+        output_effects.get("kind") != "typed_map_rows"
+        or not set(effects).issubset(_TYPED_MAP_CATALOG_EFFECTS)
+        or not isinstance(request_replace, bool)
+        or not isinstance(prepared_replace, bool)
+        or request_replace != prepared_replace
+    ):
+        return "unknown_effect"
+    if mode == "ask_overwrite" and prepared_replace:
+        return "overwrite_or_delete"
     return None
 
 
@@ -225,7 +253,6 @@ class ProjectQAExecutionService:
         wait_child: WaitChild,
         output_grants_provider: OutputGrantsProvider | None = None,
         output_grant_allows: OutputGrantAllows | None = None,
-        stop_requested: StopRequested = lambda: False,
         rate_actual_cost: RateActualCost | None = None,
     ) -> None:
         self.project = project
@@ -239,10 +266,10 @@ class ProjectQAExecutionService:
         self._wait_child = wait_child
         self._output_grants_provider = output_grants_provider
         self._output_grant_allows = output_grant_allows
-        self._stop_requested = stop_requested
         self._rate_actual_cost = rate_actual_cost
         self._approved_payloads: set[str] = set()
         self._launch_identities: dict[str, str] = {}
+        self._recorded_dispatches: set[tuple[str, ChildRunDispatch]] = set()
 
     async def prepare_action(
         self, title: str, draft: Mapping[str, Any]
@@ -341,6 +368,7 @@ class ProjectQAExecutionService:
 
         reference = self._reference(event_ref)
         response: ActionRunResponse
+        launch_cancelled = False
         while True:
             await self.research.check_authority()
             action_service = ProjectAskActionService(
@@ -356,43 +384,85 @@ class ProjectQAExecutionService:
                 output_grant_allows=self._output_grant_allows,
             )
             try:
-                launched = await await_thread_worker(
-                    action_service.launch,
-                    self.project,
-                    self.store,
-                    reference,
-                    project_id=self.project_id,
+                launched, cancelled = await _await_launch_result(
+                    await_thread_worker(
+                        action_service.launch,
+                        self.project,
+                        self.store,
+                        reference,
+                        project_id=self.project_id,
+                    )
                 )
+                launch_cancelled = launch_cancelled or cancelled
             except _ActionApprovalRequired as required:
                 decision = await self.research.pause(required.approval)
                 if decision != "approve":
                     raise ResearchActionSkipped("research action was not approved")
                 self._approved_payloads.add(required.approval["payload_identity"])
                 continue
+            except ProjectAskActionUnpriced as unpriced:
+                decision = await self.research.pause(
+                    {
+                        "kind": "unknown_cost",
+                        "operation": "action",
+                        "operation_id": unpriced.dispatch_id,
+                        "action_id": unpriced.action_id,
+                        "payload_identity": unpriced.payload_identity,
+                        "reason": unpriced.reason,
+                    }
+                )
+                if decision == "skip":
+                    raise ResearchActionSkipped(
+                        "research action with unknown cost was skipped"
+                    )
+                continue
             except _AdmissionBlocked as blocked:
                 await self._admit_after_pause(blocked.admission)
                 continue
             if inspect.isawaitable(launched):
-                launched = await launched
+                launched, cancelled = await _await_launch_result(launched)
+                launch_cancelled = launch_cancelled or cancelled
             if not isinstance(launched, ActionRunResponse):
                 raise TypeError("canonical action runner returned an invalid response")
             response = launched
             break
 
-        outcome = await self._wait_child(
-            project=self.project,
-            project_id=self.project_id,
-            response=response,
-            record_dispatch=lambda dispatch: self._record_dispatch(reference, dispatch),
-            stop_requested=self._stop_requested,
-            rate_actual_cost=self._rate_actual_cost,
-        )
         identity = self._launch_identities.get(reference.dispatch_id)
         if identity is None:
             raise RuntimeError("launched research action has no payload identity")
-        await self._settle(reference, identity, outcome)
-        await self._save_output_grant(outcome)
-        await self._record_child_usage(reference, outcome)
+
+        async def record_terminal(outcome: ChildRunOutcome) -> None:
+            await self._finalize_outcome(
+                reference,
+                identity,
+                outcome,
+                pause_for_unknown=False,
+            )
+
+        try:
+            outcome = await self._wait_child(
+                project=self.project,
+                project_id=self.project_id,
+                response=response,
+                record_dispatch=lambda dispatch: self._record_dispatch(
+                    reference, dispatch
+                ),
+                stop_requested=lambda: launch_cancelled,
+                rate_actual_cost=self._rate_actual_cost,
+                record_terminal=record_terminal,
+            )
+        except ChildRunDrainTimeout:
+            if launch_cancelled:
+                raise asyncio.CancelledError from None
+            raise
+        await self._finalize_outcome(
+            reference,
+            identity,
+            outcome,
+            pause_for_unknown=not launch_cancelled,
+        )
+        if launch_cancelled:
+            raise asyncio.CancelledError
         return {
             "status": outcome.status,
             "receipt_id": self._receipt_id(outcome),
@@ -463,6 +533,9 @@ class ProjectQAExecutionService:
     def _record_dispatch(
         self, reference: PreparedActionReference, dispatch: ChildRunDispatch
     ) -> None:
+        key = (reference.dispatch_id, dispatch)
+        if key in self._recorded_dispatches:
+            return
         payload = asdict(dispatch)
         payload.update(
             {
@@ -474,22 +547,26 @@ class ProjectQAExecutionService:
         self.store.append_event(
             str(self.turn["id"]), kind="research_child", payload=payload
         )
+        self._recorded_dispatches.add(key)
 
     async def _settle(
         self,
         reference: PreparedActionReference,
         identity: str,
         outcome: ChildRunOutcome,
+        *,
+        pause_for_unknown: bool,
     ) -> None:
         actual = outcome.billed_cost_micros
         if actual is None:
-            await self.research.pause(
-                {
-                    "kind": "unknown_cost",
-                    "operation": "action",
-                    "operation_id": reference.dispatch_id,
-                }
-            )
+            if pause_for_unknown:
+                await self.research.pause(
+                    {
+                        "kind": "unknown_cost",
+                        "operation": "action",
+                        "operation_id": reference.dispatch_id,
+                    }
+                )
             return
         await await_thread_worker(
             self.research.store.settle_operation,
@@ -498,6 +575,23 @@ class ProjectQAExecutionService:
             payload_identity=identity,
             actual_micros=actual,
         )
+
+    async def _finalize_outcome(
+        self,
+        reference: PreparedActionReference,
+        identity: str,
+        outcome: ChildRunOutcome,
+        *,
+        pause_for_unknown: bool,
+    ) -> None:
+        await self._settle(
+            reference,
+            identity,
+            outcome,
+            pause_for_unknown=pause_for_unknown,
+        )
+        await self._save_output_grant(outcome)
+        await self._record_child_usage(reference, outcome)
 
     async def _save_output_grant(self, outcome: ChildRunOutcome) -> None:
         if outcome.status != "completed" or not outcome.outputs:

@@ -64,6 +64,10 @@ class ProjectAskRegisteredActionDraft(WireModel):
     )
     params: dict[str, JsonValue]
     output_names: dict[str, str] = Field(default_factory=dict)
+    replace_existing: bool = Field(
+        default=False,
+        exclude_if=lambda value: value is False,
+    )
     sheet_name: str | None = Field(
         default=None,
         exclude_if=lambda value: value is None,

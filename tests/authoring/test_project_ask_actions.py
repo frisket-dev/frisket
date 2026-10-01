@@ -53,9 +53,33 @@ def test_prepared_project_ask_draft_is_keyless_and_bound_to_the_catalog(tmp_path
         assert prepared.draft["action_id"] == "map.template"
         assert "idempotency_key" not in prepared.draft
         assert prepared.request.idempotency_key == "project-ask-draft"
+        assert prepared.request.replace_existing is False
         assert prepared.catalog_entry["kind"] == "map.template"
         assert [reference.column for reference in prepared.references] == ["Name"]
         assert prepared.implementation_identity is None
+    finally:
+        project.close()
+
+
+def test_prepared_project_ask_draft_preserves_replacement_intent(tmp_path):
+    project = Project.create(tmp_path / "ask-replace.frisket")
+    try:
+        sheet_id = project.add_sheet("People")
+        project.add_column(sheet_id, "Name")
+        prepared = prepare_validated_project_ask_draft(
+            project,
+            {
+                "action_id": "map.template",
+                "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
+                "params": {"template": {"text": "Hello {{Name}}"}},
+                "output_names": {"rendered": "Name"},
+                "replace_existing": True,
+            },
+            catalog_payload=root_action_catalog_payload(),
+        )
+
+        assert prepared.draft["replace_existing"] is True
+        assert prepared.request.replace_existing is True
     finally:
         project.close()
 
