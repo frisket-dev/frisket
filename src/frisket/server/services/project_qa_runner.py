@@ -380,7 +380,13 @@ async def run_turn(
             await progress("describe_action", "completed", error="unavailable")
             raise ModelRetry("That action is not available for a proposal.") from error
         await progress("describe_action", "completed", action_id=action_id)
-        return observed
+        return {
+            **observed,
+            "model_context": {
+                "selected_chat_model": model_id,
+                "configured_providers": router.providers(),
+            },
+        }
 
     async def source_tool(
         name: str, function: Callable[..., Any], *args: Any
@@ -604,7 +610,9 @@ async def run_turn(
                 "citation, or when the selected scope cannot answer the question."
                 + (
                     "\nRun actions is enabled. Carry out the requested investigation using available skills and project actions. "
-                    f"The selected chat model is {model_id}. "
+                    f"Use the selected chat model {model_id} for action parameters that require an LLM model, "
+                    "unless the user requests another configured model. Never invent a provider or model choice; "
+                    "schema examples show shapes, not which providers are configured. "
                     "Discover action schemas progressively with search_actions and describe_action. "
                     "Use prepare_action then execute_action for needed preparation and analysis, without asking the user "
                     "to perform those steps manually. The host handles write approval and total budget; never work around a refusal. "
