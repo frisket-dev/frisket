@@ -9,6 +9,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.server.services.project_qa_actions import (
     ProjectAskActionService,
+    ProjectAskActionUnpriced,
     save_prepared_project_ask_action,
 )
 
@@ -264,6 +265,56 @@ def test_prepared_ask_action_refuses_catalog_drift_before_budget_admission(tmp_p
                 saved.reference,
                 project_id="project",
             )
+    finally:
+        project.close()
+
+
+def test_launch_pauses_when_only_the_saved_quote_becomes_unpriceable(tmp_path):
+    project = Project.create(tmp_path / "project.frisket")
+    try:
+        store, turn, sheet_id = _turn(project)
+        quoted = True
+
+        def quote_or_unknown(action: dict[str, object]) -> dict[str, object]:
+            if quoted:
+                return _quote(action)
+            return {
+                "estimate": {
+                    "billed_cost": None,
+                    "policy_id": "normal-policy",
+                    "requires_confirmation": False,
+                }
+            }
+
+        saved = save_prepared_project_ask_action(
+            project,
+            turn,
+            store,
+            title="Greet people",
+            draft=_draft(sheet_id),
+            catalog_payload=root_action_catalog_payload(),
+            quote_provider=quote_or_unknown,
+        )
+        quoted = False
+        service = ProjectAskActionService(
+            catalog_payload_provider=root_action_catalog_payload,
+            quote_provider=quote_or_unknown,
+            research_for_turn=lambda turn_id: {"id": "research-1", "turn_id": turn_id},
+            authorize_dispatch=lambda _authority: pytest.fail("must not authorize"),
+            admit_operation=lambda *_args, **_kwargs: pytest.fail("must not admit"),
+            run_action=lambda *_args: pytest.fail("must not run"),
+        )
+
+        with pytest.raises(ProjectAskActionUnpriced) as raised:
+            service.launch(project, store, saved.reference, project_id="project")
+        error = raised.value
+        assert error.dispatch_id == saved.reference.dispatch_id
+        assert error.action_id == "map.template"
+        assert error.prepared_turn_id == saved.reference.turn_id
+        assert error.prepared_event_seq == saved.reference.event_seq
+        assert error.payload_identity == saved.payload_identity
+        assert error.action["idempotency_key"] == saved.reference.dispatch_id
+        assert error.reason == "normal action quote has unknown cost"
     finally:
         project.close()
 

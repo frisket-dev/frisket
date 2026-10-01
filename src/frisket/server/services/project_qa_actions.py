@@ -53,6 +53,30 @@ class PreparedProjectAskAction:
     payload_identity: str
 
 
+class ProjectAskActionUnpriced(ValueError):
+    """A previously quoted action needs a new normal quote before dispatch."""
+
+    def __init__(
+        self,
+        *,
+        reference: PreparedActionReference,
+        action: Mapping[str, Any],
+        payload_identity: str,
+        reason: str,
+    ) -> None:
+        action_id = action.get("action_id")
+        if not isinstance(action_id, str) or not action_id:
+            raise ValueError("unpriced action is missing its action id")
+        self.dispatch_id = reference.dispatch_id
+        self.action_id = action_id
+        self.prepared_turn_id = reference.turn_id
+        self.prepared_event_seq = reference.event_seq
+        self.payload_identity = payload_identity
+        self.action = dict(action)
+        self.reason = reason
+        super().__init__(f"normal quote is unavailable for action {action_id}")
+
+
 def _hash(payload: Mapping[str, Any]) -> str:
     return hashlib.sha256(canonical_json(dict(payload)).encode()).hexdigest()
 
@@ -218,6 +242,22 @@ def _prepared_payload(
     return {**authority, "payload_identity": _hash(authority)}
 
 
+def _non_quote_authority(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Compare durable authority while allowing only quote-derived drift."""
+
+    return {
+        key: value
+        for key, value in payload.items()
+        if key
+        not in {
+            "quote",
+            "preparation_reason",
+            "automatic_eligible",
+            "payload_identity",
+        }
+    }
+
+
 def save_prepared_project_ask_action(
     project: Project,
     turn: Mapping[str, Any],
@@ -376,6 +416,17 @@ class ProjectAskActionService:
             dispatch_id=reference.dispatch_id,
             quote_provider=self._quote_provider,
         )
+        if (
+            current["quote"] is None
+            and stored.get("quote") is not None
+            and _non_quote_authority(current) == _non_quote_authority(stored)
+        ):
+            raise ProjectAskActionUnpriced(
+                reference=reference,
+                action=current["request"],
+                payload_identity=str(stored["payload_identity"]),
+                reason=str(current["preparation_reason"]),
+            )
         if current != stored:
             raise ValueError("prepared action changed; reprepare it before launch")
         if current["quote"] is None:
