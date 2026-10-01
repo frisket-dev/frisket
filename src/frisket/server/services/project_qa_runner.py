@@ -7,7 +7,7 @@ import asyncio
 import re
 from contextlib import AbstractContextManager, nullcontext
 from collections.abc import Awaitable, Callable
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, ModelRetry
@@ -28,6 +28,7 @@ from frisket.authoring.project_ask import (
 from frisket.engine.runner.validation import assert_provider_spend_cap
 from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAConflictError, ProjectQAStore
+from frisket.querysets import BUILTIN_FILTER_OPERATORS
 from frisket.server.services.project_qa_tools import ProjectQATools
 from frisket.server.services.project_qa_query import AnalyticsRequest
 from frisket.server.services.project_qa_web import (
@@ -238,7 +239,30 @@ async def run_turn(
         return observed
 
     async def query_rows(
-        query: dict[str, Any],
+        query: Annotated[
+            dict[str, Any],
+            Field(
+                description=(
+                    "Full canonical `frisket.query.v1` sheet.filter envelope. "
+                    "Set `kind` to `sheet.filter`; put the sheet id in "
+                    "`scope.sheet_id`; and make `filter` a mapping from observed "
+                    "column names to one built-in operator and value. Do not put "
+                    "column names or `sheet_id` in an operator position. Supported "
+                    "operators: " + ", ".join(BUILTIN_FILTER_OPERATORS) + "."
+                ),
+                examples=[
+                    {
+                        "schema_version": "frisket.query.v1",
+                        "kind": "sheet.filter",
+                        "scope": {"sheet_id": 1},
+                        "filter": {
+                            "Public agency": {"eq": True},
+                            "Defendant": {"contains": "county"},
+                        },
+                    }
+                ],
+            ),
+        ],
         limit: int = 50,
         offset: int = 0,
         count_by: int | None = None,
