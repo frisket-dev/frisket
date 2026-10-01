@@ -60,6 +60,16 @@ class ChildRunOutcome:
     public_job_status: dict[str, Any] | None
 
 
+class ChildRunDrainTimeout(TimeoutError):
+    """A Stop request did not reach a public terminal child state in time."""
+
+    def __init__(self, dispatch: ChildRunDispatch) -> None:
+        self.dispatch = dispatch
+        super().__init__(
+            "child action did not reach a terminal state after its Stop request"
+        )
+
+
 class RecordChildDispatch(Protocol):
     def __call__(self, dispatch: ChildRunDispatch, /) -> None: ...
 
@@ -111,10 +121,11 @@ class ProjectQAChildRunService:
     ) -> ChildRunOutcome:
         """Record one launch, await it, and return its bounded durable result.
 
-        ``record_dispatch`` is intentionally synchronous and finishes before
-        the first job poll. The caller uses it to atomically attach these child
-        identifiers to the already-admitted research operation, closing the
-        launch-to-wait process-death window without adding another scheduler.
+        ``record_dispatch`` first persists response-derived correlation facts,
+        then receives a second idempotent update if the receipt supplies an
+        idempotency key. This narrows the launch-to-wait process-death window
+        without adding another scheduler; it cannot make a crashed process
+        recover work that was never persisted.
         """
 
         initial = V1ActionResult.model_validate(response.payload)
@@ -132,19 +143,24 @@ class ProjectQAChildRunService:
         dispatch_recorded = False
         cancel_requested = False
         try:
+            # Persist response-derived correlation before receipt I/O or a job
+            # poll, but offload it: ledger writes must not block this event loop.
+            # The callback is an idempotent upsert keyed by the action response.
+            await await_thread_worker(record_dispatch, dispatch)
+            dispatch_recorded = True
+
             initial_receipt = await self._receipt_if_present(
                 project_id, initial.receipt_id
             )
-            dispatch = replace(
+            enriched_dispatch = replace(
                 dispatch,
                 idempotency_key=_optional_string(
                     initial_receipt.get("idempotency_key") if initial_receipt else None
                 ),
             )
-            # Persist the correlation before the first job poll, but offload it:
-            # research ledger writes must not block the event loop that hosts this waiter.
-            await await_thread_worker(record_dispatch, dispatch)
-            dispatch_recorded = True
+            if enriched_dispatch != dispatch:
+                await await_thread_worker(record_dispatch, enriched_dispatch)
+                dispatch = enriched_dispatch
 
             if initial.status in _TERMINAL_ACTION_STATUSES:
                 return await self._outcome(
@@ -165,6 +181,20 @@ class ProjectQAChildRunService:
                 if not cancel_requested and await _requested(stop_requested):
                     cancel_requested = True
                     await self._request_cancel(dispatch)
+                    try:
+                        async with asyncio.timeout(
+                            self._cancellation_drain_timeout_seconds
+                        ):
+                            public_job_status = await self._drain_job(
+                                project_id, initial.job_id
+                            )
+                    except TimeoutError as exc:
+                        # A 409 from cancellation can mean a writer is
+                        # reconciling. Do not turn that into an endless poll or
+                        # a fabricated terminal outcome; durable dispatch facts
+                        # let the research host reconcile this typed result.
+                        raise ChildRunDrainTimeout(dispatch) from exc
+                    break
 
                 public_job_status = await await_thread_worker(
                     self._action_runs.job_detail, project_id, initial.job_id
@@ -207,13 +237,13 @@ class ProjectQAChildRunService:
                     pass
             raise
 
-    async def _drain_job(self, project_id: str, job_id: int) -> None:
+    async def _drain_job(self, project_id: str, job_id: int) -> dict[str, Any]:
         while True:
             payload = await await_thread_worker(
                 self._action_runs.job_detail, project_id, job_id
             )
             if str(payload.get("status")) in _TERMINAL_JOB_STATUSES:
-                return
+                return payload
             await self._sleep(self._poll_interval_seconds)
 
     async def _receipt_if_present(

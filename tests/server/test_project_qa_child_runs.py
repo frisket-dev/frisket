@@ -5,9 +5,12 @@ import threading
 from dataclasses import dataclass
 from typing import Any
 
+import pytest
+
 from frisket.server.route_errors import RouteError
 from frisket.server.services.action_runs import ActionRunResponse
 from frisket.server.services.project_qa_child_runs import (
+    ChildRunDrainTimeout,
     ChildRunDispatch,
     ProjectQAChildRunService,
 )
@@ -104,8 +107,9 @@ def _receipt(*, cost: float | None = 0.125) -> dict[str, Any]:
     }
 
 
-def test_records_dispatch_before_wait_and_returns_terminal_receipt() -> None:
+def test_records_response_dispatch_before_receipt_enrichment_and_returns_terminal_receipt() -> None:
     events: list[str] = []
+    recorded: list[ChildRunDispatch] = []
     action_runs = _ActionRuns(
         [
             {"job_id": 9, "status": "running", "receipt_id": "rcpt_1"},
@@ -116,7 +120,7 @@ def test_records_dispatch_before_wait_and_returns_terminal_receipt() -> None:
 
     def record(dispatch: ChildRunDispatch) -> None:
         events.append("record")
-        assert dispatch.idempotency_key == "research:turn:operation"
+        recorded.append(dispatch)
         assert (dispatch.job_id, dispatch.run_id, dispatch.receipt_id) == (
             9,
             7,
@@ -142,7 +146,11 @@ def test_records_dispatch_before_wait_and_returns_terminal_receipt() -> None:
         )
     )
 
-    assert events == ["record", "sleep"]
+    assert events == ["record", "record", "sleep"]
+    assert [dispatch.idempotency_key for dispatch in recorded] == [
+        None,
+        "research:turn:operation",
+    ]
     assert outcome.status == "completed"
     assert outcome.outputs == (
         {
@@ -262,6 +270,40 @@ def test_task_cancellation_cancels_and_bounds_child_drain() -> None:
     assert sleeps > 0
 
 
+def test_stop_timeout_preserves_dispatch_and_raises_typed_unresolved_child() -> None:
+    class _NeverTerminal(_ActionRuns):
+        def job_detail(self, _project_id: str, _job_id: int) -> dict[str, Any]:
+            return {"job_id": 9, "status": "running", "receipt_id": "rcpt_1"}
+
+    async def sleep(_delay: float) -> None:
+        await asyncio.sleep(0)
+
+    records: list[ChildRunDispatch] = []
+    cancel = _RunCancel(conflict=True)
+    service = ProjectQAChildRunService(
+        object(),
+        action_runs=_NeverTerminal([], _receipt()),  # type: ignore[arg-type]
+        action_run_cancel=cancel,  # type: ignore[arg-type]
+        cancellation_drain_timeout_seconds=0.001,
+        sleep=sleep,
+    )
+
+    with pytest.raises(ChildRunDrainTimeout) as raised:
+        asyncio.run(
+            service.wait(
+                project=_Project(_Db()),  # type: ignore[arg-type]
+                project_id="project-1",
+                response=_response(),
+                record_dispatch=records.append,
+                stop_requested=lambda: True,
+            )
+        )
+
+    assert cancel.calls == [("project-1", 7)]
+    assert records[0].idempotency_key is None
+    assert raised.value.dispatch == records[-1]
+
+
 def test_terminal_receipt_without_provider_operations_costs_zero() -> None:
     receipt = {**_receipt(), "provider_use": []}
     action_runs = _ActionRuns([], receipt)
@@ -334,6 +376,7 @@ def test_child_store_calls_run_off_the_event_loop_thread() -> None:
 
     loop_thread = asyncio.run(scenario())
     assert [name for name, _thread in calls] == [
+        "record_dispatch",
         "receipt_lookup",
         "record_dispatch",
         "cancel_run",
