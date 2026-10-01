@@ -346,10 +346,15 @@ class ProjectAskActionService:
         estimate = current["quote"]["estimate"]
         promise_set_hash = estimate.get("promise_set_hash")
         if estimate["requires_confirmation"]:
-            if confirmation_hash != promise_set_hash:
+            if approval.get("promise_set_hash") != promise_set_hash:
+                raise ValueError(
+                    "prepared action approval does not match the normal quote"
+                )
+            if confirmation_hash is not None and confirmation_hash != promise_set_hash:
                 raise ValueError(
                     "confirmation_hash does not match the normal action quote"
                 )
+            confirmation_hash = promise_set_hash
         elif confirmation_hash is not None and (
             not isinstance(confirmation_hash, str) or not confirmation_hash
         ):

@@ -45,7 +45,10 @@ def _quote(action: dict[str, object]) -> dict[str, object]:
 
 
 def _approval(authority: dict[str, object]) -> dict[str, object]:
-    return {"payload_identity": authority["payload_identity"]}
+    return {
+        "payload_identity": authority["payload_identity"],
+        "promise_set_hash": authority["quote"]["estimate"]["promise_set_hash"],
+    }
 
 
 def test_prepared_ask_event_revalidates_then_uses_budget_and_action_services(tmp_path):
@@ -94,7 +97,6 @@ def test_prepared_ask_event_revalidates_then_uses_budget_and_action_services(tmp
             store,
             saved.reference,
             project_id="project",
-            confirmation_hash="confirmation-hash",
         ) == {"status": "queued"}
         assert admitted == [
             {
@@ -285,10 +287,8 @@ def test_current_exact_approval_can_dispatch_a_non_map_action(tmp_path):
             catalog_payload_provider=root_action_catalog_payload,
             quote_provider=_quote,
             research_for_turn=lambda turn_id: {"id": "research-1", "turn_id": turn_id},
-            authorize_dispatch=lambda authority: (
-                approved.append(dict(authority))
-                or {"payload_identity": authority["payload_identity"]}
-            ),
+            authorize_dispatch=lambda authority: approved.append(dict(authority))
+            or _approval(authority),
             admit_operation=lambda *_args, **_kwargs: None,
             run_action=lambda _project_id, body: {"action_id": body["action_id"]},
         )

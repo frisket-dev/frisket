@@ -10,7 +10,10 @@ import pytest
 
 from frisket.contracts.action import ActionResult, Receipt
 from frisket.engine.executor.queued_actions import queued_v1_payload_envelope
-from frisket.engine.executor.map_rows_action import _TypedMapRowsProgram
+from frisket.engine.executor.map_rows_action import (
+    _TypedMapRowsProgram,
+    bound_typed_program_request_from_runner_spec,
+)
 from frisket.engine.jobs.runs import RUN_PROJECT_KIND
 from frisket.engine.runner import OutputColumnExists
 from frisket.server.app import create_app
@@ -101,6 +104,44 @@ def test_typed_regex_queues_canonical_request_and_worker_finishes(
     receipt = Receipt.model_validate(json.loads(stored["body"]))
     assert receipt.action_kind == "map.regex_extract"
     assert receipt.run_id == first.run_id
+
+
+def test_queued_worker_preserves_expected_output_columns(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    project_id, sheet_id, row_ids = _seed_regex(client)
+    body = {
+        **_regex_request(sheet_id),
+        "idempotency_key": "typed-regex-queue@expected-output",
+        "expected_output_columns": {"phone": None},
+    }
+
+    response = ActionResult.model_validate(
+        client.post(f"/api/projects/{project_id}/actions/v1/run", json=body).json()
+    )
+    assert response.status == "queued"
+    assert response.job_id is not None
+    job = client.app.state.workspace.queue.get(response.job_id)
+    assert job is not None
+    assert job.payload["v1_action"]["expected_output_columns"] == {"phone": None}
+    assert job.payload["spec"]["expected_output_columns"] == {"phone": None}
+    envelope = queued_v1_payload_envelope(job.payload)
+    assert envelope is not None
+    reconstructed = bound_typed_program_request_from_runner_spec(
+        job.payload["spec"], project=client.app.state.workspace.get(project_id)
+    )
+    assert reconstructed is not None
+    assert reconstructed.request.expected_output_columns == {"phone": None}
+
+    drain_queue(client)
+
+    project = client.app.state.workspace.get(project_id)
+    phone = next(
+        column for column in project.columns(sheet_id) if column["name"] == "phone"
+    )
+    assert project.get_values(sheet_id, int(phone["id"]), row_ids=row_ids) == {
+        row_ids[0]: "212-555-0123",
+        row_ids[1]: None,
+    }
 
 
 def test_typed_queue_rejects_hash_spec_and_source_drift(tmp_path: Path) -> None:
