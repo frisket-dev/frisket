@@ -170,10 +170,11 @@ class ProjectQAChildRunService:
                 dispatch = enriched_dispatch
 
             if initial.status in _TERMINAL_ACTION_STATUSES:
-                return await self._outcome(
+                return await self._terminal_outcome(
                     project=project,
+                    project_id=project_id,
+                    initial=initial,
                     dispatch=dispatch,
-                    fallback=initial.model_dump(mode="json"),
                     receipt=initial_receipt,
                     public_job_status=None,
                     rate_actual_cost=rate_actual_cost,
@@ -210,16 +211,12 @@ class ProjectQAChildRunService:
                     break
                 await self._sleep(self._poll_interval_seconds)
 
-            receipt_id = _optional_string(public_job_status.get("receipt_id"))
-            if receipt_id is None:
-                receipt_id = dispatch.receipt_id
-            receipt = await self._receipt_if_present(project_id, receipt_id)
-            fallback = _job_fallback(initial, public_job_status)
-            return await self._outcome(
+            return await self._terminal_outcome(
                 project=project,
+                project_id=project_id,
+                initial=initial,
                 dispatch=dispatch,
-                fallback=fallback,
-                receipt=receipt,
+                receipt=None,
                 public_job_status=public_job_status,
                 rate_actual_cost=rate_actual_cost,
             )
@@ -234,7 +231,18 @@ class ProjectQAChildRunService:
             # the persisted dispatch facts let later reconciliation find it.
             if not cancel_requested:
                 await self._request_cancel(dispatch)
-            if initial.job_id is not None:
+            if initial.status in _TERMINAL_ACTION_STATUSES:
+                outcome = await self._terminal_outcome(
+                    project=project,
+                    project_id=project_id,
+                    initial=initial,
+                    dispatch=dispatch,
+                    receipt=initial_receipt,
+                    public_job_status=None,
+                    rate_actual_cost=rate_actual_cost,
+                )
+                await _record_terminal(record_terminal, outcome)
+            elif initial.job_id is not None:
                 try:
                     async with asyncio.timeout(
                         self._cancellation_drain_timeout_seconds
@@ -245,15 +253,12 @@ class ProjectQAChildRunService:
                 except TimeoutError:
                     pass
                 else:
-                    receipt_id = _optional_string(public_job_status.get("receipt_id"))
-                    receipt = await self._receipt_if_present(
-                        project_id, receipt_id or dispatch.receipt_id
-                    )
-                    outcome = await self._outcome(
+                    outcome = await self._terminal_outcome(
                         project=project,
+                        project_id=project_id,
+                        initial=initial,
                         dispatch=dispatch,
-                        fallback=_job_fallback(initial, public_job_status),
-                        receipt=receipt,
+                        receipt=None,
                         public_job_status=public_job_status,
                         rate_actual_cost=rate_actual_cost,
                     )
@@ -297,6 +302,41 @@ class ProjectQAChildRunService:
             # settle the research commitment exactly once.
             if exc.status_code != 409:
                 raise
+
+    async def _terminal_outcome(
+        self,
+        *,
+        project: Project,
+        project_id: str,
+        initial: V1ActionResult,
+        dispatch: ChildRunDispatch,
+        receipt: Mapping[str, Any] | None,
+        public_job_status: dict[str, Any] | None,
+        rate_actual_cost: RateActualCost | None,
+    ) -> ChildRunOutcome:
+        if public_job_status is None:
+            receipt_id = dispatch.receipt_id
+            fallback: Mapping[str, Any] = initial.model_dump(mode="json")
+        else:
+            receipt_id = _optional_string(public_job_status.get("receipt_id"))
+            fallback = _job_fallback(initial, public_job_status)
+        if receipt is None:
+            receipt = await self._receipt_if_present(
+                project_id, receipt_id or dispatch.receipt_id
+            )
+        if receipt is not None and dispatch.idempotency_key is None:
+            dispatch = replace(
+                dispatch,
+                idempotency_key=_optional_string(receipt.get("idempotency_key")),
+            )
+        return await self._outcome(
+            project=project,
+            dispatch=dispatch,
+            fallback=fallback,
+            receipt=receipt,
+            public_job_status=public_job_status,
+            rate_actual_cost=rate_actual_cost,
+        )
 
     async def _outcome(
         self,

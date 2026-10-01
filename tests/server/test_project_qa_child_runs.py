@@ -326,6 +326,62 @@ def test_task_cancellation_records_known_terminal_outcome_before_propagating() -
     assert terminal_records[0].idempotency_key == "research:turn:operation"
 
 
+def test_cancellation_records_direct_terminal_outcome_before_propagating() -> None:
+    async def scenario() -> tuple[list[str], list[ChildRunDispatch]]:
+        loop = asyncio.get_running_loop()
+        dispatch_started = asyncio.Event()
+        release_dispatch = threading.Event()
+        dispatch_calls = 0
+        events: list[str] = []
+        terminal_records: list[ChildRunDispatch] = []
+
+        def record_dispatch(_dispatch: ChildRunDispatch) -> None:
+            nonlocal dispatch_calls
+            dispatch_calls += 1
+            loop.call_soon_threadsafe(dispatch_started.set)
+            if dispatch_calls == 1:
+                release_dispatch.wait()
+
+        async def record_terminal(outcome: ChildRunOutcome) -> None:
+            events.append("terminal")
+            assert outcome.status == "completed"
+            assert outcome.provider_cost_usd == 0.02
+            assert outcome.billed_cost_micros == 20_000
+            terminal_records.append(outcome.dispatch)
+
+        response = ActionRunResponse(
+            status_code=200,
+            payload={**_response().payload, "status": "completed", "job_id": None},
+        )
+        service = ProjectQAChildRunService(
+            object(),
+            action_runs=_ActionRuns([], _receipt(cost=0.02)),  # type: ignore[arg-type]
+            action_run_cancel=_RunCancel(),  # type: ignore[arg-type]
+        )
+        task = asyncio.create_task(
+            service.wait(
+                project=_Project(_Db()),  # type: ignore[arg-type]
+                project_id="project-1",
+                response=response,
+                record_dispatch=record_dispatch,
+                rate_actual_cost=lambda usd: round(usd * 1_000_000),
+                record_terminal=record_terminal,
+            )
+        )
+        await dispatch_started.wait()
+        task.cancel()
+        release_dispatch.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        events.append("cancelled")
+        assert dispatch_calls == 2
+        return events, terminal_records
+
+    events, terminal_records = asyncio.run(scenario())
+    assert events == ["terminal", "cancelled"]
+    assert terminal_records[0].idempotency_key == "research:turn:operation"
+
+
 def test_stop_timeout_preserves_dispatch_and_raises_typed_unresolved_child() -> None:
     class _NeverTerminal(_ActionRuns):
         def job_detail(self, _project_id: str, _job_id: int) -> dict[str, Any]:
