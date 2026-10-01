@@ -9,6 +9,7 @@ from frisket.actions.research_types import SearchResult
 from frisket.actions.types import RowError
 from frisket.ai.research.search import (
     SearchProviderError,
+    SearchQuote,
     SearchResponse,
     SearchService,
 )
@@ -68,7 +69,10 @@ class AdmittedWebSearcher:
     async def _call(self, query, max_results, attempt):
         from frisket.engine.executor.visual_cuts_read import _settle
 
-        task = asyncio.create_task(self._service.search(query, max_results=max_results))
+        quote = self._service.quote(max_results=max_results)
+        task = asyncio.create_task(
+            self._service.search(query, max_results=max_results, quote=quote)
+        )
         self._owner._calls.add(task)
         try:
             try:
@@ -87,7 +91,7 @@ class AdmittedWebSearcher:
                     error = exc
                 except Exception:  # receipt records failure; original propagates
                     pass
-            self._record(attempt, response=response, error=error)
+            self._record(attempt, response=response, error=error, quote=quote)
 
     def _record(
         self,
@@ -95,6 +99,7 @@ class AdmittedWebSearcher:
         *,
         response: SearchResponse | None,
         error: SearchProviderError | None,
+        quote: SearchQuote,
     ) -> None:
         ctx = self._ctx
         if ctx.project is None:
@@ -120,7 +125,7 @@ class AdmittedWebSearcher:
             "max_attempts_per_row": max_attempts,
             "succeeded": response is not None,
             "cost_actual": (
-                usage.provider_reported_cost_usd
+                usage.provider_cost_usd
                 if usage is not None
                 else (0.0 if provider == "ddgs" else None)
             ),
@@ -128,6 +133,16 @@ class AdmittedWebSearcher:
         }
         if usage is not None and usage.units:
             evidence["units"] = {unit.name: unit.quantity for unit in usage.units}
+        if usage is not None:
+            evidence["provider_reported_cost_usd"] = usage.provider_reported_cost_usd
+        evidence.update(
+            {
+                "pricing_key": quote.pricing_key,
+                "pricing_unit": quote.unit,
+                "unit_price_usd": quote.unit_price_usd,
+                "estimated_cost_usd": quote.estimated_cost_usd,
+            }
+        )
         if error is not None:
             evidence["error_code"] = error.code
         ReceiptStore(ctx.project)._record_writer_evidence(
@@ -149,6 +164,10 @@ class AdmittedWebSearcher:
         if type(max_results) is not int or not 1 <= max_results <= 20:
             raise RowError(
                 "invalid_params", "Search result limit must be between 1 and 20"
+            )
+        if self._service.provider != "ddgs" and max_results > 10:
+            raise RowError(
+                "invalid_params", "Paid search result limit must be between 1 and 10"
             )
         max_attempts = MAX_ATTEMPTS if self._service.provider == "ddgs" else 1
         last_error: SearchProviderError | None = None

@@ -335,13 +335,29 @@ def model_call_accounting(engine: str, wire_calls: list[LLMResponse]) -> dict[st
 
 def _search_usage_dict(response: SearchResponse) -> dict[str, Any]:
     usage = response.usage
+    quote = usage.quote
     return {
         "provider": usage.provider,
         "service": usage.service,
         "request_count": usage.request_count,
         "provider_reported_cost_usd": usage.provider_reported_cost_usd,
+        "provider_cost_usd": usage.provider_cost_usd,
         "cost_source": usage.cost_source,
         "units": {unit.name: unit.quantity for unit in usage.units},
+        "quote": (
+            {
+                "provider": quote.provider,
+                "max_results": quote.max_results,
+                "pricing_key": quote.pricing_key,
+                "pricing_label": quote.pricing_label,
+                "unit": quote.unit,
+                "unit_price_usd": quote.unit_price_usd,
+                "estimated_cost_usd": quote.estimated_cost_usd,
+                "cost_source": quote.cost_source,
+            }
+            if quote is not None
+            else None
+        ),
     }
 
 

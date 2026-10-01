@@ -43,12 +43,31 @@ async def test_auto_prefers_exa_and_preserves_reported_dollars() -> None:
     assert result.results[0].url == "https://example.test/record"
     assert result.results[0].published_at == "2026-09-01"
     assert result.usage.provider_reported_cost_usd == 0.007
+    assert result.usage.provider_cost_usd == 0.007
     assert result.usage.units == ()
     assert seen == {
         "url": "https://api.exa.ai/search",
         "key": "exa-secret",
         "payload": {"query": "public records", "numResults": 3, "type": "auto"},
     }
+
+
+@pytest.mark.asyncio
+async def test_exa_missing_reported_cost_settles_against_captured_quote() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"results": []})
+
+    async with _client(handler) as client:
+        service = SearchService(
+            preference="exa", effective_keys={"exa": "exa-secret"}, http=client
+        )
+        quote = service.quote(max_results=6)
+        result = await service.search("records", max_results=6, quote=quote)
+
+    assert result.usage.provider_reported_cost_usd is None
+    assert result.usage.provider_cost_usd == 0.007
+    assert result.usage.cost_source == "configured_catalog"
+    assert result.usage.quote is quote
 
 
 @pytest.mark.asyncio
@@ -92,6 +111,9 @@ async def test_tavily_basic_search_keeps_credits_separate_from_dollars() -> None
 
     assert result.results[0].excerpt == "An excerpt"
     assert result.usage.provider_reported_cost_usd is None
+    assert result.usage.provider_cost_usd == 0.008
+    assert result.usage.quote is not None
+    assert result.usage.quote.pricing_key == "tavily.search.credit"
     assert [(unit.name, unit.quantity) for unit in result.usage.units] == [
         ("credits", 1)
     ]
@@ -155,4 +177,19 @@ async def test_auto_without_paid_keys_uses_ddgs_and_normalizes_results() -> None
     assert result.provider == "ddgs"
     assert result.results[0].excerpt == "Snippet"
     assert result.usage.provider_reported_cost_usd == 0.0
+    assert result.usage.provider_cost_usd == 0.0
     assert result.usage.cost_source == "free"
+
+
+def test_paid_quote_is_bounded_and_uses_canonical_pricing() -> None:
+    exa = SearchService(preference="exa", effective_keys={"exa": "key"})
+    quote = exa.quote(max_results=10)
+    assert quote.pricing_key == "exa.search.request"
+    assert quote.unit == "request"
+    assert quote.unit_price_usd == "0.007"
+    assert quote.estimated_cost_usd == 0.007
+    with pytest.raises(ValueError, match="between 1 and 10"):
+        exa.quote(max_results=11)
+
+    ddgs = SearchService(preference="ddgs", effective_keys={})
+    assert ddgs.quote(max_results=20).estimated_cost_usd == 0.0

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any, Literal
 
 import httpx
@@ -22,6 +24,7 @@ SearchErrorCode = Literal[
 
 _PAID_PROVIDERS = frozenset({"exa", "tavily"})
 _EXCERPT_CHARS = 1_000
+_PAID_MAX_RESULTS = 10
 
 
 @dataclass(frozen=True)
@@ -36,8 +39,22 @@ class SearchUsage:
     service: str
     request_count: int
     provider_reported_cost_usd: float | None
-    cost_source: Literal["provider_reported", "free", "unknown"]
+    provider_cost_usd: float | None
+    cost_source: Literal["provider_reported", "configured_catalog", "free", "unknown"]
     units: tuple[SearchUsageUnit, ...] = ()
+    quote: SearchQuote | None = None
+
+
+@dataclass(frozen=True)
+class SearchQuote:
+    provider: SearchProvider
+    max_results: int
+    pricing_key: str | None
+    pricing_label: str
+    unit: str
+    unit_price_usd: str | None
+    estimated_cost_usd: float | None
+    cost_source: Literal["configured_catalog", "free_public_api", "unknown"]
 
 
 @dataclass(frozen=True)
@@ -114,6 +131,8 @@ def _text(value: Any, *, limit: int | None = None) -> str:
 def _number(value: Any) -> int | float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
+    if value < 0 or not math.isfinite(value):
+        return None
     return value
 
 
@@ -165,13 +184,65 @@ class SearchService:
     def provider(self) -> SearchProvider:
         return self._provider
 
+    def quote(self, *, max_results: int = 6) -> SearchQuote:
+        """Capture the rate identity used for admission and later settlement."""
+        self._validate_result_limit(max_results)
+        if self._provider == "ddgs":
+            return SearchQuote(
+                provider="ddgs",
+                max_results=max_results,
+                pricing_key=None,
+                pricing_label="DDGS public search",
+                unit="request",
+                unit_price_usd="0",
+                estimated_cost_usd=0.0,
+                cost_source="free_public_api",
+            )
+        from frisket.ai.external_pricing import (
+            EXA_SEARCH_REQUEST,
+            TAVILY_SEARCH_CREDIT,
+            estimate_external_cost,
+            external_pricing_entry,
+        )
+
+        pricing_key = (
+            EXA_SEARCH_REQUEST if self._provider == "exa" else TAVILY_SEARCH_CREDIT
+        )
+        entry = external_pricing_entry(pricing_key)
+        estimate = estimate_external_cost(pricing_key, 1)
+        return SearchQuote(
+            provider=self._provider,
+            max_results=max_results,
+            pricing_key=pricing_key,
+            pricing_label=str(entry["label"]),
+            unit=str(entry["unit"]),
+            unit_price_usd=entry["unit_price_usd_string"],
+            estimated_cost_usd=estimate["cost"],
+            cost_source=entry["cost_source"],
+        )
+
+    def _validate_result_limit(self, max_results: int) -> None:
+        maximum = _PAID_MAX_RESULTS if self._provider in _PAID_PROVIDERS else 20
+        if type(max_results) is not int or not 1 <= max_results <= maximum:
+            raise ValueError(
+                f"{self._provider.capitalize()} search result limit must be "
+                f"between 1 and {maximum}"
+            )
+
     async def search(
         self,
         query: str,
         *,
         max_results: int = 6,
         timeout: float = 20.0,
+        quote: SearchQuote | None = None,
     ) -> SearchResponse:
+        if quote is None:
+            quote = self.quote(max_results=max_results)
+        elif quote.provider != self._provider or quote.max_results != max_results:
+            raise ValueError("search quote does not match provider and result limit")
+        else:
+            self._validate_result_limit(max_results)
         query = query.strip() if isinstance(query, str) else ""
         if not query:
             return SearchResponse(
@@ -182,16 +253,16 @@ class SearchService:
                     service=f"{self._provider}.search",
                     request_count=0,
                     provider_reported_cost_usd=0.0,
+                    provider_cost_usd=0.0,
                     cost_source="free",
+                    quote=quote,
                 ),
             )
-        if type(max_results) is not int or not 1 <= max_results <= 20:
-            raise ValueError("search result limit must be between 1 and 20")
         if self._provider == "exa":
-            return await self._search_exa(query, max_results, timeout)
+            return await self._search_exa(query, max_results, timeout, quote)
         if self._provider == "tavily":
-            return await self._search_tavily(query, max_results, timeout)
-        return await self._search_ddgs(query, max_results, timeout)
+            return await self._search_tavily(query, max_results, timeout, quote)
+        return await self._search_ddgs(query, max_results, timeout, quote)
 
     async def _post(
         self,
@@ -241,7 +312,11 @@ class SearchService:
                 await client.aclose()
 
     async def _search_exa(
-        self, query: str, max_results: int, timeout: float
+        self,
+        query: str,
+        max_results: int,
+        timeout: float,
+        quote: SearchQuote,
     ) -> SearchResponse:
         body = await self._post(
             "exa",
@@ -277,6 +352,7 @@ class SearchService:
         cost_dollars = body.get("costDollars")
         if isinstance(cost_dollars, dict):
             cost = _number(cost_dollars.get("total"))
+        provider_cost = cost if cost is not None else quote.estimated_cost_usd
         return SearchResponse(
             provider="exa",
             results=hits,
@@ -285,12 +361,24 @@ class SearchService:
                 service="exa.search",
                 request_count=1,
                 provider_reported_cost_usd=cost,
-                cost_source="provider_reported" if cost is not None else "unknown",
+                provider_cost_usd=provider_cost,
+                cost_source=(
+                    "provider_reported"
+                    if cost is not None
+                    else "configured_catalog"
+                    if provider_cost is not None
+                    else "unknown"
+                ),
+                quote=quote,
             ),
         )
 
     async def _search_tavily(
-        self, query: str, max_results: int, timeout: float
+        self,
+        query: str,
+        max_results: int,
+        timeout: float,
+        quote: SearchQuote,
     ) -> SearchResponse:
         body = await self._post(
             "tavily",
@@ -336,6 +424,7 @@ class SearchService:
             credits = _number(usage.get("credits"))
             if credits is not None:
                 units = (SearchUsageUnit(name="credits", quantity=credits),)
+        provider_cost = _rated_cost(quote, units[0].quantity) if units else None
         return SearchResponse(
             provider="tavily",
             results=hits,
@@ -344,13 +433,21 @@ class SearchService:
                 service="tavily.search",
                 request_count=1,
                 provider_reported_cost_usd=None,
-                cost_source="unknown",
+                provider_cost_usd=provider_cost,
+                cost_source="configured_catalog"
+                if provider_cost is not None
+                else "unknown",
                 units=units,
+                quote=quote,
             ),
         )
 
     async def _search_ddgs(
-        self, query: str, max_results: int, timeout: float
+        self,
+        query: str,
+        max_results: int,
+        timeout: float,
+        quote: SearchQuote,
     ) -> SearchResponse:
         if self._ddgs_factory is None:
             from ddgs import DDGS
@@ -396,6 +493,15 @@ class SearchService:
                 service="ddgs.text",
                 request_count=1,
                 provider_reported_cost_usd=0.0,
+                provider_cost_usd=0.0,
                 cost_source="free",
+                quote=quote,
             ),
         )
+
+
+def _rated_cost(quote: SearchQuote, quantity: int | float) -> float | None:
+    """Rate actual provider units against the pre-call captured quote."""
+    if quote.unit_price_usd is None:
+        return None
+    return float(Decimal(quote.unit_price_usd) * Decimal(str(quantity)))
