@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from dataclasses import dataclass
 from typing import Any
 
@@ -288,3 +289,56 @@ def test_terminal_receipt_without_provider_operations_costs_zero() -> None:
     )
     assert outcome.provider_cost_usd == 0.0
     assert outcome.billed_cost_micros == 0
+
+
+def test_child_store_calls_run_off_the_event_loop_thread() -> None:
+    calls: list[tuple[str, int]] = []
+
+    class TrackingActionRuns(_ActionRuns):
+        def receipt_lookup(self, project_id: str, receipt_id: str) -> dict[str, Any]:
+            calls.append(("receipt_lookup", threading.get_ident()))
+            return super().receipt_lookup(project_id, receipt_id)
+
+        def job_detail(self, project_id: str, job_id: int) -> dict[str, Any]:
+            calls.append(("job_detail", threading.get_ident()))
+            return super().job_detail(project_id, job_id)
+
+    class TrackingRunCancel(_RunCancel):
+        def cancel_run(self, project_id: str, run_id: int) -> dict[str, Any]:
+            calls.append(("cancel_run", threading.get_ident()))
+            return super().cancel_run(project_id, run_id)
+
+    async def scenario() -> int:
+        loop_thread = threading.get_ident()
+        service = ProjectQAChildRunService(
+            object(),
+            action_runs=TrackingActionRuns(
+                [{"job_id": 9, "status": "cancelled", "receipt_id": "rcpt_1"}],
+                {**_receipt(), "status": "cancelled"},
+            ),  # type: ignore[arg-type]
+            action_run_cancel=TrackingRunCancel(),  # type: ignore[arg-type]
+        )
+        await service.wait(
+            project=_Project(_Db()),  # type: ignore[arg-type]
+            project_id="project-1",
+            response=_response(),
+            record_dispatch=lambda _dispatch: calls.append(
+                ("record_dispatch", threading.get_ident())
+            ),
+            stop_requested=lambda: True,
+            rate_actual_cost=lambda _cost: (
+                calls.append(("rate_actual_cost", threading.get_ident())) or 0
+            ),
+        )
+        return loop_thread
+
+    loop_thread = asyncio.run(scenario())
+    assert [name for name, _thread in calls] == [
+        "receipt_lookup",
+        "record_dispatch",
+        "cancel_run",
+        "job_detail",
+        "receipt_lookup",
+        "rate_actual_cost",
+    ]
+    assert all(thread != loop_thread for _name, thread in calls)

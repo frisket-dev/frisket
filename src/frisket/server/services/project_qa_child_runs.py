@@ -13,7 +13,7 @@ import asyncio
 import inspect
 import math
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Protocol
 
 from frisket.ai.models.metadata import provider_cost_total, provider_cost_value
@@ -22,6 +22,7 @@ from frisket.engine.store import Project
 from frisket.server.route_errors import RouteError
 from frisket.server.services.action_run_cancel import ActionRunCancelService
 from frisket.server.services.action_runs import ActionRunResponse, ActionRunService
+from frisket.server.thread_worker import await_thread_worker
 from frisket.server.workspace import Workspace
 
 
@@ -110,103 +111,132 @@ class ProjectQAChildRunService:
     ) -> ChildRunOutcome:
         """Record one launch, await it, and return its bounded durable result.
 
-        ``record_dispatch`` is intentionally synchronous and is called before
-        the first await.  The caller uses it to atomically attach these child
+        ``record_dispatch`` is intentionally synchronous and finishes before
+        the first job poll. The caller uses it to atomically attach these child
         identifiers to the already-admitted research operation, closing the
         launch-to-wait process-death window without adding another scheduler.
         """
 
         initial = V1ActionResult.model_validate(response.payload)
-        initial_receipt = self._receipt_if_present(project_id, initial.receipt_id)
         dispatch = ChildRunDispatch(
             project_id=project_id,
             action_kind=initial.action.kind,
             action_id=initial.action.action_id,
-            idempotency_key=_optional_string(
-                initial_receipt.get("idempotency_key") if initial_receipt else None
-            ),
+            idempotency_key=None,
             job_id=initial.job_id,
             run_id=initial.run_id,
             receipt_id=initial.receipt_id,
             op_ids=tuple(initial.op_ids),
         )
-        record_dispatch(dispatch)
-
-        if initial.status in _TERMINAL_ACTION_STATUSES:
-            return self._outcome(
-                project=project,
-                dispatch=dispatch,
-                fallback=initial.model_dump(mode="json"),
-                receipt=initial_receipt,
-                public_job_status=None,
-                rate_actual_cost=rate_actual_cost,
-            )
-        if initial.job_id is None:
-            raise RuntimeError(
-                f"child action is {initial.status!r} but has no durable job id"
-            )
-
+        initial_receipt: dict[str, Any] | None = None
+        dispatch_recorded = False
         cancel_requested = False
-        public_job_status: dict[str, Any] | None = None
         try:
+            initial_receipt = await self._receipt_if_present(
+                project_id, initial.receipt_id
+            )
+            dispatch = replace(
+                dispatch,
+                idempotency_key=_optional_string(
+                    initial_receipt.get("idempotency_key") if initial_receipt else None
+                ),
+            )
+            # Persist the correlation before the first job poll, but offload it:
+            # research ledger writes must not block the event loop that hosts this waiter.
+            await await_thread_worker(record_dispatch, dispatch)
+            dispatch_recorded = True
+
+            if initial.status in _TERMINAL_ACTION_STATUSES:
+                return await self._outcome(
+                    project=project,
+                    dispatch=dispatch,
+                    fallback=initial.model_dump(mode="json"),
+                    receipt=initial_receipt,
+                    public_job_status=None,
+                    rate_actual_cost=rate_actual_cost,
+                )
+            if initial.job_id is None:
+                raise RuntimeError(
+                    f"child action is {initial.status!r} but has no durable job id"
+                )
+
+            public_job_status: dict[str, Any] | None = None
             while True:
                 if not cancel_requested and await _requested(stop_requested):
                     cancel_requested = True
-                    self._request_cancel(dispatch)
+                    await self._request_cancel(dispatch)
 
-                public_job_status = self._action_runs.job_detail(
-                    project_id, initial.job_id
+                public_job_status = await await_thread_worker(
+                    self._action_runs.job_detail, project_id, initial.job_id
                 )
                 if str(public_job_status.get("status")) in _TERMINAL_JOB_STATUSES:
                     break
                 await self._sleep(self._poll_interval_seconds)
+
+            receipt_id = _optional_string(public_job_status.get("receipt_id"))
+            if receipt_id is None:
+                receipt_id = dispatch.receipt_id
+            receipt = await self._receipt_if_present(project_id, receipt_id)
+            fallback = _job_fallback(initial, public_job_status)
+            return await self._outcome(
+                project=project,
+                dispatch=dispatch,
+                fallback=fallback,
+                receipt=receipt,
+                public_job_status=public_job_status,
+                rate_actual_cost=rate_actual_cost,
+            )
         except asyncio.CancelledError:
+            # A cancellation can land during the initial receipt read, before
+            # its idempotency fact is available. Persist the action response's
+            # durable correlation fields before asking the worker to stop.
+            if not dispatch_recorded:
+                await await_thread_worker(record_dispatch, dispatch)
             # Server shutdown/caller cancellation must not strand owned work.
             # Bound the drain so shutdown cannot wait forever on a live writer;
             # the persisted dispatch facts let later reconciliation find it.
             if not cancel_requested:
-                self._request_cancel(dispatch)
-            try:
-                async with asyncio.timeout(self._cancellation_drain_timeout_seconds):
-                    await self._drain_job(project_id, initial.job_id)
-            except TimeoutError:
-                pass
+                await self._request_cancel(dispatch)
+            if initial.job_id is not None:
+                try:
+                    async with asyncio.timeout(
+                        self._cancellation_drain_timeout_seconds
+                    ):
+                        await self._drain_job(project_id, initial.job_id)
+                except TimeoutError:
+                    pass
             raise
-
-        receipt_id = _optional_string(public_job_status.get("receipt_id"))
-        if receipt_id is None:
-            receipt_id = dispatch.receipt_id
-        receipt = self._receipt_if_present(project_id, receipt_id)
-        fallback = _job_fallback(initial, public_job_status)
-        return self._outcome(
-            project=project,
-            dispatch=dispatch,
-            fallback=fallback,
-            receipt=receipt,
-            public_job_status=public_job_status,
-            rate_actual_cost=rate_actual_cost,
-        )
 
     async def _drain_job(self, project_id: str, job_id: int) -> None:
         while True:
-            payload = self._action_runs.job_detail(project_id, job_id)
+            payload = await await_thread_worker(
+                self._action_runs.job_detail, project_id, job_id
+            )
             if str(payload.get("status")) in _TERMINAL_JOB_STATUSES:
                 return
             await self._sleep(self._poll_interval_seconds)
 
-    def _receipt_if_present(
+    async def _receipt_if_present(
         self, project_id: str, receipt_id: str | None
     ) -> dict[str, Any] | None:
         if receipt_id is None:
             return None
-        return self._action_runs.receipt_lookup(project_id, receipt_id)
+        return await await_thread_worker(
+            self._action_runs.receipt_lookup, project_id, receipt_id
+        )
 
-    def _request_cancel(self, dispatch: ChildRunDispatch) -> None:
+    async def _request_cancel(self, dispatch: ChildRunDispatch) -> None:
         try:
             if dispatch.run_id is not None:
-                self._action_run_cancel.cancel_run(dispatch.project_id, dispatch.run_id)
+                await await_thread_worker(
+                    self._action_run_cancel.cancel_run,
+                    dispatch.project_id,
+                    dispatch.run_id,
+                )
             elif dispatch.job_id is not None:
-                self._action_runs.cancel_job(dispatch.project_id, dispatch.job_id)
+                await await_thread_worker(
+                    self._action_runs.cancel_job, dispatch.project_id, dispatch.job_id
+                )
         except RouteError as exc:
             # Canonical cancellation uses 409 for races such as a writer that
             # must terminalize or a job that finished between status and Stop.
@@ -215,7 +245,7 @@ class ProjectQAChildRunService:
             if exc.status_code != 409:
                 raise
 
-    def _outcome(
+    async def _outcome(
         self,
         *,
         project: Project,
@@ -228,9 +258,11 @@ class ProjectQAChildRunService:
         source = receipt or fallback
         provider_cost = _provider_cost(receipt)
         if receipt is None and provider_cost is None and dispatch.run_id is not None:
-            provider_cost = _run_provider_cost(project, dispatch.run_id)
+            provider_cost = await await_thread_worker(
+                _run_provider_cost, project, dispatch.run_id
+            )
         billed_cost = (
-            rate_actual_cost(provider_cost)
+            await await_thread_worker(rate_actual_cost, provider_cost)
             if rate_actual_cost is not None and provider_cost is not None
             else None
         )
