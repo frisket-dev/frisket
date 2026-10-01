@@ -1773,6 +1773,7 @@ def bound_typed_program_request_from_runner_spec(
                 if not field.hidden
             },
             "replace_existing": runner_spec.get("replace_existing", False),
+            "expected_output_columns": runner_spec.get("expected_output_columns"),
             "idempotency_key": "internal-run-backfill-program",
             **(
                 {
@@ -1846,6 +1847,7 @@ def typed_program_from_runner_spec(
         "input_columns",
         "params",
         "output_names",
+        "expected_output_columns",
         "replace_existing",
         "model",
         "engine",
@@ -2290,6 +2292,8 @@ def _typed_map_rows_plan(
         ]
     if target_preconditions:
         spec["output_target_preconditions"] = target_preconditions
+    if request.expected_output_columns is not None:
+        spec["expected_output_columns"] = dict(request.expected_output_columns)
     spec["replace_existing"] = request.replace_existing
     if request.replace_existing:
         spec["overwrite"] = True
@@ -2418,6 +2422,8 @@ def normalized_typed_request_identity(
         "output_names": output_names,
         "replace_existing": request.replace_existing,
     }
+    if request.expected_output_columns is not None:
+        payload["expected_output_columns"] = dict(request.expected_output_columns)
     if bound.implementation_identity is not None:
         payload["implementation_identity"] = bound.implementation_identity
     if request.sheet_name is not None:
