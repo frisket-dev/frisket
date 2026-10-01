@@ -42,6 +42,7 @@ from frisket.server.services.project_qa_tracing import (
 from frisket.server.thread_worker import await_thread_worker
 from frisket.server.workspace import Workspace
 from frisket.server.project_qa_runtime import ProjectQATurnRuntime
+from frisket.server.services.project_qa_authority import BackgroundAskContext
 from frisket.redaction import safe_error
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 
@@ -115,6 +116,20 @@ class ProjectQAService:
         self._runtime_closers: set[asyncio.Task[None]] = set()
         self._admission = asyncio.Lock()
         self._closed = False
+        self._research_authorize: Callable[[str, BackgroundAskContext], None] | None = (
+            None
+        )
+        self._skill_library: Callable[[], Any] | None = None
+
+    def configure_research(
+        self,
+        *,
+        authorize: Callable[[str, BackgroundAskContext], None],
+        skills: Callable[[], Any] | None = None,
+    ) -> None:
+        """Supply edition-owned live authorization and an isolated skill library."""
+        self._research_authorize = authorize
+        self._skill_library = skills
 
     async def _failure_diagnostic(
         self,
