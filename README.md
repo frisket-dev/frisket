@@ -63,6 +63,37 @@ If you're running Frisket on a server or want to support multiple users, go for 
 
 Codex claims it requires Linux, Docker Engine, and Docker Compose. It installs Frisket under `/srv/frisket`.
 
+#### Project Ask workflows
+
+In Solo or Team, open Ask’s settings and enable **Run actions** to let it
+convert documents, extract fields, and analyze the results. Installed plugin
+actions use the same action system as built-ins.
+
+Choose **Ask before each action**, **Ask before overwriting**, or **Full
+access**, and set a total budget for the conversation’s next research run.
+Leaving the budget blank uses your existing action approval limit. Leave
+**Max turns** blank for no turn limit. Work continues when you close the panel
+or browser, while the Frisket server and its worker remain running. A server
+restart interrupts the run; it does not automatically replay actions.
+
+Use **Settings → Skills** to create, upload, edit, and enable an instruction-only
+`SKILL.md`. Team administrators manage the shared library. Select the skills
+available to Ask in its settings. A file starts with a name and description:
+
+```markdown
+---
+name: review-filings
+description: Extract and compare facts from selected court filings.
+---
+Convert the selected PDFs to Markdown, inspect the results, then extract the
+parties and filing dates into new columns. Use a filter to count matching
+filings and cite the supporting records. Do not overwrite existing columns.
+```
+
+Skills guide the agent’s existing tools; they do not install or run Python or
+shell scripts. You can also configure Exa or Tavily in provider settings for
+web search. Ask uses Exa first, then Tavily, when their keys are available.
+
 #### Project Ask traces
 
 Project Ask can send its agent traces to Braintrust or another OTLP backend.

@@ -108,7 +108,9 @@ def _receipt(*, cost: float | None = 0.125) -> dict[str, Any]:
     }
 
 
-def test_records_response_dispatch_before_receipt_enrichment_and_returns_terminal_receipt() -> None:
+def test_records_response_dispatch_before_receipt_enrichment_and_returns_terminal_receipt() -> (
+    None
+):
     events: list[str] = []
     recorded: list[ChildRunDispatch] = []
     action_runs = _ActionRuns(
@@ -255,7 +257,9 @@ def test_task_cancellation_cancels_and_bounds_child_drain() -> None:
                 project_id="project-1",
                 response=_response(),
                 record_dispatch=lambda _dispatch: None,
-                record_terminal=lambda outcome: terminal_records.append(outcome.dispatch),
+                record_terminal=lambda outcome: terminal_records.append(
+                    outcome.dispatch
+                ),
             )
         )
         await asyncio.sleep(0)

@@ -205,7 +205,10 @@ def test_two_connections_cannot_overcommit_one_budget(tmp_path) -> None:
             opened.close()
 
     threads = [
-        threading.Thread(target=admit, args=(f"op-{index}",)) for index in range(2)
+        threading.Thread(
+            target=admit, args=(f"op-{index}",)
+        )  # realtime: exercise concurrent SQLite admission; no clock assertions
+        for index in range(2)
     ]
     for thread in threads:
         thread.start()
