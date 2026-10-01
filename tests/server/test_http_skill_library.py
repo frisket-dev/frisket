@@ -112,6 +112,13 @@ def test_skill_library_refuses_invalid_or_unsupported_packages_and_enforces_auth
     assert extra_frontmatter.status_code == 422
     assert "unsupported" in extra_frontmatter.json()["detail"]
 
+    mixed_key = client.post(
+        "/api/skills",
+        json={"content": SKILL.replace("description:", "1: unsupported\ndescription:")},
+    )
+    assert mixed_key.status_code == 422
+    assert "unsupported fields: 1" in mixed_key.json()["detail"]
+
     wrong_upload = client.post(
         "/api/skills/upload",
         content=b"PK\x03\x04not a skill",
@@ -195,3 +202,14 @@ def test_solo_app_registers_the_workspace_skill_library(tmp_path) -> None:
         response = client.get("/api/skills")
     assert response.status_code == 200
     assert response.json() == {"schemaVersion": "frisket.skills.v1", "skills": []}
+
+
+@pytest.mark.parametrize("name", ["-leading", "trailing-", "double--hyphen", "a" * 65])
+def test_skill_name_matches_harness_slug_constraints(tmp_path, name: str) -> None:
+    client = _client(tmp_path)
+    rejected = client.post(
+        "/api/skills",
+        json={"content": SKILL.replace("investigate-documents", name, 1)},
+    )
+    assert rejected.status_code == 422
+    assert "single hyphens" in rejected.json()["detail"]

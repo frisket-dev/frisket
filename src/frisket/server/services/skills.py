@@ -18,7 +18,7 @@ from frisket.contracts.http.skills import SKILL_LIBRARY_SCHEMA_VERSION
 
 
 MAX_SKILL_BYTES = 128 * 1024
-_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+_NAME = re.compile(r"^(?=.{1,64}$)[a-z0-9]+(?:-[a-z0-9]+)*$")
 _ALLOWED_FRONTMATTER = {"name", "description"}
 
 
@@ -56,7 +56,9 @@ def _frontmatter(content: str) -> tuple[str, str]:
         raise SkillLibraryError("SKILL.md frontmatter is not valid YAML.") from exc
     if not isinstance(metadata, dict):
         raise SkillLibraryError("SKILL.md frontmatter must be a mapping.")
-    unsupported = sorted(set(metadata) - _ALLOWED_FRONTMATTER)
+    unsupported = sorted(
+        str(key) for key in metadata if key not in _ALLOWED_FRONTMATTER
+    )
     if unsupported:
         raise SkillLibraryError(
             f"SKILL.md frontmatter has unsupported fields: {', '.join(unsupported)}."
@@ -65,7 +67,7 @@ def _frontmatter(content: str) -> tuple[str, str]:
     description = metadata.get("description")
     if not isinstance(name, str) or not _NAME.fullmatch(name):
         raise SkillLibraryError(
-            "SKILL.md name must use lowercase letters, digits, and hyphens."
+            "SKILL.md name must use lowercase letters, digits, and single hyphens."
         )
     if (
         not isinstance(description, str)

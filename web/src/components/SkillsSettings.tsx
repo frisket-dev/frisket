@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { FileText, Plus, RefreshCw, Save, Trash2, Upload } from 'lucide-react';
 import { skillsApi, type InstructionSkill } from '../api/skills';
 
@@ -18,20 +18,24 @@ export function SkillsSettings() {
   const [draft, setDraft] = useState(starter);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const mutationGeneration = useRef(0);
+  const writeInFlight = useRef(false);
   const selected = skills.find((skill) => skill.id === selectedId) ?? null;
 
   const load = useCallback(async () => {
+    const generation = mutationGeneration.current;
     setBusy(true);
     setError(null);
     try {
       const result = await skillsApi.list();
+      if (generation !== mutationGeneration.current) return;
       setSkills(result.skills);
       setSelectedId((current) => current && result.skills.some((skill) => skill.id === current)
         ? current : (result.skills[0]?.id ?? null));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not load skills.');
     } finally {
-      setBusy(false);
+      if (!writeInFlight.current) setBusy(false);
     }
   }, []);
 
@@ -39,6 +43,9 @@ export function SkillsSettings() {
   useEffect(() => { if (selected) setDraft(selected.content); }, [selected]);
 
   const save = async () => {
+    if (writeInFlight.current) return;
+    writeInFlight.current = true;
+    mutationGeneration.current += 1;
     setBusy(true);
     setError(null);
     try {
@@ -52,12 +59,15 @@ export function SkillsSettings() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not save skill.');
     } finally {
+      writeInFlight.current = false;
       setBusy(false);
     }
   };
 
   const toggle = async () => {
-    if (!selected) return;
+    if (!selected || writeInFlight.current) return;
+    writeInFlight.current = true;
+    mutationGeneration.current += 1;
     setBusy(true);
     setError(null);
     try {
@@ -66,12 +76,15 @@ export function SkillsSettings() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not update skill.');
     } finally {
+      writeInFlight.current = false;
       setBusy(false);
     }
   };
 
   const remove = async () => {
-    if (!selected) return;
+    if (!selected || writeInFlight.current) return;
+    writeInFlight.current = true;
+    mutationGeneration.current += 1;
     setBusy(true);
     setError(null);
     try {
@@ -82,12 +95,15 @@ export function SkillsSettings() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not remove skill.');
     } finally {
+      writeInFlight.current = false;
       setBusy(false);
     }
   };
 
   const upload = async (file: File | undefined) => {
-    if (!file) return;
+    if (!file || writeInFlight.current) return;
+    writeInFlight.current = true;
+    mutationGeneration.current += 1;
     setBusy(true);
     setError(null);
     try {
@@ -98,6 +114,7 @@ export function SkillsSettings() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not upload SKILL.md.');
     } finally {
+      writeInFlight.current = false;
       setBusy(false);
     }
   };
@@ -111,14 +128,14 @@ export function SkillsSettings() {
         </div>
         <div className="settings-actions">
           <button type="button" className="icon-btn" aria-label="Refresh skills" onClick={() => void load()} disabled={busy}><RefreshCw size={14} /></button>
-          <label className="btn"><Upload size={14} /> Upload SKILL.md<input data-testid="skills-upload" type="file" accept="text/markdown,text/plain,.md" hidden onChange={(event) => void upload(event.currentTarget.files?.[0])} /></label>
+          <label className="btn"><Upload size={14} /> Upload SKILL.md<input data-testid="skills-upload" type="file" accept="text/markdown,text/plain,.md" hidden disabled={busy} onChange={(event) => void upload(event.currentTarget.files?.[0])} /></label>
           <button type="button" className="btn" onClick={() => { setSelectedId(null); setDraft(starter); }} disabled={busy}><Plus size={14} /> New skill</button>
         </div>
       </div>
       {error && <p className="settings-error" role="alert">{error}</p>}
       <div className="skills-settings-split">
         <div className="skills-settings-list" aria-label="Saved skills">
-          {skills.map((skill) => <button key={skill.id} type="button" className={`skills-settings-list-item${skill.id === selectedId ? ' selected' : ''}`} onClick={() => setSelectedId(skill.id)}><strong>{skill.name}</strong><span>{skill.enabled ? 'Enabled' : 'Disabled'}</span></button>)}
+          {skills.map((skill) => <button key={skill.id} type="button" className={`skills-settings-list-item${skill.id === selectedId ? ' selected' : ''}`} onClick={() => setSelectedId(skill.id)} disabled={busy}><strong>{skill.name}</strong><span>{skill.enabled ? 'Enabled' : 'Disabled'}</span></button>)}
           {skills.length === 0 && <p className="muted">No skills saved yet.</p>}
         </div>
         <div className="skills-settings-editor">
