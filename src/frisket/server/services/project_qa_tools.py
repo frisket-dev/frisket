@@ -5,29 +5,26 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAStore
+from frisket.actions.system import root_action_catalog_payload
 from frisket.features.watchlists.specs import canonical_json
 from frisket.server.services.project_qa_query import (
     AnalyticsRequest,
     evaluate_analytics,
     evaluate_query,
 )
-from frisket.actions.system import root_action_catalog
 from frisket.search import search_cells_scoped
 from frisket.semantic import semantic_passage_search
-from frisket.authoring.action_proposals import (
-    proposal_action_ids,
-    validate_action_proposal,
+from frisket.authoring.project_ask_actions import (
+    describe_project_ask_action,
+    search_project_ask_actions,
 )
-from frisket.authoring.project_ask import (
-    PROJECT_ASK_CREATE_SHEET_KINDS,
-    PROJECT_ASK_ROW_CREATE_SHEET_KINDS,
-)
+from frisket.server.services.project_qa_actions import save_prepared_project_ask_action
 from frisket.server.services.project_qa_web import safe_web_text, safe_web_url
 from frisket.server.services.project_qa_sources import (
     read_source_text,
@@ -106,7 +103,12 @@ class ProjectQATools:
     """Read project cells only through the immutable submitted turn scope."""
 
     def __init__(
-        self, project: Project, turn: Mapping[str, Any], store: ProjectQAStore
+        self,
+        project: Project,
+        turn: Mapping[str, Any],
+        store: ProjectQAStore,
+        *,
+        catalog_payload_provider: Callable[[], Mapping[str, Any]] | None = None,
     ) -> None:
         self.project = project
         self.turn = dict(turn)
@@ -118,6 +120,9 @@ class ProjectQATools:
         self._source_chars = 0
         self._new_embeddings = 0
         self.cancel_event = threading.Event()
+        self._project_action_catalog_payload = (
+            catalog_payload_provider or root_action_catalog_payload
+        )
         validate_scope(project, self.turn["scope"])
 
     @property
@@ -1019,32 +1024,25 @@ class ProjectQATools:
             raise ProjectQAScopeError("action suggestions are disabled for this turn")
         if not query.strip() or len(query) > 500 or not 1 <= limit <= 20:
             raise ValueError("use a short action query and limit 1–20")
-        terms = query.casefold().split()
-        allowed = proposal_action_ids()
-        ranked = []
-        for entry in root_action_catalog().actions:
-            if entry.kind not in allowed:
-                continue
-            text = f"{entry.kind} {entry.title} {entry.description}".casefold()
-            score = sum(term in text for term in terms)
-            if score:
-                ranked.append((score, entry))
-        ranked.sort(key=lambda item: (-item[0], item[1].kind))
+        catalog_payload = self._project_action_catalog_payload()
+        ranked, has_more = search_project_ask_actions(catalog_payload, query, limit)
         actions = []
-        for _, entry in ranked[:limit]:
-            target = f"#action/{entry.kind}"
+        for entry in ranked:
+            action_id = str(entry["kind"])
+            title = str(entry["title"])
+            target = f"#action/{action_id}"
             self._action_references.add(target)
             actions.append(
                 {
-                    "action_id": entry.kind,
-                    "title": entry.title,
-                    "description": entry.description,
-                    "reference": f"[{entry.title}]({target})",
+                    "action_id": action_id,
+                    "title": title,
+                    "description": str(entry["description"]),
+                    "reference": f"[{title}]({target})",
                 }
             )
         return {
             "actions": actions,
-            "has_more": len(ranked) > limit,
+            "has_more": has_more,
         }
 
     def propose_action(self, title: str, draft: dict[str, Any]) -> dict[str, Any]:
@@ -1056,21 +1054,22 @@ class ProjectQATools:
             raise ValueError(
                 "proposal title must be concise plain text without Markdown brackets"
             )
-        spec = validate_action_proposal(
-            self.project,
-            draft,
-            scope=self.turn["scope"],
-            title=title,
-        )
-        if spec is None:
+        catalog_payload = self._project_action_catalog_payload()
+        try:
+            saved = save_prepared_project_ask_action(
+                self.project,
+                self.turn,
+                self.store,
+                title=title,
+                draft=draft,
+                catalog_payload=catalog_payload,
+            )
+        except ValueError as exc:
             raise ProjectQAScopeError(
                 "proposal is not an available action for this project"
-            )
-        proposal = {"title": title, "spec": spec}
-        event = self.store.append_event(
-            self.turn_id, kind="action_proposal", payload={"proposal": proposal}
-        )
-        target = f"#action-{event['seq']}"
+            ) from exc
+        proposal = saved.proposal
+        target = f"#action-{saved.event['seq']}"
         self._action_references.add(target)
         return {
             "proposal": proposal,
@@ -1084,18 +1083,17 @@ class ProjectQATools:
             raise ProjectQAScopeError("action suggestions are disabled for this turn")
         if not isinstance(action_id, str) or not action_id:
             raise ValueError("action_id must be a non-empty string")
-        if action_id not in proposal_action_ids():
+        catalog_payload = self._project_action_catalog_payload()
+        entry = describe_project_ask_action(catalog_payload, action_id)
+        if entry is None:
             raise ProjectQAScopeError("action is not available")
-        try:
-            entry = next(
-                item for item in root_action_catalog().actions if item.kind == action_id
-            )
-        except StopIteration as exc:
-            raise ProjectQAScopeError("action is not available") from exc
-        properties = entry.input_schema.get("properties", {})
+        input_schema = entry.get("input_schema")
+        if not isinstance(input_schema, Mapping):
+            raise ProjectQAScopeError("action is not available")
+        properties = input_schema.get("properties", {})
         if not isinstance(properties, dict):
             properties = {}
-        required_params = entry.input_schema.get("required", [])
+        required_params = input_schema.get("required", [])
         if not isinstance(required_params, list):
             required_params = []
         required_params = [
@@ -1110,27 +1108,37 @@ class ProjectQATools:
             and isinstance(schema, dict)
             and "default" in schema
         }
-        if entry.kind in PROJECT_ASK_CREATE_SHEET_KINDS:
-            scope_contract = (
-                {"kind": "sheet_rows", "requires_sheet_id": True}
-                if entry.kind in PROJECT_ASK_ROW_CREATE_SHEET_KINDS
-                else {"kind": "project"}
-            )
+        row_scope_policy = entry.get("row_scope_policy")
+        if (
+            isinstance(row_scope_policy, Mapping)
+            and row_scope_policy.get("kind") == "project"
+        ):
+            scope_contract = {"kind": "project"}
         else:
             scope_contract = {"kind": "sheet_rows", "requires_sheet_id": True}
-        target = f"#action/{entry.kind}"
+        title = str(entry.get("title", action_id))
+        description = str(entry.get("description", ""))
+        ui_hints = entry.get("ui_hints")
+        if not isinstance(ui_hints, Mapping):
+            ui_hints = {}
+        typed_action = ui_hints.get("typed_action")
+        creates_sheet = (
+            isinstance(typed_action, Mapping)
+            and typed_action.get("creates_sheet") is True
+        )
+        target = f"#action/{action_id}"
         self._action_references.add(target)
         return {
-            "action_id": entry.kind,
-            "title": entry.title,
-            "description": entry.description,
-            "reference": f"[{entry.title}]({target})",
-            "input_schema": entry.input_schema,
+            "action_id": action_id,
+            "title": title,
+            "description": description,
+            "reference": f"[{title}]({target})",
+            "input_schema": dict(input_schema),
             "required_params": required_params,
             "defaults": defaults,
-            "source_requirements": entry.ui_hints.get("source_requirements", []),
+            "source_requirements": ui_hints.get("source_requirements", []),
             "proposal_contract": {
-                "fixed_fields": {"action_id": entry.kind},
+                "fixed_fields": {"action_id": action_id},
                 "scope": scope_contract,
                 "params": {
                     "required": required_params,
@@ -1141,7 +1149,7 @@ class ProjectQATools:
                 "output_names": "optional logical-output to column-name mapping",
                 **(
                     {"sheet_name": "required non-empty output sheet name"}
-                    if entry.kind in PROJECT_ASK_CREATE_SHEET_KINDS
+                    if creates_sheet
                     else {}
                 ),
             },

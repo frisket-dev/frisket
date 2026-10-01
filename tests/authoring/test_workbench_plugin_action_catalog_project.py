@@ -7,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from frisket.authoring.plugin_registry import _reset_default_registry_for_tests
+from frisket.authoring.project_ask_actions import prepare_validated_project_ask_draft
 from frisket.contracts.action import CURRENT_ACTION_AUTHORING_CONTRACT_VERSION
 from frisket.server.app import create_app
 
@@ -132,6 +133,29 @@ def test_project_action_catalog_merges_enabled_plugin_actions_only(
     assert "default_outputs" not in entry["ui_hints"]
 
     assert "plugin.load" in {item["kind"] for item in catalog["actions"]}
+    project = client.app.state.workspace.get(project_a)
+    sheet_id = project.add_sheet("Receipts")
+    project.add_column(sheet_id, "Name")
+    prepared = prepare_validated_project_ask_draft(
+        project,
+        {
+            "action_id": ACTION_KIND,
+            "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
+            "params": {"name": "Name"},
+            "output_names": {},
+        },
+        catalog_payload=catalog,
+    )
+    assert prepared.draft["action_id"] == ACTION_KIND
+    identity = prepared.implementation_identity
+    assert identity is not None
+    assert {
+        key: identity[key] for key in ("plugin_id", "handler_key", "module_path")
+    } == {
+        "plugin_id": PLUGIN_ID,
+        "handler_key": f"{PLUGIN_ID}:stamp",
+        "module_path": "plugin.py",
+    }
     assert ACTION_KIND not in _catalog_kinds(
         client, f"/api/projects/{project_b}/actions/v1/catalog"
     )
