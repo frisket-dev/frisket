@@ -103,8 +103,8 @@ export function SkillsSettings() {
   };
 
   return (
-    <section className="settings-section" data-testid="skills-settings">
-      <div className="settings-section-head">
+    <section className="skills-settings settings-stack" data-testid="skills-settings">
+      <div className="skills-settings-head">
         <div>
           <h2><FileText size={16} aria-hidden /> Skills</h2>
           <p>Text-only instructions for Ask. Skills cannot run code or add tools.</p>
@@ -116,12 +116,12 @@ export function SkillsSettings() {
         </div>
       </div>
       {error && <p className="settings-error" role="alert">{error}</p>}
-      <div className="settings-split">
-        <div className="settings-list" aria-label="Saved skills">
-          {skills.map((skill) => <button key={skill.id} type="button" className={`settings-list-item${skill.id === selectedId ? ' selected' : ''}`} onClick={() => setSelectedId(skill.id)}><strong>{skill.name}</strong><span>{skill.enabled ? 'Enabled' : 'Disabled'}</span></button>)}
+      <div className="skills-settings-split">
+        <div className="skills-settings-list" aria-label="Saved skills">
+          {skills.map((skill) => <button key={skill.id} type="button" className={`skills-settings-list-item${skill.id === selectedId ? ' selected' : ''}`} onClick={() => setSelectedId(skill.id)}><strong>{skill.name}</strong><span>{skill.enabled ? 'Enabled' : 'Disabled'}</span></button>)}
           {skills.length === 0 && <p className="muted">No skills saved yet.</p>}
         </div>
-        <div className="settings-editor">
+        <div className="skills-settings-editor">
           <label htmlFor="skill-content">SKILL.md</label>
           <textarea id="skill-content" className="form-input" data-testid="skills-editor" value={draft} rows={16} onChange={(event) => setDraft(event.currentTarget.value)} disabled={busy} />
           <div className="settings-actions">
