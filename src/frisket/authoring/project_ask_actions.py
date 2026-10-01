@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass, replace
 from typing import Any
 
 from pydantic import ValidationError
@@ -42,12 +42,26 @@ class PreparedProjectAskDraft:
     bound: BoundTypedActionRequest
     catalog_entry: dict[str, Any]
     references: tuple[InputReference, ...]
+    owned_output_inputs: tuple["OwnedOutputInput", ...] = ()
 
     @property
     def implementation_identity(self) -> Mapping[str, Any] | None:
         """Resolved builtin/plugin identity for a later execution boundary."""
 
         return self.bound.implementation_identity
+
+
+@dataclass(frozen=True)
+class OwnedOutputInput:
+    """One receipt-proven derived cell used by a file-scoped Ask action."""
+
+    receipt_id: str
+    sheet_id: int
+    row_id: int
+    column_id: int
+
+
+OutputGrantAllows = Callable[..., bool]
 
 
 def _catalog_entries(catalog_payload: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
@@ -392,7 +406,9 @@ def _references_fit_selected_cells(
     target_rows: set[int],
     unrestricted_rows: set[int],
     file_columns_by_row: dict[int, set[int]],
-) -> bool:
+    output_grants: tuple[Any, ...],
+    output_grant_allows: OutputGrantAllows | None,
+) -> tuple[OwnedOutputInput, ...] | None:
     """Keep each file-selected row within its own selected input cells."""
 
     by_name = {
@@ -402,12 +418,49 @@ def _references_fit_selected_cells(
     for reference in references:
         column_id = by_name.get(reference.column)
         if column_id is None:
-            return False
+            return None
         reference_columns.add(column_id)
-    return all(
-        row_id in unrestricted_rows
-        or reference_columns <= file_columns_by_row.get(row_id, set())
-        for row_id in target_rows
+    owned_inputs: list[OwnedOutputInput] = []
+    receipt_ids = tuple(
+        sorted(
+            {
+                str(grant.receipt_id)
+                for grant in output_grants
+                if isinstance(getattr(grant, "receipt_id", None), str)
+            }
+        )
+    )
+    for row_id in target_rows:
+        if row_id in unrestricted_rows:
+            continue
+        selected_columns = file_columns_by_row.get(row_id, set())
+        for column_id in reference_columns - selected_columns:
+            if output_grant_allows is None or not output_grant_allows(
+                output_grants,
+                sheet_id=sheet_id,
+                row_id=row_id,
+                column_id=column_id,
+            ):
+                return None
+            if not receipt_ids:
+                return None
+            # The shared predicate decides whether the cell is readable. Bind
+            # the exact cell plus current receipt proofs without copying a
+            # possibly large grant row set into an Ask event.
+            owned_inputs.extend(
+                OwnedOutputInput(receipt_id, sheet_id, row_id, column_id)
+                for receipt_id in receipt_ids
+            )
+    return tuple(
+        sorted(
+            set(owned_inputs),
+            key=lambda item: (
+                item.receipt_id,
+                item.sheet_id,
+                item.row_id,
+                item.column_id,
+            ),
+        )
     )
 
 
@@ -415,22 +468,25 @@ def _restrict_scope(
     project: Project,
     prepared: PreparedProjectAskDraft,
     source_scope: Mapping[str, Any],
-) -> bool:
+    *,
+    output_grants: tuple[Any, ...],
+    output_grant_allows: OutputGrantAllows | None,
+) -> tuple[OwnedOutputInput, ...] | None:
     draft_scope = prepared.draft.get("scope")
     if not isinstance(draft_scope, dict) or draft_scope.get("kind") != "sheet_rows":
-        return False
+        return None
     sheet_id = draft_scope.get("sheet_id")
     if isinstance(sheet_id, bool) or not isinstance(sheet_id, int):
-        return False
+        return None
     sources = [
         source
         for source in source_scope.get("sources", [])
         if isinstance(source, Mapping) and source.get("sheet_id") == sheet_id
     ]
     if not sources:
-        return False
+        return None
     if any(source.get("kind") == "sheet" for source in sources):
-        return True
+        return ()
 
     row_ids: set[int] = set()
     unrestricted_rows: set[int] = set()
@@ -452,23 +508,38 @@ def _restrict_scope(
                 if isinstance(column_id, int) and not isinstance(column_id, bool):
                     file_columns_by_row.setdefault(row_id, set()).add(column_id)
     if not row_ids:
-        return False
+        return None
     requested_rows = draft_scope.get("row_ids")
     if requested_rows is not None:
         if not set(requested_rows).issubset(row_ids):
-            return False
+            return None
         row_ids = set(requested_rows)
-    if not _references_fit_selected_cells(
+    owned_inputs = _references_fit_selected_cells(
         project,
         prepared.references,
         sheet_id,
         row_ids,
         unrestricted_rows,
         file_columns_by_row,
-    ):
-        return False
+        output_grants,
+        output_grant_allows,
+    )
+    if owned_inputs is None:
+        return None
     prepared.draft["scope"] = {**draft_scope, "row_ids": sorted(row_ids)}
-    return True
+    return owned_inputs
+
+
+def _default_output_grant_allows(
+    grants: Iterable[Any], *, sheet_id: int, row_id: int, column_id: int
+) -> bool:
+    """Use the shared receipt scope boundary in composed server deployments."""
+
+    from frisket.server.services.project_qa_output_scope import output_grant_allows
+
+    return output_grant_allows(
+        grants, sheet_id=sheet_id, row_id=row_id, column_id=column_id
+    )
 
 
 def prepare_validated_project_ask_draft(
@@ -477,6 +548,8 @@ def prepare_validated_project_ask_draft(
     *,
     catalog_payload: Mapping[str, Any],
     scope: Mapping[str, Any] | None = None,
+    output_grants: Iterable[Any] = (),
+    output_grant_allows: OutputGrantAllows | None = None,
 ) -> PreparedProjectAskDraft:
     """Prepare a catalog-admitted draft for review or later execution.
 
@@ -488,12 +561,23 @@ def prepare_validated_project_ask_draft(
     """
 
     prepared = _bind_project_ask_draft(project, spec, catalog_payload=catalog_payload)
+    current_output_grants = tuple(output_grants)
+    if current_output_grants and output_grant_allows is None:
+        output_grant_allows = _default_output_grant_allows
     if scope is not None and scope.get("kind") != "project":
-        if not _restrict_scope(project, prepared, scope):
+        owned_output_inputs = _restrict_scope(
+            project,
+            prepared,
+            scope,
+            output_grants=current_output_grants,
+            output_grant_allows=output_grant_allows,
+        )
+        if owned_output_inputs is None:
             raise ValueError("action draft is outside the Ask source scope")
         prepared = _bind_project_ask_draft(
             project, prepared.draft, catalog_payload=catalog_payload
         )
+        prepared = replace(prepared, owned_output_inputs=owned_output_inputs)
         if not _secondary_references_fit_scope(
             _bound_sheet_references(prepared.bound.params), scope
         ):

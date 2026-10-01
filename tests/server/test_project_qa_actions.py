@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import pytest
 
 from frisket.actions.system import root_action_catalog_payload
@@ -9,6 +11,25 @@ from frisket.server.services.project_qa_actions import (
     ProjectAskActionService,
     save_prepared_project_ask_action,
 )
+
+
+@dataclass(frozen=True)
+class _OutputGrant:
+    receipt_id: str
+    sheet_id: int
+    column_ids: frozenset[int] | None
+    row_ids: frozenset[int] | None
+
+
+def _allows_output_cell(
+    grants: tuple[_OutputGrant, ...], *, sheet_id: int, row_id: int, column_id: int
+) -> bool:
+    return any(
+        grant.sheet_id == sheet_id
+        and (grant.row_ids is None or row_id in grant.row_ids)
+        and (grant.column_ids is None or column_id in grant.column_ids)
+        for grant in grants
+    )
 
 
 def _turn(project: Project) -> tuple[ProjectQAStore, dict[str, object], int]:
@@ -124,6 +145,93 @@ def test_prepared_ask_event_revalidates_then_uses_budget_and_action_services(tmp
             )
         ]
         assert launched[0][1]["replace_existing"] is False
+    finally:
+        project.close()
+
+
+def test_ask_action_revalidates_a_file_derived_column_receipt_at_launch(tmp_path):
+    project = Project.create(tmp_path / "project.frisket")
+    try:
+        sheet_id = project.add_sheet("Files")
+        file_column = project.add_column(sheet_id, "File")
+        markdown_column = project.add_column(sheet_id, "Markdown")
+        [row_id] = project.add_rows(
+            sheet_id,
+            [{"File": "report.pdf", "Markdown": "derived"}],
+            {"File": file_column, "Markdown": markdown_column},
+        )
+        store = ProjectQAStore(project)
+        thread = store.create_thread(title="Ask")
+        turn = store.submit_turn(
+            thread["id"],
+            request_id="derived-column",
+            question="Use the converted document",
+            scope={
+                "kind": "sources",
+                "sources": [
+                    {
+                        "kind": "file",
+                        "sheet_id": sheet_id,
+                        "row_id": row_id,
+                        "column_id": file_column,
+                    }
+                ],
+            },
+        )
+        grant = _OutputGrant(
+            receipt_id="receipt-markdown",
+            sheet_id=sheet_id,
+            column_ids=frozenset({markdown_column}),
+            row_ids=frozenset({row_id}),
+        )
+        saved = save_prepared_project_ask_action(
+            project,
+            turn,
+            store,
+            title="Summarize derived text",
+            draft={
+                "action_id": "map.template",
+                "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
+                "params": {"template": {"text": "{{Markdown}}"}},
+                "output_names": {},
+            },
+            catalog_payload=root_action_catalog_payload(),
+            quote_provider=_quote,
+            output_grants=(grant,),
+            output_grant_allows=_allows_output_cell,
+        )
+        assert saved.event["payload"]["prepared_action"]["owned_output_inputs"] == [
+            {
+                "receipt_id": "receipt-markdown",
+                "sheet_id": sheet_id,
+                "row_id": row_id,
+                "column_id": markdown_column,
+            }
+        ]
+
+        current_grants: tuple[_OutputGrant, ...] = (grant,)
+        admitted: list[dict[str, object]] = []
+        service = ProjectAskActionService(
+            catalog_payload_provider=root_action_catalog_payload,
+            quote_provider=_quote,
+            research_for_turn=lambda turn_id: {"id": "research-1", "turn_id": turn_id},
+            authorize_dispatch=_approval,
+            admit_operation=lambda research_id, **kwargs: admitted.append(
+                {"research_id": research_id, **kwargs}
+            ),
+            run_action=lambda _project_id, _body: {"status": "queued"},
+            output_grants_provider=lambda: current_grants,
+            output_grant_allows=_allows_output_cell,
+        )
+        assert service.launch(
+            project, store, saved.reference, project_id="project"
+        ) == {"status": "queued"}
+        assert len(admitted) == 1
+
+        current_grants = ()
+        with pytest.raises(ValueError, match="outside the Ask source scope"):
+            service.launch(project, store, saved.reference, project_id="project")
+        assert len(admitted) == 1
     finally:
         project.close()
 
@@ -287,8 +395,9 @@ def test_current_exact_approval_can_dispatch_a_non_map_action(tmp_path):
             catalog_payload_provider=root_action_catalog_payload,
             quote_provider=_quote,
             research_for_turn=lambda turn_id: {"id": "research-1", "turn_id": turn_id},
-            authorize_dispatch=lambda authority: approved.append(dict(authority))
-            or _approval(authority),
+            authorize_dispatch=lambda authority: (
+                approved.append(dict(authority)) or _approval(authority)
+            ),
             admit_operation=lambda *_args, **_kwargs: None,
             run_action=lambda _project_id, body: {"action_id": body["action_id"]},
         )

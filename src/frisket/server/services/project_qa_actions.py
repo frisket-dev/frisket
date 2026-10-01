@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from frisket.actions.core import MapRows, ModelRows, SemanticJoin
 from frisket.authoring.project_ask_actions import (
+    OutputGrantAllows,
     PreparedProjectAskDraft,
     prepare_validated_project_ask_draft,
 )
@@ -28,6 +29,7 @@ ResearchForTurn = Callable[[str], Mapping[str, Any]]
 DispatchAuthorizer = Callable[[Mapping[str, Any]], Mapping[str, Any] | None]
 ActionRunner = Callable[[str, dict[str, Any]], Any]
 OperationAdmitter = Callable[..., Any]
+OutputGrantsProvider = Callable[[], Any]
 
 
 @dataclass(frozen=True)
@@ -62,6 +64,33 @@ def _implementation_identity(prepared: PreparedProjectAskDraft) -> dict[str, Any
         "kind": prepared.request.action_id,
         "catalog_sha256": _hash(prepared.catalog_entry),
     }
+
+
+def _current_output_grants(provider: OutputGrantsProvider | None) -> tuple[Any, ...]:
+    """Resolve receipt grants at each preparation boundary, never from drafts."""
+
+    if provider is None:
+        return ()
+    resolved = provider()
+    grants = getattr(resolved, "grants", resolved)
+    if isinstance(grants, (str, bytes)):
+        raise ValueError("output grants are malformed")
+    try:
+        return tuple(grants)
+    except TypeError as error:
+        raise ValueError("output grants are malformed") from error
+
+
+def _owned_output_inputs(prepared: PreparedProjectAskDraft) -> list[dict[str, Any]]:
+    return [
+        {
+            "receipt_id": item.receipt_id,
+            "sheet_id": item.sheet_id,
+            "row_id": item.row_id,
+            "column_id": item.column_id,
+        }
+        for item in prepared.owned_output_inputs
+    ]
 
 
 def _action_body(
@@ -184,6 +213,7 @@ def _prepared_payload(
         "automatic_eligible": automatic_eligible,
         "preparation_reason": effects_reason or quote_reason,
         "scope": prepared.request.scope.model_dump(mode="json"),
+        "owned_output_inputs": _owned_output_inputs(prepared),
     }
     return {**authority, "payload_identity": _hash(authority)}
 
@@ -197,6 +227,8 @@ def save_prepared_project_ask_action(
     draft: Mapping[str, Any],
     catalog_payload: Mapping[str, Any],
     quote_provider: QuoteProvider | None = None,
+    output_grants: tuple[Any, ...] = (),
+    output_grant_allows: OutputGrantAllows | None = None,
 ) -> PreparedProjectAskAction:
     """Validate and persist a canonical action proposal on its Ask event.
 
@@ -210,6 +242,8 @@ def save_prepared_project_ask_action(
         draft,
         catalog_payload=catalog_payload,
         scope=turn["scope"],
+        output_grants=output_grants,
+        output_grant_allows=output_grant_allows,
     )
     proposal = {"title": title, "spec": prepared.draft}
     dispatch_id = f"ask-action:{uuid4()}"
@@ -285,6 +319,8 @@ class ProjectAskActionService:
         authorize_dispatch: DispatchAuthorizer,
         admit_operation: OperationAdmitter,
         run_action: ActionRunner,
+        output_grants_provider: OutputGrantsProvider | None = None,
+        output_grant_allows: OutputGrantAllows | None = None,
     ) -> None:
         self._catalog_payload_provider = catalog_payload_provider
         self._quote_provider = quote_provider
@@ -292,6 +328,8 @@ class ProjectAskActionService:
         self._authorize_dispatch = authorize_dispatch
         self._admit_operation = admit_operation
         self._run_action = run_action
+        self._output_grants_provider = output_grants_provider
+        self._output_grant_allows = output_grant_allows
 
     def launch(
         self,
@@ -326,6 +364,8 @@ class ProjectAskActionService:
             proposal["spec"],
             catalog_payload=self._catalog_payload_provider(),
             scope=turn["scope"],
+            output_grants=_current_output_grants(self._output_grants_provider),
+            output_grant_allows=self._output_grant_allows,
         )
         current = _prepared_payload(
             project,
