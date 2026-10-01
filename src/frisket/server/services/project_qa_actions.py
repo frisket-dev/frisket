@@ -54,7 +54,7 @@ class PreparedProjectAskAction:
 
 
 class ProjectAskActionUnpriced(ValueError):
-    """A previously quoted action needs a new normal quote before dispatch."""
+    """A prepared action still needs a normal quote before dispatch."""
 
     def __init__(
         self,
@@ -416,11 +416,9 @@ class ProjectAskActionService:
             dispatch_id=reference.dispatch_id,
             quote_provider=self._quote_provider,
         )
-        if (
-            current["quote"] is None
-            and stored.get("quote") is not None
-            and _non_quote_authority(current) == _non_quote_authority(stored)
-        ):
+        if current["quote"] is None and _non_quote_authority(
+            current
+        ) == _non_quote_authority(stored):
             raise ProjectAskActionUnpriced(
                 reference=reference,
                 action=current["request"],

@@ -649,6 +649,32 @@ async def test_quote_becoming_unknown_pauses_before_admission_or_dispatch(tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_action_that_stays_unpriced_pauses_before_dispatch(tmp_path):
+    project, sheet_id, turn, store, session = _project_state(tmp_path)
+    session.decisions[:] = ["skip"]
+    service = ProjectQAExecutionService(
+        project,
+        "project-1",
+        turn,
+        store,
+        session,
+        catalog_payload_provider=root_action_catalog_payload,
+        quote_provider=lambda _action: {},
+        run_action=lambda *_args: pytest.fail("must not dispatch"),
+        wait_child=lambda **_kwargs: pytest.fail("must not wait"),
+    )
+    try:
+        prepared = await service.prepare_action("Greet", _draft(sheet_id))
+        assert prepared["preparation_reason"] == "normal action quote is unavailable"
+        with pytest.raises(ResearchActionSkipped, match="unknown cost"):
+            await service.execute_action(prepared["event_ref"])
+        assert session.pauses[0]["kind"] == "unknown_cost"
+        assert session.store.admissions == []
+    finally:
+        project.close()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("write_mode", "decision", "should_launch"),
     [("ask_overwrite", "skip", False), ("full_access", None, True)],
