@@ -50,6 +50,7 @@ from frisket.engine.jobs import WorkerPorts, open_queue
 from frisket.server.app import create_app
 from frisket.server.routes.skills import register_skill_routes
 from frisket.server.services.skills import SkillLibrary
+from frisket.server.services.project_qa_authority import BackgroundAskContext
 from frisket.server.services.selector_choices import SelectorCapabilities
 from frisket.team.gateway_routes import (
     TeamOrgModelsGatewayPort,
@@ -922,7 +923,10 @@ def create_team_app(
         )
 
     def require_user(
-        request: Request, *, browser: bool = False, admin: bool = False
+        request: Request | BackgroundAskContext,
+        *,
+        browser: bool = False,
+        admin: bool = False,
     ) -> dict[str, Any]:
         authorization = request.headers.get("authorization", "")
         session_token = request.cookies.get(SESSION_COOKIE, "")
@@ -954,7 +958,7 @@ def create_team_app(
             raise HTTPException(403, str(exc)) from exc
 
     def require_org_member(
-        request: Request, *, browser: bool = False
+        request: Request | BackgroundAskContext, *, browser: bool = False
     ) -> dict[str, Any]:
         user = require_user(request, browser=browser)
         if _membership_role(engine, int(user["id"]), org_id) is None:
@@ -1057,6 +1061,16 @@ def create_team_app(
         core,
         library=lambda _request: team_skill_library,
         require_manager=lambda request: require_user(request, browser=True, admin=True),
+    )
+
+    def authorize_research(project_id: str, context: BackgroundAskContext) -> None:
+        actor = require_org_member(context)
+        if not access.can_on_project(org_id, project_id, int(actor["id"]), "editor"):
+            raise HTTPException(403, "project editor required")
+
+    core.state.project_qa_service.configure_research(
+        authorize=authorize_research,
+        skills=lambda: team_skill_library,
     )
 
     def current_owner_emails() -> set[str]:

@@ -506,6 +506,11 @@ def create_app(
     # registering its admin-gated routes.
     app.state.skill_library = SkillLibrary(Path(workspace_root))
     project_qa_service = ProjectQAService(ws)
+    if edition == "solo":
+        project_qa_service.configure_research(
+            authorize=lambda _project_id, _context: None,
+            skills=lambda: app.state.skill_library,
+        )
     app.state.project_qa_service = project_qa_service
     app.router.add_event_handler("shutdown", project_qa_service.shutdown)
     action_preview_job_registry = ActionPreviewJobRegistry()
