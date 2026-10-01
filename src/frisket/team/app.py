@@ -1068,6 +1068,21 @@ def create_team_app(
         if not access.can_on_project(org_id, project_id, int(actor["id"]), "editor"):
             raise HTTPException(403, "project editor required")
 
+    from frisket.ai.research.search import SearchService
+    from frisket.server.provider_config import load_search_provider
+    from frisket.team.control_plane import SEARCH_KEY_PROVIDERS
+
+    core.state.project_qa_service.configure_search(
+        lambda: SearchService(
+            preference=load_search_provider(core.state.workspace.root),
+            effective_keys=org_provider_keys(
+                engine,
+                org_id=org_id,
+                providers=SEARCH_KEY_PROVIDERS,
+                decryptor=secret_box.decrypt,
+            ),
+        )
+    )
     core.state.project_qa_service.configure_research(
         authorize=authorize_research,
         skills=lambda: team_skill_library,

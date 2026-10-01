@@ -507,6 +507,18 @@ def create_app(
     app.state.skill_library = SkillLibrary(Path(workspace_root))
     project_qa_service = ProjectQAService(ws)
     if edition == "solo":
+        from frisket.ai.research.search import SearchService
+        from frisket.server.provider_config import (
+            load_search_provider,
+            resolve_search_credentials,
+        )
+
+        project_qa_service.configure_search(
+            lambda: SearchService(
+                preference=load_search_provider(ws.root),
+                effective_keys=resolve_search_credentials(ws.root),
+            )
+        )
         project_qa_service.configure_research(
             authorize=lambda _project_id, _context: None,
             skills=lambda: app.state.skill_library,
