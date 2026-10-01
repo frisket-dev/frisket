@@ -18,6 +18,7 @@ from frisket.server.services.project_qa_output_scope import (
     UnavailableOutput,
     derive_output_read_grants,
 )
+from frisket.server.services.project_qa_query import AnalyticsRequest
 from frisket.server.services.project_qa_tools import ProjectQAScopeError, ProjectQATools
 
 
@@ -364,6 +365,22 @@ def test_file_scope_adds_only_current_generated_cells_to_reads_and_queries(
             }
         )
         assert query["row_ids"] == [row_ids[0]]
+        analytics = tools.analytics(
+            AnalyticsRequest.model_validate(
+                {
+                    "sheet_id": sheet_id,
+                    "filter": {"answer": {"eq": "101"}},
+                    "metrics": [
+                        {
+                            "id": "answers",
+                            "kind": "value_count",
+                            "column_id": output_id,
+                        }
+                    ],
+                }
+            )
+        )
+        assert analytics["row_count"] == 1
         with pytest.raises(ProjectQAScopeError):
             tools.query_rows(
                 {
