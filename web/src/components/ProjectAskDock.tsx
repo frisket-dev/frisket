@@ -18,8 +18,37 @@ import { AskThreadControls } from './project-ask/AskThreadControls';
 import { AskSourcePicker } from './project-ask/AskSourcePicker';
 import { compactAskToolEvents } from './project-ask/activityEvents';
 import { AskWorkingActivity } from './project-ask/AskToolActivity';
+import { AskResearchApproval, type AskResearchPendingApproval } from './project-ask/AskResearchApproval';
+import { AskResearchSettings } from './project-ask/AskResearchSettings';
 import { inlineMarkerIndexes } from './project-ask/inlineReferences';
 import './ProjectAskDock.css';
+
+function pendingResearchApproval(value: unknown): AskResearchPendingApproval | null {
+  if (!value || typeof value !== 'object') return null;
+  const item = value as Record<string, unknown>;
+  if (typeof item.id !== 'string' || typeof item.kind !== 'string') return null;
+  if (item.kind === 'unknown_cost' && typeof item.operation === 'string') {
+    return { id: item.id, kind: item.kind, operation: item.operation };
+  }
+  if (item.kind === 'skills' && typeof item.message === 'string') {
+    return { id: item.id, kind: item.kind, message: item.message };
+  }
+  if (item.kind === 'turn_limit' && typeof item.turns_used === 'number' && typeof item.max_turns === 'number') {
+    return { id: item.id, kind: item.kind, turns_used: item.turns_used, max_turns: item.max_turns };
+  }
+  if (item.kind === 'budget' && typeof item.budget_micros === 'number' && typeof item.settled_micros === 'number'
+    && typeof item.reserved_micros === 'number' && typeof item.next_estimate_micros === 'number' && item.currency === 'USD') {
+    return { id: item.id, kind: item.kind, budget_micros: item.budget_micros, settled_micros: item.settled_micros,
+      reserved_micros: item.reserved_micros, next_estimate_micros: item.next_estimate_micros, currency: item.currency };
+  }
+  if (item.kind === 'action' && typeof item.title === 'string') {
+    const targets = Array.isArray(item.targets) ? item.targets.filter((target): target is string => typeof target === 'string') : [];
+    return { id: item.id, kind: item.kind, title: item.title,
+      effect: typeof item.effect === 'string' ? item.effect : 'Review this action before it runs.', targets,
+      estimate_usd: typeof item.estimate_usd === 'string' ? item.estimate_usd : null, can_skip: item.can_skip === true };
+  }
+  return null;
+}
 
 export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposal, onOpenSource, onOpenAction }: {
   onOpenSource(citation: AskCitation): void;
@@ -70,6 +99,7 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
   const threadMenuPosition = useAnchoredPosition(threadTriggerRef, { enabled: threadMenuOpen, align: 'left', width: 260, gap: 4 });
   const optionsMenuPosition = useAnchoredPosition(optionsTriggerRef, { enabled: optionsOpen, align: 'left', width: 300, gap: 6 });
   const requestModel = state.model ?? (choice?.authored_selection.kind === 'model' ? choice.authored_selection.model : null);
+  const researchApproval = pendingResearchApproval(state.activeTurn?.research_state?.pending_approval);
   const tooManyRows = (state.scope?.sources ?? []).reduce((count, source) => count + (source.kind === 'rows' ? source.row_ids.length : 0), 0) > 1000;
   const canSend = !!requestModel && choice?.can_run === true && choice.authored_selection.kind === 'model'
     && choice.authored_selection.model === requestModel && !state.busy && !!state.draft.trim() && !!state.scope && !tooManyRows;
@@ -162,6 +192,13 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
     <div className="ask-composer">
       {state.error && <p className="ask-error" role="alert">{state.error}</p>}
       {tooManyRows && <p className="ask-error">Choose up to 1,000 rows, or change the scope to the whole sheet.</p>}
+      {researchApproval && <AskResearchApproval
+        approval={researchApproval}
+        disabled={state.busy}
+        onContinue={(update) => void qa.resumeResearch(researchApproval.kind === 'action' ? 'approve' : 'continue', update)}
+        onSkip={researchApproval.kind === 'action' ? () => void qa.resumeResearch('skip') : undefined}
+        onStop={() => void qa.stop()}
+      />}
       <div className="ask-composer-sources" aria-label="Question sources">
         <div className="ask-scope-chips">{activeSources.length ? activeSources.map((source, index) => <span key={JSON.stringify(source)}>{scopeLabel(source)}
           <button type="button" aria-label={`Remove ${scopeLabel(source)}`} onClick={() => { const sources = state.scope?.sources?.filter((_, i) => i !== index) ?? []; qa.setOptions({ scope: sources.length ? { kind: 'sources', sources } : { kind: 'project' } }); }}>×</button>
@@ -177,6 +214,14 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
           <MenuPop ref={setOptionsMenuRef} role="dialog" aria-label="Ask settings" className="ask-options-menu" style={optionsMenuPosition ? { top: optionsMenuPosition.top, bottom: optionsMenuPosition.bottom, left: optionsMenuPosition.left, width: optionsMenuPosition.width } : { visibility: 'hidden' }}>
             <label className="ask-option-check"><input type="checkbox" checked={state.web} onChange={(event) => qa.setOptions({ web: event.target.checked })} />Web</label>
             <label className="ask-option-check"><input type="checkbox" checked={state.suggestActions} onChange={(event) => qa.setOptions({ suggestActions: event.target.checked })} />Suggest actions</label>
+            <AskResearchSettings
+              value={state.research ?? undefined}
+              availableSkills={state.researchConfiguration?.skills ?? []}
+              effectiveWebProvider={state.researchConfiguration?.web_provider}
+              defaultBudgetUsd={state.researchConfiguration?.budget_usd}
+              disabled={!state.researchConfiguration?.available || !!state.activeTurn || state.busy}
+              onChange={(research) => qa.setOptions({ research: research ?? null })}
+            />
             <div className="ask-option-model"><SelectorField projectId={projectId} label="Model" recentNamespace={`${projectId}:ask`}
               query={{ schema_version: 'frisket.selector_choices_query.v1', subject: { kind: 'project_ask', ...(state.model ? { model: state.model } : {}) } }}
               onCurrentChoiceChange={setChoice}

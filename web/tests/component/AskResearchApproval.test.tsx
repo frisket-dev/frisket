@@ -16,6 +16,7 @@ describe('AskResearchApproval', () => {
     const onStop = vi.fn();
     render(<AskResearchApproval
       approval={{
+        id: 'approval-action',
         kind: 'action',
         title: 'Extract organizations',
         effect: 'Writes a new Organization column to 42 rows.',
@@ -45,13 +46,14 @@ describe('AskResearchApproval', () => {
     const onContinue = vi.fn();
     render(<AskResearchApproval
       approval={{
-        kind: 'budget', budget_usd: '5.00', spent_usd: '3.25', committed_usd: '1.50', next_estimate_usd: '1.00',
+        id: 'approval-budget', kind: 'budget', budget_micros: 5_000_000, settled_micros: 3_250_000,
+        reserved_micros: 1_500_000, next_estimate_micros: 1_000_000, currency: 'USD',
       }}
       onContinue={onContinue}
       onStop={vi.fn()}
     />);
 
-    expect(screen.getByText('Spent $3.25 · committed $1.50 · next action about $1.00')).toBeVisible();
+    expect(screen.getByText('Spent $3.25 · reserved $1.50 · next action about $1.00')).toBeVisible();
     const continueButton = screen.getByRole('button', { name: 'Continue' });
     expect(continueButton).toBeDisabled();
     const input = screen.getByLabelText('New total budget (USD)');
@@ -66,7 +68,7 @@ describe('AskResearchApproval', () => {
   it('raises or removes a reached turn limit while keeping Stop available', async () => {
     const onContinue = vi.fn();
     const { rerender } = render(<AskResearchApproval
-      approval={{ kind: 'turn_limit', turns_used: 8, max_turns: 8 }}
+      approval={{ id: 'approval-turns', kind: 'turn_limit', turns_used: 8, max_turns: 8 }}
       onContinue={onContinue}
       onStop={vi.fn()}
     />);
@@ -78,13 +80,42 @@ describe('AskResearchApproval', () => {
     expect(onContinue).toHaveBeenLastCalledWith({ max_turns: 12 });
 
     rerender(<AskResearchApproval
-      approval={{ kind: 'turn_limit', turns_used: 8, max_turns: 8 }}
+      approval={{ id: 'approval-turns', kind: 'turn_limit', turns_used: 8, max_turns: 8 }}
       onContinue={onContinue}
       onStop={vi.fn()}
     />);
     await userEvent.click(screen.getByRole('checkbox', { name: 'No limit' }));
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
     expect(onContinue).toHaveBeenLastCalledWith({ max_turns: null });
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeVisible();
+  });
+
+  it('offers only Stop when the provider cannot quote the next operation', async () => {
+    const onStop = vi.fn();
+    render(<AskResearchApproval
+      approval={{ id: 'approval-unknown', kind: 'unknown_cost', operation: 'search' }}
+      onContinue={vi.fn()}
+      onStop={onStop}
+    />);
+
+    expect(screen.getByRole('heading', { name: 'Cost unavailable' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Continue' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Skip' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    expect(onStop).toHaveBeenCalledOnce();
+  });
+
+  it('can retry after a manager restores a disabled skill', async () => {
+    const onContinue = vi.fn();
+    render(<AskResearchApproval
+      approval={{ id: 'approval-skills', kind: 'skills', message: 'The selected skill is disabled.' }}
+      onContinue={onContinue}
+      onStop={vi.fn()}
+    />);
+
+    expect(screen.getByText('The selected skill is disabled.')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(onContinue).toHaveBeenCalledWith(undefined);
     expect(screen.getByRole('button', { name: 'Stop' })).toBeVisible();
   });
 });

@@ -1,5 +1,8 @@
 import { createStore } from '../core/store/createStore';
-import type { AskEvent, AskScope, AskThread, AskTurn, AskTurnRequest, ProjectQAApi } from '../api/projectQA';
+import type {
+  AskEvent, AskResearchConfiguration, AskResearchOptions, AskResearchResume, AskScope, AskThread, AskTurn,
+  AskTurnRequest, ProjectQAApi,
+} from '../api/projectQA';
 
 interface AskState {
   threads: AskThread[];
@@ -14,6 +17,8 @@ interface AskState {
   model: string | null;
   web: boolean;
   suggestActions: boolean;
+  research: AskResearchOptions | null;
+  researchConfiguration: AskResearchConfiguration | null;
   busy: boolean;
   loaded: boolean;
   error: string | null;
@@ -21,8 +26,19 @@ interface AskState {
 
 const initial = (): AskState => ({
   threads: [], hasMoreThreads: false, thread: null, events: [], hasEarlier: false, activeTurn: null, draft: '', scope: null,
-  scopeFollowsContext: true, model: null, web: false, suggestActions: true, busy: false, loaded: false, error: null,
+  scopeFollowsContext: true, model: null, web: false, suggestActions: true, research: null, researchConfiguration: null,
+  busy: false, loaded: false, error: null,
 });
+
+function researchOptions(value: AskThread['research']): AskResearchOptions | null {
+  if (!value) return null;
+  return {
+    write_mode: value.write_mode ?? 'ask_overwrite',
+    budget_usd: value.budget_usd ?? null,
+    max_turns: value.max_turns ?? null,
+    skills: value.skills ?? null,
+  };
+}
 
 export function createProjectQAStore(api: ProjectQAApi) {
   const store = createStore<AskState>(initial());
@@ -47,7 +63,8 @@ export function createProjectQAStore(api: ProjectQAApi) {
       store.set((s) => ({ ...s, thread: detail.thread, events: detail.history.events,
         hasEarlier: detail.history.has_more,
         activeTurn: detail.active_turn, scope: detail.thread.scope, scopeFollowsContext: false, model: detail.thread.model ?? null,
-        web: detail.thread.web ?? false, suggestActions: detail.thread.suggest_actions ?? true, busy: false,
+        web: detail.thread.web ?? false, suggestActions: detail.thread.suggest_actions ?? true,
+        research: researchOptions(detail.thread.research), busy: false,
       }));
       await refresh();
     } catch (exc) {
@@ -111,7 +128,9 @@ export function createProjectQAStore(api: ProjectQAApi) {
         await api.delete(thread.id, controller.signal);
         if (current !== generation) return false;
         generation += 1; controller.abort(); controller = new AbortController(); pending = null;
-        store.set((s) => ({ ...initial(), loaded: true, hasMoreThreads: s.hasMoreThreads, threads: s.threads.filter((item) => item.id !== thread.id), scope: contextScope ?? s.scope, model: s.model }));
+        store.set((s) => ({ ...initial(), loaded: true, hasMoreThreads: s.hasMoreThreads,
+          threads: s.threads.filter((item) => item.id !== thread.id), scope: contextScope ?? s.scope,
+          model: s.model, researchConfiguration: s.researchConfiguration }));
         return true;
       } catch (exc) {
         if (current === generation) store.set((s) => ({ ...s, error: error(exc) }));
@@ -142,6 +161,11 @@ export function createProjectQAStore(api: ProjectQAApi) {
         if (current !== generation) return;
         store.set((s) => ({ ...s, threads, hasMoreThreads: threads.length === 100, loaded: true, busy: false }));
         if (threads[0]) await open(threads[0].id);
+        const optionsGeneration = generation;
+        try {
+          const researchConfiguration = await api.researchOptions(controller.signal);
+          if (optionsGeneration === generation) store.set((s) => ({ ...s, researchConfiguration }));
+        } catch { /* Research availability must not prevent ordinary Ask. */ }
       } catch (exc) {
         if (current === generation) store.set((s) => ({ ...s, busy: false, error: error(exc) }));
       }
@@ -154,7 +178,7 @@ export function createProjectQAStore(api: ProjectQAApi) {
       }
     },
     setDraft(draft: string) { store.set((s) => ({ ...s, draft })); },
-    setOptions(options: Partial<Pick<AskState, 'scope' | 'model' | 'web' | 'suggestActions'>>) {
+    setOptions(options: Partial<Pick<AskState, 'scope' | 'model' | 'web' | 'suggestActions' | 'research'>>) {
       store.set((s) => ({ ...s, ...options, scopeFollowsContext: options.scope !== undefined ? false : s.scopeFollowsContext }));
     },
     newThread(scope: AskScope) {
@@ -163,7 +187,8 @@ export function createProjectQAStore(api: ProjectQAApi) {
       controller.abort();
       controller = new AbortController();
       pending = null;
-      store.set((s) => ({ ...s, thread: null, events: [], hasEarlier: false, activeTurn: null, draft: '', scope, scopeFollowsContext: true, web: false, suggestActions: true, error: null, busy: false }));
+      store.set((s) => ({ ...s, thread: null, events: [], hasEarlier: false, activeTurn: null, draft: '', scope,
+        scopeFollowsContext: true, web: false, suggestActions: true, research: null, error: null, busy: false }));
     },
     async send() {
       const snapshot = store.get();
@@ -172,7 +197,8 @@ export function createProjectQAStore(api: ProjectQAApi) {
       controller.abort();
       controller = new AbortController();
       store.set((s) => ({ ...s, busy: true, error: null, scopeFollowsContext: false }));
-      const options = { scope: snapshot.scope, model: snapshot.model, web: snapshot.web, suggest_actions: snapshot.suggestActions };
+      const options = { scope: snapshot.scope, model: snapshot.model, web: snapshot.web, suggest_actions: snapshot.suggestActions,
+        ...(snapshot.research ? { research: snapshot.research } : {}) };
       try {
         let thread = snapshot.thread;
         if (!thread) {
@@ -205,6 +231,24 @@ export function createProjectQAStore(api: ProjectQAApi) {
         await refresh();
       } catch (exc) {
         if (current === generation) store.set((s) => ({ ...s, error: error(exc) }));
+      }
+    },
+    async resumeResearch(decision: AskResearchResume['decision'], update: Partial<Pick<AskResearchResume, 'budget_usd' | 'max_turns' | 'write_mode'>> = {}) {
+      const { thread, activeTurn } = store.get();
+      const research = activeTurn?.research_state;
+      const approvalId = research?.pending_approval?.id;
+      if (!thread || !activeTurn || research?.state !== 'paused' || typeof approvalId !== 'string') return;
+      const current = generation;
+      store.set((s) => ({ ...s, busy: true, error: null }));
+      try {
+        const turn = await api.resumeResearch(thread.id, activeTurn.id, {
+          expected_revision: research.revision, approval_id: approvalId, decision, ...update,
+        }, controller.signal);
+        if (current !== generation) return;
+        store.set((s) => ({ ...s, activeTurn: turn.status === 'running' || turn.status === 'stopping' ? turn : null, busy: false }));
+        await refresh();
+      } catch (exc) {
+        if (current === generation) store.set((s) => ({ ...s, busy: false, error: error(exc) }));
       }
     },
     dispose() {

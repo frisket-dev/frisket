@@ -1,27 +1,17 @@
 import { PanelSelect } from '../PanelSelect';
+import type { AskResearchConfiguration, AskResearchOptions } from '../../api/projectQA';
 import './AskResearch.css';
 
 export type AskResearchWriteMode = 'ask_each' | 'ask_overwrite' | 'full_access';
-
-export interface AskResearchOptions {
-  write_mode: AskResearchWriteMode;
-  budget_usd: string | null;
-  max_turns: number | null;
-  /** An empty list lets research use every enabled skill. */
-  skills: string[];
-}
-
-export interface AskResearchSkill {
-  id: string;
-  name: string;
-  enabled: boolean;
-}
+export type { AskResearchOptions } from '../../api/projectQA';
+export type AskResearchSkill = AskResearchConfiguration['skills'][number];
 
 export interface AskResearchSettingsProps {
   value: AskResearchOptions | undefined;
   onChange(value: AskResearchOptions | undefined): void;
   availableSkills: readonly AskResearchSkill[];
   effectiveWebProvider?: string | null;
+  defaultBudgetUsd?: string | null;
   disabled?: boolean;
 }
 
@@ -29,7 +19,7 @@ const DEFAULT_RESEARCH: AskResearchOptions = {
   write_mode: 'ask_overwrite',
   budget_usd: null,
   max_turns: null,
-  skills: [],
+  skills: null,
 };
 
 const MONEY_PATTERN = /^\d+(?:\.\d{0,6})?$/;
@@ -39,33 +29,33 @@ export function AskResearchSettings({
   onChange,
   availableSkills,
   effectiveWebProvider,
+  defaultBudgetUsd,
   disabled = false,
 }: AskResearchSettingsProps) {
-  const enabledSkills = availableSkills.filter((skill) => skill.enabled);
-  const selectedSkills = value?.skills.length ? new Set(value.skills) : new Set(enabledSkills.map((skill) => skill.id));
+  const selectedSkills = new Set(value?.skills ?? availableSkills.map((skill) => skill.name));
   const update = (change: Partial<AskResearchOptions>) => {
     if (value) onChange({ ...value, ...change });
   };
 
-  const toggleSkill = (id: string, checked: boolean) => {
+  const toggleSkill = (name: string, checked: boolean) => {
     if (!value) return;
     const selected = new Set(selectedSkills);
-    if (checked) selected.add(id);
-    else selected.delete(id);
-    const next = enabledSkills.filter((skill) => selected.has(skill.id)).map((skill) => skill.id);
-    update({ skills: next.length === enabledSkills.length ? [] : next });
+    if (checked) selected.add(name);
+    else selected.delete(name);
+    const next = availableSkills.filter((skill) => selected.has(skill.name)).map((skill) => skill.name);
+    update({ skills: next.length === availableSkills.length ? null : next });
   };
 
   return <section className="ask-research-settings" aria-label="Research settings">
     <label className="ask-option-check ask-research-toggle">
       <input
         type="checkbox"
-        aria-label="Automatic research"
+        aria-label="Run actions"
         checked={value !== undefined}
         disabled={disabled}
         onChange={(event) => onChange(event.target.checked ? { ...DEFAULT_RESEARCH } : undefined)}
       />
-      <span><strong>Automatic research</strong><small>Continue investigating and running approved actions in the background.</small></span>
+      <span><strong>Run actions</strong><small>Continue investigating and running approved actions in the background.</small></span>
     </label>
 
     {value && <div className="ask-research-fields">
@@ -100,7 +90,7 @@ export function AskResearchSettings({
             if (!next || MONEY_PATTERN.test(next)) update({ budget_usd: next || null });
           }}
         />
-        <small>Uses your current action approval limit when blank.</small>
+        <small>Uses your current action approval limit{defaultBudgetUsd ? ` (${`$${defaultBudgetUsd}`})` : ''} when blank.</small>
       </label>
 
       <label className="ask-research-field">
@@ -125,17 +115,18 @@ export function AskResearchSettings({
 
       <fieldset className="ask-research-skills" disabled={disabled}>
         <legend>Skills</legend>
-        {enabledSkills.length === 0
+        {availableSkills.length === 0
           ? <small>No enabled skills are available.</small>
-          : enabledSkills.map((skill) => <label key={skill.id}>
+          : availableSkills.map((skill) => <label key={skill.name}>
             <input
               type="checkbox"
-              checked={selectedSkills.has(skill.id)}
-              onChange={(event) => toggleSkill(skill.id, event.target.checked)}
+              aria-label={skill.name}
+              checked={selectedSkills.has(skill.name)}
+              onChange={(event) => toggleSkill(skill.name, event.target.checked)}
             />
-            <span>{skill.name}</span>
+            <span>{skill.name}{skill.description && <small>{skill.description}</small>}</span>
           </label>)}
-        {enabledSkills.length > 0 && <small>All enabled skills are available when every skill is selected.</small>}
+        {availableSkills.length > 0 && <small>All enabled skills are available when every skill is selected.</small>}
       </fieldset>
 
       {effectiveWebProvider && <p className="ask-research-provider">Web searches use {effectiveWebProvider}.</p>}

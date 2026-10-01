@@ -1,7 +1,7 @@
 import { httpContract } from './httpContract';
 import type {
   HttpAskCitation, HttpAskEventsPage, HttpAskReport, HttpAskThread, HttpAskThreadCreate,
-  HttpAskThreadDetail, HttpAskThreadUpdate, HttpAskTurn, HttpAskTurnRequest,
+  HttpAskResearchConfiguration, HttpAskResearchResume, HttpAskThreadDetail, HttpAskThreadUpdate, HttpAskTurn, HttpAskTurnRequest,
 } from '../generated/openHttpContracts';
 
 export type AskCitation = HttpAskCitation;
@@ -9,6 +9,10 @@ export type AskThread = HttpAskThread;
 export type AskScope = AskThread['scope'];
 export type AskEvent = HttpAskEventsPage['events'][number];
 export type AskTurn = HttpAskTurn;
+export type AskResearchOptions = Required<NonNullable<AskThread['research']>>;
+export type AskResearchConfiguration = HttpAskResearchConfiguration;
+export type AskResearchState = NonNullable<AskTurn['research_state']>;
+export type AskResearchResume = HttpAskResearchResume;
 export type AskThreadCreate = HttpAskThreadCreate;
 export type AskThreadUpdate = HttpAskThreadUpdate;
 export type AskTurnRequest = HttpAskTurnRequest;
@@ -24,6 +28,8 @@ export interface ProjectQAApi {
   events(threadId: string, query: { after?: number; before?: number; limit?: number }, signal?: AbortSignal): Promise<HttpAskEventsPage>;
   stop(threadId: string, turnId: string, signal?: AbortSignal): Promise<AskTurn>;
   report(threadId: string, signal?: AbortSignal): Promise<HttpAskReport>;
+  researchOptions(signal?: AbortSignal): Promise<AskResearchConfiguration>;
+  resumeResearch(threadId: string, turnId: string, body: AskResearchResume, signal?: AbortSignal): Promise<AskTurn>;
 }
 
 export function createProjectQAApi(projectId: () => string, errorFactory: (status: number, payload: unknown) => Error): ProjectQAApi {
@@ -58,6 +64,12 @@ export function createProjectQAApi(projectId: () => string, errorFactory: (statu
     }),
     report: (threadId, signal) => httpContract('tenant.qa_report.get', {
       pathParams: path(threadId), query: {}, signal, errorFactory,
+    }),
+    researchOptions: (signal) => httpContract('tenant.qa_research_options.get', {
+      pathParams: { pid: projectId() }, query: {}, signal, errorFactory,
+    }),
+    resumeResearch: (threadId, turn_id, body, signal) => httpContract('tenant.qa_resume_research.post', {
+      pathParams: { ...path(threadId), turn_id }, query: {}, body, signal, errorFactory,
     }),
   };
 }

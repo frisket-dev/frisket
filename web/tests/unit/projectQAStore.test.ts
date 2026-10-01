@@ -23,6 +23,8 @@ function fixture(): ProjectQAApi {
     submit: vi.fn(async () => turn), events: vi.fn(async () => page),
     stop: vi.fn(async () => ({ ...turn, status: 'stopping' as const })),
     report: vi.fn(async () => ({ markdown: '' })),
+    researchOptions: vi.fn(async () => ({ available: true, budget_usd: '10', skills: [], web_provider: 'DDGS' })),
+    resumeResearch: vi.fn(async () => turn),
   };
 }
 
@@ -127,6 +129,47 @@ describe('saved Project Ask', () => {
   });
 });
 
+it('persists research preferences and resumes the exact pending approval revision', async () => {
+  const api = fixture();
+  const pausedTurn: AskTurn = {
+    ...turn,
+    research: { write_mode: 'ask_each', budget_usd: '5', max_turns: 8, skills: [] },
+    research_state: {
+      id: 'research', revision: 4, state: 'paused', budget_micros: 5_000_000, reserved_micros: 0,
+      settled_micros: 1_000_000, remaining_micros: 4_000_000, currency: 'USD', write_mode: 'ask_each',
+      max_turns: 8, turn_count: 2, pending_approval: { id: 'approval-budget', kind: 'budget' },
+    },
+  };
+  vi.mocked(api.submit).mockResolvedValueOnce(pausedTurn);
+  vi.mocked(api.events).mockResolvedValue({ ...page, active_turn: pausedTurn });
+  vi.mocked(api.resumeResearch).mockResolvedValueOnce({ ...pausedTurn, research_state: { ...pausedTurn.research_state!, revision: 5, state: 'running', pending_approval: null } });
+  const handle = createProjectQAStore(api);
+  await handle.initialize({ kind: 'project' });
+  expect(handle.store.get().researchConfiguration?.web_provider).toBe('DDGS');
+
+  const research = { write_mode: 'ask_each' as const, budget_usd: '5', max_turns: 8, skills: [] };
+  handle.setOptions({ research });
+  handle.setDraft('Investigate this');
+  await handle.send();
+  expect(api.create).toHaveBeenCalledWith(expect.objectContaining({ research }), expect.any(AbortSignal));
+  expect(api.submit).toHaveBeenCalledWith('thread', expect.objectContaining({ research }), expect.any(AbortSignal));
+
+  await handle.resumeResearch('continue', { budget_usd: '7' });
+  expect(api.resumeResearch).toHaveBeenCalledWith('thread', 'turn', {
+    expected_revision: 4, approval_id: 'approval-budget', decision: 'continue', budget_usd: '7',
+  }, expect.any(AbortSignal));
+});
+
+it('keeps ordinary Ask available when research configuration cannot load', async () => {
+  const api = fixture();
+  vi.mocked(api.researchOptions).mockRejectedValueOnce(new Error('Research is not configured'));
+  const handle = createProjectQAStore(api);
+  await handle.initialize({ kind: 'project' });
+  expect(handle.store.get().loaded).toBe(true);
+  expect(handle.store.get().researchConfiguration).toBeNull();
+  expect(handle.store.get().error).toBeNull();
+});
+
 it('renames and deletes the saved conversation without executing an action', async () => {
   const api = fixture();
   vi.mocked(api.detail).mockResolvedValue({ thread, active_turn: null, history: page });
@@ -145,10 +188,11 @@ it('renames and deletes the saved conversation without executing an action', asy
 
 it('new conversations reset optional outside research', () => {
   const handle = createProjectQAStore(fixture());
-  handle.setOptions({ web: true, suggestActions: false });
+  handle.setOptions({ web: true, suggestActions: false, research: { write_mode: 'full_access', budget_usd: '5', max_turns: null, skills: null } });
   handle.newThread({ kind: 'project' });
   expect(handle.store.get().web).toBe(false);
   expect(handle.store.get().suggestActions).toBe(true);
+  expect(handle.store.get().research).toBeNull();
 });
 
 

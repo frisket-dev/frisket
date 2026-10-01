@@ -3,6 +3,7 @@ import './AskResearch.css';
 
 export type AskResearchPendingApproval =
   | {
+    id: string;
     kind: 'action';
     title: string;
     effect: string;
@@ -11,16 +12,29 @@ export type AskResearchPendingApproval =
     can_skip: boolean;
   }
   | {
+    id: string;
     kind: 'budget';
-    budget_usd: string;
-    spent_usd: string;
-    committed_usd: string;
-    next_estimate_usd?: string | null;
+    budget_micros: number;
+    settled_micros: number;
+    reserved_micros: number;
+    next_estimate_micros: number;
+    currency: 'USD';
   }
   | {
+    id: string;
     kind: 'turn_limit';
     turns_used: number;
     max_turns: number;
+  }
+  | {
+    id: string;
+    kind: 'unknown_cost';
+    operation: string;
+  }
+  | {
+    id: string;
+    kind: 'skills';
+    message: string;
   };
 
 export type AskResearchApprovalUpdate = { budget_usd: string } | { max_turns: number | null };
@@ -37,6 +51,12 @@ const MONEY_PATTERN = /^\d+(?:\.\d{0,6})?$/;
 
 function amount(value: string) {
   return `$${value}`;
+}
+
+function micros(value: number) {
+  const compact = (value / 1_000_000).toFixed(6).replace(/\.?0+$/, '');
+  const [whole, fraction = ''] = compact.split('.');
+  return fraction.length >= 2 ? compact : `${whole}.${fraction.padEnd(2, '0')}`;
 }
 
 function Actions({
@@ -62,11 +82,12 @@ function Actions({
 function BudgetApproval({ approval, onContinue, onStop, disabled = false }: Omit<AskResearchApprovalProps, 'approval' | 'onSkip'> & {
   approval: Extract<AskResearchPendingApproval, { kind: 'budget' }>;
 }) {
-  const [budget, setBudget] = useState(approval.budget_usd);
-  const valid = MONEY_PATTERN.test(budget) && Number(budget) > Number(approval.budget_usd);
+  const currentBudget = micros(approval.budget_micros);
+  const [budget, setBudget] = useState(currentBudget);
+  const valid = MONEY_PATTERN.test(budget) && Number(budget) > Number(currentBudget);
   return <>
     <h3>Research budget reached</h3>
-    <p>Spent {amount(approval.spent_usd)} · committed {amount(approval.committed_usd)}{approval.next_estimate_usd ? ` · next action about ${amount(approval.next_estimate_usd)}` : ''}</p>
+    <p>Spent {amount(micros(approval.settled_micros))} · reserved {amount(micros(approval.reserved_micros))} · next action about {amount(micros(approval.next_estimate_micros))}</p>
     <label className="ask-research-approval-field">
       <span>New total budget (USD)</span>
       <input className="form-input" type="text" inputMode="decimal" aria-label="New total budget (USD)" value={budget} disabled={disabled} onChange={(event) => setBudget(event.target.value.trim())} />
@@ -110,5 +131,15 @@ export function AskResearchApproval({ approval, onContinue, onSkip, onStop, disa
     </>}
     {approval.kind === 'budget' && <BudgetApproval key={JSON.stringify(approval)} approval={approval} onContinue={onContinue} onStop={onStop} disabled={disabled} />}
     {approval.kind === 'turn_limit' && <TurnLimitApproval key={JSON.stringify(approval)} approval={approval} onContinue={onContinue} onStop={onStop} disabled={disabled} />}
+    {approval.kind === 'unknown_cost' && <>
+      <h3>Cost unavailable</h3>
+      <p>This run cannot continue because the cost of its next {approval.operation} is unavailable. Stop it and choose a priced model or engine.</p>
+      <div className="ask-research-approval-actions"><button type="button" className="btn" disabled={disabled} onClick={onStop}>Stop</button></div>
+    </>}
+    {approval.kind === 'skills' && <>
+      <h3>Research skill unavailable</h3>
+      <p>{approval.message}</p>
+      <Actions disabled={disabled} onContinue={() => onContinue(undefined)} onStop={onStop} />
+    </>}
   </section>;
 }

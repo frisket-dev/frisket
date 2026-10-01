@@ -13,7 +13,7 @@ const options: AskResearchOptions = {
   write_mode: 'ask_overwrite',
   budget_usd: null,
   max_turns: null,
-  skills: [],
+  skills: null,
 };
 
 describe('AskResearchSettings', () => {
@@ -21,7 +21,7 @@ describe('AskResearchSettings', () => {
     const onChange = vi.fn();
     render(<AskResearchSettings value={undefined} onChange={onChange} availableSkills={[]} />);
 
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Automatic research' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Run actions' }));
 
     expect(onChange).toHaveBeenCalledWith(options);
   });
@@ -44,26 +44,39 @@ describe('AskResearchSettings', () => {
     expect(onChange).toHaveBeenLastCalledWith({ ...options, max_turns: null });
   });
 
-  it('offers enabled skills, treats an empty selection as all, and names the Web provider', async () => {
+  it('uses canonical skill names and distinguishes all skills from no skills', async () => {
     const onChange = vi.fn();
-    render(<AskResearchSettings
+    const { rerender } = render(<AskResearchSettings
       value={options}
       onChange={onChange}
       effectiveWebProvider="Tavily"
       availableSkills={[
-        { id: 'documents', name: 'Document research', enabled: true },
-        { id: 'tables', name: 'Table analysis', enabled: true },
-        { id: 'disabled', name: 'Disabled skill', enabled: false },
+        { name: 'documents', description: 'Research documents' },
+        { name: 'tables', description: 'Analyze tables' },
       ]}
     />);
 
     expect(screen.getByText('Web searches use Tavily.')).toBeVisible();
-    expect(screen.queryByText('Disabled skill')).not.toBeInTheDocument();
-    expect(screen.getByRole('checkbox', { name: 'Document research' })).toBeChecked();
-    expect(screen.getByRole('checkbox', { name: 'Table analysis' })).toBeChecked();
+    expect(screen.getByText('Research documents')).toBeVisible();
+    expect(screen.getByRole('checkbox', { name: 'documents' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'tables' })).toBeChecked();
 
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Document research' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'documents' }));
     expect(onChange).toHaveBeenLastCalledWith({ ...options, skills: ['tables'] });
+
+    rerender(<AskResearchSettings value={{ ...options, skills: ['tables'] }} onChange={onChange} availableSkills={[
+      { name: 'documents', description: 'Research documents' },
+      { name: 'tables', description: 'Analyze tables' },
+    ]} />);
+    await userEvent.click(screen.getByRole('checkbox', { name: 'documents' }));
+    expect(onChange).toHaveBeenLastCalledWith({ ...options, skills: null });
+
+    rerender(<AskResearchSettings value={{ ...options, skills: [] }} onChange={onChange} availableSkills={[
+      { name: 'documents', description: 'Research documents' },
+      { name: 'tables', description: 'Analyze tables' },
+    ]} />);
+    expect(screen.getByRole('checkbox', { name: 'documents' })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'tables' })).not.toBeChecked();
   });
 
   it('does not emit malformed budgets or non-positive turn limits', () => {
