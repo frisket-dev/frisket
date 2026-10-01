@@ -53,6 +53,7 @@ from frisket.engine.store.project_qa_research import (
 from frisket.execution.pricing_policy import usd_to_micros
 from frisket.redaction import safe_error
 from pydantic_ai.exceptions import UnexpectedModelBehavior
+from frisket.server.services.project_qa_research import ResearchSkillsUnavailable
 
 logger = logging.getLogger(__name__)
 TurnRunner = Callable[[Project, Any, dict[str, Any], ProjectQAStore], Awaitable[Any]]
@@ -67,6 +68,8 @@ _KNOWN_TOOLS = frozenset(
         "open_source",
         "open_web_page",
         "propose_action",
+        "prepare_action",
+        "execute_action",
         "query_rows",
         "read_rows",
         "search_actions",
@@ -166,17 +169,44 @@ class ProjectQAService:
             principal=instance_principal(project),
         )
 
+    def _authorize_run(self, project_id, context, snapshots=()):
+        from frisket.execution.pricing_policy import (
+            IdentityPricingPolicy,
+            default_pricing_policy,
+        )
+
+        if self._research_authorize is None:
+            raise PermissionError(
+                "Automatic research is not configured for this server."
+            )
+        if not isinstance(default_pricing_policy(), IdentityPricingPolicy):
+            raise PermissionError(
+                "Automatic actions are not supported by this server's billing setup."
+            )
+        self._research_authorize(project_id, context)
+        enabled = self._skill_library().enabled() if self._skill_library else []
+        if {item["name"] for item in snapshots} - {item["name"] for item in enabled}:
+            raise ResearchSkillsUnavailable(
+                "A skill used by this research was disabled or removed. Enable it in Settings to continue, or stop this run."
+            )
+
     async def research_options(self, project_id, *, request_context=None):
         context = BackgroundAskContext.capture(request_context, self.workspace)
 
         def describe():
             project = self.workspace.get(project_id)
             available = self._research_authorize is not None
+            reason = (
+                None
+                if available
+                else "Automatic actions are not available on this server."
+            )
             if available:
                 try:
-                    self._research_authorize(project_id, context)
-                except PermissionError:
+                    self._authorize_run(project_id, context)
+                except PermissionError as exc:
                     available = False
+                    reason = str(exc)
             budget = self._default_research_budget(project_id, project, context)
             enabled = self._skill_library().enabled() if self._skill_library else []
             search = (
@@ -184,6 +214,7 @@ class ProjectQAService:
             )
             return {
                 "available": available,
+                "reason": reason,
                 "budget_usd": str(budget) if budget is not None else None,
                 "skills": [
                     {"name": item["name"], "description": item["description"]}
@@ -199,7 +230,7 @@ class ProjectQAService:
             raise PermissionError(
                 "Automatic research is not configured for this server."
             )
-        self._research_authorize(project_id, context)
+        self._authorize_run(project_id, context)
         requested = options.get("budget_usd")
         if requested is None:
             requested = self._default_research_budget(project_id, project, context)
@@ -472,7 +503,7 @@ class ProjectQAService:
                     else None
                 )
                 turn = store.submit_turn(thread_id, **values, submitted_by=actor)
-                if setup is not None:
+                if setup is not None and turn["status"] == "running":
                     ledger = ProjectQAResearchStore(project)
                     try:
                         ledger.get_for_turn(turn["id"])
@@ -508,6 +539,9 @@ class ProjectQAService:
                         status="failed",
                         error_summary="This question could not be started. Please try again.",
                     )
+                    await await_thread_worker(
+                        ProjectQAResearchStore(project).interrupt_abandoned
+                    )
                     raise
                 research = None
                 if turn.get("research"):
@@ -516,7 +550,9 @@ class ProjectQAService:
                     research = ResearchSession(
                         ledger,
                         record["id"],
-                        authorize=lambda: self._research_authorize(project_id, context),
+                        authorize=lambda: self._authorize_run(
+                            project_id, context, record["skills"]
+                        ),
                         context=context,
                     )
                     self._research_sessions[key] = research
@@ -589,6 +625,37 @@ class ProjectQAService:
                         ),
                         sidecar_capabilities_provider=self._sidecar_capabilities,
                     )
+                    execution = None
+                    if research is not None:
+                        from frisket.server.services.project_qa_child_runs import (
+                            ProjectQAChildRunService,
+                        )
+                        from frisket.server.services.project_qa_execution import (
+                            ProjectQAExecutionService,
+                        )
+                        from frisket.server.services.project_qa_output_scope import (
+                            derive_output_read_grants,
+                            output_grant_allows,
+                        )
+
+                        child_runs = ProjectQAChildRunService(self.workspace)
+                        execution = ProjectQAExecutionService(
+                            project,
+                            project_id,
+                            turn,
+                            store,
+                            research,
+                            catalog_payload_provider=host.catalog,
+                            quote_provider=host.quote,
+                            run_action=host.run,
+                            wait_child=child_runs.wait,
+                            rate_actual_cost=usd_to_micros,
+                            output_grants_provider=lambda: derive_output_read_grants(
+                                project,
+                                research.store.get(research.id)["output_grants"],
+                            ),
+                            output_grant_allows=output_grant_allows,
+                        )
 
                     result = await run_turn(
                         project,
@@ -606,6 +673,7 @@ class ProjectQAService:
                         ),
                         research=research,
                         action_host=host,
+                        execution=execution,
                         search_service=(
                             self._search_service_factory()
                             if self._search_service_factory
@@ -667,16 +735,9 @@ class ProjectQAService:
             )
         finally:
             if research is not None:
-
-                def finish_research():
-                    current = research.store.get(research.id)
-                    research.store.update(
-                        research.id,
-                        expected_revision=current["revision"],
-                        state="completed" if status == "completed" else "interrupted",
-                    )
-
-                await await_thread_worker(finish_research)
+                await await_thread_worker(
+                    research.store.finish, research.id, completed=status == "completed"
+                )
             await await_thread_worker(
                 store.finalize_turn,
                 turn["id"],
@@ -751,7 +812,7 @@ class ProjectQAService:
             raise PermissionError(
                 "Automatic research is not configured for this server."
             )
-        await await_thread_worker(self._research_authorize, project_id, context)
+        await await_thread_worker(self._authorize_run, project_id, context)
         async with self._admission:
             session = self._research_sessions.get((project, turn_id))
             task = self._tasks.get((project, turn_id))
@@ -771,6 +832,7 @@ class ProjectQAService:
                 if turn["status"] != "running":
                     raise ProjectQAConflictError("This research run has stopped.")
                 current = session.store.get(session.id)
+                self._authorize_run(project_id, context, current["skills"])
                 approval = current["pending_approval"] or {}
                 if (
                     current["state"] != "paused"
@@ -799,7 +861,9 @@ class ProjectQAService:
                 return turn
 
             turn = await await_thread_worker(resume)
-            session.authorize = lambda: self._research_authorize(project_id, context)
+            session.authorize = lambda: self._authorize_run(
+                project_id, context, session.store.get(session.id)["skills"]
+            )
             session.context = context
             session.wake(body.decision)
             return await await_thread_worker(self._research_projection, project, turn)

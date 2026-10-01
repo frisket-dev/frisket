@@ -1064,9 +1064,14 @@ def create_team_app(
     )
 
     def authorize_research(project_id: str, context: BackgroundAskContext) -> None:
-        actor = require_org_member(context)
+        try:
+            actor = require_org_member(context)
+        except HTTPException as exc:
+            if exc.status_code not in {401, 403}:
+                raise
+            raise PermissionError("Your project access changed.") from exc
         if not access.can_on_project(org_id, project_id, int(actor["id"]), "editor"):
-            raise HTTPException(403, "project editor required")
+            raise PermissionError("Project editor access is required.")
 
     from frisket.ai.research.search import SearchService
     from frisket.server.provider_config import load_search_provider

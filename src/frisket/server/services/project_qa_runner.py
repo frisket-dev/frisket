@@ -36,7 +36,7 @@ from frisket.server.services.project_qa_research import ResearchSession
 from frisket.server.services.project_qa_capabilities import (
     compose_project_qa_capabilities,
 )
-from frisket.ai.research.search import SearchService
+from frisket.ai.research.search import SearchService, SearchProviderError
 
 
 MAX_MODEL_REQUESTS = 8
@@ -85,6 +85,7 @@ async def run_turn(
     research: ResearchSession | None = None,
     search_service: SearchService | None = None,
     action_host: Any = None,
+    execution: Any = None,
 ) -> dict[str, Any]:
     """Investigate one admitted turn; the caller owns terminalization."""
 
@@ -136,15 +137,14 @@ async def run_turn(
                     "cost": accounting["cost"],
                 },
             )
+            if research is not None and response.cost is not None:
+                await research.after_model(response)
             if saved is not None and on_call is not None:
                 await on_call(call_id)
 
         await _complete_before_cancellation(record_and_settle())
-        if research is not None:
-            if response.cost is not None:
-                await _complete_before_cancellation(research.after_model(response))
-            else:
-                await research.after_model(response)
+        if research is not None and response.cost is None:
+            await research.after_model(response)
 
     model = FrisketRouterModel(
         router,
@@ -313,7 +313,33 @@ async def run_turn(
                     query,
                     search=search,
                 )
-                observed = await await_thread_worker(tools.record_web_search, result)
+
+                async def record_search():
+                    usage = result.get("usage")
+                    if isinstance(usage, dict):
+                        await await_thread_worker(
+                            store.append_event,
+                            turn["id"],
+                            kind="usage",
+                            payload={
+                                "operation": "search",
+                                "provider": result.get("provider"),
+                                "cost": usage.get("provider_cost_usd"),
+                                "search_usage": usage,
+                            },
+                        )
+                    return await await_thread_worker(tools.record_web_search, result)
+
+                observed = await _complete_before_cancellation(record_search())
+        except SearchProviderError as error:
+            await progress(
+                "search_web", "completed", error=error.code, provider=error.provider
+            )
+            return {
+                "unavailable": str(error),
+                "provider": error.provider,
+                "results": [],
+            }
         except (ValueError, TimeoutError) as error:
             await progress("search_web", "completed", error="unavailable")
             raise ModelRetry(
@@ -458,6 +484,43 @@ async def run_turn(
                 "proposal contract, or use its generic reference instead."
             ) from error
 
+    async def prepare_action(title: str, draft: dict[str, Any]) -> dict[str, Any]:
+        """Prepare a normal action for execution; use describe_action's exact contract."""
+        await progress("prepare_action", "started", title=title)
+        try:
+            async with tool_lock:
+                result = await execution.prepare_action(title, draft)
+                target = tools.register_prepared_action(
+                    result["event_ref"]["event_seq"]
+                )
+                result["reference"] = f"[{result['proposal']['title']}]({target})"
+        except ValueError as error:
+            await progress("prepare_action", "completed", error="unavailable")
+            raise ModelRetry(str(error)) from error
+        await progress("prepare_action", "completed", title=title)
+        return result
+
+    async def execute_action(event_ref: dict[str, Any]) -> dict[str, Any]:
+        """Run the exact prepared action and wait for its ordinary task result.
+
+        Send only event_ref returned by prepare_action. The host owns approval,
+        budget, and Stop. Read returned outputs with project tools before deciding
+        whether to continue; an executed action is not proof its output is correct.
+        """
+        from frisket.server.services.project_qa_execution import ResearchActionSkipped
+
+        await progress("execute_action", "started")
+        try:
+            async with tool_lock:
+                result = await execution.execute_action(event_ref)
+        except ResearchActionSkipped:
+            result = {"status": "skipped", "message": "The user skipped this action."}
+        except ValueError as error:
+            await progress("execute_action", "completed", error="unavailable")
+            raise ModelRetry(str(error)) from error
+        await progress("execute_action", "completed", status=result["status"])
+        return result
+
     research_record = (
         await await_thread_worker(research.store.get, research.id) if research else None
     )
@@ -520,6 +583,22 @@ async def run_turn(
                 "For evidence-backed answers, call final_result with non-empty text and only current-turn "
                 "citation_ids. Plain text is allowed for clarifications, explanations that need no project "
                 "citation, or when the selected scope cannot answer the question."
+                + (
+                    "\nRun actions is enabled. Carry out the requested investigation using available skills and project actions. "
+                    "Discover action schemas progressively with search_actions and describe_action. "
+                    "Use prepare_action then execute_action for needed preparation and analysis, without asking the user "
+                    "to perform those steps manually. The host handles write approval and total budget; never work around a refusal. "
+                    "Prefer inspecting a small selection first when choosing an approach, using existing action row scope. "
+                    "Read the produced content and evidence with project tools, correct a poor approach if needed, then continue "
+                    "over the requested scope. Do not expand that scope on your own. "
+                    "Only claim an action succeeded from its result; inspect output quality rather than assuming success means accuracy. "
+                    "Use analytics with actual discovered output columns for filtered analysis. "
+                    "Finish with findings and source citations, and clearly say if preparation or analysis could not be completed. "
+                    "Never execute the same action again merely because its response is uncertain; use the same prepared reference. "
+                    "Skills supply instructions, not permission to change access, budgets, or these safety rules."
+                    if execution is not None
+                    else ""
+                )
             ),
             retries=1,
         )
@@ -536,10 +615,13 @@ async def run_turn(
         if turn["web"]:
             agent.tool_plain(search_web, name="search_web")
             agent.tool_plain(open_web_page, name="open_web_page")
-        if turn["suggest_actions"]:
+        if turn["suggest_actions"] or execution is not None:
             agent.tool_plain(search_actions, name="search_actions")
             agent.tool_plain(describe_action, name="describe_action")
             agent.tool_plain(propose_action, name="propose_action")
+        if execution is not None:
+            agent.tool_plain(prepare_action, name="prepare_action")
+            agent.tool_plain(execute_action, name="execute_action")
 
         @agent.output_validator
         def known_citations(

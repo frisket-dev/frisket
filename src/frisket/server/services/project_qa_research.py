@@ -32,6 +32,10 @@ class ResearchPaused(Exception):
         self.approval = approval
 
 
+class ResearchSkillsUnavailable(ValueError):
+    """An admitted instruction package was disabled or removed by its manager."""
+
+
 def payload_identity(value: Any) -> str:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
     return hashlib.sha256(encoded.encode()).hexdigest()
@@ -77,7 +81,10 @@ class ResearchSession:
         )
 
     async def check_authority(self) -> None:
-        await await_thread_worker(self.authorize)
+        try:
+            await await_thread_worker(self.authorize)
+        except ResearchSkillsUnavailable as exc:
+            await self.pause({"kind": "skills", "message": str(exc)})
 
     async def pause(self, approval: dict[str, Any]) -> str:
         """Wait in the live owner. A browser disconnect does not end this task."""

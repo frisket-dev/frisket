@@ -26,6 +26,7 @@ EVENT_KINDS = frozenset(
         "answer",
         "result_suggestion",
         "action_proposal",
+        "research_child",
         "usage",
         "status",
     }
@@ -608,7 +609,11 @@ class ProjectQAStore:
             )
             if turn["status"] in TERMINAL_TURN_STATUSES:
                 raise ProjectQAConflictError("cannot append content to a terminal turn")
-            if turn["status"] == "stopping" and kind not in {"usage", "status"}:
+            if turn["status"] == "stopping" and kind not in {
+                "usage",
+                "status",
+                "research_child",
+            }:
                 raise ProjectQAConflictError("cannot append content to a stopping turn")
             return self._append_event(
                 db,

@@ -71,6 +71,7 @@ class AskSkillSummary(WireModel):
 
 class AskResearchConfiguration(WireModel):
     available: bool
+    reason: str | None = None
     budget_usd: str | None
     skills: list[AskSkillSummary]
     web_provider: str | None
@@ -233,6 +234,7 @@ class AskEvent(WireModel):
         "answer",
         "result_suggestion",
         "action_proposal",
+        "research_child",
         "usage",
         "status",
     ]

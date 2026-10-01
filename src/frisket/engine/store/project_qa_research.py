@@ -301,13 +301,30 @@ class ProjectQAResearchStore:
 
         def write(db: sqlite3.Connection) -> dict[str, Any]:
             existing = db.execute(
-                "SELECT revision FROM project_qa_research_runs WHERE id=?",
+                "SELECT revision,turn_count FROM project_qa_research_runs WHERE id=?",
                 (research_id,),
             ).fetchone()
             if existing is None:
                 raise ProjectQAResearchNotFound("research run not found")
             if existing["revision"] != expected_revision:
                 raise ProjectQAResearchConflictError("research revision changed")
+            if "budget_micros" in values:
+                committed = db.execute(
+                    "SELECT COALESCE(SUM(COALESCE(actual_micros,estimate_micros)),0) "
+                    "FROM project_qa_research_operations WHERE research_id=?",
+                    (research_id,),
+                ).fetchone()[0]
+                if values["budget_micros"] < committed:
+                    raise ValueError(
+                        "The total budget cannot be less than spent and committed costs."
+                    )
+            if (
+                values.get("max_turns") is not None
+                and values["max_turns"] < existing["turn_count"]
+            ):
+                raise ValueError(
+                    "The turn limit cannot be less than turns already used."
+                )
             assignments = [f"{column}=?" for column in values]
             arguments = list(values.values())
             assignments.extend(["revision=revision+1", "updated_at=?"])
@@ -344,6 +361,16 @@ class ProjectQAResearchStore:
                 "WHERE state IN ('running','paused') AND turn_id IN "
                 "(SELECT id FROM project_qa_turns WHERE status NOT IN ('running','stopping'))",
                 (_now(),),
+            )
+        )
+
+    def finish(self, research_id: str, *, completed: bool) -> None:
+        """The live owner terminalizes without racing approval revision changes."""
+        self._write(
+            lambda db: db.execute(
+                "UPDATE project_qa_research_runs SET state=?,pending_approval_json=NULL,"
+                "revision=revision+1,updated_at=? WHERE id=? AND state IN ('running','paused')",
+                ("completed" if completed else "interrupted", _now(), research_id),
             )
         )
 

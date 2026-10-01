@@ -14,6 +14,97 @@ from frisket.engine.store.project_qa_research import ProjectQAResearchStore
 from frisket.server.services.project_qa import ProjectQAService
 from frisket.server.workspace import Workspace
 from frisket.server.services.skills import SkillLibrary
+from frisket.server.services.project_qa_research import ResearchSkillsUnavailable
+
+
+@pytest.mark.anyio
+async def test_research_does_not_treat_hosted_billing_as_provider_cost(
+    tmp_path, monkeypatch
+):
+    from frisket.execution import pricing_policy
+
+    workspace = Workspace(tmp_path / "workspace")
+    pid = workspace.create("Research")["id"]
+    service = ProjectQAService(workspace)
+    service.configure_research(authorize=lambda pid, context: None)
+    monkeypatch.setattr(pricing_policy, "default_pricing_policy", lambda: object())
+    try:
+        options = await service.research_options(pid)
+        assert options["available"] is False
+        assert "billing" in options["reason"]
+        with pytest.raises(PermissionError, match="billing"):
+            service._research_setup(pid, workspace.get(pid), {"budget_usd": "1"}, None)
+    finally:
+        await service.shutdown()
+
+
+@pytest.mark.anyio
+async def test_runtime_admission_failure_interrupts_research(tmp_path):
+    class FailingPort:
+        async def prepare_turn(self, **kwargs):
+            raise ValueError("Runtime unavailable")
+
+    workspace = Workspace(tmp_path / "workspace", project_qa_runtime_port=FailingPort())
+    pid = workspace.create("Research")["id"]
+    service = ProjectQAService(workspace)
+    service.configure_research(authorize=lambda pid, context: None)
+    thread = await service.create(pid, AskThreadCreate(scope={"kind": "project"}))
+    try:
+        with pytest.raises(ValueError, match="Runtime unavailable"):
+            await service.submit(
+                pid,
+                thread["id"],
+                AskTurnRequest(
+                    scope={"kind": "project"},
+                    request_id="failed-runtime",
+                    question="Investigate",
+                    research={"budget_usd": "1"},
+                ),
+            )
+        detail = await service.detail(pid, thread["id"])
+        question = next(
+            event
+            for event in detail["history"]["events"]
+            if event["kind"] == "question"
+        )
+        project = workspace.get(pid)
+        turn = ProjectQAStore(project).get_turn(question["turn_id"])
+        assert turn["status"] == "failed"
+        assert (
+            ProjectQAResearchStore(project).get_for_turn(turn["id"])["state"]
+            == "interrupted"
+        )
+    finally:
+        await service.shutdown()
+
+
+@pytest.mark.anyio
+async def test_replaying_interrupted_parent_does_not_create_live_research(tmp_path):
+    from frisket.engine.store.project_qa_research import ProjectQAResearchNotFound
+
+    workspace = Workspace(tmp_path / "workspace")
+    pid = workspace.create("Research")["id"]
+    service = ProjectQAService(workspace)
+    service.configure_research(authorize=lambda pid, context: None)
+    thread = await service.create(pid, AskThreadCreate(scope={"kind": "project"}))
+    body = AskTurnRequest(
+        scope={"kind": "project"},
+        request_id="interrupted",
+        question="Investigate",
+        research={"budget_usd": "1"},
+    )
+    store = await service.store(pid)
+    values = body.model_dump(mode="json")
+    values["scope"] = body.scope.model_dump(exclude_none=True)
+    parent = store.submit_turn(thread["id"], **values)
+    store.finalize_turn(parent["id"], status="interrupted")
+    try:
+        replay = await service.submit(pid, thread["id"], body)
+        assert replay["status"] == "interrupted"
+        with pytest.raises(ProjectQAResearchNotFound):
+            ProjectQAResearchStore(workspace.get(pid)).get_for_turn(parent["id"])
+    finally:
+        await service.shutdown()
 
 
 @pytest.mark.anyio
@@ -21,7 +112,7 @@ async def test_research_options_expose_manifest_only_and_allow_no_skills(tmp_pat
     workspace = Workspace(tmp_path / "workspace")
     pid = workspace.create("Research")["id"]
     library = SkillLibrary(tmp_path / "library")
-    library.create(
+    skill = library.create(
         "---\nname: analyze-records\ndescription: Analyze project records\n---\nPrivate instructions here."
     )
     service = ProjectQAService(workspace)
@@ -51,6 +142,14 @@ async def test_research_options_expose_manifest_only_and_allow_no_skills(tmp_pat
             )
             == 1
         )
+        snapshots = service._research_setup(
+            pid, project, {**base, "skills": None}, None
+        )["skills"]
+        library.set_enabled(
+            skill["id"], expected_revision=skill["revision"], enabled=False
+        )
+        with pytest.raises(ResearchSkillsUnavailable):
+            service._authorize_run(pid, None, snapshots)
     finally:
         await service.shutdown()
 

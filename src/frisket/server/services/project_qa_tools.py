@@ -40,6 +40,7 @@ from frisket.server.services.project_qa_sources import (
 from frisket.server.services.project_qa_output_scope import (
     OutputGrantResolution,
     OutputReadGrant,
+    output_grant_allows,
 )
 
 
@@ -148,6 +149,11 @@ class ProjectQATools:
         """Markdown targets returned by action tools during this turn."""
 
         return frozenset(self._action_references)
+
+    def register_prepared_action(self, event_seq: int) -> str:
+        target = f"#action-{event_seq}"
+        self._action_references.add(target)
+        return target
 
     def inspect_sheets(self) -> dict[str, Any]:
         """Return schema/count metadata for sheets the turn may inspect."""
@@ -1113,7 +1119,7 @@ class ProjectQATools:
 
     def search_actions(self, query: str, limit: int = 8) -> dict[str, Any]:
         """Discover compact action descriptions; load a chosen schema separately."""
-        if not self.turn["suggest_actions"]:
+        if not self.turn["suggest_actions"] and not self._research:
             raise ProjectQAScopeError("action suggestions are disabled for this turn")
         if not query.strip() or len(query) > 500 or not 1 <= limit <= 20:
             raise ValueError("use a short action query and limit 1–20")
@@ -1140,13 +1146,8 @@ class ProjectQATools:
 
     def propose_action(self, title: str, draft: dict[str, Any]) -> dict[str, Any]:
         """Validate and save one canonical review-only action draft."""
-        if not self.turn["suggest_actions"]:
+        if not self.turn["suggest_actions"] and not self._research:
             raise ProjectQAScopeError("action suggestions are disabled for this turn")
-        title = " ".join(title.split())
-        if not title or len(title) > 80 or any(char in title for char in "[]"):
-            raise ValueError(
-                "proposal title must be concise plain text without Markdown brackets"
-            )
         catalog_payload = self._project_action_catalog_payload()
         try:
             saved = save_prepared_project_ask_action(
@@ -1157,14 +1158,17 @@ class ProjectQATools:
                 draft=draft,
                 catalog_payload=catalog_payload,
                 quote_provider=self._project_action_quote,
+                output_grants=self._output_grants_provider().grants
+                if self._output_grants_provider
+                else (),
+                output_grant_allows=output_grant_allows,
             )
         except ValueError as exc:
             raise ProjectQAScopeError(
                 "proposal is not an available action for this project"
             ) from exc
         proposal = saved.proposal
-        target = f"#action-{saved.event['seq']}"
-        self._action_references.add(target)
+        target = self.register_prepared_action(saved.event["seq"])
         return {
             "proposal": proposal,
             "reference": f"[{proposal['title']}]({target})",
@@ -1173,7 +1177,7 @@ class ProjectQATools:
     def describe_action(self, action_id: str) -> dict[str, Any]:
         """Return catalog facts and the canonical review-only draft contract."""
 
-        if not self.turn["suggest_actions"]:
+        if not self.turn["suggest_actions"] and not self._research:
             raise ProjectQAScopeError("action suggestions are disabled for this turn")
         if not isinstance(action_id, str) or not action_id:
             raise ValueError("action_id must be a non-empty string")

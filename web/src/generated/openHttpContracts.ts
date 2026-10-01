@@ -2905,7 +2905,7 @@ type HttpAskEventsPage_AskCitation = ({
 type HttpAskEventsPage_AskEvent = ({
   "citations"?: (Array<(HttpAskEventsPage_AskCitation)>);
   "created_at": (string);
-  "kind": ("question" | "assistant" | "tool_started" | "tool_completed" | "answer" | "result_suggestion" | "action_proposal" | "usage" | "status") & (string);
+  "kind": ("question" | "assistant" | "tool_started" | "tool_completed" | "answer" | "result_suggestion" | "action_proposal" | "research_child" | "usage" | "status") & (string);
   "payload": ({
   [key: string]: (HttpAskEventsPage_JsonValue);
 });
@@ -3034,6 +3034,7 @@ type HttpAskResearchConfiguration_AskSkillSummary = ({
 export type HttpAskResearchConfiguration = ({
   "available": (boolean);
   "budget_usd": (((string)) | ((null)));
+  "reason"?: (((string)) | ((null)));
   "skills": (Array<(HttpAskResearchConfiguration_AskSkillSummary)>);
   "web_provider": (((string)) | ((null)));
 });
@@ -3150,7 +3151,7 @@ type HttpAskThreadDetail_AskCitation = ({
 type HttpAskThreadDetail_AskEvent = ({
   "citations"?: (Array<(HttpAskThreadDetail_AskCitation)>);
   "created_at": (string);
-  "kind": ("question" | "assistant" | "tool_started" | "tool_completed" | "answer" | "result_suggestion" | "action_proposal" | "usage" | "status") & (string);
+  "kind": ("question" | "assistant" | "tool_started" | "tool_completed" | "answer" | "result_suggestion" | "action_proposal" | "research_child" | "usage" | "status") & (string);
   "payload": ({
   [key: string]: (HttpAskThreadDetail_JsonValue);
 });

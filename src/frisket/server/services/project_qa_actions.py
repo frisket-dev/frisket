@@ -237,6 +237,9 @@ def save_prepared_project_ask_action(
     review-only and cannot enter the automatic dispatch path.
     """
 
+    title = " ".join(title.split())
+    if not title or len(title) > 80 or any(char in title for char in "[]"):
+        raise ValueError("Use a concise action title without Markdown brackets.")
     prepared = prepare_validated_project_ask_draft(
         project,
         draft,

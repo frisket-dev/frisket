@@ -34,13 +34,15 @@ class BackgroundAskContext:
         user = getattr(state, "user", None)
         return cls(
             headers=MappingProxyType(
+                {key: headers[key] for key in ("authorization",) if key in headers}
+            ),
+            cookies=MappingProxyType(
                 {
-                    key: headers[key]
-                    for key in ("authorization", "cookie")
-                    if key in headers
+                    name: value
+                    for name, value in getattr(request, "cookies", {}).items()
+                    if name == "frisket_session"
                 }
             ),
-            cookies=MappingProxyType(dict(getattr(request, "cookies", {}))),
             state=BackgroundAskState(
                 execution_composition_context=workspace.edition_execution_composition_context_for(
                     request
