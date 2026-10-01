@@ -421,15 +421,6 @@ def _references_fit_selected_cells(
             return None
         reference_columns.add(column_id)
     owned_inputs: list[OwnedOutputInput] = []
-    receipt_ids = tuple(
-        sorted(
-            {
-                str(grant.receipt_id)
-                for grant in output_grants
-                if isinstance(getattr(grant, "receipt_id", None), str)
-            }
-        )
-    )
     for row_id in target_rows:
         if row_id in unrestricted_rows:
             continue
@@ -442,6 +433,21 @@ def _references_fit_selected_cells(
                 column_id=column_id,
             ):
                 return None
+            receipt_ids = tuple(
+                sorted(
+                    {
+                        str(grant.receipt_id)
+                        for grant in output_grants
+                        if isinstance(getattr(grant, "receipt_id", None), str)
+                        and output_grant_allows(
+                            (grant,),
+                            sheet_id=sheet_id,
+                            row_id=row_id,
+                            column_id=column_id,
+                        )
+                    }
+                )
+            )
             if not receipt_ids:
                 return None
             # The shared predicate decides whether the cell is readable. Bind

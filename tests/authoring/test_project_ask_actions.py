@@ -236,6 +236,23 @@ def test_file_scoped_ask_may_use_only_its_receipt_proven_derived_column(tmp_path
         assert prepared.owned_output_inputs == (
             OwnedOutputInput("receipt-markdown", sheet_id, file_row, markdown_column),
         )
+        unrelated_grant = _OutputGrant(
+            receipt_id="receipt-unrelated",
+            sheet_id=sheet_id,
+            column_ids=frozenset({sibling_column}),
+            row_ids=frozenset({sibling_row}),
+        )
+        prepared_with_unrelated_grant = prepare_validated_project_ask_draft(
+            project,
+            draft,
+            catalog_payload=root_action_catalog_payload(),
+            scope=scope,
+            output_grants=(grant, unrelated_grant),
+            output_grant_allows=_allows_output_cell,
+        )
+        assert prepared_with_unrelated_grant.owned_output_inputs == (
+            OwnedOutputInput("receipt-markdown", sheet_id, file_row, markdown_column),
+        )
 
         sibling_draft = {
             **draft,
