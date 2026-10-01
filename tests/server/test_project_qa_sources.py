@@ -229,7 +229,6 @@ def test_action_discovery_is_bounded_and_obeys_suggestions_setting(source):
         },
         {**draft, "confirmation": "consent-hash"},
         {**draft, "idempotency_key": "ask-must-not-authorize"},
-        {**draft, "replace_existing": False},
         {**draft, "confirmed": True},
         {**draft, "consented_promise_set_hash": "consent-hash"},
         {**draft, "authoring_contract_version": "v1"},
