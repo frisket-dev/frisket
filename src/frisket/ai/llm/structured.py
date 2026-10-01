@@ -62,8 +62,10 @@ from pydantic_ai.messages import (
     ModelResponse,
     ModelResponsePart,
     SystemPromptPart,
+    TextContent,
     TextPart,
     ToolCallPart,
+    ToolReturnPart,
     UserPromptPart,
 )
 from pydantic_ai.models import Model, ModelRequestParameters
@@ -212,7 +214,9 @@ def _content_from_pai(content: Any) -> Any:
     for c in content:
         if isinstance(c, str):
             parts.append({"type": "text", "text": c})
-        else:
+        elif isinstance(c, TextContent):
+            parts.append({"type": "text", "text": c.content})
+        elif isinstance(c, BinaryContent):
             parts.append(
                 {
                     "type": "image",
@@ -220,6 +224,8 @@ def _content_from_pai(content: Any) -> Any:
                     "data": base64.b64encode(c.data).decode(),
                 }
             )
+        else:
+            raise TypeError(f"unsupported pydantic-ai user content: {type(c).__name__}")
     return parts
 
 
@@ -257,7 +263,7 @@ class FrisketRouterModel(Model):
     shim: its ``_tool_call`` stand-in is dropped because adapters now carry
     arbitrary
     multi-tool defs + ``tool_choice=auto`` + named tool_use/tool_calls parsing for
-    both dialects, so pydantic-ai's ``function_tools`` (an Agent's
+    both dialects, so pydantic-ai's declared function tools (an Agent's
     ``@agent.tool_plain`` registrations) now ride
     ``LLMRequest.tools`` and round-trip through ``LLMResponse.tool_calls`` — no
     stand-in convention needed. Structured output still rides the single
@@ -314,7 +320,11 @@ class FrisketRouterModel(Model):
 
     @property
     def model_name(self) -> str:
-        return self._model_id
+        # Pydantic AI keeps the provider in ``system``/``model_id`` and uses
+        # the bare name for profile and context-window lookup. Frisket's wire
+        # identifier remains the slash-qualified ``_model_id`` below.
+        _provider, separator, model_name = self._model_id.partition("/")
+        return model_name if separator else self._model_id
 
     @property
     def system(self) -> str:
@@ -330,7 +340,8 @@ class FrisketRouterModel(Model):
             model_settings, model_request_parameters
         )
         schema, mode = self._resolve_schema(params)
-        # function_tools (an Agent's @agent.tool_plain registrations) ride
+        # Declared function tools (an Agent's @agent.tool_plain registrations)
+        # ride
         # LLMRequest.tools, orthogonal to `schema` -- mutually exclusive in
         # every caller today (a StructuredCompleter run never registers
         # tools; sdk/ops/research_answer.py's AgentRecipe never sets
@@ -433,7 +444,7 @@ class FrisketRouterModel(Model):
                         out.append(
                             {"role": "user", "content": _content_from_pai(p.content)}
                         )
-                    elif p.part_kind == "tool-return":
+                    elif isinstance(p, ToolReturnPart):
                         out.append(
                             {
                                 "role": "tool",
@@ -467,7 +478,7 @@ class FrisketRouterModel(Model):
                 for p in m.parts:
                     if p.part_kind == "text":
                         text_parts.append(p.content)
-                    elif p.part_kind == "tool-call":
+                    elif isinstance(p, ToolCallPart):
                         # Provider-owned continuation metadata is valid only for
                         # the provider that minted it. The logical call below is
                         # sufficient when history is deliberately moved between
@@ -510,7 +521,7 @@ class FrisketRouterModel(Model):
 
     @staticmethod
     def _resolve_schema(params: ModelRequestParameters) -> tuple[dict | None, str]:
-        if params.function_tools and params.output_tools:
+        if params.declared_function_tools and params.output_tools:
             # The final typed output becomes another auto-selected tool beside
             # ordinary function tools.  Adapters already understand a multi-
             # tool request; forcing the old schema `emit` tool would suppress
@@ -526,11 +537,12 @@ class FrisketRouterModel(Model):
     @staticmethod
     def _resolve_tools(params: ModelRequestParameters) -> list[dict[str, Any]] | None:
         """Map an Agent's ``@agent.tool_plain`` registrations
-        (``params.function_tools``) to ``LLMRequest.tools``. Distinct from
+        (``params.declared_function_tools``) to ``LLMRequest.tools``. Distinct from
         ``output_tools`` (the single forced structured-output
         tool, resolved by ``_resolve_schema`` above) -- these are the tools a
         multi-step Agent dispatches mid-run (AgentRecipe search/fetch)."""
-        if not params.function_tools:
+        declared_function_tools = params.declared_function_tools
+        if not declared_function_tools:
             tools: list[dict[str, Any]] = []
         else:
             tools = [
@@ -539,9 +551,9 @@ class FrisketRouterModel(Model):
                     "description": t.description or "",
                     "parameters": t.parameters_json_schema,
                 }
-                for t in params.function_tools
+                for t in declared_function_tools
             ]
-        if params.function_tools and params.output_tools:
+        if declared_function_tools and params.output_tools:
             tools.extend(
                 {
                     "name": t.name,
