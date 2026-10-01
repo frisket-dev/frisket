@@ -1235,6 +1235,9 @@ class ProjectQATools:
             "required_params": required_params,
             "defaults": defaults,
             "source_requirements": ui_hints.get("source_requirements", []),
+            "output_schema": entry.get("output_schema", {}),
+            "logical_outputs": ui_hints.get("logical_outputs", []),
+            "dynamic_outputs": ui_hints.get("dynamic_outputs", False),
             "proposal_contract": {
                 "fixed_fields": {"action_id": action_id},
                 "scope": scope_contract,

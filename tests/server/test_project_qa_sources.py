@@ -122,6 +122,10 @@ def test_action_discovery_is_bounded_and_obeys_suggestions_setting(source):
     assert transcribe["reference"] == "[Transcribe](#action/media.transcribe)"
     described = tools.describe_action(transcribe["action_id"])
     assert described["input_schema"]
+    assert described["output_schema"]
+    markdown = tools.describe_action("media.to_markdown")
+    assert {item["key"] for item in markdown["logical_outputs"]} >= {"markdown"}
+    assert tools.describe_action("map.extract")["dynamic_outputs"] is True
     assert described["reference"] == transcribe["reference"]
     assert described["required_params"] == ["source"]
     assert described["defaults"]["engine"] == "parakeet-tdt"

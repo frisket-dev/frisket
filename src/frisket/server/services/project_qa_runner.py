@@ -499,8 +499,9 @@ async def run_turn(
         """Prepare an action using describe_action's parameter schema.
 
         Put all action-specific settings (source, engine, fields, instruction)
-        inside draft.params. draft.output_names maps logical outputs to new column
-        names; draft.scope selects the sheet and optional rows.
+        inside draft.params. draft.output_names optionally renames logical outputs
+        returned by describe_action; omit it to use the action's output names.
+        draft.scope selects the sheet and optional rows.
         """
         await progress("prepare_action", "started", title=title)
         try:
@@ -603,6 +604,7 @@ async def run_turn(
                 "citation, or when the selected scope cannot answer the question."
                 + (
                     "\nRun actions is enabled. Carry out the requested investigation using available skills and project actions. "
+                    f"The selected chat model is {model_id}. "
                     "Discover action schemas progressively with search_actions and describe_action. "
                     "Use prepare_action then execute_action for needed preparation and analysis, without asking the user "
                     "to perform those steps manually. The host handles write approval and total budget; never work around a refusal. "
