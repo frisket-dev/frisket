@@ -154,6 +154,7 @@ class Workspace:
         install_queue_terminalization: bool = True,
         require_storage_identity: bool = False,
         provider_keys_resolver: Callable[[], Mapping[str, str]] | None = None,
+        search_provider_keys_resolver: Callable[[], Mapping[str, str]] | None = None,
         require_explicit_provider_keys: bool = False,
         enable_local_model_pull: bool = True,
         execution_router_factory: Callable[[], ModelRouter] | None = None,
@@ -202,6 +203,7 @@ class Workspace:
         )
         self._runtime_settings_lock = threading.RLock()
         self._provider_keys_resolver = provider_keys_resolver
+        self._search_provider_keys_resolver = search_provider_keys_resolver
         self.require_explicit_provider_keys = require_explicit_provider_keys
         # ``queue_clock`` reaches the lease-expiry/fencing/liveness lines of a
         # workspace whose queue only exists via this construction (the
@@ -391,6 +393,25 @@ class Workspace:
 
         configs, _notes = provider_config.resolve_local_endpoints(self.root)
         return configs
+
+    def search_service(self):
+        """Build the effective search provider from this edition's keys."""
+
+        from frisket.ai.research.search import SearchService
+        from frisket.server.provider_config import (
+            load_search_provider,
+            resolve_search_credentials,
+        )
+
+        if self._search_provider_keys_resolver is not None:
+            keys = dict(self._search_provider_keys_resolver())
+        elif self.edition == "solo":
+            keys = resolve_search_credentials(self.root)
+        else:
+            keys = {}
+        return SearchService(
+            preference=load_search_provider(self.root), effective_keys=keys
+        )
 
     def router_for(self, project: Project) -> ModelRouter:
         """Return the ordinary workspace router for non-action consumers."""

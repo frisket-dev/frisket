@@ -69,6 +69,7 @@ from frisket.team.admin_browser_routes import register_admin_browser_routes
 from frisket.team.admin_browser_service import AdminMembershipService
 from frisket.team.config import TeamConfig, team_config_from_env
 from frisket.team.control_plane import (
+    SEARCH_KEY_PROVIDERS,
     TeamOrgKeyCredentialPort,
     TeamOrgSearchKeyCredentialPort,
     org_provider_keys,
@@ -1015,6 +1016,12 @@ def create_team_app(
         provider_keys_resolver=lambda: org_provider_keys(
             engine, org_id=org_id, decryptor=secret_box.decrypt
         ),
+        search_provider_keys_resolver=lambda: org_provider_keys(
+            engine,
+            org_id=org_id,
+            providers=SEARCH_KEY_PROVIDERS,
+            decryptor=secret_box.decrypt,
+        ),
         worker_ports=WorkerPorts(
             credential_port=TeamOrgKeyCredentialPort(secret_box.decrypt),
             search_credential_port=TeamOrgSearchKeyCredentialPort(secret_box.decrypt),
@@ -1078,21 +1085,7 @@ def create_team_app(
         if not access.can_on_project(org_id, project_id, int(actor["id"]), "editor"):
             raise PermissionError("Project editor access is required.")
 
-    from frisket.ai.research.search import SearchService
-    from frisket.server.provider_config import load_search_provider
-    from frisket.team.control_plane import SEARCH_KEY_PROVIDERS
-
-    core.state.project_qa_service.configure_search(
-        lambda: SearchService(
-            preference=load_search_provider(core.state.workspace.root),
-            effective_keys=org_provider_keys(
-                engine,
-                org_id=org_id,
-                providers=SEARCH_KEY_PROVIDERS,
-                decryptor=secret_box.decrypt,
-            ),
-        )
-    )
+    core.state.project_qa_service.configure_search(core.state.workspace.search_service)
     core.state.project_qa_service.configure_research(
         authorize=authorize_research,
         skills=lambda: team_skill_library,

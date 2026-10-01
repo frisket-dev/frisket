@@ -161,6 +161,8 @@ def run_typed_backfill_action(
     bound: BoundTypedActionRequest,
     router: Any,
     map_runner_factory: Callable[..., Any],
+    *,
+    search_service_factory: Callable[[], Any] | None = None,
 ) -> ActionResult:
     action = _TypedExecutionEnvelope(
         kind=bound.action.action_id,
@@ -252,6 +254,22 @@ def run_typed_backfill_action(
                 output_names=MappingProxyType(dict(spec["output_names"])),
                 output_fields=tuple(program.output_fields(spec)),
             )
+        if (
+            producer_plan is not None
+            and WebSearcher
+            in getattr(typed_program.action.definition.run, "capabilities", ())
+            and search_service_factory is not None
+        ):
+            base_factory = map_runner_factory
+            search_service = search_service_factory()
+
+            def map_runner_factory(current, current_router):
+                runner = base_factory(current, current_router)
+                runner.op_context_extras = {
+                    **runner.op_context_extras,
+                    "search_service": search_service,
+                }
+                return runner
     except BackfillRefused as exc:
         return _failed_result(
             project_id=project_id, action_kind=action.kind, error=exc.error

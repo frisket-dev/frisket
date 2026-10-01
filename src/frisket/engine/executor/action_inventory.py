@@ -141,6 +141,10 @@ class ExecutorDeps:
     # Request/run-scoped web-search provider. The host resolves credentials;
     # action code only receives the already tenant-bound service.
     search_service: Any | None = None
+    # Direct backfill discovers the original program only after preparation.
+    # Keep provider selection lazy so unrelated backfills do not require a
+    # configured search provider merely because one is selected in settings.
+    search_service_factory: Callable[[], Any] | None = None
     map_runner_factory: _MapRunnerFactory | None = None
     reserved_maprunner_write_overrides: _ReservedMaprunnerWriteOverrides | None = None
     connected_account_resolver: _ConnectedAccountResolver | None = None

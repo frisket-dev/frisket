@@ -205,6 +205,7 @@ def test_closing_invocation_revokes_bound_searchers(monkeypatch):
 
 def test_search_service_dependency_reaches_map_runner_context() -> None:
     service = object()
+    browser = object()
     runner = SimpleNamespace(op_context_extras={"existing": object()})
     deps = _executor_deps_with_defaults(
         deps=ExecutorDeps(
@@ -215,10 +216,11 @@ def test_search_service_dependency_reaches_map_runner_context() -> None:
         rss_fetcher=None,
         enclosure_fetcher=None,
         url_capture_fetcher=None,
-        url_capture_browser=None,
+        url_capture_browser=browser,
     )
 
     assert deps.search_service is service
     assert deps.map_runner_factory(object(), None) is runner
     assert runner.op_context_extras["search_service"] is service
+    assert runner.op_context_extras["url_capture_browser"] is browser
     assert "existing" in runner.op_context_extras

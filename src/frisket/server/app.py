@@ -330,6 +330,7 @@ def create_app(
     | None = None,
     models_gateway_status_for: SelectorModelsGatewayStatusFor | None = None,
     provider_keys_resolver: Callable[[], Mapping[str, str]] | None = None,
+    search_provider_keys_resolver: Callable[[], Mapping[str, str]] | None = None,
     worker_ports: WorkerPorts | None = None,
     project_blob_store_factory: Callable[[str], Any] | None = None,
     project_opener: ProjectOpener | None = None,
@@ -458,6 +459,7 @@ def create_app(
         notification_secret_resolver=notification_secret_resolver,
         notification_delivery_runtime=notification_delivery_runtime,
         provider_keys_resolver=provider_keys_resolver,
+        search_provider_keys_resolver=search_provider_keys_resolver,
         models_gateway_connection_resolver=models_gateway_connection_resolver,
         worker_ports=worker_ports,
         project_blob_store_factory=project_blob_store_factory,
@@ -507,18 +509,7 @@ def create_app(
     app.state.skill_library = SkillLibrary(Path(workspace_root))
     project_qa_service = ProjectQAService(ws)
     if edition == "solo":
-        from frisket.ai.research.search import SearchService
-        from frisket.server.provider_config import (
-            load_search_provider,
-            resolve_search_credentials,
-        )
-
-        project_qa_service.configure_search(
-            lambda: SearchService(
-                preference=load_search_provider(ws.root),
-                effective_keys=resolve_search_credentials(ws.root),
-            )
-        )
+        project_qa_service.configure_search(ws.search_service)
         project_qa_service.configure_research(
             authorize=lambda _project_id, _context: None,
             skills=lambda: app.state.skill_library,

@@ -342,6 +342,7 @@ def resolve_run_search_credentials(
     handler_context: JobHandlerContext,
     ports: WorkerPorts,
     control_database_url: str | None,
+    allow_local_credentials: bool,
 ) -> dict[str, str]:
     """Resolve only search keys from the worker's trusted tenant context."""
 
@@ -356,6 +357,8 @@ def resolve_run_search_credentials(
                 control_database_url=control_database_url,
             )
         )
+    if not allow_local_credentials:
+        return {}
     from frisket.server.provider_config import resolve_search_credentials
 
     return resolve_search_credentials(workspace_root)
@@ -367,6 +370,7 @@ def build_run_search_service(
     handler_context: JobHandlerContext,
     ports: WorkerPorts,
     control_database_url: str | None,
+    allow_local_credentials: bool,
 ) -> Any:
     from frisket.ai.research.search import SearchService
     from frisket.server.provider_config import load_search_provider
@@ -378,6 +382,7 @@ def build_run_search_service(
             handler_context=handler_context,
             ports=ports,
             control_database_url=control_database_url,
+            allow_local_credentials=allow_local_credentials,
         ),
     )
 
@@ -934,6 +939,7 @@ def register_project_run_handler(
                     handler_context=handler_context,
                     ports=ports,
                     control_database_url=db_url,
+                    allow_local_credentials=not require_storage_identity,
                 )
             runner = MapRunner(
                 project,

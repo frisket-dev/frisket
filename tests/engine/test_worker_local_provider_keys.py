@@ -101,6 +101,7 @@ def test_local_run_search_uses_workspace_search_credentials(
         handler_context=JobHandlerContext.without_job_row(),
         ports=WorkerPorts(),
         control_database_url=None,
+        allow_local_credentials=True,
     )
 
     assert keys == {"exa": "local-exa"}
@@ -111,6 +112,7 @@ def test_local_run_search_uses_workspace_search_credentials(
             handler_context=JobHandlerContext.without_job_row(),
             ports=WorkerPorts(),
             control_database_url=None,
+            allow_local_credentials=True,
         ).provider
         == "exa"
     )
@@ -133,6 +135,7 @@ def test_org_run_search_uses_only_its_search_credential_port(
         handler_context=JobHandlerContext.from_claimed_job(trusted_org_id=7),
         ports=WorkerPorts(search_credential_port=SearchPort()),
         control_database_url="postgres://control",
+        allow_local_credentials=False,
     )
 
     assert keys == {"tavily": "tenant-seven"}
@@ -143,6 +146,7 @@ def test_org_run_search_uses_only_its_search_credential_port(
             handler_context=JobHandlerContext.from_claimed_job(trusted_org_id=7),
             ports=WorkerPorts(search_credential_port=SearchPort()),
             control_database_url="postgres://control",
+            allow_local_credentials=False,
         ).provider
         == "tavily"
     )
@@ -154,6 +158,24 @@ def test_org_run_search_without_explicit_port_fails_closed(tmp_path) -> None:
         handler_context=JobHandlerContext.from_claimed_job(trusted_org_id=7),
         ports=WorkerPorts(),
         control_database_url="postgres://control",
+        allow_local_credentials=False,
+    )
+
+    assert keys == {}
+
+
+def test_hosted_job_without_trusted_org_never_reads_local_search_keys(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("EXA_API_KEY", "worker-env-must-not-leak")
+    provider_config.save_local_provider_key(tmp_path, "tavily", "local-must-not-leak")
+
+    keys = run_jobs.resolve_run_search_credentials(
+        tmp_path,
+        handler_context=JobHandlerContext.from_claimed_job(trusted_org_id=None),
+        ports=WorkerPorts(),
+        control_database_url="postgres://control",
+        allow_local_credentials=False,
     )
 
     assert keys == {}
