@@ -122,10 +122,10 @@ class AnalyticsRequest(_ClosedModel):
             "value. `sheet_id` belongs in this request's separate `sheet_id` field, "
             "never in `filter`. Supported operators: "
             + ", ".join(BUILTIN_FILTER_OPERATORS)
-            + "."
+            + ". Boolean values use the canonical strings `true` or `false`."
         ),
         examples=[
-            {"Public agency": {"eq": True}},
+            {"Public agency": {"eq": "true"}},
             {"Defendant": {"contains": "county"}},
         ],
     )

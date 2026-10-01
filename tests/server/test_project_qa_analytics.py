@@ -549,6 +549,53 @@ def test_boolean_group_values_and_locators_remain_boolean(tmp_path):
     project.close()
 
 
+@pytest.mark.parametrize(("literal", "expected"), [("true", 2), ("false", 1)])
+def test_boolean_filter_literals_used_by_ask_tool_guidance(tmp_path, literal, expected):
+    project = Project.create(
+        tmp_path / "boolean-filters.frisket", name="boolean-filters"
+    )
+    try:
+        sheet = project.add_sheet("agencies")
+        public_agency = project.add_column(sheet, "Public agency", type="boolean")
+        project.add_rows(
+            sheet,
+            [
+                {"Public agency": True},
+                {"Public agency": True},
+                {"Public agency": False},
+            ],
+            {"Public agency": public_agency},
+        )
+        filter_ = {"Public agency": {"eq": literal}}
+        query = {
+            "schema_version": "frisket.query.v1",
+            "kind": "sheet.filter",
+            "scope": {"kind": "sheet", "sheet_id": sheet},
+            "filter": filter_,
+        }
+        assert (
+            evaluate_query(project, query, {"kind": "sheet", "sheet_id": sheet})[
+                "total"
+            ]
+            == expected
+        )
+        request = AnalyticsRequest.model_validate(
+            {
+                "sheet_id": sheet,
+                "filter": filter_,
+                "metrics": [{"id": "rows", "kind": "count"}],
+            }
+        )
+        assert (
+            evaluate_analytics(project, request, {"kind": "sheet", "sheet_id": sheet})[
+                "row_count"
+            ]
+            == expected
+        )
+    finally:
+        project.close()
+
+
 def test_analytics_rejects_plugin_filter_and_non_numeric_sum(tmp_path):
     project, sheet, columns, _rows = _seed(tmp_path)
     bad_filter = AnalyticsRequest.model_validate(

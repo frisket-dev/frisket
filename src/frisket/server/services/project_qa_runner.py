@@ -248,7 +248,9 @@ async def run_turn(
                     "`scope.sheet_id`; and make `filter` a mapping from observed "
                     "column names to one built-in operator and value. Do not put "
                     "column names or `sheet_id` in an operator position. Supported "
-                    "operators: " + ", ".join(BUILTIN_FILTER_OPERATORS) + "."
+                    "operators: "
+                    + ", ".join(BUILTIN_FILTER_OPERATORS)
+                    + ". Boolean values use the canonical strings `true` or `false`."
                 ),
                 examples=[
                     {
@@ -256,7 +258,7 @@ async def run_turn(
                         "kind": "sheet.filter",
                         "scope": {"sheet_id": 1},
                         "filter": {
-                            "Public agency": {"eq": True},
+                            "Public agency": {"eq": "true"},
                             "Defendant": {"contains": "county"},
                         },
                     }
