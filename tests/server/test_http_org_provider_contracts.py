@@ -501,30 +501,32 @@ def test_real_team_auth_hint_token_save_delete_and_audit_control(
     assert TestClient(app).get("/api/org/keys").status_code == 401
     catalog = owner.get("/api/org/provider-catalog")
     assert catalog.status_code == 200, catalog.text
-    assert catalog.json()["providers"], "the real catalog must remain non-empty"
-    candidate = "sk-f3a-candidate"
+    providers = {row["id"]: row for row in catalog.json()["providers"]}
+    assert providers["exa"]["kind"] == "search"
+    assert providers["tavily"]["secret_name"] == "TAVILY_API_KEY"
+    candidate = "tvly-f3a-candidate"
     checked = owner.post(
-        "/api/org/keys/validate", json={"provider": "openai", "key": candidate}
+        "/api/org/keys/validate", json={"provider": "tavily", "key": candidate}
     )
     assert checked.status_code == 200, checked.text
     token = checked.json()["validation_token"]
     assert isinstance(token, str) and token
     denied = member.post(
         "/api/org/keys",
-        json={"provider": "openai", "key": candidate, "validation_token": token},
+        json={"provider": "tavily", "key": candidate, "validation_token": token},
     )
     assert denied.status_code == 403, denied.text
     saved = owner.post(
         "/api/org/keys",
-        json={"provider": "openai", "key": candidate, "validation_token": token},
+        json={"provider": "tavily", "key": candidate, "validation_token": token},
     )
     assert saved.status_code == 200, saved.text
-    assert saved.json() == {"provider": "openai", "hint": "...date"}
+    assert saved.json() == {"provider": "tavily", "hint": "...date"}
     assert member.get("/api/org/keys").json() == [saved.json()]
-    deleted = owner.delete("/api/org/keys/openai")
+    deleted = owner.delete("/api/org/keys/tavily")
     assert deleted.status_code == 200, deleted.text
     assert deleted.json() == {"deleted": True}
     with app.state.control_engine.connect() as cx:
         actions = set(cx.execute(sa.select(audit_log.c.action)).scalars())
     assert {"org_key_validation_requested", "org_key_set", "org_key_deleted"} <= actions
-    assert validated == [("openai", candidate)]
+    assert validated == [("tavily", candidate)]

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import re
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 
 from pydantic_ai import Agent, ModelRetry
@@ -15,6 +15,11 @@ from pydantic_ai.usage import UsageLimits
 from frisket.ai.llm.structured import FrisketRouterModel, _content_to_pai
 from frisket.ai.llm.types import LLMResponse
 from frisket.ai.models.metadata import ModelCallMeta, PROVIDER_KIND
+from frisket.ai.research.search import (
+    SearchProviderError,
+    SearchResponse,
+    SearchService,
+)
 from frisket.local_model_ids import bare_model_name
 from frisket.ops.base import render_input_block
 
@@ -40,6 +45,13 @@ FETCH_TIMEOUT_SECONDS = 20.0
 # validator correct a tool call emitted in the text channel. The same single
 # output budget also bounds pydantic-ai's native empty-output retry.
 RETRIES = {"tools": MAX_STEPS, "output": 1}
+
+
+@dataclass(frozen=True)
+class ResearchSearchObservation:
+    text: str
+    urls: tuple[str, ...]
+    response: SearchResponse
 
 
 def _answer_is_tool_shaped(answer: str) -> bool:
@@ -80,7 +92,9 @@ async def run_research(
     model_id: str,
     router: Any,
     recipe_version: str,
-    search: Callable[[str], Awaitable[tuple[str, list[str]]]],
+    search: Callable[
+        [str], Awaitable[ResearchSearchObservation | tuple[str, list[str]]]
+    ],
     fetch: Callable[[str], Awaitable[str]],
 ) -> tuple[dict, dict]:
     """Return logical answer/source values and actual model-call accounting.
@@ -100,11 +114,19 @@ async def run_research(
         f"answer. You have at most {MAX_STEPS} steps. Never fabricate."
     )
     sources: list[str] = []
+    search_calls: list[dict[str, Any]] = []
 
     search_source, fetch_source = search, fetch
 
     async def search(query: str) -> str:
-        obs, hits = await search_source(query)
+        searched = await search_source(query)
+        if isinstance(searched, ResearchSearchObservation):
+            obs, hits = searched.text, searched.urls
+            search_calls.append(_search_usage_dict(searched.response))
+        else:
+            # Compatibility for injected callers while they migrate to the
+            # metadata-bearing shared service boundary.
+            obs, hits = searched
         # the snippets it reads ARE its sources — cite them (deduped)
         for u in hits:
             if u and u not in sources:
@@ -158,6 +180,7 @@ async def run_research(
             "budget before producing a cited answer",
             model_id,
             model,
+            search_calls,
         )
     except UnexpectedModelBehavior:
         if malformed_answer_count:
@@ -167,6 +190,7 @@ async def run_research(
                 "instead of a prose answer",
                 model_id,
                 model,
+                search_calls,
             )
         # A model turn with no text and no tool call
         # (nothing to branch on) finishes with answer="" rather than
@@ -212,6 +236,7 @@ async def run_research(
                     "call instead of a prose answer",
                     model_id,
                     model,
+                    search_calls,
                 )
             verified = ""
         # The same output validator owns this run too, so only clean prose
@@ -223,7 +248,9 @@ async def run_research(
     data: dict[str, Any] = {"answer": answer, "sources": sources}
     if answer.strip() and not answer_is_grounded:
         data["outcome"] = "unverified_memory"
-    return (data, model_call_accounting(model_id, model.wire_calls))
+    accounting = model_call_accounting(model_id, model.wire_calls)
+    accounting["search_calls"] = search_calls
+    return (data, accounting)
 
 
 def _row_error(
@@ -231,11 +258,14 @@ def _row_error(
     message: str,
     model_id: str,
     model: FrisketRouterModel,
+    search_calls: list[dict[str, Any]] | None = None,
 ) -> tuple[dict, dict]:
     """Fail this ONE row with a typed cell error (model_error outcome,
     backfill-eligible) rather than persisting debris. The runner
     (row_execution.py) spreads ``error``/``error_code`` across every output
     field and derives the failed-row accounting from the outcome."""
+    accounting = model_call_accounting(model_id, model.wire_calls)
+    accounting["search_calls"] = list(search_calls or [])
     return (
         {
             "answer": None,
@@ -243,7 +273,7 @@ def _row_error(
             "error_code": code,
             "outcome": "model_error",
         },
-        model_call_accounting(model_id, model.wire_calls),
+        accounting,
     )
 
 
@@ -303,46 +333,49 @@ def model_call_accounting(engine: str, wire_calls: list[LLMResponse]) -> dict[st
     }
 
 
-async def search_web_results(
-    query: str, *, timeout: float = FETCH_TIMEOUT_SECONDS
-) -> list[dict[str, str]]:
-    """Return bounded structured DDGS records for callers that need receipts."""
-    if not query.strip():
-        return []
-    from ddgs import DDGS
+def _search_usage_dict(response: SearchResponse) -> dict[str, Any]:
+    usage = response.usage
+    return {
+        "provider": usage.provider,
+        "service": usage.service,
+        "request_count": usage.request_count,
+        "provider_reported_cost_usd": usage.provider_reported_cost_usd,
+        "cost_source": usage.cost_source,
+        "units": {unit.name: unit.quantity for unit in usage.units},
+    }
 
-    try:
-        results = await asyncio.to_thread(
-            lambda: DDGS(timeout=timeout).text(query, max_results=6)
-        )
-    except Exception as e:  # noqa: BLE001
-        return [{"title": "Search unavailable", "url": "", "snippet": str(e)}]
-    return [
-        {
-            "title": str(result.get("title") or ""),
-            "url": str(result.get("href") or ""),
-            "snippet": str(result.get("body") or "")[:200],
-        }
-        for result in (results or [])
-        if isinstance(result, dict)
-    ]
+
+async def search_web_results(
+    query: str,
+    *,
+    service: SearchService | None = None,
+    timeout: float = FETCH_TIMEOUT_SECONDS,
+) -> SearchResponse:
+    """Search through the shared adapter without discarding usage metadata."""
+    selected = service or SearchService(preference="ddgs", effective_keys={})
+    return await selected.search(query, max_results=6, timeout=timeout)
 
 
 async def search_web(
-    query: str, *, timeout: float = FETCH_TIMEOUT_SECONDS
-) -> tuple[str, list[str]]:
-    """Returns the legacy research observation and its result URLs."""
-    results = await search_web_results(query, timeout=timeout)
+    query: str,
+    *,
+    service: SearchService | None = None,
+    timeout: float = FETCH_TIMEOUT_SECONDS,
+) -> ResearchSearchObservation:
+    """Return a model observation, citations, and provider usage by value."""
+    try:
+        response = await search_web_results(query, service=service, timeout=timeout)
+    except SearchProviderError as exc:
+        raise RuntimeError(str(exc)) from exc
+    results = response.results
     if not results:
-        return ("empty query" if not query.strip() else "", [])
-    if results[0]["url"] == "" and results[0]["title"] == "Search unavailable":
-        return f"search failed: {results[0]['snippet']}", []
+        text = "empty query" if not query.strip() else ""
+        return ResearchSearchObservation(text=text, urls=(), response=response)
     text = "\n".join(
-        f"- {result['title']} | {result['url']}\n  {result['snippet']}"
-        for result in results
+        f"- {result.title} | {result.url}\n  {result.excerpt}" for result in results
     )
-    urls = [result["url"] for result in results if result["url"]][:3]
-    return text, urls
+    urls = tuple(result.url for result in results if result.url)[:3]
+    return ResearchSearchObservation(text=text, urls=urls, response=response)
 
 
 async def fetch_page(url: str, http: Any) -> str:

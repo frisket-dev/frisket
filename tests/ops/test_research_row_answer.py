@@ -8,9 +8,16 @@ import pytest
 from frisket.ai.llm import LLMResponse, ModelRouter
 from frisket.ai.research.row_answer import (
     MAX_STEPS,
+    ResearchSearchObservation,
     fetch_page,
     model_call_accounting,
     run_research,
+)
+from frisket.ai.research.search import (
+    SearchHit,
+    SearchResponse,
+    SearchUsage,
+    SearchUsageUnit,
 )
 
 
@@ -106,6 +113,65 @@ async def test_domain_budget_failure_preserves_spent_model_calls():
     assert result["error_code"] == "research_incomplete_step_budget"
     assert len(accounting["model_calls"]) == MAX_STEPS
     assert accounting["cost"] == pytest.approx(MAX_STEPS * 0.001)
+
+
+@pytest.mark.asyncio
+async def test_domain_loop_preserves_paid_search_usage_and_citations():
+    adapter = ScriptedResearchAdapter([SEARCH, "Cited answer"])
+    router = ModelRouter(keys={"anthropic": "test-key"}, cache=None, cache_mode="off")
+    router._adapters["anthropic"] = adapter
+
+    async def search(query):
+        return ResearchSearchObservation(
+            text="A public filing",
+            urls=("https://example.test/filing",),
+            response=SearchResponse(
+                provider="tavily",
+                results=(
+                    SearchHit(
+                        title="Filing",
+                        url="https://example.test/filing",
+                        excerpt="A public filing",
+                        retrieved_at="2026-10-01T00:00:00Z",
+                        published_at=None,
+                        provider="tavily",
+                    ),
+                ),
+                usage=SearchUsage(
+                    provider="tavily",
+                    service="tavily.search",
+                    request_count=1,
+                    provider_reported_cost_usd=None,
+                    cost_source="unknown",
+                    units=(SearchUsageUnit("credits", 1),),
+                ),
+            ),
+        )
+
+    async def fetch(url):
+        pytest.fail("This run should only search")
+
+    result, accounting = await run_research(
+        {"company": "Acme"},
+        goal="Find records",
+        model_id="anthropic/claude-haiku-4-5",
+        router=router,
+        recipe_version="1",
+        search=search,
+        fetch=fetch,
+    )
+
+    assert result["sources"] == ["https://example.test/filing"]
+    assert accounting["search_calls"] == [
+        {
+            "provider": "tavily",
+            "service": "tavily.search",
+            "request_count": 1,
+            "provider_reported_cost_usd": None,
+            "cost_source": "unknown",
+            "units": {"credits": 1},
+        }
+    ]
 
 
 def test_unknown_live_cost_is_not_hidden_by_cached_call():

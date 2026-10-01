@@ -455,7 +455,14 @@ def test_admin_secrets_bridge_and_its_denials(tmp_path: Path) -> None:
     listed = client.get("/api/admin/secrets", headers=bearer)
     assert listed.status_code == 200
     providers = {row["provider"]: row for row in listed.json()["providers"]}
-    assert set(providers) == {"anthropic", "openai", "gemini", "openrouter"}
+    assert set(providers) == {
+        "anthropic",
+        "openai",
+        "gemini",
+        "openrouter",
+        "exa",
+        "tavily",
+    }
     assert providers["anthropic"]["env_var"] == "ANTHROPIC_API_KEY"
     assert not providers["anthropic"]["configured"]
 

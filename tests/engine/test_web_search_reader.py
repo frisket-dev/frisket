@@ -4,9 +4,11 @@ import traceback
 from types import SimpleNamespace
 
 import ddgs
+import httpx
 import pytest
 
 from frisket.actions.types import RowError
+from frisket.ai.research.search import SearchService
 from frisket.engine.executor.web_search_read import AdmittedWebSearcher
 from frisket.ops.base import OpContext, RecipeInvocationHalt
 
@@ -40,6 +42,9 @@ def test_search_retains_four_attempts_backoff_without_provider_error_text(monkey
     canary = "private-query-provider-error-canary"
 
     class Failing:
+        def __init__(self, *, timeout):
+            pass
+
         def text(self, query, max_results):
             calls.append((query, max_results))
             raise RuntimeError(canary)
@@ -61,11 +66,14 @@ def test_receipt_write_failure_does_not_retry_provider(monkeypatch):
     calls = []
 
     class Provider:
+        def __init__(self, *, timeout):
+            pass
+
         def text(self, query, max_results):
             calls.append(query)
             return []
 
-    def failed_record(self, attempt, succeeded):
+    def failed_record(self, attempt, *, response, error):
         raise RuntimeError("receipt write failed")
 
     monkeypatch.setattr(ddgs, "DDGS", Provider)
@@ -80,6 +88,9 @@ def test_cancelled_search_settles_and_records_the_returned_provider_call(monkeyp
     observed = []
 
     class Provider:
+        def __init__(self, *, timeout):
+            pass
+
         def text(self, query, max_results):
             started.set()
             assert finish.wait(5)
@@ -89,7 +100,9 @@ def test_cancelled_search_settles_and_records_the_returned_provider_call(monkeyp
     monkeypatch.setattr(
         AdmittedWebSearcher,
         "_record",
-        lambda self, attempt, succeeded: observed.append((attempt, succeeded)),
+        lambda self, attempt, *, response, error: observed.append(
+            (attempt, response is not None)
+        ),
     )
 
     async def run():
@@ -107,6 +120,31 @@ def test_cancelled_search_settles_and_records_the_returned_provider_call(monkeyp
 
     asyncio.run(run())
     assert observed == [(1, True)]
+
+
+def test_paid_provider_failure_is_visible_and_never_retried() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(429, json={"detail": "quota"})
+
+    async def run() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            service = SearchService(
+                preference="tavily",
+                effective_keys={"tavily": "secret"},
+                http=http,
+            )
+            with pytest.raises(RowError, match="quota or billing limit") as failure:
+                await AdmittedWebSearcher(_context(), search_service=service).search(
+                    "query", max_results=1
+                )
+            assert failure.value.code == "search_quota"
+
+    asyncio.run(run())
+    assert calls == 1
 
 
 def test_closing_invocation_revokes_bound_searchers(monkeypatch):
