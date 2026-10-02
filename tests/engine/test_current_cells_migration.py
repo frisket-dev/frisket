@@ -84,6 +84,7 @@ def _drop_later_schema(db: sqlite3.Connection) -> None:
         "WHERE type='trigger' AND name LIKE 'trg_search_%'"
     ).fetchall():
         db.execute(f'DROP TRIGGER "{row[0]}"')
+    db.execute("DROP INDEX idx_current_cells_column_row")
     db.execute("DROP TABLE search_dirty_scopes")
     db.execute("DROP TABLE import_sessions")
     db.execute("ALTER TABLE runs DROP COLUMN review_completed_at")

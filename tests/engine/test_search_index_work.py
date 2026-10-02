@@ -139,6 +139,7 @@ def test_known_bundle_migration_preserves_data_and_seeds_repair(tmp_path) -> Non
     with project.db:
         for name in trigger_names:
             project.db.execute(f'DROP TRIGGER "{name}"')
+        project.db.execute("DROP INDEX idx_current_cells_column_row")
         project.db.execute("DROP TABLE search_dirty_scopes")
         project.db.execute(
             "UPDATE meta SET value=? WHERE key='schema_digest'",
@@ -156,3 +157,7 @@ def test_known_bundle_migration_preserves_data_and_seeds_repair(tmp_path) -> Non
     scopes = read_dirty_scopes(reopened.db, limit=2)
     assert len(scopes) == 1
     assert scopes[0].sheet_id is None
+    indexes = {
+        str(row[1]) for row in reopened.db.execute("PRAGMA index_list(current_cells)")
+    }
+    assert "idx_current_cells_column_row" in indexes

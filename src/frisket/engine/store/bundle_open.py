@@ -509,7 +509,7 @@ def _migrate_search_work(db: sqlite3.Connection) -> None:
             # Pull the exact fresh-schema objects so migration and creation cannot drift.
             from .schema import SCHEMA
 
-            marker = "CREATE TABLE IF NOT EXISTS search_dirty_scopes"
+            marker = "CREATE INDEX IF NOT EXISTS idx_current_cells_column_row"
             tail = SCHEMA[SCHEMA.index(marker) :]
             tail = tail[: tail.index("-- SEARCH_INDEX_WORK_END")]
             statement = ""

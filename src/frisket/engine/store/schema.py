@@ -968,6 +968,11 @@ CREATE INDEX IF NOT EXISTS idx_current_cells_row ON current_cells(row_id);
 -- never reused: sqlite_sequence remains the revision after acknowledged rows
 -- are deleted.
 -- SEARCH_INDEX_WORK_BEGIN
+-- Although this repeats the WITHOUT ROWID primary-key order, it is a narrow
+-- secondary b-tree: column scans do not pull the projection's value/provenance
+-- payload (including overflow pages) through the primary table.
+CREATE INDEX IF NOT EXISTS idx_current_cells_column_row
+  ON current_cells(column_id,row_id);
 CREATE TABLE IF NOT EXISTS search_dirty_scopes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   sheet_id INTEGER,
