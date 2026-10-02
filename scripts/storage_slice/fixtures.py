@@ -257,7 +257,7 @@ def stress_documents(start: int, count: int) -> Iterator[Document]:
     if start < 1 or count < 0:
         raise ValueError("start must be positive and count must be non-negative")
     for row_id in range(start, start + count):
-        category = _stress_category(row_id)
+        category = stress_project_category(row_id)
         state = row_id % 10
         amount_cents = _stress_amount_cents(row_id)
         raw_amount = (
@@ -282,33 +282,67 @@ def stress_project_marker(row_id: int) -> str:
     return f"frisketlate{row_id:08d}"
 
 
+def stress_project_search_tokens(row_id: int) -> dict[str, str]:
+    """Stable position-specific tokens for selected long documents."""
+
+    return {
+        "early": f"frisketearly{row_id:08d}",
+        "middle": f"frisketmiddle{row_id:08d}",
+        "late": stress_project_marker(row_id),
+    }
+
+
+STRESS_BOUNDED_SEARCH_ROWS = (199, 399, 599, 799, 999)
+STRESS_BOUNDED_SEARCH_TOKEN = "frisketboundedfive"
+
+
+def stress_project_amount(row_id: int) -> int | str | None:
+    state = row_id % 10
+    if state == 0:
+        return None
+    if state == 1:
+        return "not-stated"
+    return _stress_amount_cents(row_id)
+
+
+def stress_project_category(row_id: int) -> str:
+    return _stress_category(row_id)
+
+
+def stress_project_date(row_id: int) -> str:
+    return f"2026-{row_id % 12 + 1:02d}-{row_id % 28 + 1:02d}"
+
+
 def stress_project_records(start: int, count: int) -> Iterator[dict]:
     """Stream mixed values through Frisket's real Project import path."""
 
     if start < 1 or count < 0:
         raise ValueError("start must be positive and count must be non-negative")
     for row_id in range(start, start + count):
-        category = _stress_category(row_id)
+        category = stress_project_category(row_id)
         body = _stress_text(row_id, category)
-        # Every 200th record is a long document. Put the unique token at the
-        # end so the search check cannot pass from indexing only a prefix.
+        # Every 200th record is a long document. Position-specific tokens prove
+        # the index and snippet path did not retain only one document prefix.
         if row_id % 200 == 199:
-            body = f"{body}\n{stress_project_marker(row_id)}"
-        state = row_id % 10
-        amount: int | str | None
-        if state == 0:
-            amount = None
-        elif state == 1:
-            amount = "not-stated"
-        else:
-            amount = _stress_amount_cents(row_id)
+            tokens = stress_project_search_tokens(row_id)
+            middle = len(body) // 2
+            bounded = (
+                f" {STRESS_BOUNDED_SEARCH_TOKEN}"
+                if row_id in STRESS_BOUNDED_SEARCH_ROWS
+                else ""
+            )
+            body = (
+                f"{tokens['early']}\n{body[:middle]}\n"
+                f"{tokens['middle']}{bounded}\n{body[middle:]}\n{tokens['late']}"
+            )
+        amount = stress_project_amount(row_id)
         yield {
             "record_id": row_id,
             "title": f"{category.title()} record {row_id}",
             "body": body,
             "category": category,
             "amount": amount,
-            "published_at": f"2026-{row_id % 12 + 1:02d}-{row_id % 28 + 1:02d}",
+            "published_at": stress_project_date(row_id),
             "status": ("open", "review", "closed")[row_id % 3],
         }
 

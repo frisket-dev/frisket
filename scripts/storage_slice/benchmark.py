@@ -11,6 +11,7 @@ import math
 import os
 import platform
 import resource
+import shutil
 import statistics
 import subprocess
 import sys
@@ -114,6 +115,7 @@ class PhaseSampler:
                 "project_bytes": 0,
                 "temporary_bytes": 0,
                 "host_load_1m_max": 0,
+                "host_free_bytes_min": shutil.disk_usage(self.root).free,
             },
         )
         rss = current_rss_kib()
@@ -128,6 +130,9 @@ class PhaseSampler:
             observed["host_load_1m_max"] = max(
                 observed["host_load_1m_max"], os.getloadavg()[0]
             )
+        observed["host_free_bytes_min"] = min(
+            observed["host_free_bytes_min"], shutil.disk_usage(self.root).free
+        )
         reason = None
         if size >= self.hard_limit_bytes:
             reason = "hard scratch limit reached"

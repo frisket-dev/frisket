@@ -8,28 +8,39 @@ import hashlib
 import heapq
 import json
 import os
+import platform
 from pathlib import Path
 import shutil
 import sqlite3
 import statistics
+import subprocess
+import sys
 import tempfile
 import time
 from typing import Any
 
-from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.store import Project
 from frisket.engine.store.streaming_import import StreamingSheetWriter
-from frisket.querysets import resolve_sheet_filter_rows
+from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.store.search_index_work import latest_revision
 from frisket.search import search_project_page
 from frisket.search_index import index_batch
-from frisket.server.run_payloads import history_page_payload
 from frisket.server.services.project_qa_analytics import (
     AnalyticsCancelled,
-    evaluate_analytics,
 )
 
 from .benchmark import PhaseSampler, current_rss_kib, directory_bytes
-from .fixtures import stress_project_marker, stress_project_records
+from .fixtures import stress_project_records
+from .project_workloads import (
+    apply_expected_amount_edits,
+    assert_edit_values,
+    probe_current_pages,
+    run_analytics_workload,
+    run_grid_workload,
+    run_mutation_workload,
+    run_search_workload,
+    verify_history,
+)
 
 
 GIB = 1024**3
@@ -81,6 +92,38 @@ def _phase_record(bundle: Path, started: float) -> dict[str, Any]:
         "bundle_bytes": directory_bytes(bundle),
         "files": _file_sizes(bundle),
         "mem_available_kib": _mem_available_kib(),
+        "host_free_bytes": shutil.disk_usage(bundle).free,
+    }
+
+
+def _preflight(work_root: Path) -> dict[str, Any]:
+    try:
+        filesystem = subprocess.check_output(
+            ["findmnt", "-n", "-o", "SOURCE,FSTYPE,TARGET", "--target", work_root],
+            text=True,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        filesystem = "unavailable"
+    return {
+        "qualification_sha": subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], text=True
+        ).strip(),
+        "python": sys.version,
+        "sqlite": sqlite3.sqlite_version,
+        "platform": platform.platform(),
+        "cpu_count": os.cpu_count(),
+        "filesystem": filesystem,
+        "host_free_bytes": shutil.disk_usage(work_root).free,
+        "mem_available_kib": _mem_available_kib(),
+        "swap": {
+            line.split(":", 1)[0]: int(line.split()[1])
+            for line in Path("/proc/meminfo").read_text().splitlines()
+            if line.startswith(("SwapTotal:", "SwapFree:"))
+        },
+        "load_average": list(os.getloadavg()) if hasattr(os, "getloadavg") else None,
+        "import_page_rows": PAGE_ROWS,
+        "index_batch_size": 5000,
+        "index_max_bytes": 8 * MIB,
     }
 
 
@@ -105,13 +148,25 @@ def _guard(sampler: PhaseSampler, *, soft_scratch: int) -> None:
 
 def _drain_index(project: Project, sampler: PhaseSampler, soft_scratch: int) -> dict:
     batches = cells = payload_bytes = 0
+    batch_records = []
     started = time.perf_counter()
     while True:
+        batch_started = time.perf_counter()
         progress = index_batch(project, batch_size=5000, max_bytes=8 * MIB)
         batches += 1
         cells += progress.processed
         payload_bytes += progress.processed_bytes
         _guard(sampler, soft_scratch=soft_scratch)
+        batch_records.append(
+            {
+                "seconds": time.perf_counter() - batch_started,
+                "processed_units": progress.processed,
+                "processed_value_bytes": progress.processed_bytes,
+                "complete": progress.complete,
+                "scratch_bytes": directory_bytes(sampler.root),
+                "rss_kib": current_rss_kib(),
+            }
+        )
         if progress.complete:
             break
         if progress.processed <= 0:
@@ -121,23 +176,8 @@ def _drain_index(project: Project, sampler: PhaseSampler, soft_scratch: int) -> 
         "batches": batches,
         "processed_units": cells,
         "processed_value_bytes": payload_bytes,
+        "batch_records": batch_records,
     }
-
-
-def _action(project: Project, action_id: str, params: dict, key: str):
-    result = run_action_spec(
-        project,
-        {
-            "action_id": action_id,
-            "scope": {"kind": "project"},
-            "params": params,
-            "idempotency_key": key,
-        },
-        project_id="storage-project-qualification",
-    )
-    if result.status != "completed":
-        raise AssertionError(f"{action_id} failed: {result.model_dump(mode='json')}")
-    return result
 
 
 def _expected_record(row_number: int) -> dict:
@@ -170,6 +210,7 @@ def _check_values(
     row_map: dict[int, int],
     *,
     body_overrides: dict[int, str] | None = None,
+    origin_kind: str | None = None,
 ) -> None:
     for number, row_id in row_map.items():
         expected = _expected_record(number)
@@ -199,6 +240,8 @@ def _check_values(
             assert validity == (
                 "invalid" if expected[name] == "not-stated" else "valid"
             )
+            if origin_kind is not None:
+                assert refs[row_id]["origin_kind"] == origin_kind
 
 
 def _verify_persisted_corpus(
@@ -305,144 +348,73 @@ def _verify_persisted_corpus(
     }
 
 
-def _query_workload(
+def _verify_import_metadata(
     project: Project,
-    sheet_id: int,
+    publication,
     columns: dict[str, int],
-    expected: dict[str, Any],
-    sampler: PhaseSampler,
-    soft_scratch: int,
+    rows: int,
 ) -> dict[str, Any]:
-    timings: dict[str, list[float]] = {
-        "sort": [],
-        "filter": [],
-        "aggregate": [],
-        "median": [],
-    }
-    sort_spec = json.dumps([{"column": "amount", "dir": "desc"}])
-    filter_spec = json.dumps({"category": {"eq": "courts"}})
-    sorted_page = filtered = analytics = median = None
-    for _ in range(5):
-        started = time.perf_counter()
-        sorted_page = _governed_query(
-            project,
-            sampler,
-            soft_scratch,
-            lambda: resolve_sheet_filter_rows(
-                project, sheet_id, sort=sort_spec, limit=50
-            ),
-        )
-        timings["sort"].append(time.perf_counter() - started)
-        started = time.perf_counter()
-        filtered = _governed_query(
-            project,
-            sampler,
-            soft_scratch,
-            lambda: resolve_sheet_filter_rows(
-                project, sheet_id, filter_=filter_spec, limit=50
-            ),
-        )
-        timings["filter"].append(time.perf_counter() - started)
-        started = time.perf_counter()
-        analytics = _governed_query(
-            project,
-            sampler,
-            soft_scratch,
-            lambda: evaluate_analytics(
-                project,
-                {
-                    "sheet_id": sheet_id,
-                    "groups": [{"column_id": columns["category"]}],
-                    "metrics": [
-                        {"id": "rows", "kind": "count"},
-                        {
-                            "id": "values",
-                            "kind": "value_count",
-                            "column_id": columns["amount"],
-                        },
-                        {
-                            "id": "missing",
-                            "kind": "missing_count",
-                            "column_id": columns["amount"],
-                        },
-                        {
-                            "id": "sum",
-                            "kind": "sum",
-                            "column_id": columns["amount"],
-                        },
-                    ],
-                    "sort": [{"kind": "group", "group_index": 0, "direction": "asc"}],
-                    "limit": 20,
-                },
-                {"kind": "sheet", "sheet_id": sheet_id},
-                cancel_event=sampler.hard_limit,
-            ),
-        )
-        timings["aggregate"].append(time.perf_counter() - started)
-        started = time.perf_counter()
-        median = _governed_query(
-            project,
-            sampler,
-            soft_scratch,
-            lambda: evaluate_analytics(
-                project,
-                {
-                    "sheet_id": sheet_id,
-                    "filter": {"category": {"eq": "transport"}},
-                    "metrics": [
-                        {
-                            "id": "median",
-                            "kind": "median",
-                            "column_id": columns["amount"],
-                        }
-                    ],
-                },
-                {"kind": "sheet", "sheet_id": sheet_id},
-                cancel_event=sampler.hard_limit,
-            ),
-        )
-        timings["median"].append(time.perf_counter() - started)
-    assert sorted_page is not None and sorted_page.total == expected["rows"]
-    sorted_ids = project.get_values(sheet_id, columns["record_id"], sorted_page.row_ids)
-    assert [sorted_ids[row_id] for row_id in sorted_page.row_ids] == expected[
-        "top_amount_record_ids"
-    ]
-    assert filtered is not None
-    assert filtered.total == expected["categories"]["courts"]
-    filtered_categories = project.get_values(
-        sheet_id, columns["category"], filtered.row_ids
+    session = project.db.execute(
+        "SELECT state,cursor,committed_rows,committed_bytes FROM import_sessions "
+        "WHERE id='qualification-import'"
+    ).fetchone()
+    assert session is not None
+    assert (session["state"], session["cursor"], session["committed_rows"]) == (
+        "completed",
+        rows,
+        rows,
     )
-    assert set(filtered_categories.values()) == {"courts"}
-    assert analytics is not None and analytics["row_count"] == sorted_page.total
-    groups = {group["group"][0]["value"]: group for group in analytics["groups"]}
-    assert set(groups) == set(expected["aggregates"])
-    for category, facts in expected["aggregates"].items():
-        group = groups[category]
-        assert group["metrics"] == {
-            "rows": facts["rows"],
-            "values": facts["valid"],
-            "missing": facts["missing"],
-            "sum": facts["sum"],
+    receipt = ReceiptStore(project).find_by_id(publication.receipt_id)
+    assert receipt is not None and receipt.status == "completed"
+    assert receipt.parsed().op_ids == [publication.op_id]
+    op = project.db.execute(
+        "SELECT kind,status,barrier FROM ops WHERE id=?", (publication.op_id,)
+    ).fetchone()
+    assert op is not None and op["status"] == "applied" and not op["barrier"]
+    by_column: dict[str, dict[str, Any]] = {}
+    for name, column_id in columns.items():
+        cells = int(
+            project.db.execute(
+                "SELECT COUNT(*) FROM cells WHERE column_id=?", (column_id,)
+            ).fetchone()[0]
+        )
+        groups = {
+            (str(row["origin_kind"]), str(row["validity"])): int(row["n"])
+            for row in project.db.execute(
+                "SELECT origin_kind,validity,COUNT(*) AS n FROM current_cells "
+                "WHERE column_id=? GROUP BY origin_kind,validity",
+                (column_id,),
+            )
         }
-        assert group["quality"][str(columns["amount"])] == {
-            "column_id": columns["amount"],
-            "present": facts["valid"],
-            "missing": facts["missing"],
-            "invalid": facts["invalid"],
+        expected_cells = rows - rows // 10 if name == "amount" else rows
+        assert cells == expected_cells
+        assert groups == (
+            {
+                ("source_cell", "valid"): rows - 2 * (rows // 10),
+                ("source_cell", "invalid"): rows // 10,
+            }
+            if name == "amount"
+            else {("source_cell", "valid"): rows}
+        )
+        by_column[name] = {
+            "cells": cells,
+            "current_origin_validity": {
+                f"{origin}:{validity}": count
+                for (origin, validity), count in groups.items()
+            },
         }
-    assert median is not None
-    assert median["groups"][0]["metrics"]["median"] == expected["transport_median"]
     return {
-        name: {
-            "samples": len(samples),
-            "median_ms": sorted(samples)[len(samples) // 2] * 1000,
-            "max_ms": max(samples) * 1000,
-        }
-        for name, samples in timings.items()
-    } | {"filtered_rows": filtered.total, "analytics_groups": len(analytics["groups"])}
+        "session": dict(session),
+        "receipt_id": publication.receipt_id,
+        "op_id": publication.op_id,
+        "op_kind": op["kind"],
+        "columns": by_column,
+    }
 
 
-def run_qualification(rows: int, work_root: Path) -> dict[str, Any]:
+def run_qualification(
+    rows: int, work_root: Path, *, composition_sha: str | None = None
+) -> dict[str, Any]:
     if not 200 <= rows <= 500_000:
         raise ValueError("rows must be between 200 and 500000")
     free_at_start = shutil.disk_usage(work_root).free
@@ -465,7 +437,14 @@ def run_qualification(rows: int, work_root: Path) -> dict[str, Any]:
             "mem_available_floor_kib": MIN_AVAILABLE_KIB,
         },
         "phases": {},
+        "preflight": _preflight(work_root),
+        "profile_note": (
+            "Retains the first 300k runner's 500-row import and 5000-unit/8 MiB "
+            "index quanta so the corrected run remains comparable; index_batch "
+            "semantics and progress assertions are unchanged."
+        ),
     }
+    report["preflight"]["production_composition_sha"] = composition_sha
     with tempfile.TemporaryDirectory(
         prefix="project-qualification-", dir=work_root
     ) as raw:
@@ -477,6 +456,8 @@ def run_qualification(rows: int, work_root: Path) -> dict[str, Any]:
         os.environ["SQLITE_TMPDIR"] = str(sqlite_temp)
 
         def sampled_limit(observed: dict[str, Any]) -> str | None:
+            if shutil.disk_usage(owned).free < HOST_FREE_RESERVE:
+                return "host free-space reserve reached"
             if observed["project_bytes"] >= soft_scratch:
                 return "soft scratch limit reached"
             if observed["rss_kib"] >= HARD_RSS_KIB:
@@ -523,13 +504,18 @@ def run_qualification(rows: int, work_root: Path) -> dict[str, Any]:
             category_counts = Counter()
             aggregates: dict[str, dict[str, int]] = {}
             top_amounts: list[tuple[int, int, int]] = []
-            transport_amounts: list[int] = []
+            bottom_amounts: list[tuple[int, int, int]] = []
+            date_first: list[tuple[str, int]] = []
+            environment_first: list[int] = []
+            import_pages: list[dict[str, Any]] = []
+            generation_seconds = 0.0
             row_map: dict[int, int] = {}
             sample_numbers = sorted(
                 {1, min(rows, 2), min(rows, 199), (rows + 1) // 2, rows}
             )
             cursor = 0
             for start in range(1, rows + 1, PAGE_ROWS):
+                generation_started = time.perf_counter()
                 page = list(
                     stress_project_records(start, min(PAGE_ROWS, rows - start + 1))
                 )
@@ -539,12 +525,16 @@ def run_qualification(rows: int, work_root: Path) -> dict[str, Any]:
                     for item in page
                 ]
                 committed = sum(map(len, encoded))
+                generated = time.perf_counter() - generation_started
+                generation_seconds += generated
+                append_started = time.perf_counter()
                 ids = writer.append_page(
                     page,
                     expected_cursor=cursor,
                     next_cursor=cursor + len(page),
                     committed_bytes=committed,
                 )
+                append_seconds = time.perf_counter() - append_started
                 for number, row_id, item in zip(
                     range(start, start + len(page)), ids, page, strict=True
                 ):
@@ -578,6 +568,7 @@ def run_qualification(rows: int, work_root: Path) -> dict[str, Any]:
                             "missing": 0,
                             "invalid": 0,
                             "sum": 0,
+                            "values": [],
                         },
                     )
                     facts["rows"] += 1
@@ -590,14 +581,32 @@ def run_qualification(rows: int, work_root: Path) -> dict[str, Any]:
                         amount = int(amount)
                         facts["valid"] += 1
                         facts["sum"] += amount
+                        facts["values"].append(amount)
                         heapq.heappush(top_amounts, (amount, -number, number))
                         if len(top_amounts) > 50:
                             heapq.heappop(top_amounts)
-                        if category == "transport":
-                            transport_amounts.append(amount)
+                        heapq.heappush(bottom_amounts, (-amount, -number, number))
+                        if len(bottom_amounts) > 50:
+                            heapq.heappop(bottom_amounts)
+                    date_first.append((str(item["published_at"]), number))
+                    if len(date_first) > 50:
+                        date_first.remove(max(date_first))
+                    if category == "environment" and len(environment_first) < 50:
+                        environment_first.append(number)
                 input_bytes += committed
                 cursor += len(page)
                 _guard(sampler, soft_scratch=soft_scratch)
+                import_pages.append(
+                    {
+                        "start_record": start,
+                        "rows": len(page),
+                        "generation_seconds": generated,
+                        "append_seconds": append_seconds,
+                        "committed_bytes": committed,
+                        "scratch_bytes": directory_bytes(owned),
+                        "rss_kib": current_rss_kib(),
+                    }
+                )
             publication = writer.finalize_session(expected_cursor=cursor)
             assert publication.row_count == rows
             columns = {
@@ -607,7 +616,42 @@ def run_qualification(rows: int, work_root: Path) -> dict[str, Any]:
             assert set(columns) == {spec["name"] for spec in COLUMNS}
             assert project.row_count(publication.sheet_id) == rows
             _check_values(project, publication.sheet_id, columns, row_map)
+            report["import_metadata"] = _verify_import_metadata(
+                project, publication, columns, rows
+            )
             report["phases"]["import"] = _phase_record(bundle, started)
+
+            sampler.set_phase("current_reopen")
+            started_reopen = time.perf_counter()
+            project.close()
+            project = Project(bundle)
+            _check_values(
+                project,
+                publication.sheet_id,
+                columns,
+                row_map,
+                origin_kind="source_cell",
+            )
+            pages = probe_current_pages(project, publication.sheet_id, columns, rows)
+            body_started = time.perf_counter()
+            bodies = project.get_values(
+                publication.sheet_id, columns["body"], list(row_map.values())
+            )
+            assert all(
+                bodies[row_id] == _expected_record(number)["body"]
+                for number, row_id in row_map.items()
+            )
+            report["current_reopen"] = {
+                "projected_pages": pages,
+                "full_body_sample": {
+                    "rows": len(bodies),
+                    "utf8_bytes": sum(
+                        len(str(value).encode()) for value in bodies.values()
+                    ),
+                    "seconds": time.perf_counter() - body_started,
+                },
+            }
+            report["phases"]["current_reopen"] = _phase_record(bundle, started_reopen)
             sampler.set_phase("persisted_readback")
             started_readback = time.perf_counter()
             report["persisted_corpus"] = _verify_persisted_corpus(
@@ -621,159 +665,186 @@ def run_qualification(rows: int, work_root: Path) -> dict[str, Any]:
             report["phases"]["persisted_readback"] = _phase_record(
                 bundle, started_readback
             )
+            amount_values_by_category = {}
+            for category, facts in aggregates.items():
+                values = facts.pop("values")
+                amount_values_by_category[category] = values
+                facts["mean"] = statistics.mean(values)
+                facts["median"] = statistics.median(values)
             expected_queries = {
                 "rows": rows,
                 "categories": dict(category_counts),
                 "aggregates": aggregates,
-                "top_amount_record_ids": [
+                "amount_values_by_category": amount_values_by_category,
+                "amount_desc_record_ids": [
                     entry[2]
                     for entry in sorted(
                         top_amounts, key=lambda value: (-value[0], value[2])
                     )
                 ],
-                "transport_median": statistics.median(transport_amounts),
+                "amount_asc_record_ids": [
+                    entry[2]
+                    for entry in sorted(
+                        bottom_amounts, key=lambda value: (-value[0], value[2])
+                    )
+                ],
+                "date_asc_record_ids": [number for _date, number in sorted(date_first)],
+                "environment_first_record_ids": environment_first,
             }
             report["fixture"] = {
                 "input_ndjson_bytes": input_bytes,
                 "body_utf8_bytes": body_bytes,
                 "text_lengths": dict(text_lengths),
                 "amount_states": dict(amount_states),
+                "generation_seconds": generation_seconds,
+                "import_pages": import_pages,
             }
             sampler.set_phase("index")
             started = time.perf_counter()
             report["phases"]["index"] = _drain_index(project, sampler, soft_scratch)
             report["phases"]["index"].update(_phase_record(bundle, started))
-
-            marker_number = (
-                max(number for number in range(1, rows + 1) if number % 200 == 199)
-                if rows >= 199
-                else None
-            )
-            if marker_number is not None:
-                marker = stress_project_marker(marker_number)
-                search = search_project_page(project, marker, limit=10, rerank="off")
-                assert search["complete"] and any(
-                    marker in hit["snip"] for hit in search["hits"]
-                )
-                assert max(len(hit["snip"].encode()) for hit in search["hits"]) < 4096
-                marker_row_id = project.db.execute(
-                    "SELECT row_id FROM current_cells WHERE column_id=? AND value=json(?)",
-                    (columns["record_id"], marker_number),
+            assert (
+                project.db.execute(
+                    "SELECT COUNT(*) FROM search_dirty_scopes"
                 ).fetchone()[0]
-            else:
-                marker_number, marker_row_id, marker = 1, row_map[1], None
+                == 0
+            )
+            sidecar = sqlite3.connect(bundle / "project.search.db")
+            try:
+                fts_cells = int(
+                    sidecar.execute("SELECT COUNT(*) FROM cell_fts").fetchone()[0]
+                )
+                complete_revision = int(
+                    sidecar.execute(
+                        "SELECT value FROM fts_state WHERE key='complete_revision'"
+                    ).fetchone()[0]
+                )
+            finally:
+                sidecar.close()
+            revision = latest_revision(project.db)
+            assert fts_cells == rows * 4
+            assert complete_revision == revision
+            report["index_validation"] = {
+                "searchable_cells": fts_cells,
+                "expected_searchable_cells": rows * 4,
+                "complete_revision": complete_revision,
+                "project_revision": revision,
+                "dirty_scopes": 0,
+            }
 
-            sampler.set_phase("queries")
+            def governed(call):
+                return _governed_query(project, sampler, soft_scratch, call)
+
+            sampler.set_phase("search")
             started = time.perf_counter()
-            report["queries"] = _query_workload(
+            report["search"] = run_search_workload(
+                project,
+                publication.sheet_id,
+                columns,
+                rows,
+                governed,
+            )
+            report["phases"]["search"] = _phase_record(bundle, started)
+
+            sampler.set_phase("grid_queries")
+            started = time.perf_counter()
+            report["grid_queries"] = run_grid_workload(
                 project,
                 publication.sheet_id,
                 columns,
                 expected_queries,
-                sampler,
-                soft_scratch,
+                governed,
             )
-            report["phases"]["queries"] = _phase_record(bundle, started)
+            report["phases"]["grid_queries"] = _phase_record(bundle, started)
 
-            sampler.set_phase("edit_undo_redo")
+            sampler.set_phase("analytics")
             started = time.perf_counter()
-            edited_marker = f"frisketedited{marker_number:08d}"
-            original_body = _expected_record(marker_number)["body"]
-            edited_body = (
-                original_body
-                if marker is None
-                else original_body.replace(marker, edited_marker)
-            )
-            edit = _action(
-                project,
-                "cell.edit",
-                {
-                    "edits": [
-                        {
-                            "row_id": int(marker_row_id),
-                            "column_id": columns["body"],
-                            "value": edited_body,
-                        }
-                    ]
-                },
-                "qualification-edit-v1",
-            )
-            edit_action_seconds = time.perf_counter() - started
-            assert len(edit.op_ids) == 1
-            edit_index = _drain_index(project, sampler, soft_scratch)
-            assert edit_index["processed_units"] == 1
-            if marker is not None:
-                assert not search_project_page(project, marker, rerank="off")["hits"]
-                assert search_project_page(project, edited_marker, rerank="off")["hits"]
-            action_started = time.perf_counter()
-            _action(
-                project,
-                "operation.undo",
-                {"expected_op_id": edit.op_ids[0]},
-                "qualification-undo-v1",
-            )
-            undo_action_seconds = time.perf_counter() - action_started
-            undo_index = _drain_index(project, sampler, soft_scratch)
-            assert undo_index["processed_units"] == 1
-            if marker is not None:
-                assert search_project_page(project, marker, rerank="off")["hits"]
-                assert not search_project_page(project, edited_marker, rerank="off")[
-                    "hits"
-                ]
-            action_started = time.perf_counter()
-            _action(
-                project,
-                "operation.redo",
-                {"expected_op_id": edit.op_ids[0]},
-                "qualification-redo-v1",
-            )
-            redo_action_seconds = time.perf_counter() - action_started
-            redo_index = _drain_index(project, sampler, soft_scratch)
-            assert redo_index["processed_units"] == 1
-            if marker is not None:
-                assert search_project_page(project, edited_marker, rerank="off")["hits"]
-            report["mutations"] = {
-                "edit": {
-                    "action_seconds": edit_action_seconds,
-                    "index": edit_index,
-                },
-                "undo": {
-                    "action_seconds": undo_action_seconds,
-                    "index": undo_index,
-                },
-                "redo": {
-                    "action_seconds": redo_action_seconds,
-                    "index": redo_index,
-                },
-            }
-            history = history_page_payload(project, limit=20)
-            assert any(
-                item["id"] == edit.op_ids[0] and item["status"] == "applied"
-                for item in history["ops"]
-            )
-            report["history"] = {
-                "total": history["total"],
-                "returned": len(history["ops"]),
-            }
-            report["phases"]["edit_undo_redo"] = _phase_record(bundle, started)
-
-            sampler.set_phase("checkpoint_reopen")
-            started = time.perf_counter()
-            project.db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            project.close()
-            project = Project(bundle)
-            assert project.row_count(publication.sheet_id) == rows
-            _check_values(
+            report["analytics"] = run_analytics_workload(
                 project,
                 publication.sheet_id,
                 columns,
-                row_map,
-                body_overrides={marker_number: edited_body},
+                expected_queries,
+                governed,
+                cancel_event=sampler.hard_limit,
             )
-            if marker is not None:
-                reopened = search_project_page(project, edited_marker, rerank="off")
-                assert reopened["complete"] and reopened["hits"]
-            assert history_page_payload(project, limit=20)["total"] == history["total"]
+            report["phases"]["analytics"] = _phase_record(bundle, started)
+
+            sampler.set_phase("edit_undo_redo")
+            started = time.perf_counter()
+            report["mutations"], mutation_state = run_mutation_workload(
+                project,
+                publication.sheet_id,
+                columns,
+                rows,
+                lambda active: _drain_index(active, sampler, soft_scratch),
+                lambda: _guard(sampler, soft_scratch=soft_scratch),
+            )
+            apply_expected_amount_edits(
+                expected_queries, mutation_state["ordinary_edits"]
+            )
+            report["phases"]["edit_undo_redo"] = _phase_record(bundle, started)
+
+            sampler.set_phase("history")
+            started = time.perf_counter()
+            report["history"] = verify_history(project, mutation_state)
+            report["phases"]["history"] = _phase_record(bundle, started)
+
+            sampler.set_phase("checkpoint_reopen")
+            started = time.perf_counter()
+            before_checkpoint = _file_sizes(bundle)
+            checkpoint_started = time.perf_counter()
+            checkpoint_result = list(
+                project.db.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            )
+            checkpoint_seconds = time.perf_counter() - checkpoint_started
+            after_checkpoint = _file_sizes(bundle)
+            project.close()
+            closed_files = _file_sizes(bundle)
+            project = Project(bundle)
+            assert project.row_count(publication.sheet_id) == rows
+            _assertions = [
+                *mutation_state["ordinary_edits"],
+                *mutation_state["batch_edits"],
+            ]
+            assert_edit_values(
+                project,
+                publication.sheet_id,
+                _assertions,
+                edited=True,
+            )
+            reopened = search_project_page(
+                project, report["mutations"]["new_marker"], rerank="off"
+            )
+            assert reopened["complete"] and reopened["hits"]
+            reopened_history = verify_history(project, mutation_state)
+            reopened_grid = run_grid_workload(
+                project,
+                publication.sheet_id,
+                columns,
+                expected_queries,
+                governed,
+                samples=1,
+            )
+            reopened_analytics = run_analytics_workload(
+                project,
+                publication.sheet_id,
+                columns,
+                expected_queries,
+                governed,
+                samples=1,
+                cancel_event=sampler.hard_limit,
+            )
+            report["checkpoint_reopen"] = {
+                "checkpoint_seconds": checkpoint_seconds,
+                "checkpoint_result": checkpoint_result,
+                "files_before": before_checkpoint,
+                "files_after": after_checkpoint,
+                "closed_steady_files": closed_files,
+                "grid": reopened_grid,
+                "analytics": reopened_analytics,
+                "history": reopened_history,
+                "late_search_hits": len(reopened["hits"]),
+            }
             report["phases"]["checkpoint_reopen"] = _phase_record(bundle, started)
             report["status"] = "completed"
         except ResourceStop as exc:
@@ -802,9 +873,12 @@ def main() -> None:
     parser.add_argument("--rows", type=int, required=True)
     parser.add_argument("--work-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--composition-sha", required=True)
     args = parser.parse_args()
     args.work_dir.mkdir(parents=True, exist_ok=True)
-    result = run_qualification(args.rows, args.work_dir)
+    result = run_qualification(
+        args.rows, args.work_dir, composition_sha=args.composition_sha
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     print(json.dumps({"status": result["status"], "output": str(args.output)}))

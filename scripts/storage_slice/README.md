@@ -6,10 +6,12 @@
 `Project` schema and store. It streams 300,000 rows through
 `StreamingSheetWriter`, checks exact current values including missing and
 invalid typed input, builds the real FTS sidecar, searches a unique token at
-the end of a long document, runs bounded sort/filter/grouped analytics, and
-uses typed `cell.edit`, undo, and redo actions before checkpoint and reopen.
-Each single-cell transition must enqueue exactly one FTS unit; the report keeps
-the three action and index timings separate so a whole-column regression fails.
+the beginning, middle, and end of long documents, and runs timed scoped search,
+grid, sort/filter, and broad/filtered analytics. It executes 200 ordinary typed
+edits plus one legal 1,000-cell batch, checks every coordinate, and measures
+typed undo/redo action, index, and search work separately before checkpoint and
+reopen. The public action time includes current-value projection because
+Frisket does not expose projection as a separate runtime operation.
 It does not describe the app schema as the normalized SQLite prototype below.
 
 Run the tiny correctness smoke before a timed tier:
@@ -19,6 +21,7 @@ PYTHONPATH=src:. python -m unittest scripts.storage_slice.test_project_benchmark
 
 PYTHONPATH=src:. python -m scripts.storage_slice.project_benchmark \
   --rows 300000 \
+  --composition-sha <reviewed-production-composition-sha> \
   --work-dir /path/to/disposable-local-filesystem \
   --output /path/to/project-qualification-300k.json
 ```
@@ -32,7 +35,17 @@ the sampler interrupts active sort and analytics statements when a sampled
 limit trips. Sampling occurs every 250 ms and between import/index/readback
 batches, so brief peaks can be missed. The JSON records logical input/body
 bytes separately from physical bundle files. The temporary bundle is removed
-after the JSON result is assembled. The runner accepts 200–500,000 rows.
+after the JSON result is assembled. The runner accepts 200–500,000 rows; the
+shared-host invocation supplies the approved 45-minute external timeout.
+
+The runner retains the first 300k experiment's 500-row import pages and
+5,000-unit/8 MiB FTS batches so the corrected run remains comparable. This
+differs from the earlier plan's illustrative 500/4 MiB index quantum without
+changing `index_batch` semantics or the progress assertions. The coverage
+extension adds deterministic early/middle/late and five-row tokens to selected
+long bodies, so its exact source bytes and digest must be measured anew; it
+retains the same mixed-length distribution rather than claiming byte identity
+with the baseline run.
 
 Generated-result generations and canonical evidence links are deliberately a
 small real-schema fixture gate rather than repeated for every corpus row. Run:
@@ -57,8 +70,10 @@ After two review rounds on correctness and resource handling, the
 proportionality checkpoint kept the same architecture: one streamed import,
 one paged full readback, and one sampler that interrupts active SQL. The only
 second-round repair adapts Frisket's existing `AnalyticsCancelled` exception
-to the runner's structured resource-stop result; no additional monitor or
-test framework was introduced.
+to the runner's structured resource-stop result. The later workload functions
+remain concrete calls to existing runtime helpers and small loops. This is an
+opt-in research artifact with no production import or standing CI role, not a
+query engine, benchmark framework, or alternate persistence API.
 
 An opt-in experiment comparing **typed SQLite and native DuckDB**, using the
 same logical document, extraction, review, and citation operations. Nothing in
