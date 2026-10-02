@@ -109,7 +109,10 @@ from frisket.server.routes.providers import register_provider_config_routes
 from frisket.server.routes.selector_choices import register_selector_choices_routes
 from frisket.server.routes.models_gateway import register_models_gateway_routes
 from frisket.server.services.models_gateway import ModelsGatewayService
-from frisket.server.services.import_sessions import ImportSessionService
+from frisket.server.services.import_sessions import (
+    ImportSessionService,
+    import_page_dedupe_key,
+)
 from frisket.ai.models.gateway_config import (
     InvalidModelsGatewayConfig,
     ModelsGatewayConnection,
@@ -695,9 +698,7 @@ def create_app(
                 "import_ref": ref,
                 "through": through,
                 "sealed": sealed,
-                "dedupe_key": (
-                    f"import-files-page:{project_id}:{ref}:{through}:{int(sealed)}"
-                ),
+                "dedupe_key": import_page_dedupe_key(project_id, ref, through, sealed),
             },
         )
 

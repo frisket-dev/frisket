@@ -10,6 +10,7 @@ import pytest
 from starlette.datastructures import UploadFile
 
 from frisket.engine.store import Project
+from frisket.engine.store.cells import add_sheet
 from frisket.engine.store.import_intake import (
     import_intake_dir,
     import_worker_lock,
@@ -139,6 +140,57 @@ def test_cancel_sets_durable_intent_even_while_worker_lock_is_busy(project):
         status = service.cancel("project-1", created.import_ref)
     assert status.state == "cancelling" and status.cancel_requested
     assert read_import_header(directory).cancel_requested
+
+
+def test_create_allocates_around_existing_sheet_and_admitted_sessions(project):
+    add_sheet(project, "files")
+    service = ImportSessionService(SimpleNamespace(get=lambda _project_id: project))
+
+    first = service.create("project-1", "files")
+    second = service.create("project-1", "files")
+
+    assert first.sheet_name == "files-2"
+    assert second.sheet_name == "files-3"
+    assert (
+        read_import_header(import_intake_dir(project.path, second.import_ref)).envelope[
+            "action"
+        ]["sheet_name"]
+        == "files-3"
+    )
+
+
+def test_failure_before_first_page_is_paused_until_latest_retry_is_queued(project):
+    class Queue:
+        status = "failed"
+
+        def find_job_by_refs(self, kind, **kwargs):
+            assert kwargs["statuses"] == (
+                "queued",
+                "running",
+                "failed",
+                "done",
+                "cancelled",
+            )
+            assert kwargs["dedupe_key"].endswith(":0:0")
+            return SimpleNamespace(status=self.status)
+
+    queue = Queue()
+    workspace = SimpleNamespace(
+        get=lambda _project_id: project,
+        queue=queue,
+        queue_storage_org_id=None,
+    )
+    service = ImportSessionService(workspace)
+    created = service.create("project-1", "files")
+
+    failed = service.status("project-1", created.import_ref)
+    assert failed.state == "paused"
+    assert failed.error == "Import processing failed. Retry the import to continue."
+
+    queue.status = "queued"
+    retried = service.status("project-1", created.import_ref)
+    assert retried.state == "admitting"
+    assert retried.error is None
 
 
 def test_early_cancel_and_resolution_are_durable_and_idempotent(project):

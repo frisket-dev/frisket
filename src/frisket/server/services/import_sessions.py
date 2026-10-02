@@ -9,7 +9,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
-from filelock import Timeout
+from filelock import FileLock, Timeout
 
 from frisket.actions.system import typed_action_for_request
 from frisket.contracts.action import ActionResult
@@ -21,6 +21,7 @@ from frisket.engine.executor.action_jobs import (
     action_job_cancelled_result,
     reserve_typed_action_job,
 )
+from frisket.engine.jobs.queue import IMPORT_FILES_PAGE_KIND
 from frisket.engine.store.import_intake import (
     ImportIntakeHeader,
     append_inventory_batch,
@@ -43,11 +44,18 @@ from frisket.server.services.import_bulk_types import (
     BulkUpload,
     ImportBulkRouteError,
 )
+from frisket.server.services.import_uploads import upload_sheet_name
 
 
 _MAX_CHUNK_FILES = 256
 _MULTI_FILE_BATCH_BYTES = 64 * 1024 * 1024
 EnqueueImport = Callable[[str, str, int, bool], Awaitable[None] | None]
+
+
+def import_page_dedupe_key(
+    project_id: str, ref: str, through: int, sealed: bool
+) -> str:
+    return f"import-files-page:{project_id}:{ref}:{through}:{int(sealed)}"
 
 
 class ImportSessionService:
@@ -79,40 +87,45 @@ class ImportSessionService:
             )
         root = Path(project.path) / ".imports"
         root.mkdir(parents=True, exist_ok=True)
-        while True:
-            ref = f"import-{secrets.token_hex(16)}"
-            directory = import_intake_dir(project.path, ref)
+        with FileLock(str(root / ".create.lock")):
+            while True:
+                ref = f"import-{secrets.token_hex(16)}"
+                directory = import_intake_dir(project.path, ref)
+                try:
+                    directory.mkdir()
+                    break
+                except FileExistsError:
+                    continue
             try:
-                directory.mkdir()
-                break
-            except FileExistsError:
-                continue
-        try:
-            action = {
-                "action_id": "import.files",
-                "scope": {"kind": "project"},
-                "sheet_name": sheet_name,
-                "params": {"inventory_ref": ref},
-                "output_names": {},
-                "idempotency_key": f"import-session:{ref}",
-            }
-            bound = typed_action_for_request(action)
-            envelope = reserve_typed_action_job(project, project_id, bound)
-            if isinstance(envelope, ActionResult):
-                raise RuntimeError("new import session unexpectedly replayed")
-            header = ImportIntakeHeader(
-                project_id=project_id,
-                storage_identity=project.storage_identity,
-                envelope=envelope.to_json(),
-                max_rows=max_rows,
-                max_bytes=self._limits.max_upload_bytes,
-            )
-            write_import_header(directory, header)
-            ImportInventory(directory / "inventory.db").close()
-            return self._status(project, ref, directory, header)
-        except BaseException:
-            shutil.rmtree(directory, ignore_errors=True)
-            raise
+                request_key = f"import-session:{ref}"
+                final_name = self._available_sheet_name(
+                    project, root, request_key, sheet_name
+                )
+                action = {
+                    "action_id": "import.files",
+                    "scope": {"kind": "project"},
+                    "sheet_name": final_name,
+                    "params": {"inventory_ref": ref},
+                    "output_names": {},
+                    "idempotency_key": request_key,
+                }
+                bound = typed_action_for_request(action)
+                envelope = reserve_typed_action_job(project, project_id, bound)
+                if isinstance(envelope, ActionResult):
+                    raise RuntimeError("new import session unexpectedly replayed")
+                header = ImportIntakeHeader(
+                    project_id=project_id,
+                    storage_identity=project.storage_identity,
+                    envelope=envelope.to_json(),
+                    max_rows=max_rows,
+                    max_bytes=self._limits.max_upload_bytes,
+                )
+                write_import_header(directory, header)
+                ImportInventory(directory / "inventory.db").close()
+                return self._status(project, ref, directory, header)
+            except BaseException:
+                shutil.rmtree(directory, ignore_errors=True)
+                raise
 
     async def upload(
         self,
@@ -335,6 +348,40 @@ class ImportSessionService:
             max_upload_bytes=byte_limit,
         )
 
+    @staticmethod
+    def _available_sheet_name(
+        project, root: Path, request_key: str, requested: str
+    ) -> str:
+        candidate = upload_sheet_name(
+            project, "import.files", request_key, requested, allocate=True
+        )
+        admitted = set()
+        states = {
+            str(row["id"]): str(row["state"])
+            for row in project.db.execute("SELECT id,state FROM import_sessions")
+        }
+        for directory in root.iterdir():
+            if not directory.is_dir() or states.get(directory.name) == "removed":
+                continue
+            try:
+                header = read_import_header(directory)
+                if header.resolution is not None:
+                    continue
+                admitted.add(str(header.envelope["action"]["sheet_name"]))
+            except (KeyError, OSError, TypeError, ValueError):
+                continue
+        if candidate not in admitted:
+            return candidate
+        names = admitted | {
+            str(row["name"]) for row in project.db.execute("SELECT name FROM sheets")
+        }
+        suffix = 2
+        candidate = requested
+        while candidate in names:
+            candidate = f"{requested}-{suffix}"
+            suffix += 1
+        return candidate
+
     async def _enqueue_page(
         self, project_id: str, ref: str, through: int, sealed: bool
     ) -> None:
@@ -344,8 +391,8 @@ class ImportSessionService:
         if inspect.isawaitable(result):
             await result
 
-    @staticmethod
     def _status(
+        self,
         project,
         ref: str,
         directory: Path,
@@ -384,7 +431,12 @@ class ImportSessionService:
             except Timeout:
                 state = "cancelling"
         else:
-            state = "admitting"
+            job = self._latest_page_job(
+                header.project_id, ref, int(row["value"]), sealed
+            )
+            state = (
+                "paused" if job is not None and job.status == "failed" else "admitting"
+            )
         return ImportSessionStatus(
             import_ref=ref,
             state=state,
@@ -397,7 +449,24 @@ class ImportSessionService:
             sheet_name=str(header.envelope["action"].get("sheet_name") or "files"),
             cancel_requested=header.cancel_requested,
             sealed=sealed,
+            error=(
+                "Import processing failed. Retry the import to continue."
+                if session is None and state == "paused"
+                else None
+            ),
+        )
+
+    def _latest_page_job(self, project_id: str, ref: str, through: int, sealed: bool):
+        queue = getattr(self._workspace, "queue", None)
+        if queue is None:
+            return None
+        return queue.find_job_by_refs(
+            IMPORT_FILES_PAGE_KIND,
+            statuses=("queued", "running", "failed", "done", "cancelled"),
+            project_id=project_id,
+            storage_org_id=getattr(self._workspace, "queue_storage_org_id", None),
+            dedupe_key=import_page_dedupe_key(project_id, ref, through, sealed),
         )
 
 
-__all__ = ["ImportSessionService"]
+__all__ = ["ImportSessionService", "import_page_dedupe_key"]
