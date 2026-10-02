@@ -444,7 +444,7 @@ def _base_ctes(
         + " FROM scoped "
         + " ".join(joins)
         + ")",
-        "prepared AS (SELECT " + ", ".join(prepared) + " FROM source)",
+        "prepared AS MATERIALIZED (SELECT " + ", ".join(prepared) + " FROM source)",
     ], [*where_params, *ordered]
 
 
