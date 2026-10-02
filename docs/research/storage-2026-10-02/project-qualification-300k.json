@@ -1,0 +1,219 @@
+{
+  "edit_index": {
+    "batches": 1,
+    "processed_units": 1,
+    "processed_value_bytes": 168835,
+    "seconds": 0.020875509828329086
+  },
+  "fixture": {
+    "amount_states": {
+      "invalid": 30000,
+      "missing": 30000,
+      "valid": 240000
+    },
+    "body_utf8_bytes": 1233279459,
+    "input_ndjson_bytes": 1286676518,
+    "text_lengths": {
+      "at_least_96k": 1500,
+      "under_16k": 60000,
+      "under_2k": 225000,
+      "under_96k": 13500
+    }
+  },
+  "history": {
+    "returned": 2,
+    "total": 2
+  },
+  "limits": {
+    "hard_rss_kib": 8388608,
+    "hard_scratch_bytes": 19327352832,
+    "host_free_reserve_bytes": 16106127360,
+    "max_rows": 500000,
+    "mem_available_floor_kib": 4194304,
+    "scope": "whole runner process and its generated work directory",
+    "soft_rss_kib": 6291456,
+    "soft_scratch_bytes": 17179869184
+  },
+  "owned_scratch_removed": true,
+  "peak_rss_kib": 216912,
+  "persisted_corpus": {
+    "expected_cells": 2070000,
+    "rows_compared": 300000,
+    "sha256": "9637383e3dc26a878f7a87949b3b83e5074b3cd24fc1989e54c23b6c84f6cfb8",
+    "table_counts": {
+      "cells": 2070000,
+      "current_cells": 2070000,
+      "rows": 300000
+    }
+  },
+  "phases": {
+    "checkpoint_reopen": {
+      "bundle_bytes": 5970194845,
+      "files": {
+        "manifest.json": 413,
+        "project.db": 3794493440,
+        "project.db-shm": 32768,
+        "project.db-wal": 0,
+        "project.search.db": 2175635456,
+        "project.search.db-shm": 32768,
+        "project.search.db-wal": 0
+      },
+      "mem_available_kib": 12744640,
+      "rss_kib": 213220,
+      "seconds": 0.4174627447500825
+    },
+    "create": {
+      "bundle_bytes": 1151992,
+      "files": {
+        "manifest.json": 384,
+        "project.db": 1015808,
+        "project.db-shm": 32768,
+        "project.db-wal": 103032
+      },
+      "mem_available_kib": 12911076,
+      "rss_kib": 111352,
+      "seconds": 0.3029183614999056
+    },
+    "edit_undo_redo": {
+      "bundle_bytes": 7815184109,
+      "files": {
+        "manifest.json": 413,
+        "project.db": 3794493440,
+        "project.db-shm": 3604480,
+        "project.db-wal": 1841417552,
+        "project.search.db": 2175635456,
+        "project.search.db-shm": 32768,
+        "project.search.db-wal": 0
+      },
+      "mem_available_kib": 12725300,
+      "rss_kib": 216708,
+      "seconds": 590.7266539726406
+    },
+    "import": {
+      "bundle_bytes": 3802535904,
+      "files": {
+        "manifest.json": 384,
+        "project.db": 3794493440,
+        "project.db-shm": 32768,
+        "project.db-wal": 8009312
+      },
+      "mem_available_kib": 12958972,
+      "rss_kib": 127108,
+      "seconds": 197.28880690876395
+    },
+    "index": {
+      "batches": 329,
+      "bundle_bytes": 5614364640,
+      "files": {
+        "manifest.json": 384,
+        "project.db": 3794493440,
+        "project.db-shm": 32768,
+        "project.db-wal": 8009312,
+        "project.search.db": 1811828736
+      },
+      "mem_available_kib": 12903960,
+      "processed_units": 1200001,
+      "processed_value_bytes": 1255256423,
+      "rss_kib": 128448,
+      "seconds": 90.50706534925848
+    },
+    "persisted_readback": {
+      "bundle_bytes": 3802535904,
+      "files": {
+        "manifest.json": 384,
+        "project.db": 3794493440,
+        "project.db-shm": 32768,
+        "project.db-wal": 8009312
+      },
+      "mem_available_kib": 12914952,
+      "rss_kib": 128388,
+      "seconds": 82.42270806338638
+    },
+    "queries": {
+      "bundle_bytes": 5614397408,
+      "files": {
+        "manifest.json": 384,
+        "project.db": 3794493440,
+        "project.db-shm": 32768,
+        "project.db-wal": 8009312,
+        "project.search.db": 1811828736,
+        "project.search.db-shm": 32768,
+        "project.search.db-wal": 0
+      },
+      "mem_available_kib": 12924028,
+      "rss_kib": 140060,
+      "seconds": 26.111941054463387
+    }
+  },
+  "queries": {
+    "aggregate": {
+      "max_ms": 2781.0350907966495,
+      "median_ms": 2418.458327651024,
+      "samples": 5
+    },
+    "analytics_groups": 8,
+    "filter": {
+      "max_ms": 856.7745508626103,
+      "median_ms": 348.0364428833127,
+      "samples": 5
+    },
+    "filtered_rows": 63000,
+    "median": {
+      "max_ms": 1659.1130457818508,
+      "median_ms": 1616.6378511115909,
+      "samples": 5
+    },
+    "sort": {
+      "max_ms": 866.4390472695231,
+      "median_ms": 688.1169816479087,
+      "samples": 5
+    }
+  },
+  "rows_requested": 300000,
+  "sampled_phase_peaks": {
+    "checkpoint_reopen": {
+      "host_load_1m_max": 4.07666015625,
+      "project_bytes": 7815184146,
+      "rss_kib": 216708,
+      "temporary_bytes": 1845054800
+    },
+    "create": {
+      "host_load_1m_max": 1.34912109375,
+      "project_bytes": 2603656,
+      "rss_kib": 111340,
+      "temporary_bytes": 2599560
+    },
+    "edit_undo_redo": {
+      "host_load_1m_max": 4.12255859375,
+      "project_bytes": 8174304066,
+      "rss_kib": 217432,
+      "temporary_bytes": 2204174720
+    },
+    "import": {
+      "host_load_1m_max": 2.1806640625,
+      "project_bytes": 3802535941,
+      "rss_kib": 127044,
+      "temporary_bytes": 8042080
+    },
+    "index": {
+      "host_load_1m_max": 2.5751953125,
+      "project_bytes": 5614397445,
+      "rss_kib": 128512,
+      "temporary_bytes": 35221368
+    },
+    "persisted_readback": {
+      "host_load_1m_max": 2.5009765625,
+      "project_bytes": 3802535941,
+      "rss_kib": 128388,
+      "temporary_bytes": 8042080
+    },
+    "queries": {
+      "host_load_1m_max": 2.4267578125,
+      "project_bytes": 5614397445,
+      "rss_kib": 140060,
+      "temporary_bytes": 8074848
+    }
+  },
+  "schema": "frisket.project-storage-qualification.v1",
+  "status": "completed"
+}

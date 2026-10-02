@@ -1,0 +1,51 @@
+{
+  "architecture": {
+    "authoritative_relation": "materialized_row_sources",
+    "change_boundary": "write_aggregate_sheet membership ref and existing materialized_row_sources_ref_matches verifier only",
+    "failure_modes": [
+      "new compact ref fails to detect normalized membership tampering",
+      "old embedded ref stops requiring exact embedded-row equality",
+      "contributor/plugin receipt refs accidentally lose their embedded rows"
+    ],
+    "proof": [
+      "new compact refs validate count and sha256 against stored relation rows",
+      "stored relation mutation invalidates compact refs",
+      "old refs still validate and reject embedded-row mutation",
+      "contributor materialization still emits embedded rows"
+    ],
+    "proportionality": "Reuse the existing ref kind, op_id, row_count, sha256, normalized table, and verifier. Add no schema, resolver, reference protocol, or generic streaming layer."
+  },
+  "base_sha": "aa5201b2fc2abe26a03f1547721ca715ba7baaf9",
+  "environment": "canonical lock-identical Python environment, cleared environment, network namespace disabled, temporary project bundles",
+  "shape": "One aggregate output row and one aggregate_source membership per source row. Each stored receipt uses the actual Receipt and ReceiptStore schema and includes the actual materialized_rows output plus pinned membership evidence.",
+  "measurements": [
+    {
+      "memberships": 1000,
+      "materialize_seconds": 0.038796,
+      "full_ref_bytes": 95047,
+      "embedded_rows_bytes": 94894,
+      "compact_ref_bytes": 145,
+      "full_receipt_bytes": 116534,
+      "compact_receipt_bytes": 13637,
+      "receipt_bytes_saved": 102897,
+      "receipt_percent_saved": 88.3,
+      "dbstat_materialized_row_sources_bytes": 36864,
+      "dbstat_materialized_row_sources_payload": 26872
+    },
+    {
+      "memberships": 10000,
+      "materialize_seconds": 0.402913,
+      "full_ref_bytes": 969049,
+      "embedded_rows_bytes": 968895,
+      "compact_ref_bytes": 146,
+      "full_receipt_bytes": 1198539,
+      "compact_receipt_bytes": 149641,
+      "receipt_bytes_saved": 1048898,
+      "receipt_percent_saved": 87.51,
+      "dbstat_materialized_row_sources_bytes": 327680,
+      "dbstat_materialized_row_sources_payload": 269872
+    }
+  ],
+  "interpretation": "The embedded membership rows are a material majority of this aggregate receipt shape and are much larger than the authoritative normalized relation payload. The compact receipt still contains the existing materialized_rows output, so this change does not claim to bound all aggregate metadata."
+  ,"representation_refinement": "Final compact refs add storage=normalized_relation_v1 so missing rows is explicit and unmarked rowless legacy refs remain invalid. The marker adds 35 bytes to compact JSON; it does not materially change the measured reductions. Count/hash validates relation consistency, not coordinated receipt mutation."
+}

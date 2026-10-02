@@ -1,0 +1,43 @@
+{
+  "source_sha": "aa5201b2fc2abe26a03f1547721ca715ba7baaf9",
+  "uv_lock_sha256": "47a8dd4cb2b2cb4d970f815b77ef1bd7e287e439927c036acb178efb58f7f7c8",
+  "isolation": "cleared environment, networkless bwrap, read-only source and lock-identical venv, tmpfs project",
+  "metrics": {
+    "action_seconds": 7.1769877495244145,
+    "canonical_values_json_bytes": 398895,
+    "clusters_json_bytes": 898895,
+    "dbstat": {
+      "current_cells": {
+        "bytes": 1056768,
+        "payload": 849744
+      },
+      "ops": {
+        "bytes": 1626112,
+        "payload": 1616074
+      },
+      "receipts": {
+        "bytes": 1622016,
+        "payload": 1617044
+      },
+      "results": {
+        "bytes": 720896,
+        "payload": 569872
+      }
+    },
+    "fact_json_bytes": 1347219,
+    "fixture_seconds": 0.37421067617833614,
+    "model_calls": 0,
+    "op_fact_equals_receipt_fact": true,
+    "ops_spec_bytes": 1556911,
+    "process_peak_rss_kib": 156988,
+    "receipt_body_bytes": 1616821,
+    "result_cells": 10000,
+    "result_value_bytes": 150000,
+    "rows": 10000,
+    "rss_before_action_kib": 115044,
+    "rss_sampled_delta_kib": 40220,
+    "rss_sampled_peak_kib": 155264
+  },
+  "interpretation": "From 1k to 10k, action time grew 10.3x and the terminal fact 10.2x; sampled action RSS delta grew from about 20.0 MiB to 39.3 MiB. The exact terminal fact occupies about 1.35 MB in each of two durable owners while normalized result values contain 150000 logical bytes. The later 50k point is required before attributing the RSS slope.",
+  "rss_caveat": "VmRSS was sampled every 5 ms during the action. ru_maxrss covers the whole process and may differ from sampled VmRSS. Use sampled action delta for within-run action memory, regard peaks as approximate, and compare only fresh processes."
+}

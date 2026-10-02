@@ -1,5 +1,8 @@
 # Representative storage slice
 
+The [storage decision and machine-readable evidence](../../docs/research/storage-2026-10-02/README.md)
+record the final application-scale qualification and its bounded supporting probes.
+
 ## Actual Project qualification
 
 `project_benchmark.py` is a separate, opt-in qualification of Frisket's actual

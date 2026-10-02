@@ -1,0 +1,43 @@
+{
+  "source_sha": "aa5201b2fc2abe26a03f1547721ca715ba7baaf9",
+  "uv_lock_sha256": "47a8dd4cb2b2cb4d970f815b77ef1bd7e287e439927c036acb178efb58f7f7c8",
+  "isolation": "cleared environment, networkless bwrap, read-only source and lock-identical venv, tmpfs project",
+  "metrics": {
+    "action_seconds": 0.6986109940335155,
+    "canonical_values_json_bytes": 38894,
+    "clusters_json_bytes": 88894,
+    "dbstat": {
+      "current_cells": {
+        "bytes": 106496,
+        "payload": 84744
+      },
+      "ops": {
+        "bytes": 159744,
+        "payload": 158064
+      },
+      "receipts": {
+        "bytes": 159744,
+        "payload": 159033
+      },
+      "results": {
+        "bytes": 73728,
+        "payload": 56872
+      }
+    },
+    "fact_json_bytes": 132216,
+    "fixture_seconds": 0.10197382234036922,
+    "model_calls": 0,
+    "op_fact_equals_receipt_fact": true,
+    "ops_spec_bytes": 152906,
+    "process_peak_rss_kib": 128496,
+    "receipt_body_bytes": 158812,
+    "result_cells": 1000,
+    "result_value_bytes": 15000,
+    "rows": 1000,
+    "rss_before_action_kib": 108380,
+    "rss_sampled_delta_kib": 20496,
+    "rss_sampled_peak_kib": 128876
+  },
+  "interpretation": "The same 132216-byte value-cluster fact is embedded in both the op spec and receipt while the normalized result values contain 15000 logical bytes. One point proves durable duplication but cannot separate fixed RSS cost from row-dependent growth; the gated 10k and 50k runs are still required.",
+  "rss_caveat": "VmRSS was sampled every 5 ms during the action. ru_maxrss covers the whole process and differed by 380 KiB, so use sampled action delta for within-run action memory and treat either peak as approximate. Fresh processes are required for comparisons."
+}

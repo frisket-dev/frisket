@@ -1,0 +1,31 @@
+{
+  "source_sha": "34b8e2ba964e4a9bda86b0cf1edbd9847d36e180",
+  "uv_lock_sha256": "47a8dd4cb2b2cb4d970f815b77ef1bd7e287e439927c036acb178efb58f7f7c8",
+  "isolation": "cleared environment, networkless bwrap, read-only source and lock-identical venv, tmpfs project",
+  "metrics": {
+    "action_seconds": 0.6912979520857334,
+    "canonical_values_json_bytes": 38894,
+    "clusters_json_bytes": 88894,
+    "dbstat": {
+      "current_cells": {"bytes": 106496, "payload": 84744},
+      "ops": {"bytes": 12288, "payload": 10826},
+      "receipts": {"bytes": 159744, "payload": 159033},
+      "results": {"bytes": 73728, "payload": 56872}
+    },
+    "fact_json_bytes": 132216,
+    "fixture_seconds": 0.11871583946049213,
+    "model_calls": 0,
+    "op_fact_equals_receipt_fact": false,
+    "op_result_storage": "receipt_evidence_v1",
+    "ops_spec_bytes": 5669,
+    "process_peak_rss_kib": 128592,
+    "receipt_body_bytes": 158812,
+    "result_cells": 1000,
+    "result_value_bytes": 15000,
+    "rows": 1000,
+    "rss_before_action_kib": 108356,
+    "rss_sampled_delta_kib": 20524,
+    "rss_sampled_peak_kib": 128880
+  },
+  "timing_scope": "tmpfs end-to-end diagnostic, not disk throughput"
+}

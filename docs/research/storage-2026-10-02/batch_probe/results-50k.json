@@ -1,0 +1,44 @@
+{
+  "source_sha": "aa5201b2fc2abe26a03f1547721ca715ba7baaf9",
+  "uv_lock_sha256": "47a8dd4cb2b2cb4d970f815b77ef1bd7e287e439927c036acb178efb58f7f7c8",
+  "isolation": "cleared environment, networkless bwrap, read-only source and lock-identical venv, tmpfs project",
+  "metrics": {
+    "action_seconds": 241.41993726510555,
+    "canonical_values_json_bytes": 2038895,
+    "clusters_json_bytes": 4538895,
+    "dbstat": {
+      "current_cells": {
+        "bytes": 5296128,
+        "payload": 4284210
+      },
+      "ops": {
+        "bytes": 8310784,
+        "payload": 8296074
+      },
+      "receipts": {
+        "bytes": 8306688,
+        "payload": 8297044
+      },
+      "results": {
+        "bytes": 3620864,
+        "payload": 2867105
+      }
+    },
+    "fact_json_bytes": 6867219,
+    "fixture_seconds": 1.3941542133688927,
+    "model_calls": 0,
+    "op_fact_equals_receipt_fact": true,
+    "ops_spec_bytes": 7956911,
+    "process_peak_rss_kib": 280436,
+    "receipt_body_bytes": 8296821,
+    "result_cells": 50000,
+    "result_value_bytes": 750000,
+    "rows": 50000,
+    "rss_before_action_kib": 133220,
+    "rss_sampled_delta_kib": 147772,
+    "rss_sampled_peak_kib": 280992
+  },
+  "interpretation": "From 10k to 50k, the terminal fact grew 5.10x and sampled action RSS delta grew 3.67x, while action time grew 33.64x. The pair-heavy fingerprint fixture therefore exposes a superlinear compute concern in addition to linearly growing duplicate terminal metadata. The 6.87 MB fact occupies each of two durable owners while normalized result values contain 750000 logical bytes.",
+  "timing_scope": "Fixture and action elapsed times use a tmpfs project. They are end-to-end diagnostic timings for relative scaling in this fixture and are not filesystem or disk-throughput measurements.",
+  "rss_caveat": "VmRSS was sampled every 5 ms during the action. ru_maxrss covers the whole process and may differ from sampled VmRSS. Use sampled action delta for within-run action memory, regard peaks as approximate, and compare only fresh processes."
+}

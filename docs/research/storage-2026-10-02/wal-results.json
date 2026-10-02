@@ -1,0 +1,50 @@
+{
+  "before": {
+    "main_bytes": 1028096,
+    "wal_bytes": 0,
+    "checkpoint": [
+      0,
+      0,
+      0
+    ]
+  },
+  "reader_held": {
+    "main_bytes": 1028096,
+    "wal_bytes": 43260032,
+    "checkpoint": [
+      0,
+      10500,
+      0
+    ]
+  },
+  "reader_released": {
+    "main_bytes": 29159424,
+    "wal_bytes": 43260032,
+    "checkpoint": [
+      0,
+      10500,
+      10500
+    ]
+  },
+  "next_write": {
+    "main_bytes": 29159424,
+    "wal_bytes": 43260032,
+    "checkpoint": [
+      0,
+      15,
+      15
+    ]
+  },
+  "after_truncate": {
+    "main_bytes": 29159424,
+    "wal_bytes": 0,
+    "checkpoint": [
+      0,
+      0,
+      0
+    ]
+  },
+  "writes": 200,
+  "write_seconds_max": 0.008899455890059471,
+  "write_seconds_total": 0.7544239461421967
+}
