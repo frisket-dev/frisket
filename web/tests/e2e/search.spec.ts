@@ -12,7 +12,7 @@ import {
   sheetData,
   uniqueName,
 } from './helpers';
-import type { SearchHit, SheetRowLocation } from '../../src/api/open';
+import type { ProjectSearchPage, SheetRowLocation } from '../../src/api/open';
 
 test('⌘K opens search; a seeded word returns grouped results', async ({ page }) => {
   const pid = await projectIdByName(page.request, 'Local stories');
@@ -65,8 +65,8 @@ test('clicking a hit in another sheet switches to that sheet', async ({ page }) 
   await page.getByTestId('command-palette-input').fill('Quayle');
   await expect(page.getByTestId('search-results')).toBeVisible();
 
-  const hits = (await (await searchResponse).json()) as SearchHit[];
-  const expectedHit = hits.find((hit) => String(hit.sheet_id) === String(targetSheet.id));
+  const searchPage = (await (await searchResponse).json()) as ProjectSearchPage;
+  const expectedHit = searchPage.hits.find((hit) => String(hit.sheet_id) === String(targetSheet.id));
   if (!expectedHit) throw new Error('target search hit missing');
   const targetData = await sheetData(page.request, pid, targetSheet.id);
   const expectedColumnIndex = targetData.columns.findIndex(

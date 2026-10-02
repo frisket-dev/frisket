@@ -7717,7 +7717,7 @@ export type HttpProjectRetentionResponse = ({
   "supported_default_evidence": (Array<("compactable" | "pinned" | "materialized") & (string)>);
 });
 
-type HttpProjectSearchHits_ProjectSearchHit = ({
+type HttpProjectSearchPage_ProjectSearchHit = ({
   "ai_generated": (boolean);
   "column_id": (number);
   "column_name": (string);
@@ -7730,7 +7730,11 @@ type HttpProjectSearchHits_ProjectSearchHit = ({
   [key: string]: JsonValue | (boolean) | (number) | (string) | undefined;
 });
 
-export type HttpProjectSearchHits = (Array<(HttpProjectSearchHits_ProjectSearchHit)>);
+export type HttpProjectSearchPage = ({
+  "hits": (Array<(HttpProjectSearchPage_ProjectSearchHit)>);
+  "indexing": (boolean);
+  [key: string]: JsonValue | (Array<(HttpProjectSearchPage_ProjectSearchHit)>) | (boolean);
+});
 
 type HttpProjectSecretCatalogResponse_ProjectSecret = ({
   "configured": (boolean);
@@ -12752,7 +12756,7 @@ export type HttpContractOperationMap = {
     readonly query: HttpInline_d038fda6e4c7e695;
     readonly request: undefined;
     readonly responses: {
-      readonly "200": HttpProjectSearchHits;
+      readonly "200": HttpProjectSearchPage;
       readonly "401": HttpError;
       readonly "403": HttpError;
       readonly "404": HttpError;

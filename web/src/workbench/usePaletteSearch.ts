@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { searchProject, type SearchHit, type SheetMeta } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
+import { usePoll } from '../hooks/usePoll';
 
 export interface PaletteSearch {
   mode: 'keyword' | 'semantic';
@@ -11,6 +12,7 @@ export interface PaletteSearch {
   setRerank(rerank: boolean): void;
   /** Results for the CURRENT query only (null while empty/stale). */
   hits: SearchHit[] | null;
+  indexing: boolean;
   searchError: string | null;
   canWatch: boolean;
   watchBusy: boolean;
@@ -30,7 +32,11 @@ export function usePaletteSearch(
   // the current query without a synchronous setState-in-effect.
   const [mode, setMode] = useState<'keyword' | 'semantic'>('keyword');
   const [rerank, setRerank] = useState(false);
-  const [searchResult, setSearchResult] = useState<{ q: string; hits: SearchHit[] } | null>(null);
+  const [searchResult, setSearchResult] = useState<{
+    q: string;
+    hits: SearchHit[];
+    indexing: boolean;
+  } | null>(null);
   const [searchFailure, setSearchFailure] = useState<{ q: string; message: string } | null>(null);
   const seq = useRef(0);
   const trimmedQuery = query.trim();
@@ -40,8 +46,11 @@ export function usePaletteSearch(
     const mine = ++seq.current;
     const t = setTimeout(() => {
       searchProject(projectId, q, { mode, rerank })
-        .then((h) => {
-          if (seq.current === mine) setSearchResult({ q, hits: h });
+        .then((page) => {
+          if (seq.current === mine) {
+            setSearchResult({ q, ...page });
+            setSearchFailure(null);
+          }
         })
         .catch((e: Error) => {
           if (seq.current === mine) setSearchFailure({ q, message: e.message });
@@ -50,8 +59,29 @@ export function usePaletteSearch(
     return () => clearTimeout(t);
   }, [query, mode, rerank, projectId]);
   const hits = trimmedQuery && searchResult?.q === trimmedQuery ? searchResult.hits : null;
+  const indexing = Boolean(trimmedQuery && searchResult?.q === trimmedQuery && searchResult.indexing);
   const searchError =
     trimmedQuery && searchFailure?.q === trimmedQuery ? searchFailure.message : null;
+
+  usePoll(async () => {
+    const q = trimmedQuery;
+    const mine = ++seq.current;
+    try {
+      const page = await searchProject(projectId, q, { mode, rerank });
+      if (seq.current === mine) {
+        setSearchResult({ q, ...page });
+        setSearchFailure(null);
+      }
+    } catch (error) {
+      if (seq.current === mine) {
+        setSearchFailure({ q, message: error instanceof Error ? error.message : String(error) });
+      }
+    }
+  }, {
+    active: Boolean(trimmedQuery) && indexing,
+    intervalMs: 2_000,
+    guardOverlap: true,
+  });
 
   // Watch-this-search: create a keyword FTS watch from the current query.
   const [watchBusy, setWatchBusy] = useState(false);
@@ -103,6 +133,7 @@ export function usePaletteSearch(
     rerank,
     setRerank,
     hits,
+    indexing,
     searchError,
     canWatch,
     watchBusy,

@@ -17,6 +17,7 @@ export function PaletteSearchSection({
   onCreateWatch,
   searchError,
   hits,
+  indexing,
   query,
   searchGroups,
   sheetName,
@@ -35,6 +36,7 @@ export function PaletteSearchSection({
   onCreateWatch(): void;
   searchError: string | null;
   hits: SearchHit[] | null;
+  indexing: boolean;
   query: string;
   searchGroups: { sheetId: string; hits: SearchHit[] }[];
   sheetName(id: string | number): string;
@@ -89,9 +91,12 @@ export function PaletteSearchSection({
         </span>
       </div>
       {searchError && <div className="picker-error">{searchError}</div>}
+      {!searchError && indexing && (
+        <div className="search-empty" role="status">Indexing… results may be incomplete.</div>
+      )}
       {!searchError && hits !== null && (
         hits.length === 0 ? (
-          <div className="search-empty">No matches for “{query.trim()}”.</div>
+          !indexing && <div className="search-empty">No matches for “{query.trim()}”.</div>
         ) : (
           <div className="search-results" data-testid="search-results">
             {searchGroups.map((group) => (

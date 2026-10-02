@@ -185,6 +185,7 @@ export function WorkbenchCommandPalette({
     rerank,
     setRerank,
     hits,
+    indexing,
     searchError,
     canWatch,
     watchBusy,
@@ -414,6 +415,7 @@ export function WorkbenchCommandPalette({
             onCreateWatch={createSearchWatch}
             searchError={searchError}
             hits={hits}
+            indexing={indexing}
             query={query}
             searchGroups={searchGroups}
             sheetName={sheetName}

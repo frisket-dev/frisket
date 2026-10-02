@@ -39,14 +39,14 @@ describe('project-search generated HTTP contract', () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       requests.push({ input, init });
-      return jsonResponse([hit]);
+      return jsonResponse({ hits: [hit], indexing: true });
     }));
     const controller = new AbortController();
     const api = createProjectSearchApi(
       (status, payload) => new Error(`${status}:${String(payload)}`),
       'hostile /%25 ☃',
     );
-    await expect(api.searchProject('a+b &/☃')).resolves.toEqual([hit]);
+    await expect(api.searchProject('a+b &/☃')).resolves.toEqual({ hits: [hit], indexing: true });
     await api.searchProject('numeric', 7);
     await api.searchProject('loose', {
       mode: 'lexical',
@@ -89,11 +89,11 @@ describe('project-search generated HTTP contract', () => {
     vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(network)));
     await expect(api.searchProject('budget')).rejects.toBe(network);
 
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse([hit])));
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ hits: [hit], indexing: false })));
     const real = await import('../../src/api/real');
     await expect(real.searchProject('hostile /%25 ☃', 'budget', {
       mode: 'semantic', rerank: true,
-    })).resolves.toEqual([hit]);
+    })).resolves.toEqual({ hits: [hit], indexing: false });
 
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'unavailable' }, 500)));
     await expect(real.searchProject('hostile /%25 ☃', 'budget')).rejects.toMatchObject({
