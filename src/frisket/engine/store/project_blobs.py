@@ -8,7 +8,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+import os
+import re
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -213,77 +217,36 @@ def blob_derivation_chain(project: Any, digest: str) -> list[dict[str, Any]]:
     return chain
 
 
-def _referenced_blob_hashes(project: Any) -> set[str]:
-    """Every blob hash still reachable from live data.
+_HASH_CANDIDATE = re.compile(r"(?=([0-9a-f]{64}))")
+_ROOT_BATCH_SIZE = 512
+_logger = logging.getLogger(__name__)
 
-    Blob references are embedded in JSON values (cells, run results, manual
-    edits) as ``{"blob": <hash>}`` or sibling fields like ``document_blob``.
-    Rather than guess the field name we scan each value's text for any known
-    blob hash — a 64-char sha256 only appears if the value mentions it, so
-    this is exact and field-name agnostic. Results behind a column's CURRENT
-    run, behind an UNDONE (still-redoable) run, and source cells / applied
-    edits are all live. Only DISCARDED runs (unreachable by undo/redo) are
-    collectable — undoing must never strand a blob a redo needs. Published
-    project-file exports and published row-file occurrences remain live while
-    their owning receipts are retained.
-    """
-    known = {r["hash"] for r in project.db.execute("SELECT hash FROM blobs")}
-    if not known:
-        return set()
-    referenced: set[str] = set()
-    # Returned row effects own recoverable files before result publication.
-    # The descriptor is host-written checkpoint data, not arbitrary output JSON.
-    for checkpoint in project.db.execute(
-        "SELECT payload FROM effect_checkpoints WHERE family='row_effect' AND state='returned'"
-    ):
-        try:
-            response = json.loads(checkpoint["payload"])
-            for payload in response.values():
-                for occurrence in payload.get("row_files", []):
-                    for blob in (occurrence["primary"], *occurrence["supplemental"]):
-                        if blob["blob_hash"] in known:
-                            referenced.add(blob["blob_hash"])
-        except (TypeError, ValueError, KeyError, AttributeError):
-            # Corrupt unresolved effects cannot authorize deletion of bytes that
-            # may be needed for explicit reconciliation.
-            referenced.update(known)
-    # Published row files transfer ownership from the consumed checkpoint to
-    # their retained host evidence, including supplemental bytes absent from cells.
-    # Published exports belong to their receipt, not their source sheet or the
-    # eventual handler outcome: a later callable failure cannot undo a delivery.
-    for receipt in project.db.execute("SELECT body, status FROM receipts"):
-        body = json.loads(receipt["body"])
-        for evidence in body.get("evidence", []):
-            ref = evidence.get("ref", {})
-            if ref.get("kind") != "row_file_output":
-                continue
-            for blob in (ref["primary"], *ref["supplemental"]):
-                if blob["blob_hash"] in known:
-                    referenced.add(blob["blob_hash"])
-        exports = body.get("exports", [])
-        if not isinstance(exports, list):
-            continue
-        for artifact in exports:
-            if not isinstance(artifact, dict):
-                continue
-            digest = artifact.get("blob_hash")
-            if (
-                artifact.get("kind") == "export_project_file"
-                and isinstance(digest, str)
-                and digest in known
-            ):
-                referenced.add(digest)
-    # cells (source data) are always live
-    texts = [
-        r[0]
-        for r in project.db.execute("SELECT value FROM cells WHERE value IS NOT NULL")
-    ]
-    # Managed results are rooted by their non-discarded journal operation;
-    # their rebuildable head projection is never reachability authority.
-    # Legacy results retain the scalar-pointer fallback during cutover.
-    texts += [
-        r[0]
-        for r in project.db.execute(
+
+def _mark_hashes(db: sqlite3.Connection, hashes) -> None:
+    """Indexed membership, bounded Python memory, no corpus-sized known set."""
+    batch: set[str] = set()
+    for digest in hashes:
+        batch.add(digest)
+        if len(batch) >= _ROOT_BATCH_SIZE:
+            _insert_live_hashes(db, batch)
+            batch.clear()
+    _insert_live_hashes(db, batch)
+
+
+def _insert_live_hashes(db: sqlite3.Connection, hashes) -> None:
+    db.executemany(
+        "INSERT OR IGNORE INTO temp.gc_live_blob_hashes(hash) "
+        "SELECT hash FROM blobs WHERE hash=?",
+        ((digest,) for digest in hashes),
+    )
+
+
+def _root_texts(db: sqlite3.Connection):
+    # Preserve field-name-agnostic retention, including hashes embedded inside
+    # longer strings. Overlapping matches preserve the old substring semantics.
+    queries = (
+        "SELECT value FROM cells WHERE value IS NOT NULL",
+        (
             "SELECT res.value FROM results res "
             "JOIN runs ru ON ru.id = res.run_id "
             "JOIN ops o ON o.id = ru.op_id "
@@ -306,48 +269,172 @@ def _referenced_blob_hashes(project: Any) -> set[str]:
             "       SELECT current_run_id FROM columns "
             "       WHERE current_run_id IS NOT NULL"
             "     )))"
-        )
-    ]
-    # manual edits from applied ops
-    texts += [
-        r[0]
-        for r in project.db.execute(
+        ),
+        (
             "SELECT e.value FROM edits e JOIN ops o ON o.id = e.op_id "
-            "WHERE o.status='applied' AND e.value IS NOT NULL"
-        )
-    ]
-    # Evidence artifacts are durable citation roots. Their primary blob_hash
-    # and derivative refs in artifact/span JSON must survive compaction even
-    # when no visible cell currently mentions the hash.
-    referenced.update(
-        r["blob_hash"]
-        for r in project.db.execute(
-            "SELECT blob_hash FROM source_artifacts WHERE blob_hash IS NOT NULL"
-        )
-        if r["blob_hash"] in known
-    )
-    texts += [
-        r[0]
-        for r in project.db.execute(
+            "WHERE o.status!='discarded' AND e.value IS NOT NULL"
+        ),
+        (
             "SELECT external_ref_json FROM source_artifacts "
             "UNION ALL SELECT metadata FROM source_artifacts "
             "UNION ALL SELECT selector_json FROM source_spans "
             "UNION ALL SELECT preview_json FROM source_spans "
             "UNION ALL SELECT metadata FROM source_spans"
-        )
-        if r[0]
-    ]
-    for text in texts:
-        if not text:
-            continue
-        for h in known:
-            if h in referenced:
+        ),
+    )
+    for query in queries:
+        for row in db.execute(query):
+            if row[0]:
+                yield row[0]
+
+
+def _retained_payloads(db: sqlite3.Connection):
+    """All retained receipt/effect references, not only their current UI shape."""
+    for row in db.execute(
+        "SELECT body, 'receipt' AS family, status AS state FROM receipts "
+        "UNION ALL SELECT payload,family,state FROM effect_checkpoints "
+        "WHERE payload IS NOT NULL"
+    ):
+        payload = json.loads(row[0])
+        if row[1] == "receipt" and not isinstance(payload, dict):
+            raise ValueError("invalid retained receipt")
+        if row[1] == "row_effect" and row[2] == "returned":
+            # Preserve the existing fail-closed behavior for damaged unresolved
+            # file returns whose ownership cannot be reconstructed safely.
+            for response in payload.values():
+                for occurrence in response.get("row_files", []):
+                    for blob in (occurrence["primary"], *occurrence["supplemental"]):
+                        if not isinstance(blob["blob_hash"], str):
+                            raise ValueError("invalid returned file")
+        yield row[0]
+
+
+def _import_hashes(project: Any):
+    """Read admitted/unresolved inventories without opening a writable store."""
+    from .import_intake import read_import_header, validate_import_ref
+    from .blob_backend import validate_blob_digest
+
+    root = project.path / ".imports"
+    terminal = {"completed", "kept", "removed"}
+    # A missing inventory for an unresolved session is unknown ownership.
+    for row in project.db.execute(
+        "SELECT id FROM import_sessions WHERE state IN ('active','paused','cancelled')"
+    ):
+        ref = validate_import_ref(row[0])
+        if not (root / ref / "inventory.db").is_file():
+            raise ValueError("unresolved import inventory is missing")
+    if not root.exists():
+        return
+    if root.is_symlink():
+        raise ValueError("import root must not be a symlink")
+    with os.scandir(root) as directories:
+        for entry in directories:
+            if not entry.name.startswith("import-"):
                 continue
-            if h in text:
-                referenced.add(h)
-        if len(referenced) == len(known):
-            break
-    return referenced
+            validate_import_ref(entry.name)
+            state = project.db.execute(
+                "SELECT state FROM import_sessions WHERE id=?", (entry.name,)
+            ).fetchone()
+            if state is not None and state[0] in terminal:
+                continue
+            if entry.is_symlink():
+                raise ValueError("import inventory must not be a symlink")
+            directory = Path(entry.path)
+            header = read_import_header(directory)
+            if header.storage_identity != project.storage_identity:
+                raise ValueError("import inventory belongs to another bundle")
+            if state is None and header.resolution in {"kept", "removed"}:
+                continue
+            inventory_path = directory / "inventory.db"
+            if inventory_path.is_symlink():
+                raise ValueError("import inventory must not be a symlink")
+            inventory = sqlite3.connect(
+                inventory_path.resolve().as_uri() + "?mode=ro", uri=True
+            )
+            try:
+                for row in inventory.execute("SELECT sha256 FROM inventory_items"):
+                    yield validate_blob_digest(row[0])
+            finally:
+                inventory.close()
+
+
+def _populate_live_blob_hashes(project: Any) -> None:
+    db = project.db
+    if db.execute("SELECT 1 FROM blobs LIMIT 1").fetchone() is None:
+        return
+    # Corrupt recoverable state cannot authorize metadata reclamation.
+    try:
+        _mark_hashes(
+            db,
+            (
+                match[1]
+                for text in _retained_payloads(db)
+                for match in _HASH_CANDIDATE.finditer(text)
+            ),
+        )
+        _mark_hashes(db, _import_hashes(project))
+    except (
+        ValueError,
+        TypeError,
+        KeyError,
+        AttributeError,
+        OSError,
+        sqlite3.DatabaseError,
+    ):
+        _logger.warning(
+            "Retaining all blob metadata because recoverable ownership could not be read"
+        )
+        db.execute(
+            "INSERT OR IGNORE INTO temp.gc_live_blob_hashes SELECT hash FROM blobs"
+        )
+        return
+    _mark_hashes(
+        db,
+        (
+            match[1]
+            for text in _root_texts(db)
+            for match in _HASH_CANDIDATE.finditer(text)
+        ),
+    )
+    db.execute(
+        "INSERT OR IGNORE INTO temp.gc_live_blob_hashes SELECT b.hash FROM source_artifacts a JOIN blobs b ON b.hash=a.blob_hash"
+    )
+    db.execute("""WITH RECURSIVE reachable(hash) AS (
+        SELECT hash FROM temp.gc_live_blob_hashes
+        UNION SELECT d.source_hash FROM blob_derivations d JOIN reachable r ON d.derived_hash=r.hash
+    ) INSERT OR IGNORE INTO temp.gc_live_blob_hashes
+      SELECT r.hash FROM reachable r JOIN blobs b ON b.hash=r.hash""")
+
+
+@contextmanager
+def _live_blob_hashes(project: Any, *, writing: bool = False):
+    db = project.db
+    owns_transaction = not db.in_transaction
+    if owns_transaction:
+        db.execute("BEGIN IMMEDIATE" if writing else "BEGIN")
+    try:
+        db.execute(
+            "CREATE TEMP TABLE gc_live_blob_hashes(hash TEXT PRIMARY KEY) WITHOUT ROWID"
+        )
+        try:
+            _populate_live_blob_hashes(project)
+            yield db
+        finally:
+            db.execute("DROP TABLE temp.gc_live_blob_hashes")
+        if owns_transaction:
+            db.commit()
+    except BaseException:
+        if owns_transaction:
+            db.rollback()
+        raise
+
+
+def _referenced_blob_hashes(project: Any) -> set[str]:
+    """Compatibility inspection helper; production GC never builds this set."""
+    with _live_blob_hashes(project) as db:
+        return {
+            row[0] for row in db.execute("SELECT hash FROM temp.gc_live_blob_hashes")
+        }
 
 
 def gc_blobs(project: Any, dry_run: bool = False) -> dict[str, Any]:
@@ -361,20 +448,24 @@ def gc_blobs(project: Any, dry_run: bool = False) -> dict[str, Any]:
     therefore reports zero bytes freed. With ``dry_run=True`` even the
     SQLite metadata remains unchanged.
     """
-    referenced = project._referenced_blob_hashes()
-    rows = project.db.execute("SELECT hash, size FROM blobs").fetchall()
-    orphans = [r for r in rows if r["hash"] not in referenced]
-    bytes_freed = 0
-    removed: list[str] = []
-    for r in orphans:
-        if not dry_run:
-            project.db.execute("DELETE FROM blobs WHERE hash=?", (r["hash"],))
-        removed.append(r["hash"])
-    if not dry_run and removed:
-        project.db.commit()
+    with _live_blob_hashes(project, writing=not dry_run) as db:
+        # This list is the existing public result, not a working corpus copy.
+        removed = [
+            row[0]
+            for row in db.execute(
+                "SELECT hash FROM blobs b WHERE NOT EXISTS (SELECT 1 FROM temp.gc_live_blob_hashes live WHERE live.hash=b.hash)"
+            )
+        ]
+        if not dry_run and removed:
+            db.execute(
+                "DELETE FROM blob_derivations WHERE NOT EXISTS (SELECT 1 FROM temp.gc_live_blob_hashes live WHERE live.hash=derived_hash)"
+            )
+            db.execute(
+                "DELETE FROM blobs WHERE NOT EXISTS (SELECT 1 FROM temp.gc_live_blob_hashes live WHERE live.hash=blobs.hash)"
+            )
     return {
         "blobs_removed": len(removed),
-        "bytes_freed": bytes_freed,
+        "bytes_freed": 0,
         "hashes": removed,
         "dry_run": dry_run,
     }
