@@ -7,12 +7,14 @@ from collections.abc import Callable
 from typing import Annotated, Any, Literal
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
+from filelock import Timeout
 from pydantic import BaseModel, ConfigDict, Field
 
 from frisket.contracts.http.import_sessions import (
     ImportSessionList,
     ImportSessionStatus,
 )
+from frisket.engine.store.import_sessions import ImportSessionConflict
 from frisket.server.route_errors import RouteError, http_error_responses
 from frisket.server.services.import_bulk_types import BulkUpload, ImportBulkRouteError
 from frisket.server.services.import_sessions import ImportSessionService
@@ -40,7 +42,17 @@ def _run_async(call: Callable[[], Any]) -> Any:
 def _route_error(exc: Exception) -> RouteError:
     if isinstance(exc, ImportBulkRouteError):
         return exc
+    if isinstance(exc, FileNotFoundError):
+        return RouteError(409, "import session was not found")
     return RouteError(409, str(exc))
+
+
+_EXPECTED_SESSION_CONFLICTS = (
+    ValueError,
+    ImportSessionConflict,
+    Timeout,
+    FileNotFoundError,
+)
 
 
 def register_import_session_routes(
@@ -63,7 +75,7 @@ def register_import_session_routes(
                 body.sheet_name,
                 max_rows=max_rows_for_request(pid, request),
             )
-        except (OSError, RuntimeError, ValueError) as exc:
+        except _EXPECTED_SESSION_CONFLICTS as exc:
             raise _route_error(exc) from exc
 
     @app.get(base, response_model=ImportSessionList, responses=responses)
@@ -74,7 +86,7 @@ def register_import_session_routes(
     async def get_import_session(pid: str, ref: str) -> ImportSessionStatus:
         try:
             return await await_thread_worker(service.status, pid, ref)
-        except (OSError, ValueError) as exc:
+        except _EXPECTED_SESSION_CONFLICTS as exc:
             raise _route_error(exc) from exc
 
     @app.post(
@@ -105,7 +117,7 @@ def register_import_session_routes(
                 _run_async,
                 lambda: service.upload(pid, ref, uploads, batch_id=batch_id),
             )
-        except (OSError, RuntimeError, ValueError) as exc:
+        except _EXPECTED_SESSION_CONFLICTS as exc:
             raise _route_error(exc) from exc
 
     async def transition(
@@ -117,7 +129,7 @@ def register_import_session_routes(
                     _run_async, lambda: operation(pid, ref, **kwargs)
                 )
             return await await_thread_worker(operation, pid, ref, **kwargs)
-        except (OSError, RuntimeError, ValueError) as exc:
+        except _EXPECTED_SESSION_CONFLICTS as exc:
             raise _route_error(exc) from exc
 
     @app.post(
