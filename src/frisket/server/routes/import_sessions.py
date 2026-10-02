@@ -42,6 +42,8 @@ def _run_async(call: Callable[[], Any]) -> Any:
 def _route_error(exc: Exception) -> RouteError:
     if isinstance(exc, ImportBulkRouteError):
         return exc
+    if isinstance(exc, Timeout):
+        return RouteError(409, "Import is busy. Try again.")
     if isinstance(exc, FileNotFoundError):
         return RouteError(409, "import session was not found")
     return RouteError(409, str(exc))

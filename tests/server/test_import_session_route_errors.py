@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+from filelock import Timeout
 
 from frisket.engine.store.import_sessions import ImportSessionConflict
 from frisket.server.app import create_app
@@ -25,6 +26,11 @@ from frisket.server.services.import_sessions import ImportSessionService
             FileNotFoundError("/private/projects/secret/manifest.json"),
             409,
             "import session was not found",
+        ),
+        (
+            Timeout("/private/projects/secret/.worker.lock"),
+            409,
+            "Import is busy. Try again.",
         ),
         (
             OSError("cannot open /private/projects/secret/inventory.db"),
