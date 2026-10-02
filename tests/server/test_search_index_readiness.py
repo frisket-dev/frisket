@@ -221,6 +221,7 @@ def test_semantic_cache_does_not_wait_for_index_writer(tmp_path):
         writer = sqlite3.connect(project.path / "project.search.db")
         try:
             writer.execute("BEGIN IMMEDIATE")
+            # realtime: SQLite lock waits use the real clock, not Python test time.
             started = time.monotonic()
             hits = semantic_search(
                 project,
@@ -230,6 +231,7 @@ def test_semantic_cache_does_not_wait_for_index_writer(tmp_path):
                 rerank="off",
             )
             assert hits and hits[0]["semantic"] is True
+            # realtime: positive bound proves the held writer does not stall search.
             assert time.monotonic() - started < 2
             assert writer.execute("SELECT COUNT(*) FROM cell_vec").fetchone()[0] == 0
         finally:
