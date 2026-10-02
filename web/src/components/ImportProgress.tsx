@@ -7,6 +7,7 @@ import {
   uploadFilesToImportSession,
   type ImportSessionStatus,
 } from '../api/open';
+import { usePoll } from '../hooks/usePoll';
 import {
   forgetImportSelection,
   importSessionSnapshot,
@@ -95,12 +96,11 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
     };
   }, [browserUploadVersion, projectId, refresh]);
 
-  useEffect(() => {
-    if (!sessions.some(isPolling)) return;
-    const controller = new AbortController();
-    const timer = window.setInterval(() => void refresh(controller.signal), POLL_MS);
-    return () => { controller.abort(); window.clearInterval(timer); };
-  }, [refresh, sessions]);
+  usePoll(() => refresh(), {
+    active: sessions.some(isPolling),
+    intervalMs: POLL_MS,
+    guardOverlap: true,
+  });
 
   const command = async (
     session: ImportSessionStatus,
