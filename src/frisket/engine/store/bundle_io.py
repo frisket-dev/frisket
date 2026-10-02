@@ -180,6 +180,8 @@ def _project_manifest_bytes(manifest: dict[str, Any]) -> bytes:
 
 def export_database(project: Any, target_db: str | Path) -> Path:
     """Write a consistent raw SQLite snapshot to a standalone db file."""
+    if project.db.in_transaction:
+        raise RuntimeError("cannot export while this connection has pending writes")
     target = Path(target_db)
     target.parent.mkdir(parents=True, exist_ok=True)
     project.db.execute("PRAGMA wal_checkpoint(PASSIVE)")
@@ -206,6 +208,8 @@ def compact(
     never touched, so undo/redo and provenance stay intact. Returns a
     summary of what was reclaimed.
     """
+    if project.db.in_transaction:
+        raise RuntimeError("cannot compact while this connection has pending writes")
     size_before = project.db_path.stat().st_size if project.db_path.exists() else 0
     if project.retention_policy()["no_compact"] and not force:
         return {

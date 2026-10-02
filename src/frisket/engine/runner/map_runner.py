@@ -979,12 +979,7 @@ class MapRunner:
                         col_map=col_map,
                         out_cols=out_cols,
                         column_types=source_column_types,
-                        op_id=op_id,
-                        run_id=run_id,
-                        writer_attempt_id=(
-                            attempt.attempt_id if attempt is not None else None
-                        ),
-                        claim_token=claim_token,
+                        persist_result_batch=persist_result_batch,
                         progress=progress,
                         required_field_names=required_output_field_names,
                         admitted_work_scope=(
@@ -1893,10 +1888,7 @@ class MapRunner:
         col_map: dict[str, int],
         out_cols: dict[str, int],
         column_types: dict[str, str],
-        op_id: int,
-        run_id: int,
-        writer_attempt_id: str | None,
-        claim_token: str | None,
+        persist_result_batch: Callable[[list[dict[str, Any]]], None],
         progress: RunProgress,
         required_field_names: frozenset[str],
         admitted_work_scope: Mapping[str, Any] | None = None,
@@ -1948,14 +1940,7 @@ class MapRunner:
 
         def flush(force: bool = False) -> None:
             if pending and (force or len({r["row_id"] for r in pending}) >= BATCH_SIZE):
-                self.run_store.write_results(
-                    run_id,
-                    list(pending),
-                    writer_attempt_id=writer_attempt_id,
-                    claim_token=claim_token,
-                    authorized_attempt_id=writer_attempt_id,
-                    claimless_direct_effect=self.claimless_direct_effect,
-                )
+                persist_result_batch(list(pending))
                 pending.clear()
                 if self.on_progress:
                     self.on_progress(progress)

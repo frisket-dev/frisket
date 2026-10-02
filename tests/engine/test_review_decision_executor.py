@@ -15,6 +15,7 @@ from executor_harness import (
     operation_action,
 )
 from frisket.engine.store import Project
+from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.runner.review import review_bundle_page
 from frisket.engine.store.evidence import (
     list_cell_evidence,
@@ -1085,3 +1086,106 @@ def test_review_decision_edit_and_reject_clear_stale_active_evidence(
         }
         assert reject_reasons == {"review_decision_reject_clear"}
         assert rejected_evidence["stale_count"] == 2
+
+
+def test_review_edit_undo_redo_restores_exact_evidence_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with case_env(CASES[0], tmp_path, monkeypatch) as env:
+        project, seeded = env.project, env.seeded
+        row_id = seeded["row_ids"][1]
+        column_id = seeded["risk_column_id"]
+        link = _attach_cell_evidence(project, seeded, row_id)
+
+        edited = env.run(
+            _review_action(
+                run_id=seeded["run_id"],
+                row_id=row_id,
+                column_id=column_id,
+                decision="edit",
+                value="manual-medium",
+                key="review-edit-evidence-history@sha256:v1",
+            )
+        )
+        assert edited.status == "completed", edited.errors
+        assert (
+            resolve_evidence_viewer(project, link["stable_id"])["link"]["status"]
+            == "stale"
+        )
+
+        undone = env.run(
+            operation_action(
+                "operation.undo",
+                key="undo-review-edit-evidence-history@sha256:v1",
+                expected_op_id=edited.op_ids[0],
+            )
+        )
+        assert undone.status == "completed", undone.errors
+        restored = resolve_evidence_viewer(project, link["stable_id"])["link"]
+        assert restored["status"] == "active"
+        assert restored["stale_reason"] is None
+        assert restored["stale_at"] is None
+
+        redone = env.run(
+            operation_action(
+                "operation.redo",
+                key="redo-review-edit-evidence-history@sha256:v1",
+                expected_op_id=edited.op_ids[0],
+            )
+        )
+        assert redone.status == "completed", redone.errors
+        restaled = resolve_evidence_viewer(project, link["stable_id"])["link"]
+        assert restaled["status"] == "stale"
+        assert restaled["stale_reason"] == "review_decision_edit"
+
+
+def test_review_state_only_undo_does_not_dirty_value_search(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with case_env(CASES[0], tmp_path, monkeypatch) as env:
+        project = env.project
+        accepted = env.run_primary()
+        assert accepted.status == "completed", accepted.errors
+        project.db.execute("DELETE FROM search_dirty_scopes")
+        project.db.commit()
+
+        undone = env.run(
+            operation_action(
+                "operation.undo",
+                key="undo-review-without-search@sha256:v1",
+                expected_op_id=accepted.op_ids[0],
+            )
+        )
+
+        assert undone.status == "completed", undone.errors
+        assert (
+            project.db.execute("SELECT COUNT(*) FROM search_dirty_scopes").fetchone()[0]
+            == 0
+        )
+
+
+def test_review_note_undo_retains_output_claim_fencing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with case_env(CASES[1], tmp_path, monkeypatch) as env:
+        project, seeded = env.project, env.seeded
+        noted = env.run_primary()
+        assert noted.status == "completed", noted.errors
+        claims, conflict = OutputColumnClaimStore(project).acquire(
+            sheet_id=seeded["sheet_id"],
+            output_names=["risk"],
+            action_kind="map.python",
+        )
+        assert conflict is None
+        assert len(claims) == 1
+
+        blocked = env.run(
+            operation_action(
+                "operation.undo",
+                key="undo-claimed-review-note@sha256:v1",
+                expected_op_id=noted.op_ids[0],
+            )
+        )
+
+        assert blocked.status == "failed"
+        assert blocked.errors[0].code == "output_column_busy"

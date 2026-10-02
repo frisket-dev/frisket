@@ -43,6 +43,7 @@ def append_op(
     label: str | None = None,
     barrier: bool = False,
     *,
+    undo_info: Mapping[str, Any] | None = None,
     commit: bool = True,
 ) -> int:
     """Append an op. Appending truncates the redo future: any ops after
@@ -52,8 +53,14 @@ def append_op(
     # (otherwise a later undo could resurrect it out of order)
     project.db.execute("UPDATE ops SET status='discarded' WHERE status='undone'")
     cur = project.db.execute(
-        "INSERT INTO ops (kind, label, spec, barrier) VALUES (?, ?, ?, ?)",
-        (kind, label, json.dumps(spec or {}), int(barrier)),
+        "INSERT INTO ops (kind, label, spec, undo_info, barrier) VALUES (?, ?, ?, ?, ?)",
+        (
+            kind,
+            label,
+            json.dumps(spec or {}),
+            json.dumps(dict(undo_info or {})),
+            int(barrier),
+        ),
     )
     op_id = cur.lastrowid
     project.db.execute("UPDATE meta SET value=? WHERE key='op_cursor'", (str(op_id),))
@@ -203,7 +210,10 @@ def step_operation(
             "UPDATE ops SET status='applied' WHERE id=?", (target_op_id,)
         )
         cursor_after = target_op_id
-    ResultGenerationStore(project).rebuild_heads(column_ids, commit=False)
+    projection_column_ids = operation_projection_column_ids(
+        project, target_op_id, undo_info
+    )
+    ResultGenerationStore(project).rebuild_heads(projection_column_ids, commit=False)
     project.db.execute(
         "UPDATE meta SET value=? WHERE key='op_cursor'", (str(cursor_after),)
     )
@@ -304,7 +314,12 @@ def operation_touched_column_ids(
             column_ids.update(int(column_id) for column_id in value)
         elif isinstance(value, list):
             column_ids.update(int(column_id) for column_id in value)
-    for field_name in ("review_states", "review_states_after"):
+    for field_name in (
+        "review_states",
+        "review_states_after",
+        "review_metadata",
+        "review_metadata_after",
+    ):
         value = undo_info.get(field_name)
         if not isinstance(value, dict):
             continue
@@ -312,6 +327,44 @@ def operation_touched_column_ids(
             parts = str(target_key).split(":")
             if len(parts) == 3 and parts[2].isdecimal() and int(parts[2]) > 0:
                 column_ids.add(int(parts[2]))
+    column_ids.update(
+        int(row["column_id"])
+        for row in project.db.execute(
+            "SELECT DISTINCT column_id FROM edits WHERE op_id=?", (op_id,)
+        ).fetchall()
+    )
+    return frozenset(column_ids)
+
+
+def operation_projection_column_ids(
+    project: Any, op_id: int, undo_info: dict[str, Any]
+) -> frozenset[int]:
+    """Columns whose visible value layer can change when an op changes status."""
+
+    column_ids = set(ResultGenerationStore(project).column_ids_for_op(op_id))
+    for sheet_id in undo_info.get("created_sheets") or ():
+        column_ids.update(
+            int(row["id"])
+            for row in project.db.execute(
+                "SELECT id FROM columns WHERE sheet_id=?", (sheet_id,)
+            ).fetchall()
+        )
+    for field_name in (
+        "created_columns",
+        "column_pointers",
+        "column_pointers_after",
+        "column_formats",
+        "column_formats_after",
+        "column_types",
+        "column_types_after",
+        "column_semantic_types",
+        "column_semantic_types_after",
+    ):
+        value = undo_info.get(field_name)
+        if isinstance(value, dict):
+            column_ids.update(int(column_id) for column_id in value)
+        elif isinstance(value, list):
+            column_ids.update(int(column_id) for column_id in value)
     column_ids.update(
         int(row["column_id"])
         for row in project.db.execute(
@@ -421,6 +474,23 @@ def validate_operation_undo_info(undo_info: Any) -> str | None:
                     f"Target operation undo_info.{field_name} must map "
                     "result cell keys to review states"
                 )
+    evidence_links_staled = undo_info.get("evidence_links_staled")
+    if evidence_links_staled is not None and (
+        not isinstance(evidence_links_staled, list)
+        or not all(
+            isinstance(item, dict)
+            and set(item) == {"stable_id", "stale_reason"}
+            and isinstance(item["stable_id"], str)
+            and bool(item["stable_id"])
+            and isinstance(item["stale_reason"], str)
+            and bool(item["stale_reason"])
+            for item in evidence_links_staled
+        )
+    ):
+        return (
+            "Target operation undo_info.evidence_links_staled must be a list of "
+            "stable-id/reason objects"
+        )
     return None
 
 
@@ -533,6 +603,12 @@ def _unapply(project: Any, op: sqlite3.Row) -> None:
         )
         if updated != 1:
             raise ValueError(f"review metadata target not found: {key!r}")
+    for transition in info.get("evidence_links_staled", []):
+        project.db.execute(
+            "UPDATE evidence_links SET status='active',stale_reason=NULL,stale_at=NULL "
+            "WHERE stable_id=? AND status='stale' AND stale_reason=?",
+            (transition["stable_id"], transition["stale_reason"]),
+        )
 
 
 def _reapply(project: Any, op: sqlite3.Row) -> None:
@@ -589,6 +665,12 @@ def _reapply(project: Any, op: sqlite3.Row) -> None:
         )
         if updated != 1:
             raise ValueError(f"review metadata target not found: {key!r}")
+    for transition in info.get("evidence_links_staled", []):
+        project.db.execute(
+            "UPDATE evidence_links SET status='stale',stale_reason=?,"
+            "stale_at=datetime('now') WHERE stable_id=? AND status='active'",
+            (transition["stale_reason"], transition["stable_id"]),
+        )
 
 
 def ops_meta(project: Any, op_ids: list[int]) -> dict[int, dict[str, Any]]:

@@ -87,6 +87,9 @@ def dependent_sheets(project: Any, sheet_id: int) -> list[dict[str, Any]]:
 
 
 def delete_sheet(project: Any, sheet_id: int) -> dict[str, Any]:
+    if project.db.in_transaction:
+        raise RuntimeError("sheet deletion cannot run in a caller-owned transaction")
+
     sheet = project.db.execute(
         "SELECT id, name FROM sheets WHERE id=? AND hidden=0", (sheet_id,)
     ).fetchone()
@@ -110,42 +113,32 @@ def delete_sheet(project: Any, sheet_id: int) -> dict[str, Any]:
             f"cannot delete {sheet['name']!r} while it has a run in progress"
         )
 
-    run_ids = [
-        int(row["id"])
-        for row in project.db.execute(
-            "SELECT id FROM runs WHERE sheet_id=?", (sheet_id,)
-        )
-    ]
-    artifact_ids = [
-        int(row["id"])
-        for row in project.db.execute(
-            "SELECT id FROM source_artifacts WHERE source_sheet_id=?", (sheet_id,)
-        )
-    ]
-
     with project.db:
-        if artifact_ids:
-            marks = ",".join("?" for _ in artifact_ids)
-            project.db.execute(
-                f"DELETE FROM artifact_timeline_segments WHERE "
-                f"derived_artifact_id IN ({marks}) OR source_artifact_id IN ({marks})",
-                (*artifact_ids, *artifact_ids),
-            )
-            project.db.execute(
-                f"DELETE FROM source_artifacts WHERE id IN ({marks})", artifact_ids
-            )
+        project.db.execute(
+            "DELETE FROM artifact_timeline_segments WHERE "
+            "derived_artifact_id IN ("
+            "SELECT id FROM source_artifacts WHERE source_sheet_id=?"
+            ") OR source_artifact_id IN ("
+            "SELECT id FROM source_artifacts WHERE source_sheet_id=?"
+            ")",
+            (sheet_id, sheet_id),
+        )
+        project.db.execute(
+            "DELETE FROM source_artifacts WHERE source_sheet_id=?", (sheet_id,)
+        )
 
-        if run_ids:
-            marks = ",".join("?" for _ in run_ids)
-            # Generation rows deliberately RESTRICT both their owning and base
-            # runs. A whole-sheet delete removes those declarations before the
-            # runs and columns they describe.
-            project.db.execute(
-                f"DELETE FROM run_output_generations WHERE run_id IN ({marks}) "
-                f"OR expected_base_run_id IN ({marks})",
-                (*run_ids, *run_ids),
-            )
-            project.db.execute(f"DELETE FROM runs WHERE id IN ({marks})", run_ids)
+        # Generation rows deliberately RESTRICT both their owning and base
+        # runs. A whole-sheet delete removes those declarations before the
+        # runs and columns they describe.
+        project.db.execute(
+            "DELETE FROM run_output_generations WHERE run_id IN ("
+            "SELECT id FROM runs WHERE sheet_id=?"
+            ") OR expected_base_run_id IN ("
+            "SELECT id FROM runs WHERE sheet_id=?"
+            ")",
+            (sheet_id, sheet_id),
+        )
+        project.db.execute("DELETE FROM runs WHERE sheet_id=?", (sheet_id,))
 
         project.db.execute("DELETE FROM sheets WHERE id=?", (sheet_id,))
         project.db.execute(

@@ -8,8 +8,9 @@ from typing import Any, Mapping
 
 from frisket.contracts.action import ActionError
 from frisket.engine.executor.action_inventory import _TypedProjectEnvelope
-from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
-from frisket.engine.store.evidence import mark_evidence_stale_for_cell_refs
+from frisket.engine.store.edit_overlays import (
+    write_edit_overlay as write_store_edit_overlay,
+)
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 
 
@@ -83,22 +84,19 @@ def write_edit_overlay(
     spec: Mapping[str, Any],
     targets: list[dict[str, Any]],
     stale_reason: str = "manual_cell_edit",
+    undo_info: Mapping[str, Any] | None = None,
+    kind: str = "edit",
 ) -> int:
-    op_id = write_op(cur, kind="edit", label=label, spec=spec, undo_info={})
-    insert_edits(
-        project.db,
-        op_id=op_id,
-        edits=[
-            EditCellWrite(
-                row_id=int(target["row_id"]),
-                column_id=int(target["column_id"]),
-                value=target["value_after"],
-            )
-            for target in targets
-        ],
+    del cur
+    return write_store_edit_overlay(
+        project,
+        kind=kind,
+        label=label,
+        spec=spec,
+        targets=targets,
+        stale_reason=stale_reason,
+        undo_info=undo_info,
     )
-    mark_evidence_stale_for_cell_refs(project, targets, reason=stale_reason)
-    return op_id
 
 
 def claimed_column(

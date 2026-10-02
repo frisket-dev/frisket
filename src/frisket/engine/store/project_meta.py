@@ -318,10 +318,18 @@ UNREADABLE_RETENTION_POLICY: dict[str, Any] = {
 
 
 def _ensure_retention_policy(project: Any) -> dict[str, Any]:
+    policy = _read_retention_policy(project)
+    if policy is None:
+        return dict(UNREADABLE_RETENTION_POLICY)
+    return _persist_retention_policy(project, policy)
+
+
+def _read_retention_policy(project: Any) -> dict[str, Any] | None:
+    """Read without writes; None preserves an unreadable stored policy."""
     raw = project.get_meta(RETENTION_POLICY_META_KEY)
     if raw:
         try:
-            return _persist_retention_policy(project, json.loads(raw))
+            return _normalize_retention_policy(json.loads(raw))
         except (json.JSONDecodeError, ValueError):
             _log.warning(
                 "meta key %r does not parse as a retention policy; reading it "
@@ -329,9 +337,9 @@ def _ensure_retention_policy(project: Any) -> dict[str, Any]:
                 "policy explicitly to repair it.",
                 RETENTION_POLICY_META_KEY,
             )
-            return dict(UNREADABLE_RETENTION_POLICY)
+            return None
     manifest_policy = _read_manifest(project).get("retention")
-    return _persist_retention_policy(project, manifest_policy)
+    return _normalize_retention_policy(manifest_policy)
 
 
 def retention_policy(project: Any) -> dict[str, Any]:
@@ -343,7 +351,8 @@ def retention_policy(project: Any) -> dict[str, Any]:
     :data:`UNREADABLE_RETENTION_POLICY` (fail closed) and is left on disk
     untouched.
     """
-    return project._ensure_retention_policy()
+    policy = _read_retention_policy(project)
+    return dict(UNREADABLE_RETENTION_POLICY) if policy is None else policy
 
 
 def set_retention_policy(

@@ -362,7 +362,7 @@ def _managed_embedding_exports(
     store = ReceiptStore(project)
     export_dir = embedding_export_dir(project)
     offset = 0
-    while rows := store.recent_metadata_page(limit=100, offset=offset):
+    while rows := store.recent_page(limit=100, offset=offset):
         offset += len(rows)
         for row in rows:
             if row.status != "completed":
