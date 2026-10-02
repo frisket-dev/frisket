@@ -132,6 +132,10 @@ describe('DocumentView loading state', () => {
             { rowId: '2', ordinal: 2, title: 'Empty text', titleTruncated: false,
               sourceKind: 'annotated_text', sourcePresent: false, sourceLabel: null,
               sourceLabelTruncated: false, characterCount: null },
+            { rowId: '3', ordinal: 3, title: 'Remote image', titleTruncated: false,
+              sourceKind: 'image', sourcePresent: true,
+              sourceLabel: 'https://picsum.photos/seed/example/240/160',
+              sourceLabelTruncated: false, characterCount: null },
           ],
           nextCursor: null, previousCursor: null,
         })}
@@ -142,7 +146,10 @@ describe('DocumentView loading state', () => {
     );
     await waitFor(() => expect(screen.getAllByText('No document').length).toBeGreaterThanOrEqual(2));
     expect(screen.getByText('Empty')).toBeVisible();
-    expect(screen.getAllByTestId('document-list-item').every((node) => node.dataset.hasMedia === 'false')).toBe(true);
+    expect(screen.getByText('IMAGE')).toBeVisible();
+    expect(screen.queryByText('160')).toBeNull();
+    expect(screen.getAllByTestId('document-list-item').slice(0, 2)
+      .every((node) => node.dataset.hasMedia === 'false')).toBe(true);
   });
 
   it('shows active media hydration progress instead of an empty-document flash', async () => {

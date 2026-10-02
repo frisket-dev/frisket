@@ -132,6 +132,42 @@ describe('useDocumentView bounded paging', () => {
     expect(queryDocuments).toHaveBeenNthCalledWith(1, expect.objectContaining({ anchorRowId: '99' }));
     expect(queryDocuments).toHaveBeenNthCalledWith(2, expect.objectContaining({ anchorRowId: undefined }));
   });
+
+  it('restarts from the first page when a continuation cursor is invalid', async () => {
+    const badCursor = Object.assign(new Error('stale cursor'), { status: 400 });
+    const queryDocuments = vi.fn(({ cursor }: { cursor?: string }) => {
+      if (cursor) return Promise.reject(badCursor);
+      return Promise.resolve(queryDocuments.mock.calls.length === 1
+        ? page([1], null, 'bad') : page([9], null, null));
+    });
+    const { result } = renderHook(() => useDocumentView(hookArgs({ queryDocuments })));
+    await waitFor(() => expect(result.current.items[0]?.rowId).toBe('1'));
+    act(() => { void result.current.loadMore(); });
+    await waitFor(() => expect(result.current.items[0]?.rowId).toBe('9'));
+    expect(result.current.list.error).toBeNull();
+  });
+
+  it('preserves the viewport anchor when a forward page evicts the first page', async () => {
+    const ids = (start: number) => Array.from({ length: 100 }, (_, index) => start + index);
+    const queryDocuments = vi.fn(async ({ cursor }: { cursor?: string }) => {
+      const pageNumber = cursor ? Number(cursor.slice(1)) : 1;
+      return page(ids((pageNumber - 1) * 100 + 1), pageNumber > 1 ? `p${pageNumber - 1}` : null,
+        pageNumber < 4 ? `p${pageNumber + 1}` : null);
+    });
+    const { result } = renderHook(() => useDocumentView(hookArgs({ queryDocuments })));
+    await waitFor(() => expect(result.current.items).toHaveLength(100));
+    act(() => { void result.current.loadMore(); });
+    await waitFor(() => expect(result.current.items).toHaveLength(200));
+    act(() => { void result.current.loadMore(); });
+    await waitFor(() => expect(result.current.items).toHaveLength(300));
+    const viewport = document.createElement('div');
+    Object.defineProperty(viewport, 'clientHeight', { value: 600 });
+    viewport.scrollTop = 12000;
+    Object.defineProperty(result.current.listBodyRef, 'current', { value: viewport, configurable: true });
+    act(() => { void result.current.loadMore(); });
+    await waitFor(() => expect(result.current.items[0]?.rowId).toBe('101'));
+    expect(viewport.scrollTop).toBe(6000);
+  });
 });
 
 describe('DocumentAlongsidePane hydration', () => {

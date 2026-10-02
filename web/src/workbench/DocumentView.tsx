@@ -15,6 +15,7 @@ import { useDocumentView } from './useDocumentView';
 import { LIST_ITEM_HEIGHT } from './useWindowedRowList';
 import { PanelLoading } from '../components/PanelPrimitives';
 import { PanelSelect } from '../components/PanelSelect';
+import { mediaFilename } from '../media/resolveMediaValue';
 
 interface DocumentViewProps {
   projectId: string;
@@ -360,7 +361,10 @@ export function DocumentView({
                     ? 'No document'
                   : count != null
                     ? `${count} page${count === 1 ? '' : 's'}`
-                    : item.sourceLabel || 'No document';
+                    : item.sourceLabel
+                      ? mediaFilename({ url: item.sourceLabel, label: item.sourceLabel })
+                        ?? item.sourceKind.toUpperCase()
+                      : 'No document';
               return (
                 <button
                   type="button"

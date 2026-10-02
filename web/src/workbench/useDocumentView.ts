@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { DocumentListItem, DocumentListPage, Row, SheetMeta } from '../api/types';
 import { resolveMediaValue } from '../media/resolveMediaValue';
 import type { DocumentViewState } from '../workspace/useWorkspaceChromeState';
 import { documentMediaKind, documentSources } from './documentMedia';
 import { resolveTitleColumn } from './rowTitle';
-import { useWindowedRowList } from './useWindowedRowList';
+import { LIST_ITEM_HEIGHT, useWindowedRowList } from './useWindowedRowList';
 import { timedTranscriptColumnIds } from './timedTranscriptModel';
 
 const PAGE_SIZE = 100;
@@ -61,6 +61,7 @@ export function useDocumentView(args: UseDocumentViewArgs) {
   const hydrateRowRef = useRef(hydrateRow);
   const listGeneration = useRef(0);
   const boundaryPending = useRef(false);
+  const viewportAdjustment = useRef<{ delta: number; rowId: string | null } | null>(null);
   useEffect(() => { queryDocumentsRef.current = queryDocuments; }, [queryDocuments]);
   useEffect(() => { hydrateRowRef.current = hydrateRow; }, [hydrateRow]);
 
@@ -115,6 +116,16 @@ export function useDocumentView(args: UseDocumentViewArgs) {
       const page = await queryDocumentsRef.current({ sourceColumnId: String(sourceColumn.id),
         titleColumnId: titleColumn ? String(titleColumn.id) : null, query, cursor, limit: PAGE_SIZE });
       if (generation !== listGeneration.current) return;
+      const evicting = visibleList.pages.length >= MAX_PAGES;
+      viewportAdjustment.current = {
+        delta: !evicting ? (direction === 'previous' ? page.items.length * LIST_ITEM_HEIGHT : 0)
+          : direction === 'next'
+            ? -(visibleList.pages[0]?.items.length ?? 0) * LIST_ITEM_HEIGHT
+            : page.items.length * LIST_ITEM_HEIGHT,
+        rowId: selectBoundary && page.items.length
+          ? (direction === 'next' ? page.items[0].rowId : page.items.at(-1)!.rowId)
+          : null,
+      };
       setList((prev) => {
         if (prev.key !== requestKey) return prev;
         let pages = direction === 'next' ? [...prev.pages, page] : [page, ...prev.pages];
@@ -129,8 +140,23 @@ export function useDocumentView(args: UseDocumentViewArgs) {
       }
     } catch (error) {
       if (generation === listGeneration.current) {
-        setList((prev) => prev.key === requestKey ? ({ ...prev, loading: false,
-          error: error instanceof Error ? error.message : 'Could not load documents.' }) : prev);
+        if (typeof error === 'object' && error !== null && 'status' in error && error.status === 400) {
+          const restartGeneration = ++listGeneration.current;
+          try {
+            const page = await queryDocumentsRef.current({ sourceColumnId: String(sourceColumn.id),
+              titleColumnId: titleColumn ? String(titleColumn.id) : null, query, limit: PAGE_SIZE });
+            if (restartGeneration === listGeneration.current) {
+              setList({ key: listKey, pages: [page], pinned: null, loading: false, error: null });
+            }
+          } catch (restartError) {
+            if (restartGeneration === listGeneration.current) setList((prev) => prev.key === requestKey
+              ? { ...prev, loading: false, error: restartError instanceof Error
+                ? restartError.message : 'Could not load documents.' } : prev);
+          }
+        } else {
+          setList((prev) => prev.key === requestKey ? ({ ...prev, loading: false,
+            error: error instanceof Error ? error.message : 'Could not load documents.' }) : prev);
+        }
       }
     } finally {
       boundaryPending.current = false;
@@ -198,6 +224,23 @@ export function useDocumentView(args: UseDocumentViewArgs) {
     rows: items.map((item) => ({ ...item, id: item.rowId })), activeId: activeRowId,
     onSelect: selectDocument, onBoundary: (direction) => void navigateBoundary(direction),
   });
+  useLayoutEffect(() => {
+    const adjustment = viewportAdjustment.current;
+    const node = listBodyRef.current;
+    if (!adjustment || !node) return;
+    viewportAdjustment.current = null;
+    const selectedIndex = adjustment.rowId
+      ? items.findIndex((item) => item.rowId === adjustment.rowId) : -1;
+    if (selectedIndex >= 0) {
+      const top = selectedIndex * LIST_ITEM_HEIGHT;
+      const bottom = top + LIST_ITEM_HEIGHT;
+      if (top < node.scrollTop) node.scrollTop = top;
+      else if (bottom > node.scrollTop + node.clientHeight) node.scrollTop = bottom - node.clientHeight;
+    } else {
+      node.scrollTop = Math.max(0, node.scrollTop + adjustment.delta);
+    }
+    node.dispatchEvent(new Event('scroll'));
+  }, [items, listBodyRef]);
   const setState = useCallback((patch: Partial<DocumentViewState>) => onChangeState({ ...state, ...patch }), [state, onChangeState]);
   return { sources, source, sourceColumn, defaultTitleColumn, titleColumn, list: visibleList, items,
     pageCounts, search, setSearch, optionsOpen, setOptionsOpen, listBodyRef, activeRowId, activeItem,
