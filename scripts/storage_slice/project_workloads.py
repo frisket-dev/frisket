@@ -189,7 +189,7 @@ def run_grid_workload(
             "expected": expected["date_asc_record_ids"],
         },
         "filter_0_1_percent": {
-            "filter_": json.dumps({"record_id": {"gte": narrow_start}}),
+            "filter_": json.dumps({"record_id": {"gte": str(narrow_start)}}),
             "expected": list(range(narrow_start, min(rows, narrow_start + 49) + 1)),
             "total": rows - narrow_start + 1,
         },
@@ -305,7 +305,8 @@ def run_analytics_workload(
             }
             for metric, value in wanted.items():
                 _assert_metric(group["metrics"][metric], value)
-            assert group["quality"][str(columns["amount"])] == {
+            quality = group.get("quality", result.get("quality", {}))
+            assert quality[str(columns["amount"])] == {
                 "column_id": columns["amount"],
                 "present": facts["valid"],
                 "missing": facts["missing"],
@@ -363,10 +364,10 @@ def assert_edit_values(
             expected = edit["value"] if edited else edit["before"]
             assert values.get(row_id) == expected
             if edited:
-                assert refs[row_id]["origin_kind"] == "manual_edit"
-                assert int(refs[row_id]["origin_op_id"]) == int(edit["op_id"])
+                assert refs[row_id]["kind"] == "manual_edit"
+                assert int(refs[row_id]["op_id"]) == int(edit["op_id"])
             elif expected is not None:
-                assert refs[row_id]["origin_kind"] == "source_cell"
+                assert refs[row_id]["kind"] == "source_cell"
 
 
 def _timed_search(project: Project, token: str, expected_row_id: int) -> dict[str, Any]:

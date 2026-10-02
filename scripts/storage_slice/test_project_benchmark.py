@@ -27,6 +27,15 @@ class ProjectQualificationTests(unittest.TestCase):
         self.assertTrue(result["owned_scratch_removed"])
         self.assertEqual(result["fixture"]["amount_states"]["missing"], 20)
         self.assertEqual(result["fixture"]["amount_states"]["invalid"], 20)
+        self.assertEqual(len(result["search"]) - 1, 4)
+        self.assertEqual(len(result["grid_queries"]), 8)
+        self.assertEqual(len(result["analytics"]), 2)
+        self.assertEqual(result["mutations"]["ordinary"]["count"], 5)
+        self.assertEqual(result["mutations"]["batch"]["count"], 20)
+        self.assertEqual(result["history"]["total"], 7)
+        self.assertEqual(len(result["checkpoint_reopen"]["grid"]), 8)
+        self.assertEqual(len(result["checkpoint_reopen"]["analytics"]), 2)
+        self.assertEqual(result["checkpoint_reopen"]["history"]["total"], 7)
 
     def test_sampler_interrupts_an_active_sqlite_query(self):
         with tempfile.TemporaryDirectory() as raw:

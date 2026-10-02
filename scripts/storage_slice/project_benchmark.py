@@ -241,7 +241,7 @@ def _check_values(
                 "invalid" if expected[name] == "not-stated" else "valid"
             )
             if origin_kind is not None:
-                assert refs[row_id]["origin_kind"] == origin_kind
+                assert refs[row_id]["kind"] == origin_kind
 
 
 def _verify_persisted_corpus(
