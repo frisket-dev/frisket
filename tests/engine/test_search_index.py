@@ -194,7 +194,7 @@ def test_nonsearchable_columns_do_not_scan_cell_corpus(tmp_path, size):
         ]
         project.add_rows(sheet, records, columns)
         progress = index_batch(project, batch_size=5)
-        assert progress.complete and progress.processed == 0
+        assert progress.complete and progress.processed <= 1
         # Explicit column-range invalidations from a subsequent append must
         # also skip live values, not only the initial whole-project walk.
         project.add_rows(sheet, records, columns)
@@ -223,3 +223,87 @@ def test_former_text_column_purges_only_previously_indexed_cells(documents):
             break
     assert progress.complete and processed <= len(rows) + 3
     assert search_project(project, "needle", rerank="off") == []
+
+
+def test_one_quantum_drains_many_tiny_scopes(documents):
+    project, sheet, column, _ = documents
+    drain_index(project)
+    for i in range(30):
+        project.add_rows(sheet, [{"body": f"newneedle {i}"}], {"body": column})
+    progress = index_batch(project, batch_size=100)
+    assert progress.complete and progress.processed <= 100
+    assert len(search_project(project, "newneedle", rerank="off")) == 30
+
+
+def test_byte_budget_loads_only_cells_it_can_process(tmp_path, monkeypatch):
+    project = Project.create(tmp_path / "bytes.frisket", name="bytes")
+    try:
+        sheet = project.add_sheet("Documents")
+        column = project.add_column(sheet, "body")
+        project.add_rows(
+            sheet,
+            [{"body": "x" * (1536 * 1024) + f" tailneedle{i}"} for i in range(3)],
+            {"body": column},
+        )
+        loaded = []
+        read = maintenance._read_cell
+
+        def observe(*args):
+            loaded.append(args[-1])
+            return read(*args)
+
+        monkeypatch.setattr(maintenance, "_read_cell", observe)
+        progress = index_batch(project)
+        assert not progress.complete
+        assert 3 * 1024 * 1024 < progress.processed_bytes < 4 * 1024 * 1024
+        assert len(loaded) == 2
+        drain_index(project)
+        assert len(loaded) == 3
+        assert search_project(project, "tailneedle2", rerank="off")
+    finally:
+        project.close()
+
+
+def test_single_oversized_cell_keeps_full_searchable_content(tmp_path):
+    project = Project.create(tmp_path / "oversized.frisket", name="oversized")
+    try:
+        sheet = project.add_sheet("Documents")
+        column = project.add_column(sheet, "body")
+        project.add_rows(
+            sheet,
+            [
+                {"body": "x" * (5 * 1024 * 1024) + " oversizedtail"},
+                {"body": "nextcell"},
+            ],
+            {"body": column},
+        )
+        first = index_batch(project)
+        assert first.processed == 1 and first.processed_bytes > 4 * 1024 * 1024
+        assert not first.complete
+        drain_index(project)
+        assert search_project(project, "oversizedtail", rerank="off")
+        assert search_project(project, "nextcell", rerank="off")
+    finally:
+        project.close()
+
+
+def test_concurrent_scope_replacement_survives_deferred_ack(documents, monkeypatch):
+    project, _, column, rows = documents
+    drain_index(project)
+    project.apply_edits([{"row_id": rows[0], "column_id": column, "value": "first"}])
+    replace = maintenance._replace_cell
+    changed = False
+
+    def replace_then_change(*args):
+        nonlocal changed
+        replace(*args)
+        if not changed:
+            changed = True
+            project.apply_edits(
+                [{"row_id": rows[0], "column_id": column, "value": "concurrentneedle"}]
+            )
+
+    monkeypatch.setattr(maintenance, "_replace_cell", replace_then_change)
+    assert not index_batch(project).complete
+    drain_index(project)
+    assert search_project(project, "concurrentneedle", rerank="off")

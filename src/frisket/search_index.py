@@ -32,6 +32,7 @@ class IndexProgress:
     processed: int
     pending: bool
     complete: bool
+    processed_bytes: int = 0
 
 
 def source_hash(value: str) -> str:
@@ -64,14 +65,16 @@ def index_needs_work(project: Project) -> bool:
     path = project.path / "project.search.db"
     if not path.is_file():
         return True
-    db = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True, timeout=0)
+    db = None
     try:
+        db = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True, timeout=0)
         db.execute("BEGIN")
         return not index_is_complete(db, project)
     except sqlite3.DatabaseError:
         return True
     finally:
-        db.close()
+        if db is not None:
+            db.close()
 
 
 def _next_column(source, index, scope, after: int) -> int | None:
@@ -109,8 +112,8 @@ def _column_page(
     params = (column, lower, upper, limit)
     live = (
         source.execute(
-            "SELECT cc.row_id,cc.value,cc.validity,r.hidden FROM current_cells cc "
-            "JOIN rows r ON r.id=cc.row_id "
+            "SELECT cc.row_id,length(CAST(cc.value AS BLOB)) AS value_bytes "
+            "FROM current_cells cc "
             "WHERE cc.column_id=? AND cc.row_id>? AND cc.row_id<=? "
             "ORDER BY cc.row_id LIMIT ?",
             params,
@@ -124,7 +127,15 @@ def _column_page(
         params,
     ).fetchall()
     ids = sorted({int(row[0]) for row in live} | {int(row[0]) for row in old})[:limit]
-    return ids, {int(row[0]): row for row in live}
+    return ids, {int(row[0]): int(row[1] or 0) for row in live}
+
+
+def _read_cell(source, column: int, row: int):
+    return source.execute(
+        "SELECT cc.value,cc.validity,r.hidden FROM current_cells cc "
+        "JOIN rows r ON r.id=cc.row_id WHERE cc.column_id=? AND cc.row_id=?",
+        (column, row),
+    ).fetchone()
 
 
 def _column_descriptor(source, column: int):
@@ -178,13 +189,14 @@ def index_batch(
     project: Project,
     *,
     batch_size: int = 500,
+    max_bytes: int = 4 * 1024 * 1024,
     cancel_event: threading.Event | None = None,
 ) -> IndexProgress:
     """Reconcile a bounded page; acknowledge only after durable index commit."""
     from frisket.search import FTS_INDEX_CONTENT_VERSION, _raise_if_cancelled, _sidecar
 
-    if batch_size < 1:
-        raise ValueError("batch_size must be positive")
+    if batch_size < 1 or max_bytes < 1:
+        raise ValueError("batch_size and max_bytes must be positive")
     if project.db.in_transaction:
         raise RuntimeError("index maintenance requires its own source transaction")
     index = _sidecar(project)
@@ -209,74 +221,102 @@ def index_batch(
         # indexer may replay a page, but cannot publish an older snapshot over it.
         snapshot = project.read_snapshot()
         revision = latest_revision(snapshot.db)
-        scopes = read_dirty_scopes(snapshot.db, limit=2)
-        processed = 0
-        exhausted = True
-        scope = scopes[0] if scopes else None
-        cursor = None
-        if scope is not None:
+        # Every scope consumes at least one unit. The extra record proves
+        # whether the completed prefix really exhausted the worklist.
+        scopes = read_dirty_scopes(snapshot.db, limit=batch_size + 1)
+        processed = processed_bytes = 0
+        checkpoints = []
+        if scopes:
             index.execute("DELETE FROM fts_state WHERE key='complete_revision'")
+        for scope in scopes:
+            if processed >= batch_size or processed_bytes >= max_bytes:
+                break
             column, row = json.loads(scope.scan_cursor)
             if column == 0:
                 column = _next_column(snapshot.db, index, scope, 0)
+            before_scope = processed
+            byte_limit_reached = False
             while column is not None and processed < batch_size:
                 _raise_if_cancelled(cancel_event)
                 descriptor = _column_descriptor(snapshot.db, column)
-                ids, cells = _column_page(
+                remaining = batch_size - processed
+                ids, sizes = _column_page(
                     snapshot.db,
                     index,
                     scope,
                     column,
                     row,
-                    batch_size - processed,
+                    remaining,
                     searchable=descriptor is not None,
                 )
                 for row_id in ids:
                     _raise_if_cancelled(cancel_event)
-                    _replace_cell(index, column, row_id, cells.get(row_id), descriptor)
+                    size = sizes.get(row_id, 0)
+                    # One oversized cell can always make progress. Never load
+                    # a second cell that would exceed the quantum byte budget.
+                    if processed_bytes and processed_bytes + size > max_bytes:
+                        byte_limit_reached = True
+                        break
+                    cell = (
+                        _read_cell(snapshot.db, column, row_id)
+                        if row_id in sizes
+                        else None
+                    )
+                    _replace_cell(index, column, row_id, cell, descriptor)
+                    del cell
                     processed += 1
+                    processed_bytes += size
                     row = row_id
-                if ids:
-                    cursor = json.dumps([column, row])
-                    exhausted = False
-                else:
-                    # Empty/deleted columns also consume bounded maintenance
-                    # work, so a schema with many empty columns cannot monopolize a job.
-                    processed += 1
+                    if processed_bytes >= max_bytes:
+                        byte_limit_reached = True
+                        break
+                if byte_limit_reached:
+                    break
+                if len(ids) < remaining:
+                    # Both identity scans are exhausted for this column.
+                    if not ids:
+                        processed += 1
                     column = _next_column(snapshot.db, index, scope, column)
                     row = 0
-                    exhausted = column is None
-                    if column is not None:
-                        cursor = json.dumps([column, 0])
-            if column is None:
-                exhausted = True
-        complete = exhausted and len(scopes) <= 1
+            if processed == before_scope and column is None:
+                processed += 1
+            exhausted = column is None
+            cursor = None if exhausted else json.dumps([column, row])
+            checkpoints.append((scope, cursor))
+            if not exhausted:
+                break
+        complete = len(checkpoints) == len(scopes) and all(
+            cursor is None for _, cursor in checkpoints
+        )
         if complete:
             _set_state(index, "complete_revision", revision)
             _set_state(index, "indexed_at_op", snapshot.op_cursor)
         index.commit()
         snapshot.close()
         snapshot = None
-        if scope is not None:
+        if checkpoints:
             project.db.execute("BEGIN IMMEDIATE")
             try:
-                if exhausted:
-                    ack_dirty_scope(
-                        project.db, scope_id=scope.id, expected_cursor=scope.scan_cursor
-                    )
-                else:
-                    advance_dirty_scope(
-                        project.db,
-                        scope_id=scope.id,
-                        expected_cursor=scope.scan_cursor,
-                        scan_cursor=cursor,
-                    )
+                for scope, cursor in checkpoints:
+                    if cursor is None:
+                        ack_dirty_scope(
+                            project.db,
+                            scope_id=scope.id,
+                            expected_cursor=scope.scan_cursor,
+                        )
+                    else:
+                        advance_dirty_scope(
+                            project.db,
+                            scope_id=scope.id,
+                            expected_cursor=scope.scan_cursor,
+                            scan_cursor=cursor,
+                        )
                 project.db.commit()
             except BaseException:
                 project.db.rollback()
                 raise
         complete = complete and latest_revision(project.db) == revision
-        return IndexProgress(processed, not complete, complete)
+        return IndexProgress(processed, not complete, complete, processed_bytes)
     except BaseException:
         index.rollback()
         raise
