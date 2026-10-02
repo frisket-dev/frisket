@@ -23,7 +23,10 @@ from frisket.querysets import resolve_sheet_filter_rows
 from frisket.search import search_project_page
 from frisket.search_index import index_batch
 from frisket.server.run_payloads import history_page_payload
-from frisket.server.services.project_qa_analytics import evaluate_analytics
+from frisket.server.services.project_qa_analytics import (
+    AnalyticsCancelled,
+    evaluate_analytics,
+)
 
 from .benchmark import PhaseSampler, current_rss_kib, directory_bytes
 from .fixtures import stress_project_marker, stress_project_records
@@ -148,7 +151,7 @@ def _governed_query(project: Project, sampler: PhaseSampler, soft_scratch: int, 
     sampler.on_limit = project.db.interrupt
     try:
         value = call()
-    except sqlite3.OperationalError as exc:
+    except (AnalyticsCancelled, sqlite3.OperationalError) as exc:
         if sampler.hard_limit.is_set():
             raise ResourceStop(
                 sampler.limit_reason or "sampled resource limit reached"

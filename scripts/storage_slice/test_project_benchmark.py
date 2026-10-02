@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from frisket.engine.store import Project
+from frisket.server.services.project_qa_analytics import evaluate_analytics
 
 from .benchmark import PhaseSampler
 from .fixtures import stress_project_marker, stress_project_records
@@ -54,6 +55,36 @@ class ProjectQualificationTests(unittest.TestCase):
                     _governed_query(project, sampler, 512 * 1024**2, long_query)
             finally:
                 sampler.stop()
+                project.close()
+
+    def test_analytics_cancellation_becomes_resource_stop(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            project = Project.create(root / "analytics-interrupt.frisket")
+            sheet = project.add_sheet("records")
+            amount = project.add_column(sheet, "amount", type="integer")
+            project.add_rows(sheet, [{"amount": 1}], {"amount": amount})
+            sampler = PhaseSampler(root, hard_limit_bytes=1024**3)
+
+            def cancelled_analytics():
+                sampler.limit_reason = "forced analytics limit"
+                sampler.hard_limit.set()
+                return evaluate_analytics(
+                    project,
+                    {
+                        "sheet_id": sheet,
+                        "metrics": [{"id": "sum", "kind": "sum", "column_id": amount}],
+                    },
+                    {"kind": "sheet", "sheet_id": sheet},
+                    cancel_event=sampler.hard_limit,
+                )
+
+            try:
+                with self.assertRaisesRegex(ResourceStop, "forced analytics limit"):
+                    _governed_query(
+                        project, sampler, 512 * 1024**2, cancelled_analytics
+                    )
+            finally:
                 project.close()
 
 

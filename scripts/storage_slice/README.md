@@ -51,6 +51,13 @@ explicitly with `git restore --source=e66f6299f678a9fb2fa646d0e9d64cd6736750c8`
 onto base `aa5201b2fc2abe26a03f1547721ca715ba7baaf9`; no prior production tree was
 merged. The actual-Project runner and its smoke test were added on that base.
 
+After two review rounds on correctness and resource handling, the
+proportionality checkpoint kept the same architecture: one streamed import,
+one paged full readback, and one sampler that interrupts active SQL. The only
+second-round repair adapts Frisket's existing `AnalyticsCancelled` exception
+to the runner's structured resource-stop result; no additional monitor or
+test framework was introduced.
+
 An opt-in experiment comparing **typed SQLite and native DuckDB**, using the
 same logical document, extraction, review, and citation operations. Nothing in
 the application imports this package; existing Frisket projects are untouched.
