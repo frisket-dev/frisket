@@ -189,15 +189,21 @@ def test_resumable_session_preserves_reserved_receipt_through_terminalization(
             for item in parsed.evidence
         )
         assert "bounded parser warning" in parsed.warnings
-        assert terminal_receipt.status == {
-            "completed": "completed",
-            "kept": "partial",
-            "removed": "cancelled",
-        }[terminal]
-        assert project.db.execute(
-            "SELECT edition_run_context FROM receipts WHERE id=?",
-            (reserved.receipt_id,),
-        ).fetchone()[0] == '{"edition": "desktop"}'
+        assert (
+            terminal_receipt.status
+            == {
+                "completed": "completed",
+                "kept": "partial",
+                "removed": "cancelled",
+            }[terminal]
+        )
+        assert (
+            project.db.execute(
+                "SELECT edition_run_context FROM receipts WHERE id=?",
+                (reserved.receipt_id,),
+            ).fetchone()[0]
+            == '{"edition": "desktop"}'
+        )
     finally:
         project.close()
 
@@ -272,10 +278,18 @@ def test_cancelled_session_can_remove_only_its_visible_sheet(tmp_path: Path) -> 
     try:
         writer = _start_session(project)
         writer.append_page(_records(0, 2), expected_cursor=0, next_cursor=2)
-        project.db.execute(
+        project.db.executemany(
             "INSERT INTO source_artifacts "
             "(stable_id,artifact_kind,media_type,source_sheet_id) VALUES (?,?,?,?)",
-            ("artifact:session", "file", "application/pdf", writer.sheet_id),
+            [
+                (
+                    f"artifact:session:{index}",
+                    "file",
+                    "application/pdf",
+                    writer.sheet_id,
+                )
+                for index in range(130)
+            ],
         )
         project.db.execute(
             "INSERT INTO evidence_links "
@@ -289,6 +303,9 @@ def test_cancelled_session_can_remove_only_its_visible_sheet(tmp_path: Path) -> 
             ),
         )
         project.db.commit()
+        # Removal must not materialize every artifact ID into SQL parameters.
+        # This proves corpus-sized cancellation works under SQLite's bound limit.
+        project.db.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 64)
         writer.cancel(expected_cursor=2)
         writer.remove_session(expected_cursor=2)
 
@@ -297,11 +314,19 @@ def test_cancelled_session_can_remove_only_its_visible_sheet(tmp_path: Path) -> 
         removed_receipt = ReceiptStore(project).find_by_id("receipt:inventory-one")
         assert removed_receipt is not None and removed_receipt.status == "cancelled"
         assert removed_receipt.parsed().op_ids == [writer._op_id]
-        assert project.db.execute(
-            "SELECT barrier FROM ops WHERE id=?", (writer._op_id,)
-        ).fetchone()[0] == 0
-        assert project.db.execute("SELECT COUNT(*) FROM source_artifacts").fetchone()[0] == 0
-        assert project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] == 0
+        assert (
+            project.db.execute(
+                "SELECT barrier FROM ops WHERE id=?", (writer._op_id,)
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            project.db.execute("SELECT COUNT(*) FROM source_artifacts").fetchone()[0]
+            == 0
+        )
+        assert (
+            project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] == 0
+        )
         session = ImportSessionStore(project).get("import:one")
         assert session is not None and session.state == "removed"
     finally:

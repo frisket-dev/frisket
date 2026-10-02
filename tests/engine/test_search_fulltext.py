@@ -51,13 +51,9 @@ def test_search_tracks_import_pages_and_removal_under_one_op(tmp_path):
     try:
         writer = _import_writer(project)
         op_cursor = project.op_cursor
-        writer.append_page(
-            [{"body": "firstneedle"}], expected_cursor=0, next_cursor=1
-        )
+        writer.append_page([{"body": "firstneedle"}], expected_cursor=0, next_cursor=1)
         assert search_project(project, "firstneedle", rerank="off")
-        writer.append_page(
-            [{"body": "secondneedle"}], expected_cursor=1, next_cursor=2
-        )
+        writer.append_page([{"body": "secondneedle"}], expected_cursor=1, next_cursor=2)
         assert project.op_cursor == op_cursor
         assert search_project(project, "secondneedle", rerank="off")
         writer.cancel(expected_cursor=2)
@@ -107,9 +103,7 @@ def test_import_stamp_belongs_to_indexed_snapshot(tmp_path, monkeypatch):
             nonlocal checks
             checks += 1
             if checks == 2:
-                writer.append_page(
-                    [{"body": NEEDLE}], expected_cursor=1, next_cursor=2
-                )
+                writer.append_page([{"body": NEEDLE}], expected_cursor=1, next_cursor=2)
 
         monkeypatch.setattr(search_mod, "_raise_if_cancelled", append_during_scan)
         assert rebuild_index(project) == 1

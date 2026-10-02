@@ -396,11 +396,7 @@ class StreamingSheetWriter:
             ).fetchall()
         }
         source_ref = next(
-            (
-                item.ref
-                for item in reversed(receipt.inputs)
-                if item.name == "source"
-            ),
+            (item.ref for item in reversed(receipt.inputs) if item.name == "source"),
             {},
         )
         return cls(
@@ -597,7 +593,12 @@ class StreamingSheetWriter:
         return publication
 
     def remove_session(self, *, expected_cursor: int) -> None:
-        """Remove committed import rows while retaining the new empty sheet."""
+        """Clear this session's newly created sheet, retaining the empty sheet.
+
+        Sessions never append into a pre-existing sheet; mutation guards exclude
+        other writers until Keep/Remove. The sheet is therefore the deletion
+        scope, not an arbitrary producer-scoped subset of an existing sheet.
+        """
 
         self._require_session()
         db = self.project.db
@@ -609,27 +610,21 @@ class StreamingSheetWriter:
                 expected_cursor,
                 states=("cancelled",),
             )
-            artifact_ids = [
-                int(row["id"])
-                for row in db.execute(
-                    "SELECT id FROM source_artifacts WHERE source_sheet_id=?",
-                    (session.sheet_id,),
-                )
-            ]
             db.execute(
                 "DELETE FROM evidence_links WHERE sheet_id=? OR op_id=?",
                 (session.sheet_id, session.op_id),
             )
-            if artifact_ids:
-                marks = ",".join("?" for _ in artifact_ids)
-                db.execute(
-                    f"DELETE FROM artifact_timeline_segments WHERE "
-                    f"derived_artifact_id IN ({marks}) OR source_artifact_id IN ({marks})",
-                    (*artifact_ids, *artifact_ids),
-                )
-                db.execute(
-                    f"DELETE FROM source_artifacts WHERE id IN ({marks})", artifact_ids
-                )
+            db.execute(
+                "DELETE FROM artifact_timeline_segments WHERE "
+                "derived_artifact_id IN (SELECT id FROM source_artifacts "
+                "WHERE source_sheet_id=?) OR source_artifact_id IN "
+                "(SELECT id FROM source_artifacts WHERE source_sheet_id=?)",
+                (session.sheet_id, session.sheet_id),
+            )
+            db.execute(
+                "DELETE FROM source_artifacts WHERE source_sheet_id=?",
+                (session.sheet_id,),
+            )
             delete_sheet_rows(
                 db,
                 sheet_id=session.sheet_id,
@@ -700,7 +695,7 @@ class StreamingSheetWriter:
                     "row_count": row_count,
                     "op_id": self._op_id,
                 }
-            )
+            ),
         ]
         if source:
             evidence.append(
