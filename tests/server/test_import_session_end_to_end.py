@@ -3,9 +3,8 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from frisket.engine.jobs import HandlerRegistry, Worker
-from frisket.engine.jobs.import_files import register_import_files_handler
-from frisket.engine.jobs.queue import BLOB_METADATA_KIND
+from frisket.engine.jobs import Worker
+from frisket.engine.jobs.queue import BLOB_METADATA_KIND, IMPORT_FILES_PAGE_KIND
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.import_intake import import_intake_dir
 from frisket.engine.store.import_inventory import ImportInventory
@@ -18,9 +17,7 @@ def test_http_import_worker_and_user_resolution(tmp_path, finish):
     client = TestClient(app)
     pid = client.post("/api/projects", json={"name": "Evidence"}).json()["id"]
     ws = app.state.workspace
-    registry = HandlerRegistry()
-    register_import_files_handler(registry, workspace_root=ws.root, queue=ws.queue)
-    worker = Worker(ws.queue, registry)
+    worker = Worker(ws.queue, ws.registry)
     base = f"/api/projects/{pid}/import/files/sessions"
     response = client.post(base, json={"sheet_name": "Documents"})
     assert response.status_code == 200, response.text
@@ -47,10 +44,17 @@ def test_http_import_worker_and_user_resolution(tmp_path, finish):
     if finish == "complete":
         response = client.post(f"{session_url}/seal")
         assert response.status_code == 200, response.text
-        assert worker.run_once()
+        # Search maintenance may run between publication and finalization.
+        for _ in range(5):
+            if client.get(session_url).json()["state"] == "completed":
+                break
+            assert worker.run_once()
         expected_state = "completed"
     else:
-        assert not ws.queue.list_jobs(status="queued")
+        assert not any(
+            job.kind == IMPORT_FILES_PAGE_KIND
+            for job in ws.queue.list_jobs(status="queued")
+        )
         response = client.post(f"{session_url}/cancel")
         assert response.status_code == 200, response.text
         assert response.json()["state"] == "cancelled"
