@@ -227,8 +227,13 @@ test('installed app imports, runs its worker, exports, quits and reopens', async
     expect(await running.evaluate(({ app }) => app.getPath('userData'))).toBe(profile);
     expect(await running.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getTitle())).toBe('Frisket Desktop');
     expect(await page.evaluate(() => [typeof window.require, typeof window.process])).toEqual(['undefined', 'undefined']);
-    await page.evaluate(() => navigator.clipboard.writeText('Desktop clipboard smoke'));
-    expect(await running.evaluate(({ clipboard }) => clipboard.readText())).toBe('Desktop clipboard smoke');
+    const clipboardText = 'Desktop clipboard smoke';
+    await running.evaluate(({ clipboard }) => clipboard.clear());
+    await page.evaluate((text) => navigator.clipboard.writeText(text), clipboardText);
+    await expect.poll(
+      async () => running.evaluate(({ clipboard }) => clipboard.readText()),
+      { timeout: 2_000, intervals: [50, 100, 250] },
+    ).toBe(clipboardText);
     const popupPromise = running.waitForEvent('window');
     await page.evaluate(() => window.open('/api/health', '_blank'));
     const popup = await popupPromise;
