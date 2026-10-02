@@ -195,7 +195,7 @@ def register_project_export_routes(
             raise HTTPException(exc.status_code, exc.detail) from exc
         return FileResponse(
             export.path,
-            media_type="application/zip",
+            media_type="application/gzip",
             filename=export.filename,
             background=BackgroundTask(unlink_best_effort, export.path),
         )

@@ -1608,14 +1608,14 @@ class Project:
 
     def export(
         self,
-        target_zip: str | Path,
+        target_archive: str | Path,
         include_media: bool = True,
         *,
         include_traces: bool = False,
     ) -> Path:
         return bundle_io.export(
             self,
-            target_zip,
+            target_archive,
             include_media,
             include_traces=include_traces,
         )
@@ -1627,5 +1627,8 @@ class Project:
         return bundle_io.compact(self, vacuum, force=force)
 
     @classmethod
-    def import_bundle(cls, source_zip: str | Path, target_dir: str | Path) -> "Project":
-        return bundle_io.import_bundle(cls, source_zip, target_dir)
+    def import_bundle(
+        cls, source_archive: str | Path, target_dir: str | Path
+    ) -> "Project":
+        """Restore a tar.gz backup (or an older ZIP) into a new project directory."""
+        return bundle_io.import_bundle(cls, source_archive, target_dir)

@@ -46,7 +46,7 @@ class ProjectExportService:
         include_traces: bool = False,
     ) -> ProjectExportArtifact:
         project = self._workspace.get(project_id)
-        path = self._temporary_artifact(suffix=".frisket.zip")
+        path = self._temporary_artifact(suffix=".frisket.tar.gz")
         try:
             project.export(
                 path,
@@ -65,7 +65,7 @@ class ProjectExportService:
             ) from exc
         return ProjectExportArtifact(
             path=path,
-            filename=self._download_filename(project, project_id, ".frisket.zip"),
+            filename=self._download_filename(project, project_id, ".frisket.tar.gz"),
         )
 
     def export_database(self, project_id: str) -> ProjectExportArtifact:

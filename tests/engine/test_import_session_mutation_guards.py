@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -133,8 +134,8 @@ def test_only_importing_sheet_is_frozen(tmp_path: Path, state: str) -> None:
 
 
 @pytest.mark.parametrize("state", ["active", "paused", "cancelled"])
-def test_bundle_export_refuses_unresolved_import_in_snapshot_transaction(
-    tmp_path: Path, state: str
+def test_bundle_export_refuses_unresolved_import_in_captured_snapshot(
+    tmp_path: Path, state: str, monkeypatch
 ) -> None:
     project = Project.create(tmp_path / "source.frisket", name="source")
     target = tmp_path / "export.zip"
@@ -144,17 +145,26 @@ def test_bundle_export_refuses_unresolved_import_in_snapshot_transaction(
             writer.pause(expected_cursor=0)
         elif state == "cancelled":
             writer.cancel(expected_cursor=0)
-        guard_transactions = []
-        project.db.set_trace_callback(
-            lambda sql: (
-                guard_transactions.append(project.db.in_transaction)
-                if sql.startswith("SELECT 1 FROM import_sessions")
-                else None
+        guard_databases = []
+        connect = sqlite3.connect
+
+        def capture_connect(path, *args, **kwargs):
+            connection = connect(path, *args, **kwargs)
+            connection.set_trace_callback(
+                lambda sql: (
+                    guard_databases.append(Path(path))
+                    if sql.startswith("SELECT 1 FROM import_sessions")
+                    else None
+                )
             )
-        )
+            return connection
+
+        monkeypatch.setattr(sqlite3, "connect", capture_connect)
         with pytest.raises(ValueError, match="before exporting a project bundle"):
             project.export(target)
-        assert guard_transactions == [True]
+        assert len(guard_databases) == 1
+        assert guard_databases[0] != project.db_path
+        assert guard_databases[0].parent.parent == target.parent
         assert not project.db.in_transaction
         assert not target.exists()
         assert not list(tmp_path.glob(".export.zip.*"))

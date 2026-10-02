@@ -26,10 +26,30 @@ def _export_bundle(
     project = Project.create(tmp_path / "source.frisket", name="Source")
     try:
         digest = project.add_blob(b"original blob") if with_blob else None
-        archive = project.export(tmp_path / "source.frisket.zip")
+        # Keep legacy ZIP fixtures independent of the current export format.
+        archive = tmp_path / "source.frisket.zip"
+        snapshot = project.export_database(tmp_path / "source.db")
+        with zipfile.ZipFile(archive, "w") as output:
+            output.write(project.path / "manifest.json", "manifest.json")
+            output.write(snapshot, "project.db")
+            if digest:
+                output.writestr(f"blobs/{digest[:2]}/{digest}", b"original blob")
     finally:
         project.close()
     return archive, digest
+
+
+def test_legacy_zip_missing_required_blob_never_publishes(tmp_path: Path) -> None:
+    archive, digest = _export_bundle(tmp_path, with_blob=True)
+    damaged = tmp_path / "missing.zip"
+    with zipfile.ZipFile(archive) as source, zipfile.ZipFile(damaged, "w") as output:
+        for info in source.infolist():
+            if not info.filename.endswith(digest):
+                output.writestr(info, source.read(info))
+    target = tmp_path / "restored.frisket"
+    with pytest.raises(ValueError, match="missing required blob"):
+        Project.import_bundle(damaged, target)
+    assert not target.exists()
 
 
 def test_import_verifies_before_publishing_target(tmp_path: Path) -> None:
@@ -82,21 +102,23 @@ def test_sigkill_mid_import_leaves_target_absent_from_workspace_listing(
     child_code = """
 import sys
 import time
-import zipfile
 from pathlib import Path
 
 from frisket.engine.store import Project
+from frisket.engine.store import bundle_io
 
-original_extractall = zipfile.ZipFile.extractall
+original_extract = bundle_io._extract_bundle_file
 
-def extract_then_pause(archive, *args, **kwargs):
-    result = original_extractall(archive, *args, **kwargs)
+def extract_then_pause(staging, name, source):
+    result = original_extract(staging, name, source)
+    if name != "project.db":
+        return result
     Path(sys.argv[3]).write_text("extracted")
     while True:
         time.sleep(1)
     return result
 
-zipfile.ZipFile.extractall = extract_then_pause
+bundle_io._extract_bundle_file = extract_then_pause
 Project.import_bundle(sys.argv[1], sys.argv[2])
 """
     process = subprocess.Popen(

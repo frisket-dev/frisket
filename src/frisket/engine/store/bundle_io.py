@@ -1,6 +1,6 @@
-"""Bundle-level I/O for a project store: atomic zip export, raw SQLite
-snapshot export, safe bundle import (member-path and symlink validation
-before extraction, blob hash verification after), compaction of discarded
+"""Bundle-level I/O for a project store: streaming tar.gz export, raw SQLite
+snapshot export, safe bundle import (member validation and streaming hash
+verification), compaction of discarded
 history, and bundle deletion. Free functions over the facade's per-thread
 SQLite connection; ``project`` stays duck-typed (``Any``) so this leaf never
 re-imports the facade module."""
@@ -8,11 +8,15 @@ re-imports the facade module."""
 from __future__ import annotations
 
 import hashlib
+import gzip
+import io
 import json
 import os
 import shutil
 import sqlite3
 import stat
+import re
+import tarfile
 import tempfile
 import zipfile
 from pathlib import Path
@@ -42,6 +46,9 @@ def _reject_unsafe_bundle_member(info: zipfile.ZipInfo, target_root: str) -> Non
         raise ValueError(f"bundle member {name!r} has an unsafe absolute path")
     if stat.S_ISLNK(info.external_attr >> 16):
         raise ValueError(f"bundle member {name!r} is a symlink")
+    mode = info.external_attr >> 16
+    if stat.S_IFMT(mode) and not stat.S_ISREG(mode):
+        raise ValueError("bundle members must be regular files")
     dest = os.path.realpath(os.path.join(target_root, name))
     if dest != target_root and not dest.startswith(target_root + os.sep):
         raise ValueError(f"bundle member {name!r} escapes the target directory")
@@ -56,13 +63,13 @@ def delete_bundle(path: str | Path) -> None:
 
 def export(
     project: Any,
-    target_zip: str | Path,
+    target_archive: str | Path,
     include_media: bool = True,
     *,
     include_traces: bool = False,
 ) -> Path:
-    """Atomically publish a complete bundle export."""
-    target = Path(target_zip)
+    """Atomically publish a tar.gz bundle; stage its DB on the target disk."""
+    target = Path(target_archive)
     target.parent.mkdir(parents=True, exist_ok=True)
     fd, raw_temp = tempfile.mkstemp(
         prefix=f".{target.name}.", suffix=".tmp", dir=target.parent
@@ -74,47 +81,81 @@ def export(
         temp_target.unlink(missing_ok=True)
         raise RuntimeError("cannot export while this connection has pending writes")
     try:
-        # One SQLite write reservation freezes the DB/blob-reference boundary
-        # while hash enumeration and serialization capture the same snapshot.
-        # Once captured, immutable retained objects can be leased without
-        # blocking later writes; those writes belong to the next snapshot.
-        db.execute("BEGIN IMMEDIATE")
-        try:
-            # Resumption also needs the external .imports inventory, which is
-            # not part of a bundle. Never export an unrestorable guarded sheet.
-            if db.execute(
-                "SELECT 1 FROM import_sessions "
-                "WHERE state IN ('active','paused','cancelled') LIMIT 1"
-            ).fetchone():
-                raise UnresolvedImportExportError(
-                    "Finish imports, or cancel them and choose Keep "
-                    "or Remove, before exporting a project bundle."
-                )
-            blob_hashes = [r["hash"] for r in db.execute("SELECT hash FROM blobs")]
-            database_snapshot = db.serialize()
-            manifest = json.loads((project.path / "manifest.json").read_text())
-            manifest["blobs"] = blob_hashes
-            manifest["include_media"] = include_media
-            manifest["include_traces"] = include_traces
-        finally:
-            db.rollback()
-        with zipfile.ZipFile(temp_target, "w", zipfile.ZIP_DEFLATED) as zf:
-            zf.writestr("manifest.json", json.dumps(manifest, indent=2))
-            zf.writestr("project.db", database_snapshot)
-            if include_media:
-                for digest in blob_hashes:
-                    with project.materialize_blob(digest) as path:
-                        zf.write(Path(path), f"blobs/{digest[:2]}/{digest}")
-            if include_traces:
-                trace_dir = project.path / "traces"
-                if trace_dir.is_dir() and not trace_dir.is_symlink():
-                    for trace in sorted(trace_dir.glob("run-*.jsonl.gz")):
-                        if trace.is_file() and not trace.is_symlink():
-                            zf.write(trace, f"traces/{trace.name}")
+        with tempfile.TemporaryDirectory(
+            prefix=".frisket-snapshot-", dir=target.parent
+        ) as temporary:
+            snapshot_path = Path(temporary) / "project.db"
+            snapshot = sqlite3.connect(snapshot_path)
+            try:
+                db.backup(snapshot, pages=256)
+            finally:
+                snapshot.close()
+            snapshot = sqlite3.connect(snapshot_path)
+            try:
+                # Resumption also needs the external .imports inventory, which is
+                # not part of a bundle. Never export an unrestorable guarded sheet.
+                if snapshot.execute(
+                    "SELECT 1 FROM import_sessions "
+                    "WHERE state IN ('active','paused','cancelled') LIMIT 1"
+                ).fetchone():
+                    raise UnresolvedImportExportError(
+                        "Finish imports, or cancel them and choose Keep "
+                        "or Remove, before exporting a project bundle."
+                    )
+                with (
+                    gzip.open(temp_target, "wb", compresslevel=1) as compressed,
+                    tarfile.open(fileobj=compressed, mode="w|") as archive,
+                ):
+                    descriptor = json.dumps(
+                        {
+                            "format": "frisket-bundle",
+                            "version": 1,
+                            "include_media": include_media,
+                            "include_traces": include_traces,
+                        }
+                    ).encode()
+                    info = tarfile.TarInfo("bundle.json")
+                    info.size = len(descriptor)
+                    archive.addfile(info, io.BytesIO(descriptor))
+                    archive.members.clear()
+                    _add_bundle_file(
+                        archive, project.path / "manifest.json", "manifest.json"
+                    )
+                    _add_bundle_file(archive, snapshot_path, "project.db")
+                    if include_media:
+                        for (digest,) in snapshot.execute("SELECT hash FROM blobs"):
+                            with project.materialize_blob(digest) as path:
+                                _add_bundle_file(
+                                    archive, Path(path), f"blobs/{digest[:2]}/{digest}"
+                                )
+                    if include_traces:
+                        trace_dir = project.path / "traces"
+                        if trace_dir.is_dir() and not trace_dir.is_symlink():
+                            with os.scandir(trace_dir) as traces:
+                                for trace in traces:
+                                    if re.fullmatch(
+                                        r"run-[A-Za-z0-9_.-]+\.jsonl\.gz", trace.name
+                                    ) and trace.is_file(follow_symlinks=False):
+                                        _add_bundle_file(
+                                            archive,
+                                            Path(trace.path),
+                                            f"traces/{trace.name}",
+                                        )
+            finally:
+                snapshot.close()
         os.replace(temp_target, target)
     finally:
         temp_target.unlink(missing_ok=True)
     return target
+
+
+def _add_bundle_file(archive: tarfile.TarFile, path: Path, name: str) -> None:
+    with path.open("rb") as source:
+        info = tarfile.TarInfo(name)
+        info.size = os.fstat(source.fileno()).st_size
+        archive.addfile(info, source)
+    # Python 3.12 retains member metadata even in streaming mode.
+    archive.members.clear()
 
 
 def export_database(project: Any, target_db: str | Path) -> Path:
@@ -326,7 +367,7 @@ def _stamp_staged_manifest_for_target(staging: Path, target: Path) -> None:
 
 
 def import_bundle(
-    project_cls: Any, source_zip: str | Path, target_dir: str | Path
+    project_cls: Any, source_archive: str | Path, target_dir: str | Path
 ) -> Any:
     target = Path(target_dir)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -340,32 +381,75 @@ def import_bundle(
         )
     )
     try:
-        with zipfile.ZipFile(source_zip) as zf:
-            try:
-                manifest = json.loads(zf.read("manifest.json"))
-            except KeyError:
-                raise ValueError("not a frisket bundle")
-            if not isinstance(manifest, dict):
-                raise ValueError("not a frisket bundle")
-            if manifest.get("format") != "frisket-bundle":
-                raise ValueError("not a frisket bundle")
-            # Every member is validated before archive bytes are written:
-            # extractall does not sanitize member paths, so an absolute path,
-            # a drive letter, a symlink, or a ``../`` escape must be caught
-            # before extraction into the hidden sibling staging directory.
-            staging_real_root = os.path.realpath(staging)
-            for info in zf.infolist():
-                _reject_unsafe_bundle_member(info, staging_real_root)
-            zf.extractall(staging)
+        if zipfile.is_zipfile(source_archive):
+            with zipfile.ZipFile(source_archive) as archive:
+                for info in archive.infolist():
+                    _reject_unsafe_bundle_member(info, os.path.realpath(staging))
+                    with archive.open(info) as source:
+                        _extract_bundle_file(staging, info.filename, source)
+            descriptor = json.loads((staging / "manifest.json").read_text())
+        else:
+            with tarfile.open(source_archive, "r|gz") as archive:
+                for info in archive:
+                    if not info.isreg():
+                        raise ValueError("bundle members must be regular files")
+                    if (
+                        info.name in {"bundle.json", "manifest.json"}
+                        and info.size > 1024 * 1024
+                    ):
+                        raise ValueError("bundle metadata exceeds 1 MiB")
+                    with archive.extractfile(info) as source:
+                        _extract_bundle_file(staging, info.name, source)
+                    archive.members.clear()
+            descriptor = json.loads((staging / "bundle.json").read_text())
+            if (
+                not isinstance(descriptor, dict)
+                or type(descriptor.get("version")) is not int
+                or descriptor["version"] != 1
+            ):
+                raise ValueError("unsupported bundle version")
+            if any(
+                type(descriptor.get(key)) is not bool
+                for key in ("include_media", "include_traces")
+            ):
+                raise ValueError("invalid bundle inclusion flags")
+        manifest = json.loads((staging / "manifest.json").read_text())
+        if not isinstance(manifest, dict) or manifest.get("format") != "frisket-bundle":
+            raise ValueError("not a frisket bundle")
+        if (
+            not isinstance(descriptor, dict)
+            or descriptor.get("format") != "frisket-bundle"
+        ):
+            raise ValueError("not a frisket bundle")
+        if type(descriptor.get("include_media", True)) is not bool:
+            raise ValueError("invalid bundle media inclusion flag")
         # Integrity and the normal Project-open fences both run against the
         # unpublished staging tree. A malformed archive therefore never
         # becomes visible as target, even briefly.
-        for h in manifest.get("blobs", []):
-            p = staging / "blobs" / h[:2] / h
-            if p.exists():
-                actual = hashlib.sha256(p.read_bytes()).hexdigest()
-                if actual != h:
-                    raise ValueError(f"blob {h} failed hash verification")
+        snapshot = sqlite3.connect(
+            f"{(staging / 'project.db').resolve().as_uri()}?mode=ro", uri=True
+        )
+        try:
+            for (digest,) in snapshot.execute("SELECT hash FROM blobs"):
+                if not re.fullmatch(r"[0-9a-f]{64}", digest):
+                    raise ValueError("invalid blob hash")
+                path = staging / "blobs" / digest[:2] / digest
+                if descriptor.get("include_media", True) and not path.is_file():
+                    raise ValueError(f"bundle is missing required blob {digest}")
+            (staging / "blobs").mkdir(exist_ok=True)
+            with os.scandir(staging / "blobs") as prefixes:
+                for prefix in prefixes:
+                    with os.scandir(prefix.path) as blobs:
+                        for blob in blobs:
+                            if (
+                                snapshot.execute(
+                                    "SELECT 1 FROM blobs WHERE hash=?", (blob.name,)
+                                ).fetchone()
+                                is None
+                            ):
+                                raise ValueError("bundle contains an unregistered blob")
+        finally:
+            snapshot.close()
         (staging / "blobs").mkdir(exist_ok=True)
         staged_project = project_cls(staging)
         staged_project.close()
@@ -380,3 +464,26 @@ def import_bundle(
     finally:
         shutil.rmtree(staging, ignore_errors=True)
     return project_cls(target)
+
+
+def _extract_bundle_file(staging: Path, name: str, source: Any) -> None:
+    blob = re.fullmatch(r"blobs/([0-9a-f]{2})/([0-9a-f]{64})", name)
+    if blob and blob[1] != blob[2][:2]:
+        raise ValueError("invalid blob path")
+    if not (
+        name in {"bundle.json", "manifest.json", "project.db"}
+        or blob
+        or re.fullmatch(r"traces/run-[A-Za-z0-9_.-]+\.jsonl\.gz", name)
+    ):
+        raise ValueError(f"unexpected bundle member {name!r}")
+    path = staging / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256()
+    # Exclusive creation also rejects duplicate members without an in-memory set.
+    with path.open("xb") as destination:
+        while chunk := source.read(1024 * 1024):
+            destination.write(chunk)
+            if blob:
+                digest.update(chunk)
+    if blob and digest.hexdigest() != blob[2]:
+        raise ValueError(f"blob {blob[2]} failed hash verification")
