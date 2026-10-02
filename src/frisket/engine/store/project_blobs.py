@@ -16,7 +16,12 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from .blob_backend import BlobIntegrityError, BlobNotFoundError, sha256_blob_path
+from .blob_backend import (
+    BlobIntegrityError,
+    BlobNotFoundError,
+    sha256_blob_path,
+    validate_blob_digest,
+)
 from .runs import FAILURE_OUTCOMES, outcome_sql_list
 
 
@@ -305,15 +310,15 @@ def _retained_payloads(db: sqlite3.Connection):
                 ref = evidence.get("ref", {})
                 if ref.get("kind") == "row_file_output":
                     for blob in (ref["primary"], *ref["supplemental"]):
-                        yield blob["blob_hash"]
-            for artifact in payload.get("exports", []):
-                if (
-                    isinstance(artifact, dict)
-                    and artifact.get("kind") == "export_project_file"
-                ):
-                    digest = artifact.get("blob_hash")
-                    if isinstance(digest, str):
-                        yield digest
+                        yield validate_blob_digest(blob["blob_hash"])
+            exports = payload.get("exports", [])
+            if not isinstance(exports, list):
+                raise ValueError("invalid retained exports")
+            for artifact in exports:
+                if not isinstance(artifact, dict):
+                    raise ValueError("invalid retained export")
+                if artifact.get("kind") == "export_project_file":
+                    yield validate_blob_digest(artifact.get("blob_hash"))
             continue
         if row[1] == "row_effect" and row[2] == "returned":
             # Preserve the existing fail-closed behavior for damaged unresolved

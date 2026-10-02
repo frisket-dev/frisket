@@ -101,6 +101,57 @@ def test_receipt_and_paid_effect_payloads_are_conservative_roots(project):
     assert project.gc_blobs()["hashes"] == [orphan]
 
 
+@pytest.mark.parametrize("owner", ["export", "primary", "supplemental"])
+@pytest.mark.parametrize(
+    "invalid", [None, 42, "", "a" * 63, "A" * 64, "x" * 64, "missing"]
+)
+def test_malformed_published_receipt_digest_retains_all_blob_metadata(
+    project, owner, invalid
+):
+    retained = project.add_blob(b"potential published output")
+    other = project.add_blob(b"uncertain ownership")
+    bad = {} if invalid == "missing" else {"blob_hash": invalid}
+    if owner == "export":
+        payload = {"exports": [{"kind": "export_project_file", **bad}]}
+    else:
+        good = {"blob_hash": retained}
+        payload = {
+            "evidence": [
+                {
+                    "ref": {
+                        "kind": "row_file_output",
+                        "primary": bad if owner == "primary" else good,
+                        "supplemental": [bad] if owner == "supplemental" else [],
+                    }
+                }
+            ]
+        }
+    project.db.execute(
+        "INSERT INTO receipts(id,action_kind,status,body) VALUES ('damaged','test','error',?)",
+        (json.dumps(payload),),
+    )
+    project.db.commit()
+    assert project.gc_blobs()["hashes"] == []
+    assert {row[0] for row in project.db.execute("SELECT hash FROM blobs")} == {
+        retained,
+        other,
+    }
+
+
+@pytest.mark.parametrize("exports", [{}, "bad", None, 12, [None], ["bad"]])
+def test_malformed_receipt_exports_container_retains_all_blob_metadata(
+    project, exports
+):
+    retained = project.add_blob(b"uncertain ownership")
+    project.db.execute(
+        "INSERT INTO receipts(id,action_kind,status,body) VALUES ('damaged','test','error',?)",
+        (json.dumps({"exports": exports}),),
+    )
+    project.db.commit()
+    assert project.gc_blobs()["hashes"] == []
+    assert project.db.execute("SELECT hash FROM blobs").fetchone()[0] == retained
+
+
 def test_receipt_export_metadata_mentions_do_not_own_blobs(project):
     published = project.add_blob(b"published export")
     mentioned = project.add_blob(b"only mentioned in metadata")
