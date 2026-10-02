@@ -42,4 +42,7 @@ def test_reporter_handles_audio_pricing_unit_transition(
     assert "audio:speech-model" in output
     assert "'input_per_token': 1.25e-06" in output
     assert "'per_second': 5e-05" in output
-    assert "rate[1] moved 0.2 -> 0.5 (>50%)" in output
+    assert "[0.1, 0.2] -> [0.1, 0.5]" in output
+    assert "auto-merge" in output
+    assert "verify upstream" not in output
+    assert "50%" not in output

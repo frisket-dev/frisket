@@ -6,7 +6,6 @@ import json
 import os
 import shutil
 import subprocess
-from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
@@ -44,7 +43,10 @@ def _workflow_steps() -> tuple[dict, dict]:
     }
     refresh = steps["Refresh price table"]
     open_pr = steps["Open PR"]
-    assert open_pr["if"] == "steps.refresh.outputs.changed == 'true'"
+    assert "if" not in open_pr
+    assert workflow["permissions"] == {"contents": "read"}
+    assert workflow["concurrency"]["cancel-in-progress"] is False
+    assert workflow["jobs"]["refresh"]["if"] == "github.ref == 'refs/heads/main'"
     return refresh, open_pr
 
 
@@ -96,6 +98,15 @@ elif args[:2] == ["pr", "create"]:
     if state["numbers"]:
         raise SystemExit("duplicate PR creation")
     state_path.write_text(json.dumps({"numbers": [1]}) + "\\n")
+    print("https://github.com/frisket-dev/frisket/pull/1")
+elif args[:2] == ["pr", "close"]:
+    state_path.write_text(json.dumps({"numbers": []}) + "\\n")
+elif args[:2] == ["pr", "merge"]:
+    assert "--auto" in args and "--squash" in args
+    assert "--match-head-commit" in args and "--admin" not in args
+elif args[:3] == ["api", "--method", "PATCH"]:
+    assert args[3].startswith("repos/frisket-dev/frisket/pulls/")
+    assert args[4:] == ["--raw-field", "body=synthetic pricing delta"]
 else:
     raise SystemExit(f"unexpected gh invocation: {args}")
 """,
@@ -144,12 +155,14 @@ def _run_workflow(
     gh_pr_list_exit: int = 0,
     inject_race_branch: bool = False,
     expect_open_pr_success: bool = True,
+    unexpected_branch_file: bool = False,
+    unexpected_generated_file: bool = False,
 ) -> dict:
     refresh_step, open_pr_step = _workflow_steps()
     repo = tmp_path / "checkout"
     remote = tmp_path / "origin.git"
     fake_bin = tmp_path / "bin"
-    workflow_tmp = repo / "workflow-tmp"
+    workflow_tmp = tmp_path / "workflow-tmp"
     pricing = repo / PRICING_PATH
     output = workflow_tmp / "github-output"
     gh_attempts = workflow_tmp / "gh-attempts.jsonl"
@@ -178,7 +191,7 @@ def _run_workflow(
 
     existing_tip = None
     if existing_branch:
-        branch = f"pricing-refresh-{datetime.now(UTC):%Y%m%d}"
+        branch = "pricing-refresh"
         _git(repo, "switch", "-c", branch)
         pricing.write_text(
             json.dumps({**BEFORE, "text": {"provider/model": [1.0, 2.5]}}, indent=2)
@@ -186,6 +199,9 @@ def _run_workflow(
             encoding="utf-8",
         )
         _git(repo, "add", str(PRICING_PATH))
+        if unexpected_branch_file:
+            (repo / "human-change.txt").write_text("preserve human work")
+            _git(repo, "add", "human-change.txt")
         _git(repo, "commit", "-m", "existing dated pricing branch")
         _git(repo, "push", "-u", "origin", branch)
         existing_tip = _git(repo, "rev-parse", "HEAD")
@@ -206,18 +222,19 @@ def _run_workflow(
         "GH_ATTEMPTS": str(gh_attempts),
         "GH_STATE": str(gh_state),
         "GH_TOKEN": "test-only-token",
+        "GITHUB_REPOSITORY": "frisket-dev/frisket",
         "GH_PR_LIST_EXIT": str(gh_pr_list_exit),
         "REAL_GIT": real_git,
         "INJECT_RACE_BRANCH": "1" if inject_race_branch else "",
         "RACE_REMOTE": str(remote),
-        "RACE_BRANCH": f"pricing-refresh-{datetime.now(UTC):%Y%m%d}",
+        "RACE_BRANCH": "pricing-refresh",
         "RACE_MARKER": str(workflow_tmp / "race-injected"),
         "PRICING_AFTER": str(after_path),
     }
     refresh_script = (
         refresh_step["run"]
-        .replace("/tmp/pricing_before.json", "workflow-tmp/pricing-before.json")
-        .replace("/tmp/pricing_delta.md", "workflow-tmp/pricing-delta.md")
+        .replace("/tmp/pricing_before.json", str(workflow_tmp / "pricing-before.json"))
+        .replace("/tmp/pricing_delta.md", str(workflow_tmp / "pricing-delta.md"))
     )
     outputs: dict[str, str] = {}
     open_pr_returncodes: list[int] = []
@@ -238,21 +255,26 @@ def _run_workflow(
         output_lines = output.read_text(encoding="utf-8").splitlines()
         outputs = dict(line.split("=", 1) for line in output_lines)
 
-        if outputs["changed"] == "true":
-            open_pr_script = open_pr_step["run"].replace(
-                "/tmp/pricing_delta.md", "workflow-tmp/pricing-delta.md"
+        if unexpected_generated_file:
+            (repo / "unexpected.txt").write_text("unexpected generated output")
+        open_pr_script = (
+            open_pr_step["run"]
+            .replace("/tmp/pricing_delta.md", str(workflow_tmp / "pricing-delta.md"))
+            .replace(
+                "/tmp/pricing_after.json", str(workflow_tmp / "pricing-after.json")
             )
-            open_pr_run = subprocess.run(
-                ["bash", "-euo", "pipefail", "-c", open_pr_script],
-                cwd=repo,
-                env=env,
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-            open_pr_returncodes.append(open_pr_run.returncode)
-            if expect_open_pr_success:
-                assert open_pr_run.returncode == 0, open_pr_run.stderr
+        )
+        open_pr_run = subprocess.run(
+            ["bash", "-euo", "pipefail", "-c", open_pr_script],
+            cwd=repo,
+            env={**env, "PRICING_CHANGED": outputs["changed"]},
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        open_pr_returncodes.append(open_pr_run.returncode)
+        if expect_open_pr_success:
+            assert open_pr_run.returncode == 0, open_pr_run.stderr
 
     remote_branches = subprocess.run(
         [
@@ -268,7 +290,7 @@ def _run_workflow(
         text=True,
     ).stdout.splitlines()
     remote_refresh_branches = [
-        branch for branch in remote_branches if branch.startswith("pricing-refresh-")
+        branch for branch in remote_branches if branch == "pricing-refresh"
     ]
     pr_calls = (
         # rule19: test-owned fake-gh journal, not repository source.
@@ -313,7 +335,9 @@ def _run_workflow(
 def test_timestamp_only_regeneration_is_a_complete_noop(tmp_path: Path) -> None:
     after = {**BEFORE, "updated": "2026-08-09"}
 
-    assert _run_workflow(tmp_path, after) == {
+    result = _run_workflow(tmp_path, after)
+    assert [call[:2] for call in result.pop("pr_calls")] == [["pr", "list"]]
+    assert result == {
         "changed": "false",
         "branch": "main",
         "existing_tip": None,
@@ -323,9 +347,8 @@ def test_timestamp_only_regeneration_is_a_complete_noop(tmp_path: Path) -> None:
         "remote_main_committed": BEFORE,
         "remote_branch_committed": None,
         "remote_refresh_branches": [],
-        "pr_calls": [],
         "pr_numbers": [],
-        "open_pr_returncodes": [],
+        "open_pr_returncodes": [0],
     }
 
 
@@ -339,7 +362,7 @@ def test_rate_change_keeps_generated_update_and_pr_path(tmp_path: Path) -> None:
     result = _run_workflow(tmp_path, after)
 
     assert result["changed"] == "true"
-    assert result["branch"].startswith("pricing-refresh-")
+    assert result["branch"] == "pricing-refresh"
     assert result["existing_tip"] is None
     assert result["remote_tip"] is not None
     assert result["remote_branch_parent"] == _git(
@@ -351,12 +374,14 @@ def test_rate_change_keeps_generated_update_and_pr_path(tmp_path: Path) -> None:
     assert [call[:2] for call in result["pr_calls"]] == [
         ["pr", "list"],
         ["pr", "create"],
+        ["pr", "merge"],
     ]
+    assert result["pr_calls"][-1][-2:] == ["--match-head-commit", result["remote_tip"]]
     assert result["pr_numbers"] == [1]
     assert result["open_pr_returncodes"] == [0]
 
 
-def test_same_day_rerun_leaves_one_branch_and_one_pr_unchanged(tmp_path: Path) -> None:
+def test_rerun_updates_one_branch_and_one_pr(tmp_path: Path) -> None:
     after = {
         **BEFORE,
         "updated": "2026-08-09",
@@ -365,22 +390,23 @@ def test_same_day_rerun_leaves_one_branch_and_one_pr_unchanged(tmp_path: Path) -
 
     result = _run_workflow(tmp_path, after, reruns=2)
 
-    assert result["branch"] == "main"
+    assert result["branch"] == "pricing-refresh"
     assert result["remote_main_committed"] == BEFORE
     assert result["remote_branch_committed"] == after
-    assert result["remote_refresh_branches"] == [
-        f"pricing-refresh-{datetime.now(UTC):%Y%m%d}"
-    ]
+    assert result["remote_refresh_branches"] == ["pricing-refresh"]
     assert [call[:2] for call in result["pr_calls"]] == [
         ["pr", "list"],
         ["pr", "create"],
+        ["pr", "merge"],
         ["pr", "list"],
+        ["api", "--method"],
+        ["pr", "merge"],
     ]
     assert result["pr_numbers"] == [1]
     assert result["open_pr_returncodes"] == [0, 0]
 
 
-def test_existing_orphan_branch_gets_pr_without_rewrite(tmp_path: Path) -> None:
+def test_existing_orphan_branch_is_refreshed_before_opening_pr(tmp_path: Path) -> None:
     after = {
         **BEFORE,
         "updated": "2026-08-09",
@@ -389,18 +415,19 @@ def test_existing_orphan_branch_gets_pr_without_rewrite(tmp_path: Path) -> None:
 
     result = _run_workflow(tmp_path, after, existing_branch=True)
 
-    assert result["branch"] == "main"
-    assert result["remote_tip"] == result["existing_tip"]
+    assert result["branch"] == "pricing-refresh"
+    assert result["remote_tip"] != result["existing_tip"]
     assert result["remote_main_committed"] == BEFORE
-    assert result["remote_branch_committed"]["text"] == {"provider/model": [1.0, 2.5]}
+    assert result["remote_branch_committed"] == after
     assert [call[:2] for call in result["pr_calls"]] == [
         ["pr", "list"],
         ["pr", "create"],
+        ["pr", "merge"],
     ]
     assert result["pr_numbers"] == [1]
 
 
-def test_existing_branch_and_pr_are_an_intentional_noop(tmp_path: Path) -> None:
+def test_existing_branch_and_pr_are_updated_from_main(tmp_path: Path) -> None:
     after = {
         **BEFORE,
         "updated": "2026-08-09",
@@ -414,10 +441,17 @@ def test_existing_branch_and_pr_are_an_intentional_noop(tmp_path: Path) -> None:
         initial_pr_numbers=(17,),
     )
 
-    assert result["branch"] == "main"
-    assert result["remote_tip"] == result["existing_tip"]
+    assert result["branch"] == "pricing-refresh"
+    assert result["remote_tip"] != result["existing_tip"]
+    assert result["remote_branch_parent"] == result["remote_main"]
+    assert result["remote_branch_committed"] == after
     assert result["remote_main_committed"] == BEFORE
-    assert [call[:2] for call in result["pr_calls"]] == [["pr", "list"]]
+    assert [call[:2] for call in result["pr_calls"]] == [
+        ["pr", "list"],
+        ["api", "--method"],
+        ["pr", "merge"],
+    ]
+    assert result["pr_calls"][-1][-2:] == ["--match-head-commit", result["remote_tip"]]
     assert result["pr_numbers"] == [17]
 
 
@@ -502,9 +536,7 @@ def test_branch_created_after_discovery_is_never_advanced(tmp_path: Path) -> Non
         expect_open_pr_success=False,
     )
 
-    assert result["remote_refresh_branches"] == [
-        f"pricing-refresh-{datetime.now(UTC):%Y%m%d}"
-    ]
+    assert result["remote_refresh_branches"] == ["pricing-refresh"]
     assert result["remote_tip"] == result["remote_main"]
     assert result["remote_branch_parent"] is None
     assert result["remote_main_committed"] == BEFORE
@@ -512,3 +544,61 @@ def test_branch_created_after_discovery_is_never_advanced(tmp_path: Path) -> Non
     assert [call[:2] for call in result["pr_calls"]] == [["pr", "list"]]
     assert result["pr_numbers"] == []
     assert result["open_pr_returncodes"] == [1]
+
+
+def test_no_change_closes_stale_pr_without_destroying_branch(tmp_path: Path) -> None:
+    result = _run_workflow(
+        tmp_path, BEFORE, existing_branch=True, initial_pr_numbers=(17,)
+    )
+    assert result["remote_tip"] == result["existing_tip"]
+    assert result["pr_numbers"] == []
+    assert [call[:2] for call in result["pr_calls"]] == [
+        ["pr", "list"],
+        ["pr", "close"],
+    ]
+
+
+def test_existing_human_changes_are_not_overwritten_or_merged(tmp_path: Path) -> None:
+    result = _run_workflow(
+        tmp_path,
+        {**BEFORE, "text": {"provider/model": [1.0, 3.0]}},
+        existing_branch=True,
+        initial_pr_numbers=(17,),
+        unexpected_branch_file=True,
+        expect_open_pr_success=False,
+    )
+    assert result["remote_tip"] == result["existing_tip"]
+    assert result["open_pr_returncodes"] == [1]
+    assert result["pr_numbers"] == []
+    assert [call[:2] for call in result["pr_calls"]] == [
+        ["pr", "list"],
+        ["pr", "close"],
+    ]
+
+
+def test_unexpected_generated_file_is_not_published(tmp_path: Path) -> None:
+    result = _run_workflow(
+        tmp_path,
+        {**BEFORE, "text": {"provider/model": [1.0, 3.0]}},
+        unexpected_generated_file=True,
+        expect_open_pr_success=False,
+    )
+    assert result["remote_refresh_branches"] == []
+    assert result["pr_calls"] == []
+    assert result["open_pr_returncodes"] == [1]
+
+
+def test_existing_branch_changed_after_capture_is_not_overwritten(
+    tmp_path: Path,
+) -> None:
+    result = _run_workflow(
+        tmp_path,
+        {**BEFORE, "text": {"provider/model": [1.0, 3.0]}},
+        existing_branch=True,
+        initial_pr_numbers=(17,),
+        inject_race_branch=True,
+        expect_open_pr_success=False,
+    )
+    assert result["remote_tip"] == result["remote_main"]
+    assert result["open_pr_returncodes"] == [1]
+    assert [call[:2] for call in result["pr_calls"]] == [["pr", "list"]]

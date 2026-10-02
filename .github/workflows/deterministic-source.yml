@@ -21,9 +21,33 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
+      - name: Validate rolling pricing PR
+        if: github.event_name == 'pull_request' && github.head_ref == 'pricing-refresh'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          changed_files="$(git diff --name-only "$BASE_SHA...$HEAD_SHA")"
+          if [ "$changed_files" != "src/frisket/ai/llm/pricing_data.json" ]; then
+            echo "Rolling pricing PRs may change only pricing_data.json" >&2
+            exit 1
+          fi
+          # The path check proves the PR did not modify this validator or catalog.
+          python - <<'PY'
+          import json
+          import runpy
+          from pathlib import Path
+
+          validator = runpy.run_path("scripts/dev/update_pricing.py")
+          validator["validate_price_table"](
+              json.loads(Path("src/frisket/ai/llm/pricing_data.json").read_text())
+          )
+          PY
       - name: Compile Python sources
         run: python -m compileall -q src scripts/ci tests
       - name: Run deterministic source checks

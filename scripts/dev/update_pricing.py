@@ -5,10 +5,11 @@ Google publish no machine-readable price lists; LiteLLM's JSON is the
 de-facto registry, ~2.8k models).
 
 Usage: uv run python scripts/dev/update_pricing.py
-Commit the diff like a dependency bump — these numbers feed cost_actual.
+The scheduled workflow validates this data and auto-merges its pricing-only PR.
 """
 
 import json
+import math
 import sys
 import urllib.request
 from datetime import date
@@ -38,11 +39,56 @@ MAINTAINED_AUDIO_OVERRIDES: dict[str, dict[str, float | str]] = {
 CATALOG = json.loads((ROOT / "src/frisket/ai/llm/model_catalog.json").read_text())
 
 
+def _rate(value: object) -> float:
+    if isinstance(value, bool):
+        raise ValueError("pricing rates must be numbers, not booleans")
+    rate = float(value)
+    if not math.isfinite(rate) or rate < 0:
+        raise ValueError("pricing rates must be non-negative and finite")
+    return rate
+
+
 def _rates(input_per_token: object, output_per_token: object) -> list[float]:
     return [
-        round(float(input_per_token) * 1e6, 4),
-        round(float(output_per_token) * 1e6, 4),
+        round(_rate(input_per_token) * 1e6, 4),
+        round(_rate(output_per_token) * 1e6, 4),
     ]
+
+
+def validate_price_table(data: object) -> None:
+    """Reject broken catalogs, not legitimate changes in price magnitude."""
+    if not isinstance(data, dict):
+        raise ValueError("pricing data must be an object")
+    text, audio = data.get("text"), data.get("audio")
+    if not isinstance(text, dict) or not text or not isinstance(audio, dict):
+        raise ValueError(
+            "pricing data requires nonempty text prices and an audio object"
+        )
+    for model, rates in text.items():
+        if (
+            not isinstance(model, str)
+            or not model
+            or not isinstance(rates, list)
+            or len(rates) != 2
+        ):
+            raise ValueError("invalid text pricing entry")
+        for rate in rates:
+            if not isinstance(rate, (int, float)):
+                raise ValueError("pricing rates must be numeric")
+            _rate(rate)
+    for model, rates in audio.items():
+        if (
+            not isinstance(model, str)
+            or not model
+            or not isinstance(rates, dict)
+            or set(rates)
+            not in ({"per_second"}, {"input_per_token", "output_per_token"})
+        ):
+            raise ValueError("invalid audio pricing entry")
+        for rate in rates.values():
+            if not isinstance(rate, (int, float)):
+                raise ValueError("pricing rates must be numeric")
+            _rate(rate)
 
 
 def build_price_table(
@@ -122,8 +168,8 @@ def main() -> None:
     )
     openrouter = json.loads(urllib.request.urlopen(request, timeout=30).read())
     output = build_price_table(litellm, openrouter)
-
-    OUT.write_text(json.dumps(output, indent=2) + "\n")
+    validate_price_table(output)
+    OUT.write_text(json.dumps(output, indent=2, allow_nan=False) + "\n")
     print(
         f"wrote {OUT}: {len(output['text'])} text, {len(output['audio'])} audio models"
     )
