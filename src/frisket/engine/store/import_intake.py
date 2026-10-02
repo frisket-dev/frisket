@@ -9,7 +9,7 @@ import re
 import secrets
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping
 
 from filelock import BaseFileLock, FileLock
 
@@ -27,6 +27,7 @@ class ImportIntakeHeader:
     cancel_requested: bool = False
     max_rows: int | None = None
     max_bytes: int | None = None
+    resolution: Literal["kept", "removed"] | None = None
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -36,6 +37,7 @@ class ImportIntakeHeader:
             "cancel_requested": self.cancel_requested,
             "max_rows": self.max_rows,
             "max_bytes": self.max_bytes,
+            "resolution": self.resolution,
         }
 
     @classmethod
@@ -47,6 +49,7 @@ class ImportIntakeHeader:
             cancel_requested=bool(value.get("cancel_requested", False)),
             max_rows=value.get("max_rows"),
             max_bytes=value.get("max_bytes"),
+            resolution=value.get("resolution"),
         )
 
 
@@ -98,6 +101,17 @@ def _fsync_directory(directory: Path) -> None:
 
 def request_import_cancel(directory: Path) -> ImportIntakeHeader:
     header = replace(read_import_header(directory), cancel_requested=True)
+    write_import_header(directory, header)
+    return header
+
+
+def set_import_resolution(
+    directory: Path, decision: Literal["kept", "removed"]
+) -> ImportIntakeHeader:
+    header = read_import_header(directory)
+    if header.resolution is not None and header.resolution != decision:
+        raise ValueError("cancelled import was already resolved differently")
+    header = replace(header, cancel_requested=True, resolution=decision)
     write_import_header(directory, header)
     return header
 
@@ -237,6 +251,7 @@ __all__ = [
     "inventory_batch_through",
     "read_import_header",
     "request_import_cancel",
+    "set_import_resolution",
     "validate_import_ref",
     "write_import_header",
 ]

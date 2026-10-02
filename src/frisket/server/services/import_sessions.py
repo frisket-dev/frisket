@@ -17,7 +17,10 @@ from frisket.contracts.http.import_sessions import (
     ImportSessionList,
     ImportSessionStatus,
 )
-from frisket.engine.executor.action_jobs import reserve_typed_action_job
+from frisket.engine.executor.action_jobs import (
+    action_job_cancelled_result,
+    reserve_typed_action_job,
+)
 from frisket.engine.store.import_intake import (
     ImportIntakeHeader,
     append_inventory_batch,
@@ -28,6 +31,7 @@ from frisket.engine.store.import_intake import (
     inventory_item_from_staged,
     read_import_header,
     request_import_cancel,
+    set_import_resolution,
     write_import_header,
 )
 from frisket.engine.store.import_inventory import ImportInventory
@@ -42,6 +46,7 @@ from frisket.server.services.import_bulk_types import (
 
 
 _MAX_CHUNK_FILES = 256
+_MULTI_FILE_BATCH_BYTES = 64 * 1024 * 1024
 EnqueueImport = Callable[[str, str, int, bool], Awaitable[None] | None]
 
 
@@ -129,7 +134,7 @@ class ImportSessionService:
             (scratch / "files").mkdir(parents=True)
             try:
                 staged = await import_bulk_sources.stage_uploads(
-                    uploads, scratch, False, self._chunk_limits()
+                    uploads, scratch, False, self._chunk_limits(len(uploads))
                 )
                 facts = [inventory_item_from_staged(item) for item in staged]
                 retry_through = inventory_batch_through(inventory, batch_id, facts)
@@ -204,6 +209,13 @@ class ImportSessionService:
                     StreamingSheetWriter._from_session(project, session).cancel(
                         expected_cursor=session.cursor
                     )
+                elif session is None:
+                    action_job_cancelled_result(
+                        project,
+                        project_id=project_id,
+                        receipt_id=str(header.envelope["receipt_id"]),
+                        action_kind="import.files",
+                    )
         except Timeout:
             pass
         with ImportInventory(directory / "inventory.db") as inventory:
@@ -217,15 +229,28 @@ class ImportSessionService:
         project, directory, header = self._open(project_id, ref)
         with import_worker_lock(directory, timeout=0):
             session = ImportSessionStore(project).get(ref)
-            if session is None or session.state != "cancelled":
-                raise ValueError("only a cancelled import can be resolved")
-            writer = StreamingSheetWriter._from_session(project, session)
-            if decision == "keep":
-                writer.finalize_session(
-                    expected_cursor=session.cursor, keep_cancelled=True
+            if session is None:
+                if not header.cancel_requested:
+                    raise ValueError("only a cancelled import can be resolved")
+                header = set_import_resolution(
+                    directory, "kept" if decision == "keep" else "removed"
                 )
+            elif session.state in ("kept", "removed"):
+                expected = "kept" if decision == "keep" else "removed"
+                if session.state != expected:
+                    raise ValueError(
+                        "cancelled import was already resolved differently"
+                    )
+            elif session.state != "cancelled":
+                raise ValueError("only a cancelled import can be resolved")
             else:
-                writer.remove_session(expected_cursor=session.cursor)
+                writer = StreamingSheetWriter._from_session(project, session)
+                if decision == "keep":
+                    writer.finalize_session(
+                        expected_cursor=session.cursor, keep_cancelled=True
+                    )
+                else:
+                    writer.remove_session(expected_cursor=session.cursor)
         with ImportInventory(directory / "inventory.db") as inventory:
             return self._status(project, ref, directory, header, inventory)
 
@@ -245,6 +270,17 @@ class ImportSessionService:
         project = self._workspace.get(project_id)
         root = Path(project.path) / ".imports"
         sessions = []
+        db_states = {
+            str(row["id"]): str(row["state"])
+            for row in project.db.execute("SELECT id,state FROM import_sessions")
+        }
+        recent_completed = {
+            str(row["id"])
+            for row in project.db.execute(
+                "SELECT id FROM import_sessions WHERE state='completed' "
+                "ORDER BY updated_at DESC LIMIT 10"
+            )
+        }
         if root.is_dir():
             for directory in sorted(root.iterdir()):
                 if not directory.is_dir():
@@ -252,6 +288,13 @@ class ImportSessionService:
                 try:
                     ref = directory.name
                     header = self._validated_header(project, project_id, directory)
+                    db_state = db_states.get(ref)
+                    if db_state in {"kept", "removed"} or (
+                        db_state == "completed" and ref not in recent_completed
+                    ):
+                        continue
+                    if header.resolution in {"kept", "removed"}:
+                        continue
                     with ImportInventory(directory / "inventory.db") as inventory:
                         sessions.append(
                             self._status(project, ref, directory, header, inventory)
@@ -277,12 +320,19 @@ class ImportSessionService:
             raise ValueError("import session does not belong to this project")
         return header
 
-    def _chunk_limits(self) -> BulkImportLimits:
+    def _chunk_limits(self, upload_count: int) -> BulkImportLimits:
+        byte_limit = self._limits.max_upload_bytes
+        if upload_count > 1:
+            byte_limit = (
+                _MULTI_FILE_BATCH_BYTES
+                if byte_limit is None
+                else min(byte_limit, _MULTI_FILE_BATCH_BYTES)
+            )
         return BulkImportLimits(
             max_upload_files=min(
                 self._limits.max_upload_files or _MAX_CHUNK_FILES, _MAX_CHUNK_FILES
             ),
-            max_upload_bytes=self._limits.max_upload_bytes,
+            max_upload_bytes=byte_limit,
         )
 
     async def _enqueue_page(
@@ -323,6 +373,10 @@ class ImportSessionService:
                 "kept": "kept",
                 "removed": "removed",
             }[session.state]
+            if header.cancel_requested and session.state in {"active", "paused"}:
+                state = "cancelling"
+        elif header.resolution is not None:
+            state = header.resolution
         elif header.cancel_requested:
             try:
                 with import_worker_lock(directory, timeout=0):

@@ -64,6 +64,7 @@ async def test_create_upload_retry_seal_uses_compact_header_and_canonical_blobs(
         "max_bytes",
         "max_rows",
         "project_id",
+        "resolution",
         "storage_identity",
     }
 
@@ -138,3 +139,58 @@ def test_cancel_sets_durable_intent_even_while_worker_lock_is_busy(project):
         status = service.cancel("project-1", created.import_ref)
     assert status.state == "cancelling" and status.cancel_requested
     assert read_import_header(directory).cancel_requested
+
+
+def test_early_cancel_and_resolution_are_durable_and_idempotent(project):
+    service = ImportSessionService(SimpleNamespace(get=lambda _project_id: project))
+    created = service.create("project-1", "Never started")
+    cancelled = service.cancel("project-1", created.import_ref)
+    assert cancelled.state == "cancelled" and cancelled.sheet_id is None
+    receipt_id = read_import_header(
+        import_intake_dir(project.path, created.import_ref)
+    ).envelope["receipt_id"]
+    assert (
+        project.db.execute(
+            "SELECT status FROM receipts WHERE id=?", (receipt_id,)
+        ).fetchone()["status"]
+        == "cancelled"
+    )
+
+    kept = service.resolve("project-1", created.import_ref, decision="keep")
+    assert kept.state == "kept" and kept.sheet_id is None
+    assert (
+        service.resolve("project-1", created.import_ref, decision="keep").state
+        == "kept"
+    )
+    with pytest.raises(ValueError, match="differently"):
+        service.resolve("project-1", created.import_ref, decision="remove")
+    assert service.list("project-1").sessions == []
+
+
+@pytest.mark.asyncio
+async def test_multi_file_decoded_batch_cap_allows_one_oversized_file(
+    project, monkeypatch
+):
+    from frisket.server.services import import_sessions as service_module
+
+    monkeypatch.setattr(service_module, "_MULTI_FILE_BATCH_BYTES", 5)
+    service = ImportSessionService(
+        SimpleNamespace(get=lambda _project_id: project),
+        limits=BulkImportLimits(max_upload_bytes=10),
+    )
+    multi = service.create("project-1", "Multi")
+    with pytest.raises(ImportBulkRouteError, match="upload bytes"):
+        await service.upload(
+            "project-1",
+            multi.import_ref,
+            [_upload("one.bin", b"123"), _upload("two.bin", b"456")],
+            batch_id="multi",
+        )
+    single = service.create("project-1", "Single")
+    status = await service.upload(
+        "project-1",
+        single.import_ref,
+        [_upload("large.bin", b"123456")],
+        batch_id="single",
+    )
+    assert status.admitted_bytes == 6
