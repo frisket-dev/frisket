@@ -14,6 +14,7 @@ from typing import Any, BinaryIO, cast
 from frisket.actions.types import PdfDocument, PdfPage, StagedFile, TableError
 from frisket.engine.executor.local_file_read import _ReadOnlyBinary
 from frisket.engine.store.import_blobs import ImportBlob, ImportBlobCell, ImportBlobPlan
+from frisket.engine.store.disk_capacity import require_disk_headroom
 from frisket.engine.store.media_blobs import media_cell, owned_media_metadata_document
 from frisket.ops.media_probe import probe_for_ingest
 
@@ -98,6 +99,7 @@ class AdmittedImportBlobStager:
                     chunk = stream.read(_CHUNK_SIZE)
                     if not chunk:
                         break
+                    require_disk_headroom(path.parent, len(chunk))
                     sink.write(chunk)
                     digest.update(chunk)
                     size += len(chunk)
