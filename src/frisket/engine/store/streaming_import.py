@@ -17,6 +17,7 @@ from frisket.engine.store import op_log
 from frisket.engine.store.cell_writes import (
     bind_base_cell_producer,
     create_base_cell_producer,
+    delete_sheet_rows,
     discard_pending_base_cell_producer,
 )
 from frisket.engine.store.import_blobs import (
@@ -221,12 +222,30 @@ class StreamingSheetWriter:
         db = project.db
         try:
             db.execute("BEGIN IMMEDIATE")
-            if ReceiptStore(project).find_by_id(receipt_id) is not None:
-                raise DuplicateStreamingPublication(
-                    existing_receipt_id=receipt_id,
-                    idempotency_key=idempotency_key,
-                    params_hash=params_hash,
-                )
+            receipt_store = ReceiptStore(project)
+            stored_receipt = receipt_store.find_by_id(receipt_id)
+            reserved_receipt: Receipt | None = None
+            if stored_receipt is not None:
+                reserved_receipt = stored_receipt.parsed()
+                if (
+                    stored_receipt.status != "running"
+                    or stored_receipt.action_kind != action_kind
+                    or stored_receipt.action_id != action_id
+                    or stored_receipt.idempotency_key != idempotency_key
+                    or stored_receipt.params_hash != params_hash
+                    or reserved_receipt.op_ids
+                ):
+                    raise ImportSessionConflict(
+                        "reserved import receipt identity does not match"
+                    )
+            else:
+                duplicate = receipt_store.find_by_idempotency_key(idempotency_key)
+                if duplicate is not None:
+                    raise DuplicateStreamingPublication(
+                        existing_receipt_id=duplicate.id,
+                        idempotency_key=idempotency_key,
+                        params_hash=duplicate.params_hash,
+                    )
             cursor = db.execute(
                 "INSERT INTO sheets (name,position,hidden) VALUES "
                 "(?,(SELECT COALESCE(MAX(position),0)+1 FROM sheets),0)",
@@ -272,18 +291,29 @@ class StreamingSheetWriter:
             producer_id = create_base_cell_producer(
                 db, stage_id=f"import-session:{session_id}", op_id=op_id
             )
-            receipt = Receipt(
-                receipt_id=receipt_id,
-                project_id=project_id,
-                action_id=action_id,
-                action_kind=action_kind,
-                op_ids=[op_id],
-                idempotency_key=idempotency_key,
-                params_hash=params_hash,
-                status="running",
-                inputs=[ReceiptIO(name="source", ref=dict(source_ref))],
-            )
-            ReceiptStore(project).insert_running(receipt, commit=False)
+            if reserved_receipt is None:
+                receipt = Receipt(
+                    receipt_id=receipt_id,
+                    project_id=project_id,
+                    action_id=action_id,
+                    action_kind=action_kind,
+                    op_ids=[op_id],
+                    idempotency_key=idempotency_key,
+                    params_hash=params_hash,
+                    status="running",
+                    inputs=[ReceiptIO(name="source", ref=dict(source_ref))],
+                )
+                receipt_store.insert_running(receipt, commit=False)
+            else:
+                if reserved_receipt.project_id != project_id:
+                    raise ImportSessionConflict(
+                        "reserved import receipt belongs to another project"
+                    )
+                receipt = reserved_receipt.model_copy(update={"op_ids": [op_id]})
+                if not receipt_store.update_body_status(
+                    receipt, require_status="running", commit=False
+                ):
+                    raise ImportSessionConflict("reserved import receipt changed")
             db.execute(
                 "INSERT INTO import_sessions "
                 "(id,sheet_id,producer_id,op_id,receipt_id,writer_authority,state) "
@@ -383,6 +413,8 @@ class StreamingSheetWriter:
 
     def append_rows(self, records: Iterable[Mapping[str, Any]]) -> list[int]:
         self._require_open()
+        if self._session_id is not None:
+            raise RuntimeError("resumable imports must use append_page")
         batch = [dict(record) for record in records]
         if not batch:
             return []
@@ -550,7 +582,7 @@ class StreamingSheetWriter:
         return publication
 
     def remove_session(self, *, expected_cursor: int) -> None:
-        """Remove only this cancelled session's sheet; never erase on stop."""
+        """Remove committed import rows while retaining the new empty sheet."""
 
         self._require_session()
         db = self.project.db
@@ -562,31 +594,52 @@ class StreamingSheetWriter:
                 expected_cursor,
                 states=("cancelled",),
             )
+            artifact_ids = [
+                int(row["id"])
+                for row in db.execute(
+                    "SELECT id FROM source_artifacts WHERE source_sheet_id=?",
+                    (session.sheet_id,),
+                )
+            ]
             db.execute(
-                "UPDATE import_sessions SET sheet_id=NULL,producer_id=NULL,"
-                "receipt_id=NULL,state='removed',updated_at=datetime('now') WHERE id=?",
-                (self._session_id,),
+                "DELETE FROM evidence_links WHERE sheet_id=? OR op_id=?",
+                (session.sheet_id, session.op_id),
             )
-            db.execute("DELETE FROM sheets WHERE id=?", (session.sheet_id,))
-            ReceiptStore(self.project).delete_running(self._receipt_id, commit=False)
-            db.execute(
-                "DELETE FROM base_cell_producers WHERE id=?", (session.producer_id,)
-            )
-            db.execute(
-                "UPDATE ops SET status='discarded',barrier=0 WHERE id=?", (self._op_id,)
-            )
-            cursor = int(
-                db.execute("SELECT value FROM meta WHERE key='op_cursor'").fetchone()[0]
-            )
-            if cursor == self._op_id:
-                previous = int(
-                    db.execute(
-                        "SELECT COALESCE(MAX(id),0) FROM ops WHERE status='applied'"
-                    ).fetchone()[0]
+            if artifact_ids:
+                marks = ",".join("?" for _ in artifact_ids)
+                db.execute(
+                    f"DELETE FROM artifact_timeline_segments WHERE "
+                    f"derived_artifact_id IN ({marks}) OR source_artifact_id IN ({marks})",
+                    (*artifact_ids, *artifact_ids),
                 )
                 db.execute(
-                    "UPDATE meta SET value=? WHERE key='op_cursor'", (str(previous),)
+                    f"DELETE FROM source_artifacts WHERE id IN ({marks})", artifact_ids
                 )
+            delete_sheet_rows(
+                db, sheet_id=session.sheet_id, producer_id=session.producer_id
+            )
+            stored = ReceiptStore(self.project).find_by_id(self._receipt_id)
+            if stored is None or stored.status != "running":
+                raise ImportSessionConflict("import receipt is no longer running")
+            receipt = self._completed_session_receipt(
+                stored.parsed(), row_count=0, status="cancelled"
+            )
+            if not ReceiptStore(self.project).update_body_status(
+                receipt, require_status="running", commit=False
+            ):
+                raise ImportSessionConflict("import receipt cancellation lost its CAS")
+            db.execute("UPDATE ops SET barrier=0 WHERE id=?", (self._op_id,))
+            updated = db.execute(
+                "UPDATE import_sessions SET state='removed',updated_at=datetime('now') "
+                "WHERE id=? AND writer_authority=? AND cursor=? AND state='cancelled'",
+                (
+                    self._session_id,
+                    self._writer_authority,
+                    int(expected_cursor),
+                ),
+            )
+            if updated.rowcount != 1:
+                raise ImportSessionConflict("import session removal lost its CAS")
             db.commit()
         except BaseException:
             db.rollback()
@@ -647,7 +700,11 @@ class StreamingSheetWriter:
                 "warnings": (
                     [*receipt.warnings, "Import was stopped; committed rows were kept."]
                     if status == "partial"
-                    else receipt.warnings
+                    else (
+                        [*receipt.warnings, "Import was stopped; added rows were removed."]
+                        if status == "cancelled"
+                        else receipt.warnings
+                    )
                 ),
             }
         )

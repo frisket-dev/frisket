@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from frisket.contracts.action import Receipt
+from frisket.contracts.action import Receipt, ReceiptEvidence, ReceiptIO
 from frisket.engine.store import Project
 from frisket.engine.store.import_blobs import ImportBlobPlan, PreparedImportBlobPlan
 from frisket.engine.store.import_sessions import (
@@ -123,6 +123,52 @@ def test_resumable_session_reopens_without_duplicate_rows(tmp_path: Path) -> Non
         project.close()
 
 
+def test_resumable_session_adopts_matching_running_receipt(tmp_path: Path) -> None:
+    project = Project.create(tmp_path / "reserved.frisket", name="reserved")
+    try:
+        reserved = Receipt(
+            receipt_id="receipt:inventory-one",
+            project_id="streaming-project",
+            action_id="act:inventory-one",
+            action_kind="import.files",
+            idempotency_key="inventory:one",
+            params_hash="sha256:inventory-one",
+            status="running",
+            inputs=[ReceiptIO(name="reservation", ref={"kind": "job_claim"})],
+            evidence=[ReceiptEvidence(ref={"kind": "consent", "id": "consent:one"})],
+            warnings=["reservation warning"],
+        )
+        ReceiptStore(project).insert_running(
+            reserved, edition_run_context={"edition": "desktop"}
+        )
+
+        writer = _start_session(project)
+        stored = ReceiptStore(project).find_by_id("receipt:inventory-one")
+        assert stored is not None
+        adopted = stored.parsed()
+        assert adopted.op_ids == [writer._op_id]
+        assert adopted.inputs == reserved.inputs
+        assert adopted.evidence == reserved.evidence
+        assert adopted.warnings == reserved.warnings
+        assert project.db.execute(
+            "SELECT edition_run_context FROM receipts WHERE id=?",
+            (reserved.receipt_id,),
+        ).fetchone()[0] == '{"edition": "desktop"}'
+    finally:
+        project.close()
+
+
+def test_resumable_session_rejects_uncheckpointed_append_rows(tmp_path: Path) -> None:
+    project = Project.create(tmp_path / "append-guard.frisket", name="append-guard")
+    try:
+        writer = _start_session(project)
+        with pytest.raises(RuntimeError, match="append_page"):
+            writer.append_rows(_records(0, 1))
+        assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 0
+    finally:
+        project.close()
+
+
 def test_resumable_page_cursor_and_rows_roll_back_together(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -182,12 +228,36 @@ def test_cancelled_session_can_remove_only_its_visible_sheet(tmp_path: Path) -> 
     try:
         writer = _start_session(project)
         writer.append_page(_records(0, 2), expected_cursor=0, next_cursor=2)
+        project.db.execute(
+            "INSERT INTO source_artifacts "
+            "(stable_id,artifact_kind,media_type,source_sheet_id) VALUES (?,?,?,?)",
+            ("artifact:session", "file", "application/pdf", writer.sheet_id),
+        )
+        project.db.execute(
+            "INSERT INTO evidence_links "
+            "(stable_id,subject_kind,sheet_id,op_id,receipt_id) VALUES (?,?,?,?,?)",
+            (
+                "evidence:session",
+                "cell_value",
+                writer.sheet_id,
+                writer._op_id,
+                "receipt:inventory-one",
+            ),
+        )
+        project.db.commit()
         writer.cancel(expected_cursor=2)
         writer.remove_session(expected_cursor=2)
 
-        assert project.sheets() == []
+        assert [sheet["name"] for sheet in project.sheets()] == ["Visible import"]
         assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 0
-        assert ReceiptStore(project).find_by_id("receipt:inventory-one") is None
+        removed_receipt = ReceiptStore(project).find_by_id("receipt:inventory-one")
+        assert removed_receipt is not None and removed_receipt.status == "cancelled"
+        assert removed_receipt.parsed().op_ids == [writer._op_id]
+        assert project.db.execute(
+            "SELECT barrier FROM ops WHERE id=?", (writer._op_id,)
+        ).fetchone()[0] == 0
+        assert project.db.execute("SELECT COUNT(*) FROM source_artifacts").fetchone()[0] == 0
+        assert project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] == 0
         session = ImportSessionStore(project).get("import:one")
         assert session is not None and session.state == "removed"
     finally:
