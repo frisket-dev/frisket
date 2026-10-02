@@ -53,11 +53,14 @@ QUEUE_DB_NAME = ".queue.db"  # invisible to Workspace's *.frisket glob
 PROJECT_RUN_KIND = "project.run"
 ACTION_RUN_KIND = "action.run"
 MODEL_PULL_KIND = "model.pull"
+BLOB_METADATA_KIND = "blob.metadata.backfill"
 CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY = "__frisket_claimed_project_storage_key"
 # Server-owned jobs require an explicit marker; missing tenant identity fails closed.
 SERVER_SCOPED_JOB_PAYLOAD_KEY = "server_scoped"
 WORKSPACE_SCOPED_REF_KINDS = {"source.poll", "enclosure.download", MODEL_PULL_KIND}
-COOPERATIVELY_CANCELLABLE_RUNNING_KINDS = frozenset({ACTION_RUN_KIND, MODEL_PULL_KIND})
+COOPERATIVELY_CANCELLABLE_RUNNING_KINDS = frozenset(
+    {ACTION_RUN_KIND, MODEL_PULL_KIND, BLOB_METADATA_KIND}
+)
 
 
 def _requeue_budget_left(row) -> bool:

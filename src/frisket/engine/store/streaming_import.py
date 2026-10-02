@@ -20,7 +20,10 @@ from frisket.engine.store.cell_writes import (
     discard_pending_base_cell_producer,
 )
 from frisket.engine.store.receipts import ReceiptStore
-from frisket.engine.store.import_blobs import ImportBlobPlan, publish_import_blobs
+from frisket.engine.store.import_blobs import (
+    PreparedImportBlobPlan,
+    publish_import_blobs,
+)
 
 
 @dataclass(frozen=True)
@@ -212,7 +215,7 @@ class StreamingSheetWriter:
         request_spec: Mapping[str, Any] | None = None,
         reads: Iterable[Mapping[str, Any]] = (),
         source_ref: Mapping[str, Any] | None = None,
-        blob_plan: ImportBlobPlan | None = None,
+        blob_plan: PreparedImportBlobPlan | None = None,
     ) -> StreamingSheetPublication:
         if self._publication is not None:
             return self._publication

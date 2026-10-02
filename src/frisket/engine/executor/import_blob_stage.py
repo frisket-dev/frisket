@@ -23,12 +23,18 @@ logger = logging.getLogger(__name__)
 
 
 class AdmittedImportBlobStager:
-    def __init__(self, *, cancelled: Callable[[], bool] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        cancelled: Callable[[], bool] | None = None,
+        probe_metadata: bool = True,
+    ) -> None:
         self._directory = tempfile.TemporaryDirectory(prefix="frisket-import-")
         self._manifest: dict[StagedFile, ImportBlob] = {}
         self._readers = ExitStack()
         self._closed = False
         self._cancelled = cancelled
+        self._probe_metadata = probe_metadata
 
     def __enter__(self) -> AdmittedImportBlobStager:
         self._require_open()
@@ -97,10 +103,14 @@ class AdmittedImportBlobStager:
                     size += len(chunk)
             self._check_cancelled()
             observed = digest.hexdigest()
-            metadata = owned_media_metadata_document(
-                probe=probe_for_ingest(
-                    path, filename=filename, mime=mime, digest=observed
+            metadata = (
+                owned_media_metadata_document(
+                    probe=probe_for_ingest(
+                        path, filename=filename, mime=mime, digest=observed
+                    )
                 )
+                if self._probe_metadata
+                else {}
             )
             self._check_cancelled()
             file = StagedFile(size=size)

@@ -12,7 +12,8 @@ from frisket.engine.store.evidence import (
     record_source_artifact,
     record_source_span,
 )
-from frisket.engine.store.project_blobs import add_blob_from_path
+from frisket.engine.store.blob_backend import BlobIntegrityError
+from frisket.engine.store.project_blobs import publish_prepared_blob
 
 
 @dataclass(frozen=True)
@@ -53,25 +54,79 @@ class ImportBlobPlan:
         return replace(self, cells=tuple(cells))
 
 
+@dataclass(frozen=True)
+class PreparedImportBlobPlan:
+    """Invocation-owned occurrences whose bytes are durable in the blob backend."""
+
+    plan: ImportBlobPlan
+
+    def bind_row_ordinals(self, row_ids: Sequence[int]) -> PreparedImportBlobPlan:
+        return replace(self, plan=self.plan.bind_row_ordinals(row_ids))
+
+
+def _blob_records(plan: ImportBlobPlan) -> dict[int, ImportBlob]:
+    records = {blob.occurrence_id: blob for blob in plan.blobs}
+    if len(records) != len(plan.blobs):
+        raise ValueError("duplicate staged import identity")
+    for blob in plan.blobs:
+        if blob.role == "page":
+            document = records.get(blob.document_id)
+            if (
+                document is None
+                or document.role != "document"
+                or type(blob.page) is not int
+                or blob.page < 1
+            ):
+                raise ValueError("invalid staged PDF page association")
+    return records
+
+
+def prepare_import_blobs(project: Any, plan: ImportBlobPlan) -> PreparedImportBlobPlan:
+    """Verify and durably store staged bytes without holding a database lock.
+
+    The backend remains the integrity authority.  Canonical bytes may outlive a
+    failed publication; until metadata and evidence commit they are harmless
+    unreferenced objects, matching the existing rollback contract. Future
+    byte-deleting GC must fence the interval from this preparation through
+    publication so it cannot remove an object while its reference is in flight.
+    """
+
+    if project.db.in_transaction:
+        raise ValueError("import blob preparation requires no active transaction")
+    _blob_records(plan)
+    project._assert_blob_write_open()
+    for blob in plan.blobs:
+        digest = project.blob_store.put_path(
+            blob.path,
+            expected_digest=blob.digest,
+        )
+        if digest != blob.digest:
+            raise BlobIntegrityError(
+                "blob store returned a digest that does not match the prepared file"
+            )
+    return PreparedImportBlobPlan(plan)
+
+
 def publish_import_blobs(
     project: Any,
-    plan: ImportBlobPlan,
+    prepared: PreparedImportBlobPlan,
     *,
     sheet_id: int,
     column_ids: Mapping[str, int],
     op_id: int,
     receipt_id: str,
 ) -> tuple[dict[str, Any], ...]:
-    """Promote bytes and bind evidence without committing the caller's transaction.
+    """Bind prepared bytes and evidence without committing the caller transaction.
 
     Rollback removes metadata, not canonical objects: those bytes may already
-    belong to another cell. Only invocation-owned scratch paths are removed.
+    belong to another cell.
     """
     if not project.db.in_transaction:
         raise ValueError("import blobs require a publication transaction")
-    records = {blob.occurrence_id: blob for blob in plan.blobs}
-    if len(records) != len(plan.blobs):
-        raise ValueError("duplicate staged import identity")
+    if not isinstance(prepared, PreparedImportBlobPlan):
+        raise TypeError("import blobs must be prepared before publication")
+    plan = prepared.plan
+    records = _blob_records(plan)
     positions: dict[int, int] = {}
     for cell in plan.cells:
         if cell.occurrence_id not in records or cell.column_name not in column_ids:
@@ -84,24 +139,14 @@ def publish_import_blobs(
             raise ValueError("staged import row is not in the materialized sheet")
         positions[cell.row_id] = row["position"]
     for blob in plan.blobs:
-        if blob.role == "page":
-            document = records.get(blob.document_id)
-            if (
-                document is None
-                or document.role != "document"
-                or type(blob.page) is not int
-                or blob.page < 1
-            ):
-                raise ValueError("invalid staged PDF page association")
-        add_blob_from_path(
+        publish_prepared_blob(
             project,
-            blob.path,
+            digest=blob.digest,
+            size=blob.size,
             filename=blob.filename,
             mime=blob.mime,
-            metadata=blob.metadata,
             source_url=blob.source_url,
-            commit=False,
-            expected_digest=blob.digest,
+            metadata=blob.metadata,
         )
 
     artifacts: dict[int, dict[str, Any]] = {}
@@ -182,8 +227,4 @@ def publish_import_blobs(
                 page=blob.page, artifact_id=artifact["id"], evidence_link_id=link["id"]
             )
         refs.append(ref)
-    # This cleanup remains abortable. Outer stager cleanup handles leftovers
-    # after an earlier failure; canonical blob paths are never part of this plan.
-    for blob in plan.blobs:
-        blob.path.unlink(missing_ok=True)
     return tuple(refs)

@@ -22,7 +22,7 @@ from frisket.engine.sandbox.shim import SandboxPolicy, run_sandboxed
 from frisket.runtime.launch import worker_argv
 from frisket.engine.store.artifact_timeline import canonical_json_hash
 from frisket.engine.store.blob_backend import BlobNotFoundError
-from frisket.engine.store.media_blobs import MediaBlobStore
+from frisket.engine.store.media_blobs import MediaBlobStore, update_blob_metadata
 from frisket.execution.provider import enforce_media_duration_limit
 from frisket.sdk.media import media_text_hash
 
@@ -229,11 +229,16 @@ class _BoundFrameExtractor(_BoundMediaExtractor):
 
         async def extract():
             project = self._owner._project
-            if self._owner._limits is not None:
+            maximum = (
+                self._owner._limits.max_media_seconds
+                if self._owner._limits is not None
+                else None
+            )
+            if maximum is not None:
                 probe = MediaBlobStore(project).probe_metadata(ref["blob_hash"])
-                enforce_media_duration_limit(
-                    self._owner._limits.max_media_seconds, probe.get("duration_seconds")
-                )
+                if probe.get("duration_seconds") is None:
+                    probe = update_blob_metadata(project, ref["blob_hash"])
+                enforce_media_duration_limit(maximum, probe.get("duration_seconds"))
             with (
                 project.materialize_blob(ref["blob_hash"]) as source_path,
                 tempfile.TemporaryDirectory(prefix="frisket-frames-") as directory,

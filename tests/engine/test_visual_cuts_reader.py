@@ -386,6 +386,11 @@ def test_limit_uses_probe_measurement_not_anchor_duration(
     )
     monkeypatch.setattr(
         reader_module,
+        "update_blob_metadata",
+        lambda *_args, **_kwargs: {"duration_seconds": measured},
+    )
+    monkeypatch.setattr(
+        reader_module,
         "visual_cuts_value",
         lambda *_args, **_kwargs: pytest.fail("detector ran beyond limit"),
     )

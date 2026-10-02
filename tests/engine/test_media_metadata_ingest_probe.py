@@ -265,6 +265,16 @@ def test_file_import_stores_probe_metadata_and_identity_cell(tmp_path):
     assert data["rows"][0]["cells"][str(cols["size"]["id"])] == len(_png_header(9, 5))
 
     project = client.app.state.workspace.get(pid)
+    # Imported rows and identity cells are immediately available; optional
+    # dimensions/pages/duration are filled by the durable background job.
+    from frisket.engine.jobs import JobHandlerContext
+    from frisket.engine.jobs.blob_metadata import BLOB_METADATA_KIND
+
+    assert MediaBlobStore(project).probe_metadata(cell["blob"]) == {}
+    workspace = client.app.state.workspace
+    job = workspace.queue.claim("probe-test")
+    assert job.kind == BLOB_METADATA_KIND
+    workspace.registry.get(job.kind)(job.payload, JobHandlerContext.without_job_row())
     metadata = MediaBlobStore(project).probe_metadata(cell["blob"])
     assert metadata["kind"] == "image"
     assert metadata["width"] == 9

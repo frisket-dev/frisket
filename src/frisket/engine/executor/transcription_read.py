@@ -13,7 +13,7 @@ from frisket.actions.media_types import AudioColumn, TranscribedMedia
 from frisket.actions.types import ColumnRef, Row, RowError
 from frisket.contracts.transcription_language import transcribe_language_declaration
 from frisket.engine.store.artifact_timeline import canonical_json_hash
-from frisket.engine.store.media_blobs import MediaBlobStore
+from frisket.engine.store.media_blobs import MediaBlobStore, update_blob_metadata
 from frisket.engine.executor.visual_cuts_read import _settle
 from frisket.execution.attempt import routed_admission_in_scope
 from frisket.execution.provider import enforce_media_duration_limit
@@ -182,6 +182,9 @@ class _BoundTranscriber:
             MediaBlobStore(ctx.project).probe_metadata(str(digest)) if digest else {}
         )
         duration = probe.get("duration_seconds")
+        if duration is None and digest:
+            probe = update_blob_metadata(ctx.project, str(digest))
+            duration = probe.get("duration_seconds")
         limits = ctx.execution_limits
         if limits is not None and limits.max_media_seconds is not None:
             enforce_media_duration_limit(limits.max_media_seconds, duration)
