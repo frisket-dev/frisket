@@ -6,7 +6,13 @@ function selectionKey(importRef: string): string {
   return `frisket:import-session-files:${importRef}`;
 }
 
-function selectionSignature(files: File[], logicalPaths: string[]): string {
+const FINGERPRINT_YIELD_FILES = 2_048;
+
+function yieldToBrowser(): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, 0));
+}
+
+async function selectionSignature(files: File[], logicalPaths: string[]): Promise<string> {
   let hash = 0x811c9dc5;
   for (let index = 0; index < files.length; index += 1) {
     const file = files[index];
@@ -14,6 +20,7 @@ function selectionSignature(files: File[], logicalPaths: string[]): string {
     for (let offset = 0; offset < value.length; offset += 1) {
       hash = Math.imul(hash ^ value.charCodeAt(offset), 0x01000193);
     }
+    if ((index + 1) % FINGERPRINT_YIELD_FILES === 0) await yieldToBrowser();
   }
   return `${files.length}:${(hash >>> 0).toString(16).padStart(8, '0')}`;
 }
@@ -24,14 +31,14 @@ export function isDirectorySelection(files: File[]): boolean {
   ));
 }
 
-export function rememberImportSessionFiles(
+export async function rememberImportSessionFiles(
   importRef: string,
   files: File[],
   logicalPaths: string[],
-): void {
+): Promise<void> {
   try {
     const kind = isDirectorySelection(files) ? 'directory' : 'files';
-    localStorage.setItem(selectionKey(importRef), `${kind}:${selectionSignature(files, logicalPaths)}`);
+    localStorage.setItem(selectionKey(importRef), `${kind}:${await selectionSignature(files, logicalPaths)}`);
   } catch {
     // Admission still works when browser storage is disabled; only safe
     // re-selection after a reload is unavailable.
@@ -46,13 +53,13 @@ export function rememberedImportSelection(importRef: string): string | null {
   }
 }
 
-export function matchesImportSelection(
+export async function matchesImportSelection(
   remembered: string | null,
   files: File[],
   logicalPaths: string[],
-): boolean {
+): Promise<boolean> {
   const kind = isDirectorySelection(files) ? 'directory' : 'files';
-  return remembered === `${kind}:${selectionSignature(files, logicalPaths)}`;
+  return remembered === `${kind}:${await selectionSignature(files, logicalPaths)}`;
 }
 
 export function forgetImportSelection(importRef: string): void {

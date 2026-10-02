@@ -58,15 +58,14 @@ export interface ImportFileChunk {
 
 /** Bounds request bodies without rejecting a single input larger than the
  * target byte budget. The server remains authoritative for deployment caps. */
-export function chunkImportFiles(
+export function* chunkImportFiles(
   files: File[],
   logicalPaths: string[],
   start = 0,
-): ImportFileChunk[] {
+): Generator<ImportFileChunk, void> {
   if (files.length !== logicalPaths.length) {
     throw new TypeError('Import files and logical paths must stay aligned.');
   }
-  const chunks: ImportFileChunk[] = [];
   let chunkFiles: File[] = [];
   let chunkPaths: string[] = [];
   let chunkBytes = 0;
@@ -78,7 +77,7 @@ export function chunkImportFiles(
       || chunkBytes + file.size > IMPORT_SESSION_CHUNK_BYTES
     );
     if (wouldOverflow) {
-      chunks.push({ files: chunkFiles, logicalPaths: chunkPaths, start: chunkStart });
+      yield { files: chunkFiles, logicalPaths: chunkPaths, start: chunkStart };
       chunkFiles = [];
       chunkPaths = [];
       chunkBytes = 0;
@@ -89,9 +88,8 @@ export function chunkImportFiles(
     chunkBytes += file.size;
   }
   if (chunkFiles.length) {
-    chunks.push({ files: chunkFiles, logicalPaths: chunkPaths, start: chunkStart });
+    yield { files: chunkFiles, logicalPaths: chunkPaths, start: chunkStart };
   }
-  return chunks;
 }
 
 export interface CsvImportOptions extends OnboardingImportOptions {

@@ -8,7 +8,7 @@ vi.mock('pluralize', () => ({
   }),
 }));
 
-import { ApiError, cancelImportSession, chunkImportFiles, confirmImportRowsDraft, createImportSession, detectPastedRowsDraft, importCsv, importFiles, importPdf, importXlsx, importUrls, listImportSessions, previewCsv, previewImportRowUpdates, resolveImportSession, resumeImportSession, sealImportSession, seedSampleProject, uploadImportSessionFiles } from '../../src/api/open';
+import { ApiError, cancelImportSession, chunkImportFiles, confirmImportRowsDraft, createImportSession, detectPastedRowsDraft, importCsv, importFiles, importPdf, importXlsx, importUrls, listImportSessions, previewCsv, previewImportRowUpdates, resolveImportSession, resumeImportSession, sealImportSession, seedSampleProject, uploadFilesToImportSession, uploadImportSessionFiles } from '../../src/api/open';
 import {
   createOnboardingImportsApi,
   type OnboardingImportOptions,
@@ -72,7 +72,7 @@ describe('onboarding/import generated HTTP contracts', () => {
     ];
     const paths = files.map((file) => `folder/${file.name}`);
 
-    const chunks = chunkImportFiles(files, paths);
+    const chunks = Array.from(chunkImportFiles(files, paths));
 
     expect(chunks.map((chunk) => chunk.files.length)).toEqual([1, 256, 1]);
     expect(chunks.map((chunk) => chunk.start)).toEqual([0, 1, 257]);
@@ -81,10 +81,70 @@ describe('onboarding/import generated HTTP contracts', () => {
 
   it('continues chunking after the server inventory cursor without resending admitted files', () => {
     const files = Array.from({ length: 5 }, (_, index) => new File(['x'], `${index}.txt`));
-    const chunks = chunkImportFiles(files, files.map((file) => file.name), 3);
+    const chunks = Array.from(chunkImportFiles(files, files.map((file) => file.name), 3));
     expect(chunks).toHaveLength(1);
     expect(chunks[0].start).toBe(3);
     expect(chunks[0].files.map((file) => file.name)).toEqual(['3.txt', '4.txt']);
+  });
+
+  it('builds only the first bounded chunk for a 100k-file selection', () => {
+    const touched = new Set<number>();
+    const files = new Proxy(
+      { length: 100_000 } as File[],
+      {
+        get(target, property, receiver) {
+          if (typeof property === 'string' && /^\d+$/.test(property)) {
+            const index = Number(property);
+            touched.add(index);
+            return { name: `${index}.txt`, size: 1 } as File;
+          }
+          return Reflect.get(target, property, receiver);
+        },
+      },
+    );
+    const paths = new Proxy(
+      { length: 100_000 } as string[],
+      {
+        get(target, property, receiver) {
+          if (typeof property === 'string' && /^\d+$/.test(property)) return `folder/${property}.txt`;
+          return Reflect.get(target, property, receiver);
+        },
+      },
+    );
+    const iterator = chunkImportFiles(files, paths);
+
+    const first = iterator.next();
+
+    expect(first.done).toBe(false);
+    expect(first.value?.files).toHaveLength(256);
+    expect(first.value?.start).toBe(0);
+    expect(touched.size).toBe(257);
+    expect(Math.max(...touched)).toBe(256);
+  });
+
+  it('stops resumable admission after an aborted chunk without constructing later chunks', async () => {
+    const controller = new AbortController();
+    const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ input, init });
+      controller.abort();
+      throw new DOMException('cancelled', 'AbortError');
+    }));
+    const files = Array.from({ length: 600 }, (_, index) => new File(['x'], `${index}.txt`));
+    const session = {
+      import_ref: 'import-cancel', state: 'admitting' as const, admitted_files: 0,
+      admitted_bytes: 0, through: 0, committed_rows: 0, committed_bytes: 0,
+      sheet_id: null, sheet_name: 'Files', cancel_requested: false, sealed: false, error: null,
+    };
+
+    await expect(uploadFilesToImportSession(
+      'project-1', session, files, files.map((file) => file.name), { signal: controller.signal },
+    )).rejects.toMatchObject({ name: 'AbortError' });
+
+    expect(requests).toHaveLength(1);
+    const body = requests[0].init?.body as FormData;
+    expect(body.getAll('files')).toHaveLength(256);
+    expect(body.get('batch_id')).toBe('import-cancel:1-256');
   });
 
   it('uses generated resumable import routes and aligned multipart fields', async () => {

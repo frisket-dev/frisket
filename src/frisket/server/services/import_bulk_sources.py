@@ -201,14 +201,15 @@ def hash_stream(source: BinaryIO):
     return digest.hexdigest(), size
 
 
-def publish_staged_file(temp, destination):
+def publish_staged_file(temp, destination, *, durable: bool = True):
     if destination.exists():
         if not stat.S_ISREG(destination.lstat().st_mode):
             raise ImportBulkRouteError(400, "unsafe staging destination")
         temp.unlink()
     else:
         os.replace(temp, destination)
-    fsync_directory(destination.parent)
+    if durable:
+        fsync_directory(destination.parent)
 
 
 def fsync_directory(path: Path) -> None:
@@ -223,8 +224,18 @@ def fsync_directory(path: Path) -> None:
 
 
 async def stage_uploads(
-    uploads: list[BulkUpload], draft: Path, expand: bool, limits: BulkImportLimits
+    uploads: list[BulkUpload],
+    draft: Path,
+    expand: bool,
+    limits: BulkImportLimits,
+    *,
+    durable: bool = True,
 ) -> list[dict[str, Any]]:
+    """Stage uploads, syncing by default for plans that outlive the request.
+
+    Callers may disable scratch durability only when a later durable store is
+    the acknowledgement authority and the entire draft is failure-owned.
+    """
     staged = []
     seen = set()
     total_size = 0
@@ -249,12 +260,17 @@ async def stage_uploads(
                     extend_detection_prefix(prefix, chunk)
                     require_disk_headroom(temp.parent, len(chunk))
                     sink.write(chunk)
-                sink.flush()
-                os.fsync(sink.fileno())
+                if durable:
+                    sink.flush()
+                    os.fsync(sink.fileno())
             if expand:
                 staged += stage_zip(temp, draft / "files", limits)
             elif not is_junk_path(logical):
-                publish_staged_file(temp, draft / "files" / digest.hexdigest())
+                publish_staged_file(
+                    temp,
+                    draft / "files" / digest.hexdigest(),
+                    durable=durable,
+                )
                 staged.append(
                     staged_item(
                         logical,
