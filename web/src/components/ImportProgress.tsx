@@ -4,6 +4,7 @@ import {
   listImportSessions,
   resolveImportSession,
   resumeImportSession,
+  snapshotImportFiles,
   uploadFilesToImportSession,
   type ImportSessionStatus,
 } from '../api/open';
@@ -28,11 +29,6 @@ function isReadOnly(session: ImportSessionStatus): boolean {
   return ['admitting', 'running', 'paused', 'cancelling', 'cancelled'].includes(session.state);
 }
 
-function logicalPath(file: File): string {
-  const relative = (file as File & { webkitRelativePath?: unknown }).webkitRelativePath;
-  return typeof relative === 'string' && relative ? relative : file.name;
-}
-
 function sessionSummary(session: ImportSessionStatus): string {
   if (session.state === 'admitting') return `${session.admitted_files} files uploaded`;
   if (session.state === 'running' || session.state === 'cancelling') {
@@ -52,6 +48,7 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
 }) {
   const [sessions, setSessions] = useState<ImportSessionStatus[]>([]);
   const [busyRef, setBusyRef] = useState<string | null>(null);
+  const [preparingRef, setPreparingRef] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const browserUploadVersion = useSyncExternalStore(
     subscribeImportSessions,
@@ -60,7 +57,12 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
   );
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const continueRef = useRef<ImportSessionStatus | null>(null);
+  const preparationGeneration = useRef(0);
   const previousRef = useRef<Map<string, string> | null>(null);
+
+  useEffect(() => () => {
+    preparationGeneration.current += 1;
+  }, [projectId]);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -128,12 +130,11 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
   const continueUpload = async (
     session: ImportSessionStatus,
     files: File[],
-    paths: string[],
   ) => {
     setMessage(null);
     setImportSessionBrowserUploading(session.import_ref, true);
     try {
-      await uploadFilesToImportSession(projectId, session, files, paths);
+      await uploadFilesToImportSession(projectId, session, files);
       onChanged?.(session.sheet_id);
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
@@ -155,21 +156,30 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
         aria-label="Reselect import files"
         onChange={(event) => {
           const session = continueRef.current;
-          const files = Array.from(event.target.files ?? []);
+          const files = snapshotImportFiles(event.target.files);
           event.target.value = '';
           if (!session || !files.length) return;
-          const paths = files.map(logicalPath);
           const expected = rememberedImportSelection(session.import_ref);
+          const generation = ++preparationGeneration.current;
+          setPreparingRef(session.import_ref);
           void (async () => {
-            if (!await matchesImportSelection(expected, files, paths)) {
-              setMessage('These are not the same files in the same order. Reselect the original set, or cancel this import.');
-              return;
+            try {
+              const matches = await matchesImportSelection(expected, files);
+              if (generation !== preparationGeneration.current) return;
+              if (!matches) {
+                setMessage('These are not the same files in the same order. Reselect the original set, or cancel this import.');
+                return;
+              }
+              if (files.length < session.through) {
+                setMessage(`Reselect the original file set (${session.through} files were already uploaded).`);
+                return;
+              }
+              await continueUpload(session, files);
+            } finally {
+              if (generation === preparationGeneration.current) {
+                setPreparingRef((current) => current === session.import_ref ? null : current);
+              }
             }
-            if (files.length < session.through) {
-              setMessage(`Reselect the original file set (${session.through} files were already uploaded).`);
-              return;
-            }
-            await continueUpload(session, files, paths);
           })();
         }}
       />
@@ -177,6 +187,7 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
         <strong>Imports</strong>
         {sessions.map((session) => {
           const busy = busyRef === session.import_ref;
+          const preparing = preparingRef === session.import_ref;
           const browserUploading = isImportSessionBrowserUploading(session.import_ref);
           return (
             <div key={session.import_ref} data-testid={`import-progress-${session.state}`}>
@@ -191,7 +202,8 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
                 </button>
               ) : null}{' '}
               {browserUploading ? <span> · Uploading files… You can close the importer.</span> : null}
-              {!browserUploading && !session.sealed && !['cancelling', 'cancelled', 'kept', 'removed'].includes(session.state) ? (
+              {preparing ? <span> · Preparing files…</span> : null}
+              {!preparing && !browserUploading && !session.sealed && !['cancelling', 'cancelled', 'kept', 'removed'].includes(session.state) ? (
                 <>
                   <span>Upload was interrupted. Reselect the same files to continue, or cancel.</span>{' '}
                   <button type="button" className="mini-btn" disabled={busy} onClick={() => {
@@ -213,6 +225,10 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
               ) : null}{' '}
               {['admitting', 'running', 'paused'].includes(session.state) ? (
                 <button type="button" className="mini-btn" disabled={busy} onClick={() => {
+                  if (preparingRef === session.import_ref) {
+                    preparationGeneration.current += 1;
+                    setPreparingRef(null);
+                  }
                   void command(session, () => cancelImportSession(projectId, session.import_ref));
                 }}>Cancel</button>
               ) : null}

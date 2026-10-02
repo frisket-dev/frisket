@@ -178,7 +178,7 @@ export function createActSurfaceStore(): {
         importDialogOpen: true,
         importDialogEntryMode: 'files',
         importDialogCsv: null,
-        importDialogFiles: [...files],
+        importDialogFiles: files,
       }));
     },
     closeImportDialog() {

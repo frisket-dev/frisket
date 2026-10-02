@@ -1,5 +1,6 @@
 from contextlib import closing
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 
@@ -27,6 +28,8 @@ from frisket.engine.store.import_intake import (
 from frisket.engine.store.import_inventory import ImportInventory
 from frisket.engine.store.import_sessions import ImportSessionStore
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.server.services.import_sessions import ImportSessionService
+from frisket.server.services.sheet_grid import SheetGridService
 
 REF = "import-" + "a" * 32
 
@@ -200,6 +203,96 @@ def test_large_resume_yields_to_another_queue_claim(tmp_path):
             session = ImportSessionStore(project).get(REF)
             assert session.state == "completed"
             assert session.committed_rows == project.row_count(session.sheet_id) == 1030
+
+
+@pytest.mark.parametrize("decision", ["keep", "remove"])
+def test_multi_page_cancel_retry_and_resolution_preserve_exact_partial_state(
+    tmp_path, decision
+):
+    envelope, _directory = setup_import(tmp_path, count=600, sealed=True)
+    with closing(SqliteJobQueue(tmp_path / "queue.db")) as queue:
+        first_worker = Worker(queue, registry_for(tmp_path, queue))
+        first = enqueue(queue, 512)
+        run_until_settled(first_worker, queue, first)
+        assert queue.get(first).status == "done", queue.get(first).error
+
+        with closing(Project(tmp_path / "files.frisket")) as project:
+            workspace = SimpleNamespace(get=lambda _project_id: project)
+            service = ImportSessionService(workspace)
+            browser = SheetGridService(workspace)
+            session = ImportSessionStore(project).get(REF)
+            assert session.cursor == session.committed_rows == 512
+            assert project.row_count(session.sheet_id) == 512
+            source_column = next(
+                int(column["id"])
+                for column in project.columns(session.sheet_id)
+                if column["type"] == "file"
+            )
+            page = browser.document_page(
+                "files", session.sheet_id, source_column_id=source_column, limit=100
+            )
+            assert len(page["items"]) == 100
+            assert [item["ordinal"] for item in page["items"]] == list(range(1, 101))
+
+            before_retry = {
+                "rows": project.row_count(session.sheet_id),
+                "cells": project.db.execute("SELECT count(*) FROM cells").fetchone()[0],
+                "ops": project.db.execute("SELECT count(*) FROM ops").fetchone()[0],
+                "runs": project.db.execute("SELECT count(*) FROM runs").fetchone()[0],
+            }
+            cancelled = service.cancel("files", REF)
+            assert cancelled.state == "cancelled" and cancelled.committed_rows == 512
+
+        # A new worker represents process restart. A stale/retried wakeup must
+        # observe the terminal session without publishing the remaining page.
+        retry_worker = Worker(queue, registry_for(tmp_path, queue))
+        retry = enqueue(queue, 600)
+        run_until_settled(retry_worker, queue, retry)
+        assert queue.get(retry).status == "done", queue.get(retry).error
+
+        with closing(Project(tmp_path / "files.frisket")) as project:
+            workspace = SimpleNamespace(get=lambda _project_id: project)
+            service = ImportSessionService(workspace)
+            browser = SheetGridService(workspace)
+            session = ImportSessionStore(project).get(REF)
+            assert session.state == "cancelled" and session.committed_rows == 512
+            assert {
+                "rows": project.row_count(session.sheet_id),
+                "cells": project.db.execute("SELECT count(*) FROM cells").fetchone()[0],
+                "ops": project.db.execute("SELECT count(*) FROM ops").fetchone()[0],
+                "runs": project.db.execute("SELECT count(*) FROM runs").fetchone()[0],
+            } == before_retry
+            receipt = ReceiptStore(project).find_by_id(envelope.receipt_id)
+            assert receipt is not None and len(receipt.parsed().op_ids) == 1
+
+            resolved = service.resolve("files", REF, decision=decision)
+            assert resolved.state == ("kept" if decision == "keep" else "removed")
+            if decision == "keep":
+                assert project.row_count(session.sheet_id) == 512
+                kept = browser.document_page(
+                    "files",
+                    session.sheet_id,
+                    source_column_id=source_column,
+                    limit=100,
+                )
+                assert len(kept["items"]) == 100
+                assert (
+                    ReceiptStore(project).find_by_id(envelope.receipt_id).status
+                    == "partial"
+                )
+            else:
+                assert project.row_count(session.sheet_id) == 0
+                removed = browser.document_page(
+                    "files",
+                    session.sheet_id,
+                    source_column_id=source_column,
+                    limit=100,
+                )
+                assert removed["items"] == []
+                assert (
+                    ReceiptStore(project).find_by_id(envelope.receipt_id).status
+                    == "cancelled"
+                )
 
 
 def test_job_refuses_payload_authority_and_another_project_inventory(tmp_path):

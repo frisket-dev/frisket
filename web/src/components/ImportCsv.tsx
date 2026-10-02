@@ -20,6 +20,7 @@ import {
   importFollowTheMoney,
   importUrls,
   importXlsx,
+  snapshotImportFiles,
   uploadFilesToImportSession,
   executeBulkImport,
   planBulkImport,
@@ -94,24 +95,52 @@ type FeedSourceKind =
   | 'api_list_dicts'
   | 'courtlistener_docket';
 
-function importFormat(files: File[], mode?: FileImportMode): ImportFormat {
-  if (mode === 'csv') return 'csv';
-  if (mode === 'xlsx') return 'xlsx';
-  const formats = new Set<ImportFormat>();
-  for (const file of files) {
-    const suffix = file.name.split('.').pop()?.toLowerCase();
-    let format: ImportFormat = 'other';
-    if (suffix === 'jpeg' || suffix === 'jpg' || suffix === 'png' || suffix === 'gif' || suffix === 'webp') format = 'image';
-    else if (suffix === 'mp3' || suffix === 'wav' || suffix === 'm4a' || suffix === 'flac') format = 'audio';
-    else if (suffix === 'mp4' || suffix === 'mov' || suffix === 'webm') format = 'video';
-    else if (suffix === 'txt' || suffix === 'md') format = 'text';
-    else if (suffix && ['csv', 'xlsx', 'json', 'jsonl', 'parquet', 'pdf', 'html', 'htm'].includes(suffix)) {
-      format = suffix === 'htm' ? 'html' : suffix as ImportFormat;
-    }
-    formats.add(format);
-    if (formats.size > 1) return 'mixed';
+function fileImportFormat(file: File): ImportFormat {
+  const suffix = file.name.split('.').pop()?.toLowerCase();
+  if (suffix === 'jpeg' || suffix === 'jpg' || suffix === 'png' || suffix === 'gif' || suffix === 'webp') return 'image';
+  if (suffix === 'mp3' || suffix === 'wav' || suffix === 'm4a' || suffix === 'flac') return 'audio';
+  if (suffix === 'mp4' || suffix === 'mov' || suffix === 'webm') return 'video';
+  if (suffix === 'txt' || suffix === 'md') return 'text';
+  if (suffix && ['csv', 'xlsx', 'json', 'jsonl', 'parquet', 'pdf', 'html', 'htm'].includes(suffix)) {
+    return suffix === 'htm' ? 'html' : suffix as ImportFormat;
   }
-  return formats.size === 1 ? Array.from(formats)[0] as ImportFormat : 'mixed';
+  return 'other';
+}
+
+const SELECTION_PREPARE_YIELD_FILES = 2_048;
+
+interface PreparedFileSelection {
+  bytes: number;
+  directNeedsBulkPlan: boolean;
+  format: ImportFormat;
+  usesAttachmentSession: boolean;
+}
+
+async function prepareFileSelection(files: File[]): Promise<PreparedFileSelection> {
+  await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+  const formats = new Set<ImportFormat>();
+  let bytes = 0;
+  let usesAttachmentSession = files.length >= 2;
+  for (let index = 0; index < files.length; index += 1) {
+    const file = files[index];
+    bytes += file.size;
+    formats.add(fileImportFormat(file));
+    if (!/\.[^./]+$/.test(file.name) || /\.(?:csv|xlsx|eml|mbox|zip)$/i.test(file.name)) {
+      usesAttachmentSession = false;
+    }
+    if ((index + 1) % SELECTION_PREPARE_YIELD_FILES === 0) {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+    }
+  }
+  const first = files[0];
+  return {
+    bytes,
+    directNeedsBulkPlan: (files.length >= 2 && !usesAttachmentSession) || (
+      files.length === 1 && (/\.(?:eml|mbox|zip)$/i.test(first.name) || !/\.[^./]+$/.test(first.name))
+    ),
+    format: formats.size === 1 ? Array.from(formats)[0] : 'mixed',
+    usesAttachmentSession,
+  };
 }
 
 function telemetrySourceKind(kind: FeedSourceKind): SourceKind {
@@ -196,21 +225,6 @@ function classifySingleImportFile(
 function logicalPathForImport(file: File): string {
   const relativePath = (file as File & { webkitRelativePath?: unknown }).webkitRelativePath;
   return typeof relativePath === 'string' && relativePath ? relativePath : file.name;
-}
-
-function directSelectionNeedsBulkPlan(files: File[]): boolean {
-  return (files.length >= 2 && !attachmentSelectionUsesSession(files)) || (
-    files.length === 1 && (
-      /\.(?:eml|mbox|zip)$/i.test(files[0].name) ||
-      !/\.[^./]+$/.test(files[0].name)
-    )
-  );
-}
-
-function attachmentSelectionUsesSession(files: File[]): boolean {
-  return files.length >= 2 && files.every((file) => (
-    /\.[^./]+$/.test(file.name) && !/\.(?:csv|xlsx|eml|mbox|zip)$/i.test(file.name)
-  ));
 }
 
 function directSelectionExpandsArchive(files: File[]): boolean {
@@ -467,7 +481,7 @@ const inferDroppedFileMode = (
   files: FileList | File[],
   selectedMode: FileImportMode,
 ): FileImportMode | null => {
-  const list = Array.from(files);
+  const list = Array.isArray(files) ? files : Array.from(files);
   if (!list.length) return null;
   if (selectedMode === 'files' || list.length > 1) return 'files';
 
@@ -743,6 +757,7 @@ function useImportUpload({ onError }: ImportHandlers) {
     destinationSheetId?: number,
     columnMapping?: Record<string, string | null>,
     appendRequestKey?: string,
+    preparedSelection?: PreparedFileSelection,
   ): Promise<number | null> => {
     if (busy) return null;
     const list = Array.isArray(files) ? files : Array.from(files ?? []);
@@ -754,10 +769,13 @@ function useImportUpload({ onError }: ImportHandlers) {
       return null;
     }
     setBusy(true);
+    const prepared = preparedSelection ?? await prepareFileSelection(list);
     const startedAt = performance.now();
     const kind = list.length > 1 ? 'files' : 'file';
-    const format = resolvedMode === 'ftm' ? 'json' : importFormat(list, resolvedMode);
-    const bytes = byteBucket(list.reduce((total, item) => total + item.size, 0));
+    const format = resolvedMode === 'ftm' ? 'json'
+      : resolvedMode === 'csv' ? 'csv'
+        : resolvedMode === 'xlsx' ? 'xlsx' : prepared.format;
+    const bytes = byteBucket(prepared.bytes);
     sendProductTelemetry({ type: 'Import.started', properties: { importKind: kind, format, bytes } }, projectId);
     try {
       const result =
@@ -775,19 +793,17 @@ function useImportUpload({ onError }: ImportHandlers) {
             )
             : resolvedMode === 'ftm'
               ? await importFollowTheMoney(projectId, file, datasetName)
-            : attachmentSelectionUsesSession(list)
+            : prepared.usesAttachmentSession
               ? await (async () => {
                 const session = await createImportSession(projectId, { sheetName: 'files' });
                 setSessionBusy(true);
                 setImportSessionBrowserUploading(session.import_ref, true);
                 try {
-                  const logicalPaths = list.map(logicalPathForImport);
-                  await rememberImportSessionFiles(session.import_ref, list, logicalPaths);
+                  await rememberImportSessionFiles(session.import_ref, list);
                   const status = await uploadFilesToImportSession(
                     projectId,
                     session,
                     list,
-                    logicalPaths,
                   );
                   notifyImportSessionChanged();
                   return {
@@ -1008,6 +1024,8 @@ function OpenImportWorkspaceSession({
   const [bulkWarnings, setBulkWarnings] = useState<string[]>([]);
   const [bulkFailures, setBulkFailures] = useState<BulkImportFailedOutput[]>([]);
   const [bulkFailuresOmitted, setBulkFailuresOmitted] = useState(0);
+  const [selectionPreparing, setSelectionPreparing] = useState(false);
+  const selectionPreparationGeneration = useRef(0);
   const [destinationSheets, setDestinationSheets] = useState<SheetMeta[]>([]);
   const [destinationSheetId, setDestinationSheetId] = useState('');
   const [draftDestinationMode, setDraftDestinationMode] = useState<'append' | 'update'>('append');
@@ -1023,6 +1041,16 @@ function OpenImportWorkspaceSession({
   const [fileUpdateApplying, setFileUpdateApplying] = useState(false);
   const busy = uploadBusy || fileUpdateApplying;
   const [appendRequestKey, setAppendRequestKey] = useState(() => crypto.randomUUID());
+
+  const prepareSelection = useCallback((files: File[], use: (prepared: PreparedFileSelection) => void) => {
+    const generation = ++selectionPreparationGeneration.current;
+    setSelectionPreparing(true);
+    void prepareFileSelection(files).then((prepared) => {
+      if (generation === selectionPreparationGeneration.current) use(prepared);
+    }).finally(() => {
+      if (generation === selectionPreparationGeneration.current) setSelectionPreparing(false);
+    });
+  }, []);
   const activeCsvFile = csvFile ?? initialCsv?.file ?? null;
   const activeCsvPreview = csvFile ? csvPreview : initialCsv?.preview ?? null;
   // SheetMeta.parent is populated only from the list wire's parent_sheet_id;
@@ -1116,6 +1144,7 @@ function OpenImportWorkspaceSession({
   // rather than mirroring `open` into state: no response from this session may
   // publish into the next one, and unmount discards all local UI state.
   useEffect(() => () => {
+    selectionPreparationGeneration.current += 1;
     csvPreviewControllerRef.current?.abort();
     csvPreviewControllerRef.current = null;
     invalidateBulkRequests();
@@ -1173,9 +1202,9 @@ function OpenImportWorkspaceSession({
     onClose();
   }, [onClose, resetBulkPlan, resetCsvPreview, resetDraft]);
   const closeWorkspaceFromUser = useCallback(() => {
-    if ((busy && !sessionBusy) || bulkBusy || draftBusy) return;
+    if (selectionPreparing || (busy && !sessionBusy) || bulkBusy || draftBusy) return;
     closeWorkspace();
-  }, [bulkBusy, busy, closeWorkspace, draftBusy, sessionBusy]);
+  }, [bulkBusy, busy, closeWorkspace, draftBusy, selectionPreparing, sessionBusy]);
 
   // The ONE shared success
   // handler replacing the three independent close-on-success calls
@@ -1245,6 +1274,8 @@ function OpenImportWorkspaceSession({
 
   const selectMode = (nextMode: ImportMode) => {
     if (busy) return;
+    selectionPreparationGeneration.current += 1;
+    setSelectionPreparing(false);
     resetCsvPreview();
     resetBulkPlan();
     if (nextMode !== 'csv') {
@@ -1548,28 +1579,34 @@ function OpenImportWorkspaceSession({
           style={{ display: 'none' }}
           data-testid={mode === 'csv' ? 'import-csv-input' : 'import-file-input'}
           onChange={(e) => {
-            const files = Array.from(e.target.files ?? []);
+            const files = snapshotImportFiles(e.target.files);
             const selectedFile = files[0];
-            if (directSelectionNeedsBulkPlan(files)) {
-              resetCsvPreview();
-              startBulkPlan(files, directSelectionExpandsArchive(files));
-            } else if (fileMode === 'csv' && singleFileFormat === 'csv' && selectedFile && classifySingleImportFile(selectedFile)) {
-              resetBulkPlan();
-              setAppendRequestKey(crypto.randomUUID());
-              setCsvFile(selectedFile);
-              setCsvEncoding('');
-              setCsvPreview(null);
-              setCsvPreviewError(null);
-              loadCsvPreview(selectedFile, '');
-            } else {
-              resetCsvPreview();
-              resetBulkPlan();
-              void uploadFiles(singleFileFormat === 'ftm' ? 'ftm' : fileMode, files, undefined, ftmDatasetName).then((sheetId) => {
-                if (sheetId != null) void finishImport(sheetId);
-                else if (attachmentSelectionUsesSession(files)) closeWorkspace();
-              });
-            }
             e.target.value = '';
+            if (!files.length) return;
+            prepareSelection(files, (prepared) => {
+              if (prepared.directNeedsBulkPlan) {
+                resetCsvPreview();
+                startBulkPlan(files, directSelectionExpandsArchive(files));
+              } else if (fileMode === 'csv' && singleFileFormat === 'csv' && selectedFile && classifySingleImportFile(selectedFile)) {
+                resetBulkPlan();
+                setAppendRequestKey(crypto.randomUUID());
+                setCsvFile(selectedFile);
+                setCsvEncoding('');
+                setCsvPreview(null);
+                setCsvPreviewError(null);
+                loadCsvPreview(selectedFile, '');
+              } else {
+                resetCsvPreview();
+                resetBulkPlan();
+                void uploadFiles(
+                  singleFileFormat === 'ftm' ? 'ftm' : fileMode,
+                  files, undefined, ftmDatasetName, undefined, undefined, undefined, prepared,
+                ).then((sheetId) => {
+                  if (sheetId != null) void finishImport(sheetId);
+                  else if (prepared.usesAttachmentSession) closeWorkspace();
+                });
+              }
+            });
           }}
         />
         <input
@@ -1583,18 +1620,23 @@ function OpenImportWorkspaceSession({
           style={{ display: 'none' }}
           data-testid="import-folder-input"
           onChange={(e) => {
-            const files = Array.from(e.target.files ?? []);
-            resetCsvPreview();
-            if (attachmentSelectionUsesSession(files)) {
-              resetBulkPlan();
-              void uploadFiles('files', files).then((sheetId) => {
-                if (sheetId != null) void finishImport(sheetId);
-                else closeWorkspace();
-              });
-            } else {
-              startBulkPlan(files, false);
-            }
+            const files = snapshotImportFiles(e.target.files);
             e.target.value = '';
+            if (!files.length) return;
+            resetCsvPreview();
+            prepareSelection(files, (prepared) => {
+              if (prepared.usesAttachmentSession) {
+                resetBulkPlan();
+                void uploadFiles(
+                  'files', files, undefined, undefined, undefined, undefined, undefined, prepared,
+                ).then((sheetId) => {
+                  if (sheetId != null) void finishImport(sheetId);
+                  else closeWorkspace();
+                });
+              } else {
+                startBulkPlan(files, false);
+              }
+            });
           }}
         />
         <input
@@ -1626,7 +1668,7 @@ function OpenImportWorkspaceSession({
             className="icon-btn"
             aria-label="Close import"
             data-testid="import-workspace-close"
-            disabled={(busy && !sessionBusy) || bulkBusy || draftBusy}
+            disabled={selectionPreparing || (busy && !sessionBusy) || bulkBusy || draftBusy}
             onClick={closeWorkspaceFromUser}
           >
             <X size={16} />
@@ -1648,6 +1690,7 @@ function OpenImportWorkspaceSession({
               <ImportStageStepper stages={IMPORT_WORKSPACE_STAGES} stage={stage} />
             ) : null}
             <div className="import-workspace-panel">
+              {selectionPreparing ? <div role="status">Preparing selected files…</div> : null}
               {downloadPrompt ? (
                 <MediaDownloadPrompt
                   columnName={downloadPrompt.columnName}
@@ -2946,46 +2989,46 @@ export function ImportDropzone(props: ImportHandlers & {
   const rich = useImportUpload(handlers);
   const [over, setOver] = useState(false);
   const [previewing, setPreviewing] = useState(false);
+  const [preparing, setPreparing] = useState(false);
+  const preparationGeneration = useRef(0);
+
+  useEffect(() => () => {
+    preparationGeneration.current += 1;
+  }, [projectId]);
 
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     setOver(false);
-    if (rich.busy || previewing) return;
-    const files = Array.from(e.dataTransfer.files);
-    const dropMode = inferDroppedFileMode(files, 'csv');
-    if (
-      ftmImportEnabled
-      && files.length === 1
-      && /\.(?:json|jsonl)$/i.test(files[0].name)
-    ) {
-      void rich.uploadFiles('ftm', files).then((sheetId) => {
-        if (sheetId != null) handlers.onImported(sheetId);
-      });
-      return;
-    }
-    if (directSelectionNeedsBulkPlan(files)) {
-      onOpenBulk(files);
-      return;
-    }
-    if (files.length === 1 && dropMode === 'csv') {
-      const file = files[0];
-      setPreviewing(true);
-      void previewCsv(projectId, file).then((preview) => {
-        onOpenCsv(file, preview);
-      }).catch((error: unknown) => {
-        handlers.onError(`Import failed: ${error instanceof Error ? error.message : String(error)}`);
-      }).finally(() => {
-        setPreviewing(false);
-      });
-      return;
-    }
-    // XLSX and generic file drops keep their one-step direct-import path.
-    // CSV always enters the global dialog above for preview and confirmation.
-    if (dropMode) {
-      void rich.uploadFiles(dropMode, files).then((sheetId) => {
-        if (sheetId != null) handlers.onImported(sheetId);
-      });
-    }
+    if (rich.busy || previewing || preparing) return;
+    const files = snapshotImportFiles(e.dataTransfer.files);
+    if (!files.length) return;
+    const generation = ++preparationGeneration.current;
+    setPreparing(true);
+    void prepareFileSelection(files).then((prepared) => {
+      if (generation !== preparationGeneration.current) return;
+      const dropMode = inferDroppedFileMode(files, 'csv');
+      if (ftmImportEnabled && files.length === 1 && /\.(?:json|jsonl)$/i.test(files[0].name)) {
+        void rich.uploadFiles(
+          'ftm', files, undefined, undefined, undefined, undefined, undefined, prepared,
+        ).then((sheetId) => { if (sheetId != null) handlers.onImported(sheetId); });
+      } else if (prepared.directNeedsBulkPlan) {
+        onOpenBulk(files);
+      } else if (files.length === 1 && dropMode === 'csv') {
+        const file = files[0];
+        setPreviewing(true);
+        void previewCsv(projectId, file).then((preview) => {
+          onOpenCsv(file, preview);
+        }).catch((error: unknown) => {
+          handlers.onError(`Import failed: ${error instanceof Error ? error.message : String(error)}`);
+        }).finally(() => setPreviewing(false));
+      } else if (dropMode) {
+        void rich.uploadFiles(
+          dropMode, files, undefined, undefined, undefined, undefined, undefined, prepared,
+        ).then((sheetId) => { if (sheetId != null) handlers.onImported(sheetId); });
+      }
+    }).finally(() => {
+      if (generation === preparationGeneration.current) setPreparing(false);
+    });
   };
 
   return (
@@ -2998,7 +3041,7 @@ export function ImportDropzone(props: ImportHandlers & {
     >
       <Upload size={28} strokeWidth={1.6} />
       <div className="dropzone-title">
-        {rich.busy ? 'Importing...' : previewing ? 'Reading preview...' : 'Start with data'}
+        {preparing ? 'Preparing selected files…' : rich.busy ? 'Importing...' : previewing ? 'Reading preview...' : 'Start with data'}
       </div>
       <div className="dropzone-sub">Files, URLs, pasted rows, and feeds</div>
       <button

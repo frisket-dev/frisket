@@ -56,16 +56,23 @@ export interface ImportFileChunk {
   start: number;
 }
 
+export function importFileLogicalPath(file: File): string {
+  const relative = (file as File & { webkitRelativePath?: unknown }).webkitRelativePath;
+  return typeof relative === 'string' && relative ? relative : file.name;
+}
+
+/** Browser-owned FileList/DataTransfer lists may be cleared after their event.
+ * Retain one ordered array of File references; this does not copy file bytes. */
+export function snapshotImportFiles(files: FileList | null | undefined): File[] {
+  return files ? Array.from(files) : [];
+}
+
 /** Bounds request bodies without rejecting a single input larger than the
  * target byte budget. The server remains authoritative for deployment caps. */
 export function* chunkImportFiles(
   files: File[],
-  logicalPaths: string[],
   start = 0,
 ): Generator<ImportFileChunk, void> {
-  if (files.length !== logicalPaths.length) {
-    throw new TypeError('Import files and logical paths must stay aligned.');
-  }
   let chunkFiles: File[] = [];
   let chunkPaths: string[] = [];
   let chunkBytes = 0;
@@ -84,7 +91,7 @@ export function* chunkImportFiles(
       chunkStart = index;
     }
     chunkFiles.push(file);
-    chunkPaths.push(logicalPaths[index]);
+    chunkPaths.push(importFileLogicalPath(file));
     chunkBytes += file.size;
   }
   if (chunkFiles.length) {
@@ -888,10 +895,9 @@ export async function uploadFilesToImportSession(
   projectId: string,
   session: ImportSessionStatus,
   files: File[],
-  logicalPaths: string[],
   options: OnboardingImportOptions = {},
 ): Promise<ImportSessionStatus> {
-  for (const chunk of chunkImportFiles(files, logicalPaths, session.through)) {
+  for (const chunk of chunkImportFiles(files, session.through)) {
     const end = chunk.start + chunk.files.length;
     await uploadImportSessionFiles(projectId, session.import_ref, chunk.files, {
       ...options,
