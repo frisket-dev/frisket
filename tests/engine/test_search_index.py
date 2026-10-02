@@ -1,0 +1,172 @@
+"""Bounded maintenance, crash replay, and honest latest-only search."""
+
+import pytest
+
+from frisket.engine.store import Project
+from frisket.search import (
+    SearchIndexNotReady,
+    drain_index,
+    fresh_sidecar,
+    index_batch,
+    search_project,
+    search_project_page,
+)
+import frisket.search_index as maintenance
+
+
+@pytest.fixture
+def documents(tmp_path):
+    project = Project.create(tmp_path / "search.frisket", name="search")
+    sheet = project.add_sheet("Documents")
+    column = project.add_column(sheet, "body")
+    rows = project.add_rows(
+        sheet, [{"body": f"needle document {i}"} for i in range(7)], {"body": column}
+    )
+    try:
+        yield project, sheet, column, rows
+    finally:
+        project.close()
+
+
+def test_readers_do_not_rebuild_and_batches_are_bounded(documents):
+    project, *_ = documents
+    with pytest.raises(SearchIndexNotReady):
+        search_project(project, "needle", rerank="off")
+    assert search_project_page(project, "needle", rerank="off") == {
+        "hits": [],
+        "complete": False,
+    }
+    assert not (project.path / "project.search.db").exists()
+    for _ in range(100):
+        progress = index_batch(project, batch_size=2)
+        assert progress.processed <= 2
+        if progress.complete:
+            break
+    else:
+        pytest.fail("bounded indexing did not finish")
+    assert len(search_project(project, "needle", rerank="off")) == 7
+
+
+def test_partial_results_hide_changed_and_deleted_text(documents):
+    project, sheet, column, rows = documents
+    drain_index(project)
+    project.apply_edits(
+        [{"row_id": rows[0], "column_id": column, "value": "replacement"}]
+    )
+    project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (rows[1],))
+    project.db.commit()
+    page = search_project_page(project, "needle", rerank="off")
+    assert page["complete"] is False
+    assert {hit["row_id"] for hit in page["hits"]} == set(rows[2:])
+    drain_index(project, batch_size=2)
+    assert search_project(project, "replacement", rerank="off")[0]["row_id"] == rows[0]
+    assert len(search_project(project, "needle", rerank="off")) == 5
+
+
+def test_crash_after_index_commit_before_ack_replays(documents, monkeypatch):
+    project, *_ = documents
+    original = maintenance.advance_dirty_scope
+
+    def crash(*args, **kwargs):
+        raise RuntimeError("crash before checkpoint")
+
+    monkeypatch.setattr(maintenance, "advance_dirty_scope", crash)
+    with pytest.raises(RuntimeError, match="crash before checkpoint"):
+        index_batch(project, batch_size=2)
+    monkeypatch.setattr(maintenance, "advance_dirty_scope", original)
+    assert drain_index(project, batch_size=2) == 7
+    assert len(search_project(project, "needle", rerank="off")) == 7
+
+
+def test_changed_cell_behind_backfill_cursor_is_reconciled(documents):
+    project, _, column, rows = documents
+    index_batch(project, batch_size=2)
+    project.apply_edits(
+        [{"row_id": rows[0], "column_id": column, "value": "newneedle"}]
+    )
+    drain_index(project, batch_size=2)
+    assert search_project(project, "newneedle", rerank="off")[0]["row_id"] == rows[0]
+
+
+def test_old_source_snapshot_never_rebuilds_shared_index(documents):
+    project, sheet, column, _ = documents
+    drain_index(project)
+    with project.read_snapshot() as old:
+        db = fresh_sidecar(old)
+        db.close()
+        project.add_rows(sheet, [{"body": "laterneedle"}], {"body": column})
+        drain_index(project)
+        with pytest.raises(SearchIndexNotReady):
+            fresh_sidecar(old)
+    assert search_project(project, "laterneedle", rerank="off")
+
+
+def test_partial_mutation_revokes_old_complete_checkpoint(documents):
+    project, sheet, column, _ = documents
+    drain_index(project)
+    with project.read_snapshot() as old:
+        db = fresh_sidecar(old)
+        db.close()
+        project.add_rows(
+            sheet, [{"body": "laterneedle"}, {"body": "another"}], {"body": column}
+        )
+        assert not index_batch(project, batch_size=1).complete
+        with pytest.raises(SearchIndexNotReady):
+            fresh_sidecar(old)
+
+
+def test_missing_sidecar_recovers_even_after_work_acknowledged(documents):
+    project, *_ = documents
+    drain_index(project)
+    (project.path / "project.search.db").unlink()
+    assert drain_index(project, batch_size=2) == 7
+
+
+def test_pinned_index_remains_stable_during_later_update(documents):
+    project, sheet, column, _ = documents
+    drain_index(project)
+    db = fresh_sidecar(project)
+    try:
+        project.add_rows(sheet, [{"body": "laterneedle"}], {"body": column})
+        drain_index(project)
+        assert db.execute("SELECT COUNT(*) FROM cell_fts").fetchone()[0] == 7
+    finally:
+        db.close()
+    assert len(search_project(project, "laterneedle", rerank="off")) == 1
+
+
+@pytest.mark.parametrize("change", ["rename", "hide", "delete"])
+def test_column_lifecycle_reconciles_indexed_identities(documents, change):
+    project, _, column, _ = documents
+    drain_index(project)
+    if change == "rename":
+        project.db.execute("UPDATE columns SET name='renamed' WHERE id=?", (column,))
+    elif change == "hide":
+        project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (column,))
+    else:
+        project.db.execute("DELETE FROM columns WHERE id=?", (column,))
+    project.db.commit()
+    assert search_project_page(project, "needle", rerank="off")["hits"] == []
+    drain_index(project, batch_size=2)
+    hits = search_project(project, "needle", rerank="off")
+    if change == "rename":
+        assert len(hits) == 7
+        assert {hit["column_name"] for hit in hits} == {"renamed"}
+    else:
+        assert hits == []
+
+
+def test_foreground_read_does_not_wait_for_index_writer(documents):
+    project, *_ = documents
+    drain_index(project)
+    from frisket.search import _sidecar
+
+    writer = _sidecar(project)
+    try:
+        writer.execute("BEGIN IMMEDIATE")
+        assert search_project_page(project, "needle", rerank="off")["complete"]
+        reader = fresh_sidecar(project)
+        reader.close()
+    finally:
+        writer.rollback()
+        writer.close()
