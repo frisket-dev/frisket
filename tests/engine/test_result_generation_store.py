@@ -728,6 +728,138 @@ def test_checkpoint_result_publication_defers_heads_until_seal(
         project.close()
 
 
+@pytest.mark.parametrize(
+    ("with_evidence", "with_checkpoint"),
+    [(False, False), (True, False), (False, True), (True, True)],
+    ids=("result", "result-evidence", "checkpoint", "checkpoint-evidence"),
+)
+def test_result_publication_preserves_ambient_transaction_ownership(
+    tmp_path: Path,
+    with_evidence: bool,
+    with_checkpoint: bool,
+) -> None:
+    project, sheet_id, output_column_id, row_ids = _seed_project(tmp_path)
+    generations = ResultGenerationStore(project)
+    claimed_run = _start_claimed_run(
+        project,
+        sheet_id=sheet_id,
+        output_column_id=output_column_id,
+        row_ids=row_ids[:1],
+        label="ambient publication",
+    )
+    store = RunResultStore(project)
+    checkpoint_id = "checkpoint-ambient-publication"
+    checkpoint_identity = "ambient-publication"
+    batch = [
+        {
+            "row_id": row_ids[0],
+            "column_id": output_column_id,
+            "value": "ambient publication",
+            "publication_effect": "publish_value",
+        }
+    ]
+    try:
+        _declare(generations, claimed_run, output_column_id, write_mode="create")
+        if with_checkpoint:
+            assert store.reserve_row_effect_checkpoint(
+                checkpoint_id,
+                run_id=claimed_run.run_id,
+                row_id=row_ids[0],
+                action_kind="map.regex_extract",
+                identity=checkpoint_identity,
+                authorized_attempt_id=claimed_run.authority.writer_attempt_id,
+                writer_attempt_id=claimed_run.authority.writer_attempt_id,
+                claim_token=claimed_run.authority.claim_token,
+            )
+            store.complete_row_effect_checkpoint(
+                checkpoint_id,
+                run_id=claimed_run.run_id,
+                row_id=row_ids[0],
+                action_kind="map.regex_extract",
+                identity=checkpoint_identity,
+                batch=batch,
+                replay_response={"value": {"value": "ambient publication"}},
+                writer_attempt_id=claimed_run.authority.writer_attempt_id,
+                claim_token=claimed_run.authority.claim_token,
+            )
+
+        project.db.execute("BEGIN IMMEDIATE")
+        project.db.execute(
+            "UPDATE ops SET label='ambient sentinel' WHERE id=?",
+            (claimed_run.op_id,),
+        )
+        store.publish_result_batch(
+            claimed_run.run_id,
+            batch,
+            writer_attempt_id=claimed_run.authority.writer_attempt_id,
+            claim_token=claimed_run.authority.claim_token,
+            claimless_direct_effect=claimed_run.authority.claimless_direct_effect,
+            authorized_attempt_id=claimed_run.authority.writer_attempt_id,
+            checkpoint=(
+                (checkpoint_id, row_ids[0], checkpoint_identity)
+                if with_checkpoint
+                else None
+            ),
+            checkpoint_action_kind=("map.regex_extract" if with_checkpoint else None),
+            evidence_writer=(lambda: None) if with_evidence else None,
+        )
+
+        assert project.db.in_transaction
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM results WHERE run_id=?", (claimed_run.run_id,)
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            project.db.execute(
+                "SELECT completed_rows FROM runs WHERE id=?", (claimed_run.run_id,)
+            ).fetchone()[0]
+            == 1
+        )
+        assert generations.read_cell_heads(output_column_id)[row_ids[0]].value == (
+            "ambient publication"
+        )
+        if with_checkpoint:
+            assert (
+                project.db.execute(
+                    "SELECT COUNT(*) FROM effect_checkpoints WHERE id=?", (checkpoint_id,)
+                ).fetchone()[0]
+                == 0
+            )
+
+        project.db.rollback()
+        assert (
+            project.db.execute(
+                "SELECT label FROM ops WHERE id=?", (claimed_run.op_id,)
+            ).fetchone()[0]
+            == "ambient publication"
+        )
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM results WHERE run_id=?", (claimed_run.run_id,)
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            project.db.execute(
+                "SELECT completed_rows FROM runs WHERE id=?", (claimed_run.run_id,)
+            ).fetchone()[0]
+            == 0
+        )
+        assert generations.read_cell_heads(output_column_id) == {}
+        if with_checkpoint:
+            checkpoint = project.db.execute(
+                "SELECT state FROM effect_checkpoints WHERE id=?", (checkpoint_id,)
+            ).fetchone()
+            assert checkpoint is not None and checkpoint["state"] == "returned"
+    finally:
+        if project.db.in_transaction:
+            project.db.rollback()
+        _release(project, claimed_run)
+        project.close()
+
+
 def test_managed_run_treats_every_effect_as_attempted_and_refuses_same_run_retry(
     tmp_path: Path,
 ) -> None:
