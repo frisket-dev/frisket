@@ -50,7 +50,7 @@ from frisket.engine.executor.action_support import (
 )
 from frisket.sdk.replay import _replay_output_column_row
 from frisket.engine.store import Project
-from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
+from frisket.engine.store.edit_overlays import write_edit_overlay
 from frisket.engine.store.materialization import (
     MaterializedColumnSpec,
     SingleParentChildSheetPlan,
@@ -895,30 +895,34 @@ def _web_capture_page_apply_edits_in_txn(
     row_results: list[dict[str, Any]],
     blob_refs_by_row: dict[int, dict[str, Any]],
 ) -> int:
-    project.db.execute("UPDATE ops SET status='discarded' WHERE status='undone'")
-    cur = project.db.execute(
-        "INSERT INTO ops (kind, label, spec, barrier) VALUES (?, ?, ?, 0)",
-        (
-            action.kind,
-            f"{action.kind} {params.output_name}",
-            json.dumps(params.request, sort_keys=True),
-        ),
+    captured_rows = [row for row in row_results if row.get("status") == "captured"]
+    row_ids = [int(row["row_id"]) for row in captured_rows]
+    _values, current_refs = project.get_values_with_refs(
+        params.sheet_id, output_column_id, row_ids=row_ids
     )
-    op_id = int(cur.lastrowid)
-    project.db.execute("UPDATE meta SET value=? WHERE key='op_cursor'", (str(op_id),))
-    edits = [
-        EditCellWrite(
-            row_id=int(row["row_id"]),
-            column_id=output_column_id,
-            value=_web_capture_page_cell(
+    targets = [
+        {
+            "row_id": int(row["row_id"]),
+            "column_id": output_column_id,
+            "value_after": _web_capture_page_cell(
                 row, blob_refs_by_row[int(row["row_id"])]["primary"]
             ),
-        )
-        for row in row_results
-        if row.get("status") == "captured"
+            **(
+                {"current_value_ref": current_refs[int(row["row_id"])]}
+                if int(row["row_id"]) in current_refs
+                else {}
+            ),
+        }
+        for row in captured_rows
     ]
-    insert_edits(project.db, op_id=op_id, edits=edits)
-    return op_id
+    return write_edit_overlay(
+        project,
+        kind=action.kind,
+        label=f"{action.kind} {params.output_name}",
+        spec=params.request,
+        targets=targets,
+        stale_reason="web_capture_page_replaced",
+    )
 
 
 def _web_capture_page_cell(

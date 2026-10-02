@@ -40,11 +40,47 @@ def test_apply_edits_default_commit_preserves_ambient_transaction(
         )
         assert project.get_values(sheet_id, column_id) == {row_id: "original"}
         assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM ops WHERE kind='edit'"
-            ).fetchone()[0]
+            project.db.execute("SELECT COUNT(*) FROM ops WHERE kind='edit'").fetchone()[
+                0
+            ]
             == 0
         )
+    finally:
+        project.close()
+
+
+def test_apply_edits_failure_rolls_back_only_its_savepoint(tmp_path: Path) -> None:
+    project = Project.create(tmp_path / "failed-ambient-edits.frisket")
+    try:
+        sheet_id = project.add_sheet("Source")
+        column_id = project.add_column(sheet_id, "value")
+        row_id = project.add_rows(
+            sheet_id,
+            [{"value": "original"}],
+            {"value": column_id},
+        )[0]
+
+        project.db.execute("BEGIN IMMEDIATE")
+        project.db.execute("UPDATE sheets SET name='Sentinel' WHERE id=?", (sheet_id,))
+        with pytest.raises(ValueError, match="same sheet"):
+            project.apply_edits(
+                [{"row_id": row_id, "column_id": column_id + 10_000, "value": "bad"}]
+            )
+
+        assert project.db.in_transaction
+        assert (
+            project.db.execute(
+                "SELECT name FROM sheets WHERE id=?", (sheet_id,)
+            ).fetchone()["name"]
+            == "Sentinel"
+        )
+        assert (
+            project.db.execute("SELECT COUNT(*) FROM ops WHERE kind='edit'").fetchone()[
+                0
+            ]
+            == 0
+        )
+        project.db.rollback()
     finally:
         project.close()
 

@@ -533,8 +533,8 @@ def test_investigative_evidence_substrate_contract(tmp_path: Path) -> None:
 def test_facade_edit_stales_exact_current_evidence(tmp_path: Path) -> None:
     project = Project.create(tmp_path / "facade-edit-evidence.frisket")
     try:
-        sheet_id, row_id, column_id, op_id, run_id, current_ref = (
-            _seed_generated_cell(project)
+        sheet_id, row_id, column_id, op_id, run_id, current_ref = _seed_generated_cell(
+            project
         )
         link = _attach_whole_cell_evidence(
             project,
@@ -557,9 +557,7 @@ def test_facade_edit_stales_exact_current_evidence(tmp_path: Path) -> None:
             column_id=column_id,
             include_stale=True,
         )
-        assert [item["stable_id"] for item in evidence["links"]] == [
-            link["stable_id"]
-        ]
+        assert [item["stable_id"] for item in evidence["links"]] == [link["stable_id"]]
         assert evidence["links"][0]["status"] == "stale"
         assert evidence["stale_count"] == 1
     finally:
@@ -569,8 +567,8 @@ def test_facade_edit_stales_exact_current_evidence(tmp_path: Path) -> None:
 def test_typed_edit_undo_redo_restores_exact_evidence_status(tmp_path: Path) -> None:
     project = Project.create(tmp_path / "edit-evidence-history.frisket")
     try:
-        sheet_id, row_id, column_id, op_id, run_id, current_ref = (
-            _seed_generated_cell(project)
+        sheet_id, row_id, column_id, op_id, run_id, current_ref = _seed_generated_cell(
+            project
         )
         link = _attach_whole_cell_evidence(
             project,

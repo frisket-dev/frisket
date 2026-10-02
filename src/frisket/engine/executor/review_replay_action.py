@@ -40,8 +40,6 @@ from frisket.engine.store.cells import (
     replay_generated_value_hash,
     replay_origin_run_id,
 )
-from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
-from frisket.engine.store.evidence import mark_evidence_stale_for_cell_refs
 from frisket.review_predicate import is_support_column, visible_result_where
 
 
@@ -286,28 +284,53 @@ class _ReviewDecider(_CallOnce):
             )
             ref = refs.get(row_id)
             current_ref = dict(ref) if isinstance(ref, dict) else None
-        op_id = _write_op(
-            self._cur,
-            kind=self._action.kind,
-            label=f"review {decision} {target['column_name']} row {row_id}",
-            spec=_op_spec(self._action, self._params_hash),
-            undo_info={
-                "review_states": {f"{run_id}:{row_id}:{column_id}": state_before},
-                "review_states_after": {f"{run_id}:{row_id}:{column_id}": state_after},
-                "review_metadata": {
-                    f"{run_id}:{row_id}:{column_id}": {
-                        "decision": target["review_decision"],
-                        "note": target["review_note"],
-                    }
-                },
-                "review_metadata_after": {
-                    f"{run_id}:{row_id}:{column_id}": {
-                        "decision": decision_after,
-                        "note": note_after,
-                    }
-                },
+        undo_info = {
+            "review_states": {f"{run_id}:{row_id}:{column_id}": state_before},
+            "review_states_after": {f"{run_id}:{row_id}:{column_id}": state_after},
+            "review_metadata": {
+                f"{run_id}:{row_id}:{column_id}": {
+                    "decision": target["review_decision"],
+                    "note": target["review_note"],
+                }
             },
-        )
+            "review_metadata_after": {
+                f"{run_id}:{row_id}:{column_id}": {
+                    "decision": decision_after,
+                    "note": note_after,
+                }
+            },
+        }
+        edit_value = value if decision == "edit" else None
+        if decision in {"edit", "reject_clear"}:
+            op_id = _write_edit_overlay(
+                self._project,
+                self._cur,
+                label=f"review {decision} {target['column_name']} row {row_id}",
+                spec=_op_spec(self._action, self._params_hash),
+                targets=[
+                    {
+                        "row_id": row_id,
+                        "column_id": column_id,
+                        "value_after": edit_value,
+                        **(
+                            {"current_value_ref": current_ref}
+                            if current_ref is not None
+                            else {}
+                        ),
+                    }
+                ],
+                stale_reason=f"review_decision_{decision}",
+                undo_info=undo_info,
+                kind=self._action.kind,
+            )
+        else:
+            op_id = _write_op(
+                self._cur,
+                kind=self._action.kind,
+                label=f"review {decision} {target['column_name']} row {row_id}",
+                spec=_op_spec(self._action, self._params_hash),
+                undo_info=undo_info,
+            )
         from frisket.engine.store.runs import RunResultStore
 
         store = RunResultStore(self._project)
@@ -327,18 +350,6 @@ class _ReviewDecider(_CallOnce):
         )
         edit_ref = None
         if decision in {"edit", "reject_clear"}:
-            edit_value = value if decision == "edit" else None
-            insert_edits(
-                self._project.db,
-                op_id=op_id,
-                edits=[
-                    EditCellWrite(
-                        row_id=row_id,
-                        column_id=column_id,
-                        value=edit_value,
-                    )
-                ],
-            )
             edit_ref = {
                 "kind": "edit_overlay",
                 "op_id": op_id,
@@ -346,18 +357,6 @@ class _ReviewDecider(_CallOnce):
                 "column_id": column_id,
                 "value_hash": replay_generated_value_hash(edit_value),
             }
-            if current_ref is not None:
-                mark_evidence_stale_for_cell_refs(
-                    self._project,
-                    [
-                        {
-                            "row_id": row_id,
-                            "column_id": column_id,
-                            "current_value_ref": current_ref,
-                        }
-                    ],
-                    reason=f"review_decision_{decision}",
-                )
         result = ReviewDecision(
             run_id=run_id,
             row_id=row_id,

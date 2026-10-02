@@ -15,6 +15,7 @@ from executor_harness import (
     operation_action,
 )
 from frisket.engine.store import Project
+from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.runner.review import review_bundle_page
 from frisket.engine.store.evidence import (
     list_cell_evidence,
@@ -1107,9 +1108,10 @@ def test_review_edit_undo_redo_restores_exact_evidence_status(
             )
         )
         assert edited.status == "completed", edited.errors
-        assert resolve_evidence_viewer(project, link["stable_id"])["link"][
-            "status"
-        ] == "stale"
+        assert (
+            resolve_evidence_viewer(project, link["stable_id"])["link"]["status"]
+            == "stale"
+        )
 
         undone = env.run(
             operation_action(
@@ -1160,3 +1162,30 @@ def test_review_state_only_undo_does_not_dirty_value_search(
             project.db.execute("SELECT COUNT(*) FROM search_dirty_scopes").fetchone()[0]
             == 0
         )
+
+
+def test_review_note_undo_retains_output_claim_fencing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with case_env(CASES[1], tmp_path, monkeypatch) as env:
+        project, seeded = env.project, env.seeded
+        noted = env.run_primary()
+        assert noted.status == "completed", noted.errors
+        claims, conflict = OutputColumnClaimStore(project).acquire(
+            sheet_id=seeded["sheet_id"],
+            output_names=["risk"],
+            action_kind="map.python",
+        )
+        assert conflict is None
+        assert len(claims) == 1
+
+        blocked = env.run(
+            operation_action(
+                "operation.undo",
+                key="undo-claimed-review-note@sha256:v1",
+                expected_op_id=noted.op_ids[0],
+            )
+        )
+
+        assert blocked.status == "failed"
+        assert blocked.errors[0].code == "output_column_busy"
