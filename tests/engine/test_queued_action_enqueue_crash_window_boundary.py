@@ -512,6 +512,17 @@ def _crash_child(
             )
         else:  # pragma: no cover - closed parameter roster
             raise AssertionError(boundary)
+        if boundary in {13, 14, 15}:
+            original_enqueue = _located(target)
+            crash_enqueue = replacement
+
+            def action_enqueue(queue, kind, *args, **kwargs):
+                # Project-open maintenance can enqueue before action admission.
+                # Crash at the intended action boundary, not an unrelated job.
+                enqueue = crash_enqueue if kind == "project.run" else original_enqueue
+                return enqueue(queue, kind, *args, **kwargs)
+
+            replacement = action_enqueue
         stack.enter_context(patch(target, replacement))
         service.run_action(
             "authority",
