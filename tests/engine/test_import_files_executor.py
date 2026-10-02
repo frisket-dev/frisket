@@ -185,6 +185,7 @@ CASES = [
             side_effects=frozenset(
                 {
                     "read_local_file",
+                    "read_admitted_import_inventory",
                     "write_blob_store",
                     "write_evidence_links",
                     "create_sheet",

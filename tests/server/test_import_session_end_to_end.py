@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from frisket.engine.jobs import HandlerRegistry, Worker
 from frisket.engine.jobs.import_files import register_import_files_handler
+from frisket.engine.jobs.queue import BLOB_METADATA_KIND
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.server.app import create_app
 
@@ -47,12 +48,18 @@ def test_http_import_worker_and_user_resolution(tmp_path, finish):
         assert worker.run_once()
         expected_state = "completed"
     else:
+        assert not ws.queue.list_jobs(status="queued")
         response = client.post(f"{session_url}/cancel")
         assert response.status_code == 200, response.text
         assert response.json()["state"] == "cancelled"
         response = client.post(f"{session_url}/resolve", json={"decision": finish})
         assert response.status_code == 200, response.text
         expected_state = "kept" if finish == "keep" else "removed"
+        if finish == "keep":
+            assert any(
+                job.kind == BLOB_METADATA_KIND
+                for job in ws.queue.list_jobs(status="queued")
+            )
 
     status = client.get(session_url).json()
     assert status["state"] == expected_state

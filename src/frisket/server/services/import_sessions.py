@@ -265,7 +265,16 @@ class ImportSessionService:
                 else:
                     writer.remove_session(expected_cursor=session.cursor)
         with ImportInventory(directory / "inventory.db") as inventory:
-            return self._status(project, ref, directory, header, inventory)
+            status = self._status(project, ref, directory, header, inventory)
+        if session is not None and decision == "keep":
+            # The last page job may already have exited before Cancel/Keep.
+            # Reuse the workspace's normal import trigger and enqueue recovery.
+            schedule_metadata = getattr(
+                project, "_frisket_schedule_blob_metadata", None
+            )
+            if callable(schedule_metadata):
+                schedule_metadata(str(header.envelope["receipt_id"]))
+        return status
 
     async def resume(self, project_id: str, ref: str) -> ImportSessionStatus:
         project, directory, header = self._open(project_id, ref)

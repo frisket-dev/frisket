@@ -225,6 +225,7 @@ def test_research_schema_migration_preserves_existing_project_data(tmp_path) -> 
     project.close()
 
     with sqlite3.connect(path / "project.db") as db:
+        db.execute("DROP TABLE import_sessions")
         db.execute("DROP TABLE project_qa_research_operations")
         db.execute("DROP TABLE project_qa_research_runs")
         db.execute("ALTER TABLE project_qa_threads DROP COLUMN research_json")
