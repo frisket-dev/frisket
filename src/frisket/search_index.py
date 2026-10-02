@@ -118,9 +118,8 @@ def _column_page(
     params = (column, lower, upper, limit)
     live = (
         source.execute(
-            # The WITHOUT ROWID primary record includes potentially huge values.
-            # This column-first secondary index covers both identity fields without
-            # loading overflow pages merely to discover the next candidate IDs.
+            # This column-first index covers the identity fields without loading
+            # potentially large values merely to discover the next candidate IDs.
             "SELECT cc.row_id FROM current_cells cc INDEXED BY idx_current_cells_column_row "
             "WHERE cc.column_id=? AND cc.row_id>? AND cc.row_id<=? "
             "ORDER BY cc.row_id LIMIT ?",
