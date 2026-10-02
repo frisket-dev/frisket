@@ -1,0 +1,2411 @@
+{
+  "analytics": {
+    "broad_grouped": {
+      "first_ms": 6.424080580472946,
+      "groups": 8,
+      "max_ms": 6.588551215827465,
+      "median_ms": 6.418379954993725,
+      "row_count": 200,
+      "samples": 10
+    },
+    "filtered_10_percent": {
+      "first_ms": 5.241668783128262,
+      "groups": 1,
+      "max_ms": 6.2892260029911995,
+      "median_ms": 5.269335117191076,
+      "row_count": 20,
+      "samples": 10
+    }
+  },
+  "checkpoint_reopen": {
+    "analytics": {
+      "broad_grouped": {
+        "first_ms": 7.660415023565292,
+        "groups": 8,
+        "max_ms": 7.660415023565292,
+        "median_ms": 7.660415023565292,
+        "row_count": 200,
+        "samples": 1
+      },
+      "filtered_10_percent": {
+        "first_ms": 5.532007664442062,
+        "groups": 1,
+        "max_ms": 5.532007664442062,
+        "median_ms": 5.532007664442062,
+        "row_count": 20,
+        "samples": 1
+      }
+    },
+    "checkpoint_result": [
+      0,
+      0,
+      0
+    ],
+    "checkpoint_seconds": 0.0014321841299533844,
+    "closed_steady_files": {
+      "manifest.json": 413,
+      "project.db": 4448256,
+      "project.search.db": 954368,
+      "project.search.db-shm": 32768,
+      "project.search.db-wal": 0
+    },
+    "files_after": {
+      "manifest.json": 413,
+      "project.db": 4448256,
+      "project.db-shm": 32768,
+      "project.db-wal": 0,
+      "project.search.db": 954368,
+      "project.search.db-shm": 32768,
+      "project.search.db-wal": 0
+    },
+    "files_before": {
+      "manifest.json": 413,
+      "project.db": 4448256,
+      "project.db-shm": 32768,
+      "project.db-wal": 5051152,
+      "project.search.db": 954368,
+      "project.search.db-shm": 32768,
+      "project.search.db-wal": 0
+    },
+    "grid": {
+      "amount_asc": {
+        "first_ms": 4.229838028550148,
+        "max_ms": 4.229838028550148,
+        "median_ms": 4.229838028550148,
+        "returned": 50,
+        "samples": 1,
+        "total": 200
+      },
+      "amount_desc": {
+        "first_ms": 4.144847393035889,
+        "max_ms": 4.144847393035889,
+        "median_ms": 4.144847393035889,
+        "returned": 50,
+        "samples": 1,
+        "total": 200
+      },
+      "category_asc": {
+        "first_ms": 4.216901957988739,
+        "max_ms": 4.216901957988739,
+        "median_ms": 4.216901957988739,
+        "returned": 50,
+        "samples": 1,
+        "total": 200
+      },
+      "filter_0_1_percent": {
+        "first_ms": 3.7756087258458138,
+        "max_ms": 3.7756087258458138,
+        "median_ms": 3.7756087258458138,
+        "returned": 1,
+        "samples": 1,
+        "total": 1
+      },
+      "filter_10_percent": {
+        "first_ms": 3.758496604859829,
+        "max_ms": 3.758496604859829,
+        "median_ms": 3.758496604859829,
+        "returned": 20,
+        "samples": 1,
+        "total": 20
+      },
+      "page_final": {
+        "first_ms": 3.9286287501454353,
+        "max_ms": 3.9286287501454353,
+        "median_ms": 3.9286287501454353,
+        "returned": 50,
+        "samples": 1,
+        "total": 200
+      },
+      "page_first": {
+        "first_ms": 3.8008084520697594,
+        "max_ms": 3.8008084520697594,
+        "median_ms": 3.8008084520697594,
+        "returned": 50,
+        "samples": 1,
+        "total": 200
+      },
+      "page_middle": {
+        "first_ms": 3.6478787660598755,
+        "max_ms": 3.6478787660598755,
+        "median_ms": 3.6478787660598755,
+        "returned": 50,
+        "samples": 1,
+        "total": 200
+      },
+      "published_at_asc": {
+        "first_ms": 4.13871556520462,
+        "max_ms": 4.13871556520462,
+        "median_ms": 4.13871556520462,
+        "returned": 50,
+        "samples": 1,
+        "total": 200
+      }
+    },
+    "history": {
+      "checked_receipt_ids": [
+        "receipt_6edd24503f634689b06c732f652d17e9",
+        "receipt_ad3858a5cbf14cf5a9ac8edb768abc05",
+        "receipt_126a6d6d94524cb89e71544a18998448",
+        "receipt_5fab0a7414154cbd8da50015ece0412d",
+        "receipt_dd59ad9a155c4ebca2e5fb2a7880e888"
+      ],
+      "cursor_index": 6,
+      "pages": {
+        "edit_region": {
+          "first_op_id": 1,
+          "last_op_id": 7,
+          "offset": 0,
+          "returned": 7
+        },
+        "final": {
+          "first_op_id": 1,
+          "last_op_id": 7,
+          "offset": 0,
+          "returned": 7
+        },
+        "start": {
+          "first_op_id": 1,
+          "last_op_id": 7,
+          "offset": 0,
+          "returned": 7
+        }
+      },
+      "total": 7
+    },
+    "marker_search": {
+      "hits": 1,
+      "seconds": 0.004400348290801048,
+      "snippet_bytes": 93
+    },
+    "physical_accounting": {
+      "project": {
+        "file_bytes": 4448256,
+        "objects": [
+          {
+            "bytes": 946176,
+            "kind": "table",
+            "name": "current_cells",
+            "pages": 231
+          },
+          {
+            "bytes": 905216,
+            "kind": "table",
+            "name": "cells",
+            "pages": 221
+          },
+          {
+            "bytes": 520192,
+            "kind": "table",
+            "name": "edits",
+            "pages": 127
+          },
+          {
+            "bytes": 495616,
+            "kind": "table",
+            "name": "ops",
+            "pages": 121
+          },
+          {
+            "bytes": 102400,
+            "kind": "internal",
+            "name": "sqlite_schema",
+            "pages": 25
+          },
+          {
+            "bytes": 32768,
+            "kind": "table",
+            "name": "receipts",
+            "pages": 8
+          },
+          {
+            "bytes": 20480,
+            "kind": "index",
+            "name": "idx_cells_column",
+            "pages": 5
+          },
+          {
+            "bytes": 20480,
+            "kind": "index",
+            "name": "idx_current_cells_column_row",
+            "pages": 5
+          },
+          {
+            "bytes": 20480,
+            "kind": "index",
+            "name": "idx_current_cells_row",
+            "pages": 5
+          },
+          {
+            "bytes": 20480,
+            "kind": "index",
+            "name": "sqlite_autoindex_cells_1",
+            "pages": 5
+          },
+          {
+            "bytes": 12288,
+            "kind": "table",
+            "name": "rows",
+            "pages": 3
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "artifact_timeline_segments",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "attempt_row_authorizations",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "base_cell_producers",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "binding_epochs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "blob_derivations",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "blobs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "cell_result_heads",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "columns",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "consents",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "effect_checkpoints",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "embedding_indexes",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "embedding_spaces",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "evidence_link_spans",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "evidence_links",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "execution_attempts",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_artifact_timeline_source_time",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_blob_derivations_derived",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_blob_derivations_source",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_consents_subject",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_consents_subject_hash",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_edits_rowcol",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_embedding_indexes_sheet",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_embedding_indexes_space",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_evidence_link_spans_annotation",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_evidence_link_spans_span",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_evidence_links_cell_status",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_evidence_links_receipt",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_evidence_links_run_cell",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_evidence_links_sheet_status",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_evidence_links_subject",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_execution_attempts_state",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_lenses_sheet",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_materialized_row_sources_materialized",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_materialized_row_sources_op",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_materialized_row_sources_source",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_model_calls_attempt",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_model_calls_epoch",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_model_calls_rowcol",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_model_calls_run",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_actor_state_actor",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_channels_kind_enabled",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_delivery_attempts_item_channel",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_delivery_attempts_request",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_delivery_attempts_status",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_delivery_requests_item",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_delivery_requests_route",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_delivery_requests_status",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_digest_items_notification",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_digest_runs_route",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_digest_runs_status",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_items_created",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_items_severity",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_items_source_kind",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_routes_channel",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_routes_enabled_mode",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_output_claims_active_column",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_output_claims_active_name",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_output_claims_claim_token",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_output_claims_receipt",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_output_claims_run",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_output_claims_status_expiry",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_project_qa_citations_turn",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_project_qa_events_turn",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_project_qa_research_operations_unsettled",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_project_qa_threads_updated",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_project_qa_turns_thread_started",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_receipts_backfill_activity_column_created",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_receipts_backfill_activity_created",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_receipts_created_id",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_receipts_idempotency",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_receipts_run",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_replay_dismissals_col",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_results_column_run",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_results_rowcol",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_results_run_col_row",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_route_violations_route",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_rows_parent",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_rows_sheet",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_run_output_generations_column",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_run_rows_position",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_runs_op",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_runs_started_id",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_runtime_projection_artifacts_target",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_search_dirty_scopes_sheet",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_artifacts_blob",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_artifacts_source_cell",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_items_run",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_runs_receipt",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_runs_source_started",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_spans_artifact_kind",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_spans_artifact_pages",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_spans_artifact_time",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_spans_text_surface",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_sources_sheet",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_text_surfaces_cell",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_views_sheet",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watch_row_field_state_watch",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watch_run_events_kind",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watch_run_events_run_rank",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watch_run_events_watch_id",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watch_run_hits_run_rank",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watch_runs_watch_started",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watch_seen_rows_watch",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watches_sheet",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "import_sessions",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "lenses",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "materialized_row_sources",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "meta",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "model_calls",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_actor_state",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_channels",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_delivery_attempts",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_delivery_requests",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_digest_items",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_digest_runs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_items",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_routes",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "output_column_claims",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_provider_keys",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_qa_citations",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_qa_events",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_qa_research_operations",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_qa_research_runs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_qa_threads",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_qa_turns",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_qa_usage_calls",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_secret_consumers",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_secret_migration_conflicts",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_secrets",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "promise_sets",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "replay_edit_dismissals",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "results",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "route_violations",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "routes",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "run_output_generations",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "run_rows",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "run_scopes",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "runs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "runtime_projection_artifacts",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "search_dirty_scopes",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "sheets",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "source_artifacts",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "source_items",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "source_runs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "source_spans",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "sources",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_artifact_timeline_segments_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_base_cell_producers_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_binding_epochs_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_binding_epochs_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_blobs_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_columns_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_consents_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_effect_checkpoints_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_effect_checkpoints_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_embedding_indexes_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_embedding_spaces_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_embedding_spaces_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_evidence_links_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_execution_attempts_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_execution_attempts_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_execution_attempts_3",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_import_sessions_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_materialized_row_sources_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_meta_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_model_calls_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_notification_delivery_requests_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_notification_digest_runs_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_notification_items_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_output_column_claims_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_provider_keys_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_qa_citations_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_qa_research_runs_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_qa_research_runs_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_qa_threads_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_qa_turns_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_qa_turns_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_secret_consumers_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_secret_migration_conflicts_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_secrets_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_promise_sets_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_promise_sets_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_receipts_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_route_violations_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_route_violations_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_routes_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_routes_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_routes_3",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_run_output_generations_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_runtime_projection_artifacts_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_sheets_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_source_artifacts_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_source_items_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_source_spans_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_text_surfaces_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_workbench_plugin_env_vars_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_workbench_plugin_installs_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_workbench_plugin_settings_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "sqlite_sequence",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "text_surfaces",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "uq_execution_attempts_one_dispatching",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "uq_import_sessions_active_sheet",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "uq_project_qa_turns_one_active",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "uq_receipt_execution_attempts_one_dispatching",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "views",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "watch_row_field_state",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "watch_run_events",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "watch_run_hits",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "watch_runs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "watch_seen_rows",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "watches",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "workbench_plugin_env_vars",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "workbench_plugin_installs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "workbench_plugin_settings",
+            "pages": 1
+          }
+        ],
+        "page_bytes": 4448256,
+        "page_count": 1086,
+        "page_size": 4096,
+        "path": "project.db"
+      },
+      "search": {
+        "file_bytes": 954368,
+        "objects": [
+          {
+            "bytes": 540672,
+            "kind": "table",
+            "name": "cell_fts_data",
+            "pages": 132
+          },
+          {
+            "bytes": 245760,
+            "kind": "table",
+            "name": "search_content",
+            "pages": 60
+          },
+          {
+            "bytes": 69632,
+            "kind": "table",
+            "name": "search_cells",
+            "pages": 17
+          },
+          {
+            "bytes": 16384,
+            "kind": "table",
+            "name": "cell_fts_docsize",
+            "pages": 4
+          },
+          {
+            "bytes": 16384,
+            "kind": "index",
+            "name": "search_cells_sheet_column",
+            "pages": 4
+          },
+          {
+            "bytes": 16384,
+            "kind": "index",
+            "name": "sqlite_autoindex_search_cells_1",
+            "pages": 4
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "cell_fts_config",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "cell_fts_idx",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "cell_vec",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "fts_state",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_cell_vec_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_fts_state_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "internal",
+            "name": "sqlite_schema",
+            "pages": 1
+          }
+        ],
+        "page_bytes": 954368,
+        "page_count": 233,
+        "page_size": 4096,
+        "path": "project.search.db"
+      }
+    }
+  },
+  "current_reopen": {
+    "full_body_sample": {
+      "rows": 5,
+      "seconds": 0.0023278361186385155,
+      "utf8_bytes": 122218
+    },
+    "projected_pages": {
+      "final": {
+        "offset": 150,
+        "projected_columns": 6,
+        "returned": 50,
+        "seconds": 0.0014920355752110481
+      },
+      "first": {
+        "offset": 0,
+        "projected_columns": 6,
+        "returned": 50,
+        "seconds": 0.0017026141285896301
+      },
+      "middle": {
+        "offset": 75,
+        "projected_columns": 6,
+        "returned": 50,
+        "seconds": 0.0018308572471141815
+      }
+    }
+  },
+  "fixture": {
+    "amount_states": {
+      "invalid": 20,
+      "missing": 20,
+      "valid": 160
+    },
+    "body_utf8_bytes": 807485,
+    "generation_seconds": 0.019523936323821545,
+    "import_pages": [
+      {
+        "append_seconds": 0.04408272448927164,
+        "committed_bytes": 841694,
+        "generation_seconds": 0.019523936323821545,
+        "rows": 200,
+        "rss_kib": 115068,
+        "scratch_bytes": 3137845,
+        "start_record": 1
+      }
+    ],
+    "input_ndjson_bytes": 841694,
+    "text_lengths": {
+      "at_least_96k": 1,
+      "under_16k": 40,
+      "under_2k": 150,
+      "under_96k": 9
+    }
+  },
+  "grid_queries": {
+    "amount_asc": {
+      "first_ms": 4.20821737498045,
+      "max_ms": 4.287215881049633,
+      "median_ms": 4.034002777189016,
+      "p95_ms": 4.236790351569653,
+      "returned": 50,
+      "samples": 20,
+      "total": 200
+    },
+    "amount_desc": {
+      "first_ms": 4.206253215670586,
+      "max_ms": 5.14016579836607,
+      "median_ms": 4.120200406759977,
+      "p95_ms": 5.0417110323905945,
+      "returned": 50,
+      "samples": 20,
+      "total": 200
+    },
+    "category_asc": {
+      "first_ms": 4.160216078162193,
+      "max_ms": 4.406261257827282,
+      "median_ms": 4.068647976964712,
+      "p95_ms": 4.337219521403313,
+      "returned": 50,
+      "samples": 20,
+      "total": 200
+    },
+    "filter_0_1_percent": {
+      "first_ms": 3.956291824579239,
+      "max_ms": 4.339614883065224,
+      "median_ms": 3.836906049400568,
+      "p95_ms": 4.141530953347683,
+      "returned": 1,
+      "samples": 20,
+      "total": 1
+    },
+    "filter_10_percent": {
+      "first_ms": 3.6593694239854813,
+      "max_ms": 4.759375937283039,
+      "median_ms": 3.6128717474639416,
+      "p95_ms": 4.590628668665886,
+      "returned": 20,
+      "samples": 20,
+      "total": 20
+    },
+    "page_final": {
+      "first_ms": 3.640645183622837,
+      "max_ms": 3.6755502223968506,
+      "median_ms": 3.5465816035866737,
+      "p95_ms": 3.640645183622837,
+      "returned": 50,
+      "samples": 20,
+      "total": 200
+    },
+    "page_first": {
+      "first_ms": 3.906196914613247,
+      "max_ms": 4.085575230419636,
+      "median_ms": 3.830729052424431,
+      "p95_ms": 3.9817485958337784,
+      "returned": 50,
+      "samples": 20,
+      "total": 200
+    },
+    "page_middle": {
+      "first_ms": 3.600979223847389,
+      "max_ms": 5.612469278275967,
+      "median_ms": 3.55373602360487,
+      "p95_ms": 3.6308784037828445,
+      "returned": 50,
+      "samples": 20,
+      "total": 200
+    },
+    "published_at_asc": {
+      "first_ms": 4.151147790253162,
+      "max_ms": 9.267371147871017,
+      "median_ms": 5.082292016595602,
+      "p95_ms": 9.210221469402313,
+      "returned": 50,
+      "samples": 20,
+      "total": 200
+    }
+  },
+  "history": {
+    "checked_receipt_ids": [
+      "receipt_6edd24503f634689b06c732f652d17e9",
+      "receipt_ad3858a5cbf14cf5a9ac8edb768abc05",
+      "receipt_126a6d6d94524cb89e71544a18998448",
+      "receipt_5fab0a7414154cbd8da50015ece0412d",
+      "receipt_dd59ad9a155c4ebca2e5fb2a7880e888"
+    ],
+    "cursor_index": 6,
+    "pages": {
+      "edit_region": {
+        "first_op_id": 1,
+        "last_op_id": 7,
+        "offset": 0,
+        "returned": 7
+      },
+      "final": {
+        "first_op_id": 1,
+        "last_op_id": 7,
+        "offset": 0,
+        "returned": 7
+      },
+      "start": {
+        "first_op_id": 1,
+        "last_op_id": 7,
+        "offset": 0,
+        "returned": 7
+      }
+    },
+    "total": 7
+  },
+  "host_free_bytes_min": 50985709568,
+  "import_metadata": {
+    "columns": {
+      "amount": {
+        "cells": 180,
+        "current_origin_validity": {
+          "source_cell:invalid": 20,
+          "source_cell:valid": 160
+        }
+      },
+      "body": {
+        "cells": 200,
+        "current_origin_validity": {
+          "source_cell:valid": 200
+        }
+      },
+      "category": {
+        "cells": 200,
+        "current_origin_validity": {
+          "source_cell:valid": 200
+        }
+      },
+      "published_at": {
+        "cells": 200,
+        "current_origin_validity": {
+          "source_cell:valid": 200
+        }
+      },
+      "record_id": {
+        "cells": 200,
+        "current_origin_validity": {
+          "source_cell:valid": 200
+        }
+      },
+      "status": {
+        "cells": 200,
+        "current_origin_validity": {
+          "source_cell:valid": 200
+        }
+      },
+      "title": {
+        "cells": 200,
+        "current_origin_validity": {
+          "source_cell:valid": 200
+        }
+      }
+    },
+    "op_id": 1,
+    "op_kind": "import.files",
+    "receipt_id": "receipt:qualification-import-v1",
+    "session": {
+      "committed_bytes": 841694,
+      "committed_rows": 200,
+      "cursor": 200,
+      "state": "completed"
+    }
+  },
+  "index_validation": {
+    "complete_revision": 36,
+    "dirty_scopes": 0,
+    "expected_searchable_cells": 800,
+    "project_revision": 36,
+    "searchable_cells": 800
+  },
+  "limits": {
+    "hard_rss_kib": 8388608,
+    "hard_scratch_bytes": 19327352832,
+    "host_free_reserve_bytes": 16106127360,
+    "max_rows": 500000,
+    "mem_available_floor_kib": 4194304,
+    "scope": "whole runner process and its generated work directory",
+    "soft_rss_kib": 6291456,
+    "soft_scratch_bytes": 17179869184
+  },
+  "mutations": {
+    "batch": {
+      "action_seconds": 0.02069580089300871,
+      "count": 20,
+      "index": {
+        "batch_records": [
+          {
+            "complete": true,
+            "files": {
+              "installation_id": 37,
+              "qualification.frisket/manifest.json": 384,
+              "qualification.frisket/project.db": 2932736,
+              "qualification.frisket/project.db-shm": 32768,
+              "qualification.frisket/project.db-wal": 1985872,
+              "qualification.frisket/project.search.db": 851968
+            },
+            "processed_units": 20,
+            "processed_value_bytes": 481040,
+            "rss_kib": 160004,
+            "scratch_bytes": 5803765,
+            "seconds": 0.03587782941758633,
+            "source_revision": 42
+          }
+        ],
+        "batches": 1,
+        "processed_units": 20,
+        "processed_value_bytes": 481040,
+        "seconds": 0.036470990628004074
+      },
+      "search": {
+        "hits": 1,
+        "seconds": 0.004456775262951851,
+        "snippet_bytes": 93
+      }
+    },
+    "batch_op_id": 7,
+    "marker_number": 199,
+    "new_marker": "frisketbatchmarker00000199",
+    "old_marker": "frisketlate00000199",
+    "ordinary": {
+      "action": {
+        "first_ms": 905.9544177725911,
+        "max_ms": 905.9544177725911,
+        "median_ms": 3.6615142598748207,
+        "samples": 5
+      },
+      "count": 5,
+      "index": {
+        "batch_records": [
+          {
+            "complete": true,
+            "files": {
+              "installation_id": 37,
+              "qualification.frisket/manifest.json": 384,
+              "qualification.frisket/project.db": 2932736,
+              "qualification.frisket/project.db-shm": 32768,
+              "qualification.frisket/project.db-wal": 387312,
+              "qualification.frisket/project.search.db": 602112
+            },
+            "processed_units": 5,
+            "processed_value_bytes": 5790,
+            "rss_kib": 153636,
+            "scratch_bytes": 3955349,
+            "seconds": 0.010474360547959805,
+            "source_revision": 41
+          }
+        ],
+        "batches": 1,
+        "processed_units": 5,
+        "processed_value_bytes": 5790,
+        "seconds": 0.011089671403169632
+      },
+      "long_body_edit": {
+        "record_id": 1,
+        "source_utf8_bytes": 872
+      },
+      "search": {
+        "hits": 1,
+        "seconds": 0.0026878155767917633,
+        "snippet_bytes": 52
+      }
+    },
+    "projection_timing": "included in action_seconds; the public action boundary does not expose a separate projection timer",
+    "redo": {
+      "action_seconds": 0.014011939987540245,
+      "index": {
+        "batch_records": [
+          {
+            "complete": true,
+            "files": {
+              "installation_id": 37,
+              "qualification.frisket/manifest.json": 413,
+              "qualification.frisket/project.db": 4448256,
+              "qualification.frisket/project.db-shm": 32768,
+              "qualification.frisket/project.db-wal": 5051152,
+              "qualification.frisket/project.search.db": 954368
+            },
+            "processed_units": 20,
+            "processed_value_bytes": 481040,
+            "rss_kib": 160084,
+            "scratch_bytes": 10486994,
+            "seconds": 0.03440537955611944,
+            "source_revision": 44
+          }
+        ],
+        "batches": 1,
+        "processed_units": 20,
+        "processed_value_bytes": 481040,
+        "seconds": 0.03503827564418316
+      },
+      "search": {
+        "hits": 1,
+        "seconds": 0.0046556610614061356,
+        "snippet_bytes": 93
+      }
+    },
+    "transition_receipt_ids": [
+      "receipt_5fab0a7414154cbd8da50015ece0412d",
+      "receipt_dd59ad9a155c4ebca2e5fb2a7880e888"
+    ],
+    "undo": {
+      "action_seconds": 0.011193618178367615,
+      "history_snapshot": {
+        "cursor_index": 5,
+        "expected_op_cursor": 6,
+        "op_cursor": 6,
+        "op_status": "undone",
+        "redo_target_op_id": 7
+      },
+      "index": {
+        "batch_records": [
+          {
+            "complete": true,
+            "files": {
+              "installation_id": 37,
+              "qualification.frisket/manifest.json": 413,
+              "qualification.frisket/project.db": 2932736,
+              "qualification.frisket/project.db-shm": 32768,
+              "qualification.frisket/project.db-wal": 3522632,
+              "qualification.frisket/project.search.db": 937984
+            },
+            "processed_units": 20,
+            "processed_value_bytes": 480593,
+            "rss_kib": 160084,
+            "scratch_bytes": 7426570,
+            "seconds": 0.03875134605914354,
+            "source_revision": 43
+          }
+        ],
+        "batches": 1,
+        "processed_units": 20,
+        "processed_value_bytes": 480593,
+        "seconds": 0.03942098096013069
+      },
+      "search": {
+        "hits": 1,
+        "seconds": 0.004701336845755577,
+        "snippet_bytes": 65
+      }
+    }
+  },
+  "owned_scratch_removed": true,
+  "peak_rss_kib": 159868,
+  "persisted_corpus": {
+    "expected_cells": 1380,
+    "rows_compared": 200,
+    "sha256": "c0c38f8df3d9e1a6cab0f17ef5cbd72314bd7edcb198f4caf3de6a88d002b894",
+    "table_counts": {
+      "cells": 1380,
+      "current_cells": 1380,
+      "rows": 200
+    }
+  },
+  "phases": {
+    "analytics": {
+      "bundle_bytes": 3617304,
+      "files": {
+        "manifest.json": 384,
+        "project.db": 2932736,
+        "project.db-shm": 32768,
+        "project.db-wal": 20632,
+        "project.search.db": 598016,
+        "project.search.db-shm": 32768,
+        "project.search.db-wal": 0
+      },
+      "host_free_bytes": 50992615424,
+      "mem_available_kib": 12715044,
+      "rss_kib": 131828,
+      "seconds": 0.13075972348451614
+    },
+    "checkpoint_reopen": {
+      "bundle_bytes": 5468573,
+      "files": {
+        "manifest.json": 413,
+        "project.db": 4448256,
+        "project.db-shm": 32768,
+        "project.db-wal": 0,
+        "project.search.db": 954368,
+        "project.search.db-shm": 32768,
+        "project.search.db-wal": 0
+      },
+      "host_free_bytes": 50990768128,
+      "mem_available_kib": 12686432,
+      "rss_kib": 160084,
+      "seconds": 0.12033611908555031
+    },
+    "create": {
+      "bundle_bytes": 1156088,
+      "files": {
+        "manifest.json": 384,
+        "project.db": 1019904,
+        "project.db-shm": 32768,
+        "project.db-wal": 103032
+      },
+      "host_free_bytes": 50995077120,
+      "mem_available_kib": 12729708,
+      "rss_kib": 111804,
+      "seconds": 0.24448415637016296
+    },
+    "current_reopen": {
+      "bundle_bytes": 2965888,
+      "files": {
+        "manifest.json": 384,
+        "project.db": 2932736,
+        "project.db-shm": 32768,
+        "project.db-wal": 0
+      },
+      "host_free_bytes": 50993270784,
+      "mem_available_kib": 12729000,
+      "rss_kib": 115188,
+      "seconds": 0.0190940760076046
+    },
+    "edit_undo_redo": {
+      "bundle_bytes": 10519725,
+      "files": {
+        "manifest.json": 413,
+        "project.db": 4448256,
+        "project.db-shm": 32768,
+        "project.db-wal": 5051152,
+        "project.search.db": 954368,
+        "project.search.db-shm": 32768,
+        "project.search.db-wal": 0
+      },
+      "host_free_bytes": 50985709568,
+      "mem_available_kib": 12691372,
+      "rss_kib": 160084,
+      "seconds": 1.1322369845584035
+    },
+    "grid_queries": {
+      "bundle_bytes": 3617304,
+      "files": {
+        "manifest.json": 384,
+        "project.db": 2932736,
+        "project.db-shm": 32768,
+        "project.db-wal": 20632,
+        "project.search.db": 598016,
+        "project.search.db-shm": 32768,
+        "project.search.db-wal": 0
+      },
+      "host_free_bytes": 50992615424,
+      "mem_available_kib": 12715044,
+      "rss_kib": 131700,
+      "seconds": 1.2635479075834155
+    },
+    "history": {
+      "bundle_bytes": 10519725,
+      "files": {
+        "manifest.json": 413,
+        "project.db": 4448256,
+        "project.db-shm": 32768,
+        "project.db-wal": 5051152,
+        "project.search.db": 954368,
+        "project.search.db-shm": 32768,
+        "project.search.db-wal": 0
+      },
+      "host_free_bytes": 50985709568,
+      "mem_available_kib": 12691372,
+      "rss_kib": 160084,
+      "seconds": 0.0022205132991075516
+    },
+    "import": {
+      "bundle_bytes": 3158408,
+      "files": {
+        "manifest.json": 384,
+        "project.db": 1019904,
+        "project.db-shm": 32768,
+        "project.db-wal": 2105352
+      },
+      "host_free_bytes": 50993074176,
+      "mem_available_kib": 12730976,
+      "rss_kib": 115176,
+      "seconds": 0.0748378923162818
+    },
+    "index": {
+      "batch_records": [
+        {
+          "complete": true,
+          "files": {
+            "installation_id": 37,
+            "qualification.frisket/manifest.json": 384,
+            "qualification.frisket/project.db": 2932736,
+            "qualification.frisket/project.db-shm": 32768,
+            "qualification.frisket/project.db-wal": 20632,
+            "qualification.frisket/project.search.db": 598016
+          },
+          "processed_units": 800,
+          "processed_value_bytes": 821470,
+          "rss_kib": 115624,
+          "scratch_bytes": 3584573,
+          "seconds": 0.07775391731411219,
+          "source_revision": 36
+        }
+      ],
+      "batches": 1,
+      "bundle_bytes": 3584536,
+      "files": {
+        "manifest.json": 384,
+        "project.db": 2932736,
+        "project.db-shm": 32768,
+        "project.db-wal": 20632,
+        "project.search.db": 598016
+      },
+      "host_free_bytes": 50992648192,
+      "mem_available_kib": 12729792,
+      "processed_units": 800,
+      "processed_value_bytes": 821470,
+      "rss_kib": 115624,
+      "seconds": 0.0783990453928709
+    },
+    "persisted_readback": {
+      "bundle_bytes": 2965888,
+      "files": {
+        "manifest.json": 384,
+        "project.db": 2932736,
+        "project.db-shm": 32768,
+        "project.db-wal": 0
+      },
+      "host_free_bytes": 50993270784,
+      "mem_available_kib": 12729000,
+      "rss_kib": 115572,
+      "seconds": 0.03696248959749937
+    },
+    "search": {
+      "bundle_bytes": 3617304,
+      "files": {
+        "manifest.json": 384,
+        "project.db": 2932736,
+        "project.db-shm": 32768,
+        "project.db-wal": 20632,
+        "project.search.db": 598016,
+        "project.search.db-shm": 32768,
+        "project.search.db-wal": 0
+      },
+      "host_free_bytes": 50992615424,
+      "mem_available_kib": 12729540,
+      "rss_kib": 115624,
+      "seconds": 0.5811661863699555
+    }
+  },
+  "preflight": {
+    "cpu_count": 8,
+    "filesystem": "/dev/sda1[/home/dev/research/frisket-storage-layout-20261002/results/actual-smoke-200] ext4   /results",
+    "host_free_bytes": 50996260864,
+    "import_page_rows": 500,
+    "index_batch_size": 5000,
+    "index_max_bytes": 8388608,
+    "load_average": [
+      1.15087890625,
+      1.22412109375,
+      1.36328125
+    ],
+    "mem_available_kib": 12728632,
+    "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.39",
+    "production_composition_sha": "b4e5906e97aeaa9a677a827b04a9605fad9052cc",
+    "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+    "qualification_sha": "abf12484a40edf9bd58eddb893f05a9822a0480b",
+    "sqlite": "3.45.1",
+    "swap": {
+      "SwapFree": 15900,
+      "SwapTotal": 4194300
+    }
+  },
+  "profile_note": "Retains the first 300k runner's 500-row import and 5000-unit/8 MiB index quanta so the corrected run remains comparable; index_batch semantics and progress assertions are unchanged.",
+  "retention": {
+    "bundle": {
+      "bundle_path": "/results/work/project-qualification-retained-bcvlvrcy/qualification.frisket",
+      "owner": "storage-layout columnar and physical measurement lanes",
+      "read_only": true
+    },
+    "requested": true
+  },
+  "rows_requested": 200,
+  "sampled_phase_peaks": {
+    "analytics": {
+      "host_free_bytes_min": 50992615424,
+      "host_load_1m_max": 1.15087890625,
+      "project_bytes": 3617341,
+      "rss_kib": 131828,
+      "temporary_bytes": 86168
+    },
+    "checkpoint_reopen": {
+      "host_free_bytes_min": 50985709568,
+      "host_load_1m_max": 1.29931640625,
+      "project_bytes": 10519762,
+      "rss_kib": 160084,
+      "temporary_bytes": 5116688
+    },
+    "create": {
+      "host_free_bytes_min": 50996252672,
+      "host_load_1m_max": 1.15087890625,
+      "project_bytes": 0,
+      "rss_kib": 111284,
+      "temporary_bytes": 0
+    },
+    "current_reopen": {
+      "host_free_bytes_min": 50993074176,
+      "host_load_1m_max": 1.15087890625,
+      "project_bytes": 3158445,
+      "rss_kib": 115176,
+      "temporary_bytes": 2138120
+    },
+    "edit_undo_redo": {
+      "host_free_bytes_min": 50985725952,
+      "host_load_1m_max": 1.15087890625,
+      "project_bytes": 10503378,
+      "rss_kib": 160116,
+      "temporary_bytes": 5116688
+    },
+    "grid_queries": {
+      "host_free_bytes_min": 50992615424,
+      "host_load_1m_max": 1.15087890625,
+      "project_bytes": 3617341,
+      "rss_kib": 131700,
+      "temporary_bytes": 86168
+    },
+    "history": {
+      "host_free_bytes_min": 50985709568,
+      "host_load_1m_max": 1.29931640625,
+      "project_bytes": 10519762,
+      "rss_kib": 160084,
+      "temporary_bytes": 5116688
+    },
+    "import": {
+      "host_free_bytes_min": 50993098752,
+      "host_load_1m_max": 1.15087890625,
+      "project_bytes": 3137845,
+      "rss_kib": 115068,
+      "temporary_bytes": 2117520
+    },
+    "index": {
+      "host_free_bytes_min": 50992648192,
+      "host_load_1m_max": 1.15087890625,
+      "project_bytes": 3584573,
+      "rss_kib": 115624,
+      "temporary_bytes": 53400
+    },
+    "persisted_readback": {
+      "host_free_bytes_min": 50993270784,
+      "host_load_1m_max": 1.15087890625,
+      "project_bytes": 2965925,
+      "rss_kib": 115572,
+      "temporary_bytes": 32768
+    },
+    "search": {
+      "host_free_bytes_min": 50992615424,
+      "host_load_1m_max": 1.15087890625,
+      "project_bytes": 3617341,
+      "rss_kib": 115656,
+      "temporary_bytes": 86168
+    }
+  },
+  "schema": "frisket.project-storage-qualification.v1",
+  "search": {
+    "bounded_membership": {
+      "expected_row_ids": [
+        199
+      ],
+      "first_ms": 6.805029697716236,
+      "hit_count": 1,
+      "max_ms": 7.011839188635349,
+      "median_ms": 6.630351301282644,
+      "p95_ms": 6.964631378650665,
+      "query": "frisketboundedfive",
+      "samples": 20,
+      "snippet_bytes_first": 128,
+      "snippet_bytes_max": 128
+    },
+    "scopes": {
+      "exact_cell": [
+        199,
+        3
+      ],
+      "sheet_row_ids": [
+        199
+      ]
+    },
+    "unique_early": {
+      "expected_row_ids": [
+        199
+      ],
+      "first_ms": 7.443736307322979,
+      "hit_count": 1,
+      "max_ms": 9.057913906872272,
+      "median_ms": 6.919677369296551,
+      "p95_ms": 8.859950117766857,
+      "query": "frisketearly00000199",
+      "samples": 20,
+      "snippet_bytes_first": 110,
+      "snippet_bytes_max": 110
+    },
+    "unique_late": {
+      "expected_row_ids": [
+        199
+      ],
+      "first_ms": 6.781254895031452,
+      "hit_count": 1,
+      "max_ms": 8.50747525691986,
+      "median_ms": 6.72919163480401,
+      "p95_ms": 7.02392403036356,
+      "query": "frisketlate00000199",
+      "samples": 20,
+      "snippet_bytes_first": 65,
+      "snippet_bytes_max": 65
+    },
+    "unique_middle": {
+      "expected_row_ids": [
+        199
+      ],
+      "first_ms": 6.704051047563553,
+      "hit_count": 1,
+      "max_ms": 8.066964335739613,
+      "median_ms": 6.822092458605766,
+      "p95_ms": 7.987634278833866,
+      "query": "frisketmiddle00000199",
+      "samples": 20,
+      "snippet_bytes_first": 128,
+      "snippet_bytes_max": 128
+    }
+  },
+  "status": "completed"
+}

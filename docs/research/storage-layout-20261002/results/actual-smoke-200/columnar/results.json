@@ -1,0 +1,329 @@
+{
+  "batch_rows": 200,
+  "fresh_projection": {
+    "duckdb_native": {
+      "artifact_bytes": 798720,
+      "peak_replacement_bytes": 798720,
+      "seconds": 0.10888385400176048
+    },
+    "parquet": {
+      "artifact_bytes": 3204,
+      "peak_replacement_bytes": 3204,
+      "seconds": 0.020901700481772423
+    }
+  },
+  "mode": "retained_actual_project",
+  "native_full_replacement_after_edits": {
+    "artifact_bytes": 798720,
+    "peak_replacement_bytes": 2121728,
+    "seconds": 0.0314470250159502
+  },
+  "project": {
+    "columns": {
+      "amount": 5,
+      "category": 4,
+      "published_at": 6,
+      "record_id": 1,
+      "status": 7
+    },
+    "current_cell_count": 1381,
+    "op_cursor": 7,
+    "row_count": 200,
+    "sheet_id": 1,
+    "sheet_name": "Investigative records"
+  },
+  "queries": {
+    "duckdb_native": {
+      "filter_0_1_percent": {
+        "first_ms": 0.6174370646476746,
+        "max_ms": 0.6174370646476746,
+        "median_ms": 0.6174370646476746,
+        "returned": 1,
+        "samples": 1
+      },
+      "filtered_10_percent": {
+        "first_ms": 1.1358549818396568,
+        "max_ms": 1.1358549818396568,
+        "median_ms": 1.1358549818396568,
+        "returned": 1,
+        "samples": 1
+      },
+      "grouped_analytics": {
+        "first_ms": 1.311485655605793,
+        "max_ms": 1.311485655605793,
+        "median_ms": 1.311485655605793,
+        "returned": 8,
+        "samples": 1
+      },
+      "read_middle_50": {
+        "first_ms": 1.6882987692952156,
+        "max_ms": 1.6882987692952156,
+        "median_ms": 1.6882987692952156,
+        "returned": 50,
+        "samples": 1
+      },
+      "sort_amount_asc": {
+        "first_ms": 1.3977298513054848,
+        "max_ms": 1.3977298513054848,
+        "median_ms": 1.3977298513054848,
+        "returned": 50,
+        "samples": 1
+      },
+      "sort_amount_desc": {
+        "first_ms": 1.295718364417553,
+        "max_ms": 1.295718364417553,
+        "median_ms": 1.295718364417553,
+        "returned": 50,
+        "samples": 1
+      }
+    },
+    "duckdb_parquet": {
+      "filter_0_1_percent": {
+        "first_ms": 0.9301258251070976,
+        "max_ms": 0.9301258251070976,
+        "median_ms": 0.9301258251070976,
+        "returned": 1,
+        "samples": 1
+      },
+      "filtered_10_percent": {
+        "first_ms": 1.4460999518632889,
+        "max_ms": 1.4460999518632889,
+        "median_ms": 1.4460999518632889,
+        "returned": 1,
+        "samples": 1
+      },
+      "grouped_analytics": {
+        "first_ms": 1.2791864573955536,
+        "max_ms": 1.2791864573955536,
+        "median_ms": 1.2791864573955536,
+        "returned": 8,
+        "samples": 1
+      },
+      "read_middle_50": {
+        "first_ms": 1.9879648461937904,
+        "max_ms": 1.9879648461937904,
+        "median_ms": 1.9879648461937904,
+        "returned": 50,
+        "samples": 1
+      },
+      "sort_amount_asc": {
+        "first_ms": 1.8933545798063278,
+        "max_ms": 1.8933545798063278,
+        "median_ms": 1.8933545798063278,
+        "returned": 50,
+        "samples": 1
+      },
+      "sort_amount_desc": {
+        "first_ms": 1.7405571416020393,
+        "max_ms": 1.7405571416020393,
+        "median_ms": 1.7405571416020393,
+        "returned": 50,
+        "samples": 1
+      }
+    },
+    "frisket_public": {
+      "filter_0_1_percent": {
+        "first_ms": 3.7490185350179672,
+        "max_ms": 3.7490185350179672,
+        "median_ms": 3.7490185350179672,
+        "returned": 1,
+        "samples": 1
+      },
+      "filtered_10_percent": {
+        "first_ms": 3.1331563368439674,
+        "max_ms": 3.1331563368439674,
+        "median_ms": 3.1331563368439674,
+        "returned": 1,
+        "samples": 1
+      },
+      "grouped_analytics": {
+        "first_ms": 4.442429170012474,
+        "max_ms": 4.442429170012474,
+        "median_ms": 4.442429170012474,
+        "returned": 8,
+        "samples": 1
+      },
+      "read_middle_50": {
+        "first_ms": 3.3031292259693146,
+        "max_ms": 3.3031292259693146,
+        "median_ms": 3.3031292259693146,
+        "returned": 50,
+        "samples": 1
+      },
+      "sort_amount_asc": {
+        "first_ms": 4.5620352029800415,
+        "max_ms": 4.5620352029800415,
+        "median_ms": 4.5620352029800415,
+        "returned": 50,
+        "samples": 1
+      },
+      "sort_amount_desc": {
+        "first_ms": 3.7444913759827614,
+        "max_ms": 3.7444913759827614,
+        "median_ms": 3.7444913759827614,
+        "returned": 50,
+        "samples": 1
+      }
+    },
+    "sqlite_direct": {
+      "filter_0_1_percent": {
+        "first_ms": 0.0837184488773346,
+        "max_ms": 0.0837184488773346,
+        "median_ms": 0.0837184488773346,
+        "returned": 1,
+        "samples": 1
+      },
+      "filtered_10_percent": {
+        "first_ms": 0.7753539830446243,
+        "max_ms": 0.7753539830446243,
+        "median_ms": 0.7753539830446243,
+        "returned": 1,
+        "samples": 1
+      },
+      "grouped_analytics": {
+        "first_ms": 1.1551612988114357,
+        "max_ms": 1.1551612988114357,
+        "median_ms": 1.1551612988114357,
+        "returned": 8,
+        "samples": 1
+      },
+      "read_middle_50": {
+        "first_ms": 0.3374265506863594,
+        "max_ms": 0.3374265506863594,
+        "median_ms": 0.3374265506863594,
+        "returned": 50,
+        "samples": 1
+      },
+      "sort_amount_asc": {
+        "first_ms": 0.3999657928943634,
+        "max_ms": 0.3999657928943634,
+        "median_ms": 0.3999657928943634,
+        "returned": 50,
+        "samples": 1
+      },
+      "sort_amount_desc": {
+        "first_ms": 0.48904307186603546,
+        "max_ms": 0.48904307186603546,
+        "median_ms": 0.48904307186603546,
+        "returned": 50,
+        "samples": 1
+      }
+    }
+  },
+  "row_group_size": 122880,
+  "samples": 1,
+  "scope": "Read-only retained Project source; matched public/direct analytical queries and rebuildable narrow projections, not a production adapter.",
+  "simulated_projection_catch_up": {
+    "1": {
+      "native_incremental": {
+        "artifact_bytes": 1323008,
+        "cells": 1,
+        "seconds": 0.013679771684110165
+      },
+      "parquet_full_replacement": {
+        "artifact_bytes": 3359,
+        "peak_replacement_bytes": 6563,
+        "seconds": 0.026396285742521286
+      }
+    },
+    "161": {
+      "native_incremental": {
+        "artifact_bytes": 1323008,
+        "cells": 161,
+        "seconds": 0.011476881802082062
+      },
+      "parquet_full_replacement": {
+        "artifact_bytes": 2974,
+        "peak_replacement_bytes": 6333,
+        "seconds": 0.030544288456439972
+      }
+    }
+  },
+  "source_bundle": "/project",
+  "source_files_after": {
+    "manifest.json": {
+      "bytes": 413,
+      "mtime_ns": 1790974309255745771
+    },
+    "project.db": {
+      "bytes": 4448256,
+      "mtime_ns": 1790974309244745629
+    },
+    "project.search.db": {
+      "bytes": 954368,
+      "mtime_ns": 1790974309226745397
+    },
+    "project.search.db-shm": {
+      "bytes": 32768,
+      "mtime_ns": 1790974309262745861
+    },
+    "project.search.db-wal": {
+      "bytes": 0,
+      "mtime_ns": 1790974309231745462
+    }
+  },
+  "source_files_before": {
+    "manifest.json": {
+      "bytes": 413,
+      "mtime_ns": 1790974309255745771
+    },
+    "project.db": {
+      "bytes": 4448256,
+      "mtime_ns": 1790974309244745629
+    },
+    "project.search.db": {
+      "bytes": 954368,
+      "mtime_ns": 1790974309226745397
+    },
+    "project.search.db-shm": {
+      "bytes": 32768,
+      "mtime_ns": 1790974309262745861
+    },
+    "project.search.db-wal": {
+      "bytes": 0,
+      "mtime_ns": 1790974309231745462
+    }
+  },
+  "source_sha": "b4e5906e97aeaa9a677a827b04a9605fad9052cc",
+  "status": "passed",
+  "storage_accounting": {
+    "authority_bytes": 4448256,
+    "authority_fts_native_bytes": 6234112,
+    "authority_fts_parquet_bytes": 5438366,
+    "authority_plus_fts_bytes": 5435392,
+    "fts_bytes": 987136,
+    "manifest_bytes": 413,
+    "native_projection_bytes": 798720,
+    "native_replacement_peak_bytes": 7557120,
+    "owned_output_bytes": 801694,
+    "parquet_projection_bytes": 2974,
+    "parquet_replacement_peak_bytes": 5441725,
+    "retained_bundle_bytes": 5435805
+  },
+  "versions": {
+    "duckdb": "1.5.6",
+    "pyarrow": "24.0.0",
+    "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+    "sqlite": "3.45.1"
+  },
+  "workload": {
+    "amount_quality_counts": {
+      "invalid": 20,
+      "missing": 19,
+      "valid": 161
+    },
+    "category_counts": {
+      "contracts": 76,
+      "courts": 42,
+      "education": 28,
+      "environment": 20,
+      "health": 14,
+      "housing": 10,
+      "labor": 6,
+      "transport": 4
+    },
+    "filtered_category": "environment",
+    "narrow_rows": 1,
+    "narrow_threshold": 200
+  }
+}

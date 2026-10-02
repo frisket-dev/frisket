@@ -1,0 +1,627 @@
+{
+  "artifacts": {
+    "duckdb_projection_bytes": 798720,
+    "owned_output_bytes": 6101866,
+    "parquet_projection_bytes": 64362,
+    "sqlite_slice_bytes": 3137536,
+    "sqlite_without_rowid_slice_bytes": 2035712
+  },
+  "batch_rows": 10000,
+  "edits": {
+    "1": {
+      "cells": 1,
+      "duckdb_artifact_bytes": 1060864,
+      "duckdb_incremental_seconds": 0.01923032756894827,
+      "parquet_full_rebuild": {
+        "artifact_bytes": 61976,
+        "peak_replacement_bytes": 122475,
+        "seconds": 0.08350755646824837
+      },
+      "sqlite_authority_seconds": 0.004621908999979496,
+      "sqlite_without_rowid_seconds": 0.005059364251792431
+    },
+    "1000": {
+      "cells": 1000,
+      "duckdb_artifact_bytes": 1060864,
+      "duckdb_incremental_seconds": 1.0052351970225573,
+      "parquet_full_rebuild": {
+        "artifact_bytes": 64362,
+        "peak_replacement_bytes": 126499,
+        "seconds": 0.10823346395045519
+      },
+      "sqlite_authority_seconds": 0.014383024536073208,
+      "sqlite_without_rowid_seconds": 0.011788834817707539
+    },
+    "200": {
+      "cells": 200,
+      "duckdb_artifact_bytes": 1323008,
+      "duckdb_incremental_seconds": 0.1951182782649994,
+      "parquet_full_rebuild": {
+        "artifact_bytes": 62137,
+        "peak_replacement_bytes": 124113,
+        "seconds": 0.08982210326939821
+      },
+      "sqlite_authority_seconds": 0.008814054541289806,
+      "sqlite_without_rowid_seconds": 0.004326139576733112
+    }
+  },
+  "fixture": {
+    "ordinary_rowid": {
+      "cells": 49000,
+      "database_bytes": 2932736,
+      "layout": "ordinary_rowid",
+      "rows": 10000,
+      "seconds": 0.3481028061360121
+    },
+    "without_rowid": {
+      "cells": 49000,
+      "database_bytes": 2035712,
+      "layout": "without_rowid",
+      "rows": 10000,
+      "seconds": 0.3382514510303736
+    }
+  },
+  "fixture_path": "/results/diagnostic-10k/current-slice.sqlite3",
+  "fresh_projection": {
+    "duckdb_native": {
+      "artifact_bytes": 798720,
+      "peak_replacement_bytes": 798720,
+      "seconds": 0.18606088310480118
+    },
+    "parquet": {
+      "artifact_bytes": 60499,
+      "peak_replacement_bytes": 60499,
+      "seconds": 0.0864216797053814
+    }
+  },
+  "full_duckdb_replacement_after_edits": {
+    "artifact_bytes": 798720,
+    "peak_replacement_bytes": 1859584,
+    "seconds": 0.11594322323799133
+  },
+  "post_edit_parity": {
+    "duckdb_native": {
+      "filter_0_1_percent": {
+        "first_ms": 0.947549007833004,
+        "max_ms": 0.947549007833004,
+        "median_ms": 0.947549007833004,
+        "returned": 10,
+        "samples": 1
+      },
+      "filtered_10_percent": {
+        "first_ms": 1.820787787437439,
+        "max_ms": 1.820787787437439,
+        "median_ms": 1.820787787437439,
+        "returned": 1,
+        "samples": 1
+      },
+      "grouped_analytics": {
+        "first_ms": 2.561436966061592,
+        "max_ms": 2.561436966061592,
+        "median_ms": 2.561436966061592,
+        "returned": 8,
+        "samples": 1
+      },
+      "read_middle_50": {
+        "first_ms": 2.7050375938415527,
+        "max_ms": 2.7050375938415527,
+        "median_ms": 2.7050375938415527,
+        "returned": 50,
+        "samples": 1
+      },
+      "sort_amount_asc": {
+        "first_ms": 2.0555704832077026,
+        "max_ms": 2.0555704832077026,
+        "median_ms": 2.0555704832077026,
+        "returned": 50,
+        "samples": 1
+      },
+      "sort_amount_desc": {
+        "first_ms": 2.2962866351008415,
+        "max_ms": 2.2962866351008415,
+        "median_ms": 2.2962866351008415,
+        "returned": 50,
+        "samples": 1
+      }
+    },
+    "duckdb_parquet": {
+      "filter_0_1_percent": {
+        "first_ms": 1.0743988677859306,
+        "max_ms": 1.0743988677859306,
+        "median_ms": 1.0743988677859306,
+        "returned": 10,
+        "samples": 1
+      },
+      "filtered_10_percent": {
+        "first_ms": 1.550629734992981,
+        "max_ms": 1.550629734992981,
+        "median_ms": 1.550629734992981,
+        "returned": 1,
+        "samples": 1
+      },
+      "grouped_analytics": {
+        "first_ms": 1.6545848920941353,
+        "max_ms": 1.6545848920941353,
+        "median_ms": 1.6545848920941353,
+        "returned": 8,
+        "samples": 1
+      },
+      "read_middle_50": {
+        "first_ms": 2.5026267394423485,
+        "max_ms": 2.5026267394423485,
+        "median_ms": 2.5026267394423485,
+        "returned": 50,
+        "samples": 1
+      },
+      "sort_amount_asc": {
+        "first_ms": 2.598206512629986,
+        "max_ms": 2.598206512629986,
+        "median_ms": 2.598206512629986,
+        "returned": 50,
+        "samples": 1
+      },
+      "sort_amount_desc": {
+        "first_ms": 2.602965570986271,
+        "max_ms": 2.602965570986271,
+        "median_ms": 2.602965570986271,
+        "returned": 50,
+        "samples": 1
+      }
+    },
+    "sqlite_rowid_current_cells": {
+      "filter_0_1_percent": {
+        "first_ms": 9.526711888611317,
+        "max_ms": 9.526711888611317,
+        "median_ms": 9.526711888611317,
+        "returned": 10,
+        "samples": 1
+      },
+      "filtered_10_percent": {
+        "first_ms": 44.602603651583195,
+        "max_ms": 44.602603651583195,
+        "median_ms": 44.602603651583195,
+        "returned": 1,
+        "samples": 1
+      },
+      "grouped_analytics": {
+        "first_ms": 67.01013259589672,
+        "max_ms": 67.01013259589672,
+        "median_ms": 67.01013259589672,
+        "returned": 8,
+        "samples": 1
+      },
+      "read_middle_50": {
+        "first_ms": 30.283602885901928,
+        "max_ms": 30.283602885901928,
+        "median_ms": 30.283602885901928,
+        "returned": 50,
+        "samples": 1
+      },
+      "sort_amount_asc": {
+        "first_ms": 20.589124411344528,
+        "max_ms": 20.589124411344528,
+        "median_ms": 20.589124411344528,
+        "returned": 50,
+        "samples": 1
+      },
+      "sort_amount_desc": {
+        "first_ms": 19.675608724355698,
+        "max_ms": 19.675608724355698,
+        "median_ms": 19.675608724355698,
+        "returned": 50,
+        "samples": 1
+      }
+    },
+    "sqlite_without_rowid_current_cells": {
+      "filter_0_1_percent": {
+        "first_ms": 3.079606220126152,
+        "max_ms": 3.079606220126152,
+        "median_ms": 3.079606220126152,
+        "returned": 10,
+        "samples": 1
+      },
+      "filtered_10_percent": {
+        "first_ms": 38.37164677679539,
+        "max_ms": 38.37164677679539,
+        "median_ms": 38.37164677679539,
+        "returned": 1,
+        "samples": 1
+      },
+      "grouped_analytics": {
+        "first_ms": 66.12752471119165,
+        "max_ms": 66.12752471119165,
+        "median_ms": 66.12752471119165,
+        "returned": 8,
+        "samples": 1
+      },
+      "read_middle_50": {
+        "first_ms": 23.645726032555103,
+        "max_ms": 23.645726032555103,
+        "median_ms": 23.645726032555103,
+        "returned": 50,
+        "samples": 1
+      },
+      "sort_amount_asc": {
+        "first_ms": 14.420894905924797,
+        "max_ms": 14.420894905924797,
+        "median_ms": 14.420894905924797,
+        "returned": 50,
+        "samples": 1
+      },
+      "sort_amount_desc": {
+        "first_ms": 21.797163411974907,
+        "max_ms": 21.797163411974907,
+        "median_ms": 21.797163411974907,
+        "returned": 50,
+        "samples": 1
+      }
+    }
+  },
+  "queries": {
+    "duckdb_native": {
+      "filter_0_1_percent": {
+        "first_ms": 0.922943465411663,
+        "max_ms": 0.9889779612421989,
+        "median_ms": 0.9181536734104156,
+        "returned": 10,
+        "samples": 5
+      },
+      "filtered_10_percent": {
+        "first_ms": 2.082511782646179,
+        "max_ms": 2.082511782646179,
+        "median_ms": 1.7922352999448776,
+        "returned": 1,
+        "samples": 5
+      },
+      "grouped_analytics": {
+        "first_ms": 2.701612189412117,
+        "max_ms": 3.045921213924885,
+        "median_ms": 2.792974002659321,
+        "returned": 8,
+        "samples": 5
+      },
+      "read_middle_50": {
+        "first_ms": 3.283971920609474,
+        "max_ms": 3.283971920609474,
+        "median_ms": 2.898705191910267,
+        "returned": 50,
+        "samples": 5
+      },
+      "sort_amount_asc": {
+        "first_ms": 3.1580133363604546,
+        "max_ms": 3.1580133363604546,
+        "median_ms": 2.5501353666186333,
+        "returned": 50,
+        "samples": 5
+      },
+      "sort_amount_desc": {
+        "first_ms": 2.4804240092635155,
+        "max_ms": 2.7901604771614075,
+        "median_ms": 2.589200623333454,
+        "returned": 50,
+        "samples": 5
+      }
+    },
+    "duckdb_parquet": {
+      "filter_0_1_percent": {
+        "first_ms": 0.8095987141132355,
+        "max_ms": 0.8128257468342781,
+        "median_ms": 0.7989481091499329,
+        "returned": 10,
+        "samples": 5
+      },
+      "filtered_10_percent": {
+        "first_ms": 1.5409495681524277,
+        "max_ms": 1.6117235645651817,
+        "median_ms": 1.4802850782871246,
+        "returned": 1,
+        "samples": 5
+      },
+      "grouped_analytics": {
+        "first_ms": 1.7036059871315956,
+        "max_ms": 1.7099613323807716,
+        "median_ms": 1.683538779616356,
+        "returned": 8,
+        "samples": 5
+      },
+      "read_middle_50": {
+        "first_ms": 2.3939209058880806,
+        "max_ms": 2.3939209058880806,
+        "median_ms": 2.0661111921072006,
+        "returned": 50,
+        "samples": 5
+      },
+      "sort_amount_asc": {
+        "first_ms": 2.5263018906116486,
+        "max_ms": 2.5931466370821,
+        "median_ms": 2.5569098070263863,
+        "returned": 50,
+        "samples": 5
+      },
+      "sort_amount_desc": {
+        "first_ms": 2.59343720972538,
+        "max_ms": 3.0091842636466026,
+        "median_ms": 2.59343720972538,
+        "returned": 50,
+        "samples": 5
+      }
+    },
+    "sqlite_rowid_current_cells": {
+      "filter_0_1_percent": {
+        "first_ms": 9.354355745017529,
+        "max_ms": 9.412355720996857,
+        "median_ms": 9.325122460722923,
+        "returned": 10,
+        "samples": 5
+      },
+      "filtered_10_percent": {
+        "first_ms": 45.33316381275654,
+        "max_ms": 48.47899358719587,
+        "median_ms": 45.196874998509884,
+        "returned": 1,
+        "samples": 5
+      },
+      "grouped_analytics": {
+        "first_ms": 66.88849069178104,
+        "max_ms": 67.93273333460093,
+        "median_ms": 66.99850875884295,
+        "returned": 8,
+        "samples": 5
+      },
+      "read_middle_50": {
+        "first_ms": 27.833744883537292,
+        "max_ms": 38.10147661715746,
+        "median_ms": 33.54647383093834,
+        "returned": 50,
+        "samples": 5
+      },
+      "sort_amount_asc": {
+        "first_ms": 20.71441989392042,
+        "max_ms": 23.599538020789623,
+        "median_ms": 19.80002224445343,
+        "returned": 50,
+        "samples": 5
+      },
+      "sort_amount_desc": {
+        "first_ms": 19.073190167546272,
+        "max_ms": 19.325056113302708,
+        "median_ms": 19.067839719355106,
+        "returned": 50,
+        "samples": 5
+      }
+    },
+    "sqlite_without_rowid_current_cells": {
+      "filter_0_1_percent": {
+        "first_ms": 2.966150641441345,
+        "max_ms": 3.2733920961618423,
+        "median_ms": 3.1535960733890533,
+        "returned": 10,
+        "samples": 5
+      },
+      "filtered_10_percent": {
+        "first_ms": 36.08557768166065,
+        "max_ms": 38.83026260882616,
+        "median_ms": 36.223950795829296,
+        "returned": 1,
+        "samples": 5
+      },
+      "grouped_analytics": {
+        "first_ms": 57.03934282064438,
+        "max_ms": 60.56227441877127,
+        "median_ms": 58.34793206304312,
+        "returned": 8,
+        "samples": 5
+      },
+      "read_middle_50": {
+        "first_ms": 26.041661389172077,
+        "max_ms": 26.041661389172077,
+        "median_ms": 23.244918324053288,
+        "returned": 50,
+        "samples": 5
+      },
+      "sort_amount_asc": {
+        "first_ms": 14.906731434166431,
+        "max_ms": 15.803284011781216,
+        "median_ms": 14.912382699549198,
+        "returned": 50,
+        "samples": 5
+      },
+      "sort_amount_desc": {
+        "first_ms": 18.67749448865652,
+        "max_ms": 19.336597062647343,
+        "median_ms": 15.995679423213005,
+        "returned": 50,
+        "samples": 5
+      }
+    }
+  },
+  "replacement_parity": {
+    "duckdb_native": {
+      "filter_0_1_percent": {
+        "first_ms": 1.4622211456298828,
+        "max_ms": 1.4622211456298828,
+        "median_ms": 1.4622211456298828,
+        "returned": 10,
+        "samples": 1
+      },
+      "filtered_10_percent": {
+        "first_ms": 2.412005327641964,
+        "max_ms": 2.412005327641964,
+        "median_ms": 2.412005327641964,
+        "returned": 1,
+        "samples": 1
+      },
+      "grouped_analytics": {
+        "first_ms": 3.7341415882110596,
+        "max_ms": 3.7341415882110596,
+        "median_ms": 3.7341415882110596,
+        "returned": 8,
+        "samples": 1
+      },
+      "read_middle_50": {
+        "first_ms": 2.024042420089245,
+        "max_ms": 2.024042420089245,
+        "median_ms": 2.024042420089245,
+        "returned": 50,
+        "samples": 1
+      },
+      "sort_amount_asc": {
+        "first_ms": 3.6718836054205894,
+        "max_ms": 3.6718836054205894,
+        "median_ms": 3.6718836054205894,
+        "returned": 50,
+        "samples": 1
+      },
+      "sort_amount_desc": {
+        "first_ms": 3.5005807876586914,
+        "max_ms": 3.5005807876586914,
+        "median_ms": 3.5005807876586914,
+        "returned": 50,
+        "samples": 1
+      }
+    },
+    "duckdb_parquet": {
+      "filter_0_1_percent": {
+        "first_ms": 0.807885080575943,
+        "max_ms": 0.807885080575943,
+        "median_ms": 0.807885080575943,
+        "returned": 10,
+        "samples": 1
+      },
+      "filtered_10_percent": {
+        "first_ms": 1.6465410590171814,
+        "max_ms": 1.6465410590171814,
+        "median_ms": 1.6465410590171814,
+        "returned": 1,
+        "samples": 1
+      },
+      "grouped_analytics": {
+        "first_ms": 1.9123908132314682,
+        "max_ms": 1.9123908132314682,
+        "median_ms": 1.9123908132314682,
+        "returned": 8,
+        "samples": 1
+      },
+      "read_middle_50": {
+        "first_ms": 2.153347246348858,
+        "max_ms": 2.153347246348858,
+        "median_ms": 2.153347246348858,
+        "returned": 50,
+        "samples": 1
+      },
+      "sort_amount_asc": {
+        "first_ms": 2.9403232038021088,
+        "max_ms": 2.9403232038021088,
+        "median_ms": 2.9403232038021088,
+        "returned": 50,
+        "samples": 1
+      },
+      "sort_amount_desc": {
+        "first_ms": 2.9314178973436356,
+        "max_ms": 2.9314178973436356,
+        "median_ms": 2.9314178973436356,
+        "returned": 50,
+        "samples": 1
+      }
+    },
+    "sqlite_rowid_current_cells": {
+      "filter_0_1_percent": {
+        "first_ms": 4.937193356454372,
+        "max_ms": 4.937193356454372,
+        "median_ms": 4.937193356454372,
+        "returned": 10,
+        "samples": 1
+      },
+      "filtered_10_percent": {
+        "first_ms": 48.86911157518625,
+        "max_ms": 48.86911157518625,
+        "median_ms": 48.86911157518625,
+        "returned": 1,
+        "samples": 1
+      },
+      "grouped_analytics": {
+        "first_ms": 68.97883862257004,
+        "max_ms": 68.97883862257004,
+        "median_ms": 68.97883862257004,
+        "returned": 8,
+        "samples": 1
+      },
+      "read_middle_50": {
+        "first_ms": 28.796211816370487,
+        "max_ms": 28.796211816370487,
+        "median_ms": 28.796211816370487,
+        "returned": 50,
+        "samples": 1
+      },
+      "sort_amount_asc": {
+        "first_ms": 18.605577759444714,
+        "max_ms": 18.605577759444714,
+        "median_ms": 18.605577759444714,
+        "returned": 50,
+        "samples": 1
+      },
+      "sort_amount_desc": {
+        "first_ms": 31.19661659002304,
+        "max_ms": 31.19661659002304,
+        "median_ms": 31.19661659002304,
+        "returned": 50,
+        "samples": 1
+      }
+    },
+    "sqlite_without_rowid_current_cells": {
+      "filter_0_1_percent": {
+        "first_ms": 3.1323954463005066,
+        "max_ms": 3.1323954463005066,
+        "median_ms": 3.1323954463005066,
+        "returned": 10,
+        "samples": 1
+      },
+      "filtered_10_percent": {
+        "first_ms": 38.773915730416775,
+        "max_ms": 38.773915730416775,
+        "median_ms": 38.773915730416775,
+        "returned": 1,
+        "samples": 1
+      },
+      "grouped_analytics": {
+        "first_ms": 60.75079180300236,
+        "max_ms": 60.75079180300236,
+        "median_ms": 60.75079180300236,
+        "returned": 8,
+        "samples": 1
+      },
+      "read_middle_50": {
+        "first_ms": 22.526691667735577,
+        "max_ms": 22.526691667735577,
+        "median_ms": 22.526691667735577,
+        "returned": 50,
+        "samples": 1
+      },
+      "sort_amount_asc": {
+        "first_ms": 16.234569251537323,
+        "max_ms": 16.234569251537323,
+        "median_ms": 16.234569251537323,
+        "returned": 50,
+        "samples": 1
+      },
+      "sort_amount_desc": {
+        "first_ms": 15.371100045740604,
+        "max_ms": 15.371100045740604,
+        "median_ms": 15.371100045740604,
+        "returned": 50,
+        "samples": 1
+      }
+    }
+  },
+  "row_group_size": 122880,
+  "rows": 10000,
+  "samples": 5,
+  "scope": "Direct equivalent analytical kernels over a current-value slice; not a Frisket application or production-adapter measurement.",
+  "status": "passed",
+  "versions": {
+    "duckdb": "1.5.6",
+    "pyarrow": "24.0.0",
+    "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+    "sqlite": "3.45.1"
+  }
+}

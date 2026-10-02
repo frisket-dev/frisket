@@ -1,0 +1,4581 @@
+{
+  "after": {
+    "digests": {
+      "cells": {
+        "fields": [
+          "row_id",
+          "column_id",
+          "value",
+          "producer_id"
+        ],
+        "rows": 69000,
+        "sha256": "85198829a528df9c526c2f21abb93d80e0971c6d842aae4837d34a280a7f3d6d"
+      },
+      "current_cells": {
+        "fields": [
+          "column_id",
+          "row_id",
+          "value",
+          "origin_kind",
+          "origin_op_id",
+          "origin_run_id",
+          "base_producer_id",
+          "validity"
+        ],
+        "rows": 69000,
+        "sha256": "195fbda428c0582db065c546bb3d8233e9de50812a98ec938c186572c5ccb34c"
+      }
+    },
+    "files": {
+      "manifest.json": 374,
+      "project.db": 220307456,
+      "project.db-shm": 458752,
+      "project.db-wal": 220073952,
+      "project.search.db": 59850752,
+      "project.search.db-shm": 32768,
+      "project.search.db-wal": 0
+    },
+    "physical_accounting": {
+      "project.db": {
+        "file_bytes": 220307456,
+        "objects": [
+          {
+            "bytes": 47382528,
+            "kind": "table",
+            "name": "current_cells",
+            "pages": 11568
+          },
+          {
+            "bytes": 45723648,
+            "kind": "table",
+            "name": "cells",
+            "pages": 11163
+          },
+          {
+            "bytes": 974848,
+            "kind": "index",
+            "name": "sqlite_autoindex_cells_1",
+            "pages": 238
+          },
+          {
+            "bytes": 860160,
+            "kind": "index",
+            "name": "idx_cells_column",
+            "pages": 210
+          },
+          {
+            "bytes": 860160,
+            "kind": "index",
+            "name": "idx_current_cells_column_row",
+            "pages": 210
+          },
+          {
+            "bytes": 860160,
+            "kind": "index",
+            "name": "idx_current_cells_row",
+            "pages": 210
+          },
+          {
+            "bytes": 339968,
+            "kind": "table",
+            "name": "rows",
+            "pages": 83
+          },
+          {
+            "bytes": 131072,
+            "kind": "index",
+            "name": "idx_rows_sheet",
+            "pages": 32
+          },
+          {
+            "bytes": 106496,
+            "kind": "internal",
+            "name": "sqlite_schema",
+            "pages": 26
+          },
+          {
+            "bytes": 94208,
+            "kind": "index",
+            "name": "idx_rows_parent",
+            "pages": 23
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "artifact_timeline_segments",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "attempt_row_authorizations",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "base_cell_producers",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "binding_epochs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "blob_derivations",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "blobs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "cell_result_heads",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "columns",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "consents",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "edits",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "effect_checkpoints",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "embedding_indexes",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "embedding_spaces",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "evidence_link_spans",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "evidence_links",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "execution_attempts",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_artifact_timeline_source_time",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_blob_derivations_derived",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_blob_derivations_source",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_consents_subject",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_consents_subject_hash",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_edits_rowcol",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_embedding_indexes_sheet",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_embedding_indexes_space",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_evidence_link_spans_annotation",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_evidence_link_spans_span",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_evidence_links_cell_status",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_evidence_links_receipt",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_evidence_links_run_cell",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_evidence_links_sheet_status",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_evidence_links_subject",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_execution_attempts_state",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_lenses_sheet",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_materialized_row_sources_materialized",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_materialized_row_sources_op",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_materialized_row_sources_source",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_model_calls_attempt",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_model_calls_epoch",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_model_calls_rowcol",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_model_calls_run",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_actor_state_actor",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_channels_kind_enabled",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_delivery_attempts_item_channel",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_delivery_attempts_request",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_delivery_attempts_status",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_delivery_requests_item",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_delivery_requests_route",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_delivery_requests_status",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_digest_items_notification",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_digest_runs_route",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_digest_runs_status",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_items_created",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_items_severity",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_items_source_kind",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_routes_channel",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_routes_enabled_mode",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_output_claims_active_column",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_output_claims_active_name",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_output_claims_claim_token",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_output_claims_receipt",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_output_claims_run",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_output_claims_status_expiry",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_project_qa_citations_turn",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_project_qa_events_turn",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_project_qa_research_operations_unsettled",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_project_qa_threads_updated",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_project_qa_turns_thread_started",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_receipts_backfill_activity_column_created",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_receipts_backfill_activity_created",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_receipts_created_id",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_receipts_idempotency",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_receipts_run",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_replay_dismissals_col",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_results_column_run",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_results_rowcol",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_results_run_col_row",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_route_violations_route",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_run_output_generations_column",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_run_rows_position",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_runs_op",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_runs_started_id",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_runtime_projection_artifacts_target",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_search_dirty_scopes_sheet",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_artifacts_blob",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_artifacts_source_cell",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_items_run",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_runs_receipt",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_runs_source_started",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_spans_artifact_kind",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_spans_artifact_pages",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_spans_artifact_time",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_spans_text_surface",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_sources_sheet",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_text_surfaces_cell",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_views_sheet",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watch_row_field_state_watch",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watch_run_events_kind",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watch_run_events_run_rank",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watch_run_events_watch_id",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watch_run_hits_run_rank",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watch_runs_watch_started",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watch_seen_rows_watch",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watches_sheet",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "import_sessions",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "lenses",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "materialized_row_sources",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "meta",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "model_calls",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_actor_state",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_channels",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_delivery_attempts",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_delivery_requests",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_digest_items",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_digest_runs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_items",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_routes",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "ops",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "output_column_claims",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_provider_keys",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_qa_citations",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_qa_events",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_qa_research_operations",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_qa_research_runs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_qa_threads",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_qa_turns",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_qa_usage_calls",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_secret_consumers",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_secret_migration_conflicts",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_secrets",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "promise_sets",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "receipts",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "replay_edit_dismissals",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "results",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "route_violations",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "routes",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "run_output_generations",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "run_rows",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "run_scopes",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "runs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "runtime_projection_artifacts",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "search_dirty_scopes",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "sheets",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "source_artifacts",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "source_items",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "source_runs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "source_spans",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "sources",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_artifact_timeline_segments_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_base_cell_producers_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_binding_epochs_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_binding_epochs_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_blobs_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_columns_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_consents_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_effect_checkpoints_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_effect_checkpoints_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_embedding_indexes_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_embedding_spaces_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_embedding_spaces_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_evidence_links_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_execution_attempts_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_execution_attempts_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_execution_attempts_3",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_import_sessions_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_materialized_row_sources_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_meta_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_model_calls_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_notification_delivery_requests_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_notification_digest_runs_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_notification_items_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_output_column_claims_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_provider_keys_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_qa_citations_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_qa_research_runs_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_qa_research_runs_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_qa_threads_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_qa_turns_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_qa_turns_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_secret_consumers_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_secret_migration_conflicts_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_secrets_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_promise_sets_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_promise_sets_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_receipts_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_route_violations_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_route_violations_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_routes_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_routes_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_routes_3",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_run_output_generations_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_runtime_projection_artifacts_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_sheets_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_source_artifacts_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_source_items_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_source_spans_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_text_surfaces_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_workbench_plugin_env_vars_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_workbench_plugin_installs_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_workbench_plugin_settings_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "sqlite_sequence",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "text_surfaces",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "uq_execution_attempts_one_dispatching",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "uq_import_sessions_active_sheet",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "uq_project_qa_turns_one_active",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "uq_receipt_execution_attempts_one_dispatching",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "views",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "watch_row_field_state",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "watch_run_events",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "watch_run_hits",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "watch_runs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "watch_seen_rows",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "watches",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "workbench_plugin_env_vars",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "workbench_plugin_installs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "workbench_plugin_settings",
+            "pages": 1
+          }
+        ],
+        "page_bytes": 220307456,
+        "page_count": 53786,
+        "page_size": 4096,
+        "path": "project.db"
+      },
+      "project.search.db": {
+        "file_bytes": 59850752,
+        "objects": [
+          {
+            "bytes": 45195264,
+            "kind": "table",
+            "name": "cell_fts_content",
+            "pages": 11034
+          },
+          {
+            "bytes": 9637888,
+            "kind": "table",
+            "name": "cell_fts_data",
+            "pages": 2353
+          },
+          {
+            "bytes": 3227648,
+            "kind": "table",
+            "name": "search_cells",
+            "pages": 788
+          },
+          {
+            "bytes": 606208,
+            "kind": "index",
+            "name": "search_cells_sheet_column",
+            "pages": 148
+          },
+          {
+            "bytes": 561152,
+            "kind": "index",
+            "name": "sqlite_autoindex_search_cells_1",
+            "pages": 137
+          },
+          {
+            "bytes": 557056,
+            "kind": "table",
+            "name": "cell_fts_docsize",
+            "pages": 136
+          },
+          {
+            "bytes": 40960,
+            "kind": "table",
+            "name": "cell_fts_idx",
+            "pages": 10
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "cell_fts_config",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "cell_vec",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "fts_state",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_cell_vec_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_fts_state_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "internal",
+            "name": "sqlite_schema",
+            "pages": 1
+          }
+        ],
+        "page_bytes": 59850752,
+        "page_count": 14612,
+        "page_size": 4096,
+        "path": "project.search.db"
+      }
+    },
+    "public_smoke": {
+      "first_sheet_columns": 7,
+      "first_sheet_id": 1,
+      "first_sheet_rows": 10000,
+      "first_value": {
+        "column_id": 1,
+        "origin_kind": "source_cell",
+        "present": true,
+        "row_id": 1,
+        "validity": "valid"
+      },
+      "history_total": 1,
+      "sheets": 1
+    },
+    "schema_digest": "frisket.schema.v1:f078f2bc57411d372468936618f2f884"
+  },
+  "before": {
+    "digests": {
+      "cells": {
+        "fields": [
+          "row_id",
+          "column_id",
+          "value",
+          "producer_id"
+        ],
+        "rows": 69000,
+        "sha256": "85198829a528df9c526c2f21abb93d80e0971c6d842aae4837d34a280a7f3d6d"
+      },
+      "current_cells": {
+        "fields": [
+          "column_id",
+          "row_id",
+          "value",
+          "origin_kind",
+          "origin_op_id",
+          "origin_run_id",
+          "base_producer_id",
+          "validity"
+        ],
+        "rows": 69000,
+        "sha256": "195fbda428c0582db065c546bb3d8233e9de50812a98ec938c186572c5ccb34c"
+      }
+    },
+    "files": {
+      "manifest.json": 380,
+      "project.db": 126287872,
+      "project.db-shm": 32768,
+      "project.db-wal": 0,
+      "project.search.db": 59850752
+    },
+    "physical_accounting": {
+      "project.db": {
+        "file_bytes": 126287872,
+        "objects": [
+          {
+            "bytes": 62304256,
+            "kind": "table",
+            "name": "current_cells",
+            "pages": 15211
+          },
+          {
+            "bytes": 60313600,
+            "kind": "table",
+            "name": "cells",
+            "pages": 14725
+          },
+          {
+            "bytes": 696320,
+            "kind": "index",
+            "name": "idx_cells_column",
+            "pages": 170
+          },
+          {
+            "bytes": 688128,
+            "kind": "index",
+            "name": "idx_current_cells_column_row",
+            "pages": 168
+          },
+          {
+            "bytes": 675840,
+            "kind": "index",
+            "name": "idx_current_cells_row",
+            "pages": 165
+          },
+          {
+            "bytes": 339968,
+            "kind": "table",
+            "name": "rows",
+            "pages": 83
+          },
+          {
+            "bytes": 131072,
+            "kind": "index",
+            "name": "idx_rows_sheet",
+            "pages": 32
+          },
+          {
+            "bytes": 102400,
+            "kind": "internal",
+            "name": "sqlite_schema",
+            "pages": 25
+          },
+          {
+            "bytes": 94208,
+            "kind": "index",
+            "name": "idx_rows_parent",
+            "pages": 23
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "artifact_timeline_segments",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "attempt_row_authorizations",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "base_cell_producers",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "binding_epochs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "blob_derivations",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "blobs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "cell_result_heads",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "columns",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "consents",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "edits",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "effect_checkpoints",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "embedding_indexes",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "embedding_spaces",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "evidence_link_spans",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "evidence_links",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "execution_attempts",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_artifact_timeline_source_time",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_blob_derivations_derived",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_blob_derivations_source",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_consents_subject",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_consents_subject_hash",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_edits_rowcol",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_embedding_indexes_sheet",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_embedding_indexes_space",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_evidence_link_spans_annotation",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_evidence_link_spans_span",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_evidence_links_cell_status",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_evidence_links_receipt",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_evidence_links_run_cell",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_evidence_links_sheet_status",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_evidence_links_subject",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_execution_attempts_state",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_lenses_sheet",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_materialized_row_sources_materialized",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_materialized_row_sources_op",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_materialized_row_sources_source",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_model_calls_attempt",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_model_calls_epoch",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_model_calls_rowcol",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_model_calls_run",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_actor_state_actor",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_channels_kind_enabled",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_delivery_attempts_item_channel",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_delivery_attempts_request",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_delivery_attempts_status",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_delivery_requests_item",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_delivery_requests_route",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_delivery_requests_status",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_digest_items_notification",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_digest_runs_route",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_digest_runs_status",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_items_created",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_items_severity",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_items_source_kind",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_routes_channel",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_routes_enabled_mode",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_output_claims_active_column",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_output_claims_active_name",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_output_claims_claim_token",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_output_claims_receipt",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_output_claims_run",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_output_claims_status_expiry",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_project_qa_citations_turn",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_project_qa_events_turn",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_project_qa_research_operations_unsettled",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_project_qa_threads_updated",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_project_qa_turns_thread_started",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_receipts_backfill_activity_column_created",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_receipts_backfill_activity_created",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_receipts_created_id",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_receipts_idempotency",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_receipts_run",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_replay_dismissals_col",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_results_column_run",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_results_rowcol",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_results_run_col_row",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_route_violations_route",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_run_output_generations_column",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_run_rows_position",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_runs_op",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_runs_started_id",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_runtime_projection_artifacts_target",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_search_dirty_scopes_sheet",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_artifacts_blob",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_artifacts_source_cell",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_items_run",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_runs_receipt",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_runs_source_started",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_spans_artifact_kind",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_spans_artifact_pages",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_spans_artifact_time",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_spans_text_surface",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_sources_sheet",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_text_surfaces_cell",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_views_sheet",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watch_row_field_state_watch",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watch_run_events_kind",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watch_run_events_run_rank",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watch_run_events_watch_id",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watch_run_hits_run_rank",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watch_runs_watch_started",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watch_seen_rows_watch",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watches_sheet",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "import_sessions",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "lenses",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "materialized_row_sources",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "meta",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "model_calls",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_actor_state",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_channels",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_delivery_attempts",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_delivery_requests",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_digest_items",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_digest_runs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_items",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_routes",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "ops",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "output_column_claims",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_provider_keys",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_qa_citations",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_qa_events",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_qa_research_operations",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_qa_research_runs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_qa_threads",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_qa_turns",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_qa_usage_calls",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_secret_consumers",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_secret_migration_conflicts",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_secrets",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "promise_sets",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "receipts",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "replay_edit_dismissals",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "results",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "route_violations",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "routes",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "run_output_generations",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "run_rows",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "run_scopes",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "runs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "runtime_projection_artifacts",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "search_dirty_scopes",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "sheets",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "source_artifacts",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "source_items",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "source_runs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "source_spans",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "sources",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_artifact_timeline_segments_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_base_cell_producers_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_binding_epochs_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_binding_epochs_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_blobs_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_columns_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_consents_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_effect_checkpoints_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_effect_checkpoints_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_embedding_indexes_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_embedding_spaces_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_embedding_spaces_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_evidence_links_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_execution_attempts_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_execution_attempts_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_execution_attempts_3",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_import_sessions_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_materialized_row_sources_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_meta_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_model_calls_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_notification_delivery_requests_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_notification_digest_runs_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_notification_items_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_output_column_claims_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_provider_keys_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_qa_citations_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_qa_research_runs_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_qa_research_runs_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_qa_threads_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_qa_turns_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_qa_turns_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_secret_consumers_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_secret_migration_conflicts_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_secrets_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_promise_sets_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_promise_sets_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_receipts_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_route_violations_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_route_violations_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_routes_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_routes_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_routes_3",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_run_output_generations_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_runtime_projection_artifacts_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_sheets_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_source_artifacts_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_source_items_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_source_spans_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_text_surfaces_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_workbench_plugin_env_vars_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_workbench_plugin_installs_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_workbench_plugin_settings_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "sqlite_sequence",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "text_surfaces",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "uq_execution_attempts_one_dispatching",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "uq_import_sessions_active_sheet",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "uq_project_qa_turns_one_active",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "uq_receipt_execution_attempts_one_dispatching",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "views",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "watch_row_field_state",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "watch_run_events",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "watch_run_hits",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "watch_runs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "watch_seen_rows",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "watches",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "workbench_plugin_env_vars",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "workbench_plugin_installs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "workbench_plugin_settings",
+            "pages": 1
+          }
+        ],
+        "page_bytes": 126287872,
+        "page_count": 30832,
+        "page_size": 4096,
+        "path": "project.db"
+      },
+      "project.search.db": {
+        "file_bytes": 59850752,
+        "objects": [
+          {
+            "bytes": 45195264,
+            "kind": "table",
+            "name": "cell_fts_content",
+            "pages": 11034
+          },
+          {
+            "bytes": 9637888,
+            "kind": "table",
+            "name": "cell_fts_data",
+            "pages": 2353
+          },
+          {
+            "bytes": 3227648,
+            "kind": "table",
+            "name": "search_cells",
+            "pages": 788
+          },
+          {
+            "bytes": 606208,
+            "kind": "index",
+            "name": "search_cells_sheet_column",
+            "pages": 148
+          },
+          {
+            "bytes": 561152,
+            "kind": "index",
+            "name": "sqlite_autoindex_search_cells_1",
+            "pages": 137
+          },
+          {
+            "bytes": 557056,
+            "kind": "table",
+            "name": "cell_fts_docsize",
+            "pages": 136
+          },
+          {
+            "bytes": 40960,
+            "kind": "table",
+            "name": "cell_fts_idx",
+            "pages": 10
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "cell_fts_config",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "cell_vec",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "fts_state",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_cell_vec_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_fts_state_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "internal",
+            "name": "sqlite_schema",
+            "pages": 1
+          }
+        ],
+        "page_bytes": 59850752,
+        "page_count": 14612,
+        "page_size": 4096,
+        "path": "project.search.db"
+      }
+    },
+    "schema_digest": "frisket.schema.v1:348c367f3a24a414ba6f1e612e40ea15"
+  },
+  "bundle": "/work/old-10k.frisket",
+  "candidate_schema_digest": "frisket.schema.v1:f078f2bc57411d372468936618f2f884",
+  "candidate_sha": "b4e5906e97aeaa9a677a827b04a9605fad9052cc",
+  "checkpoint": {
+    "files": {
+      "manifest.json": 374,
+      "project.db": 220307456,
+      "project.db-shm": 458752,
+      "project.db-wal": 0,
+      "project.search.db": 59850752,
+      "project.search.db-shm": 32768,
+      "project.search.db-wal": 0
+    },
+    "physical_accounting": {
+      "project.db": {
+        "file_bytes": 220307456,
+        "objects": [
+          {
+            "bytes": 47382528,
+            "kind": "table",
+            "name": "current_cells",
+            "pages": 11568
+          },
+          {
+            "bytes": 45723648,
+            "kind": "table",
+            "name": "cells",
+            "pages": 11163
+          },
+          {
+            "bytes": 974848,
+            "kind": "index",
+            "name": "sqlite_autoindex_cells_1",
+            "pages": 238
+          },
+          {
+            "bytes": 860160,
+            "kind": "index",
+            "name": "idx_cells_column",
+            "pages": 210
+          },
+          {
+            "bytes": 860160,
+            "kind": "index",
+            "name": "idx_current_cells_column_row",
+            "pages": 210
+          },
+          {
+            "bytes": 860160,
+            "kind": "index",
+            "name": "idx_current_cells_row",
+            "pages": 210
+          },
+          {
+            "bytes": 339968,
+            "kind": "table",
+            "name": "rows",
+            "pages": 83
+          },
+          {
+            "bytes": 131072,
+            "kind": "index",
+            "name": "idx_rows_sheet",
+            "pages": 32
+          },
+          {
+            "bytes": 106496,
+            "kind": "internal",
+            "name": "sqlite_schema",
+            "pages": 26
+          },
+          {
+            "bytes": 94208,
+            "kind": "index",
+            "name": "idx_rows_parent",
+            "pages": 23
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "artifact_timeline_segments",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "attempt_row_authorizations",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "base_cell_producers",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "binding_epochs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "blob_derivations",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "blobs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "cell_result_heads",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "columns",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "consents",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "edits",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "effect_checkpoints",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "embedding_indexes",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "embedding_spaces",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "evidence_link_spans",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "evidence_links",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "execution_attempts",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_artifact_timeline_source_time",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_blob_derivations_derived",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_blob_derivations_source",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_consents_subject",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_consents_subject_hash",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_edits_rowcol",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_embedding_indexes_sheet",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_embedding_indexes_space",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_evidence_link_spans_annotation",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_evidence_link_spans_span",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_evidence_links_cell_status",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_evidence_links_receipt",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_evidence_links_run_cell",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_evidence_links_sheet_status",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_evidence_links_subject",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_execution_attempts_state",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_lenses_sheet",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_materialized_row_sources_materialized",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_materialized_row_sources_op",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_materialized_row_sources_source",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_model_calls_attempt",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_model_calls_epoch",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_model_calls_rowcol",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_model_calls_run",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_actor_state_actor",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_channels_kind_enabled",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_delivery_attempts_item_channel",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_delivery_attempts_request",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_delivery_attempts_status",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_delivery_requests_item",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_delivery_requests_route",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_delivery_requests_status",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_digest_items_notification",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_digest_runs_route",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_digest_runs_status",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_items_created",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_items_severity",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_items_source_kind",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_routes_channel",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_notification_routes_enabled_mode",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_output_claims_active_column",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_output_claims_active_name",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_output_claims_claim_token",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_output_claims_receipt",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_output_claims_run",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_output_claims_status_expiry",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_project_qa_citations_turn",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_project_qa_events_turn",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_project_qa_research_operations_unsettled",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_project_qa_threads_updated",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_project_qa_turns_thread_started",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_receipts_backfill_activity_column_created",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_receipts_backfill_activity_created",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_receipts_created_id",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_receipts_idempotency",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_receipts_run",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_replay_dismissals_col",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_results_column_run",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_results_rowcol",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_results_run_col_row",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_route_violations_route",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_run_output_generations_column",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_run_rows_position",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_runs_op",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_runs_started_id",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_runtime_projection_artifacts_target",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_search_dirty_scopes_sheet",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_artifacts_blob",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_artifacts_source_cell",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_items_run",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_runs_receipt",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_runs_source_started",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_spans_artifact_kind",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_spans_artifact_pages",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_spans_artifact_time",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_source_spans_text_surface",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_sources_sheet",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_text_surfaces_cell",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_views_sheet",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watch_row_field_state_watch",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watch_run_events_kind",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watch_run_events_run_rank",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watch_run_events_watch_id",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watch_run_hits_run_rank",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watch_runs_watch_started",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watch_seen_rows_watch",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "idx_watches_sheet",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "import_sessions",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "lenses",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "materialized_row_sources",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "meta",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "model_calls",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_actor_state",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_channels",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_delivery_attempts",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_delivery_requests",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_digest_items",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_digest_runs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_items",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "notification_routes",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "ops",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "output_column_claims",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_provider_keys",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_qa_citations",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_qa_events",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_qa_research_operations",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_qa_research_runs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_qa_threads",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_qa_turns",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_qa_usage_calls",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_secret_consumers",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_secret_migration_conflicts",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "project_secrets",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "promise_sets",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "receipts",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "replay_edit_dismissals",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "results",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "route_violations",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "routes",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "run_output_generations",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "run_rows",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "run_scopes",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "runs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "runtime_projection_artifacts",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "search_dirty_scopes",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "sheets",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "source_artifacts",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "source_items",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "source_runs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "source_spans",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "sources",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_artifact_timeline_segments_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_base_cell_producers_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_binding_epochs_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_binding_epochs_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_blobs_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_columns_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_consents_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_effect_checkpoints_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_effect_checkpoints_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_embedding_indexes_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_embedding_spaces_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_embedding_spaces_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_evidence_links_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_execution_attempts_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_execution_attempts_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_execution_attempts_3",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_import_sessions_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_materialized_row_sources_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_meta_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_model_calls_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_notification_delivery_requests_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_notification_digest_runs_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_notification_items_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_output_column_claims_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_provider_keys_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_qa_citations_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_qa_research_runs_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_qa_research_runs_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_qa_threads_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_qa_turns_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_qa_turns_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_secret_consumers_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_secret_migration_conflicts_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_project_secrets_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_promise_sets_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_promise_sets_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_receipts_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_route_violations_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_route_violations_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_routes_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_routes_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_routes_3",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_run_output_generations_2",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_runtime_projection_artifacts_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_sheets_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_source_artifacts_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_source_items_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_source_spans_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_text_surfaces_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_workbench_plugin_env_vars_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_workbench_plugin_installs_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_workbench_plugin_settings_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "sqlite_sequence",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "text_surfaces",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "uq_execution_attempts_one_dispatching",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "uq_import_sessions_active_sheet",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "uq_project_qa_turns_one_active",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "uq_receipt_execution_attempts_one_dispatching",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "views",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "watch_row_field_state",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "watch_run_events",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "watch_run_hits",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "watch_runs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "watch_seen_rows",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "watches",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "workbench_plugin_env_vars",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "workbench_plugin_installs",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "workbench_plugin_settings",
+            "pages": 1
+          }
+        ],
+        "page_bytes": 220307456,
+        "page_count": 53786,
+        "page_size": 4096,
+        "path": "project.db"
+      },
+      "project.search.db": {
+        "file_bytes": 59850752,
+        "objects": [
+          {
+            "bytes": 45195264,
+            "kind": "table",
+            "name": "cell_fts_content",
+            "pages": 11034
+          },
+          {
+            "bytes": 9637888,
+            "kind": "table",
+            "name": "cell_fts_data",
+            "pages": 2353
+          },
+          {
+            "bytes": 3227648,
+            "kind": "table",
+            "name": "search_cells",
+            "pages": 788
+          },
+          {
+            "bytes": 606208,
+            "kind": "index",
+            "name": "search_cells_sheet_column",
+            "pages": 148
+          },
+          {
+            "bytes": 561152,
+            "kind": "index",
+            "name": "sqlite_autoindex_search_cells_1",
+            "pages": 137
+          },
+          {
+            "bytes": 557056,
+            "kind": "table",
+            "name": "cell_fts_docsize",
+            "pages": 136
+          },
+          {
+            "bytes": 40960,
+            "kind": "table",
+            "name": "cell_fts_idx",
+            "pages": 10
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "cell_fts_config",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "cell_vec",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "table",
+            "name": "fts_state",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_cell_vec_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "index",
+            "name": "sqlite_autoindex_fts_state_1",
+            "pages": 1
+          },
+          {
+            "bytes": 4096,
+            "kind": "internal",
+            "name": "sqlite_schema",
+            "pages": 1
+          }
+        ],
+        "page_bytes": 59850752,
+        "page_count": 14612,
+        "page_size": 4096,
+        "path": "project.search.db"
+      }
+    },
+    "result": [
+      0,
+      0,
+      0
+    ]
+  },
+  "checks": {
+    "foreign_key_check": true,
+    "integrity_check": true
+  },
+  "expected_old_schema_digest": "frisket.schema.v1:348c367f3a24a414ba6f1e612e40ea15",
+  "host_free_bytes_min": 50779107328,
+  "limits": {
+    "hard_scratch_bytes": 19327352832,
+    "host_free_reserve_bytes": 16106127360,
+    "scope": "whole probe process and its owned work directory",
+    "soft_scratch_bytes": 17179869184
+  },
+  "open_migration_cancellation": "observation only: Project constructor owns this connection; progress-handler interruption begins after open",
+  "phases": {
+    "after": {
+      "bundle_bytes": 500724054,
+      "files": {
+        "manifest.json": 374,
+        "project.db": 220307456,
+        "project.db-shm": 458752,
+        "project.db-wal": 220073952,
+        "project.search.db": 59850752,
+        "project.search.db-shm": 32768,
+        "project.search.db-wal": 0
+      },
+      "host_free_bytes": 50779107328,
+      "mem_available_kib": 12665868,
+      "rss_kib": 112596,
+      "seconds": 1.7160860979929566
+    },
+    "before": {
+      "bundle_bytes": 186204540,
+      "files": {
+        "manifest.json": 380,
+        "project.db": 126287872,
+        "project.db-shm": 32768,
+        "project.db-wal": 0,
+        "project.search.db": 59850752,
+        "project.search.db-shm": 32768,
+        "project.search.db-wal": 0
+      },
+      "host_free_bytes": 51093647360,
+      "mem_available_kib": 12651624,
+      "rss_kib": 111592,
+      "seconds": 1.2684977483004332
+    },
+    "checkpoint": {
+      "bundle_bytes": 280650102,
+      "files": {
+        "manifest.json": 374,
+        "project.db": 220307456,
+        "project.db-shm": 458752,
+        "project.db-wal": 0,
+        "project.search.db": 59850752,
+        "project.search.db-shm": 32768,
+        "project.search.db-wal": 0
+      },
+      "host_free_bytes": 50999185408,
+      "mem_available_kib": 12638224,
+      "rss_kib": 112668,
+      "seconds": 0.08006285410374403
+    },
+    "open_migration": {
+      "bundle_bytes": 500724054,
+      "files": {
+        "manifest.json": 374,
+        "project.db": 220307456,
+        "project.db-shm": 458752,
+        "project.db-wal": 220073952,
+        "project.search.db": 59850752,
+        "project.search.db-shm": 32768,
+        "project.search.db-wal": 0
+      },
+      "host_free_bytes": 50779115520,
+      "mem_available_kib": 12661000,
+      "rss_kib": 112532,
+      "seconds": 1.175689585506916
+    }
+  },
+  "preflight": {
+    "cpu_count": 8,
+    "filesystem": "/dev/sda1[/tmp/frisket-migration-work.sQPTwE] ext4   /work",
+    "host_free_bytes": 51093712896,
+    "import_page_rows": 500,
+    "index_batch_size": 5000,
+    "index_max_bytes": 8388608,
+    "load_average": [
+      1.54931640625,
+      1.3828125,
+      1.47314453125
+    ],
+    "mem_available_kib": 12651620,
+    "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.39",
+    "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+    "qualification_sha": "b89d8f00c5be4bf20cb2b8e20dd85ae4e1ba1a67",
+    "sqlite": "3.45.1",
+    "swap": {
+      "SwapFree": 14344,
+      "SwapTotal": 4194300
+    }
+  },
+  "project_module": "/candidate/src/frisket/engine/store/project.py",
+  "sampled_phase_peaks": {
+    "after": {
+      "host_free_bytes_min": 50779107328,
+      "host_load_1m_max": 1.58544921875,
+      "project_bytes": 500724091,
+      "rss_kib": 112596,
+      "temporary_bytes": 220565472
+    },
+    "before": {
+      "host_free_bytes_min": 51093647360,
+      "host_load_1m_max": 1.58544921875,
+      "project_bytes": 186204540,
+      "rss_kib": 111624,
+      "temporary_bytes": 65536
+    },
+    "checkpoint": {
+      "host_free_bytes_min": 50779107328,
+      "host_load_1m_max": 1.58544921875,
+      "project_bytes": 500724091,
+      "rss_kib": 112596,
+      "temporary_bytes": 220565472
+    },
+    "open_migration": {
+      "host_free_bytes_min": 50779115520,
+      "host_load_1m_max": 1.58544921875,
+      "project_bytes": 500724091,
+      "rss_kib": 112532,
+      "temporary_bytes": 220565472
+    }
+  },
+  "schema": "frisket.project-migration-probe.v1",
+  "status": "completed"
+}

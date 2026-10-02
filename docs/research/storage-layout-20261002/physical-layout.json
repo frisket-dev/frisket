@@ -1,0 +1,90 @@
+{
+  "source_revision": "1b8cde5c843aedee3fb1702db413a91f77c9231a",
+  "qualification": {
+    "rows": 500000,
+    "base_cells": 3450000,
+    "current_cells": 3450000,
+    "searchable_cells": 2000000,
+    "body_utf8_bytes": 2052990612,
+    "canonical_ndjson_bytes": 2142115192,
+    "project_db_bytes": 6330556416,
+    "search_db_bytes": 3022413824
+  },
+  "object_accounting": {
+    "fixture_rows": 10000,
+    "fixture_body_utf8_bytes": 40739791,
+    "fixture_searchable_cells": 40000,
+    "main": {
+      "file_bytes": 126287872,
+      "page_size": 4096,
+      "page_count": 30832,
+      "freelist_count": 15,
+      "objects": {
+        "cells": 60313600,
+        "current_cells": 62304256,
+        "idx_cells_column": 696320,
+        "idx_current_cells_column_row": 688128,
+        "idx_current_cells_row": 675840
+      }
+    },
+    "search": {
+      "file_bytes": 59850752,
+      "page_size": 4096,
+      "page_count": 14612,
+      "freelist_count": 0,
+      "objects": {
+        "cell_fts_content": 45195264,
+        "cell_fts_data": 9637888,
+        "search_cells": 3227648
+      }
+    }
+  },
+  "representation_probe": {
+    "fixture_rows": 10000,
+    "verified_cells": 69000,
+    "verified_current_cells": 69000,
+    "source_mode": "read-only immutable",
+    "variants": {
+      "without_rowid_4096": {
+        "file_bytes": 123916288,
+        "cells_bytes": 60141568,
+        "current_cells_bytes": 61923328,
+        "identity_index_bytes": 1847296,
+        "overflow_unused_bytes": 34547430
+      },
+      "rowid_4096": {
+        "file_bytes": 96550912,
+        "cells_bytes": 45723648,
+        "current_cells_bytes": 47382528,
+        "identity_index_bytes": 3440640,
+        "overflow_unused_bytes": 183014
+      },
+      "without_rowid_8192": {
+        "file_bytes": 106905600,
+        "cells_bytes": 51847168,
+        "current_cells_bytes": 53182464,
+        "identity_index_bytes": 1867776
+      },
+      "rowid_8192": {
+        "file_bytes": 100810752,
+        "cells_bytes": 47890432,
+        "current_cells_bytes": 49438720,
+        "identity_index_bytes": 3473408
+      }
+    }
+  },
+  "candidate_implementation": {
+    "research_commit": "21fd6e7276a55bf3af2661cbd8f86af7dd3449ad",
+    "production_commit": "ce9ad0661128cbca01e761b57cf8c537827309fa",
+    "status": "focused tests passed; awaiting independent review and 500k qualification",
+    "physical_layout": {
+      "cells": "rowid with UNIQUE(row_id,column_id)",
+      "current_cells": "rowid with UNIQUE index idx_current_cells_column_row(column_id,row_id)",
+      "row_read_index": "idx_current_cells_row(row_id,column_id)"
+    },
+    "focused_tests": {
+      "passed": 35,
+      "network": "isolated"
+    }
+  }
+}

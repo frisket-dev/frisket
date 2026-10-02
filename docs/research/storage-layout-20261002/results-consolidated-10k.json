@@ -1,0 +1,753 @@
+{
+  "analytics": {
+    "broad_grouped": {
+      "first_ms": 73.77490680664778,
+      "groups": 8,
+      "max_ms": 79.71291150897741,
+      "median_ms": 73.77490680664778,
+      "row_count": 10000,
+      "samples": 3,
+      "statements": [
+        {
+          "plan": [
+            {
+              "detail": "SEARCH columns USING INDEX sqlite_autoindex_columns_1 (sheet_id=?)",
+              "id": 4,
+              "parent": 0
+            },
+            {
+              "detail": "USE TEMP B-TREE FOR ORDER BY",
+              "id": 26,
+              "parent": 0
+            }
+          ],
+          "sql": "SELECT * FROM columns WHERE sheet_id=1 AND hidden=0 ORDER BY position",
+          "standalone": {
+            "ms": 0.0419076532125473,
+            "returned": 5
+          }
+        },
+        {
+          "plan": [
+            {
+              "detail": "MATERIALIZE aggregated",
+              "id": 3,
+              "parent": 0
+            },
+            {
+              "detail": "MATERIALIZE prepared",
+              "id": 6,
+              "parent": 3
+            },
+            {
+              "detail": "SEARCH r USING INDEX idx_rows_sheet (sheet_id=?)",
+              "id": 12,
+              "parent": 6
+            },
+            {
+              "detail": "SEARCH c0 USING PRIMARY KEY (column_id=? AND row_id=?) LEFT-JOIN",
+              "id": 19,
+              "parent": 6
+            },
+            {
+              "detail": "SEARCH c1 USING PRIMARY KEY (column_id=? AND row_id=?) LEFT-JOIN",
+              "id": 26,
+              "parent": 6
+            },
+            {
+              "detail": "SCAN prepared",
+              "id": 73,
+              "parent": 3
+            },
+            {
+              "detail": "USE TEMP B-TREE FOR GROUP BY",
+              "id": 75,
+              "parent": 3
+            },
+            {
+              "detail": "MATERIALIZE median_5",
+              "id": 186,
+              "parent": 0
+            },
+            {
+              "detail": "MATERIALIZE median_source_5",
+              "id": 189,
+              "parent": 186
+            },
+            {
+              "detail": "CO-ROUTINE (subquery-10)",
+              "id": 192,
+              "parent": 189
+            },
+            {
+              "detail": "CO-ROUTINE (subquery-11)",
+              "id": 195,
+              "parent": 192
+            },
+            {
+              "detail": "SCAN prepared",
+              "id": 199,
+              "parent": 195
+            },
+            {
+              "detail": "USE TEMP B-TREE FOR ORDER BY",
+              "id": 219,
+              "parent": 195
+            },
+            {
+              "detail": "SCAN (subquery-11)",
+              "id": 239,
+              "parent": 192
+            },
+            {
+              "detail": "USE TEMP B-TREE FOR ORDER BY",
+              "id": 306,
+              "parent": 192
+            },
+            {
+              "detail": "SCAN (subquery-10)",
+              "id": 328,
+              "parent": 189
+            },
+            {
+              "detail": "SCAN median_source_5",
+              "id": 395,
+              "parent": 186
+            },
+            {
+              "detail": "USE TEMP B-TREE FOR GROUP BY",
+              "id": 397,
+              "parent": 186
+            },
+            {
+              "detail": "MATERIALIZE denominators",
+              "id": 483,
+              "parent": 0
+            },
+            {
+              "detail": "SCAN prepared",
+              "id": 488,
+              "parent": 483
+            },
+            {
+              "detail": "MATERIALIZE validation",
+              "id": 500,
+              "parent": 0
+            },
+            {
+              "detail": "SCAN a",
+              "id": 509,
+              "parent": 500
+            },
+            {
+              "detail": "BLOOM FILTER ON m5 (g0_value=? AND g0_kind=?)",
+              "id": 513,
+              "parent": 500
+            },
+            {
+              "detail": "SEARCH m5 USING AUTOMATIC COVERING INDEX (g0_value=? AND g0_kind=?) LEFT-JOIN",
+              "id": 524,
+              "parent": 500
+            },
+            {
+              "detail": "SCAN d",
+              "id": 547,
+              "parent": 500
+            },
+            {
+              "detail": "SCAN a",
+              "id": 569,
+              "parent": 0
+            },
+            {
+              "detail": "BLOOM FILTER ON m5 (g0_value=? AND g0_kind=?)",
+              "id": 575,
+              "parent": 0
+            },
+            {
+              "detail": "SEARCH m5 USING AUTOMATIC COVERING INDEX (g0_value=? AND g0_kind=?) LEFT-JOIN",
+              "id": 586,
+              "parent": 0
+            },
+            {
+              "detail": "SCAN d",
+              "id": 596,
+              "parent": 0
+            },
+            {
+              "detail": "SCAN v",
+              "id": 600,
+              "parent": 0
+            },
+            {
+              "detail": "USE TEMP B-TREE FOR ORDER BY",
+              "id": 647,
+              "parent": 0
+            }
+          ],
+          "sql": "WITH scoped AS (SELECT r.id AS row_id FROM rows r WHERE r.sheet_id=1 AND r.hidden=0), source AS (SELECT scoped.row_id, c0.value AS v0, c0.validity AS q0, c1.value AS v1, c1.validity AS q1 FROM scoped LEFT JOIN current_cells c0 ON c0.row_id=scoped.row_id AND c0.column_id=2 LEFT JOIN current_cells c1 ON c1.row_id=scoped.row_id AND c1.column_id=3), prepared AS MATERIALIZED (SELECT source.*, CASE WHEN q0='invalid' THEN 'invalid' WHEN q0='valid' AND v0 IS NOT NULL THEN 'valid' ELSE 'missing' END AS g0_kind, CASE WHEN q0='valid' THEN json_extract(v0, '$') END AS g0_value FROM source), aggregated AS (SELECT g0_kind, g0_value, COUNT(*) AS row_count, COUNT(*) AS m0, COALESCE(SUM(q1='valid' AND v1 IS NOT NULL), 0) AS m1, COALESCE(SUM(q1='missing' OR q1 IS NULL), 0) AS m2, SUM(CASE WHEN q1='valid' AND v1 IS NOT NULL THEN json_extract(v1, '$') END) AS m3, AVG(CASE WHEN q1='valid' AND v1 IS NOT NULL THEN json_extract(v1, '$') END) AS m4, COALESCE(SUM(q1='valid' AND v1 IS NOT NULL), 0) AS q1_present, COALESCE(SUM(q1='missing' OR q1 IS NULL), 0) AS q1_missing, COALESCE(SUM(q1='invalid'), 0) AS q1_invalid FROM prepared GROUP BY g0_kind, g0_value), median_source_5 AS (SELECT g0_kind, g0_value, CASE WHEN q1='valid' AND v1 IS NOT NULL THEN json_extract(v1, '$') END AS value, ROW_NUMBER() OVER (PARTITION BY g0_kind, g0_value ORDER BY CASE WHEN q1='valid' AND v1 IS NOT NULL THEN json_extract(v1, '$') END) AS rn, COUNT(*) OVER (PARTITION BY g0_kind, g0_value ) AS n FROM prepared WHERE CASE WHEN q1='valid' AND v1 IS NOT NULL THEN json_extract(v1, '$') END IS NOT NULL), median_5 AS (SELECT g0_kind, g0_value, CASE WHEN MAX(n) % 2 = 1 THEN MAX(CASE WHEN rn=(n + 1) / 2 THEN value END) ELSE MAX(CASE WHEN rn=n / 2 THEN value / 2.0 END) + MAX(CASE WHEN rn=n / 2 + 1 THEN value / 2.0 END) END AS value FROM median_source_5 GROUP BY g0_kind, g0_value), denominators AS (SELECT COUNT(*) AS full_row_count FROM prepared), validation AS (SELECT COUNT(*) AS invalid_count FROM aggregated a  LEFT JOIN median_5 m5 ON a.g0_kind IS m5.g0_kind AND a.g0_value IS m5.g0_value CROSS JOIN denominators d WHERE (a.m3 IS NOT NULL AND NOT (a.m3 BETWEEN -1.79769313486232e+308 AND 1.79769313486232e+308)) OR (a.m4 IS NOT NULL AND NOT (a.m4 BETWEEN -1.79769313486232e+308 AND 1.79769313486232e+308)) OR (m5.value IS NOT NULL AND NOT (m5.value BETWEEN -1.79769313486232e+308 AND 1.79769313486232e+308))) SELECT a.*, m5.value AS m5, d.*, v.invalid_count AS __invalid_count FROM aggregated a  LEFT JOIN median_5 m5 ON a.g0_kind IS m5.g0_kind AND a.g0_value IS m5.g0_value CROSS JOIN denominators d CROSS JOIN validation v ORDER BY CASE a.g0_kind WHEN 'valid' THEN 0 WHEN 'missing' THEN 1 ELSE 2 END ASC, a.g0_value ASC, CASE a.g0_kind WHEN 'valid' THEN 0 WHEN 'missing' THEN 1 ELSE 2 END ASC, a.g0_value ASC LIMIT 21 OFFSET 0",
+          "standalone": {
+            "ms": 71.04039285331964,
+            "returned": 8
+          }
+        },
+        {
+          "plan": [
+            {
+              "detail": "SEARCH meta USING INDEX sqlite_autoindex_meta_1 (key=?)",
+              "id": 3,
+              "parent": 0
+            }
+          ],
+          "sql": "SELECT value FROM meta WHERE key='op_cursor'",
+          "standalone": {
+            "ms": 0.04222989082336426,
+            "returned": 1
+          }
+        }
+      ]
+    },
+    "filtered_10_percent": {
+      "first_ms": 14.786324463784695,
+      "groups": 1,
+      "max_ms": 14.786324463784695,
+      "median_ms": 14.128021895885468,
+      "row_count": 1000,
+      "samples": 3,
+      "statements": [
+        {
+          "plan": [
+            {
+              "detail": "SEARCH columns USING INDEX sqlite_autoindex_columns_1 (sheet_id=?)",
+              "id": 4,
+              "parent": 0
+            },
+            {
+              "detail": "USE TEMP B-TREE FOR ORDER BY",
+              "id": 26,
+              "parent": 0
+            }
+          ],
+          "sql": "SELECT * FROM columns WHERE sheet_id=1 AND hidden=0 ORDER BY position",
+          "standalone": {
+            "ms": 0.036308541893959045,
+            "returned": 5
+          }
+        },
+        {
+          "plan": [
+            {
+              "detail": "MATERIALIZE aggregated",
+              "id": 3,
+              "parent": 0
+            },
+            {
+              "detail": "MATERIALIZE prepared",
+              "id": 6,
+              "parent": 3
+            },
+            {
+              "detail": "SEARCH r USING INDEX idx_rows_sheet (sheet_id=?)",
+              "id": 11,
+              "parent": 6
+            },
+            {
+              "detail": "CORRELATED SCALAR SUBQUERY 1",
+              "id": 19,
+              "parent": 6
+            },
+            {
+              "detail": "SEARCH live USING PRIMARY KEY (column_id=? AND row_id=?)",
+              "id": 23,
+              "parent": 19
+            },
+            {
+              "detail": "SEARCH c0 USING PRIMARY KEY (column_id=? AND row_id=?) LEFT-JOIN",
+              "id": 39,
+              "parent": 6
+            },
+            {
+              "detail": "SCAN prepared",
+              "id": 61,
+              "parent": 3
+            },
+            {
+              "detail": "MATERIALIZE median_5",
+              "id": 139,
+              "parent": 0
+            },
+            {
+              "detail": "MATERIALIZE median_source_5",
+              "id": 142,
+              "parent": 139
+            },
+            {
+              "detail": "CO-ROUTINE (subquery-11)",
+              "id": 145,
+              "parent": 142
+            },
+            {
+              "detail": "CO-ROUTINE (subquery-12)",
+              "id": 148,
+              "parent": 145
+            },
+            {
+              "detail": "SCAN prepared",
+              "id": 151,
+              "parent": 148
+            },
+            {
+              "detail": "SCAN (subquery-12)",
+              "id": 173,
+              "parent": 145
+            },
+            {
+              "detail": "USE TEMP B-TREE FOR ORDER BY",
+              "id": 226,
+              "parent": 145
+            },
+            {
+              "detail": "SCAN (subquery-11)",
+              "id": 243,
+              "parent": 142
+            },
+            {
+              "detail": "SCAN median_source_5",
+              "id": 295,
+              "parent": 139
+            },
+            {
+              "detail": "MATERIALIZE denominators",
+              "id": 347,
+              "parent": 0
+            },
+            {
+              "detail": "SCAN prepared",
+              "id": 352,
+              "parent": 347
+            },
+            {
+              "detail": "MATERIALIZE validation",
+              "id": 364,
+              "parent": 0
+            },
+            {
+              "detail": "SCAN a",
+              "id": 373,
+              "parent": 364
+            },
+            {
+              "detail": "SCAN m5 LEFT-JOIN",
+              "id": 375,
+              "parent": 364
+            },
+            {
+              "detail": "SCAN d",
+              "id": 397,
+              "parent": 364
+            },
+            {
+              "detail": "SCAN a",
+              "id": 419,
+              "parent": 0
+            },
+            {
+              "detail": "SCAN m5 LEFT-JOIN",
+              "id": 423,
+              "parent": 0
+            },
+            {
+              "detail": "SCAN d",
+              "id": 432,
+              "parent": 0
+            },
+            {
+              "detail": "SCAN v",
+              "id": 436,
+              "parent": 0
+            },
+            {
+              "detail": "USE TEMP B-TREE FOR ORDER BY",
+              "id": 464,
+              "parent": 0
+            }
+          ],
+          "sql": "WITH scoped AS (SELECT r.id AS row_id FROM rows r WHERE r.sheet_id=1 AND r.hidden=0 AND CAST(json_extract((SELECT CASE WHEN live.validity='valid' THEN live.value END FROM current_cells live WHERE live.column_id=2 AND live.row_id=r.id), '$') AS TEXT) = 'environment'), source AS (SELECT scoped.row_id, c0.value AS v0, c0.validity AS q0 FROM scoped LEFT JOIN current_cells c0 ON c0.row_id=scoped.row_id AND c0.column_id=3), prepared AS MATERIALIZED (SELECT source.* FROM source), aggregated AS (SELECT COUNT(*) AS row_count, COUNT(*) AS m0, COALESCE(SUM(q0='valid' AND v0 IS NOT NULL), 0) AS m1, COALESCE(SUM(q0='missing' OR q0 IS NULL), 0) AS m2, SUM(CASE WHEN q0='valid' AND v0 IS NOT NULL THEN json_extract(v0, '$') END) AS m3, AVG(CASE WHEN q0='valid' AND v0 IS NOT NULL THEN json_extract(v0, '$') END) AS m4, COALESCE(SUM(q0='valid' AND v0 IS NOT NULL), 0) AS q0_present, COALESCE(SUM(q0='missing' OR q0 IS NULL), 0) AS q0_missing, COALESCE(SUM(q0='invalid'), 0) AS q0_invalid FROM prepared), median_source_5 AS (SELECT CASE WHEN q0='valid' AND v0 IS NOT NULL THEN json_extract(v0, '$') END AS value, ROW_NUMBER() OVER (ORDER BY CASE WHEN q0='valid' AND v0 IS NOT NULL THEN json_extract(v0, '$') END) AS rn, COUNT(*) OVER () AS n FROM prepared WHERE CASE WHEN q0='valid' AND v0 IS NOT NULL THEN json_extract(v0, '$') END IS NOT NULL), median_5 AS (SELECT CASE WHEN MAX(n) % 2 = 1 THEN MAX(CASE WHEN rn=(n + 1) / 2 THEN value END) ELSE MAX(CASE WHEN rn=n / 2 THEN value / 2.0 END) + MAX(CASE WHEN rn=n / 2 + 1 THEN value / 2.0 END) END AS value FROM median_source_5), denominators AS (SELECT COUNT(*) AS full_row_count FROM prepared), validation AS (SELECT COUNT(*) AS invalid_count FROM aggregated a  LEFT JOIN median_5 m5 ON 1=1 CROSS JOIN denominators d WHERE (a.m3 IS NOT NULL AND NOT (a.m3 BETWEEN -1.79769313486232e+308 AND 1.79769313486232e+308)) OR (a.m4 IS NOT NULL AND NOT (a.m4 BETWEEN -1.79769313486232e+308 AND 1.79769313486232e+308)) OR (m5.value IS NOT NULL AND NOT (m5.value BETWEEN -1.79769313486232e+308 AND 1.79769313486232e+308))) SELECT a.*, m5.value AS m5, d.*, v.invalid_count AS __invalid_count FROM aggregated a  LEFT JOIN median_5 m5 ON 1=1 CROSS JOIN denominators d CROSS JOIN validation v ORDER BY row_count DESC LIMIT 51 OFFSET 0",
+          "standalone": {
+            "ms": 12.150457128882408,
+            "returned": 1
+          }
+        },
+        {
+          "plan": [
+            {
+              "detail": "SEARCH meta USING INDEX sqlite_autoindex_meta_1 (key=?)",
+              "id": 3,
+              "parent": 0
+            }
+          ],
+          "sql": "SELECT value FROM meta WHERE key='op_cursor'",
+          "standalone": {
+            "ms": 0.015159137547016144,
+            "returned": 1
+          }
+        }
+      ]
+    }
+  },
+  "grid": {
+    "amount_asc": {
+      "first_ms": 17.92878843843937,
+      "max_ms": 17.92878843843937,
+      "median_ms": 17.844749614596367,
+      "row_ids": [
+        7956,
+        5683,
+        1137,
+        9093,
+        4547,
+        2274,
+        7957,
+        5684,
+        1138,
+        9094,
+        4548,
+        2275,
+        2,
+        7958,
+        5685,
+        3412,
+        1139,
+        9095,
+        6822,
+        4549,
+        2276,
+        3,
+        7959,
+        5686,
+        3413,
+        9096,
+        6823,
+        2277,
+        4,
+        5687,
+        3414,
+        9097,
+        6824,
+        2278,
+        5,
+        5688,
+        3415,
+        1142,
+        9098,
+        6825,
+        4552,
+        2279,
+        6,
+        7962,
+        5689,
+        3416,
+        1143,
+        9099,
+        6826,
+        4553
+      ],
+      "samples": 3,
+      "statements": [
+        {
+          "plan": [
+            {
+              "detail": "SEARCH columns USING INDEX sqlite_autoindex_columns_1 (sheet_id=?)",
+              "id": 4,
+              "parent": 0
+            },
+            {
+              "detail": "USE TEMP B-TREE FOR ORDER BY",
+              "id": 26,
+              "parent": 0
+            }
+          ],
+          "sql": "SELECT * FROM columns WHERE sheet_id=1 AND hidden=0 ORDER BY position",
+          "standalone": {
+            "ms": 0.078568235039711,
+            "returned": 5
+          }
+        },
+        {
+          "plan": [
+            {
+              "detail": "SEARCH r USING INDEX idx_rows_sheet (sheet_id=?)",
+              "id": 4,
+              "parent": 0
+            }
+          ],
+          "sql": "SELECT COUNT(*) FROM rows r WHERE r.sheet_id=1 AND r.hidden=0",
+          "standalone": {
+            "ms": 1.0400237515568733,
+            "returned": 1
+          }
+        },
+        {
+          "plan": [
+            {
+              "detail": "SEARCH r USING INDEX idx_rows_sheet (sheet_id=?)",
+              "id": 8,
+              "parent": 0
+            },
+            {
+              "detail": "CORRELATED SCALAR SUBQUERY 1",
+              "id": 17,
+              "parent": 0
+            },
+            {
+              "detail": "SEARCH live USING PRIMARY KEY (column_id=? AND row_id=?)",
+              "id": 21,
+              "parent": 17
+            },
+            {
+              "detail": "CORRELATED SCALAR SUBQUERY 2",
+              "id": 38,
+              "parent": 0
+            },
+            {
+              "detail": "SEARCH live USING PRIMARY KEY (column_id=? AND row_id=?)",
+              "id": 42,
+              "parent": 38
+            },
+            {
+              "detail": "USE TEMP B-TREE FOR ORDER BY",
+              "id": 66,
+              "parent": 0
+            }
+          ],
+          "sql": "SELECT r.id AS row_id\n        FROM rows r\n        WHERE r.sheet_id=1 AND r.hidden=0\n        ORDER BY json_extract((SELECT CASE WHEN live.validity='valid' THEN live.value END FROM current_cells live WHERE live.column_id=3 AND live.row_id=r.id), '$') IS NULL ASC, json_extract((SELECT CASE WHEN live.validity='valid' THEN live.value END FROM current_cells live WHERE live.column_id=3 AND live.row_id=r.id), '$') ASC, r.position ASC, r.id ASC\n        LIMIT 50 OFFSET 0",
+          "standalone": {
+            "ms": 15.70129208266735,
+            "returned": 50
+          }
+        }
+      ],
+      "total": 10000
+    },
+    "filter_0_1_percent": {
+      "first_ms": 1662.6194706186652,
+      "max_ms": 1662.6194706186652,
+      "median_ms": 45.64703721553087,
+      "row_ids": [
+        9991,
+        9992,
+        9993,
+        9994,
+        9995,
+        9996,
+        9997,
+        9998,
+        9999,
+        10000
+      ],
+      "samples": 3,
+      "statements": [
+        {
+          "plan": [
+            {
+              "detail": "SEARCH columns USING INDEX sqlite_autoindex_columns_1 (sheet_id=?)",
+              "id": 4,
+              "parent": 0
+            },
+            {
+              "detail": "USE TEMP B-TREE FOR ORDER BY",
+              "id": 26,
+              "parent": 0
+            }
+          ],
+          "sql": "SELECT * FROM columns WHERE sheet_id=1 AND hidden=0 ORDER BY position",
+          "standalone": {
+            "ms": 0.12837164103984833,
+            "returned": 5
+          }
+        },
+        {
+          "plan": [
+            {
+              "detail": "SEARCH r USING INDEX idx_rows_sheet (sheet_id=?)",
+              "id": 4,
+              "parent": 0
+            },
+            {
+              "detail": "CORRELATED SCALAR SUBQUERY 1",
+              "id": 12,
+              "parent": 0
+            },
+            {
+              "detail": "SEARCH live USING PRIMARY KEY (column_id=? AND row_id=?)",
+              "id": 16,
+              "parent": 12
+            }
+          ],
+          "sql": "SELECT COUNT(*) FROM rows r WHERE r.sheet_id=1 AND r.hidden=0 AND frisket_signed_int64((SELECT CASE WHEN live.validity='valid' THEN live.value END FROM current_cells live WHERE live.column_id=1 AND live.row_id=r.id)) >= 9991",
+          "standalone": {
+            "ms": 21.641741506755352,
+            "returned": 1
+          }
+        },
+        {
+          "plan": [
+            {
+              "detail": "SEARCH r USING INDEX idx_rows_sheet (sheet_id=?)",
+              "id": 8,
+              "parent": 0
+            },
+            {
+              "detail": "CORRELATED SCALAR SUBQUERY 1",
+              "id": 16,
+              "parent": 0
+            },
+            {
+              "detail": "SEARCH live USING PRIMARY KEY (column_id=? AND row_id=?)",
+              "id": 20,
+              "parent": 16
+            }
+          ],
+          "sql": "SELECT r.id AS row_id\n        FROM rows r\n        WHERE r.sheet_id=1 AND r.hidden=0 AND frisket_signed_int64((SELECT CASE WHEN live.validity='valid' THEN live.value END FROM current_cells live WHERE live.column_id=1 AND live.row_id=r.id)) >= 9991\n        ORDER BY r.position ASC, r.id ASC\n        LIMIT 50 OFFSET 0",
+          "standalone": {
+            "ms": 22.35568966716528,
+            "returned": 10
+          }
+        }
+      ],
+      "total": 10
+    },
+    "filter_10_percent": {
+      "first_ms": 8.553903549909592,
+      "max_ms": 8.770683780312538,
+      "median_ms": 8.553903549909592,
+      "row_ids": [
+        73,
+        74,
+        75,
+        76,
+        77,
+        78,
+        79,
+        80,
+        81,
+        82,
+        173,
+        174,
+        175,
+        176,
+        177,
+        178,
+        179,
+        180,
+        181,
+        182,
+        273,
+        274,
+        275,
+        276,
+        277,
+        278,
+        279,
+        280,
+        281,
+        282,
+        373,
+        374,
+        375,
+        376,
+        377,
+        378,
+        379,
+        380,
+        381,
+        382,
+        473,
+        474,
+        475,
+        476,
+        477,
+        478,
+        479,
+        480,
+        481,
+        482
+      ],
+      "samples": 3,
+      "statements": [
+        {
+          "plan": [
+            {
+              "detail": "SEARCH columns USING INDEX sqlite_autoindex_columns_1 (sheet_id=?)",
+              "id": 4,
+              "parent": 0
+            },
+            {
+              "detail": "USE TEMP B-TREE FOR ORDER BY",
+              "id": 26,
+              "parent": 0
+            }
+          ],
+          "sql": "SELECT * FROM columns WHERE sheet_id=1 AND hidden=0 ORDER BY position",
+          "standalone": {
+            "ms": 0.0752834603190422,
+            "returned": 5
+          }
+        },
+        {
+          "plan": [
+            {
+              "detail": "SEARCH r USING INDEX idx_rows_sheet (sheet_id=?)",
+              "id": 4,
+              "parent": 0
+            },
+            {
+              "detail": "CORRELATED SCALAR SUBQUERY 1",
+              "id": 12,
+              "parent": 0
+            },
+            {
+              "detail": "SEARCH live USING PRIMARY KEY (column_id=? AND row_id=?)",
+              "id": 16,
+              "parent": 12
+            }
+          ],
+          "sql": "SELECT COUNT(*) FROM rows r WHERE r.sheet_id=1 AND r.hidden=0 AND CAST(json_extract((SELECT CASE WHEN live.validity='valid' THEN live.value END FROM current_cells live WHERE live.column_id=2 AND live.row_id=r.id), '$') AS TEXT) = 'environment'",
+          "standalone": {
+            "ms": 7.265781983733177,
+            "returned": 1
+          }
+        },
+        {
+          "plan": [
+            {
+              "detail": "SEARCH r USING INDEX idx_rows_sheet (sheet_id=?)",
+              "id": 8,
+              "parent": 0
+            },
+            {
+              "detail": "CORRELATED SCALAR SUBQUERY 1",
+              "id": 16,
+              "parent": 0
+            },
+            {
+              "detail": "SEARCH live USING PRIMARY KEY (column_id=? AND row_id=?)",
+              "id": 20,
+              "parent": 16
+            }
+          ],
+          "sql": "SELECT r.id AS row_id\n        FROM rows r\n        WHERE r.sheet_id=1 AND r.hidden=0 AND CAST(json_extract((SELECT CASE WHEN live.validity='valid' THEN live.value END FROM current_cells live WHERE live.column_id=2 AND live.row_id=r.id), '$') AS TEXT) = 'environment'\n        ORDER BY r.position ASC, r.id ASC\n        LIMIT 50 OFFSET 0",
+          "standalone": {
+            "ms": 0.44341664761304855,
+            "returned": 50
+          }
+        }
+      ],
+      "total": 1000
+    }
+  },
+  "peak_rss_bytes": 131018752,
+  "rows": 10000,
+  "scratch_bytes": 6525342,
+  "sqlite_version": "3.45.1"
+}

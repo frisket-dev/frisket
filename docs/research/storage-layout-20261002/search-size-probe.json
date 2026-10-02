@@ -1,0 +1,2743 @@
+{
+  "baseline_search": {
+    "allocated_bytes": 59850752,
+    "dbstat": [
+      {
+        "bytes": 45195264,
+        "name": "cell_fts_content",
+        "pages": 11034,
+        "payload_bytes": 41714811,
+        "unused_bytes": 3140621
+      },
+      {
+        "bytes": 9637888,
+        "name": "cell_fts_data",
+        "pages": 2353,
+        "payload_bytes": 9456029,
+        "unused_bytes": 109820
+      },
+      {
+        "bytes": 3227648,
+        "name": "search_cells",
+        "pages": 788,
+        "payload_bytes": 2959488,
+        "unused_bytes": 31621
+      },
+      {
+        "bytes": 606208,
+        "name": "search_cells_sheet_column",
+        "pages": 148,
+        "payload_bytes": 406593,
+        "unused_bytes": 77843
+      },
+      {
+        "bytes": 561152,
+        "name": "sqlite_autoindex_search_cells_1",
+        "pages": 137,
+        "payload_bytes": 366593,
+        "unused_bytes": 72919
+      },
+      {
+        "bytes": 557056,
+        "name": "cell_fts_docsize",
+        "pages": 136,
+        "payload_bytes": 326776,
+        "unused_bytes": 4545
+      },
+      {
+        "bytes": 40960,
+        "name": "cell_fts_idx",
+        "pages": 10,
+        "payload_bytes": 21784,
+        "unused_bytes": 13603
+      },
+      {
+        "bytes": 4096,
+        "name": "cell_fts_config",
+        "pages": 1,
+        "payload_bytes": 11,
+        "unused_bytes": 4074
+      },
+      {
+        "bytes": 4096,
+        "name": "cell_vec",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "fts_state",
+        "pages": 1,
+        "payload_bytes": 66,
+        "unused_bytes": 4010
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_cell_vec_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_fts_state_1",
+        "pages": 1,
+        "payload_bytes": 62,
+        "unused_bytes": 4017
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_schema",
+        "pages": 1,
+        "payload_bytes": 1422,
+        "unused_bytes": 2511
+      }
+    ],
+    "file_bytes": 59850752,
+    "freelist_count": 0,
+    "logical": {
+      "column_id_bytes": 40000,
+      "column_name_bytes": 230000,
+      "content_bytes": 41074819,
+      "row_id_bytes": 155576,
+      "rows": 40000,
+      "sheet_id_bytes": 40000,
+      "source_hash_text_bytes": 2560000
+    },
+    "page_count": 14612,
+    "page_size": 4096,
+    "path": "/output/fixture-10000.frisket/project.search.db"
+  },
+  "candidates": {
+    "compact_contentful": {
+      "allocated_bytes": 58867712,
+      "build_seconds": 0.9823369095101953,
+      "compressed_content_bytes": 0,
+      "dbstat": [
+        {
+          "bytes": 44666880,
+          "name": "cell_fts_content",
+          "pages": 10905,
+          "payload_bytes": 41205323,
+          "unused_bytes": 3123779
+        },
+        {
+          "bytes": 9695232,
+          "name": "cell_fts_data",
+          "pages": 2367,
+          "payload_bytes": 9513009,
+          "unused_bytes": 110162
+        },
+        {
+          "bytes": 1892352,
+          "name": "search_cells",
+          "pages": 462,
+          "payload_bytes": 1639488,
+          "unused_bytes": 21721
+        },
+        {
+          "bytes": 606208,
+          "name": "search_cells_sheet_column",
+          "pages": 148,
+          "payload_bytes": 406593,
+          "unused_bytes": 77843
+        },
+        {
+          "bytes": 561152,
+          "name": "sqlite_autoindex_search_cells_1",
+          "pages": 137,
+          "payload_bytes": 366593,
+          "unused_bytes": 72919
+        },
+        {
+          "bytes": 397312,
+          "name": "cell_fts_docsize",
+          "pages": 97,
+          "payload_bytes": 166776,
+          "unused_bytes": 5448
+        },
+        {
+          "bytes": 28672,
+          "name": "cell_fts_idx",
+          "pages": 7,
+          "payload_bytes": 16550,
+          "unused_bytes": 7956
+        },
+        {
+          "bytes": 4096,
+          "name": "cell_fts_config",
+          "pages": 1,
+          "payload_bytes": 11,
+          "unused_bytes": 4074
+        },
+        {
+          "bytes": 4096,
+          "name": "sqlite_schema",
+          "pages": 1,
+          "payload_bytes": 1020,
+          "unused_bytes": 2930
+        }
+      ],
+      "file_bytes": 58867712,
+      "freelist_count": 247,
+      "highlight_signature": {
+        "sha256": "73a11b6b989710ba6cc68e9c8274d854b44ea45031962caf100fb0e1841fe79f",
+        "utf8_bytes": 118455
+      },
+      "indexed_rows": 40000,
+      "kind": "compact_contentful",
+      "logical_content_bytes": 41074819,
+      "native_query_equivalent": true,
+      "page_count": 14372,
+      "page_size": 4096,
+      "path": "/output/candidate-compact_contentful.db",
+      "query_signatures": {
+        "\"recorded request\"": [
+          [
+            12204,
+            -1.385608215,
+            "\u2026archive transcript appeal notice request schedule agency transcriptThe <b>recorded request</b> for item\u2026"
+          ],
+          [
+            10117,
+            -1.380281537,
+            "\u2026review appeal inspection committee vendorThe <b>recorded request</b> for item 117 is $9\u2026"
+          ],
+          [
+            11080,
+            -1.380281537,
+            "\u2026analysis contract proposal report scheduleThe <b>recorded request</b> for item 1080 is $85\u2026"
+          ],
+          [
+            12620,
+            -1.380281537,
+            "\u2026analysis inspection inspection statement doThe <b>recorded request</b> for item 2620 is $27\u2026"
+          ],
+          [
+            18923,
+            -1.380281537,
+            "\u2026Contracts record 8923,The <b>recorded request</b> for item 8923 is $76,712\u2026"
+          ],
+          [
+            11270,
+            -1.374995657,
+            "\u2026statement contract review report review counThe <b>recorded request</b> for item 1270 is\u2026"
+          ],
+          [
+            14142,
+            -1.374995657,
+            "\u2026notice request request archive requeThe <b>recorded request</b> for item 4142 is $58\u2026"
+          ],
+          [
+            15100,
+            -1.374995657,
+            "\u2026analysis filing review vendor filing budgetThe <b>recorded request</b> for item 5100 is\u2026"
+          ],
+          [
+            16865,
+            -1.374995657,
+            "\u2026analysis filing report committee ordinance The <b>recorded request</b> for item 6865 is\u2026"
+          ],
+          [
+            18277,
+            -1.374995657,
+            "\u2026permit report evidence agency heaThe <b>recorded request</b> for item 8277 is $25\u2026"
+          ],
+          [
+            18667,
+            -1.374995657,
+            "\u2026proposal permit vendor analysis scheduleThe <b>recorded request</b> for item 8667 is $56\u2026"
+          ],
+          [
+            10327,
+            -1.369750108,
+            "\u2026RThe <b>recorded request</b> for item 327 is $25,995.\n\neference b3d9b8f68f7f was\u2026"
+          ],
+          [
+            10837,
+            -1.369750108,
+            "\u2026RefereThe <b>recorded request</b> for item 837 is $66,382.\n\nnce 5e962233fb89 was\u2026"
+          ],
+          [
+            10913,
+            -1.369750108,
+            "\u2026Contracts record 913, section The <b>recorded request</b> for item 913 is $72\u2026"
+          ],
+          [
+            11415,
+            -1.369750108,
+            "\u2026inspection agency evidence agency project cThe <b>recorded request</b> for item 1415 is\u2026"
+          ],
+          [
+            12009,
+            -1.369750108,
+            "\u2026contract request ordinance hearing analysis analysis docket project transcripThe <b>recorded request</b> for\u2026"
+          ],
+          [
+            12489,
+            -1.369750108,
+            "\u2026permit statement hearing evidence county appeal project archive permit evThe <b>recorded request</b>\u2026"
+          ],
+          [
+            12719,
+            -1.369750108,
+            "\u2026committee meeting archive request docket schedule budget transcript analyThe <b>recorded request</b> for\u2026"
+          ],
+          [
+            13081,
+            -1.369750108,
+            "\u2026agency statement archive budget invoiThe <b>recorded request</b> for item 3081 is $64\u2026"
+          ],
+          [
+            13520,
+            -1.369750108,
+            "\u2026analysis docket analysis invoice filing requestThe <b>recorded request</b> for item 3520 is\u2026"
+          ]
+        ],
+        "frisketlate0000019*": [
+          [
+            10199,
+            -0.215833157,
+            "\u2026Reference fd1f53bd5d8d was reviewed\n<b>frisketlate00000199</b>"
+          ]
+        ],
+        "frisketlate00000199": [
+          [
+            10199,
+            -0.215833157,
+            "\u2026Reference fd1f53bd5d8d was reviewed\n<b>frisketlate00000199</b>"
+          ]
+        ]
+      }
+    },
+    "compressed_external": {
+      "allocated_bytes": 25735168,
+      "build_seconds": 2.2260629199445248,
+      "compressed_content_bytes": 10035763,
+      "dbstat": [
+        {
+          "bytes": 11534336,
+          "name": "search_content",
+          "pages": 2816,
+          "payload_bytes": 10165853,
+          "unused_bytes": 1095716
+        },
+        {
+          "bytes": 9695232,
+          "name": "cell_fts_data",
+          "pages": 2367,
+          "payload_bytes": 9513009,
+          "unused_bytes": 110162
+        },
+        {
+          "bytes": 1892352,
+          "name": "search_cells",
+          "pages": 462,
+          "payload_bytes": 1639488,
+          "unused_bytes": 21721
+        },
+        {
+          "bytes": 606208,
+          "name": "search_cells_sheet_column",
+          "pages": 148,
+          "payload_bytes": 406593,
+          "unused_bytes": 77843
+        },
+        {
+          "bytes": 561152,
+          "name": "sqlite_autoindex_search_cells_1",
+          "pages": 137,
+          "payload_bytes": 366593,
+          "unused_bytes": 72919
+        },
+        {
+          "bytes": 397312,
+          "name": "cell_fts_docsize",
+          "pages": 97,
+          "payload_bytes": 166776,
+          "unused_bytes": 5448
+        },
+        {
+          "bytes": 28672,
+          "name": "cell_fts_idx",
+          "pages": 7,
+          "payload_bytes": 16550,
+          "unused_bytes": 7956
+        },
+        {
+          "bytes": 4096,
+          "name": "cell_fts_config",
+          "pages": 1,
+          "payload_bytes": 11,
+          "unused_bytes": 4074
+        },
+        {
+          "bytes": 4096,
+          "name": "sqlite_schema",
+          "pages": 1,
+          "payload_bytes": 1236,
+          "unused_bytes": 2709
+        }
+      ],
+      "file_bytes": 25735168,
+      "freelist_count": 247,
+      "highlight_signature": {
+        "sha256": "73a11b6b989710ba6cc68e9c8274d854b44ea45031962caf100fb0e1841fe79f",
+        "utf8_bytes": 118455
+      },
+      "indexed_rows": 40000,
+      "kind": "compressed_external",
+      "logical_content_bytes": 41074819,
+      "native_query_equivalent": true,
+      "page_count": 6283,
+      "page_size": 4096,
+      "path": "/output/candidate-compressed_external.db",
+      "query_signatures": {
+        "\"recorded request\"": [
+          [
+            12204,
+            -1.385608215,
+            "\u2026archive transcript appeal notice request schedule agency transcriptThe <b>recorded request</b> for item\u2026"
+          ],
+          [
+            10117,
+            -1.380281537,
+            "\u2026review appeal inspection committee vendorThe <b>recorded request</b> for item 117 is $9\u2026"
+          ],
+          [
+            11080,
+            -1.380281537,
+            "\u2026analysis contract proposal report scheduleThe <b>recorded request</b> for item 1080 is $85\u2026"
+          ],
+          [
+            12620,
+            -1.380281537,
+            "\u2026analysis inspection inspection statement doThe <b>recorded request</b> for item 2620 is $27\u2026"
+          ],
+          [
+            18923,
+            -1.380281537,
+            "\u2026Contracts record 8923,The <b>recorded request</b> for item 8923 is $76,712\u2026"
+          ],
+          [
+            11270,
+            -1.374995657,
+            "\u2026statement contract review report review counThe <b>recorded request</b> for item 1270 is\u2026"
+          ],
+          [
+            14142,
+            -1.374995657,
+            "\u2026notice request request archive requeThe <b>recorded request</b> for item 4142 is $58\u2026"
+          ],
+          [
+            15100,
+            -1.374995657,
+            "\u2026analysis filing review vendor filing budgetThe <b>recorded request</b> for item 5100 is\u2026"
+          ],
+          [
+            16865,
+            -1.374995657,
+            "\u2026analysis filing report committee ordinance The <b>recorded request</b> for item 6865 is\u2026"
+          ],
+          [
+            18277,
+            -1.374995657,
+            "\u2026permit report evidence agency heaThe <b>recorded request</b> for item 8277 is $25\u2026"
+          ],
+          [
+            18667,
+            -1.374995657,
+            "\u2026proposal permit vendor analysis scheduleThe <b>recorded request</b> for item 8667 is $56\u2026"
+          ],
+          [
+            10327,
+            -1.369750108,
+            "\u2026RThe <b>recorded request</b> for item 327 is $25,995.\n\neference b3d9b8f68f7f was\u2026"
+          ],
+          [
+            10837,
+            -1.369750108,
+            "\u2026RefereThe <b>recorded request</b> for item 837 is $66,382.\n\nnce 5e962233fb89 was\u2026"
+          ],
+          [
+            10913,
+            -1.369750108,
+            "\u2026Contracts record 913, section The <b>recorded request</b> for item 913 is $72\u2026"
+          ],
+          [
+            11415,
+            -1.369750108,
+            "\u2026inspection agency evidence agency project cThe <b>recorded request</b> for item 1415 is\u2026"
+          ],
+          [
+            12009,
+            -1.369750108,
+            "\u2026contract request ordinance hearing analysis analysis docket project transcripThe <b>recorded request</b> for\u2026"
+          ],
+          [
+            12489,
+            -1.369750108,
+            "\u2026permit statement hearing evidence county appeal project archive permit evThe <b>recorded request</b>\u2026"
+          ],
+          [
+            12719,
+            -1.369750108,
+            "\u2026committee meeting archive request docket schedule budget transcript analyThe <b>recorded request</b> for\u2026"
+          ],
+          [
+            13081,
+            -1.369750108,
+            "\u2026agency statement archive budget invoiThe <b>recorded request</b> for item 3081 is $64\u2026"
+          ],
+          [
+            13520,
+            -1.369750108,
+            "\u2026analysis docket analysis invoice filing requestThe <b>recorded request</b> for item 3520 is\u2026"
+          ]
+        ],
+        "frisketlate0000019*": [
+          [
+            10199,
+            -0.215833157,
+            "\u2026Reference fd1f53bd5d8d was reviewed\n<b>frisketlate00000199</b>"
+          ]
+        ],
+        "frisketlate00000199": [
+          [
+            10199,
+            -0.215833157,
+            "\u2026Reference fd1f53bd5d8d was reviewed\n<b>frisketlate00000199</b>"
+          ]
+        ]
+      }
+    },
+    "contentless": {
+      "allocated_bytes": 14270464,
+      "build_seconds": 0.849524256773293,
+      "compressed_content_bytes": 0,
+      "dbstat": [
+        {
+          "bytes": 9695232,
+          "name": "cell_fts_data",
+          "pages": 2367,
+          "payload_bytes": 9513056,
+          "unused_bytes": 110115
+        },
+        {
+          "bytes": 1892352,
+          "name": "search_cells",
+          "pages": 462,
+          "payload_bytes": 1639488,
+          "unused_bytes": 21721
+        },
+        {
+          "bytes": 606208,
+          "name": "search_cells_sheet_column",
+          "pages": 148,
+          "payload_bytes": 406593,
+          "unused_bytes": 77843
+        },
+        {
+          "bytes": 561152,
+          "name": "sqlite_autoindex_search_cells_1",
+          "pages": 137,
+          "payload_bytes": 366593,
+          "unused_bytes": 72919
+        },
+        {
+          "bytes": 466944,
+          "name": "cell_fts_docsize",
+          "pages": 114,
+          "payload_bytes": 236422,
+          "unused_bytes": 5150
+        },
+        {
+          "bytes": 28672,
+          "name": "cell_fts_idx",
+          "pages": 7,
+          "payload_bytes": 16550,
+          "unused_bytes": 7956
+        },
+        {
+          "bytes": 4096,
+          "name": "cell_fts_config",
+          "pages": 1,
+          "payload_bytes": 11,
+          "unused_bytes": 4074
+        },
+        {
+          "bytes": 4096,
+          "name": "sqlite_schema",
+          "pages": 1,
+          "payload_bytes": 965,
+          "unused_bytes": 2989
+        }
+      ],
+      "file_bytes": 14270464,
+      "freelist_count": 247,
+      "highlight_signature": null,
+      "indexed_rows": 40000,
+      "kind": "contentless",
+      "logical_content_bytes": 41074819,
+      "page_count": 3484,
+      "page_size": 4096,
+      "path": "/output/candidate-contentless.db",
+      "query_signatures": {
+        "\"recorded request\"": [
+          [
+            12204,
+            -1.385608215,
+            null
+          ],
+          [
+            10117,
+            -1.380281537,
+            null
+          ],
+          [
+            11080,
+            -1.380281537,
+            null
+          ],
+          [
+            12620,
+            -1.380281537,
+            null
+          ],
+          [
+            18923,
+            -1.380281537,
+            null
+          ],
+          [
+            11270,
+            -1.374995657,
+            null
+          ],
+          [
+            14142,
+            -1.374995657,
+            null
+          ],
+          [
+            15100,
+            -1.374995657,
+            null
+          ],
+          [
+            16865,
+            -1.374995657,
+            null
+          ],
+          [
+            18277,
+            -1.374995657,
+            null
+          ],
+          [
+            18667,
+            -1.374995657,
+            null
+          ],
+          [
+            10327,
+            -1.369750108,
+            null
+          ],
+          [
+            10837,
+            -1.369750108,
+            null
+          ],
+          [
+            10913,
+            -1.369750108,
+            null
+          ],
+          [
+            11415,
+            -1.369750108,
+            null
+          ],
+          [
+            12009,
+            -1.369750108,
+            null
+          ],
+          [
+            12489,
+            -1.369750108,
+            null
+          ],
+          [
+            12719,
+            -1.369750108,
+            null
+          ],
+          [
+            13081,
+            -1.369750108,
+            null
+          ],
+          [
+            13520,
+            -1.369750108,
+            null
+          ]
+        ],
+        "frisketlate0000019*": [
+          [
+            10199,
+            -0.215833157,
+            null
+          ]
+        ],
+        "frisketlate00000199": [
+          [
+            10199,
+            -0.215833157,
+            null
+          ]
+        ]
+      },
+      "ranked_match_equivalent": true
+    }
+  },
+  "compression_sensitivity": {
+    "deterministic_less_repetitive_text": {
+      "compressed_bytes": 803952,
+      "compressed_fraction": 0.817822265625,
+      "logical_bytes": 983040,
+      "values": 256
+    },
+    "repository_lawsuit_text": {
+      "compressed_bytes": 4701,
+      "compressed_fraction": 0.5508554019217249,
+      "logical_bytes": 8534,
+      "values": 6
+    }
+  },
+  "fixture": {
+    "body_utf8_bytes": 40739791,
+    "input_ndjson_bytes": 42484391,
+    "rows": 10000,
+    "searchable_cells": 40000
+  },
+  "limits": {
+    "max_address_space_bytes": 1073741824,
+    "max_rows": 10000,
+    "max_scratch_bytes": 524288000
+  },
+  "optimized": {
+    "after_optimize": {
+      "allocated_bytes": 64028672,
+      "dbstat": [
+        {
+          "bytes": 45195264,
+          "name": "cell_fts_content",
+          "pages": 11034,
+          "payload_bytes": 41714811,
+          "unused_bytes": 3140621
+        },
+        {
+          "bytes": 9527296,
+          "name": "cell_fts_data",
+          "pages": 2326,
+          "payload_bytes": 9376891,
+          "unused_bytes": 80239
+        },
+        {
+          "bytes": 3227648,
+          "name": "search_cells",
+          "pages": 788,
+          "payload_bytes": 2959488,
+          "unused_bytes": 31621
+        },
+        {
+          "bytes": 606208,
+          "name": "search_cells_sheet_column",
+          "pages": 148,
+          "payload_bytes": 406593,
+          "unused_bytes": 77843
+        },
+        {
+          "bytes": 561152,
+          "name": "sqlite_autoindex_search_cells_1",
+          "pages": 137,
+          "payload_bytes": 366593,
+          "unused_bytes": 72919
+        },
+        {
+          "bytes": 557056,
+          "name": "cell_fts_docsize",
+          "pages": 136,
+          "payload_bytes": 326776,
+          "unused_bytes": 4545
+        },
+        {
+          "bytes": 24576,
+          "name": "cell_fts_idx",
+          "pages": 6,
+          "payload_bytes": 10424,
+          "unused_bytes": 11594
+        },
+        {
+          "bytes": 4096,
+          "name": "cell_fts_config",
+          "pages": 1,
+          "payload_bytes": 11,
+          "unused_bytes": 4074
+        },
+        {
+          "bytes": 4096,
+          "name": "cell_vec",
+          "pages": 1,
+          "payload_bytes": 0,
+          "unused_bytes": 4088
+        },
+        {
+          "bytes": 4096,
+          "name": "fts_state",
+          "pages": 1,
+          "payload_bytes": 66,
+          "unused_bytes": 4010
+        },
+        {
+          "bytes": 4096,
+          "name": "sqlite_autoindex_cell_vec_1",
+          "pages": 1,
+          "payload_bytes": 0,
+          "unused_bytes": 4088
+        },
+        {
+          "bytes": 4096,
+          "name": "sqlite_autoindex_fts_state_1",
+          "pages": 1,
+          "payload_bytes": 62,
+          "unused_bytes": 4017
+        },
+        {
+          "bytes": 4096,
+          "name": "sqlite_schema",
+          "pages": 1,
+          "payload_bytes": 1422,
+          "unused_bytes": 2511
+        }
+      ],
+      "file_bytes": 64028672,
+      "freelist_count": 1051,
+      "page_count": 15632,
+      "page_size": 4096,
+      "path": "/output/candidate-optimized.db"
+    },
+    "after_vacuum": {
+      "allocated_bytes": 59576320,
+      "dbstat": [
+        {
+          "bytes": 45195264,
+          "name": "cell_fts_content",
+          "pages": 11034,
+          "payload_bytes": 41714811,
+          "unused_bytes": 3140621
+        },
+        {
+          "bytes": 9527296,
+          "name": "cell_fts_data",
+          "pages": 2326,
+          "payload_bytes": 9376891,
+          "unused_bytes": 80239
+        },
+        {
+          "bytes": 3227648,
+          "name": "search_cells",
+          "pages": 788,
+          "payload_bytes": 2959488,
+          "unused_bytes": 31621
+        },
+        {
+          "bytes": 557056,
+          "name": "cell_fts_docsize",
+          "pages": 136,
+          "payload_bytes": 326776,
+          "unused_bytes": 4545
+        },
+        {
+          "bytes": 532480,
+          "name": "search_cells_sheet_column",
+          "pages": 130,
+          "payload_bytes": 406593,
+          "unused_bytes": 4331
+        },
+        {
+          "bytes": 491520,
+          "name": "sqlite_autoindex_search_cells_1",
+          "pages": 120,
+          "payload_bytes": 366593,
+          "unused_bytes": 3491
+        },
+        {
+          "bytes": 20480,
+          "name": "cell_fts_idx",
+          "pages": 5,
+          "payload_bytes": 10424,
+          "unused_bytes": 7510
+        },
+        {
+          "bytes": 4096,
+          "name": "cell_fts_config",
+          "pages": 1,
+          "payload_bytes": 11,
+          "unused_bytes": 4074
+        },
+        {
+          "bytes": 4096,
+          "name": "cell_vec",
+          "pages": 1,
+          "payload_bytes": 0,
+          "unused_bytes": 4088
+        },
+        {
+          "bytes": 4096,
+          "name": "fts_state",
+          "pages": 1,
+          "payload_bytes": 66,
+          "unused_bytes": 4010
+        },
+        {
+          "bytes": 4096,
+          "name": "sqlite_autoindex_cell_vec_1",
+          "pages": 1,
+          "payload_bytes": 0,
+          "unused_bytes": 4088
+        },
+        {
+          "bytes": 4096,
+          "name": "sqlite_autoindex_fts_state_1",
+          "pages": 1,
+          "payload_bytes": 62,
+          "unused_bytes": 4017
+        },
+        {
+          "bytes": 4096,
+          "name": "sqlite_schema",
+          "pages": 1,
+          "payload_bytes": 1422,
+          "unused_bytes": 2511
+        }
+      ],
+      "file_bytes": 59576320,
+      "freelist_count": 0,
+      "page_count": 14545,
+      "page_size": 4096,
+      "path": "/output/candidate-optimized.db"
+    },
+    "before": {
+      "allocated_bytes": 59850752,
+      "dbstat": [
+        {
+          "bytes": 45195264,
+          "name": "cell_fts_content",
+          "pages": 11034,
+          "payload_bytes": 41714811,
+          "unused_bytes": 3140621
+        },
+        {
+          "bytes": 9637888,
+          "name": "cell_fts_data",
+          "pages": 2353,
+          "payload_bytes": 9456029,
+          "unused_bytes": 109820
+        },
+        {
+          "bytes": 3227648,
+          "name": "search_cells",
+          "pages": 788,
+          "payload_bytes": 2959488,
+          "unused_bytes": 31621
+        },
+        {
+          "bytes": 606208,
+          "name": "search_cells_sheet_column",
+          "pages": 148,
+          "payload_bytes": 406593,
+          "unused_bytes": 77843
+        },
+        {
+          "bytes": 561152,
+          "name": "sqlite_autoindex_search_cells_1",
+          "pages": 137,
+          "payload_bytes": 366593,
+          "unused_bytes": 72919
+        },
+        {
+          "bytes": 557056,
+          "name": "cell_fts_docsize",
+          "pages": 136,
+          "payload_bytes": 326776,
+          "unused_bytes": 4545
+        },
+        {
+          "bytes": 40960,
+          "name": "cell_fts_idx",
+          "pages": 10,
+          "payload_bytes": 21784,
+          "unused_bytes": 13603
+        },
+        {
+          "bytes": 4096,
+          "name": "cell_fts_config",
+          "pages": 1,
+          "payload_bytes": 11,
+          "unused_bytes": 4074
+        },
+        {
+          "bytes": 4096,
+          "name": "cell_vec",
+          "pages": 1,
+          "payload_bytes": 0,
+          "unused_bytes": 4088
+        },
+        {
+          "bytes": 4096,
+          "name": "fts_state",
+          "pages": 1,
+          "payload_bytes": 66,
+          "unused_bytes": 4010
+        },
+        {
+          "bytes": 4096,
+          "name": "sqlite_autoindex_cell_vec_1",
+          "pages": 1,
+          "payload_bytes": 0,
+          "unused_bytes": 4088
+        },
+        {
+          "bytes": 4096,
+          "name": "sqlite_autoindex_fts_state_1",
+          "pages": 1,
+          "payload_bytes": 62,
+          "unused_bytes": 4017
+        },
+        {
+          "bytes": 4096,
+          "name": "sqlite_schema",
+          "pages": 1,
+          "payload_bytes": 1422,
+          "unused_bytes": 2511
+        }
+      ],
+      "file_bytes": 59850752,
+      "freelist_count": 0,
+      "page_count": 14612,
+      "page_size": 4096,
+      "path": "/output/candidate-optimized.db"
+    },
+    "seconds": 0.40671088732779026
+  },
+  "project": {
+    "allocated_bytes": 126287872,
+    "dbstat": [
+      {
+        "bytes": 62304256,
+        "name": "current_cells",
+        "pages": 15211,
+        "payload_bytes": 43614033,
+        "unused_bytes": 18366903
+      },
+      {
+        "bytes": 60313600,
+        "name": "cells",
+        "pages": 14725,
+        "payload_bytes": 42232033,
+        "unused_bytes": 17763443
+      },
+      {
+        "bytes": 696320,
+        "name": "idx_cells_column",
+        "pages": 170,
+        "payload_bytes": 403116,
+        "unused_bytes": 84168
+      },
+      {
+        "bytes": 688128,
+        "name": "idx_current_cells_column_row",
+        "pages": 168,
+        "payload_bytes": 403116,
+        "unused_bytes": 76000
+      },
+      {
+        "bytes": 675840,
+        "name": "idx_current_cells_row",
+        "pages": 165,
+        "payload_bytes": 403116,
+        "unused_bytes": 63748
+      },
+      {
+        "bytes": 339968,
+        "name": "rows",
+        "pages": 83,
+        "payload_bytes": 279872,
+        "unused_bytes": 8907
+      },
+      {
+        "bytes": 131072,
+        "name": "idx_rows_sheet",
+        "pages": 32,
+        "payload_bytes": 79744,
+        "unused_bytes": 20948
+      },
+      {
+        "bytes": 102400,
+        "name": "sqlite_schema",
+        "pages": 25,
+        "payload_bytes": 85727,
+        "unused_bytes": 14914
+      },
+      {
+        "bytes": 94208,
+        "name": "idx_rows_parent",
+        "pages": 23,
+        "payload_bytes": 49872,
+        "unused_bytes": 14064
+      },
+      {
+        "bytes": 4096,
+        "name": "artifact_timeline_segments",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "attempt_row_authorizations",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "base_cell_producers",
+        "pages": 1,
+        "payload_bytes": 57,
+        "unused_bytes": 4027
+      },
+      {
+        "bytes": 4096,
+        "name": "binding_epochs",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "blob_derivations",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "blobs",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "cell_result_heads",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "columns",
+        "pages": 1,
+        "payload_bytes": 342,
+        "unused_bytes": 3718
+      },
+      {
+        "bytes": 4096,
+        "name": "consents",
+        "pages": 1,
+        "payload_bytes": 269,
+        "unused_bytes": 3814
+      },
+      {
+        "bytes": 4096,
+        "name": "edits",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "effect_checkpoints",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "embedding_indexes",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "embedding_spaces",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "evidence_link_spans",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "evidence_links",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "execution_attempts",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_artifact_timeline_source_time",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_blob_derivations_derived",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_blob_derivations_source",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_consents_subject",
+        "pages": 1,
+        "payload_bytes": 4,
+        "unused_bytes": 4081
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_consents_subject_hash",
+        "pages": 1,
+        "payload_bytes": 5,
+        "unused_bytes": 4080
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_edits_rowcol",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_embedding_indexes_sheet",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_embedding_indexes_space",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_evidence_link_spans_annotation",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_evidence_link_spans_span",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_evidence_links_cell_status",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_evidence_links_receipt",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_evidence_links_run_cell",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_evidence_links_sheet_status",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_evidence_links_subject",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_execution_attempts_state",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_lenses_sheet",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_materialized_row_sources_materialized",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_materialized_row_sources_op",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_materialized_row_sources_source",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_model_calls_attempt",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_model_calls_epoch",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_model_calls_rowcol",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_model_calls_run",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_notification_actor_state_actor",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_notification_channels_kind_enabled",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_notification_delivery_attempts_item_channel",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_notification_delivery_attempts_request",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_notification_delivery_attempts_status",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_notification_delivery_requests_item",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_notification_delivery_requests_route",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_notification_delivery_requests_status",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_notification_digest_items_notification",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_notification_digest_runs_route",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_notification_digest_runs_status",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_notification_items_created",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_notification_items_severity",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_notification_items_source_kind",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_notification_routes_channel",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_notification_routes_enabled_mode",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_output_claims_active_column",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_output_claims_active_name",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_output_claims_claim_token",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_output_claims_receipt",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_output_claims_run",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_output_claims_status_expiry",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_project_qa_citations_turn",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_project_qa_events_turn",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_project_qa_research_operations_unsettled",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_project_qa_threads_updated",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_project_qa_turns_thread_started",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_receipts_backfill_activity_column_created",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_receipts_backfill_activity_created",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_receipts_created_id",
+        "pages": 1,
+        "payload_bytes": 22,
+        "unused_bytes": 4063
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_receipts_idempotency",
+        "pages": 1,
+        "payload_bytes": 23,
+        "unused_bytes": 4062
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_receipts_run",
+        "pages": 1,
+        "payload_bytes": 3,
+        "unused_bytes": 4082
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_replay_dismissals_col",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_results_column_run",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_results_rowcol",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_results_run_col_row",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_route_violations_route",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_run_output_generations_column",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_run_rows_position",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_runs_op",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_runs_started_id",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_runtime_projection_artifacts_target",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_search_dirty_scopes_sheet",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_source_artifacts_blob",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_source_artifacts_source_cell",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_source_items_run",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_source_runs_receipt",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_source_runs_source_started",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_source_spans_artifact_kind",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_source_spans_artifact_pages",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_source_spans_artifact_time",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_source_spans_text_surface",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_sources_sheet",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_text_surfaces_cell",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_views_sheet",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_watch_row_field_state_watch",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_watch_run_events_kind",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_watch_run_events_run_rank",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_watch_run_events_watch_id",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_watch_run_hits_run_rank",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_watch_runs_watch_started",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_watch_seen_rows_watch",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "idx_watches_sheet",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "import_sessions",
+        "pages": 1,
+        "payload_bytes": 131,
+        "unused_bytes": 3952
+      },
+      {
+        "bytes": 4096,
+        "name": "lenses",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "materialized_row_sources",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "meta",
+        "pages": 1,
+        "payload_bytes": 383,
+        "unused_bytes": 3673
+      },
+      {
+        "bytes": 4096,
+        "name": "model_calls",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "notification_actor_state",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "notification_channels",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "notification_delivery_attempts",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "notification_delivery_requests",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "notification_digest_items",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "notification_digest_runs",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "notification_items",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "notification_routes",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "ops",
+        "pages": 1,
+        "payload_bytes": 269,
+        "unused_bytes": 3814
+      },
+      {
+        "bytes": 4096,
+        "name": "output_column_claims",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "project_provider_keys",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "project_qa_citations",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "project_qa_events",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "project_qa_research_operations",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "project_qa_research_runs",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "project_qa_threads",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "project_qa_turns",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "project_qa_usage_calls",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "project_secret_consumers",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "project_secret_migration_conflicts",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "project_secrets",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "promise_sets",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "receipts",
+        "pages": 1,
+        "payload_bytes": 1281,
+        "unused_bytes": 2802
+      },
+      {
+        "bytes": 4096,
+        "name": "replay_edit_dismissals",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "results",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "route_violations",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "routes",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "run_output_generations",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "run_rows",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "run_scopes",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "runs",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "runtime_projection_artifacts",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "search_dirty_scopes",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sheets",
+        "pages": 1,
+        "payload_bytes": 54,
+        "unused_bytes": 4030
+      },
+      {
+        "bytes": 4096,
+        "name": "source_artifacts",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "source_items",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "source_runs",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "source_spans",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sources",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_artifact_timeline_segments_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_base_cell_producers_1",
+        "pages": 1,
+        "payload_bytes": 36,
+        "unused_bytes": 4049
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_binding_epochs_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_binding_epochs_2",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_blobs_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_columns_1",
+        "pages": 1,
+        "payload_bytes": 84,
+        "unused_bytes": 3983
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_consents_1",
+        "pages": 1,
+        "payload_bytes": 37,
+        "unused_bytes": 4048
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_effect_checkpoints_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_effect_checkpoints_2",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_embedding_indexes_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_embedding_spaces_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_embedding_spaces_2",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_evidence_links_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_execution_attempts_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_execution_attempts_2",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_execution_attempts_3",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_import_sessions_1",
+        "pages": 1,
+        "payload_bytes": 21,
+        "unused_bytes": 4064
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_materialized_row_sources_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_meta_1",
+        "pages": 1,
+        "payload_bytes": 124,
+        "unused_bytes": 3940
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_model_calls_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_notification_delivery_requests_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_notification_digest_runs_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_notification_items_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_output_column_claims_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_project_provider_keys_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_project_qa_citations_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_project_qa_research_runs_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_project_qa_research_runs_2",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_project_qa_threads_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_project_qa_turns_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_project_qa_turns_2",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_project_secret_consumers_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_project_secret_migration_conflicts_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_project_secrets_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_promise_sets_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_promise_sets_2",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_receipts_1",
+        "pages": 1,
+        "payload_bytes": 31,
+        "unused_bytes": 4054
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_route_violations_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_route_violations_2",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_routes_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_routes_2",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_routes_3",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_run_output_generations_2",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_runtime_projection_artifacts_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_sheets_1",
+        "pages": 1,
+        "payload_bytes": 24,
+        "unused_bytes": 4061
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_source_artifacts_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_source_items_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_source_spans_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_text_surfaces_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_workbench_plugin_env_vars_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_workbench_plugin_installs_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_autoindex_workbench_plugin_settings_1",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "sqlite_sequence",
+        "pages": 1,
+        "payload_bytes": 24,
+        "unused_bytes": 4060
+      },
+      {
+        "bytes": 4096,
+        "name": "text_surfaces",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "uq_execution_attempts_one_dispatching",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "uq_import_sessions_active_sheet",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "uq_project_qa_turns_one_active",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "uq_receipt_execution_attempts_one_dispatching",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "views",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "watch_row_field_state",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "watch_run_events",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "watch_run_hits",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "watch_runs",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "watch_seen_rows",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "watches",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "workbench_plugin_env_vars",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "workbench_plugin_installs",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "bytes": 4096,
+        "name": "workbench_plugin_settings",
+        "pages": 1,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      }
+    ],
+    "file_bytes": 126287872,
+    "freelist_count": 15,
+    "page_count": 30832,
+    "page_size": 4096,
+    "path": "/output/fixture-10000.frisket/project.db"
+  },
+  "schema": "frisket.search-size-probe.v1",
+  "scratch_bytes_retained": 186139041,
+  "sheet_id": 1,
+  "validation": {
+    "baseline_highlight_signature": {
+      "sha256": "73a11b6b989710ba6cc68e9c8274d854b44ea45031962caf100fb0e1841fe79f",
+      "utf8_bytes": 118455
+    },
+    "baseline_query_signatures": {
+      "\"recorded request\"": [
+        [
+          12204,
+          -1.385608215,
+          "\u2026archive transcript appeal notice request schedule agency transcriptThe <b>recorded request</b> for item\u2026"
+        ],
+        [
+          10117,
+          -1.380281537,
+          "\u2026review appeal inspection committee vendorThe <b>recorded request</b> for item 117 is $9\u2026"
+        ],
+        [
+          11080,
+          -1.380281537,
+          "\u2026analysis contract proposal report scheduleThe <b>recorded request</b> for item 1080 is $85\u2026"
+        ],
+        [
+          12620,
+          -1.380281537,
+          "\u2026analysis inspection inspection statement doThe <b>recorded request</b> for item 2620 is $27\u2026"
+        ],
+        [
+          18923,
+          -1.380281537,
+          "\u2026Contracts record 8923,The <b>recorded request</b> for item 8923 is $76,712\u2026"
+        ],
+        [
+          11270,
+          -1.374995657,
+          "\u2026statement contract review report review counThe <b>recorded request</b> for item 1270 is\u2026"
+        ],
+        [
+          14142,
+          -1.374995657,
+          "\u2026notice request request archive requeThe <b>recorded request</b> for item 4142 is $58\u2026"
+        ],
+        [
+          15100,
+          -1.374995657,
+          "\u2026analysis filing review vendor filing budgetThe <b>recorded request</b> for item 5100 is\u2026"
+        ],
+        [
+          16865,
+          -1.374995657,
+          "\u2026analysis filing report committee ordinance The <b>recorded request</b> for item 6865 is\u2026"
+        ],
+        [
+          18277,
+          -1.374995657,
+          "\u2026permit report evidence agency heaThe <b>recorded request</b> for item 8277 is $25\u2026"
+        ],
+        [
+          18667,
+          -1.374995657,
+          "\u2026proposal permit vendor analysis scheduleThe <b>recorded request</b> for item 8667 is $56\u2026"
+        ],
+        [
+          10327,
+          -1.369750108,
+          "\u2026RThe <b>recorded request</b> for item 327 is $25,995.\n\neference b3d9b8f68f7f was\u2026"
+        ],
+        [
+          10837,
+          -1.369750108,
+          "\u2026RefereThe <b>recorded request</b> for item 837 is $66,382.\n\nnce 5e962233fb89 was\u2026"
+        ],
+        [
+          10913,
+          -1.369750108,
+          "\u2026Contracts record 913, section The <b>recorded request</b> for item 913 is $72\u2026"
+        ],
+        [
+          11415,
+          -1.369750108,
+          "\u2026inspection agency evidence agency project cThe <b>recorded request</b> for item 1415 is\u2026"
+        ],
+        [
+          12009,
+          -1.369750108,
+          "\u2026contract request ordinance hearing analysis analysis docket project transcripThe <b>recorded request</b> for\u2026"
+        ],
+        [
+          12489,
+          -1.369750108,
+          "\u2026permit statement hearing evidence county appeal project archive permit evThe <b>recorded request</b>\u2026"
+        ],
+        [
+          12719,
+          -1.369750108,
+          "\u2026committee meeting archive request docket schedule budget transcript analyThe <b>recorded request</b> for\u2026"
+        ],
+        [
+          13081,
+          -1.369750108,
+          "\u2026agency statement archive budget invoiThe <b>recorded request</b> for item 3081 is $64\u2026"
+        ],
+        [
+          13520,
+          -1.369750108,
+          "\u2026analysis docket analysis invoice filing requestThe <b>recorded request</b> for item 3520 is\u2026"
+        ]
+      ],
+      "frisketlate0000019*": [
+        [
+          10199,
+          -0.215833157,
+          "\u2026Reference fd1f53bd5d8d was reviewed\n<b>frisketlate00000199</b>"
+        ]
+      ],
+      "frisketlate00000199": [
+        [
+          10199,
+          -0.215833157,
+          "\u2026Reference fd1f53bd5d8d was reviewed\n<b>frisketlate00000199</b>"
+        ]
+      ]
+    }
+  }
+}
