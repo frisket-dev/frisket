@@ -59,4 +59,7 @@ test('real document API composes cursor paging, selection, and title search', as
   await expect(match).toContainText('needle-final.pdf');
   await match.click();
   await expect(page.getByTestId('document-reader-chip')).toContainText(/pdf/i);
+  await expect(
+    page.getByTestId('document-pdf-page').first().locator('canvas'),
+  ).toBeVisible();
 });
