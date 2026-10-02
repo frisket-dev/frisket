@@ -77,7 +77,17 @@ def test_sparse_edits_reindex_only_the_changed_cells(documents):
         ]
     )
 
-    assert drain_index(project, batch_size=2) == len(changed)
+    processed_bytes = 0
+    for _ in range(20):
+        progress = index_batch(project, batch_size=2)
+        processed_bytes += progress.processed_bytes
+        if progress.complete:
+            break
+    else:
+        pytest.fail("sparse edit maintenance did not finish")
+    # Includes the JSON quotes stored with each text value; empty-scope
+    # bookkeeping may consume work units but must not reread unchanged cells.
+    assert processed_bytes == len(changed) * len('"changedneedle"')
     assert {
         hit["row_id"]
         for hit in search_project(project, "changedneedle", rerank="off")
