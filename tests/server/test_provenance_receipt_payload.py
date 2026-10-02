@@ -22,7 +22,8 @@ def test_provenance_summary_does_not_read_receipt_bodies(tmp_path):
 
         def metadata_only(action, table, column, database, source):
             if action == sqlite3.SQLITE_READ and (table, column) == (
-                "receipts", "body"
+                "receipts",
+                "body",
             ):
                 return sqlite3.SQLITE_DENY
             return sqlite3.SQLITE_OK
@@ -34,11 +35,20 @@ def test_provenance_summary_does_not_read_receipt_bodies(tmp_path):
             )
         finally:
             project.db.set_authorizer(None)
-        assert payload["receipts"] == [{
-            "receipt_id": "receipt-1", "action_kind": "map.extract",
-            "status": "completed", "run_id": None, "created_at": "2026-10-02"
-        }]
+        assert payload["receipts"] == [
+            {
+                "receipt_id": "receipt-1",
+                "action_kind": "map.extract",
+                "status": "completed",
+                "run_id": None,
+                "created_at": "2026-10-02",
+            }
+        ]
         assert payload["receipts_page"]["total"] == 3
         assert ReceiptStore(project).body_by_id("receipt-1") == body
+        full_page = ReceiptStore(project).recent_page(limit=1, offset=1)
+        assert [(receipt.id, receipt.body) for receipt in full_page] == [
+            ("receipt-1", body)
+        ]
     finally:
         project.close()
