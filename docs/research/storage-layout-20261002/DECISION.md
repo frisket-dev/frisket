@@ -7,7 +7,7 @@ out-of-RAM, 30-million-row and 100-GB testing remains explicitly deferred.
 ## What is being tested
 
 Production candidate `b4e5906e97aeaa9a677a827b04a9605fad9052cc` combines three
-bounded changes in draft PR #243 (issue #242): ordinary rowid cell tables,
+bounded changes in merged PR #243 (issue #242): ordinary rowid cell tables,
 compressed exact search text, and consolidated analytics population scans.
 Values remain ordinary SQL-readable values. No pointer representation or second
 production database engine is introduced.
@@ -248,10 +248,31 @@ They remain possible future designs, not prerequisites for the measured fixes.
 
 ## Landing / archival status
 
-Runtime qualification and independent review are complete. PR checks passed on `48a4d147c3e6422674dd65a4354e99430022ed39`
-(CI run `37069818426`; 16 successful checks and 6 scope/event skips across all
-workflows). Temporary project bundles, analytical projections and the disposable
-DuckDB runtime have been removed after evidence capture. Source and JSON
-reports are retained. Merge and main CI are pending at this revision.
+Completed: [PR #243](https://github.com/frisket-dev/frisket/pull/243) merged as
+`738bc61daa4070dbfc095726d44e9584728faa80`; issue #242 is closed. Its tree is
+identical to independently reviewed PR head
+`48a4d147c3e6422674dd65a4354e99430022ed39`, a comment-only descendant of the
+runtime-qualified candidate above. The original main base
+`1b8cde5c843aedee3fb1702db413a91f77c9231a` is an ancestor of the merge, with
+that same SHA as the merge base.
 
-Source/report locations and process ownership are maintained in `PLAN.md`.
+All 16 main checks succeeded, including both full Python shards, web, cassette
+E2E, PostgreSQL, deployment smoke, portability and security checks. Main CI:
+https://github.com/frisket-dev/frisket/actions/runs/37071845258 . All five
+registered workflows for the merge SHA completed successfully. PR checks had
+also passed (16 successes and 6 declared scope/event skips).
+
+Completion evidence covers all four investigation requirements: the matched
+fresh qualification measures public filter/sort/aggregate paths; physical
+accounting plus fresh and migrated qualifications prove storage savings and
+preserved values/search/history; the actual-project columnar comparison records
+query parity, total storage, update and rebuild costs; the recommendation above
+states the exact next adoption gates and what is not yet proven.
+
+Temporary project bundles, analytical projections and the disposable DuckDB
+runtime were removed after evidence capture. Probe source and raw JSON reports
+are archived together. Larger-host/out-of-RAM/30M-row/100-GB qualification remains
+explicitly deferred. No release or deployment was performed.
+
+The external working `PLAN.md` records process ownership and cleanup; it is not
+required to reproduce the archived measurements.
