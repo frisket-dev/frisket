@@ -806,7 +806,7 @@ def run_qualification(
             sidecar = sqlite3.connect(bundle / "project.search.db")
             try:
                 fts_cells = int(
-                    sidecar.execute("SELECT COUNT(*) FROM cell_fts").fetchone()[0]
+                    sidecar.execute("SELECT COUNT(*) FROM cell_fts_docsize").fetchone()[0]
                 )
                 complete_revision = int(
                     sidecar.execute(
