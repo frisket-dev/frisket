@@ -65,8 +65,24 @@ describe('useDocumentView bounded paging', () => {
       { id: '22', name: 'unrelated', type: 'text', ai_generated: false },
     ] };
     const hydrateRow = vi.fn(async () => null);
-    renderHook(() => useDocumentView(hookArgs({ sheet: transcriptSheet, hydrateRow })));
+    renderHook(() => useDocumentView(hookArgs({
+      sheet: transcriptSheet,
+      queryDocuments: async () => ({ ...page([1], null, null),
+        items: [item(1, { sourceKind: 'audio' })] }),
+      hydrateRow,
+    })));
     await waitFor(() => expect(hydrateRow).toHaveBeenCalledWith('1', ['10', '20', '21']));
+  });
+
+  it('does not fetch transcript companions for an ordinary PDF', async () => {
+    const transcriptSheet: SheetMeta = { ...sheet, columns: [
+      ...sheet.columns,
+      { id: '20', name: 'transcript', type: 'timestamped_transcript', ai_generated: true },
+      { id: '21', name: 'transcript_segments', type: 'json', ai_generated: true },
+    ] };
+    const hydrateRow = vi.fn(async () => null);
+    renderHook(() => useDocumentView(hookArgs({ sheet: transcriptSheet, hydrateRow })));
+    await waitFor(() => expect(hydrateRow).toHaveBeenCalledWith('1', ['10']));
   });
 
   it('does not issue an empty projected row fetch for annotated text', async () => {

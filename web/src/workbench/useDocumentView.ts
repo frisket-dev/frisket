@@ -166,8 +166,10 @@ export function useDocumentView(args: UseDocumentViewArgs) {
   const [hydrated, setHydrated] = useState<{ key: string; row: Row | null; loading: boolean; error: string | null }>({ key: '', row: null, loading: false, error: null });
   const hydrationColumns = useMemo(() => Array.from(new Set([
     source?.kind === 'media' ? sourceColumn?.id : null,
-    ...(source?.kind === 'media' ? timedTranscriptColumnIds(sheet) : []),
-  ].filter(Boolean).map(String))), [sheet, source, sourceColumn]);
+    ...(source?.kind === 'media' && activeItem?.sourcePresent
+      && (activeItem.sourceKind === 'audio' || activeItem.sourceKind === 'video')
+      ? timedTranscriptColumnIds(sheet) : []),
+  ].filter(Boolean).map(String))), [activeItem, sheet, source, sourceColumn]);
   const hydrationKey = `${projectId}:${sheet.id}:${activeRowId ?? ''}:${hydrationColumns.join(',')}`;
   useEffect(() => {
     if (!activeRowId || hydrationColumns.length === 0) return;
