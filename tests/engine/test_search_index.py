@@ -1,5 +1,8 @@
 """Bounded maintenance, crash replay, and honest latest-only search."""
 
+import sqlite3
+from types import SimpleNamespace
+
 import pytest
 
 from frisket.engine.store import Project
@@ -242,24 +245,34 @@ def test_byte_budget_loads_only_cells_it_can_process(tmp_path, monkeypatch):
         column = project.add_column(sheet, "body")
         project.add_rows(
             sheet,
-            [{"body": "x" * (1536 * 1024) + f" tailneedle{i}"} for i in range(3)],
+            [{"body": "x" * (1536 * 1024) + f" tailneedle{i}"} for i in range(4)],
             {"body": column},
         )
         loaded = []
+        sized = []
         read = maintenance._read_cell
+        size = maintenance._cell_size
 
         def observe(*args):
             loaded.append(args[-1])
             return read(*args)
 
+        def observe_size(*args):
+            sized.append(args[-1])
+            return size(*args)
+
         monkeypatch.setattr(maintenance, "_read_cell", observe)
+        monkeypatch.setattr(maintenance, "_cell_size", observe_size)
         progress = index_batch(project)
         assert not progress.complete
         assert 3 * 1024 * 1024 < progress.processed_bytes < 4 * 1024 * 1024
         assert len(loaded) == 2
+        # Size the first rejected candidate, but don't read sizes or bodies for
+        # later candidates that this quantum cannot possibly process.
+        assert len(sized) == 3
         drain_index(project)
-        assert len(loaded) == 3
-        assert search_project(project, "tailneedle2", rerank="off")
+        assert len(loaded) == 4
+        assert search_project(project, "tailneedle3", rerank="off")
     finally:
         project.close()
 
@@ -307,3 +320,33 @@ def test_concurrent_scope_replacement_survives_deferred_ack(documents, monkeypat
     assert not index_batch(project).complete
     drain_index(project)
     assert search_project(project, "concurrentneedle", rerank="off")
+
+
+def test_candidate_discovery_does_not_read_cell_values(documents):
+    project, sheet, column, rows = documents
+    drain_index(project)
+    from frisket.search import _read_sidecar
+
+    def deny_values(operation, table, field, _database, _trigger):
+        if (
+            operation == sqlite3.SQLITE_READ
+            and table == "current_cells"
+            and field == "value"
+        ):
+            return sqlite3.SQLITE_DENY
+        return sqlite3.SQLITE_OK
+
+    index = _read_sidecar(project)
+    try:
+        with project.read_snapshot() as snapshot:
+            snapshot.db.set_authorizer(deny_values)
+            scope = SimpleNamespace(
+                sheet_id=sheet, column_id=column, row_id_start=None, row_id_end=None
+            )
+            ids, live_ids = maintenance._column_page(
+                snapshot.db, index, scope, column, 0, 500, searchable=True
+            )
+            assert ids == rows
+            assert live_ids == set(rows)
+    finally:
+        index.close()

@@ -112,8 +112,10 @@ def _column_page(
     params = (column, lower, upper, limit)
     live = (
         source.execute(
-            "SELECT cc.row_id,length(CAST(cc.value AS BLOB)) AS value_bytes "
-            "FROM current_cells cc "
+            # The WITHOUT ROWID primary record includes potentially huge values.
+            # This existing secondary index covers both identity fields without
+            # loading overflow pages merely to discover the next candidate IDs.
+            "SELECT cc.row_id FROM current_cells cc INDEXED BY idx_current_cells_row "
             "WHERE cc.column_id=? AND cc.row_id>? AND cc.row_id<=? "
             "ORDER BY cc.row_id LIMIT ?",
             params,
@@ -127,7 +129,17 @@ def _column_page(
         params,
     ).fetchall()
     ids = sorted({int(row[0]) for row in live} | {int(row[0]) for row in old})[:limit]
-    return ids, {int(row[0]): int(row[1] or 0) for row in live}
+    return ids, {int(row[0]) for row in live}
+
+
+def _cell_size(source, column: int, row: int) -> int:
+    return int(
+        source.execute(
+            "SELECT length(CAST(value AS BLOB)) FROM current_cells WHERE column_id=? AND row_id=?",
+            (column, row),
+        ).fetchone()[0]
+        or 0
+    )
 
 
 def _read_cell(source, column: int, row: int):
@@ -240,7 +252,7 @@ def index_batch(
                 _raise_if_cancelled(cancel_event)
                 descriptor = _column_descriptor(snapshot.db, column)
                 remaining = batch_size - processed
-                ids, sizes = _column_page(
+                ids, live_ids = _column_page(
                     snapshot.db,
                     index,
                     scope,
@@ -251,7 +263,11 @@ def index_batch(
                 )
                 for row_id in ids:
                     _raise_if_cancelled(cancel_event)
-                    size = sizes.get(row_id, 0)
+                    size = (
+                        _cell_size(snapshot.db, column, row_id)
+                        if row_id in live_ids
+                        else 0
+                    )
                     # One oversized cell can always make progress. Never load
                     # a second cell that would exceed the quantum byte budget.
                     if processed_bytes and processed_bytes + size > max_bytes:
@@ -259,7 +275,7 @@ def index_batch(
                         break
                     cell = (
                         _read_cell(snapshot.db, column, row_id)
-                        if row_id in sizes
+                        if row_id in live_ids
                         else None
                     )
                     _replace_cell(index, column, row_id, cell, descriptor)
