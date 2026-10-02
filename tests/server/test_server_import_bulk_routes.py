@@ -10,6 +10,7 @@ import stat
 import struct
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any
@@ -1910,8 +1911,111 @@ def test_bulk_email_rejects_staged_path_replaced_before_lazy_open(
     result = executed.json()
     assert result["created"] == []
     assert len(result["failed"]) == 1
-    assert result["failed"][0]["error"] == "no valid email messages were found"
+    assert "trusted ingress" in result["failed"][0]["error"]
     assert not plan_root.exists()
+
+
+def test_bulk_email_tampered_source_aborts_valid_sibling_without_publishing(
+    tmp_path: Path, monkeypatch
+) -> None:
+    good = EmailMessage()
+    good["From"] = "reporter@example.test"
+    good["Subject"] = "Valid first"
+    good.set_content("valid bytes")
+    tampered = EmailMessage()
+    tampered["From"] = "reporter@example.test"
+    tampered["Subject"] = "Expected second"
+    tampered.set_content("expected bytes")
+
+    client = TestClient(create_app(tmp_path / "workspace"))
+    pid = _project(client, "Atomic trusted email set")
+    planned = _bulk_plan(
+        client,
+        pid,
+        [
+            ("a-good.eml", good.as_bytes(), "message/rfc822", "a-good.eml"),
+            ("z-tampered.eml", tampered.as_bytes(), "message/rfc822", "z-tampered.eml"),
+        ],
+        expand_archive=False,
+    ).json()
+    project = client.app.state.workspace.get(pid)
+    plan_root = project.path / ".bulk_import_staging" / planned["plan_id"]
+    manifest = json.loads((plan_root / "manifest.json").read_text())
+    target = next(
+        item for item in manifest["files"] if item["logical_path"] == "z-tampered.eml"
+    )
+    staged = plan_root / target["path"]
+    real_run_action_spec = import_bulk_execute.run_action_spec
+    real_open = import_bulk_sources.open_verified_source
+    handles = []
+
+    @contextmanager
+    def track_open(root, item):
+        with real_open(root, item) as source:
+            handles.append(source)
+            yield source
+
+    def tamper_before_action(project, action, **kwargs):
+        staged.write_bytes(b"From: attacker@example.test\n\nchanged")
+        return real_run_action_spec(project, action, **kwargs)
+
+    monkeypatch.setattr(import_bulk_sources, "open_verified_source", track_open)
+    monkeypatch.setattr(import_bulk_execute, "run_action_spec", tamper_before_action)
+    executed = _execute_bulk(client, pid, planned)
+    assert executed.status_code == 200, executed.text
+    result = executed.json()
+    assert result["created"] == []
+    assert len(result["failed"]) == 1
+    assert "trusted ingress" in result["failed"][0]["error"]
+    assert project.sheets() == []
+    assert handles and all(handle.closed for handle in handles)
+
+
+def test_bulk_email_path_replacement_after_lazy_open_uses_pinned_inode(
+    tmp_path: Path, monkeypatch
+) -> None:
+    original = EmailMessage()
+    original["From"] = "reporter@example.test"
+    original["Subject"] = "Pinned original"
+    original.set_content("original bytes")
+    replacement = EmailMessage()
+    replacement["From"] = "attacker@example.test"
+    replacement["Subject"] = "Replacement"
+    replacement.set_content("replacement bytes")
+
+    client = TestClient(create_app(tmp_path / "workspace"))
+    pid = _project(client, "Pinned lazy email inode")
+    planned = _bulk_plan(
+        client,
+        pid,
+        [("message.eml", original.as_bytes(), "message/rfc822", "message.eml")],
+        expand_archive=False,
+    ).json()
+    project = client.app.state.workspace.get(pid)
+    plan_root = project.path / ".bulk_import_staging" / planned["plan_id"]
+    manifest = json.loads((plan_root / "manifest.json").read_text())
+    staged = plan_root / manifest["files"][0]["path"]
+    real_open = import_bulk_sources.open_verified_source
+
+    @contextmanager
+    def replace_after_open(root, item):
+        with real_open(root, item) as source:
+            swap = tmp_path / "replacement-after-open.eml"
+            swap.write_bytes(replacement.as_bytes())
+            try:
+                swap.replace(staged)
+            except PermissionError:
+                if os.name != "nt":
+                    raise
+            yield source
+
+    monkeypatch.setattr(import_bulk_sources, "open_verified_source", replace_after_open)
+    executed = _execute_bulk(client, pid, planned)
+    assert executed.status_code == 200, executed.text
+    result = executed.json()
+    assert result["failed"] == []
+    rows = _sheet_rows(client, pid, result["created"][0]["sheet_id"])
+    assert [row["subject"] for row in rows] == ["Pinned original"]
 
 
 def test_bulk_email_keeps_valid_messages_and_returns_bounded_parse_warnings(
