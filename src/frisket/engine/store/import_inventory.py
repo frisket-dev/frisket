@@ -164,6 +164,7 @@ class ImportInventory:
 
         The caller owns lifecycle fencing. This operation refuses an unsealed
         inventory so an active/admitting session cannot lose resumable items.
+        Sealing also forbids new ordinals after recreation resets AUTOINCREMENT.
         Exact batch markers live in ``inventory_batches`` and are untouched.
         """
 
