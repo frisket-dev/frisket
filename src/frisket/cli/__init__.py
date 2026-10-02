@@ -37,6 +37,12 @@ def doctor_cmd(argv: list[str] | None = None) -> int:
     return command(argv)
 
 
+def cleanup_cmd(argv: list[str]) -> int:
+    from frisket.cli.cleanup import cleanup as command
+
+    return command(argv)
+
+
 def owner_admin(argv: list[str]) -> int:
     from frisket.cli.owner import owner_admin as command
 
@@ -819,6 +825,7 @@ def _subcommands() -> "dict[str, tuple]":
             "run the public-hosted worker with code execution disabled",
         ),
         "doctor": (doctor_cmd, "deployment self-probe (frisket doctor --help)"),
+        "cleanup": (cleanup_cmd, "offline cleanup for unused project storage"),
         "remote": (_remote, "manage linked team servers (link/status/list/default)"),
         "users": (
             _users,
@@ -1240,31 +1247,44 @@ def main() -> None:
     from frisket.ai.llm.pricing_refresh import start_pricing_refresh
     from frisket.operability.structured_logging import configure_logging
     from frisket.runtime.model_server import LocalModelServer
+    from frisket.server.standalone import (
+        StandaloneAlreadyRunning,
+        StandaloneLifetimeLock,
+    )
 
     configure_logging()
     start_pricing_refresh()
     model_server = LocalModelServer()
     worker_proc = None
     try:
-        app = create_app(workspace)
-        worker_proc = _spawn_worker(workspace)
-        model_server.start()
-        url = f"http://localhost:{port}"
-        logging.getLogger("frisket.server").info(
-            "server_started",
-            extra={
-                "event": "server_started",
-                "workspace_root": str(workspace),
-                "url": url,
-            },
+        with StandaloneLifetimeLock(workspace):
+            try:
+                app = create_app(workspace)
+                worker_proc = _spawn_worker(workspace)
+                model_server.start()
+                url = f"http://localhost:{port}"
+                logging.getLogger("frisket.server").info(
+                    "server_started",
+                    extra={
+                        "event": "server_started",
+                        "workspace_root": str(workspace),
+                        "url": url,
+                    },
+                )
+                serves_ui = resolve_static_dir() is not None
+                _print_startup_banner(url, serves_ui=serves_ui)
+                if serves_ui and not no_open and sys.stdout.isatty():
+                    _open_browser_when_ready(host, port, url)
+                uvicorn.run(app, host=host, port=port, log_config=None)
+            finally:
+                try:
+                    _stop_worker(worker_proc)
+                finally:
+                    model_server.stop()
+    except StandaloneAlreadyRunning as exc:
+        print(
+            f"frisket: {exc}; stop the running Frisket process before "
+            "starting this workspace",
+            file=sys.stderr,
         )
-        serves_ui = resolve_static_dir() is not None
-        _print_startup_banner(url, serves_ui=serves_ui)
-        if serves_ui and not no_open and sys.stdout.isatty():
-            _open_browser_when_ready(host, port, url)
-        uvicorn.run(app, host=host, port=port, log_config=None)
-    finally:
-        try:
-            _stop_worker(worker_proc)
-        finally:
-            model_server.stop()
+        raise SystemExit(1) from None

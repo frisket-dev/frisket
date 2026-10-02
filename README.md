@@ -180,6 +180,23 @@ It's easy to set up an API key to talk to AI providers like OpenAI, Anthropic, O
 - Plenty of OCR engines like RapidOCR, Surya 2, dots.mocr, PaddleOCR-VL, Tesseract
 - PDF to Markdown conversion with Markitdown, Docling
 
+## Reclaim unused local files
+
+Stop Frisket before running cleanup. Also stop independently launched workers,
+local MCP clients, and scripts using the workspace. The command detects a running
+normal Frisket launcher, but cannot detect every external reader or writer.
+
+```sh
+frisket cleanup ./my-workspace/my-project.frisket         # inspect only
+frisket cleanup ./my-workspace/my-project.frisket --apply # reclaim unused bytes
+```
+
+Cleanup preserves files needed by retained history, evidence, and resumable
+imports. It does not clear undo history. Byte counts are the sizes of removed
+files, not filesystem blocks; files still needed by the project remain.
+This is manual, offline maintenance for
+local bundle storage, not a hosted/S3 cleanup command. Restart Frisket afterward.
+
 ## Write a plugin
 
 Plugins can add actions, panels, imports, integrations: pretty much anything. They're easy to make!

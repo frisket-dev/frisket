@@ -206,21 +206,74 @@ def test_existing_workspace_path_reaches_serve_not_unknown_command(
     must still be treated as a workspace, not rejected as a typo."""
     import frisket.cli as cli
     import uvicorn
+    from frisket.server import standalone
 
     workspace = tmp_path / "myws"
     workspace.mkdir()
+    events = []
+
+    class FakeLock:
+        def __init__(self, path):
+            assert Path(path) == workspace
+
+        def __enter__(self):
+            events.append("lock")
+            return self
+
+        def __exit__(self, *_exc):
+            events.append("unlock")
 
     monkeypatch.setattr(sys, "argv", ["frisket", str(workspace)])
     monkeypatch.setenv("FRISKET_NO_WORKER", "1")
     monkeypatch.setattr(cli, "_port_available", lambda host, port: True)
+    monkeypatch.setattr(standalone, "StandaloneLifetimeLock", FakeLock)
+    monkeypatch.setattr(cli, "_stop_worker", lambda _worker: events.append("stop"))
 
     def fake_run(*_args, **_kwargs):
+        assert events == ["lock"]
         raise RuntimeError("reached uvicorn.run")
 
     monkeypatch.setattr(uvicorn, "run", fake_run)
 
     with pytest.raises(RuntimeError, match="reached uvicorn.run"):
         cli.main()
+    assert events == ["lock", "stop", "unlock"]
+
+
+def test_existing_workspace_refuses_second_native_server(tmp_path, monkeypatch, capsys):
+    import frisket.cli as cli
+    from frisket.server import app as server_app
+    from frisket.server import standalone
+
+    workspace = tmp_path / "myws"
+    workspace.mkdir()
+    monkeypatch.setattr(sys, "argv", ["frisket", str(workspace)])
+    monkeypatch.setenv("FRISKET_NO_WORKER", "1")
+    monkeypatch.setattr(cli, "_port_available", lambda _host, _port: True)
+    monkeypatch.setattr(
+        server_app,
+        "create_app",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("busy lifetime lock must refuse before app startup")
+        ),
+    )
+
+    class BusyLock:
+        def __init__(self, path):
+            assert Path(path) == workspace
+
+        def __enter__(self):
+            raise standalone.StandaloneAlreadyRunning("workspace is already running")
+
+        def __exit__(self, *_exc):
+            return None
+
+    monkeypatch.setattr(standalone, "StandaloneLifetimeLock", BusyLock)
+
+    with pytest.raises(SystemExit) as raised:
+        cli.main()
+    assert raised.value.code == 1
+    assert "stop the running Frisket process" in capsys.readouterr().err
 
 
 def test_pathlike_missing_workspace_reaches_confirm_prompt(tmp_path, monkeypatch):
