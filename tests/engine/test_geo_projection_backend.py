@@ -204,7 +204,7 @@ def test_default_export_excludes_geo_sidecar(project, tmp_path):
     never be written into the default project export.
     Export is allowlist-based, so this locks that behavior against a future
     allowlist→denylist regression."""
-    import zipfile
+    import tarfile
 
     sheet, geo_col, _name, _rows = _seed(project)
     backend = GeoProjectionBackend(project)
@@ -212,10 +212,10 @@ def test_default_export_excludes_geo_sidecar(project, tmp_path):
     backend.close()
     assert (project.path / GEO_SIDECAR_FILENAME).exists()  # sidecar exists on disk
 
-    out = tmp_path / "export.frisket.zip"
+    out = tmp_path / "export.frisket.tar.gz"
     project.export(out)
-    with zipfile.ZipFile(out) as zf:
-        names = zf.namelist()
+    with tarfile.open(out) as archive:
+        names = archive.getnames()
     assert "project.db" in names
     assert GEO_SIDECAR_FILENAME not in names
     assert not any(n.endswith(GEO_SIDECAR_FILENAME) for n in names)
