@@ -66,6 +66,56 @@ def test_partial_results_hide_changed_and_deleted_text(documents):
     assert len(search_project(project, "needle", rerank="off")) == 5
 
 
+def test_sparse_edits_reindex_only_the_changed_cells(documents):
+    project, _, column, rows = documents
+    drain_index(project)
+    changed = {rows[0], rows[-1]}
+    project.apply_edits(
+        [
+            {"row_id": row_id, "column_id": column, "value": "changedneedle"}
+            for row_id in changed
+        ]
+    )
+
+    assert drain_index(project, batch_size=2) == len(changed)
+    assert {
+        hit["row_id"]
+        for hit in search_project(project, "changedneedle", rerank="off")
+    } == changed
+    assert {
+        hit["row_id"] for hit in search_project(project, "needle", rerank="off")
+    } == set(rows) - changed
+
+
+def test_bulk_edits_keep_the_search_worklist_compact(tmp_path):
+    project = Project.create(tmp_path / "bulk-edits.frisket")
+    try:
+        sheet = project.add_sheet("Documents")
+        column = project.add_column(sheet, "body")
+        rows = project.add_rows(
+            sheet, [{"body": "original"} for _ in range(300)], {"body": column}
+        )
+        drain_index(project)
+        changed = rows[::2]
+        project.apply_edits(
+            [
+                {"row_id": row_id, "column_id": column, "value": "bulkneedle"}
+                for row_id in changed
+            ]
+        )
+        # Fragmented bulk changes must not require a worklist row per cell.
+        assert project.db.execute(
+            "SELECT COUNT(*) FROM search_dirty_scopes"
+        ).fetchone()[0] < len(changed) // 2
+        drain_index(project, batch_size=40)
+        assert {
+            hit["row_id"]
+            for hit in search_project(project, "bulkneedle", rerank="off", limit=200)
+        } == set(changed)
+    finally:
+        project.close()
+
+
 def test_crash_after_index_commit_before_ack_replays(documents, monkeypatch):
     project, *_ = documents
     original = maintenance.advance_dirty_scope
