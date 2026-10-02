@@ -91,7 +91,8 @@ class ImportInventory:
 
         first = last = 0
         count = total_bytes = 0
-        with self._db:
+        self._db.execute("BEGIN IMMEDIATE")
+        try:
             if self.sealed:
                 raise RuntimeError("import inventory is sealed")
             for item in items:
@@ -119,6 +120,11 @@ class ImportInventory:
                     """,
                     (count, total_bytes),
                 )
+        except BaseException:
+            self._db.rollback()
+            raise
+        else:
+            self._db.commit()
         return first, last
 
     def seal(self) -> None:

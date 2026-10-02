@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -73,6 +74,28 @@ def test_seal_refuses_appends_but_allows_pages_and_survives_reopen(tmp_path: Pat
         assert reopened.sealed
         with pytest.raises(RuntimeError, match="sealed"):
             reopened.append([_item(2)])
+
+
+def test_append_reserves_write_before_sealed_check_across_connections(tmp_path: Path):
+    path = tmp_path / "inventory.sqlite3"
+    first = ImportInventory(path)
+    second = ImportInventory(path)
+    second._db.execute("PRAGMA busy_timeout = 0")
+
+    def item_while_competing_seal():
+        with pytest.raises(sqlite3.OperationalError, match="locked"):
+            second.seal()
+        yield _item(0)
+
+    try:
+        first.append(item_while_competing_seal())
+        assert first.totals() == {"count": 1, "bytes": 10}
+        second.seal()
+        with pytest.raises(RuntimeError, match="sealed"):
+            first.append([_item(1)])
+    finally:
+        first.close()
+        second.close()
 
 
 def test_large_streaming_append_and_page_use_summary_and_keyset_sql(tmp_path: Path):
