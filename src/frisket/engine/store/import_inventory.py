@@ -31,7 +31,8 @@ class ImportInventory:
                 singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
                 item_count INTEGER NOT NULL,
                 total_bytes INTEGER NOT NULL,
-                sealed INTEGER NOT NULL CHECK (sealed IN (0, 1))
+                sealed INTEGER NOT NULL CHECK (sealed IN (0, 1)),
+                through_ordinal INTEGER NOT NULL DEFAULT 0
             );
             INSERT OR IGNORE INTO inventory_meta
                 (singleton, item_count, total_bytes, sealed)
@@ -57,6 +58,21 @@ class ImportInventory:
             END;
             """
         )
+        columns = {
+            str(row["name"])
+            for row in self._db.execute("PRAGMA table_info(inventory_meta)")
+        }
+        if "through_ordinal" not in columns:
+            self._db.execute(
+                "ALTER TABLE inventory_meta ADD COLUMN "
+                "through_ordinal INTEGER NOT NULL DEFAULT 0"
+            )
+            self._db.execute(
+                "UPDATE inventory_meta SET through_ordinal="
+                "COALESCE((SELECT MAX(ordinal) FROM inventory_items),0) "
+                "WHERE singleton=1"
+            )
+            self._db.commit()
 
     def close(self) -> None:
         self._db.close()
@@ -81,6 +97,15 @@ class ImportInventory:
             "SELECT item_count, total_bytes FROM inventory_meta WHERE singleton = 1"
         ).fetchone()
         return {"count": int(row["item_count"]), "bytes": int(row["total_bytes"])}
+
+    @property
+    def through(self) -> int:
+        """Last admitted occurrence ordinal, retained after terminal compaction."""
+
+        row = self._db.execute(
+            "SELECT through_ordinal FROM inventory_meta WHERE singleton=1"
+        ).fetchone()
+        return int(row["through_ordinal"])
 
     def append(self, items: Iterable[Mapping[str, Any]]) -> tuple[int, int]:
         """Append an iterable atomically; return first and last new ordinals.
@@ -115,10 +140,11 @@ class ImportInventory:
                 self._db.execute(
                     """
                     UPDATE inventory_meta
-                    SET item_count = item_count + ?, total_bytes = total_bytes + ?
+                    SET item_count = item_count + ?, total_bytes = total_bytes + ?,
+                        through_ordinal = ?
                     WHERE singleton = 1
                     """,
-                    (count, total_bytes),
+                    (count, total_bytes, last),
                 )
         except BaseException:
             self._db.rollback()
@@ -132,6 +158,43 @@ class ImportInventory:
 
         with self._db:
             self._db.execute("UPDATE inventory_meta SET sealed = 1 WHERE singleton = 1")
+
+    def compact_terminal(self) -> None:
+        """Discard terminal item facts while retaining summaries and retry markers.
+
+        The caller owns lifecycle fencing. This operation refuses an unsealed
+        inventory so an active/admitting session cannot lose resumable items.
+        Exact batch markers live in ``inventory_batches`` and are untouched.
+        """
+
+        self._db.execute("BEGIN IMMEDIATE")
+        try:
+            if not self.sealed:
+                raise RuntimeError("only a sealed import inventory can be compacted")
+            self._db.execute("DROP TABLE inventory_items")
+            self._db.execute(
+                "CREATE TABLE inventory_items ("
+                "ordinal INTEGER PRIMARY KEY AUTOINCREMENT,"
+                "logical_path TEXT NOT NULL,mime TEXT NOT NULL,"
+                "sha256 TEXT NOT NULL,size INTEGER NOT NULL CHECK (size >= 0),"
+                "kind TEXT NOT NULL,email_format TEXT)"
+            )
+            self._db.execute(
+                "CREATE TRIGGER inventory_items_no_update "
+                "BEFORE UPDATE ON inventory_items BEGIN "
+                "SELECT RAISE(ABORT, 'inventory records are immutable'); END"
+            )
+            self._db.execute(
+                "CREATE TRIGGER inventory_items_no_delete "
+                "BEFORE DELETE ON inventory_items BEGIN "
+                "SELECT RAISE(ABORT, 'inventory records are immutable'); END"
+            )
+            self._db.commit()
+        except BaseException:
+            self._db.rollback()
+            raise
+        self._db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        self._db.execute("VACUUM")
 
     def page(
         self,

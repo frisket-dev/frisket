@@ -7,6 +7,10 @@ from pathlib import Path
 import pytest
 
 from frisket.engine.store.import_inventory import ImportInventory
+from frisket.engine.store.import_intake import (
+    append_inventory_batch,
+    inventory_batch_through,
+)
 
 
 def _item(index: int, *, size: int = 10, digest: str | None = None) -> dict:
@@ -120,3 +124,87 @@ def test_large_streaming_append_and_page_use_summary_and_keyset_sql(tmp_path: Pa
         sql = " ".join(statements).upper()
         assert "COUNT(" not in sql and "SUM(" not in sql
         assert "WHERE ORDINAL >" in sql and "OFFSET" not in sql
+
+
+def test_terminal_compaction_reclaims_items_but_keeps_summary_and_batch_replay(
+    tmp_path: Path,
+):
+    path = tmp_path / "inventory.sqlite3"
+    first_batch = [
+        {**_item(index, size=1), "logical_path": f"{'nested/' * 80}{index}.eml"}
+        for index in range(100)
+    ]
+    with ImportInventory(path) as inventory:
+        through, added = append_inventory_batch(inventory, "first", first_batch)
+        assert (through, added) == (100, True)
+        for start in range(100, 20_000, 100):
+            append_inventory_batch(
+                inventory,
+                f"batch-{start}",
+                [
+                    {
+                        **_item(index, size=1),
+                        "logical_path": f"{'nested/' * 80}{index}.eml",
+                    }
+                    for index in range(start, start + 100)
+                ],
+            )
+        inventory.seal()
+    before = path.stat().st_size
+
+    with ImportInventory(path) as inventory:
+        inventory.compact_terminal()
+        assert inventory.totals() == {"count": 20_000, "bytes": 20_000}
+        assert inventory.through == 20_000
+        assert inventory.sealed
+        assert inventory.page(limit=1) == []
+        assert inventory_batch_through(inventory, "first", first_batch) == 100
+        with pytest.raises(ValueError, match="different files"):
+            inventory_batch_through(inventory, "first", [{**first_batch[0], "size": 2}])
+        with pytest.raises(RuntimeError, match="sealed"):
+            inventory.append([_item(20_001)])
+
+    after = path.stat().st_size
+    assert before > 5 * after, (before, after)
+
+
+def test_terminal_compaction_refuses_an_active_inventory(tmp_path: Path):
+    with ImportInventory(tmp_path / "inventory.sqlite3") as inventory:
+        inventory.append([_item(0)])
+        with pytest.raises(RuntimeError, match="sealed"):
+            inventory.compact_terminal()
+        assert len(inventory.page(limit=1)) == 1
+
+
+def test_reopen_migrates_existing_inventory_through_ordinal(tmp_path: Path):
+    path = tmp_path / "inventory.sqlite3"
+    db = sqlite3.connect(path)
+    db.executescript(
+        """
+        CREATE TABLE inventory_meta (
+            singleton INTEGER PRIMARY KEY,
+            item_count INTEGER NOT NULL,
+            total_bytes INTEGER NOT NULL,
+            sealed INTEGER NOT NULL
+        );
+        INSERT INTO inventory_meta VALUES (1,2,20,1);
+        CREATE TABLE inventory_items (
+            ordinal INTEGER PRIMARY KEY AUTOINCREMENT,
+            logical_path TEXT NOT NULL,
+            mime TEXT NOT NULL,
+            sha256 TEXT NOT NULL,
+            size INTEGER NOT NULL,
+            kind TEXT NOT NULL,
+            email_format TEXT
+        );
+        INSERT INTO inventory_items
+            (logical_path,mime,sha256,size,kind,email_format)
+            VALUES ('one','text/plain','0000000000000000000000000000000000000000000000000000000000000000',10,'files',NULL),
+                   ('two','text/plain','1111111111111111111111111111111111111111111111111111111111111111',10,'files',NULL);
+        """
+    )
+    db.close()
+
+    with ImportInventory(path) as inventory:
+        assert inventory.through == 2
+        assert inventory.totals() == {"count": 2, "bytes": 20}

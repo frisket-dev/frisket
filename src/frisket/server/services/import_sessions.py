@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import logging
 import secrets
 import shutil
 from collections.abc import Awaitable, Callable
@@ -25,6 +26,7 @@ from frisket.engine.jobs.queue import IMPORT_FILES_PAGE_KIND
 from frisket.engine.store.import_intake import (
     ImportIntakeHeader,
     append_inventory_batch,
+    compact_terminal_inventory,
     import_admit_lock,
     import_intake_dir,
     import_worker_lock,
@@ -49,6 +51,7 @@ from frisket.server.services.import_uploads import upload_sheet_name
 
 _MAX_CHUNK_FILES = 256
 _MULTI_FILE_BATCH_BYTES = 64 * 1024 * 1024
+logger = logging.getLogger(__name__)
 EnqueueImport = Callable[[str, str, int, bool], Awaitable[None] | None]
 
 
@@ -241,29 +244,37 @@ class ImportSessionService:
             raise ValueError("decision must be keep or remove")
         project, directory, header = self._open(project_id, ref)
         with import_worker_lock(directory, timeout=0):
-            session = ImportSessionStore(project).get(ref)
-            if session is None:
-                if not header.cancel_requested:
+            with import_admit_lock(directory):
+                session = ImportSessionStore(project).get(ref)
+                if session is None:
+                    if not header.cancel_requested:
+                        raise ValueError("only a cancelled import can be resolved")
+                    header = set_import_resolution(
+                        directory, "kept" if decision == "keep" else "removed"
+                    )
+                elif session.state in ("kept", "removed"):
+                    expected = "kept" if decision == "keep" else "removed"
+                    if session.state != expected:
+                        raise ValueError(
+                            "cancelled import was already resolved differently"
+                        )
+                elif session.state != "cancelled":
                     raise ValueError("only a cancelled import can be resolved")
-                header = set_import_resolution(
-                    directory, "kept" if decision == "keep" else "removed"
-                )
-            elif session.state in ("kept", "removed"):
-                expected = "kept" if decision == "keep" else "removed"
-                if session.state != expected:
-                    raise ValueError(
-                        "cancelled import was already resolved differently"
-                    )
-            elif session.state != "cancelled":
-                raise ValueError("only a cancelled import can be resolved")
-            else:
-                writer = StreamingSheetWriter._from_session(project, session)
-                if decision == "keep":
-                    writer.finalize_session(
-                        expected_cursor=session.cursor, keep_cancelled=True
-                    )
                 else:
-                    writer.remove_session(expected_cursor=session.cursor)
+                    writer = StreamingSheetWriter._from_session(project, session)
+                    if decision == "keep":
+                        writer.finalize_session(
+                            expected_cursor=session.cursor, keep_cancelled=True
+                        )
+                    else:
+                        writer.remove_session(expected_cursor=session.cursor)
+                try:
+                    compact_terminal_inventory(directory)
+                except Exception:
+                    logger.warning(
+                        "terminal import inventory compaction failed",
+                        exc_info=True,
+                    )
         with ImportInventory(directory / "inventory.db") as inventory:
             status = self._status(project, ref, directory, header, inventory)
         if session is not None and decision == "keep":
@@ -412,9 +423,7 @@ class ImportSessionService:
         inventory = inventory or ImportInventory(directory / "inventory.db")
         try:
             totals = inventory.totals()
-            row = inventory._db.execute(
-                "SELECT COALESCE(MAX(ordinal),0) AS value FROM inventory_items"
-            ).fetchone()
+            through = inventory.through
             sealed = inventory.sealed
         finally:
             if owned:
@@ -440,9 +449,7 @@ class ImportSessionService:
             except Timeout:
                 state = "cancelling"
         else:
-            job = self._latest_page_job(
-                header.project_id, ref, int(row["value"]), sealed
-            )
+            job = self._latest_page_job(header.project_id, ref, through, sealed)
             state = (
                 "paused" if job is not None and job.status == "failed" else "admitting"
             )
@@ -451,7 +458,7 @@ class ImportSessionService:
             state=state,
             admitted_files=totals["count"],
             admitted_bytes=totals["bytes"],
-            through=int(row["value"]),
+            through=through,
             committed_rows=0 if session is None else session.committed_rows,
             committed_bytes=0 if session is None else session.committed_bytes,
             sheet_id=None if session is None else session.sheet_id,
