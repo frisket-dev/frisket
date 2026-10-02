@@ -87,6 +87,9 @@ def dependent_sheets(project: Any, sheet_id: int) -> list[dict[str, Any]]:
 
 
 def delete_sheet(project: Any, sheet_id: int) -> dict[str, Any]:
+    if project.db.in_transaction:
+        raise RuntimeError("sheet deletion cannot run in a caller-owned transaction")
+
     sheet = project.db.execute(
         "SELECT id, name FROM sheets WHERE id=? AND hidden=0", (sheet_id,)
     ).fetchone()

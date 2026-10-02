@@ -27,9 +27,12 @@ def test_add_rows_default_commit_preserves_ambient_transaction(tmp_path: Path) -
 
         project.db.rollback()
 
-        assert project.db.execute(
-            "SELECT name FROM sheets WHERE id=?", (sheet_id,)
-        ).fetchone()["name"] == "Source"
+        assert (
+            project.db.execute(
+                "SELECT name FROM sheets WHERE id=?", (sheet_id,)
+            ).fetchone()["name"]
+            == "Source"
+        )
         assert project.row_count(sheet_id) == 0
         assert project.get_values(sheet_id, column_id) == {}
         assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 0
@@ -50,7 +53,13 @@ def test_delete_sheet_rejects_ambient_transaction_before_changes_or_gc(
         )
         project.add_rows(
             sheet_id,
-            [{"document": media_cell(digest, filename="document.txt", mime="text/plain")}],
+            [
+                {
+                    "document": media_cell(
+                        digest, filename="document.txt", mime="text/plain"
+                    )
+                }
+            ],
             {"document": column_id},
         )
 
@@ -63,12 +72,20 @@ def test_delete_sheet_rejects_ambient_transaction_before_changes_or_gc(
         assert project.db.in_transaction
         project.db.rollback()
 
+        assert (
+            project.db.execute(
+                "SELECT name FROM sheets WHERE id=?", (keep_id,)
+            ).fetchone()["name"]
+            == "Keep"
+        )
+        assert (
+            project.db.execute(
+                "SELECT 1 FROM sheets WHERE id=?", (sheet_id,)
+            ).fetchone()
+            is not None
+        )
         assert project.db.execute(
-            "SELECT name FROM sheets WHERE id=?", (keep_id,)
-        ).fetchone()["name"] == "Keep"
-        assert project.db.execute(
-            "SELECT 1 FROM sheets WHERE id=?", (sheet_id,)
-        ).fetchone() is not None
-        assert project.db.execute("SELECT 1 FROM blobs WHERE hash=?", (digest,)).fetchone()
+            "SELECT 1 FROM blobs WHERE hash=?", (digest,)
+        ).fetchone()
     finally:
         project.close()
