@@ -20,6 +20,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.engine.runner import ProviderSpendCapExceeded
 from frisket.querysets import anchor_relative_date_filters
+from frisket.search import drain_index
 from frisket.server.services.project_qa_runner import run_turn
 import frisket.server.services.project_qa_runner as project_qa_runner
 from frisket.server.services.project_qa_citations import (
@@ -419,6 +420,7 @@ def test_scoped_query_count_search_and_open_source_do_not_widen_rows(
         replayed = evaluate_query(project, result["query"], result["scope"], limit=0)
         assert replayed["total"] == result["total"]
         assert replayed["scope"] == result["scope"]
+        drain_index(project)
         search = tools.search_cells("visible", sheet_id)
         assert {hit["row_id"] for hit in search["hits"]} == set(row_ids[:2])
         assert {hit["column_id"] for hit in search["hits"]} == {columns["Text"]}
@@ -458,6 +460,7 @@ def test_file_scope_query_and_search_reject_unselected_columns(tmp_path: Path) -
         }
         with pytest.raises(ProjectQAScopeError, match="file scope"):
             tools.query_rows(query)
+        drain_index(project)
         assert tools.search_cells("visible", 1)["hits"]
         assert not tools.search_cells("disclose", 1)["hits"]
         nonrect_scope = {
@@ -514,6 +517,7 @@ def test_file_search_filters_exact_cells_before_ranking(tmp_path: Path) -> None:
         turn = store.submit_turn(
             thread["id"], request_id="file-search", question="Find", scope=scope
         )
+        drain_index(project)
         hits = ProjectQATools(project, turn, store).search_cells(
             "needle", sheet_id, limit=1
         )["hits"]
@@ -1117,6 +1121,8 @@ def test_runner_searches_late_passage_then_continues_before_answering(tmp_path):
             }
         ]
     )
+
+    drain_index(project)
 
     class ReaderAdapter:
         def __init__(self):

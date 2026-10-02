@@ -3,6 +3,7 @@ from __future__ import annotations
 import frisket.server.services.project_qa_tools as tools_mod
 from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAStore
+from frisket.search import drain_index
 from frisket.server.services.project_qa_tools import ProjectQATools
 
 
@@ -13,6 +14,7 @@ def test_keyword_search_does_not_pair_stale_excerpt_with_new_value_ref(
     sheet = project.add_sheet("Documents")
     column = project.add_column(sheet, "Text")
     [row] = project.add_rows(sheet, [{"Text": "oldneedle"}], {"Text": column})
+    drain_index(project)
     store = ProjectQAStore(project)
     thread = store.create_thread(title="Ask")
     turn = store.submit_turn(thread["id"], request_id="one", question="Find it")
