@@ -350,12 +350,12 @@ export function DocumentView({
                 ? item.characterCount ?? 0
                 : item.characterCount;
               const secondary =
-                !item.sourcePresent
-                  ? 'No document'
-                  : characterCount !== null
+                characterCount !== null
                   ? characterCount > 0
                     ? `${characterCount.toLocaleString()} characters`
                     : 'Empty'
+                  : !item.sourcePresent
+                    ? 'No document'
                   : count != null
                     ? `${count} page${count === 1 ? '' : 's'}`
                     : item.sourceLabel || 'No document';

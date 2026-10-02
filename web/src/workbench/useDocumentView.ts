@@ -87,6 +87,7 @@ export function useDocumentView(args: UseDocumentViewArgs) {
   }, [visibleList.pages]);
   const activeItem = items.find((item) => item.rowId === state.activeRowId)
     ?? (visibleList.pinned?.rowId === state.activeRowId ? visibleList.pinned : null)
+    ?? visibleList.pinned
     ?? items[0] ?? null;
   const activeRowId = activeItem?.rowId ?? null;
 

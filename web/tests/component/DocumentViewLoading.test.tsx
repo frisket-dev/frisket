@@ -117,4 +117,30 @@ describe('DocumentView loading state', () => {
     expect(screen.getByText('1 loaded')).toBeVisible();
     await waitFor(() => expect(hydrateRow).toHaveBeenCalledWith('7', ['file']));
   });
+
+  it('labels absent media and empty annotated text without claiming content', async () => {
+    render(
+      <DocumentView
+        projectId="project-1" sheet={sheet} state={state}
+        onChangeState={() => undefined} onDocumentFocus={() => undefined} onOpenDetail={() => undefined}
+        queryDocuments={async () => ({
+          items: [
+            { rowId: '1', ordinal: 1, title: 'Missing media', titleTruncated: false,
+              sourceKind: 'pdf', sourcePresent: false, sourceLabel: null,
+              sourceLabelTruncated: false, characterCount: null },
+            { rowId: '2', ordinal: 2, title: 'Empty text', titleTruncated: false,
+              sourceKind: 'annotated_text', sourcePresent: false, sourceLabel: null,
+              sourceLabelTruncated: false, characterCount: null },
+          ],
+          nextCursor: null, previousCursor: null,
+        })}
+        hydrateRow={async () => null} onListSort={() => undefined} orderKey="none"
+        listSortDir={null} annotatedTextColumnIds={[]} disabledToggleKeys={[]}
+        onSetDisabledToggleKeys={() => undefined}
+      />,
+    );
+    await waitFor(() => expect(screen.getAllByText('No document').length).toBeGreaterThanOrEqual(2));
+    expect(screen.getByText('Empty')).toBeVisible();
+    expect(screen.getAllByTestId('document-list-item').every((node) => node.dataset.hasMedia === 'false')).toBe(true);
+  });
 });

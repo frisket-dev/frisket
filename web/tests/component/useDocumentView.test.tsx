@@ -1,0 +1,126 @@
+// @vitest-environment jsdom
+
+import '@testing-library/jest-dom/vitest';
+import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { DocumentListItem, DocumentListPage, Row, SheetMeta } from '../../src/api/types';
+import type { DocumentViewState } from '../../src/workspace/useWorkspaceChromeState';
+import { DocumentAlongsidePane } from '../../src/workbench/DocumentAlongsidePane';
+import { useDocumentView, type UseDocumentViewArgs } from '../../src/workbench/useDocumentView';
+
+vi.mock('../../src/components/RowDrawer', () => ({
+  FieldValue: ({ value }: { value: unknown }) => <span>{String(value ?? '')}</span>,
+}));
+
+afterEach(cleanup);
+
+const sheet: SheetMeta = {
+  id: '9', name: 'Documents', rowCount: 500,
+  columns: [{ id: '10', name: 'file', type: 'file', ai_generated: false }],
+  citedColumnIds: [], annotatedTextColumnIds: [],
+};
+
+const state: DocumentViewState = {
+  sheetId: sheet.id, sourceColumnId: '10', titleColumnId: null,
+  layout: 'continuous', fit: 'width', videoFit: 'full', textLayer: true,
+  sync: false, activeRowId: null,
+};
+
+function item(id: number, overrides: Partial<DocumentListItem> = {}): DocumentListItem {
+  return { rowId: String(id), ordinal: id, title: `Document ${id}`, titleTruncated: false,
+    sourceKind: 'pdf', sourcePresent: true, sourceLabel: `${id}.pdf`,
+    sourceLabelTruncated: false, characterCount: null, ...overrides };
+}
+
+function page(ids: number[], previousCursor: string | null, nextCursor: string | null): DocumentListPage {
+  return { items: ids.map((id) => item(id)), previousCursor, nextCursor };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+
+function hookArgs(overrides: Partial<UseDocumentViewArgs> = {}): UseDocumentViewArgs {
+  return {
+    projectId: 'project-a', sheet, state,
+    onChangeState: vi.fn(), onDocumentFocus: vi.fn(),
+    queryDocuments: vi.fn(async () => page([1], null, null)),
+    hydrateRow: vi.fn(async () => null), orderKey: 'scope-a',
+    annotatedTextColumnIds: [], ...overrides,
+  };
+}
+
+describe('useDocumentView bounded paging', () => {
+  it('keeps at most three pages, pins an evicted active item, and navigates around it', async () => {
+    const queryDocuments = vi.fn(async ({ cursor, anchorRowId }: { cursor?: string; anchorRowId?: string }) => {
+      if (anchorRowId === '1') return page([1, 2], null, 'c2');
+      if (!cursor) return page([1], null, 'c2');
+      const number = Number(cursor.slice(1));
+      return page([number], number > 2 ? `c${number - 1}` : 'c1', number < 4 ? `c${number + 1}` : null);
+    });
+    const onChangeState = vi.fn();
+    const { result } = renderHook(() => useDocumentView(hookArgs({ queryDocuments, onChangeState })));
+    await waitFor(() => expect(result.current.items.map((entry) => entry.rowId)).toEqual(['1']));
+
+    act(() => { void result.current.loadMore(); });
+    await waitFor(() => expect(result.current.items).toHaveLength(2));
+    act(() => { void result.current.loadMore(); });
+    await waitFor(() => expect(result.current.items).toHaveLength(3));
+    act(() => { void result.current.loadMore(); });
+    await waitFor(() => expect(result.current.items.map((entry) => entry.rowId)).toEqual(['2', '3', '4']));
+    expect(result.current.items.map((entry) => entry.rowId)).toEqual(['2', '3', '4']);
+    expect(result.current.activeItem?.rowId).toBe('1');
+
+    act(() => {
+      result.current.onListKeyDown({ key: 'ArrowDown', preventDefault: vi.fn() } as never);
+    });
+    await waitFor(() => expect(onChangeState).toHaveBeenLastCalledWith(expect.objectContaining({ activeRowId: '2' })));
+  });
+
+  it('ignores an old page after the project or scope changes', async () => {
+    const oldPage = deferred<DocumentListPage>();
+    const oldQuery = vi.fn(() => oldPage.promise);
+    const newQuery = vi.fn(async () => page([2], null, null));
+    const args = hookArgs({ queryDocuments: oldQuery });
+    const { result, rerender } = renderHook(
+      ({ projectId, orderKey, queryDocuments }) => useDocumentView({ ...args, projectId, orderKey, queryDocuments }),
+      { initialProps: { projectId: 'project-a', orderKey: 'old', queryDocuments: oldQuery } },
+    );
+    rerender({ projectId: 'project-b', orderKey: 'new', queryDocuments: newQuery });
+    oldPage.resolve(page([1], null, null));
+    await waitFor(() => expect(result.current.items.map((entry) => entry.rowId)).toEqual(['2']));
+  });
+
+  it('retries without a stale selected-row anchor after a 400', async () => {
+    const anchoredError = Object.assign(new Error('outside scope'), { status: 400 });
+    const queryDocuments = vi.fn(({ anchorRowId }: { anchorRowId?: string }) => anchorRowId
+      ? Promise.reject(anchoredError) : Promise.resolve(page([8], null, null)));
+    const { result } = renderHook(() => useDocumentView(hookArgs({
+      state: { ...state, activeRowId: '99' }, queryDocuments,
+    })));
+    await waitFor(() => expect(result.current.items[0]?.rowId).toBe('8'));
+    expect(queryDocuments).toHaveBeenNthCalledWith(1, expect.objectContaining({ anchorRowId: '99' }));
+    expect(queryDocuments).toHaveBeenNthCalledWith(2, expect.objectContaining({ anchorRowId: undefined }));
+  });
+});
+
+describe('DocumentAlongsidePane hydration', () => {
+  it('does not flash the previous row while the next value is loading', async () => {
+    const second = deferred<Row | null>();
+    const hydrateRow = vi.fn((rowId: string) => rowId === '1'
+      ? Promise.resolve({ id: '1', index: 0, cells: { '10': 'first value' }, provenance: {} })
+      : second.promise);
+    const props = { projectId: 'project-a', sheetId: sheet.id, columns: sheet.columns,
+      hydrateRow, selectedColumnId: '10', onChangeColumn: vi.fn(), onClose: vi.fn() };
+    const { rerender } = render(<DocumentAlongsidePane {...props} rowId="1" />);
+    await screen.findByText('first value');
+    rerender(<DocumentAlongsidePane {...props} rowId="2" />);
+    expect(screen.queryByText('first value')).toBeNull();
+    expect(screen.getByText('Loading value…')).toBeVisible();
+    second.resolve({ id: '2', index: 1, cells: { '10': 'second value' }, provenance: {} });
+    await screen.findByText('second value');
+  });
+});
