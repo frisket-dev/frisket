@@ -1,6 +1,7 @@
 """Deterministic core tests for the project store."""
 
 import json
+import tarfile
 
 import pytest
 from hypothesis import given, settings
@@ -408,9 +409,9 @@ class TestBundle:
         import zipfile
 
         evil = tmp_path / "evil.zip"
-        with zipfile.ZipFile(zip_path) as zin, zipfile.ZipFile(evil, "w") as zout:
-            for item in zin.namelist():
-                data = zin.read(item)
+        with tarfile.open(zip_path) as zin, zipfile.ZipFile(evil, "w") as zout:
+            for item in zin.getnames():
+                data = zin.extractfile(item).read()
                 if item.endswith(digest):
                     data = b"tampered!"
                 zout.writestr(item, data)
@@ -423,9 +424,9 @@ class TestBundle:
         import zipfile
 
         evil = tmp_path / "evil_traversal.zip"
-        with zipfile.ZipFile(zip_path) as zin, zipfile.ZipFile(evil, "w") as zout:
-            for item in zin.namelist():
-                zout.writestr(item, zin.read(item))
+        with tarfile.open(zip_path) as zin, zipfile.ZipFile(evil, "w") as zout:
+            for item in zin.getnames():
+                zout.writestr(item, zin.extractfile(item).read())
             zout.writestr("../escape.txt", b"pwned")
         target = tmp_path / "imp_traversal"
         with pytest.raises(ValueError, match="escapes the target directory"):
@@ -439,9 +440,9 @@ class TestBundle:
         import zipfile
 
         evil = tmp_path / "evil_absolute.zip"
-        with zipfile.ZipFile(zip_path) as zin, zipfile.ZipFile(evil, "w") as zout:
-            for item in zin.namelist():
-                zout.writestr(item, zin.read(item))
+        with tarfile.open(zip_path) as zin, zipfile.ZipFile(evil, "w") as zout:
+            for item in zin.getnames():
+                zout.writestr(item, zin.extractfile(item).read())
             zout.writestr("/etc/pwned_absolute.txt", b"pwned")
         target = tmp_path / "imp_absolute"
         with pytest.raises(ValueError, match="unsafe absolute path"):
@@ -455,9 +456,9 @@ class TestBundle:
         import zipfile
 
         evil = tmp_path / "evil_symlink.zip"
-        with zipfile.ZipFile(zip_path) as zin, zipfile.ZipFile(evil, "w") as zout:
-            for item in zin.namelist():
-                zout.writestr(item, zin.read(item))
+        with tarfile.open(zip_path) as zin, zipfile.ZipFile(evil, "w") as zout:
+            for item in zin.getnames():
+                zout.writestr(item, zin.extractfile(item).read())
             link_info = zipfile.ZipInfo("blobs/sneaky_link")
             link_info.external_attr = (stat.S_IFLNK | 0o777) << 16
             zout.writestr(link_info, "/etc/passwd")
@@ -470,10 +471,9 @@ class TestBundle:
         make_sheet(project, 1)
         project.add_blob(b"big video bytes")
         zip_path = project.export(tmp_path / "slim.zip", include_media=False)
-        import zipfile
 
-        with zipfile.ZipFile(zip_path) as zf:
-            names = zf.namelist()
+        with tarfile.open(zip_path) as zf:
+            names = zf.getnames()
         assert "project.db" in names
         assert not any(n.startswith("blobs/") for n in names)
 

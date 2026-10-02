@@ -18,7 +18,7 @@ from __future__ import annotations
 import importlib
 import io
 import json
-import zipfile
+import tarfile
 from pathlib import Path
 from typing import Any
 
@@ -89,8 +89,10 @@ def test_sensitive_is_canonical_create_metadata_and_bundle_round_trips(
 
     exported = client.get(f"/api/projects/{pid}/export")
     assert exported.status_code == 200, exported.text
-    with zipfile.ZipFile(io.BytesIO(exported.content)) as bundle:
-        assert json.loads(bundle.read("manifest.json"))["sensitive"] is True
+    with tarfile.open(fileobj=io.BytesIO(exported.content)) as bundle:
+        assert (
+            json.loads(bundle.extractfile("manifest.json").read())["sensitive"] is True
+        )
     archive = tmp_path / "protected.frisket.zip"
     archive.write_bytes(exported.content)
     restored = Project.import_bundle(archive, tmp_path / "restored.frisket")
