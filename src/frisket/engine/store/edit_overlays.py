@@ -43,7 +43,12 @@ def write_edit_overlay(
             for target in targets
         ],
     )
-    stale_ids = mark_evidence_stale_for_cell_refs(project, targets, reason=stale_reason)
+    stale_ids = mark_evidence_stale_for_cell_refs(
+        project,
+        targets,
+        reason=stale_reason,
+        preserve_map_extract_item_links=True,
+    )
     if stale_ids:
         info["evidence_links_staled"] = [
             {"stable_id": stable_id, "stale_reason": stale_reason}
