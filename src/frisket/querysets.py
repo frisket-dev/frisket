@@ -492,21 +492,43 @@ def sheet_row_scope_query(
         else:
             where_params.append(compare_value)
 
-    order_parts: list[str] = []
-    order_params: list[Any] = []
-    for column, direction in sorts:
-        value_sql, value_params = sheet_live_value_sql("r", column)
-        sort_value = f"json_extract({value_sql}, '$')"
-        order_parts.append(f"{sort_value} IS NULL")
-        order_parts.append(
-            f"{sort_value}{_sort_collation_sql(column)} {direction.upper()}"
-        )
-        order_params.extend(value_params)
-        order_params.extend(value_params)
-    order_parts.append("r.position ASC")
-    order_parts.append("r.id ASC")
+    terms = _sheet_order_terms(sorts)
+    order_parts = [term.order_sql() for term in terms]
+    order_params = [value for term in terms for value in term.params]
 
     return cols, " AND ".join(where), where_params, order_parts, order_params
+
+
+@dataclass(frozen=True)
+class SheetOrderTerm:
+    """One scalar key shared by ordinary ordering and keyset pagination."""
+
+    sql: str
+    params: tuple[Any, ...] = ()
+    descending: bool = False
+    collation: str = ""
+
+    def order_sql(self, *, reverse: bool = False) -> str:
+        direction = "DESC" if self.descending != reverse else "ASC"
+        return f"{self.sql}{self.collation} {direction}"
+
+
+def _sheet_order_terms(sorts: list[tuple[Any, str]]) -> list[SheetOrderTerm]:
+    terms = []
+    for column, direction in sorts:
+        value, params = sheet_live_value_sql("r", column)
+        scalar = f"json_extract({value}, '$')"
+        terms.append(SheetOrderTerm(f"{scalar} IS NULL", tuple(params)))
+        terms.append(
+            SheetOrderTerm(
+                scalar, tuple(params), direction == "desc", _sort_collation_sql(column)
+            )
+        )
+    return [*terms, SheetOrderTerm("r.position"), SheetOrderTerm("r.id")]
+
+
+def sheet_order_terms(columns: Sequence[Any], sort: str | None) -> list[SheetOrderTerm]:
+    return _sheet_order_terms(_parse_sheet_sort(sort, {c["name"]: c for c in columns}))
 
 
 def resolve_sheet_filter_rows(
