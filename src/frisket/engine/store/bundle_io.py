@@ -22,6 +22,8 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+from frisket.engine.store.disk_capacity import require_disk_headroom
+
 
 class UnresolvedImportExportError(ValueError):
     """A bundle cannot preserve the external custody of an unfinished import."""
@@ -35,9 +37,9 @@ def _reject_unsafe_bundle_member(info: zipfile.ZipInfo, target_root: str) -> Non
     escape) or if it is a symlink (the Unix mode's S_ISLNK bit in
     ``external_attr``, the same check ``bundle_backup._reject_symlink`` applies
     to already-extracted files -- here it must run on the zip member itself,
-    before anything is written to disk). This runs on every member before
-    ``extractall`` touches the filesystem, since extractall does not sanitize
-    member paths.
+    before that member is written into the unpublished staging directory).
+    Extraction additionally allows only known bundle paths and uses exclusive
+    creation to reject duplicate members.
     """
     name = info.filename
     if os.path.isabs(name) or name.startswith(("/", "\\")):
@@ -118,9 +120,13 @@ def export(
                     info.size = len(descriptor)
                     archive.addfile(info, io.BytesIO(descriptor))
                     archive.members.clear()
-                    _add_bundle_file(
-                        archive, project.path / "manifest.json", "manifest.json"
+                    manifest = _project_manifest_bytes(
+                        json.loads((project.path / "manifest.json").read_text())
                     )
+                    info = tarfile.TarInfo("manifest.json")
+                    info.size = len(manifest)
+                    archive.addfile(info, io.BytesIO(manifest))
+                    archive.members.clear()
                     _add_bundle_file(archive, snapshot_path, "project.db")
                     if include_media:
                         for (digest,) in snapshot.execute("SELECT hash FROM blobs"):
@@ -156,6 +162,20 @@ def _add_bundle_file(archive: tarfile.TarFile, path: Path, name: str) -> None:
         archive.addfile(info, source)
     # Python 3.12 retains member metadata even in streaming mode.
     archive.members.clear()
+
+
+def _project_manifest_bytes(manifest: dict[str, Any]) -> bytes:
+    # Legacy ZIP exports mixed archive inventory into the project manifest.
+    # It is not project state, and the captured DB now owns the blob inventory.
+    cleaned = {
+        key: value
+        for key, value in manifest.items()
+        if key not in {"blobs", "include_media", "include_traces"}
+    }
+    encoded = json.dumps(cleaned, indent=2).encode()
+    if len(encoded) > 1024 * 1024:
+        raise ValueError("bundle metadata exceeds 1 MiB")
+    return encoded
 
 
 def export_database(project: Any, target_db: str | Path) -> Path:
@@ -385,6 +405,7 @@ def import_bundle(
             with zipfile.ZipFile(source_archive) as archive:
                 for info in archive.infolist():
                     _reject_unsafe_bundle_member(info, os.path.realpath(staging))
+                    require_disk_headroom(staging, info.file_size)
                     with archive.open(info) as source:
                         _extract_bundle_file(staging, info.filename, source)
             descriptor = json.loads((staging / "manifest.json").read_text())
@@ -398,6 +419,7 @@ def import_bundle(
                         and info.size > 1024 * 1024
                     ):
                         raise ValueError("bundle metadata exceeds 1 MiB")
+                    require_disk_headroom(staging, info.size)
                     with archive.extractfile(info) as source:
                         _extract_bundle_file(staging, info.name, source)
                     archive.members.clear()
@@ -423,6 +445,7 @@ def import_bundle(
             raise ValueError("not a frisket bundle")
         if type(descriptor.get("include_media", True)) is not bool:
             raise ValueError("invalid bundle media inclusion flag")
+        (staging / "manifest.json").write_bytes(_project_manifest_bytes(manifest))
         # Integrity and the normal Project-open fences both run against the
         # unpublished staging tree. A malformed archive therefore never
         # becomes visible as target, even briefly.
