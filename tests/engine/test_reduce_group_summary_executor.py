@@ -711,6 +711,8 @@ def test_model_child_sheet_stale_resolved_rows_repauses_before_provider_call(
             columns,
         )
 
+        # Publish the fixture mutation before starting the separate action.
+        env.project.db.commit()
         stale_retry = _reduce_action(
             env.seeded["sheet_id"],
             idempotency_key="reduce_summary@sha256:stale-resolved-rows",

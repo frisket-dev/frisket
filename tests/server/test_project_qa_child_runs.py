@@ -233,13 +233,12 @@ def test_task_cancellation_cancels_and_bounds_child_drain() -> None:
         def job_detail(self, _project_id: str, _job_id: int) -> dict[str, Any]:
             return {"job_id": 9, "status": "running", "receipt_id": "rcpt_1"}
 
-    async def scenario() -> tuple[list[tuple[str, int]], int, list[ChildRunDispatch]]:
-        sleeps = 0
+    async def scenario() -> tuple[list[tuple[str, int]], list[ChildRunDispatch]]:
+        reached_poll_wait = asyncio.Event()
 
         async def sleep(_delay: float) -> None:
-            nonlocal sleeps
-            sleeps += 1
-            await asyncio.sleep(0)
+            reached_poll_wait.set()
+            await asyncio.Event().wait()
 
         action_runs = _NeverTerminal([], _receipt())
         cancel = _RunCancel()
@@ -262,19 +261,22 @@ def test_task_cancellation_cancels_and_bounds_child_drain() -> None:
                 ),
             )
         )
-        await asyncio.sleep(0)
+        await asyncio.wait_for(reached_poll_wait.wait(), timeout=5)
         task.cancel()
+        # Observe completion without a second cancellation from wait_for.
+        # A drain deadline may expire before its first worker poll returns.
+        done, _pending = await asyncio.wait({task}, timeout=5)
+        assert task in done, "child cancellation did not finish within its bound"
         try:
             await task
         except asyncio.CancelledError:
             pass
         else:  # pragma: no cover - assertion message is clearer than raises check
             raise AssertionError("child waiter swallowed task cancellation")
-        return cancel.calls, sleeps, terminal_records
+        return cancel.calls, terminal_records
 
-    calls, sleeps, terminal_records = asyncio.run(scenario())
+    calls, terminal_records = asyncio.run(scenario())
     assert calls == [("project-1", 7)]
-    assert sleeps > 0
     assert terminal_records == []
 
 

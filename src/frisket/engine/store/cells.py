@@ -465,7 +465,7 @@ def add_rows(
         initialize_base_cells(db, producer_id=producer_id, cells=cell_writes)
         if nested:
             db.execute(f"RELEASE SAVEPOINT {savepoint}")
-        if commit:
+        if commit and not nested:
             db.commit()
         return row_ids
     except BaseException:
