@@ -184,7 +184,7 @@ def test_partial_vector_cache_loss_recovers_paid_full_batch(
     router, adapter = _remote_embedding_router()
     quote = execute(router=router, options={"method": "semantic"})
     confirmation = quote.errors[0].details["promise_set_hash"]
-    original = semantic._sidecar
+    original = semantic._vector_cache
 
     class BrokenCache:
         def __init__(self, db):
@@ -197,7 +197,7 @@ def test_partial_vector_cache_loss_recovers_paid_full_batch(
             self.db.rollback()
             raise sqlite3.OperationalError("cache write failed")
 
-    monkeypatch.setattr(semantic, "_sidecar", lambda p: BrokenCache(original(p)))
+    monkeypatch.setattr(semantic, "_vector_cache", lambda p: BrokenCache(original(p)))
     with pytest.raises(sqlite3.OperationalError, match="cache write failed"):
         execute(
             router=router, options={"method": "semantic"}, confirmation=confirmation
@@ -207,7 +207,7 @@ def test_partial_vector_cache_loss_recovers_paid_full_batch(
         project.db.execute("SELECT state FROM effect_checkpoints").fetchone()[0]
         == "returned"
     )
-    monkeypatch.setattr(semantic, "_sidecar", original)
+    monkeypatch.setattr(semantic, "_vector_cache", original)
     db = original(project)
     db.execute(
         "INSERT INTO cell_vec(key,vec) VALUES (?,?)",

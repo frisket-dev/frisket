@@ -793,7 +793,7 @@ def test_semantic_cluster_sidecar_commit_failure_reconciles_without_second_call(
         confirmed = copy.deepcopy(action)
         confirmed["confirmation"] = quote.errors[0].details["promise_set_hash"]
 
-        real_sidecar = semantic._sidecar  # noqa: SLF001
+        real_sidecar = semantic._vector_cache  # noqa: SLF001
         fail_next = True
 
         def _sidecar_with_one_failed_commit(project_: Project):
@@ -804,7 +804,7 @@ def test_semantic_cluster_sidecar_commit_failure_reconciles_without_second_call(
             fail_next = False
             return _FailFirstCommit(db)
 
-        monkeypatch.setattr(semantic, "_sidecar", _sidecar_with_one_failed_commit)
+        monkeypatch.setattr(semantic, "_vector_cache", _sidecar_with_one_failed_commit)
         original_context = {
             "funding_account_id": 17,
             "reservation_id": "embedding-reservation",
@@ -942,7 +942,7 @@ def test_semantic_cluster_retry_matches_checkpoints_to_stable_batches(
         confirmed = copy.deepcopy(action)
         confirmed["confirmation"] = quote.errors[0].details["promise_set_hash"]
 
-        real_sidecar = semantic._sidecar  # noqa: SLF001
+        real_sidecar = semantic._vector_cache  # noqa: SLF001
         fail_next = True
 
         class _FailAfterBothBatches:
@@ -965,7 +965,7 @@ def test_semantic_cluster_retry_matches_checkpoints_to_stable_batches(
 
         monkeypatch.setattr(
             semantic,
-            "_sidecar",
+            "_vector_cache",
             lambda project_: _FailAfterBothBatches(real_sidecar(project_)),
         )
         with pytest.raises(
@@ -988,7 +988,7 @@ def test_semantic_cluster_retry_matches_checkpoints_to_stable_batches(
 
         # Reproduce an arbitrary partial sidecar landing: only the first 250
         # values from planned batch 0 are cached before the exact retry.
-        monkeypatch.setattr(semantic, "_sidecar", real_sidecar)
+        monkeypatch.setattr(semantic, "_vector_cache", real_sidecar)
         sidecar = real_sidecar(project)
         sidecar.execute("DELETE FROM cell_vec")
         sidecar.executemany(
@@ -1289,7 +1289,7 @@ def test_recovery_binds_returned_vectors_to_actual_admitted_operation(
         action = _cluster_action(seeded["sheet_id"], method="semantic")
         quote = run_action_spec(project, action, project_id="binding", router=router)
         action["confirmation"] = quote.errors[0].details["promise_set_hash"]
-        original_sidecar = semantic._sidecar
+        original_sidecar = semantic._vector_cache
 
         class FailedCommit:
             def __init__(self, db):
@@ -1304,7 +1304,7 @@ def test_recovery_binds_returned_vectors_to_actual_admitted_operation(
                 raise sqlite3.OperationalError("interrupted vector-cache commit")
 
         monkeypatch.setattr(
-            semantic, "_sidecar", lambda p: FailedCommit(original_sidecar(p))
+            semantic, "_vector_cache", lambda p: FailedCommit(original_sidecar(p))
         )
         with pytest.raises(sqlite3.OperationalError, match="interrupted vector-cache"):
             run_action_spec(project, action, project_id="binding", router=router)
@@ -1331,7 +1331,7 @@ def test_recovery_binds_returned_vectors_to_actual_admitted_operation(
                 (json.dumps(payload), checkpoint["id"]),
             )
         project.db.commit()
-        monkeypatch.setattr(semantic, "_sidecar", original_sidecar)
+        monkeypatch.setattr(semantic, "_vector_cache", original_sidecar)
         _recover_abandoned_cluster(project, action, router=router, project_id="binding")
         retried = run_action_spec(project, action, project_id="binding", router=router)
         assert len(adapter.calls) == 1

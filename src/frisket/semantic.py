@@ -401,9 +401,14 @@ def _store_vectors(
     try:
         db.executemany("INSERT OR REPLACE INTO cell_vec (key, vec) VALUES (?, ?)", rows)
         db.commit()
-    except sqlite3.OperationalError:
+    except sqlite3.OperationalError as exc:
         # These vectors remain usable in memory. Index maintenance must never
         # delay a completed model call just to populate a disposable cache.
+        if getattr(exc, "sqlite_errorcode", 0) & 0xFF not in {
+            sqlite3.SQLITE_BUSY,
+            sqlite3.SQLITE_LOCKED,
+        }:
+            raise
         db.rollback()
 
 

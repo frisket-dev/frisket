@@ -1294,7 +1294,7 @@ def test_remote_semantic_join_retry_refuses_to_rebuy_fact_without_cached_vectors
         cache_mode="off",
         use_env_keys=False,
     )
-    real_sidecar = semantic_module._sidecar
+    real_sidecar = semantic_module._vector_cache
     failed_once = False
 
     class FailAfterFactBeforeVectors:
@@ -1320,7 +1320,7 @@ def test_remote_semantic_join_retry_refuses_to_rebuy_fact_without_cached_vectors
         failed_once = True
         return FailAfterFactBeforeVectors(db)
 
-    monkeypatch.setattr(semantic_module, "_sidecar", fail_first_sidecar_write)
+    monkeypatch.setattr(semantic_module, "_vector_cache", fail_first_sidecar_write)
     request = _request(
         source_sheet,
         target_sheet,
