@@ -151,7 +151,7 @@ def test_cancel_intent_stops_next_job_without_deleting_committed_rows(tmp_path):
 
 
 def test_completed_retry_schedules_metadata_without_reimporting(tmp_path, monkeypatch):
-    setup_import(tmp_path, sealed=True)
+    _envelope, directory = setup_import(tmp_path, sealed=True)
     with closing(SqliteJobQueue(tmp_path / "queue.db")) as queue:
         original_enqueue = queue.enqueue
 
@@ -173,6 +173,14 @@ def test_completed_retry_schedules_metadata_without_reimporting(tmp_path, monkey
             session = ImportSessionStore(project).get(REF)
             assert session.state == "completed"
             assert project.row_count(session.sheet_id) == 5
+        with ImportInventory(directory / "inventory.db") as inventory:
+            assert inventory.totals() == {"count": 5, "bytes": 40}
+            assert inventory.through == 5
+            assert inventory.page(limit=1) == []
+        stale = enqueue(queue, 5)
+        while queue.get(stale).status == "queued":
+            assert worker.run_once()
+        assert queue.get(stale).status == "done", queue.get(stale).error
         assert any(job.kind == BLOB_METADATA_KIND for job in queue.list_jobs())
 
 

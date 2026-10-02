@@ -124,6 +124,18 @@ def import_worker_lock(directory: Path, *, timeout: float = -1) -> BaseFileLock:
     return FileLock(str(directory / ".worker.lock"), timeout=timeout)
 
 
+def compact_terminal_inventory(directory: Path) -> None:
+    """Seal and compact an inventory after its owner reaches a final state.
+
+    Callers must hold both the admission and worker locks so no upload, page,
+    or resolution can overlap the destructive removal of item facts.
+    """
+
+    with ImportInventory(directory / "inventory.db") as inventory:
+        inventory.seal()
+        inventory.compact_terminal()
+
+
 def append_inventory_batch(
     inventory: ImportInventory,
     batch_id: str,
@@ -173,8 +185,8 @@ def append_inventory_batch(
             raise ValueError("import batch must contain at least one item")
         db.execute(
             "UPDATE inventory_meta SET item_count=item_count+?,"
-            "total_bytes=total_bytes+? WHERE singleton=1",
-            (count, total_bytes),
+            "total_bytes=total_bytes+?,through_ordinal=? WHERE singleton=1",
+            (count, total_bytes, through),
         )
         db.execute(
             "INSERT INTO inventory_batches "
@@ -244,6 +256,7 @@ def inventory_item_from_staged(item: Mapping[str, Any]) -> dict[str, Any]:
 __all__ = [
     "ImportIntakeHeader",
     "append_inventory_batch",
+    "compact_terminal_inventory",
     "import_admit_lock",
     "import_intake_dir",
     "import_worker_lock",

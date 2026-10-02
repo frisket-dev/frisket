@@ -7,6 +7,8 @@ from frisket.engine.jobs import HandlerRegistry, Worker
 from frisket.engine.jobs.import_files import register_import_files_handler
 from frisket.engine.jobs.queue import BLOB_METADATA_KIND
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.store.import_intake import import_intake_dir
+from frisket.engine.store.import_inventory import ImportInventory
 from frisket.server.app import create_app
 
 
@@ -64,6 +66,13 @@ def test_http_import_worker_and_user_resolution(tmp_path, finish):
     status = client.get(session_url).json()
     assert status["state"] == expected_state
     project = ws.get(pid)
+    with ImportInventory(
+        import_intake_dir(project.path, ref) / "inventory.db"
+    ) as inventory:
+        assert inventory.totals() == {"count": 2, "bytes": 24}
+        assert inventory.through == 2
+        assert inventory.sealed
+        assert inventory.page(limit=1) == []
     assert project.row_count(sheet) == (0 if finish == "remove" else 2)
     receipt_id = project.db.execute(
         "SELECT receipt_id FROM import_sessions WHERE id=?", (ref,)
