@@ -781,6 +781,8 @@ def materialized_row_sources_ref(
                 role,
             ) in normalized
         ]
+    else:
+        ref["storage"] = "normalized_relation_v1"
     return ref
 
 
@@ -1017,11 +1019,14 @@ def materialized_row_sources_ref_matches(
 ) -> bool:
     if ref.get("kind") != "materialized_row_sources":
         return False
+    has_embedded_rows = "rows" in ref
+    if not has_embedded_rows and ref.get("storage") != "normalized_relation_v1":
+        return False
     try:
         normalized = _normalized_materialized_row_sources(rows)
         ref_rows = (
             _normalized_materialized_row_sources(ref.get("rows") or [])
-            if "rows" in ref
+            if has_embedded_rows
             else None
         )
     except (KeyError, TypeError, ValueError):

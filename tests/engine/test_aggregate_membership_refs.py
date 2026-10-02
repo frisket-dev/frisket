@@ -60,7 +60,8 @@ def test_aggregate_membership_ref_uses_the_stored_relation(tmp_path: Path) -> No
         ref = write.materialized_row_sources_ref
         stored = load_materialized_row_sources_for_op(project.db, op_id=write.op_id)
 
-        assert set(ref) == {"kind", "op_id", "row_count", "sha256"}
+        assert set(ref) == {"kind", "op_id", "row_count", "sha256", "storage"}
+        assert ref["storage"] == "normalized_relation_v1"
         assert ref["row_count"] == len(row_ids)
         assert materialized_row_sources_ref_matches(ref, stored)
     finally:
@@ -95,7 +96,12 @@ def test_old_embedded_refs_stay_strict_and_contributor_refs_keep_rows(
         aggregate = _write_aggregate(project, sheet_id, row_ids)
         stored = load_materialized_row_sources_for_op(project.db, op_id=aggregate.op_id)
         old_ref = {**aggregate.materialized_row_sources_ref, "rows": stored}
+        old_ref.pop("storage")
         assert materialized_row_sources_ref_matches(old_ref, stored)
+
+        missing_rows_legacy_ref = copy.deepcopy(old_ref)
+        missing_rows_legacy_ref.pop("rows")
+        assert not materialized_row_sources_ref_matches(missing_rows_legacy_ref, stored)
 
         changed_ref = copy.deepcopy(old_ref)
         changed_ref["rows"][0]["source_row_id"] = row_ids[1]
