@@ -1,3 +1,4 @@
+import hashlib
 import json
 from pathlib import Path
 
@@ -45,6 +46,23 @@ def test_reclaims_old_metadata_less_files_but_preserves_metadata_less_roots(proj
     assert path_for(project, live).exists()
     assert not path_for(project, orphan).exists()
     assert reclaim_local_blobs(project, dry_run=False)["blobs_removed"] == 0
+
+
+def test_normal_gc_marks_only_registered_hashes_but_offline_marks_all_roots(project):
+    from frisket.engine.store.project_blobs import _live_blob_hashes
+
+    known = project.add_blob(b"registered")
+    unknown = [hashlib.sha256(str(i).encode()).hexdigest() for i in range(1200)]
+    root(project, " ".join([known, *unknown]))
+    with _live_blob_hashes(project) as db:
+        assert [
+            row[0] for row in db.execute("SELECT hash FROM temp.gc_live_blob_hashes")
+        ] == [known]
+    with _live_blob_hashes(project, strict=True) as db:
+        assert (
+            db.execute("SELECT count(*) FROM temp.gc_live_blob_hashes").fetchone()[0]
+            == 1201
+        )
 
 
 def test_malformed_ownership_aborts_before_deleting_even_without_metadata(project):

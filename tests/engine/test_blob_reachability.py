@@ -323,9 +323,9 @@ def test_delete_sheet_streams_surviving_roots_in_bounded_batches(project, monkey
     original = project_blobs._insert_live_hashes
     observed = []
 
-    def bounded_insert(db, batch):
+    def bounded_insert(db, batch, *, known_only=True):
         observed.append(len(batch))
-        return original(db, batch)
+        return original(db, batch, known_only=known_only)
 
     def forbid_set():
         raise AssertionError("GC must not materialize its compatibility hash set")

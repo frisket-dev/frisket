@@ -229,20 +229,23 @@ _ROOT_BATCH_SIZE = 512
 _logger = logging.getLogger(__name__)
 
 
-def _mark_hashes(db: sqlite3.Connection, hashes) -> None:
+def _mark_hashes(db: sqlite3.Connection, hashes, *, known_only: bool = True) -> None:
     """Indexed membership, bounded Python memory, no corpus-sized known set."""
     batch: set[str] = set()
     for digest in hashes:
         batch.add(digest)
         if len(batch) >= _ROOT_BATCH_SIZE:
-            _insert_live_hashes(db, batch)
+            _insert_live_hashes(db, batch, known_only=known_only)
             batch.clear()
-    _insert_live_hashes(db, batch)
+    _insert_live_hashes(db, batch, known_only=known_only)
 
 
-def _insert_live_hashes(db: sqlite3.Connection, hashes) -> None:
+def _insert_live_hashes(
+    db: sqlite3.Connection, hashes, *, known_only: bool = True
+) -> None:
     db.executemany(
-        "INSERT OR IGNORE INTO temp.gc_live_blob_hashes(hash) VALUES (?)",
+        "INSERT OR IGNORE INTO temp.gc_live_blob_hashes(hash) "
+        + ("SELECT hash FROM blobs WHERE hash=?" if known_only else "VALUES (?)"),
         ((digest,) for digest in hashes),
     )
 
@@ -411,8 +414,9 @@ def _populate_live_blob_hashes(project: Any, *, strict: bool = False) -> None:
                 for text in _retained_payloads(db)
                 for match in _HASH_CANDIDATE.finditer(text)
             ),
+            known_only=not strict,
         )
-        _mark_hashes(db, _import_hashes(project))
+        _mark_hashes(db, _import_hashes(project), known_only=not strict)
     except (
         ValueError,
         TypeError,
@@ -439,15 +443,28 @@ def _populate_live_blob_hashes(project: Any, *, strict: bool = False) -> None:
             for text in _root_texts(db)
             for match in _HASH_CANDIDATE.finditer(text)
         ),
+        known_only=not strict,
     )
     db.execute(
-        "INSERT OR IGNORE INTO temp.gc_live_blob_hashes SELECT blob_hash FROM source_artifacts WHERE blob_hash IS NOT NULL"
+        "INSERT OR IGNORE INTO temp.gc_live_blob_hashes "
+        + (
+            "SELECT blob_hash FROM source_artifacts WHERE blob_hash IS NOT NULL"
+            if strict
+            else "SELECT b.hash FROM source_artifacts a JOIN blobs b ON b.hash=a.blob_hash"
+        )
     )
-    db.execute("""WITH RECURSIVE reachable(hash) AS (
+    db.execute(
+        """WITH RECURSIVE reachable(hash) AS (
         SELECT hash FROM temp.gc_live_blob_hashes
         UNION SELECT d.source_hash FROM blob_derivations d JOIN reachable r ON d.derived_hash=r.hash
     ) INSERT OR IGNORE INTO temp.gc_live_blob_hashes
-      SELECT hash FROM reachable""")
+    """
+        + (
+            "SELECT hash FROM reachable"
+            if strict
+            else "SELECT r.hash FROM reachable r JOIN blobs b ON b.hash=r.hash"
+        )
+    )
 
 
 @contextmanager
