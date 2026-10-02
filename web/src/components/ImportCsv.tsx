@@ -20,6 +20,7 @@ import {
   importFollowTheMoney,
   importUrls,
   importXlsx,
+  snapshotImportFiles,
   uploadFilesToImportSession,
   executeBulkImport,
   planBulkImport,
@@ -781,13 +782,11 @@ function useImportUpload({ onError }: ImportHandlers) {
                 setSessionBusy(true);
                 setImportSessionBrowserUploading(session.import_ref, true);
                 try {
-                  const logicalPaths = list.map(logicalPathForImport);
-                  await rememberImportSessionFiles(session.import_ref, list, logicalPaths);
+                  await rememberImportSessionFiles(session.import_ref, list);
                   const status = await uploadFilesToImportSession(
                     projectId,
                     session,
                     list,
-                    logicalPaths,
                   );
                   notifyImportSessionChanged();
                   return {
@@ -1548,7 +1547,7 @@ function OpenImportWorkspaceSession({
           style={{ display: 'none' }}
           data-testid={mode === 'csv' ? 'import-csv-input' : 'import-file-input'}
           onChange={(e) => {
-            const files = Array.from(e.target.files ?? []);
+            const files = snapshotImportFiles(e.target.files);
             const selectedFile = files[0];
             if (directSelectionNeedsBulkPlan(files)) {
               resetCsvPreview();
@@ -1583,7 +1582,7 @@ function OpenImportWorkspaceSession({
           style={{ display: 'none' }}
           data-testid="import-folder-input"
           onChange={(e) => {
-            const files = Array.from(e.target.files ?? []);
+            const files = snapshotImportFiles(e.target.files);
             resetCsvPreview();
             if (attachmentSelectionUsesSession(files)) {
               resetBulkPlan();
@@ -2951,7 +2950,7 @@ export function ImportDropzone(props: ImportHandlers & {
     e.preventDefault();
     setOver(false);
     if (rich.busy || previewing) return;
-    const files = Array.from(e.dataTransfer.files);
+    const files = snapshotImportFiles(e.dataTransfer.files);
     const dropMode = inferDroppedFileMode(files, 'csv');
     if (
       ftmImportEnabled

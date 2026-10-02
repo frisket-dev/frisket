@@ -1,3 +1,5 @@
+import { importFileLogicalPath } from '../api/open';
+
 const browserUploads = new Set<string>();
 const listeners = new Set<() => void>();
 let version = 0;
@@ -12,11 +14,11 @@ function yieldToBrowser(): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, 0));
 }
 
-async function selectionSignature(files: File[], logicalPaths: string[]): Promise<string> {
+async function selectionSignature(files: File[]): Promise<string> {
   let hash = 0x811c9dc5;
   for (let index = 0; index < files.length; index += 1) {
     const file = files[index];
-    const value = `${logicalPaths[index]}\0${file.size}\0${file.lastModified}\0${file.type}\n`;
+    const value = `${importFileLogicalPath(file)}\0${file.size}\0${file.lastModified}\0${file.type}\n`;
     for (let offset = 0; offset < value.length; offset += 1) {
       hash = Math.imul(hash ^ value.charCodeAt(offset), 0x01000193);
     }
@@ -34,11 +36,10 @@ export function isDirectorySelection(files: File[]): boolean {
 export async function rememberImportSessionFiles(
   importRef: string,
   files: File[],
-  logicalPaths: string[],
 ): Promise<void> {
   try {
     const kind = isDirectorySelection(files) ? 'directory' : 'files';
-    localStorage.setItem(selectionKey(importRef), `${kind}:${await selectionSignature(files, logicalPaths)}`);
+    localStorage.setItem(selectionKey(importRef), `${kind}:${await selectionSignature(files)}`);
   } catch {
     // Admission still works when browser storage is disabled; only safe
     // re-selection after a reload is unavailable.
@@ -56,10 +57,9 @@ export function rememberedImportSelection(importRef: string): string | null {
 export async function matchesImportSelection(
   remembered: string | null,
   files: File[],
-  logicalPaths: string[],
 ): Promise<boolean> {
   const kind = isDirectorySelection(files) ? 'directory' : 'files';
-  return remembered === `${kind}:${await selectionSignature(files, logicalPaths)}`;
+  return remembered === `${kind}:${await selectionSignature(files)}`;
 }
 
 export function forgetImportSelection(importRef: string): void {

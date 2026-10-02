@@ -16,6 +16,10 @@ vi.mock('../../src/api/open', () => ({
   resolveImportSession,
   resumeImportSession,
   uploadFilesToImportSession,
+  snapshotImportFiles: (files: FileList | null) => Array.from(files ?? []),
+  importFileLogicalPath: (file: File) => (
+    (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name
+  ),
 }));
 
 import {
@@ -73,7 +77,7 @@ describe('persistent import progress', () => {
     listImportSessions.mockResolvedValue({ sessions: [admitting] });
     const file = new File(['one'], 'one.pdf');
     Object.defineProperty(file, 'webkitRelativePath', { value: 'folder/one.pdf' });
-    await rememberImportSessionFiles('import-1', [file], ['folder/one.pdf']);
+    await rememberImportSessionFiles('import-1', [file]);
     setImportSessionBrowserUploading('import-1', true);
     render(<ImportProgress projectId="project-1" onOpenSheet={vi.fn()} />);
 
@@ -114,7 +118,7 @@ describe('persistent import progress', () => {
       finishUpload = () => resolve({ ...admitting, state: 'running', sealed: true });
     }));
     const file = new File(['one'], 'one.pdf');
-    await rememberImportSessionFiles('import-1', [file], ['one.pdf']);
+    await rememberImportSessionFiles('import-1', [file]);
     render(<ImportProgress projectId="project-1" onOpenSheet={vi.fn()} />);
 
     await screen.findByText(/Upload was interrupted/);

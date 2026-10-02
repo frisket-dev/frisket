@@ -8,7 +8,7 @@ vi.mock('pluralize', () => ({
   }),
 }));
 
-import { ApiError, cancelImportSession, chunkImportFiles, confirmImportRowsDraft, createImportSession, detectPastedRowsDraft, importCsv, importFiles, importPdf, importXlsx, importUrls, listImportSessions, previewCsv, previewImportRowUpdates, resolveImportSession, resumeImportSession, sealImportSession, seedSampleProject, uploadFilesToImportSession, uploadImportSessionFiles } from '../../src/api/open';
+import { ApiError, cancelImportSession, chunkImportFiles, confirmImportRowsDraft, createImportSession, detectPastedRowsDraft, importCsv, importFiles, importPdf, importXlsx, importUrls, listImportSessions, previewCsv, previewImportRowUpdates, resolveImportSession, resumeImportSession, sealImportSession, seedSampleProject, snapshotImportFiles, uploadFilesToImportSession, uploadImportSessionFiles } from '../../src/api/open';
 import {
   createOnboardingImportsApi,
   type OnboardingImportOptions,
@@ -71,8 +71,11 @@ describe('onboarding/import generated HTTP contracts', () => {
       ...Array.from({ length: 257 }, (_, index) => new File(['x'], `${index}.txt`)),
     ];
     const paths = files.map((file) => `folder/${file.name}`);
+    files.forEach((file, index) => {
+      Object.defineProperty(file, 'webkitRelativePath', { value: paths[index] });
+    });
 
-    const chunks = Array.from(chunkImportFiles(files, paths));
+    const chunks = Array.from(chunkImportFiles(files));
 
     expect(chunks.map((chunk) => chunk.files.length)).toEqual([1, 256, 1]);
     expect(chunks.map((chunk) => chunk.start)).toEqual([0, 1, 257]);
@@ -81,45 +84,41 @@ describe('onboarding/import generated HTTP contracts', () => {
 
   it('continues chunking after the server inventory cursor without resending admitted files', () => {
     const files = Array.from({ length: 5 }, (_, index) => new File(['x'], `${index}.txt`));
-    const chunks = Array.from(chunkImportFiles(files, files.map((file) => file.name), 3));
+    const chunks = Array.from(chunkImportFiles(files, 3));
     expect(chunks).toHaveLength(1);
     expect(chunks[0].start).toBe(3);
     expect(chunks[0].files.map((file) => file.name)).toEqual(['3.txt', '4.txt']);
   });
 
-  it('builds only the first bounded chunk for a 100k-file selection', () => {
-    const touched = new Set<number>();
-    const files = new Proxy(
-      { length: 100_000 } as File[],
+  it('snapshots a transient 100k-file picker once before lazy bounded upload', () => {
+    let available = true;
+    let reads = 0;
+    const pickerFiles = new Proxy(
+      { length: 100_000 } as FileList,
       {
         get(target, property, receiver) {
           if (typeof property === 'string' && /^\d+$/.test(property)) {
             const index = Number(property);
-            touched.add(index);
-            return { name: `${index}.txt`, size: 1 } as File;
+            reads += 1;
+            return available ? { name: `${index}.txt`, size: 1 } as File : undefined;
           }
           return Reflect.get(target, property, receiver);
         },
       },
     );
-    const paths = new Proxy(
-      { length: 100_000 } as string[],
-      {
-        get(target, property, receiver) {
-          if (typeof property === 'string' && /^\d+$/.test(property)) return `folder/${property}.txt`;
-          return Reflect.get(target, property, receiver);
-        },
-      },
-    );
-    const iterator = chunkImportFiles(files, paths);
+    const files = snapshotImportFiles(pickerFiles);
+    available = false; // Clearing a real input invalidates its browser-owned FileList.
+    const iterator = chunkImportFiles(files);
 
     const first = iterator.next();
 
+    expect(reads).toBe(100_000);
+    expect(files).toHaveLength(100_000);
     expect(first.done).toBe(false);
     expect(first.value?.files).toHaveLength(256);
     expect(first.value?.start).toBe(0);
-    expect(touched.size).toBe(257);
-    expect(Math.max(...touched)).toBe(256);
+    expect(first.value?.files[0].name).toBe('0.txt');
+    expect(first.value?.files[255].name).toBe('255.txt');
   });
 
   it('stops resumable admission after an aborted chunk without constructing later chunks', async () => {
@@ -138,7 +137,7 @@ describe('onboarding/import generated HTTP contracts', () => {
     };
 
     await expect(uploadFilesToImportSession(
-      'project-1', session, files, files.map((file) => file.name), { signal: controller.signal },
+      'project-1', session, files, { signal: controller.signal },
     )).rejects.toMatchObject({ name: 'AbortError' });
 
     expect(requests).toHaveLength(1);
