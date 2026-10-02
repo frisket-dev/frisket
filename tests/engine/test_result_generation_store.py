@@ -15,6 +15,7 @@ from frisket.engine.store.result_generations import (
     ResultGenerationStore,
 )
 from frisket.engine.store.runs import RunResultStore
+from frisket.execution.attempt import StaleAttemptWriter
 from helpers import RunWriterAuthorityFixture, run_writer_authority_fixture
 
 
@@ -532,6 +533,198 @@ def test_deferred_fresh_generation_stays_unpublished_until_seal(
             "deferred"
         )
     finally:
+        project.close()
+
+
+def test_result_publication_rolls_back_callback_result_and_head_together(
+    tmp_path: Path,
+) -> None:
+    project, sheet_id, output_column_id, row_ids = _seed_project(tmp_path)
+    generations = ResultGenerationStore(project)
+    claimed_run = _start_claimed_run(
+        project,
+        sheet_id=sheet_id,
+        output_column_id=output_column_id,
+        row_ids=row_ids[:1],
+        label="publication callback rollback",
+    )
+    try:
+        _declare(generations, claimed_run, output_column_id, write_mode="create")
+
+        def fail_after_evidence_write() -> None:
+            project.db.execute(
+                "UPDATE runs SET error_summary='evidence started' WHERE id=?",
+                (claimed_run.run_id,),
+            )
+            raise RuntimeError("evidence unavailable")
+
+        with pytest.raises(RuntimeError, match="evidence unavailable"):
+            RunResultStore(project).publish_result_batch(
+                claimed_run.run_id,
+                [
+                    {
+                        "row_id": row_ids[0],
+                        "column_id": output_column_id,
+                        "value": "must roll back",
+                        "publication_effect": "publish_value",
+                    }
+                ],
+                writer_attempt_id=claimed_run.authority.writer_attempt_id,
+                claim_token=claimed_run.authority.claim_token,
+                claimless_direct_effect=claimed_run.authority.claimless_direct_effect,
+                authorized_attempt_id=claimed_run.authority.writer_attempt_id,
+                evidence_writer=fail_after_evidence_write,
+            )
+
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM results WHERE run_id=?", (claimed_run.run_id,)
+            ).fetchone()[0]
+            == 0
+        )
+        assert generations.read_cell_heads(output_column_id) == {}
+        assert (
+            project.db.execute(
+                "SELECT error_summary FROM runs WHERE id=?", (claimed_run.run_id,)
+            ).fetchone()[0]
+            is None
+        )
+    finally:
+        _release(project, claimed_run)
+        project.close()
+
+
+def test_result_publication_keeps_writer_fence_before_callback(
+    tmp_path: Path,
+) -> None:
+    project, sheet_id, output_column_id, row_ids = _seed_project(tmp_path)
+    generations = ResultGenerationStore(project)
+    claimed_run = _start_claimed_run(
+        project,
+        sheet_id=sheet_id,
+        output_column_id=output_column_id,
+        row_ids=row_ids[:1],
+        label="publication writer fence",
+    )
+    try:
+        _declare(generations, claimed_run, output_column_id, write_mode="create")
+        callback_called = False
+
+        def write_evidence() -> None:
+            nonlocal callback_called
+            callback_called = True
+
+        with pytest.raises(StaleAttemptWriter):
+            RunResultStore(project).publish_result_batch(
+                claimed_run.run_id,
+                [
+                    {
+                        "row_id": row_ids[0],
+                        "column_id": output_column_id,
+                        "value": "refused",
+                        "publication_effect": "publish_value",
+                    }
+                ],
+                writer_attempt_id=claimed_run.authority.writer_attempt_id,
+                claim_token="output-claim:wrong",
+                authorized_attempt_id=claimed_run.authority.writer_attempt_id,
+                evidence_writer=write_evidence,
+            )
+
+        assert callback_called is False
+        assert generations.read_cell_heads(output_column_id) == {}
+    finally:
+        _release(project, claimed_run)
+        project.close()
+
+
+def test_checkpoint_result_publication_defers_heads_until_seal(
+    tmp_path: Path,
+) -> None:
+    project, sheet_id, output_column_id, row_ids = _seed_project(tmp_path)
+    generations = ResultGenerationStore(project)
+    claimed_run = _start_claimed_run(
+        project,
+        sheet_id=sheet_id,
+        output_column_id=output_column_id,
+        row_ids=row_ids[:1],
+        label="checkpoint deferred publication",
+    )
+    store = RunResultStore(project)
+    checkpoint_id = "checkpoint-deferred-publication"
+    checkpoint_identity = "deferred-publication"
+    batch = [
+        {
+            "row_id": row_ids[0],
+            "column_id": output_column_id,
+            "value": "deferred checkpoint",
+            "publication_effect": "publish_value",
+        }
+    ]
+    try:
+        _declare(
+            generations,
+            claimed_run,
+            output_column_id,
+            write_mode="create",
+            defer_publication=True,
+        )
+        assert store.reserve_row_effect_checkpoint(
+            checkpoint_id,
+            run_id=claimed_run.run_id,
+            row_id=row_ids[0],
+            action_kind="map.regex_extract",
+            identity=checkpoint_identity,
+            authorized_attempt_id=claimed_run.authority.writer_attempt_id,
+            writer_attempt_id=claimed_run.authority.writer_attempt_id,
+            claim_token=claimed_run.authority.claim_token,
+        )
+        store.complete_row_effect_checkpoint(
+            checkpoint_id,
+            run_id=claimed_run.run_id,
+            row_id=row_ids[0],
+            action_kind="map.regex_extract",
+            identity=checkpoint_identity,
+            batch=batch,
+            replay_response={"value": {"value": "deferred checkpoint"}},
+            writer_attempt_id=claimed_run.authority.writer_attempt_id,
+            claim_token=claimed_run.authority.claim_token,
+        )
+
+        store.publish_result_batch(
+            claimed_run.run_id,
+            batch,
+            writer_attempt_id=claimed_run.authority.writer_attempt_id,
+            claim_token=claimed_run.authority.claim_token,
+            claimless_direct_effect=claimed_run.authority.claimless_direct_effect,
+            checkpoint=(checkpoint_id, row_ids[0], checkpoint_identity),
+            checkpoint_action_kind="map.regex_extract",
+            defer_generation_seal=True,
+            evidence_writer=lambda: project.db.execute(
+                "UPDATE runs SET error_summary='evidence saved' WHERE id=?",
+                (claimed_run.run_id,),
+            ),
+        )
+
+        assert generations.read_cell_heads(output_column_id) == {}
+        assert (
+            project.db.execute(
+                "SELECT error_summary FROM runs WHERE id=?", (claimed_run.run_id,)
+            ).fetchone()[0]
+            == "evidence saved"
+        )
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM effect_checkpoints WHERE id=?", (checkpoint_id,)
+            ).fetchone()[0]
+            == 0
+        )
+        assert _seal(generations, claimed_run, output_column_id) == 1
+        assert generations.read_cell_heads(output_column_id)[row_ids[0]].value == (
+            "deferred checkpoint"
+        )
+    finally:
+        _release(project, claimed_run)
         project.close()
 
 
