@@ -333,14 +333,17 @@ async def test_transport_cleanup_failure_still_closes_stderr(
 @pytest.mark.asyncio
 async def test_call_timeout_and_cancellation_close_the_server_process(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     timeout_events = tmp_path / "timeout.jsonl"
     timeout_client = McpStdioClient(
         _config(tmp_path, scenario="hang_call", events=timeout_events),
-        request_timeout_seconds=0.2,
+        request_timeout_seconds=10,
     )
     async with timeout_client.session() as session:
         timeout_started = await _wait_for_event(timeout_events, "started")
+        # Exercise the tool-call timeout, not interpreter startup under CI load.
+        monkeypatch.setattr(session, "_request_timeout_seconds", 0.2)
         with pytest.raises(McpStdioError) as caught:
             await session.call_tool("inspect_launch", {})
         assert caught.value.code == "mcp_request_timeout"
