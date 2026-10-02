@@ -140,7 +140,7 @@ def test_worker_consumes_uploaded_cursor_then_seal_finalizes_same_receipt(tmp_pa
 def test_worker_restart_reclaims_terminal_inventory_after_cleanup_failure(
     tmp_path, monkeypatch
 ):
-    _envelope, directory = setup_import(tmp_path, sealed=True)
+    envelope, directory = setup_import(tmp_path, sealed=True)
     original_compact = import_files_module.compact_terminal_inventory
     queue_path = tmp_path / "queue.db"
 
@@ -162,6 +162,10 @@ def test_worker_restart_reclaims_terminal_inventory_after_cleanup_failure(
             session = ImportSessionStore(project).get(REF)
             assert session is not None and session.state == "completed"
             assert project.row_count(session.sheet_id) == 5
+            assert (
+                ReceiptStore(project).find_by_id(envelope.receipt_id).status
+                == "completed"
+            )
         with ImportInventory(directory / "inventory.db") as inventory:
             assert len(inventory.page(limit=1)) == 1
 
@@ -182,7 +186,13 @@ def test_worker_restart_reclaims_terminal_inventory_after_cleanup_failure(
         assert inventory.page(limit=1) == []
 
 
-def test_keep_resolution_enqueues_terminal_cleanup_after_failure(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    ("decision", "expected_state"),
+    [("keep", "kept"), ("remove", "removed")],
+)
+def test_resolution_enqueues_one_terminal_cleanup_after_failure(
+    tmp_path, monkeypatch, decision, expected_state
+):
     _envelope, directory = setup_import(tmp_path, sealed=True)
     queue_path = tmp_path / "queue.db"
     original_compact = import_sessions_module.compact_terminal_inventory
@@ -207,8 +217,11 @@ def test_keep_resolution_enqueues_terminal_cleanup_after_failure(tmp_path, monke
                 fail_compaction,
             )
 
-            resolved = service.resolve("files", REF, decision="keep")
-            assert resolved.state == "kept"
+            resolved = service.resolve("files", REF, decision=decision)
+            assert resolved.state == expected_state
+            assert (
+                service.resolve("files", REF, decision=decision).state == expected_state
+            )
             [cleanup_job] = queue.list_project_jobs(
                 "files", kind=IMPORT_FILES_PAGE_KIND
             )
