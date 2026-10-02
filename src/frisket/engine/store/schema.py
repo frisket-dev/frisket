@@ -119,8 +119,8 @@ CREATE TABLE IF NOT EXISTS cells (
   -- CELL_PRODUCER_ID_BEGIN
   producer_id INTEGER REFERENCES base_cell_producers(id) ON DELETE RESTRICT,
   -- CELL_PRODUCER_ID_END
-  PRIMARY KEY (row_id, column_id)
-) WITHOUT ROWID;
+  UNIQUE (row_id, column_id)
+);
 -- CELL_COLUMN_INDEX_BEGIN
 CREATE INDEX IF NOT EXISTS idx_cells_column ON cells(column_id, row_id);
 -- CELL_COLUMN_INDEX_END
@@ -940,7 +940,6 @@ CREATE TABLE IF NOT EXISTS current_cells (
   origin_run_id INTEGER REFERENCES runs(id) ON DELETE CASCADE,
   base_producer_id INTEGER REFERENCES base_cell_producers(id) ON DELETE RESTRICT,
   validity TEXT NOT NULL CHECK (validity IN ('valid', 'missing', 'invalid')),
-  PRIMARY KEY (column_id, row_id),
   CHECK (
     (
       origin_kind='source_cell'
@@ -960,18 +959,18 @@ CREATE TABLE IF NOT EXISTS current_cells (
       AND base_producer_id IS NULL
     )
   )
-) WITHOUT ROWID;
-CREATE INDEX IF NOT EXISTS idx_current_cells_row ON current_cells(row_id);
+);
+CREATE INDEX IF NOT EXISTS idx_current_cells_row
+  ON current_cells(row_id,column_id);
 -- CURRENT_CELLS_END
 
 -- Compact invalidation worklist for the rebuildable search sidecar. IDs are
 -- never reused: sqlite_sequence remains the revision after acknowledged rows
 -- are deleted.
 -- SEARCH_INDEX_WORK_BEGIN
--- Although this repeats the WITHOUT ROWID primary-key order, it is a narrow
--- secondary b-tree: column scans do not pull the projection's value/provenance
--- payload (including overflow pages) through the primary table.
-CREATE INDEX IF NOT EXISTS idx_current_cells_column_row
+-- This named UNIQUE b-tree enforces the visible-cell identity and gives the
+-- indexer a narrow column scan that avoids loading value/provenance payload.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_current_cells_column_row
   ON current_cells(column_id,row_id);
 CREATE TABLE IF NOT EXISTS search_dirty_scopes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

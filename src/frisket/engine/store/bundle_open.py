@@ -66,6 +66,13 @@ _SEARCH_WORK_TO_DIGEST = "frisket.schema.v1:f2d652e33a1633c4367813af3c2d3746"
 _INDEX_HYGIENE_FROM_DIGEST = _SEARCH_WORK_TO_DIGEST
 _INDEX_HYGIENE_TO_DIGEST = "frisket.schema.v1:348c367f3a24a414ba6f1e612e40ea15"
 
+# Large inline values pack poorly in the old index-organized cell tables. The
+# upgrade changes only their physical b-tree representation: copied values and
+# provenance stay exact, and the existing named current-column index remains
+# the search indexer's narrow scan surface.
+_ROWID_CELL_LAYOUT_FROM_DIGEST = _INDEX_HYGIENE_TO_DIGEST
+_ROWID_CELL_LAYOUT_TO_DIGEST = "frisket.schema.v1:f078f2bc57411d372468936618f2f884"
+
 # The frontend fires hot read endpoints (/sheets, /review/queue) concurrently,
 # so two threads can open the same per-project DB at once. Both open-time
 # reconciliations below are read-then-write with no CAS: two threads that both
@@ -102,6 +109,7 @@ def open_bundle(project: Any) -> None:
         _migrate_import_sessions(project.db)
         _migrate_search_work(project.db)
         _migrate_index_hygiene(project.db)
+        _migrate_rowid_cell_layout(project.db)
         require_current_schema(project.db, bundle_path=project.path)
         _reconcile_open_time_policy(project)
 
@@ -516,7 +524,7 @@ def _migrate_search_work(db: sqlite3.Connection) -> None:
             # Pull the exact fresh-schema objects so migration and creation cannot drift.
             from .schema import SCHEMA
 
-            marker = "CREATE INDEX IF NOT EXISTS idx_current_cells_column_row"
+            marker = "CREATE UNIQUE INDEX IF NOT EXISTS idx_current_cells_column_row"
             tail = SCHEMA[SCHEMA.index(marker) :]
             tail = tail[: tail.index("-- SEARCH_INDEX_WORK_END")]
             statement = ""
@@ -558,6 +566,100 @@ def _migrate_index_hygiene(db: sqlite3.Connection) -> None:
             db.execute(
                 "UPDATE meta SET value=? WHERE key=?",
                 (_INDEX_HYGIENE_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
+            )
+        db.commit()
+    except BaseException:
+        db.rollback()
+        raise
+
+
+def _migrate_rowid_cell_layout(db: sqlite3.Connection) -> None:
+    """Repack cell values into rowid tables without changing logical rows.
+
+    The tables have no inbound foreign keys or triggers. Their existing
+    outbound constraints and every value/provenance column are copied before
+    the old tables are replaced, together with the named search scan index.
+    """
+
+    query = "SELECT value FROM meta WHERE key=?"
+    try:
+        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
+    except sqlite3.DatabaseError:
+        return
+    if row is None or row[0] != _ROWID_CELL_LAYOUT_FROM_DIGEST:
+        return
+
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
+        if row is not None and row[0] == _ROWID_CELL_LAYOUT_FROM_DIGEST:
+            # Connection.executescript() commits any pending transaction before
+            # it starts. Execute each complete statement so the table swap and
+            # digest stamp remain one rollback unit.
+            for statement in (
+                """
+                CREATE TABLE cells_rowid_new (
+                  row_id INTEGER NOT NULL REFERENCES rows(id) ON DELETE CASCADE,
+                  column_id INTEGER NOT NULL REFERENCES columns(id) ON DELETE CASCADE,
+                  value TEXT,
+                  producer_id INTEGER REFERENCES base_cell_producers(id) ON DELETE RESTRICT,
+                  UNIQUE (row_id, column_id)
+                )
+                """,
+                """
+                CREATE TABLE current_cells_rowid_new (
+                  column_id INTEGER NOT NULL REFERENCES columns(id) ON DELETE CASCADE,
+                  row_id INTEGER NOT NULL REFERENCES rows(id) ON DELETE CASCADE,
+                  value TEXT,
+                  origin_kind TEXT NOT NULL CHECK (
+                    origin_kind IN ('source_cell', 'run_result', 'manual_edit')
+                  ),
+                  origin_op_id INTEGER REFERENCES ops(id) ON DELETE CASCADE,
+                  origin_run_id INTEGER REFERENCES runs(id) ON DELETE CASCADE,
+                  base_producer_id INTEGER REFERENCES base_cell_producers(id) ON DELETE RESTRICT,
+                  validity TEXT NOT NULL CHECK (validity IN ('valid', 'missing', 'invalid')),
+                  CHECK (
+                    (
+                      origin_kind='source_cell'
+                      AND origin_op_id IS NULL
+                      AND origin_run_id IS NULL
+                    )
+                    OR (
+                      origin_kind='run_result'
+                      AND origin_op_id IS NOT NULL
+                      AND origin_run_id IS NOT NULL
+                      AND base_producer_id IS NULL
+                    )
+                    OR (
+                      origin_kind='manual_edit'
+                      AND origin_op_id IS NOT NULL
+                      AND origin_run_id IS NULL
+                      AND base_producer_id IS NULL
+                    )
+                  )
+                )
+                """,
+                "INSERT INTO cells_rowid_new(row_id,column_id,value,producer_id) "
+                "SELECT row_id,column_id,value,producer_id FROM cells",
+                "INSERT INTO current_cells_rowid_new("
+                "column_id,row_id,value,origin_kind,origin_op_id,origin_run_id,"
+                "base_producer_id,validity"
+                ") SELECT "
+                "column_id,row_id,value,origin_kind,origin_op_id,origin_run_id,"
+                "base_producer_id,validity FROM current_cells",
+                "DROP TABLE cells",
+                "DROP TABLE current_cells",
+                "ALTER TABLE cells_rowid_new RENAME TO cells",
+                "ALTER TABLE current_cells_rowid_new RENAME TO current_cells",
+                "CREATE INDEX idx_cells_column ON cells(column_id,row_id)",
+                "CREATE UNIQUE INDEX idx_current_cells_column_row "
+                "ON current_cells(column_id,row_id)",
+                "CREATE INDEX idx_current_cells_row ON current_cells(row_id,column_id)",
+            ):
+                db.execute(statement)
+            db.execute(
+                "UPDATE meta SET value=? WHERE key=?",
+                (_ROWID_CELL_LAYOUT_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
             )
         db.commit()
     except BaseException:
