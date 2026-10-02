@@ -29,6 +29,38 @@ _REVIEW_METADATA_DDL = (
 )
 
 
+def _without_rowid_cell_layout(schema: str) -> str:
+    """Restore the pre-repack physical DDL used by pinned fixtures."""
+
+    cells = "  UNIQUE (row_id, column_id)\n);"
+    assert schema.count(cells) == 1
+    schema = schema.replace(
+        cells,
+        "  PRIMARY KEY (row_id, column_id)\n) WITHOUT ROWID;",
+    )
+    validity = "  validity TEXT NOT NULL CHECK (validity IN ('valid', 'missing', 'invalid')),\n"
+    assert schema.count(validity) == 1
+    schema = schema.replace(
+        validity,
+        validity + "  PRIMARY KEY (column_id, row_id),\n",
+    )
+    current_cells = (
+        "  )\n);\nCREATE INDEX IF NOT EXISTS idx_current_cells_row\n"
+        "  ON current_cells(row_id,column_id);\n-- CURRENT_CELLS_END"
+    )
+    assert schema.count(current_cells) == 1
+    schema = schema.replace(
+        current_cells,
+        "  )\n) WITHOUT ROWID;\n"
+        "CREATE INDEX IF NOT EXISTS idx_current_cells_row ON current_cells(row_id);\n"
+        "-- CURRENT_CELLS_END",
+    )
+    return schema.replace(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_current_cells_column_row",
+        "CREATE INDEX IF NOT EXISTS idx_current_cells_column_row",
+    )
+
+
 def _with_pre_hygiene_indexes(schema: str) -> str:
     """Restore indexes that existed in every schema fixture below."""
 
@@ -140,7 +172,9 @@ def _a64_bundle(tmp_path):
 
     prior_ddl = (
         _without_project_qa(
-            _without_current_cells_foundation(_without_import_sessions(SCHEMA))
+            _without_current_cells_foundation(
+                _without_rowid_cell_layout(_without_import_sessions(SCHEMA))
+            )
         )
         .replace(
             "  edition_run_context TEXT,\n  consent_principal TEXT",
@@ -203,9 +237,9 @@ def test_a64_bundle_migrates_without_losing_rows_cells_or_runs(tmp_path):
 
 def test_run_review_status_migration_preserves_existing_runs(tmp_path):
     prior_digest = "frisket.schema.v1:b540a83f8325e5cbcd52fc3fac64eeb5"
-    prior_ddl = _without_project_qa_research(_without_import_sessions(SCHEMA)).replace(
-        "  review_completed_at TEXT,\n", ""
-    )
+    prior_ddl = _without_project_qa_research(
+        _without_rowid_cell_layout(_without_import_sessions(SCHEMA))
+    ).replace("  review_completed_at TEXT,\n", "")
     assert schema_digest(prior_ddl) == prior_digest
 
     path = tmp_path / "prior-review-status.frisket"
@@ -294,7 +328,9 @@ def _a62_bundle(tmp_path):
 
     prior_ddl = (
         _without_project_qa(
-            _without_current_cells_foundation(_without_import_sessions(SCHEMA))
+            _without_current_cells_foundation(
+                _without_rowid_cell_layout(_without_import_sessions(SCHEMA))
+            )
         )
         .replace(
             "  edition_run_context TEXT,\n  consent_principal TEXT",

@@ -194,6 +194,20 @@ def test_having_is_numeric_and_denominator_precedes_group_filtering(tmp_path):
         "reason": None,
         "mixed_sign": False,
     }
+
+    off_end = evaluate_analytics(
+        project,
+        {
+            "sheet_id": sheet,
+            "groups": [{"column_id": columns["supplier"]}],
+            "metrics": [{"id": "rows", "kind": "count", "percent_of_total": True}],
+            "offset": 99,
+        },
+        {"kind": "sheet", "sheet_id": sheet},
+    )
+    assert off_end["groups"] == []
+    assert off_end["row_count"] == 6
+    assert off_end["denominators"]["rows"]["value"] == 6
     project.close()
 
 
@@ -222,6 +236,69 @@ def test_overflow_and_pre_cancel_fail_the_whole_analytics_request(tmp_path):
             request,
             {"kind": "sheet", "sheet_id": sheet},
             cancel_event=stopped,
+        )
+    project.close()
+
+
+def test_grouped_float_overflow_hidden_by_having_and_in_denominator_fails(tmp_path):
+    project = Project.create(tmp_path / "grouped-float-overflow.frisket")
+
+    hidden_sheet = project.add_sheet("hidden group overflow")
+    hidden_group = project.add_column(hidden_sheet, "group", type="category")
+    hidden_amount = project.add_column(hidden_sheet, "amount", type="number")
+    project.add_rows(
+        hidden_sheet,
+        [
+            {"group": "overflow", "amount": 1e308},
+            {"group": "overflow", "amount": 1e308},
+            {"group": "kept", "amount": 1.0},
+        ],
+        {"group": hidden_group, "amount": hidden_amount},
+    )
+    hidden_request = AnalyticsRequest.model_validate(
+        {
+            "sheet_id": hidden_sheet,
+            "groups": [{"column_id": hidden_group}],
+            "metrics": [{"id": "sum", "kind": "sum", "column_id": hidden_amount}],
+            "having": [{"metric_id": "sum", "operator": "lt", "value": 10}],
+            "limit": 1,
+        }
+    )
+    with pytest.raises(NumericOverflowError, match="numeric_overflow"):
+        evaluate_analytics(
+            project, hidden_request, {"kind": "sheet", "sheet_id": hidden_sheet}
+        )
+
+    denominator_sheet = project.add_sheet("denominator overflow")
+    denominator_group = project.add_column(denominator_sheet, "group", type="category")
+    denominator_amount = project.add_column(denominator_sheet, "amount", type="number")
+    project.add_rows(
+        denominator_sheet,
+        [
+            {"group": "first", "amount": 1e308},
+            {"group": "second", "amount": 1e308},
+        ],
+        {"group": denominator_group, "amount": denominator_amount},
+    )
+    denominator_request = AnalyticsRequest.model_validate(
+        {
+            "sheet_id": denominator_sheet,
+            "groups": [{"column_id": denominator_group}],
+            "metrics": [
+                {
+                    "id": "sum",
+                    "kind": "sum",
+                    "column_id": denominator_amount,
+                    "percent_of_total": True,
+                }
+            ],
+        }
+    )
+    with pytest.raises(NumericOverflowError, match="numeric_overflow"):
+        evaluate_analytics(
+            project,
+            denominator_request,
+            {"kind": "sheet", "sheet_id": denominator_sheet},
         )
     project.close()
 

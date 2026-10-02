@@ -262,6 +262,14 @@ def _evaluate(
 
     select_fields = ["a.*", *median_joins[0], "d.*"]
     from_sql = "aggregated a " + median_joins[1] + " CROSS JOIN denominators d"
+    base_ctes = list(ctes)
+    finite_checks, finite_params = _finite_checks(request)
+    ctes.append(
+        "validation AS (SELECT COUNT(*) AS invalid_count FROM "
+        + from_sql
+        + (" WHERE " + " OR ".join(finite_checks) if finite_checks else " WHERE 0")
+        + ")"
+    )
     having_sql, having_params = _having_sql(request)
     primary_metric = (
         request.sort[0].metric_id
@@ -278,35 +286,57 @@ def _evaluate(
         + ", ".join(ctes)
         + " SELECT "
         + ", ".join(select_fields)
-        + " FROM "
+        + ", v.invalid_count AS __invalid_count FROM "
         + from_sql
+        + " CROSS JOIN validation v"
         + (" WHERE " + having_sql if having_sql else "")
         + " ORDER BY "
         + order_sql
         + " LIMIT ? OFFSET ?"
     )
-    params = [*source_params, *having_params, request.limit + 1, request.offset]
+    params = [
+        *source_params,
+        *finite_params,
+        *having_params,
+        request.limit + 1,
+        request.offset,
+    ]
     rows = snapshot.db.execute(query, params).fetchall()
-    denominator_row = snapshot.db.execute(
-        "WITH " + ", ".join(ctes) + " SELECT d.* FROM denominators d",
-        source_params,
-    ).fetchone()
+    metadata = (
+        rows[0]
+        if rows
+        else snapshot.db.execute(
+            "WITH "
+            + ", ".join(ctes)
+            + " SELECT d.*, v.invalid_count AS __invalid_count "
+            "FROM denominators d CROSS JOIN validation v",
+            [*source_params, *finite_params],
+        ).fetchone()
+    )
+    if metadata is None:
+        raise AssertionError("analytics query did not return metadata")
     excluded_null_groups = _excluded_null_groups(
-        snapshot.db, ctes, source_params, from_sql, excluded_sql, request, having_params
+        snapshot.db,
+        base_ctes,
+        source_params,
+        from_sql,
+        excluded_sql,
+        request,
+        having_params,
     )
     groups = [
         _result_group(row, request, columns, quality_columns)
         for row in rows[: request.limit]
     ]
-    _assert_query_finite(snapshot.db, ctes, source_params, from_sql, request)
-    denominators = _denominators(denominator_row, request)
+    _assert_finite_count(int(metadata["__invalid_count"]), request)
+    denominators = _denominators(metadata, request)
     _attach_percentages(groups, denominators, request)
     result = {
         "sheet_id": request.sheet_id,
         "scope": scope,
         "filter": request.filter,
         "groups": groups,
-        "row_count": int(denominator_row["full_row_count"]),
+        "row_count": int(metadata["full_row_count"]),
         "has_more": len(rows) > request.limit,
         "excluded_null_groups": excluded_null_groups,
         "denominators": denominators,
@@ -444,7 +474,7 @@ def _base_ctes(
         + " FROM scoped "
         + " ".join(joins)
         + ")",
-        "prepared AS (SELECT " + ", ".join(prepared) + " FROM source)",
+        "prepared AS MATERIALIZED (SELECT " + ", ".join(prepared) + " FROM source)",
     ], [*where_params, *ordered]
 
 
@@ -600,6 +630,8 @@ def _denominator_fields(
             fields.extend(
                 (
                     f"SUM({numeric}) AS d{index}",
+                    f"COALESCE(SUM({_valid_present(request, metric.column_id)}), 0) "
+                    f"AS d{index}_present",
                     f"MIN({numeric}) < 0 AND MAX({numeric}) > 0 AS d{index}_mixed",
                 )
             )
@@ -776,30 +808,32 @@ def _attach_percentages(
             group["percentages"] = percentages
 
 
-def _assert_query_finite(
-    db: sqlite3.Connection,
-    ctes: Sequence[str],
-    source_params: Sequence[Any],
-    from_sql: str,
-    request: AnalyticsRequest,
-) -> None:
-    names = [metric.id for metric in request.metrics if metric.kind in _NUMERIC_METRICS]
-    checks = [
-        f"({_metric_ref(request, metric_id)} IS NOT NULL AND "
-        f"NOT ({_metric_ref(request, metric_id)} BETWEEN ? AND ?))"
-        for metric_id in names
-    ]
-    if not checks:
+def _finite_checks(request: AnalyticsRequest) -> tuple[list[str], list[float]]:
+    checks: list[str] = []
+    bounds: list[float] = []
+    for index, metric in enumerate(request.metrics):
+        if metric.kind not in _NUMERIC_METRICS:
+            continue
+        value = _metric_ref(request, metric.id)
+        pos = _column_pos(request, metric.column_id)
+        checks.append(
+            f"(({value} IS NULL AND a.q{pos}_present > 0) OR "
+            f"({value} IS NOT NULL AND NOT ({value} BETWEEN ? AND ?)))"
+        )
+        bounds.extend((-sys.float_info.max, sys.float_info.max))
+        if metric.kind == "sum" and metric.percent_of_total:
+            denominator = f"d.d{index}"
+            checks.append(
+                f"(({denominator} IS NULL AND d.d{index}_present > 0) OR "
+                f"({denominator} IS NOT NULL AND "
+                f"NOT ({denominator} BETWEEN ? AND ?)))"
+            )
+            bounds.extend((-sys.float_info.max, sys.float_info.max))
+    return checks, bounds
+
+
+def _assert_finite_count(invalid: int, request: AnalyticsRequest) -> None:
+    if not invalid:
         return
-    bounds = [-sys.float_info.max, sys.float_info.max] * len(checks)
-    invalid = db.execute(
-        "WITH "
-        + ", ".join(ctes)
-        + " SELECT COUNT(*) FROM "
-        + from_sql
-        + " WHERE "
-        + " OR ".join(checks),
-        [*source_params, *bounds],
-    ).fetchone()[0]
-    if invalid:
-        raise NumericOverflowError("numeric_overflow: " + ", ".join(names))
+    names = [metric.id for metric in request.metrics if metric.kind in _NUMERIC_METRICS]
+    raise NumericOverflowError("numeric_overflow: " + ", ".join(names))

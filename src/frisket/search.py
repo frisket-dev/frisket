@@ -30,6 +30,7 @@ from typing import Any
 
 from frisket.engine.store import Project
 from frisket.engine.store.project import ProjectReadSnapshot
+from frisket.search_storage import configure_search_connection, ensure_search_schema
 from frisket.search_index import (
     SearchIndexNotReady,
     drain_index,  # noqa: F401 -- public explicit maintenance entry point
@@ -45,7 +46,7 @@ from frisket.search_index import (
 RERANK_MODEL = "Xenova/ms-marco-MiniLM-L-6-v2"
 RERANK_POOL = 50  # second stage runs over the top-50 first-stage candidates
 RERANK_MIN_SPREAD = 1.0  # logits; flatter than this = uninformative, keep stage-1
-FTS_INDEX_CONTENT_VERSION = "3"
+FTS_INDEX_CONTENT_VERSION = "4"
 _rerank_model: Any = None  # lazy fastembed TextCrossEncoder singleton
 
 Scorer = Callable[[str, list[str]], list[float]]
@@ -109,35 +110,13 @@ def rerank_hits(
     return [hits[i] for i in order]
 
 
-SIDECAR_SCHEMA = """
-CREATE VIRTUAL TABLE IF NOT EXISTS cell_fts USING fts5(
-  content, sheet_id UNINDEXED, row_id UNINDEXED, column_id UNINDEXED,
-  column_name UNINDEXED
-);
-CREATE TABLE IF NOT EXISTS fts_state (key TEXT PRIMARY KEY, value TEXT);
-CREATE TABLE IF NOT EXISTS search_cells (
-  id INTEGER PRIMARY KEY,
-  sheet_id INTEGER NOT NULL,
-  column_id INTEGER NOT NULL,
-  row_id INTEGER NOT NULL,
-  source_hash TEXT NOT NULL,
-  UNIQUE(column_id,row_id)
-);
-CREATE INDEX IF NOT EXISTS search_cells_sheet_column
-  ON search_cells(sheet_id,column_id,row_id);
--- semantic-search vector cache: key = sha1(model_id + content), vec = packed
--- float32. Content-addressed, so it never goes stale (edits make new keys) and
--- survives FTS rebuilds; the sidecar stays rebuildable by contract.
-CREATE TABLE IF NOT EXISTS cell_vec (key TEXT PRIMARY KEY, vec BLOB NOT NULL);
-"""
-
-
 def _sidecar(project: SearchProject) -> sqlite3.Connection:
     db = sqlite3.connect(project.path / "project.search.db", check_same_thread=False)
     db.row_factory = sqlite3.Row
+    configure_search_connection(db)
     db.execute("PRAGMA journal_mode=WAL")
     db.execute("PRAGMA busy_timeout=10000")
-    db.executescript(SIDECAR_SCHEMA)
+    ensure_search_schema(db)
     return db
 
 
@@ -151,6 +130,7 @@ def _read_sidecar(project: SearchProject) -> sqlite3.Connection:
     except sqlite3.OperationalError as exc:
         raise SearchIndexNotReady() from exc
     db.row_factory = sqlite3.Row
+    configure_search_connection(db)
     try:
         db.execute("BEGIN")
         # Pin and validate this read transaction even when the caller intends
@@ -237,10 +217,14 @@ def column_ai_flags(project: Project) -> dict[int, bool]:
 
 
 _SEARCH_SQL = (
-    "SELECT sheet_id, row_id, column_id, column_name, "
+    "SELECT cell_fts.rowid AS index_id, sc.sheet_id, sc.row_id, sc.column_id, "
+    "content.column_name, "
     "snippet(cell_fts, 0, '<b>', '</b>', '…', 12) AS snip, "
     "snippet(cell_fts, 0, '', '', '…', 64) AS rerank_text "
-    "FROM cell_fts WHERE cell_fts MATCH ? ORDER BY rank LIMIT ?"
+    "FROM cell_fts "
+    "JOIN search_cells AS sc ON sc.id=cell_fts.rowid "
+    "JOIN search_content AS content ON content.id=cell_fts.rowid "
+    "WHERE cell_fts MATCH ? ORDER BY rank LIMIT ?"
 )
 
 
@@ -260,13 +244,12 @@ def search_project_page(
         pool = max(limit, RERANK_POOL) if rerank != "off" else limit
         # A bounded overfetch tolerates recently changed candidates. Incomplete
         # coverage is explicit; never scan the whole ranked result set to fill a page.
-        sql = _SEARCH_SQL.replace(
-            "SELECT sheet_id", "SELECT rowid AS index_id, sheet_id", 1
-        )
         try:
-            rows = db.execute(sql, (query, min(1000, pool * 4))).fetchall()
+            rows = db.execute(_SEARCH_SQL, (query, min(1000, pool * 4))).fetchall()
         except sqlite3.OperationalError:
-            rows = db.execute(sql, (f'"{query}"', min(1000, pool * 4))).fetchall()
+            rows = db.execute(
+                _SEARCH_SQL, (f'"{query}"', min(1000, pool * 4))
+            ).fetchall()
         hits = []
         texts = []
         for indexed in rows:
@@ -326,6 +309,8 @@ def search_project(
     # A match-centred FTS excerpt is bounded to the FTS5 maximum (64 tokens),
     # avoiding a full-cell Python copy while still letting a late match compete.
     texts = [h.pop("rerank_text") for h in out]
+    for h in out:
+        h.pop("index_id")
     ai_by_column = column_ai_flags(project)
     for h in out:
         h["ai_generated"] = ai_by_column.get(int(h["column_id"]), False)
@@ -335,8 +320,9 @@ def search_project(
 
 
 _SHEET_SEARCH_SQL = (
-    "SELECT row_id FROM cell_fts WHERE cell_fts MATCH ? AND sheet_id=? ORDER BY rank "
-    "LIMIT ?"
+    "SELECT sc.row_id FROM cell_fts "
+    "JOIN search_cells AS sc ON sc.id=cell_fts.rowid "
+    "WHERE cell_fts MATCH ? AND sc.sheet_id=? ORDER BY rank LIMIT ?"
 )
 
 
@@ -397,21 +383,22 @@ def search_cells_scoped(
     authorized: list[str] = []
     params: list[Any] = [query, sheet_id]
     if row_ids:
-        authorized.append("row_id IN (" + ",".join("?" for _ in row_ids) + ")")
+        authorized.append("sc.row_id IN (" + ",".join("?" for _ in row_ids) + ")")
         params.extend(row_ids)
     if cells:
         exact = []
         for row_id, column_id in sorted(cells):
-            exact.append("(row_id=? AND column_id=?)")
+            exact.append("(sc.row_id=? AND sc.column_id=?)")
             params.extend((row_id, column_id))
         authorized.append("(" + " OR ".join(exact) + ")")
     scope = "" if not authorized else " AND (" + " OR ".join(authorized) + ")"
     sql = (
-        "SELECT sheet_id,row_id,column_id,column_name,"
+        "SELECT sc.sheet_id,sc.row_id,sc.column_id,content.column_name,"
         "snippet(cell_fts, 0, ?, ?, '…', 12) AS snip "
-        "FROM cell_fts WHERE cell_fts MATCH ? AND sheet_id=?"
-        + scope
-        + " ORDER BY rank LIMIT ?"
+        "FROM cell_fts "
+        "JOIN search_cells AS sc ON sc.id=cell_fts.rowid "
+        "JOIN search_content AS content ON content.id=cell_fts.rowid "
+        "WHERE cell_fts MATCH ? AND sc.sheet_id=?" + scope + " ORDER BY rank LIMIT ?"
     )
     progress = _cancel_progress(cancel_event)
     if progress is not None:
