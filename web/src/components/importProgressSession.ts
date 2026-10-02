@@ -14,23 +14,19 @@ function yieldToBrowser(): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, 0));
 }
 
-async function selectionSignature(files: File[]): Promise<string> {
+async function selectionIdentity(files: File[]): Promise<string> {
   let hash = 0x811c9dc5;
+  let directory = false;
   for (let index = 0; index < files.length; index += 1) {
     const file = files[index];
+    if ((file as File & { webkitRelativePath?: unknown }).webkitRelativePath) directory = true;
     const value = `${importFileLogicalPath(file)}\0${file.size}\0${file.lastModified}\0${file.type}\n`;
     for (let offset = 0; offset < value.length; offset += 1) {
       hash = Math.imul(hash ^ value.charCodeAt(offset), 0x01000193);
     }
     if ((index + 1) % FINGERPRINT_YIELD_FILES === 0) await yieldToBrowser();
   }
-  return `${files.length}:${(hash >>> 0).toString(16).padStart(8, '0')}`;
-}
-
-export function isDirectorySelection(files: File[]): boolean {
-  return files.some((file) => Boolean(
-    (file as File & { webkitRelativePath?: unknown }).webkitRelativePath,
-  ));
+  return `${directory ? 'directory' : 'files'}:${files.length}:${(hash >>> 0).toString(16).padStart(8, '0')}`;
 }
 
 export async function rememberImportSessionFiles(
@@ -38,8 +34,7 @@ export async function rememberImportSessionFiles(
   files: File[],
 ): Promise<void> {
   try {
-    const kind = isDirectorySelection(files) ? 'directory' : 'files';
-    localStorage.setItem(selectionKey(importRef), `${kind}:${await selectionSignature(files)}`);
+    localStorage.setItem(selectionKey(importRef), await selectionIdentity(files));
   } catch {
     // Admission still works when browser storage is disabled; only safe
     // re-selection after a reload is unavailable.
@@ -58,8 +53,7 @@ export async function matchesImportSelection(
   remembered: string | null,
   files: File[],
 ): Promise<boolean> {
-  const kind = isDirectorySelection(files) ? 'directory' : 'files';
-  return remembered === `${kind}:${await selectionSignature(files)}`;
+  return remembered === await selectionIdentity(files);
 }
 
 export function forgetImportSelection(importRef: string): void {

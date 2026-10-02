@@ -9,6 +9,8 @@ const executeBulkImport = vi.hoisted(() => vi.fn());
 const importFollowTheMoney = vi.hoisted(() => vi.fn());
 const importCsv = vi.hoisted(() => vi.fn());
 const previewCsv = vi.hoisted(() => vi.fn());
+const createImportSession = vi.hoisted(() => vi.fn());
+const uploadFilesToImportSession = vi.hoisted(() => vi.fn());
 const projectApi = vi.hoisted(() => ({ getSheetData: vi.fn(), listSheets: vi.fn() }));
 
 vi.mock('../../src/api/open', async (importOriginal) => {
@@ -20,6 +22,8 @@ vi.mock('../../src/api/open', async (importOriginal) => {
     importFollowTheMoney,
     importCsv,
     previewCsv,
+    createImportSession,
+    uploadFilesToImportSession,
   };
 });
 
@@ -84,6 +88,16 @@ beforeEach(() => {
     delimiter: ',',
   });
   importCsv.mockRejectedValue(new Error('retryable test failure'));
+  createImportSession.mockResolvedValue({
+    import_ref: 'large-selection', state: 'admitting', admitted_files: 0, admitted_bytes: 0,
+    through: 0, committed_rows: 0, committed_bytes: 0, sheet_id: null,
+    sheet_name: 'Files', cancel_requested: false, sealed: false, error: null,
+  });
+  uploadFilesToImportSession.mockResolvedValue({
+    import_ref: 'large-selection', state: 'running', admitted_files: 4_096, admitted_bytes: 4_096,
+    through: 4_096, committed_rows: 0, committed_bytes: 0, sheet_id: null,
+    sheet_name: 'Files', cancel_requested: false, sealed: true, error: null,
+  });
   projectApi.getSheetData.mockResolvedValue({ columns: [], total: 0 });
   projectApi.listSheets.mockResolvedValue([]);
 });
@@ -233,6 +247,26 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     expect(view.container.querySelector('img, script, a')).toBeNull();
     expect((window as Window & { bulkFailurePathRan?: boolean }).bulkFailurePathRan).toBeUndefined();
     expect((window as Window & { bulkFailureReasonRan?: boolean }).bulkFailureReasonRan).toBeUndefined();
+  });
+
+  it('paints preparation before scanning a large picker selection', async () => {
+    renderDialog(true);
+    fireEvent.click(screen.getByTestId('import-mode-files'));
+    const files = Array.from(
+      { length: 4_096 },
+      (_, index) => new File(['x'], `${index}.pdf`, { type: 'application/pdf' }),
+    );
+
+    fireEvent.change(screen.getByTestId('import-file-input'), { target: { files } });
+
+    expect(screen.getByRole('status')).toHaveTextContent('Preparing selected files');
+    expect(createImportSession).not.toHaveBeenCalled();
+    await waitFor(() => expect(createImportSession).toHaveBeenCalledWith(
+      'open-session-project', { sheetName: 'files' },
+    ));
+    await waitFor(() => expect(uploadFilesToImportSession).toHaveBeenCalledWith(
+      'open-session-project', expect.objectContaining({ import_ref: 'large-selection' }), files,
+    ));
   });
 
   it('removes the consumed bulk plan after execution fails', async () => {

@@ -221,8 +221,10 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
               ) : null}{' '}
               {['admitting', 'running', 'paused'].includes(session.state) ? (
                 <button type="button" className="mini-btn" disabled={busy} onClick={() => {
-                  preparationGeneration.current += 1;
-                  setPreparingRef(null);
+                  if (preparingRef === session.import_ref) {
+                    preparationGeneration.current += 1;
+                    setPreparingRef(null);
+                  }
                   void command(session, () => cancelImportSession(projectId, session.import_ref));
                 }}>Cancel</button>
               ) : null}
