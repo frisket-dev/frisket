@@ -60,6 +60,10 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
   const preparationGeneration = useRef(0);
   const previousRef = useRef<Map<string, string> | null>(null);
 
+  useEffect(() => () => {
+    preparationGeneration.current += 1;
+  }, [projectId]);
+
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
       const result = await listImportSessions(projectId, { signal });

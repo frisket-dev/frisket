@@ -1144,6 +1144,7 @@ function OpenImportWorkspaceSession({
   // rather than mirroring `open` into state: no response from this session may
   // publish into the next one, and unmount discards all local UI state.
   useEffect(() => () => {
+    selectionPreparationGeneration.current += 1;
     csvPreviewControllerRef.current?.abort();
     csvPreviewControllerRef.current = null;
     invalidateBulkRequests();
@@ -1201,9 +1202,9 @@ function OpenImportWorkspaceSession({
     onClose();
   }, [onClose, resetBulkPlan, resetCsvPreview, resetDraft]);
   const closeWorkspaceFromUser = useCallback(() => {
-    if ((busy && !sessionBusy) || bulkBusy || draftBusy) return;
+    if (selectionPreparing || (busy && !sessionBusy) || bulkBusy || draftBusy) return;
     closeWorkspace();
-  }, [bulkBusy, busy, closeWorkspace, draftBusy, sessionBusy]);
+  }, [bulkBusy, busy, closeWorkspace, draftBusy, selectionPreparing, sessionBusy]);
 
   // The ONE shared success
   // handler replacing the three independent close-on-success calls
@@ -1273,6 +1274,8 @@ function OpenImportWorkspaceSession({
 
   const selectMode = (nextMode: ImportMode) => {
     if (busy) return;
+    selectionPreparationGeneration.current += 1;
+    setSelectionPreparing(false);
     resetCsvPreview();
     resetBulkPlan();
     if (nextMode !== 'csv') {
@@ -2987,6 +2990,11 @@ export function ImportDropzone(props: ImportHandlers & {
   const [over, setOver] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [preparing, setPreparing] = useState(false);
+  const preparationGeneration = useRef(0);
+
+  useEffect(() => () => {
+    preparationGeneration.current += 1;
+  }, [projectId]);
 
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
@@ -2994,8 +3002,10 @@ export function ImportDropzone(props: ImportHandlers & {
     if (rich.busy || previewing || preparing) return;
     const files = snapshotImportFiles(e.dataTransfer.files);
     if (!files.length) return;
+    const generation = ++preparationGeneration.current;
     setPreparing(true);
     void prepareFileSelection(files).then((prepared) => {
+      if (generation !== preparationGeneration.current) return;
       const dropMode = inferDroppedFileMode(files, 'csv');
       if (ftmImportEnabled && files.length === 1 && /\.(?:json|jsonl)$/i.test(files[0].name)) {
         void rich.uploadFiles(
@@ -3016,7 +3026,9 @@ export function ImportDropzone(props: ImportHandlers & {
           dropMode, files, undefined, undefined, undefined, undefined, undefined, prepared,
         ).then((sheetId) => { if (sheetId != null) handlers.onImported(sheetId); });
       }
-    }).finally(() => setPreparing(false));
+    }).finally(() => {
+      if (generation === preparationGeneration.current) setPreparing(false);
+    });
   };
 
   return (

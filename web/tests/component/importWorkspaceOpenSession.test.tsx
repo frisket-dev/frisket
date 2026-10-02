@@ -269,6 +269,74 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     ));
   });
 
+  it('does not dispatch a pending selection after the workspace closes', async () => {
+    const view = renderDialog(true);
+    fireEvent.click(screen.getByTestId('import-mode-files'));
+    const files = Array.from(
+      { length: 4_096 },
+      (_, index) => new File(['x'], `${index}.pdf`, { type: 'application/pdf' }),
+    );
+    fireEvent.change(screen.getByTestId('import-file-input'), { target: { files } });
+    expect(screen.getByRole('status')).toHaveTextContent('Preparing selected files');
+
+    view.rerender(
+      <ImportWorkspaceDialog
+        open={false}
+        onClose={vi.fn()}
+        onImported={vi.fn()}
+        onError={vi.fn()}
+        onLaunchDownload={vi.fn()}
+      />,
+    );
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+
+    expect(createImportSession).not.toHaveBeenCalled();
+    expect(planBulkImport).not.toHaveBeenCalled();
+    expect(uploadFilesToImportSession).not.toHaveBeenCalled();
+  });
+
+  it('does not dispatch a pending file selection after changing modes', async () => {
+    renderDialog(true);
+    fireEvent.click(screen.getByTestId('import-mode-files'));
+    const files = Array.from(
+      { length: 4_096 },
+      (_, index) => new File(['x'], `${index}.pdf`, { type: 'application/pdf' }),
+    );
+    fireEvent.change(screen.getByTestId('import-file-input'), { target: { files } });
+    fireEvent.click(screen.getByTestId('import-mode-csv'));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+
+    expect(createImportSession).not.toHaveBeenCalled();
+    expect(planBulkImport).not.toHaveBeenCalled();
+    expect(uploadFilesToImportSession).not.toHaveBeenCalled();
+  });
+
+  it('does not dispatch a pending drop after the dropzone unmounts', async () => {
+    const onOpenBulk = vi.fn();
+    const view = render(
+      <ImportDropzone
+        onOpenWorkspace={vi.fn()}
+        onOpenCsv={vi.fn()}
+        onOpenBulk={onOpenBulk}
+        onImported={vi.fn()}
+        onError={vi.fn()}
+        onLaunchDownload={vi.fn()}
+      />,
+    );
+    const files = Array.from(
+      { length: 4_096 },
+      (_, index) => new File(['x'], `${index}.pdf`, { type: 'application/pdf' }),
+    );
+    fireEvent.drop(screen.getByTestId('import-dropzone'), { dataTransfer: { files } });
+    expect(screen.getByText('Preparing selected files…')).toBeVisible();
+
+    view.unmount();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+    expect(onOpenBulk).not.toHaveBeenCalled();
+    expect(createImportSession).not.toHaveBeenCalled();
+    expect(uploadFilesToImportSession).not.toHaveBeenCalled();
+  });
+
   it('removes the consumed bulk plan after execution fails', async () => {
     executeBulkImport.mockRejectedValue(new Error('Storage unavailable'));
     renderDialog(true);
