@@ -368,7 +368,13 @@ def test_bulk_email_over_limit_closes_ingress_without_attachment_or_project_resi
     ]
     plan = _bulk_plan(client, project_id, uploads)
     held_streams = []
+    open_verified_source = import_bulk_execute.import_bulk_sources.open_verified_source
     run_action = import_bulk_execute.run_action_spec
+
+    def capture_opened_source(root, item):
+        stream = open_verified_source(root, item)
+        held_streams.append(stream)
+        return stream
 
     def capture_ingress(project, action, **kwargs):
         assert action["action_id"] == "import.email"
@@ -376,13 +382,18 @@ def test_bulk_email_over_limit_closes_ingress_without_attachment_or_project_resi
         assert set(admitted) == {
             source["source_ref"] for source in action["params"]["sources"]
         }
-        held_streams.extend(source.stream for source in admitted.values())
-        assert len(held_streams) == 3
-        assert all(not stream.closed for stream in held_streams)
+        assert all(source.stream is None for source in admitted.values())
+        assert all(source.open_source is not None for source in admitted.values())
         result = run_action(project, action, **kwargs)
-        assert all(not stream.closed for stream in held_streams)
+        assert len(held_streams) == 3
+        assert all(stream.closed for stream in held_streams)
         return result
 
+    monkeypatch.setattr(
+        import_bulk_execute.import_bulk_sources,
+        "open_verified_source",
+        capture_opened_source,
+    )
     monkeypatch.setattr(import_bulk_execute, "run_action_spec", capture_ingress)
 
     result = _execute_bulk(client, project_id, plan)
