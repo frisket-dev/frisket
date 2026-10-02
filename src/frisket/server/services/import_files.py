@@ -59,7 +59,9 @@ class ImportFilesUploadService:
             # requests must not incorporate a disposable temporary filename.
             source_path = str((upload_dir / str(index) / digest).absolute())
             held_sources[source_path] = BoundLocalFile(
-                stream=upload.source, sha256=f"sha256:{digest}"
+                stream=upload.source,
+                sha256=f"sha256:{digest}",
+                open_source=upload.open_source,
             )
             sources.append(
                 {

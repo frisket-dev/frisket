@@ -10,6 +10,7 @@ from typing import (
     Any,
     Annotated,
     BinaryIO,
+    Callable,
     ContextManager,
     Generic,
     Literal,
@@ -1880,7 +1881,14 @@ class EmailInput:
 
     logical_path: str
     format: Literal["eml", "mbox"]
-    stream: BinaryIO = field(repr=False, compare=False)
+    stream: BinaryIO | None = field(repr=False, compare=False)
+    open_source: Callable[[], ContextManager[BinaryIO]] | None = field(
+        default=None, repr=False, compare=False
+    )
+
+    def __post_init__(self) -> None:
+        if (self.stream is None) == (self.open_source is None):
+            raise ValueError("email input requires exactly one source")
 
 
 class EmailSourceReader(Protocol):

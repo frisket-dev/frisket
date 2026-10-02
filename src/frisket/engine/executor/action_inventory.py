@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from numbers import Integral
-from typing import Any, BinaryIO, Callable, Literal, Mapping, Protocol
+from typing import Any, BinaryIO, Callable, ContextManager, Literal, Mapping, Protocol
 
 from pydantic import BaseModel
 
@@ -121,8 +121,13 @@ class BoundLocalFile:
     admission digest, not a producer claim or a newly computed replacement.
     """
 
-    stream: BinaryIO
+    stream: BinaryIO | None
     sha256: str
+    open_source: Callable[[], ContextManager[BinaryIO]] | None = None
+
+    def __post_init__(self) -> None:
+        if (self.stream is None) == (self.open_source is None):
+            raise ValueError("bound local file requires exactly one source")
 
 
 @dataclass(frozen=True)

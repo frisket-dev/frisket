@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from contextlib import ExitStack
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -402,27 +401,25 @@ class BulkExecutor:
 
     def _files(self, project, pid, o, items, root, *, deps: ExecutorDeps):
         name = database_available_name(project, o["sheet_name"])
-        with ExitStack() as stack:
-            uploaded = []
-            for item in items:
-                source = stack.enter_context(
-                    import_bulk_sources.open_verified_source(root, item)
-                )
-                uploaded.append(
-                    AdmittedUpload(
-                        filename=item["logical_path"],
-                        mime=item["mime"],
-                        source=source,
-                        sha256=item["sha256"],
-                        size=item["size"],
-                    )
-                )
-            response = self.files.upload_files(
-                pid,
-                files=uploaded,
-                sheet_name=name,
-                deps=deps,
+        uploaded = [
+            AdmittedUpload(
+                filename=item["logical_path"],
+                mime=item["mime"],
+                source=None,
+                sha256=item["sha256"],
+                size=item["size"],
+                open_source=lambda item=item: import_bulk_sources.open_verified_source(
+                    root, item
+                ),
             )
+            for item in items
+        ]
+        response = self.files.upload_files(
+            pid,
+            files=uploaded,
+            sheet_name=name,
+            deps=deps,
+        )
         if response.status_code != 200:
             raise ImportBulkRouteError(
                 response.status_code, error_detail(response.payload)
@@ -439,55 +436,52 @@ class BulkExecutor:
     def _email(self, project, pid, output, items, root, *, deps: ExecutorDeps):
         """Run email import against request-pinned, verified staged inodes."""
 
-        with ExitStack() as stack:
-            resolved: dict[str, EmailInput] = {}
-            action_sources = []
-            for index, item in enumerate(items):
-                source = stack.enter_context(
-                    import_bulk_sources.open_verified_source(root, item)
-                )
-                logical_path = str(item["logical_path"])
-                email_format = item.get("email_format")
-                if email_format not in {"eml", "mbox"}:
-                    email_format = import_bulk_sources.source_suffix(
-                        logical_path
-                    ).removeprefix(".")
-                if email_format not in {"eml", "mbox"}:
-                    raise ImportBulkRouteError(404, "bulk import plan not found")
-                source_ref = stable_identifier(
-                    "bulk-email-source",
-                    str(output["id"]),
-                    [root.name, str(index), logical_path, str(item["sha256"])],
-                )
-                resolved[source_ref] = EmailInput(
-                    logical_path=logical_path,
-                    format=email_format,
-                    stream=source,
-                )
-                action_sources.append(
-                    {
-                        "source_ref": source_ref,
-                        "logical_path": logical_path,
-                        "format": email_format,
-                    }
-                )
-
-            action = {
-                "action_id": "import.email",
-                "scope": {"kind": "project"},
-                "sheet_name": database_available_name(
-                    project, str(output["sheet_name"])
-                ),
-                "params": {"sources": action_sources},
-                "output_names": {},
-                "idempotency_key": f"bulk:{root.name}:{output['id']}",
-            }
-            action_result = run_action_spec(
-                project,
-                action,
-                project_id=pid,
-                deps=replace(deps, email_sources=resolved),
+        resolved: dict[str, EmailInput] = {}
+        action_sources = []
+        for index, item in enumerate(items):
+            logical_path = str(item["logical_path"])
+            email_format = item.get("email_format")
+            if email_format not in {"eml", "mbox"}:
+                email_format = import_bulk_sources.source_suffix(
+                    logical_path
+                ).removeprefix(".")
+            if email_format not in {"eml", "mbox"}:
+                raise ImportBulkRouteError(404, "bulk import plan not found")
+            source_ref = stable_identifier(
+                "bulk-email-source",
+                str(output["id"]),
+                [root.name, str(index), logical_path, str(item["sha256"])],
             )
+            resolved[source_ref] = EmailInput(
+                logical_path=logical_path,
+                format=email_format,
+                stream=None,
+                open_source=lambda item=item: import_bulk_sources.open_verified_source(
+                    root, item
+                ),
+            )
+            action_sources.append(
+                {
+                    "source_ref": source_ref,
+                    "logical_path": logical_path,
+                    "format": email_format,
+                }
+            )
+
+        action = {
+            "action_id": "import.email",
+            "scope": {"kind": "project"},
+            "sheet_name": database_available_name(project, str(output["sheet_name"])),
+            "params": {"sources": action_sources},
+            "output_names": {},
+            "idempotency_key": f"bulk:{root.name}:{output['id']}",
+        }
+        action_result = run_action_spec(
+            project,
+            action,
+            project_id=pid,
+            deps=replace(deps, email_sources=resolved),
+        )
 
         if action_result.status != "completed":
             reason = next(

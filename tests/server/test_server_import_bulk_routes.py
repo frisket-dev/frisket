@@ -1270,7 +1270,7 @@ def test_generic_import_cannot_report_success_for_a_missing_sheet(
     assert not (project.path / ".bulk_import_staging" / planned["plan_id"]).exists()
 
 
-def test_bulk_files_keep_verified_handles_and_pdf_attachment_occurrences(
+def test_bulk_files_lazily_open_verified_pdf_attachment_occurrences(
     tmp_path: Path, monkeypatch
 ) -> None:
     client = TestClient(create_app(tmp_path / "workspace"))
@@ -1285,7 +1285,6 @@ def test_bulk_files_keep_verified_handles_and_pdf_attachment_occurrences(
         ],
         expand_archive=False,
     ).json()
-    held = []
     upload = import_bulk_execute.ImportFilesUploadService.upload_files
 
     def capture(service, project_id, *, files, **kwargs):
@@ -1293,9 +1292,9 @@ def test_bulk_files_keep_verified_handles_and_pdf_attachment_occurrences(
             "cases/first.pdf",
             "cases/second.pdf",
         ]
-        assert all(not file.source.closed for file in files)
+        assert all(file.source is None for file in files)
+        assert all(callable(file.open_source) for file in files)
         assert all(file.sha256 == hashlib.sha256(content).hexdigest() for file in files)
-        held.extend(file.source for file in files)
         return upload(service, project_id, files=files, **kwargs)
 
     monkeypatch.setattr(
@@ -1303,7 +1302,6 @@ def test_bulk_files_keep_verified_handles_and_pdf_attachment_occurrences(
     )
     response = _execute_bulk(client, pid, planned)
     assert response.status_code == 200, response.text
-    assert len(held) == 2 and all(source.closed for source in held)
     project = client.app.state.workspace.get(pid)
     (sheet,) = project.sheets()
     columns = {column["name"]: column["id"] for column in project.columns(sheet["id"])}
@@ -1833,7 +1831,7 @@ def test_bulk_plan_executes_staged_email_with_canonical_attachment_storage(
     assert downloaded.content == attachment
 
 
-def test_bulk_email_consumes_the_verified_open_inode_if_staged_path_is_replaced(
+def test_bulk_email_rejects_staged_path_replaced_before_lazy_open(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -1861,7 +1859,6 @@ def test_bulk_email_consumes_the_verified_open_inode_if_staged_path_is_replaced(
     manifest = json.loads((plan_root / "manifest.json").read_text())
     staged = plan_root / manifest["files"][0]["path"]
     real_run_action_spec = import_bulk_execute.run_action_spec
-    held_sources = []
 
     def replace_path_after_verification(project, action, **kwargs):
         source_ref = import_bulk_plan.stable_identifier(
@@ -1892,9 +1889,8 @@ def test_bulk_email_consumes_the_verified_open_inode_if_staged_path_is_replaced(
         source = admitted[source_ref]
         assert isinstance(source, EmailInput)
         assert (source.logical_path, source.format) == ("message.eml", "eml")
-        assert not source.stream.closed
-        assert source.stream.tell() == 0
-        held_sources.append(source.stream)
+        assert source.stream is None
+        assert callable(source.open_source)
         swap = tmp_path / "replacement.eml"
         swap.write_bytes(replacement.as_bytes())
         try:
@@ -1904,9 +1900,7 @@ def test_bulk_email_consumes_the_verified_open_inode_if_staged_path_is_replaced(
             # handle is open; POSIX permits replacement but retains the inode.
             if os.name != "nt":
                 raise
-        result = real_run_action_spec(project, action, **kwargs)
-        assert not source.stream.closed, "the typed reader only borrows ingress streams"
-        return result
+        return real_run_action_spec(project, action, **kwargs)
 
     monkeypatch.setattr(
         import_bulk_execute, "run_action_spec", replace_path_after_verification
@@ -1914,11 +1908,9 @@ def test_bulk_email_consumes_the_verified_open_inode_if_staged_path_is_replaced(
     executed = _execute_bulk(client, pid, planned.json())
     assert executed.status_code == 200, executed.text
     result = executed.json()
-    assert result["failed"] == []
-    rows = _sheet_rows(client, pid, result["created"][0]["sheet_id"])
-    assert [row["subject"] for row in rows] == ["Held original"]
-    assert len(held_sources) == 1
-    assert held_sources[0].closed, "bulk ingress owns final stream cleanup"
+    assert result["created"] == []
+    assert len(result["failed"]) == 1
+    assert result["failed"][0]["error"] == "no valid email messages were found"
     assert not plan_root.exists()
 
 

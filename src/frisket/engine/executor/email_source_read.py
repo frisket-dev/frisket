@@ -20,10 +20,22 @@ class _ReadOnlyEmailBinary(_ReadOnlyBinary):
         return self._stream.readline(size)
 
 
+class _EmailAdmission:
+    def __init__(self) -> None:
+        self.active = True
+        self.children: set[ExitStack] = set()
+
+    def close(self) -> None:
+        self.active = False
+        for child in tuple(self.children):
+            child.close()
+        self.children.clear()
+
+
 class AdmittedEmailSourceReader:
     def __init__(self, sources: Mapping[str, EmailInput] | None = None) -> None:
         self._sources = dict(sources) if sources is not None else None
-        self._resources = ExitStack()
+        self._active: set[ExitStack] = set()
         self._closed = False
         self.facts: list[dict[str, Any]] = []
 
@@ -61,11 +73,12 @@ class AdmittedEmailSourceReader:
                 or actual.format != source.format
             ):
                 raise self._refused()
-            try:
-                if not actual.stream.readable() or not actual.stream.seekable():
-                    raise self._refused()
-            except (AttributeError, OSError, ValueError) as exc:
-                raise self._refused() from exc
+            if actual.stream is not None:
+                try:
+                    if not actual.stream.readable() or not actual.stream.seekable():
+                        raise self._refused()
+                except (AttributeError, OSError, ValueError) as exc:
+                    raise self._refused() from exc
             if admitted:
                 descriptor_digest.update(b",")
             for chunk in encoder.iterencode(
@@ -79,31 +92,78 @@ class AdmittedEmailSourceReader:
             admitted.append(actual)
         descriptor_digest.update(b"]")
 
-        with ExitStack() as opened:
-            self._resources.callback(opened.close)
-            inputs = tuple(
-                EmailInput(
-                    logical_path=source.logical_path,
-                    format=source.format,
-                    stream=cast(
-                        BinaryIO,
-                        opened.enter_context(_ReadOnlyEmailBinary(source.stream)),
-                    ),
+        opened = ExitStack()
+        admission = _EmailAdmission()
+        opened.callback(admission.close)
+        self._active.add(opened)
+        try:
+            with opened:
+                inputs = tuple(
+                    EmailInput(
+                        logical_path=source.logical_path,
+                        format=source.format,
+                        stream=(
+                            cast(
+                                BinaryIO,
+                                opened.enter_context(
+                                    _ReadOnlyEmailBinary(source.stream)
+                                ),
+                            )
+                            if source.stream is not None
+                            else None
+                        ),
+                        open_source=(
+                            None
+                            if source.stream is not None
+                            else lambda source=source: self._open_source(
+                                source, admission
+                            )
+                        ),
+                    )
+                    for source in admitted
                 )
-                for source in admitted
-            )
-            # This reader hashed admitted descriptors, not source bytes.
-            # Keep corpus-sized descriptor lists out of durable receipt facts.
-            self.facts.append(
-                {
-                    "kind": "email_source_admission",
-                    "source_count": len(inputs),
-                    "descriptors_sha256": descriptor_digest.hexdigest(),
-                }
-            )
-            yield inputs
+                # This reader hashed admitted descriptors, not source bytes.
+                # Keep corpus-sized descriptor lists out of durable receipt facts.
+                self.facts.append(
+                    {
+                        "kind": "email_source_admission",
+                        "source_count": len(inputs),
+                        "descriptors_sha256": descriptor_digest.hexdigest(),
+                    }
+                )
+                yield inputs
+        finally:
+            self._active.discard(opened)
+
+    @contextmanager
+    def _open_source(
+        self, source: EmailInput, admission: _EmailAdmission
+    ) -> Iterator[BinaryIO]:
+        if self._closed or not admission.active:
+            raise self._refused()
+        opened = ExitStack()
+        self._active.add(opened)
+        admission.children.add(opened)
+        try:
+            with opened:
+                stream = (
+                    opened.enter_context(source.open_source())
+                    if source.open_source is not None
+                    else source.stream
+                )
+                if stream is None or not stream.readable() or not stream.seekable():
+                    raise self._refused()
+                stream.seek(0)
+                yield cast(BinaryIO, opened.enter_context(_ReadOnlyEmailBinary(stream)))
+        except (AttributeError, OSError, ValueError) as exc:
+            raise self._refused() from exc
+        finally:
+            admission.children.discard(opened)
+            self._active.discard(opened)
 
     def close(self) -> None:
         if not self._closed:
             self._closed = True
-            self._resources.close()
+            for opened in tuple(self._active):
+                opened.close()
+            self._active.clear()

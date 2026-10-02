@@ -55,6 +55,7 @@ def import_email(
                             logical_path=source.logical_path,
                             format=source.format,
                             stream=source.stream,
+                            open_source=source.open_source,
                         )
                         for source in inputs
                     ),

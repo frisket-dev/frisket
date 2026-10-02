@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 
 import pytest
 
@@ -168,6 +168,38 @@ def test_host_close_closes_active_wrapper_but_not_source():
         assert not source.closed
         with pytest.raises(TableError, match="trusted ingress"):
             consumer.enter_context(reader.open([_ref()]))
+    reader.close()
+
+
+def test_lazy_source_is_scoped_to_admission_and_outer_exit_closes_active_child():
+    opened = []
+
+    @contextmanager
+    def open_source():
+        stream = io.BytesIO(b"mail")
+        opened.append(stream)
+        with stream:
+            yield stream
+
+    admitted = EmailInput(
+        logical_path="Inbox/one.eml",
+        format="eml",
+        stream=None,
+        open_source=open_source,
+    )
+    reader = AdmittedEmailSourceReader({"opaque:one": admitted})
+    admission = reader.open([_ref()])
+    inputs = admission.__enter__()
+    assert opened == []
+    child = inputs[0].open_source()
+    stream = child.__enter__()
+    assert stream.read() == b"mail"
+    admission.__exit__(None, None, None)
+    assert stream.closed
+    child.__exit__(None, None, None)
+    with pytest.raises(TableError, match="trusted ingress"):
+        with inputs[0].open_source():
+            pytest.fail("source opened after admission scope exited")
     reader.close()
 
 
