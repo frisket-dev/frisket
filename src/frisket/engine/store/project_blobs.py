@@ -293,6 +293,14 @@ def _root_texts(db: sqlite3.Connection):
                 yield row[0]
 
 
+def _file_output_hashes(ref):
+    supplemental = ref["supplemental"]
+    if not isinstance(supplemental, list):
+        raise ValueError("invalid supplemental file outputs")
+    for blob in (ref["primary"], *supplemental):
+        yield validate_blob_digest(blob["blob_hash"])
+
+
 def _retained_payloads(db: sqlite3.Connection):
     """Published receipt ownership and conservatively retained effect payloads."""
     for row in db.execute(
@@ -306,11 +314,17 @@ def _retained_payloads(db: sqlite3.Connection):
                 raise ValueError("invalid retained receipt")
             # Inputs and descriptive metadata merely mention bytes. Ownership
             # belongs to published files, even if their handler later failed.
-            for evidence in payload.get("evidence", []):
+            evidence_items = payload.get("evidence", [])
+            if not isinstance(evidence_items, list):
+                raise ValueError("invalid retained evidence")
+            for evidence in evidence_items:
+                if not isinstance(evidence, dict):
+                    raise ValueError("invalid retained evidence item")
                 ref = evidence.get("ref", {})
+                if not isinstance(ref, dict):
+                    raise ValueError("invalid retained evidence reference")
                 if ref.get("kind") == "row_file_output":
-                    for blob in (ref["primary"], *ref["supplemental"]):
-                        yield validate_blob_digest(blob["blob_hash"])
+                    yield from _file_output_hashes(ref)
             exports = payload.get("exports", [])
             if not isinstance(exports, list):
                 raise ValueError("invalid retained exports")
@@ -324,10 +338,13 @@ def _retained_payloads(db: sqlite3.Connection):
             # Preserve the existing fail-closed behavior for damaged unresolved
             # file returns whose ownership cannot be reconstructed safely.
             for response in payload.values():
-                for occurrence in response.get("row_files", []):
-                    for blob in (occurrence["primary"], *occurrence["supplemental"]):
-                        if not isinstance(blob["blob_hash"], str):
-                            raise ValueError("invalid returned file")
+                row_files = response.get("row_files", [])
+                if not isinstance(row_files, list):
+                    raise ValueError("invalid returned files")
+                for occurrence in row_files:
+                    # Validate ownership before retaining the full effect payload.
+                    for _digest in _file_output_hashes(occurrence):
+                        pass
         yield row[0]
 
 

@@ -138,18 +138,82 @@ def test_malformed_published_receipt_digest_retains_all_blob_metadata(
     }
 
 
-@pytest.mark.parametrize("exports", [{}, "bad", None, 12, [None], ["bad"]])
-def test_malformed_receipt_exports_container_retains_all_blob_metadata(
-    project, exports
-):
+@pytest.mark.parametrize("owner", ["exports", "evidence", "supplemental"])
+@pytest.mark.parametrize("invalid", [{}, "", "bad", None, 12, [None], ["bad"]])
+def test_malformed_receipt_container_retains_all_blob_metadata(project, owner, invalid):
     retained = project.add_blob(b"uncertain ownership")
+    other = project.add_blob(b"potential orphan")
+    payload = {owner: invalid}
+    if owner == "supplemental":
+        payload = {
+            "evidence": [
+                {
+                    "ref": {
+                        "kind": "row_file_output",
+                        "primary": {"blob_hash": retained},
+                        "supplemental": invalid,
+                    }
+                }
+            ]
+        }
     project.db.execute(
         "INSERT INTO receipts(id,action_kind,status,body) VALUES ('damaged','test','error',?)",
-        (json.dumps({"exports": exports}),),
+        (json.dumps(payload),),
     )
     project.db.commit()
     assert project.gc_blobs()["hashes"] == []
-    assert project.db.execute("SELECT hash FROM blobs").fetchone()[0] == retained
+    assert {row[0] for row in project.db.execute("SELECT hash FROM blobs")} == {
+        retained,
+        other,
+    }
+
+
+@pytest.mark.parametrize("ref", [None, "", [], 12])
+def test_malformed_receipt_evidence_reference_retains_blobs(project, ref):
+    project.add_blob(b"unknown ownership")
+    project.db.execute(
+        "INSERT INTO receipts(id,action_kind,status,body) VALUES ('damaged','test','error',?)",
+        (json.dumps({"evidence": [{"ref": ref}]}),),
+    )
+    project.db.commit()
+    assert project.gc_blobs()["hashes"] == []
+
+
+@pytest.mark.parametrize("owner", ["row_files", "supplemental", "digest"])
+@pytest.mark.parametrize("invalid", [{}, "", None, "invalid"])
+def test_malformed_returned_file_ownership_retains_blobs(project, owner, invalid):
+    retained = project.add_blob(b"potential output")
+    project.add_blob(b"unknown ownership")
+    occurrence = {
+        "primary": {"blob_hash": invalid if owner == "digest" else retained},
+        "supplemental": invalid if owner == "supplemental" else [],
+    }
+    response = {"row_files": invalid if owner == "row_files" else [occurrence]}
+    project.db.execute(
+        "INSERT INTO effect_checkpoints(id,family,group_key,unit_key,action_kind,identity,state,payload) VALUES ('returned','row_effect','g','u','test','identity','returned',?)",
+        (json.dumps({"response": response}),),
+    )
+    project.db.commit()
+    assert project.gc_blobs()["hashes"] == []
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"evidence": [], "exports": []},
+        {"evidence": [{}]},
+        {"evidence": [{"ref": {"kind": "other"}}], "exports": [{"kind": "other"}]},
+    ],
+)
+def test_optional_or_nonpublication_receipt_fields_do_not_disable_gc(project, payload):
+    orphan = project.add_blob(b"unowned")
+    project.db.execute(
+        "INSERT INTO receipts(id,action_kind,status,body) VALUES ('valid','test','error',?)",
+        (json.dumps(payload),),
+    )
+    project.db.commit()
+    assert project.gc_blobs()["hashes"] == [orphan]
 
 
 def test_receipt_export_metadata_mentions_do_not_own_blobs(project):
