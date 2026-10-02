@@ -98,12 +98,16 @@ class ProjectBlobService:
         try:
 
             def acquire_source():
+                from frisket.ops.ocr_engines import OcrEngines
+
                 source = self.blob_download(project_id, digest)
                 resources.callback(source.close)
+                if not OcrEngines._is_pdf(source.path, None):
+                    raise ProjectBlobRouteError(422, "A valid PDF page is required")
                 return source
 
             source = await await_thread_worker(acquire_source)
-            if source.media_type != "application/pdf" or page < 1:
+            if page < 1:
                 raise ProjectBlobRouteError(422, "A valid PDF page is required")
             scratch = Path(
                 resources.enter_context(

@@ -1552,7 +1552,13 @@ def _page_payloads(
                 "render_url": (
                     f"{source_blob['url']}/pages/{page}/image"
                     if image_payload is None
-                    and artifact.get("media_type") == "application/pdf"
+                    and (
+                        artifact.get("media_type") == "application/pdf"
+                        or (
+                            isinstance(image, dict)
+                            and image.get("mime") == "application/pdf"
+                        )
+                    )
                     and source_blob.get("url")
                     else None
                 ),

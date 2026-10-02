@@ -325,6 +325,7 @@ class _BoundOcrReader:
                 # The original PDF is the durable source. Display pages are
                 # rendered on demand; retain only OCR's exact coordinate frame.
                 images[str(index)] = {
+                    "mime": "application/pdf",
                     "source_width": width,
                     "source_height": height,
                 }

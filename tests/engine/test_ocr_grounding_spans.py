@@ -389,7 +389,7 @@ def test_exhaustive_ocr_evidence_scans_each_block_once_in_source_order(
 # --------------------------------------------------------------------------- #
 
 
-def _seed_pdf_project(tmp_path: Path) -> dict[str, Any]:
+def _seed_pdf_project(tmp_path: Path, *, generic_mime: bool = False) -> dict[str, Any]:
     project = Project.create(tmp_path / "ocr-pdf.frisket", name="OCR grounding pdf")
     sheet_id = project.add_sheet("Docs")
     cols = {
@@ -398,8 +398,8 @@ def _seed_pdf_project(tmp_path: Path) -> dict[str, Any]:
     }
     blob = project.add_blob(
         FAKE_PDF,
-        filename="doc.pdf",
-        mime="application/pdf",
+        filename="doc.bin" if generic_mime else "doc.pdf",
+        mime="application/octet-stream" if generic_mime else "application/pdf",
         source_url="https://cdn.example/doc.pdf",
         metadata=owned_media_metadata_document(probe={"pages": 2, "kind": "pdf"}),
     )
@@ -408,7 +408,13 @@ def _seed_pdf_project(tmp_path: Path) -> dict[str, Any]:
         [
             {
                 "title": "Doc 1",
-                "media": media_cell(blob, mime="application/pdf", filename="doc.pdf"),
+                "media": media_cell(
+                    blob,
+                    mime="application/octet-stream"
+                    if generic_mime
+                    else "application/pdf",
+                    filename="doc.bin" if generic_mime else "doc.pdf",
+                ),
             }
         ],
         cols,
@@ -452,10 +458,11 @@ def _fake_pdf_engine():
     return fake_page_images, fake_rapidocr
 
 
+@pytest.mark.parametrize("generic_mime", [False, True])
 def test_pdf_row_retains_geometry_without_display_blobs_and_keeps_empty_page(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, generic_mime: bool
 ) -> None:
-    seeded = _seed_pdf_project(tmp_path)
+    seeded = _seed_pdf_project(tmp_path, generic_mime=generic_mime)
     project: Project = seeded["project"]
     fake_pages, fake_ocr = _fake_pdf_engine()
     monkeypatch.setattr(OcrEngines, "_page_images", fake_pages)

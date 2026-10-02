@@ -31,8 +31,17 @@ def source(tmp_path):
         project.close()
 
 
-def test_route_renders_only_requested_page_and_cleans_response(source, monkeypatch):
+@pytest.mark.parametrize("generic_mime", [False, True])
+def test_route_renders_only_requested_page_and_cleans_response(
+    source, monkeypatch, generic_mime
+):
     project, digest, service = source
+    if generic_mime:
+        project.db.execute(
+            "UPDATE blobs SET mime='application/octet-stream',filename='a.bin' WHERE hash=?",
+            (digest,),
+        )
+        project.db.commit()
     paths = []
 
     async def render(path, scratch, **options):
