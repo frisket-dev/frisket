@@ -19,6 +19,8 @@ from typing import Any
 from .blob_backend import (
     BlobIntegrityError,
     BlobNotFoundError,
+    FilesystemProjectBlobStore,
+    _fsync_directory,
     sha256_blob_path,
     validate_blob_digest,
 )
@@ -227,21 +229,23 @@ _ROOT_BATCH_SIZE = 512
 _logger = logging.getLogger(__name__)
 
 
-def _mark_hashes(db: sqlite3.Connection, hashes) -> None:
+def _mark_hashes(db: sqlite3.Connection, hashes, *, known_only: bool = True) -> None:
     """Indexed membership, bounded Python memory, no corpus-sized known set."""
     batch: set[str] = set()
     for digest in hashes:
         batch.add(digest)
         if len(batch) >= _ROOT_BATCH_SIZE:
-            _insert_live_hashes(db, batch)
+            _insert_live_hashes(db, batch, known_only=known_only)
             batch.clear()
-    _insert_live_hashes(db, batch)
+    _insert_live_hashes(db, batch, known_only=known_only)
 
 
-def _insert_live_hashes(db: sqlite3.Connection, hashes) -> None:
+def _insert_live_hashes(
+    db: sqlite3.Connection, hashes, *, known_only: bool = True
+) -> None:
     db.executemany(
         "INSERT OR IGNORE INTO temp.gc_live_blob_hashes(hash) "
-        "SELECT hash FROM blobs WHERE hash=?",
+        + ("SELECT hash FROM blobs WHERE hash=?" if known_only else "VALUES (?)"),
         ((digest,) for digest in hashes),
     )
 
@@ -397,9 +401,9 @@ def _import_hashes(project: Any):
                 inventory.close()
 
 
-def _populate_live_blob_hashes(project: Any) -> None:
+def _populate_live_blob_hashes(project: Any, *, strict: bool = False) -> None:
     db = project.db
-    if db.execute("SELECT 1 FROM blobs LIMIT 1").fetchone() is None:
+    if not strict and db.execute("SELECT 1 FROM blobs LIMIT 1").fetchone() is None:
         return
     # Corrupt recoverable state cannot authorize metadata reclamation.
     try:
@@ -410,8 +414,9 @@ def _populate_live_blob_hashes(project: Any) -> None:
                 for text in _retained_payloads(db)
                 for match in _HASH_CANDIDATE.finditer(text)
             ),
+            known_only=not strict,
         )
-        _mark_hashes(db, _import_hashes(project))
+        _mark_hashes(db, _import_hashes(project), known_only=not strict)
     except (
         ValueError,
         TypeError,
@@ -420,6 +425,10 @@ def _populate_live_blob_hashes(project: Any) -> None:
         OSError,
         sqlite3.DatabaseError,
     ):
+        if strict:
+            raise ValueError(
+                "Cannot reclaim blobs: recoverable ownership could not be read"
+            ) from None
         _logger.warning(
             "Retaining all blob metadata because recoverable ownership could not be read"
         )
@@ -434,19 +443,32 @@ def _populate_live_blob_hashes(project: Any) -> None:
             for text in _root_texts(db)
             for match in _HASH_CANDIDATE.finditer(text)
         ),
+        known_only=not strict,
     )
     db.execute(
-        "INSERT OR IGNORE INTO temp.gc_live_blob_hashes SELECT b.hash FROM source_artifacts a JOIN blobs b ON b.hash=a.blob_hash"
+        "INSERT OR IGNORE INTO temp.gc_live_blob_hashes "
+        + (
+            "SELECT blob_hash FROM source_artifacts WHERE blob_hash IS NOT NULL"
+            if strict
+            else "SELECT b.hash FROM source_artifacts a JOIN blobs b ON b.hash=a.blob_hash"
+        )
     )
-    db.execute("""WITH RECURSIVE reachable(hash) AS (
+    db.execute(
+        """WITH RECURSIVE reachable(hash) AS (
         SELECT hash FROM temp.gc_live_blob_hashes
         UNION SELECT d.source_hash FROM blob_derivations d JOIN reachable r ON d.derived_hash=r.hash
     ) INSERT OR IGNORE INTO temp.gc_live_blob_hashes
-      SELECT r.hash FROM reachable r JOIN blobs b ON b.hash=r.hash""")
+    """
+        + (
+            "SELECT hash FROM reachable"
+            if strict
+            else "SELECT r.hash FROM reachable r JOIN blobs b ON b.hash=r.hash"
+        )
+    )
 
 
 @contextmanager
-def _live_blob_hashes(project: Any, *, writing: bool = False):
+def _live_blob_hashes(project: Any, *, writing: bool = False, strict: bool = False):
     db = project.db
     owns_transaction = not db.in_transaction
     if owns_transaction:
@@ -456,7 +478,7 @@ def _live_blob_hashes(project: Any, *, writing: bool = False):
             "CREATE TEMP TABLE gc_live_blob_hashes(hash TEXT PRIMARY KEY) WITHOUT ROWID"
         )
         try:
-            _populate_live_blob_hashes(project)
+            _populate_live_blob_hashes(project, strict=strict)
             yield db
         finally:
             db.execute("DROP TABLE temp.gc_live_blob_hashes")
@@ -472,8 +494,96 @@ def _referenced_blob_hashes(project: Any) -> set[str]:
     """Compatibility inspection helper; production GC never builds this set."""
     with _live_blob_hashes(project) as db:
         return {
-            row[0] for row in db.execute("SELECT hash FROM temp.gc_live_blob_hashes")
+            row[0]
+            for row in db.execute(
+                "SELECT hash FROM blobs JOIN temp.gc_live_blob_hashes USING(hash)"
+            )
         }
+
+
+def reclaim_local_blobs(project: Any, *, dry_run: bool = True) -> dict[str, Any]:
+    """Reclaim unreachable local objects with all servers/readers/writers stopped.
+
+    The caller owns the offline lifetime boundary. Bytes are removed before
+    metadata: interrupted cleanup can safely retry missing, unreachable files.
+    Unknown layouts and symlinks are never followed or removed. Byte counters
+    describe logical file sizes, not filesystem blocks (which may be shared).
+    """
+    store = project.blob_store
+    root = project.path / "blobs"
+    if (
+        not isinstance(store, FilesystemProjectBlobStore)
+        or root.is_symlink()
+        or store.root.absolute() != root.absolute()
+    ):
+        raise ValueError("Offline reclamation requires bundle-local filesystem blobs")
+    if project.db.in_transaction:
+        raise ValueError("Offline reclamation requires its own transaction")
+    if project.retention_policy()["no_compact"]:
+        raise ValueError("Project retention policy disables compaction")
+    counts = {
+        "blobs_reclaimable": 0,
+        "bytes_reclaimable": 0,
+        "blobs_removed": 0,
+        "bytes_freed": 0,
+        "blobs_retained": 0,
+        "bytes_retained": 0,
+        "dry_run": dry_run,
+    }
+    with _live_blob_hashes(project, writing=True, strict=True) as db:
+        # Files may predate metadata-only GC; reachability must not depend on
+        # whether a blobs row still exists for their digest.
+        if root.exists():
+            with os.scandir(root) as shards:
+                for shard in shards:
+                    if not re.fullmatch(r"[0-9a-f]{2}", shard.name) or not shard.is_dir(
+                        follow_symlinks=False
+                    ):
+                        continue
+                    changed = False
+                    with os.scandir(shard.path) as entries:
+                        for entry in entries:
+                            if (
+                                not re.fullmatch(r"[0-9a-f]{64}", entry.name)
+                                or not entry.name.startswith(shard.name)
+                                or not entry.is_file(follow_symlinks=False)
+                            ):
+                                continue
+                            size = entry.stat(follow_symlinks=False).st_size
+                            if db.execute(
+                                "SELECT 1 FROM temp.gc_live_blob_hashes WHERE hash=?",
+                                (entry.name,),
+                            ).fetchone():
+                                counts["blobs_retained"] += 1
+                                counts["bytes_retained"] += size
+                                continue
+                            counts["blobs_reclaimable"] += 1
+                            counts["bytes_reclaimable"] += size
+                            if not dry_run:
+                                Path(entry.path).unlink(missing_ok=True)
+                                changed = True
+                                counts["blobs_removed"] += 1
+                                counts["bytes_freed"] += size
+                    if changed:
+                        _fsync_directory(Path(shard.path))
+        if not dry_run:
+            # Retain metadata for skipped noncanonical objects. Missing files
+            # include a previous interrupted sweep and are safe to acknowledge.
+            db.execute(
+                "DELETE FROM blob_derivations WHERE NOT EXISTS (SELECT 1 FROM temp.gc_live_blob_hashes WHERE hash=derived_hash)"
+            )
+            for row in db.execute(
+                "SELECT hash FROM blobs WHERE NOT EXISTS (SELECT 1 FROM temp.gc_live_blob_hashes WHERE hash=blobs.hash)"
+            ):
+                digest = validate_blob_digest(row[0])
+                path = root / digest[:2] / digest
+                if (
+                    not path.parent.is_symlink()
+                    and not path.is_symlink()
+                    and not path.exists()
+                ):
+                    db.execute("DELETE FROM blobs WHERE hash=?", (digest,))
+    return counts
 
 
 def gc_blobs(project: Any, dry_run: bool = False) -> dict[str, Any]:
@@ -481,10 +591,9 @@ def gc_blobs(project: Any, dry_run: bool = False) -> dict[str, Any]:
 
     A blob is collectable when no live value, evidence artifact, or retained
     project-file export or published row-file occurrence references it.
-    Canonical bytes remain retained
-    until the later
-    reference-safe, restore-window-aware object GC protocol; this operation
-    therefore reports zero bytes freed. With ``dry_run=True`` even the
+    Canonical bytes remain retained until explicit offline reclamation;
+    this online operation therefore reports zero bytes freed.
+    With ``dry_run=True`` even the
     SQLite metadata remains unchanged.
     """
     with _live_blob_hashes(project, writing=not dry_run) as db:
