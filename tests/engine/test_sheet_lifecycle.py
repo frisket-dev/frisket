@@ -196,28 +196,49 @@ def test_delete_sheet_removes_cross_sheet_dependencies_with_low_variable_limit(
 
         project.delete_sheet(doomed_sheet)
 
-        assert project.db.execute(
-            "SELECT COUNT(*) FROM source_artifacts WHERE source_sheet_id=?",
-            (doomed_sheet,),
-        ).fetchone()[0] == 0
-        assert project.db.execute(
-            "SELECT COUNT(*) FROM source_artifacts WHERE id IN (?,?)",
-            (cross_sheet_derived, retained_source),
-        ).fetchone()[0] == 2
-        assert project.db.execute(
-            "SELECT id FROM artifact_timeline_segments"
-        ).fetchall() == [(retained_timeline,)]
-        assert project.db.execute("SELECT 1 FROM runs WHERE id=?", (doomed_run,)).fetchone() is None
-        assert project.db.execute(
-            "SELECT 1 FROM runs WHERE id=?", (surviving_run,)
-        ).fetchone() is not None
-        assert project.db.execute(
-            "SELECT 1 FROM run_output_generations WHERE run_id=? AND column_id=?",
-            (surviving_run, dependent_column),
-        ).fetchone() is None
-        assert project.db.execute(
-            "SELECT 1 FROM run_output_generations WHERE run_id=? AND column_id=?",
-            (surviving_run, surviving_column),
-        ).fetchone() is not None
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM source_artifacts WHERE source_sheet_id=?",
+                (doomed_sheet,),
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM source_artifacts WHERE id IN (?,?)",
+                (cross_sheet_derived, retained_source),
+            ).fetchone()[0]
+            == 2
+        )
+        assert [
+            int(row["id"])
+            for row in project.db.execute("SELECT id FROM artifact_timeline_segments")
+        ] == [retained_timeline]
+        assert (
+            project.db.execute(
+                "SELECT 1 FROM runs WHERE id=?", (doomed_run,)
+            ).fetchone()
+            is None
+        )
+        assert (
+            project.db.execute(
+                "SELECT 1 FROM runs WHERE id=?", (surviving_run,)
+            ).fetchone()
+            is not None
+        )
+        assert (
+            project.db.execute(
+                "SELECT 1 FROM run_output_generations WHERE run_id=? AND column_id=?",
+                (surviving_run, dependent_column),
+            ).fetchone()
+            is None
+        )
+        assert (
+            project.db.execute(
+                "SELECT 1 FROM run_output_generations WHERE run_id=? AND column_id=?",
+                (surviving_run, surviving_column),
+            ).fetchone()
+            is not None
+        )
     finally:
         project.close()
