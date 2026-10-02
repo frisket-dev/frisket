@@ -1,25 +1,37 @@
 name: refresh-pricing
-# Nightly refresh of the BYOK price table from LiteLLM's community
-# registry. These numbers feed cost estimates and consent bounds, so the
-# refresh NEVER commits directly: it opens a PR showing exactly which
-# models moved, and any single price swinging more than 50% is called
-# out in the PR body — that's either real news or upstream breakage,
-# and both deserve eyes before merge.
+# One pricing-only PR, automatically merged after normal required checks.
 on:
   schedule:
     - cron: "17 6 * * *"
   workflow_dispatch: {}
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
+
+concurrency:
+  group: pricing-refresh
+  cancel-in-progress: false
 
 jobs:
   refresh:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
+      - name: Authenticate pricing publisher
+        id: publisher
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ vars.PRICING_APP_ID }}
+          private-key: ${{ secrets.PRICING_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ steps.publisher.outputs.token }}
           persist-credentials: true
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
       - name: Refresh price table
@@ -53,13 +65,19 @@ jobs:
               > /tmp/pricing_delta.md
           fi
       - name: Open PR
-        if: steps.refresh.outputs.changed == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.publisher.outputs.token }}
+          PRICING_CHANGED: ${{ steps.refresh.outputs.changed }}
         run: |
           pricing_path="src/frisket/ai/llm/pricing_data.json"
           today="$(date -u +%Y-%m-%d)"
-          branch="pricing-refresh-${today//-/}"
+          branch="pricing-refresh"
+
+          changed_files="$(git diff --name-only HEAD; git ls-files --others --exclude-standard)"
+          if [ -n "$changed_files" ] && [ "$changed_files" != "$pricing_path" ]; then
+            echo "Refusing generated changes outside pricing_data.json" >&2
+            exit 1
+          fi
 
           if ! pr_number_output="$(
             gh pr list --state open --base main --head "$branch" \
@@ -76,31 +94,43 @@ jobs:
 
           remote_tip="$(git ls-remote --heads origin "refs/heads/$branch" | awk '{print $1}')"
           if [ -n "$remote_tip" ]; then
-            if [ "${#pr_numbers[@]}" -eq 0 ]; then
-              gh pr create --title "Pricing refresh $today" \
-                --body-file /tmp/pricing_delta.md --base main --head "$branch"
-            else
-              echo "Pricing refresh PR #${pr_numbers[0]} already exists; leaving it unchanged."
+            git fetch --no-tags origin "$remote_tip"
+            branch_files="$(git diff --name-only "$(git merge-base HEAD "$remote_tip")" "$remote_tip")"
+            if [ -n "$branch_files" ] && [ "$branch_files" != "$pricing_path" ]; then
+              echo "Refusing existing branch changes outside pricing_data.json" >&2
+              exit 1
             fi
-            exit 0
-          fi
-          if [ "${#pr_numbers[@]}" -eq 1 ]; then
+          elif [ "${#pr_numbers[@]}" -eq 1 ]; then
             echo "Refusing open PR #${pr_numbers[0]} without its remote branch" >&2
             exit 1
+          fi
+
+          if [ "$PRICING_CHANGED" != "true" ]; then
+            if [ "${#pr_numbers[@]}" -eq 1 ]; then
+              gh pr close "${pr_numbers[0]}" --comment "Latest pricing matches main; closing the superseded refresh."
+            fi
+            exit 0
           fi
 
           cp "$pricing_path" /tmp/pricing_after.json
           git config user.name "pricing-refresh[bot]"
           git config user.email "actions@users.noreply.github.com"
-          git fetch --no-tags origin \
-            "refs/heads/main:refs/remotes/origin/main"
-          git switch --detach origin/main
-          git switch -c "$branch"
+          # HEAD is the trusted main checkout used to run the updater. Never
+          # check out or execute the previous refresh branch's code.
+          git switch -C "$branch"
           cp /tmp/pricing_after.json "$pricing_path"
           git add "$pricing_path"
           git commit -m "chore(pricing): nightly refresh from the LiteLLM registry"
           git push --set-upstream \
-            --force-with-lease="refs/heads/$branch:" \
+            --force-with-lease="refs/heads/$branch:$remote_tip" \
             origin "HEAD:refs/heads/$branch"
-          gh pr create --title "Pricing refresh $today" \
-            --body-file /tmp/pricing_delta.md --base main --head "$branch"
+          head_sha="$(git rev-parse HEAD)"
+          if [ "${#pr_numbers[@]}" -eq 0 ]; then
+            pr="$(gh pr create --title "Pricing refresh $today" \
+              --body-file /tmp/pricing_delta.md --base main --head "$branch")"
+          else
+            pr="${pr_numbers[0]}"
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/pulls/$pr" \
+              --raw-field "body=$(cat /tmp/pricing_delta.md)" >/dev/null
+          fi
+          gh pr merge "$pr" --auto --squash --match-head-commit "$head_sha"

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 from datetime import date
 from pathlib import Path
 
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -74,3 +76,53 @@ def test_token_billed_audio_model_prefers_returned_usage_units() -> None:
         "input_per_token": 2.5e-6,
         "output_per_token": 1e-5,
     }
+
+
+@pytest.mark.parametrize("rate", [0, 0.000001, 999999999])
+def test_price_validation_accepts_any_nonnegative_magnitude(rate):
+    _pricing_updater().validate_price_table(
+        {"text": {"model": [rate, rate]}, "audio": {"speech": {"per_second": rate}}}
+    )
+
+
+@pytest.mark.parametrize("rate", [-1, float("nan"), float("inf"), True, "1.2"])
+@pytest.mark.parametrize("section", ["text", "audio"])
+def test_price_validation_rejects_invalid_rates(rate, section):
+    data = {"text": {"model": [1, 2]}, "audio": {"speech": {"per_second": 0.01}}}
+    if section == "text":
+        data["text"]["model"] = [rate, 2]
+    else:
+        data["audio"]["speech"] = {"per_second": rate}
+    with pytest.raises(ValueError):
+        _pricing_updater().validate_price_table(data)
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        [],
+        {"text": {}, "audio": {"speech": {"per_second": 0.01}}},
+        {"text": {"model": [1, 2]}},
+        {"text": {"model": [1]}, "audio": {}},
+        {"text": {"model": [1, 2]}, "audio": {"speech": {"unknown_unit": 2}}},
+    ],
+)
+def test_price_validation_rejects_broken_or_empty_catalog(data):
+    with pytest.raises(ValueError):
+        _pricing_updater().validate_price_table(data)
+
+
+def test_failed_validation_does_not_overwrite_price_table(tmp_path, monkeypatch):
+    updater = _pricing_updater()
+    target = tmp_path / "prices.json"
+    target.write_text("existing prices")
+    monkeypatch.setattr(updater, "OUT", target)
+    monkeypatch.setattr(
+        updater.urllib.request, "urlopen", lambda *a, **kw: io.BytesIO(b"{}")
+    )
+    monkeypatch.setattr(
+        updater, "build_price_table", lambda *a: {"text": {}, "audio": {}}
+    )
+    with pytest.raises(ValueError, match="nonempty"):
+        updater.main()
+    assert target.read_text() == "existing prices"

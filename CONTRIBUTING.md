@@ -204,6 +204,19 @@ the generated candidate beneath an edit. The projection is rebuildable; it is
 not a second writable authority. Historical source references stay unchanged,
 and missing historical producer links mean unknown—not inferred provenance.
 
+## Automatic pricing refreshes
+
+The nightly refresh maintains at most one open `pricing-refresh` PR and enables
+squash auto-merge after required checks. Any size price change is allowed; only
+broken data (invalid rates, malformed entries, or an empty text catalog) is
+rejected. The workflow changes only `pricing_data.json` and runs from `main`.
+
+Repository setup: enable **Settings → General → Pull Requests → Allow auto-merge**.
+Set the Actions repository variable `PRICING_APP_ID` and secret
+`PRICING_APP_PRIVATE_KEY` for an App installed on this repository with Contents
+and Pull requests write permissions. Its repository-scoped token lets generated
+PRs trigger normal checks; no branch-rule bypass is needed.
+
 ## Testing
 
 - Each test should own a distinct behavior, security, or durability risk.
