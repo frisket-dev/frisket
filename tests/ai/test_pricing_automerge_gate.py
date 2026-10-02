@@ -19,8 +19,8 @@ def git(repo, *args):
 
 @pytest.mark.parametrize("change", ["large-price", "invalid-price", "extra-code"])
 def test_required_guard_rechecks_every_pr_head(tmp_path, change):
-    # rule19: execute the actual workflow artifact against disposable commits.
     workflow = yaml.safe_load(
+        # rule19: execute the actual workflow artifact against disposable commits.
         (ROOT / ".github/workflows/deterministic-source.yml").read_text()
     )
     step = next(
