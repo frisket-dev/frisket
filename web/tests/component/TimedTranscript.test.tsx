@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   hasTimedTranscript,
+  timedTranscriptColumnIds,
   timedTranscriptValue,
   type TimedTranscriptDocument,
 } from '../../src/workbench/timedTranscriptModel';
@@ -42,6 +43,7 @@ const document: TimedTranscriptDocument = {
 
 describe('TimedTranscript', () => {
   it('pulls the transcript pair out of the document object', () => {
+    expect(timedTranscriptColumnIds(document.sheet)).toEqual(['2', '3']);
     expect(timedTranscriptValue(document)).toEqual({
       text: 'Opening remarks. Contract discussion.',
       segments: document.row.cells['3'],

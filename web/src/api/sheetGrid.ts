@@ -167,6 +167,7 @@ function sheetDataQuery(
 ): SheetDataContractQuery {
   const opts = options ?? {};
   const query: SheetDataContractQuery = { offset, limit };
+  if (opts.columnIds != null) query.column_ids = opts.columnIds.map(Number).join(',');
   if (opts.scopeRowIds != null) query.scope_row_ids = opts.scopeRowIds.join(',');
   if (opts.parentRowId != null) query.parent_row_id = Number(opts.parentRowId);
   if (opts.rowIds != null) {

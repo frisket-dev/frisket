@@ -21,6 +21,7 @@ from frisket.engine.store.media_download_candidates import (
 )
 from frisket.engine.store.transcript_status import compute_transcript_statuses
 from frisket.server.route_errors import RouteError
+from frisket.server.services.document_browse import document_browse
 
 
 MAX_EXPLICIT_ROW_IDS = 1000
@@ -61,13 +62,17 @@ class SheetGridService:
         sort: str | None = None,
         row_ids: str | None = None,
         scope_row_ids: str | None = None,
+        column_ids: str | None = None,
     ) -> dict:
         project = self._workspace.get(project_id)
         visible_columns = _visible_sheet_columns(project, sheet_id)
+        projected_columns = _projected_columns(
+            visible_columns, _parse_column_ids_param(column_ids)
+        )
         explicit_row_ids = _parse_row_ids_param(row_ids)
         scoped_row_ids = _parse_row_ids_param(scope_row_ids)
         if explicit_row_ids is not None:
-            cols = visible_columns
+            cols = projected_columns
             ordered_ids = _visible_ranked_row_ids(project, sheet_id, explicit_row_ids)
             # Lens views provide their own ranked row order. The grid keeps that
             # exact order and intentionally ignores filter/sort scope here.
@@ -78,6 +83,7 @@ class SheetGridService:
                 cols,
                 window_ids,
                 total=len(ordered_ids),
+                cell_projection=column_ids is not None,
             )
 
         cols, where_sql, where_params, order_parts, order_params = (
@@ -90,6 +96,7 @@ class SheetGridService:
                 row_ids=scoped_row_ids,
             )
         )
+        cols = projected_columns
         total = project.db.execute(
             f"SELECT COUNT(*) FROM rows r WHERE {where_sql}", where_params
         ).fetchone()[0]
@@ -109,7 +116,57 @@ class SheetGridService:
             cols,
             [r["id"] for r in rows],
             total=total,
+            cell_projection=column_ids is not None,
         )
+
+    def document_page(
+        self,
+        project_id: str,
+        sheet_id: int,
+        *,
+        source_column_id: int,
+        title_column_id: int | None = None,
+        parent_row_id: int | None = None,
+        filter_: str | None = None,
+        sort: str | None = None,
+        scope_row_ids: str | None = None,
+        q: str | None = None,
+        cursor: str | None = None,
+        anchor_row_id: int | None = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        project = self._workspace.get(project_id)
+        require_visible_sheet(project, sheet_id)
+        try:
+            decoded_filter = _decode_document_json(
+                filter_, expected=dict, name="filter"
+            )
+            decoded_sort = _decode_document_json(sort, expected=list, name="sort")
+            page = document_browse(
+                project,
+                sheet_id,
+                source_column_id=source_column_id,
+                title_column_id=title_column_id,
+                parent_row_id=parent_row_id,
+                filter=decoded_filter,
+                sort=decoded_sort,
+                scope_row_ids=_parse_row_ids_param(scope_row_ids),
+                q=q,
+                cursor=cursor,
+                anchor_row_id=anchor_row_id,
+                limit=limit,
+            )
+        except SheetGridRouteError:
+            raise
+        except ValueError as exc:
+            raise SheetGridRouteError(400, str(exc)) from exc
+        return {
+            "schema_version": "frisket.document_page.v1",
+            "sheet_id": sheet_id,
+            "source_column_id": source_column_id,
+            "title_column_id": title_column_id,
+            **page,
+        }
 
     def column_stats(
         self,
@@ -241,6 +298,58 @@ def _parse_row_ids_param(raw: str | None) -> list[int] | None:
                 f"too many row_ids: at most {MAX_EXPLICIT_ROW_IDS} allowed per request",
             )
     return out
+
+
+def _parse_column_ids_param(raw: str | None) -> list[int] | None:
+    if raw is None:
+        return None
+    if not raw.strip():
+        return []
+    out: list[int] = []
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            column_id = int(token)
+        except ValueError as exc:
+            raise SheetGridRouteError(
+                400, f"invalid column_ids value: {token!r}"
+            ) from exc
+        if column_id <= 0:
+            raise SheetGridRouteError(400, "column_ids must be positive integers")
+        if column_id in out:
+            continue
+        out.append(column_id)
+    return out
+
+
+def _decode_document_json(
+    raw: str | None, *, expected: type[dict] | type[list], name: str
+) -> Any:
+    if raw is None:
+        return None
+    try:
+        decoded = json.loads(raw)
+    except (TypeError, ValueError) as exc:
+        raise SheetGridRouteError(400, f"invalid {name} JSON") from exc
+    if not isinstance(decoded, expected):
+        raise SheetGridRouteError(400, f"{name} must decode to {expected.__name__}")
+    return decoded
+
+
+def _projected_columns(
+    visible_columns: list[Any], column_ids: list[int] | None
+) -> list[Any]:
+    if column_ids is None:
+        return visible_columns
+    by_id = {int(column["id"]): column for column in visible_columns}
+    missing = [column_id for column_id in column_ids if column_id not in by_id]
+    if missing:
+        raise SheetGridRouteError(
+            400, f"column_ids are not visible columns on this sheet: {missing}"
+        )
+    return [by_id[column_id] for column_id in column_ids]
 
 
 def _visible_ranked_row_ids(
@@ -609,6 +718,7 @@ def _sheet_data_payload(
     row_ids: list[int],
     *,
     total: int,
+    cell_projection: bool = False,
 ) -> dict:
     child_count: dict[int, int] = {}
     parent_of: dict[int, Any] = {}
@@ -717,14 +827,20 @@ def _sheet_data_payload(
                     }
     # Full-column pending count feeds the header chip. Mixed columns are
     # intentionally gated until replay acceptance carries an exact head ref.
-    replay_pending_counts = {
-        c["id"]: project.pending_replay_count(sheet_id, c["id"])
-        for c in cols
-        if bool(c["ai_generated"])
-        and is_generation_managed(int(c["id"]))
-        and not has_mixed_origins(int(c["id"]))
-    }
-    transcript_statuses = compute_transcript_statuses(project, sheet_id, cols)
+    replay_pending_counts = (
+        {}
+        if cell_projection
+        else {
+            c["id"]: project.pending_replay_count(sheet_id, c["id"])
+            for c in cols
+            if bool(c["ai_generated"])
+            and is_generation_managed(int(c["id"]))
+            and not has_mixed_origins(int(c["id"]))
+        }
+    )
+    transcript_statuses = (
+        {} if cell_projection else compute_transcript_statuses(project, sheet_id, cols)
+    )
     from frisket.authoring.workbench.plugin_runtime_capabilities import (
         enabled_workbench_plugin_ids,
     )

@@ -2127,6 +2127,8 @@ export interface GridSortRule {
 export type GridSortSpec = GridSortRule[];
 
 export interface SheetDataOptions {
+  /** Narrow read projection. Omitted retains the grid's full visible-column payload. */
+  columnIds?: string[] | null;
   /** Exact row restriction, intersected with normal filter/sort. */
   scopeRowIds?: number[] | null;
   parentRowId?: string | null;
@@ -2136,6 +2138,47 @@ export interface SheetDataOptions {
    *  (distance/score order from the resolver). When set, the grid ignores
    *  column filter/sort — the lens already defines the row-set + order. */
   rowIds?: number[] | null;
+}
+
+export type DocumentSourceKind =
+  | 'annotated_text'
+  | 'text'
+  | 'pdf'
+  | 'image'
+  | 'video'
+  | 'audio'
+  | 'other';
+
+export interface DocumentListItem {
+  rowId: string;
+  ordinal: number;
+  title: string;
+  titleTruncated: boolean;
+  sourceKind: DocumentSourceKind;
+  sourcePresent: boolean;
+  sourceLabel: string | null;
+  sourceLabelTruncated: boolean;
+  characterCount: number | null;
+}
+
+export interface DocumentListPage {
+  items: DocumentListItem[];
+  nextCursor: string | null;
+  previousCursor: string | null;
+}
+
+export interface DocumentListOptions {
+  sourceColumnId: string;
+  titleColumnId?: string | null;
+  parentRowId?: string | null;
+  filter?: GridFilterSpec | null;
+  sort?: GridSortSpec | null;
+  scopeRowIds?: number[] | null;
+  query?: string;
+  cursor?: string | null;
+  anchorRowId?: string | null;
+  limit?: number;
+  signal?: AbortSignal;
 }
 
 export type SheetViewExportOptions = Pick<SheetDataOptions, 'filter' | 'sort' | 'scopeRowIds'>;

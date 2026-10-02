@@ -1,25 +1,20 @@
-// Container/presenter split for DocumentView: this hook owns loading + client-side
-// title search + the active-document resolution + keyboard nav + lightweight row
-// virtualization; the component owns only the JSX.
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { Row, SheetMeta } from '../api/types';
-import { resolveMediaValue, type ResolvedMediaValue } from '../media/resolveMediaValue';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { DocumentListItem, DocumentListPage, Row, SheetMeta } from '../api/types';
+import { resolveMediaValue } from '../media/resolveMediaValue';
 import type { DocumentViewState } from '../workspace/useWorkspaceChromeState';
-import {
-  documentMediaKind,
-  documentSources,
-  type DocumentMediaKind,
-  type DocumentSource,
-} from './documentMedia';
-import { resolveTitleColumn, rowTitle as resolveRowTitle } from './rowTitle';
-import { useWindowedRowList } from './useWindowedRowList';
+import { documentMediaKind, documentSources } from './documentMedia';
+import { resolveTitleColumn } from './rowTitle';
+import { LIST_ITEM_HEIGHT, useWindowedRowList } from './useWindowedRowList';
+import { timedTranscriptColumnIds } from './timedTranscriptModel';
 
-const LIST_PAGE_SIZE = 100;
+const PAGE_SIZE = 100;
+const MAX_PAGES = 3;
+const MAX_PAGE_COUNTS = PAGE_SIZE * MAX_PAGES;
 
 interface ListState {
   key: string;
-  rows: Row[];
-  total: number;
+  pages: DocumentListPage[];
+  pinned: DocumentListItem | null;
   loading: boolean;
   error: string | null;
 }
@@ -30,236 +25,233 @@ export interface UseDocumentViewArgs {
   state: DocumentViewState;
   onChangeState(next: DocumentViewState): void;
   onDocumentFocus(rowId: string): void;
-  queryRows(args: { columnIds?: string[]; offset: number; limit: number }): Promise<{
-    rows: Row[];
-    total: number;
-  }>;
+  queryDocuments(args: {
+    sourceColumnId: string; titleColumnId: string | null; query: string;
+    cursor?: string; anchorRowId?: string; limit: number;
+  }): Promise<DocumentListPage>;
+  hydrateRow(rowId: string, columnIds: string[]): Promise<Row | null>;
   orderKey: string;
   titleColumnOrder?: readonly string[];
-  /** SheetMeta.annotatedTextColumnIds — what makes a text column readable as a
-   *  document at all (documentSources). */
   annotatedTextColumnIds: readonly string[];
 }
 
-export function useDocumentView({
-  projectId,
-  sheet,
-  state,
-  onChangeState,
-  onDocumentFocus,
-  queryRows,
-  orderKey,
-  titleColumnOrder,
-  annotatedTextColumnIds,
-}: UseDocumentViewArgs) {
-  const sources = useMemo(
-    () => documentSources(sheet, annotatedTextColumnIds),
-    [sheet, annotatedTextColumnIds],
-  );
-  const source: DocumentSource | null = useMemo(
-    () =>
-      sources.find((entry) => String(entry.column.id) === state.sourceColumnId) ??
-      sources[0] ??
-      null,
-    [sources, state.sourceColumnId],
-  );
+export function useDocumentView(args: UseDocumentViewArgs) {
+  const { projectId, sheet, state, onChangeState, onDocumentFocus, queryDocuments,
+    hydrateRow, orderKey, titleColumnOrder, annotatedTextColumnIds } = args;
+  const sources = useMemo(() => documentSources(sheet, annotatedTextColumnIds), [sheet, annotatedTextColumnIds]);
+  const source = useMemo(() => sources.find((entry) => String(entry.column.id) === state.sourceColumnId)
+    ?? sources[0] ?? null, [sources, state.sourceColumnId]);
   const sourceColumn = source?.column ?? null;
-  // state.titleColumnId is now a per-VIEW override of the sheet-level
-  // default (sheet.titleColumnId, set via the column '...' menu's "Use as
-  // row title") — resolveTitleColumn/rowTitle (./rowTitle) are the ONE
-  // shared implementation of this priority order, also adopted by
-  // InspectDetailColumn and App.tsx's document-view sort-direction lookup.
-  const defaultTitleColumn = useMemo(
-    () => resolveTitleColumn(sheet, { columnOrder: titleColumnOrder }),
-    [sheet, titleColumnOrder],
-  );
-  const titleColumn = useMemo(
-    () =>
-      resolveTitleColumn(sheet, {
-        overrideColumnId: state.titleColumnId,
-        columnOrder: titleColumnOrder,
-      }),
-    [sheet, state.titleColumnId, titleColumnOrder],
-  );
-
-  const listKey = `${sheet.id}:${orderKey}`;
-  const [list, setList] = useState<ListState>({
-    key: listKey,
-    rows: [],
-    total: sheet.rowCount,
-    loading: true,
-    error: null,
-  });
-  const visibleList: ListState = useMemo(
-    () => list.key === listKey
-      ? list
-      : {
-          key: listKey,
-          rows: [],
-          total: sheet.rowCount,
-          loading: true,
-          error: null,
-        },
-    [list, listKey, sheet.rowCount],
-  );
-  const [pageCounts, setPageCounts] = useState<Record<string, number>>({});
+  const defaultTitleColumn = useMemo(() => resolveTitleColumn(sheet, { columnOrder: titleColumnOrder }), [sheet, titleColumnOrder]);
+  const titleColumn = useMemo(() => resolveTitleColumn(sheet, {
+    overrideColumnId: state.titleColumnId, columnOrder: titleColumnOrder,
+  }), [sheet, state.titleColumnId, titleColumnOrder]);
   const [search, setSearch] = useState('');
+  const [query, setQuery] = useState('');
+  useEffect(() => {
+    const timer = window.setTimeout(() => setQuery(search.trim()), 180);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+  const listKey = `${projectId}:${sheet.id}:${orderKey}:${sourceColumn?.id ?? ''}:${titleColumn?.id ?? ''}:${query}`;
+  const [list, setList] = useState<ListState>({ key: listKey, pages: [], pinned: null, loading: true, error: null });
+  const visibleList = useMemo<ListState>(() => list.key === listKey
+    ? list
+    : { key: listKey, pages: [], pinned: null, loading: true, error: null }, [list, listKey]);
+  const [pageCounts, setPageCounts] = useState<Record<string, number>>({});
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const queryDocumentsRef = useRef(queryDocuments);
+  const hydrateRowRef = useRef(hydrateRow);
+  const listGeneration = useRef(0);
+  const boundaryPending = useRef(false);
+  const viewportAdjustment = useRef<{ delta: number; rowId: string | null } | null>(null);
+  useEffect(() => { queryDocumentsRef.current = queryDocuments; }, [queryDocuments]);
+  useEffect(() => { hydrateRowRef.current = hydrateRow; }, [hydrateRow]);
 
   useEffect(() => {
+    if (!sourceColumn) return;
+    const generation = ++listGeneration.current;
     let cancelled = false;
-    setList({ key: listKey, rows: [], total: sheet.rowCount, loading: true, error: null });
-    void queryRows({ offset: 0, limit: LIST_PAGE_SIZE })
-      .then((page) => {
-        if (cancelled) return;
-        setList({ key: listKey, rows: page.rows, total: page.total, loading: false, error: null });
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        setList({
-          key: listKey,
-          rows: [],
-          total: sheet.rowCount,
-          loading: false,
-          error: err instanceof Error ? err.message : 'Could not load documents.',
-        });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [listKey, queryRows, sheet.rowCount]);
+    const request = (anchorRowId?: string) => queryDocumentsRef.current({ sourceColumnId: String(sourceColumn.id),
+      titleColumnId: titleColumn ? String(titleColumn.id) : null, query, anchorRowId, limit: PAGE_SIZE });
+    const anchored = state.activeRowId ?? undefined;
+    void request(anchored)
+      .catch((error: unknown) => anchored && typeof error === 'object' && error !== null
+        && 'status' in error && error.status === 400 ? request() : Promise.reject(error))
+      .then((page) => { if (!cancelled) setList({ key: listKey, pages: [page], pinned: null, loading: false, error: null }); })
+      .catch((error: unknown) => { if (!cancelled) setList({ key: listKey, pages: [], pinned: null, loading: false,
+        error: error instanceof Error ? error.message : 'Could not load documents.' }); });
+    return () => { cancelled = true; if (listGeneration.current === generation) listGeneration.current += 1; };
+    // activeRowId is the initial anchor, not a reason to restart the list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listKey, sourceColumn, titleColumn, query]);
 
-  const loadMore = useCallback(async () => {
-    if (visibleList.loading || visibleList.rows.length >= visibleList.total) return;
+  const items = useMemo(() => {
+    const seen = new Set<string>();
+    return visibleList.pages.flatMap((page) => page.items).filter((item) => !seen.has(item.rowId) && Boolean(seen.add(item.rowId)));
+  }, [visibleList.pages]);
+  const activeItem = items.find((item) => item.rowId === state.activeRowId)
+    ?? (visibleList.pinned?.rowId === state.activeRowId ? visibleList.pinned : null)
+    ?? visibleList.pinned
+    ?? items[0] ?? null;
+  const activeRowId = activeItem?.rowId ?? null;
+
+  const selectItem = useCallback((item: DocumentListItem) => {
+    setList((prev) => ({ ...prev, pinned: item }));
+    onChangeState({ ...state, sync: false, activeRowId: item.rowId });
+    onDocumentFocus(item.rowId);
+  }, [onChangeState, onDocumentFocus, state]);
+  const selectDocument = useCallback((rowId: string) => {
+    const item = items.find((candidate) => candidate.rowId === rowId);
+    if (item) selectItem(item);
+  }, [items, selectItem]);
+
+  const loadBoundary = useCallback(async (direction: 'previous' | 'next', selectBoundary = false) => {
+    if (visibleList.loading || boundaryPending.current || !sourceColumn || visibleList.pages.length === 0) return;
+    const cursor = direction === 'next'
+      ? visibleList.pages.at(-1)?.nextCursor : visibleList.pages[0]?.previousCursor;
+    if (!cursor) return;
+    const generation = listGeneration.current;
+    const requestKey = listKey;
+    boundaryPending.current = true;
     setList((prev) => ({ ...prev, loading: true }));
     try {
-      const page = await queryRows({ offset: visibleList.rows.length, limit: LIST_PAGE_SIZE });
-      setList((prev) => ({
-        key: prev.key,
-        rows: [...prev.rows, ...page.rows],
-        total: page.total,
-        loading: false,
-        error: null,
-      }));
-    } catch (err) {
-      setList((prev) => ({
-        ...prev,
-        loading: false,
-        error: err instanceof Error ? err.message : 'Could not load documents.',
-      }));
+      const page = await queryDocumentsRef.current({ sourceColumnId: String(sourceColumn.id),
+        titleColumnId: titleColumn ? String(titleColumn.id) : null, query, cursor, limit: PAGE_SIZE });
+      if (generation !== listGeneration.current) return;
+      const evicting = visibleList.pages.length >= MAX_PAGES;
+      viewportAdjustment.current = {
+        delta: !evicting ? (direction === 'previous' ? page.items.length * LIST_ITEM_HEIGHT : 0)
+          : direction === 'next'
+            ? -(visibleList.pages[0]?.items.length ?? 0) * LIST_ITEM_HEIGHT
+            : page.items.length * LIST_ITEM_HEIGHT,
+        rowId: selectBoundary && page.items.length
+          ? (direction === 'next' ? page.items[0].rowId : page.items.at(-1)!.rowId)
+          : null,
+      };
+      setList((prev) => {
+        if (prev.key !== requestKey) return prev;
+        let pages = direction === 'next' ? [...prev.pages, page] : [page, ...prev.pages];
+        const evicting = pages.length > MAX_PAGES;
+        const current = prev.pages.flatMap((candidate) => candidate.items)
+          .find((item) => item.rowId === activeRowId) ?? prev.pinned;
+        if (pages.length > MAX_PAGES) pages = direction === 'next' ? pages.slice(-MAX_PAGES) : pages.slice(0, MAX_PAGES);
+        return { ...prev, pages, pinned: evicting ? current ?? prev.pinned : prev.pinned, loading: false, error: null };
+      });
+      if (selectBoundary && page.items.length && generation === listGeneration.current) {
+        selectItem(direction === 'next' ? page.items[0] : page.items.at(-1)!);
+      }
+    } catch (error) {
+      if (generation === listGeneration.current) {
+        if (typeof error === 'object' && error !== null && 'status' in error && error.status === 400) {
+          const restartGeneration = ++listGeneration.current;
+          try {
+            const page = await queryDocumentsRef.current({ sourceColumnId: String(sourceColumn.id),
+              titleColumnId: titleColumn ? String(titleColumn.id) : null, query, limit: PAGE_SIZE });
+            if (restartGeneration === listGeneration.current) {
+              setList({ key: listKey, pages: [page], pinned: null, loading: false, error: null });
+            }
+          } catch (restartError) {
+            if (restartGeneration === listGeneration.current) setList((prev) => prev.key === requestKey
+              ? { ...prev, loading: false, error: restartError instanceof Error
+                ? restartError.message : 'Could not load documents.' } : prev);
+          }
+        } else {
+          setList((prev) => prev.key === requestKey ? ({ ...prev, loading: false,
+            error: error instanceof Error ? error.message : 'Could not load documents.' }) : prev);
+        }
+      }
+    } finally {
+      boundaryPending.current = false;
     }
-  }, [queryRows, visibleList]);
+  }, [activeRowId, listKey, query, selectItem, sourceColumn, titleColumn, visibleList]);
 
-  // A text source resolves to no media at ALL layers (resolveMediaValue,
-  // documentMediaKind) — which is correct, and is why the reader for it is a
-  // separate component rather than another branch of DocumentReader.
-  const resolveRowMedia = useCallback(
-    (row: Row): ResolvedMediaValue | null => {
-      if (source === null || source.kind !== 'media') return null;
-      return resolveMediaValue(row.cells[String(source.column.id)] ?? null, projectId);
-    },
-    [projectId, source],
-  );
-
-  const rowTitle = useCallback(
-    (row: Row, media: ResolvedMediaValue | null): string =>
-      resolveRowTitle(sheet, row, {
-        overrideColumnId: state.titleColumnId,
-        columnOrder: titleColumnOrder,
-        media,
-      }),
-    [sheet, state.titleColumnId, titleColumnOrder],
-  );
-
-  // Client-side title SEARCH over the loaded rows (a list convenience — distinct
-  // from the sheet's filter/sort, which the list always honors as its order).
-  const filteredRows = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    if (!needle) return visibleList.rows;
-    return visibleList.rows.filter((row) => {
-      const media = resolveRowMedia(row);
-      return rowTitle(row, media).toLowerCase().includes(needle);
+  const [hydrated, setHydrated] = useState<{ key: string; row: Row | null; loading: boolean; error: string | null }>({ key: '', row: null, loading: false, error: null });
+  const hydrationColumns = useMemo(() => Array.from(new Set([
+    source?.kind === 'media' ? sourceColumn?.id : null,
+    ...(source?.kind === 'media' && activeItem?.sourcePresent
+      && (activeItem.sourceKind === 'audio' || activeItem.sourceKind === 'video')
+      ? timedTranscriptColumnIds(sheet) : []),
+  ].filter(Boolean).map(String))), [activeItem, sheet, source, sourceColumn]);
+  const hydrationKey = `${projectId}:${sheet.id}:${activeRowId ?? ''}:${hydrationColumns.join(',')}`;
+  useEffect(() => {
+    if (!activeRowId || hydrationColumns.length === 0) return;
+    let cancelled = false;
+    void hydrateRowRef.current(activeRowId, hydrationColumns).then((row) => {
+      if (!cancelled) setHydrated({ key: hydrationKey, row, loading: false, error: null });
+    }).catch((error: unknown) => {
+      if (!cancelled) setHydrated({ key: hydrationKey, row: null, loading: false, error: error instanceof Error ? error.message : 'Could not load document.' });
     });
-  }, [visibleList, search, resolveRowMedia, rowTitle]);
-
-  // The active document is local reading state, not an action row selection.
-  // Fall back to the first row so the reader always previews something.
-  const activeRowId = useMemo(() => {
-    const ids = new Set(filteredRows.map((row) => String(row.id)));
-    if (state.activeRowId && ids.has(state.activeRowId)) {
-      return state.activeRowId;
-    }
-    return filteredRows[0] ? String(filteredRows[0].id) : null;
-  }, [filteredRows, state.activeRowId]);
-
-  const activeRow = useMemo(
-    () => filteredRows.find((row) => String(row.id) === activeRowId) ?? null,
-    [filteredRows, activeRowId],
-  );
-  const activeMedia = activeRow ? resolveRowMedia(activeRow) : null;
-  const activeMediaKind: DocumentMediaKind | null = activeMedia
-    ? documentMediaKind(activeMedia, sourceColumn?.type ?? 'file')
-    : null;
-
-  const selectDocument = useCallback(
-    (rowId: string) => {
-      onChangeState({ ...state, sync: false, activeRowId: rowId });
-      // If Row Detail is already open, keep that reader aimed at the document
-      // without turning document focus into an action selection.
-      onDocumentFocus(rowId);
-    },
-    [state, onDocumentFocus, onChangeState],
-  );
-
+    return () => { cancelled = true; };
+  }, [activeRowId, hydrationColumns, hydrationKey]);
+  const activeRow = hydrated.key === hydrationKey ? hydrated.row : null;
+  const activeMedia = activeRow && source?.kind === 'media'
+    ? resolveMediaValue(activeRow.cells[String(source.column.id)] ?? null, projectId) : null;
+  const activeMediaKind = activeMedia ? documentMediaKind(activeMedia, sourceColumn?.type ?? 'file') : null;
   const recordPageCount = useCallback((rowKey: string, count: number | null) => {
+    if (count === null) return;
     setPageCounts((prev) => {
-      if (count === null || prev[rowKey] === count) return prev;
-      return { ...prev, [rowKey]: count };
+      const entries = Object.entries(prev).filter(([key]) => key !== rowKey).slice(-(MAX_PAGE_COUNTS - 1));
+      return Object.fromEntries([...entries, [rowKey, count]]);
     });
   }, []);
-
-  // Scroll/window/measure + keyboard document nav (↑/↓ change the DOCUMENT)
-  // — shared with AnswersView's row list (useWindowedRowList). Row.id is
-  // already typed `string`, so `activeRowId`/`selectDocument` need no
-  // String() wrap here.
+  const navigateBoundary = useCallback(async (direction: 'previous' | 'next') => {
+    if (!activeRowId || items.some((item) => item.rowId === activeRowId) || !sourceColumn) {
+      await loadBoundary(direction, true);
+      return;
+    }
+    const generation = listGeneration.current;
+    try {
+      const anchorPage = await queryDocumentsRef.current({ sourceColumnId: String(sourceColumn.id),
+        titleColumnId: titleColumn ? String(titleColumn.id) : null, query, anchorRowId: activeRowId, limit: PAGE_SIZE });
+      if (generation !== listGeneration.current) return;
+      if (direction === 'next') {
+        const next = anchorPage.items.find((item) => item.rowId !== activeRowId);
+        setList((prev) => prev.key === listKey ? { ...prev, pages: [anchorPage], loading: false } : prev);
+        if (next) selectItem(next);
+        else if (anchorPage.nextCursor) await loadBoundary('next', true);
+        return;
+      }
+      if (!anchorPage.previousCursor) return;
+      const previousPage = await queryDocumentsRef.current({ sourceColumnId: String(sourceColumn.id),
+        titleColumnId: titleColumn ? String(titleColumn.id) : null, query,
+        cursor: anchorPage.previousCursor, limit: PAGE_SIZE });
+      if (generation !== listGeneration.current) return;
+      setList((prev) => prev.key === listKey ? { ...prev, pages: [previousPage, anchorPage], loading: false } : prev);
+      const previous = previousPage.items.at(-1);
+      if (previous) selectItem(previous);
+    } catch (error) {
+      if (generation === listGeneration.current) setList((prev) => prev.key === listKey ? { ...prev,
+        error: error instanceof Error ? error.message : 'Could not load documents.' } : prev);
+    }
+  }, [activeRowId, items, listKey, loadBoundary, query, selectItem, sourceColumn, titleColumn]);
   const { listBodyRef, onListScroll, onListKeyDown, startIndex, windowRows } = useWindowedRowList({
-    rows: filteredRows,
-    activeId: activeRowId,
-    onSelect: selectDocument,
+    rows: items.map((item) => ({ ...item, id: item.rowId })), activeId: activeRowId,
+    onSelect: selectDocument, onBoundary: (direction) => void navigateBoundary(direction),
   });
-
-  const setState = useCallback(
-    (patch: Partial<DocumentViewState>) => onChangeState({ ...state, ...patch }),
-    [state, onChangeState],
-  );
-
-  return {
-    sources,
-    source,
-    sourceColumn,
-    defaultTitleColumn,
-    titleColumn,
-    list: visibleList,
-    pageCounts,
-    search,
-    setSearch,
-    optionsOpen,
-    setOptionsOpen,
-    listBodyRef,
-    filteredRows,
-    activeRowId,
-    activeRow,
-    activeMedia,
-    activeMediaKind,
-    resolveRowMedia,
-    rowTitle,
-    recordPageCount,
-    selectDocument,
-    onListKeyDown,
-    onListScroll,
-    startIndex,
-    windowRows,
-    loadMore,
-    setState,
-  };
+  useLayoutEffect(() => {
+    const adjustment = viewportAdjustment.current;
+    const node = listBodyRef.current;
+    if (!adjustment || !node) return;
+    viewportAdjustment.current = null;
+    const selectedIndex = adjustment.rowId
+      ? items.findIndex((item) => item.rowId === adjustment.rowId) : -1;
+    if (selectedIndex >= 0) {
+      const top = selectedIndex * LIST_ITEM_HEIGHT;
+      const bottom = top + LIST_ITEM_HEIGHT;
+      if (top < node.scrollTop) node.scrollTop = top;
+      else if (bottom > node.scrollTop + node.clientHeight) node.scrollTop = bottom - node.clientHeight;
+    } else {
+      node.scrollTop = Math.max(0, node.scrollTop + adjustment.delta);
+    }
+    node.dispatchEvent(new Event('scroll'));
+  }, [items, listBodyRef]);
+  const setState = useCallback((patch: Partial<DocumentViewState>) => onChangeState({ ...state, ...patch }), [state, onChangeState]);
+  return { sources, source, sourceColumn, defaultTitleColumn, titleColumn, list: visibleList, items,
+    pageCounts, search, setSearch, optionsOpen, setOptionsOpen, listBodyRef, activeRowId, activeItem,
+    activeRow, activeMedia, activeMediaKind,
+    hydrationLoading: Boolean(activeRowId && hydrationColumns.length > 0
+      && (hydrated.key !== hydrationKey || hydrated.loading)),
+    hydrationError: activeRowId && hydrated.key === hydrationKey ? hydrated.error : null,
+    recordPageCount, selectDocument,
+    onListKeyDown, onListScroll, startIndex, windowRows, loadMore: () => loadBoundary('next'), setState };
 }

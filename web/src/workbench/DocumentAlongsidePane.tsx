@@ -2,6 +2,7 @@ import { Check, Columns2, Copy, Maximize2, X } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
 import type { ColumnDef, Row } from '../api/types';
 import { FieldValue } from '../components/RowDrawer';
+import { fieldValueDependencyColumnIds } from '../components/fieldValueDependencies';
 import { PanelSelect } from '../components/PanelSelect';
 import { ResizeSeam } from '../components/ResizeSeam';
 import { useResizable } from '../components/useResizable';
@@ -11,7 +12,8 @@ interface DocumentAlongsidePaneProps {
   projectId: string;
   sheetId: string;
   columns: ColumnDef[];
-  row: Row | null;
+  rowId: string | null;
+  hydrateRow(rowId: string, columnIds: string[]): Promise<Row | null>;
   selectedColumnId: string | null;
   onChangeColumn(columnId: string | null): void;
   onClose(): void;
@@ -22,9 +24,11 @@ const MAX_WIDTH = 640;
 
 /** A second reading surface for the current row; rendering stays with FieldValue. */
 export function DocumentAlongsidePane({
-  projectId, sheetId, columns, row, selectedColumnId, onChangeColumn, onClose,
+  projectId, sheetId, columns, rowId, hydrateRow, selectedColumnId, onChangeColumn, onClose,
 }: DocumentAlongsidePaneProps) {
   const selectedColumn = columns.find((column) => column.id === selectedColumnId) ?? null;
+  const hydrateRowRef = useRef(hydrateRow);
+  useEffect(() => { hydrateRowRef.current = hydrateRow; }, [hydrateRow]);
   const [choosing, setChoosing] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [copyStatus, setCopyStatus] = useState<{
@@ -34,6 +38,25 @@ export function DocumentAlongsidePane({
   const pickerRef = useRef<HTMLSelectElement>(null);
   const changeRef = useRef<HTMLButtonElement>(null);
   const chooserVisible = choosing || !selectedColumn;
+  const hydrationKey = `${projectId}:${sheetId}:${rowId ?? ''}:${selectedColumn?.id ?? ''}`;
+  const [hydrated, setHydrated] = useState<{ key: string; row: Row | null; loading: boolean; error: string | null }>({
+    key: '', row: null, loading: false, error: null,
+  });
+  useEffect(() => {
+    if (!rowId || !selectedColumn) {
+      return;
+    }
+    let cancelled = false;
+    const columnIds = [selectedColumn.id, ...fieldValueDependencyColumnIds(columns, selectedColumn)];
+    void hydrateRowRef.current(rowId, columnIds).then((row) => {
+      if (!cancelled) setHydrated({ key: hydrationKey, row, loading: false, error: null });
+    }).catch((error: unknown) => {
+      if (!cancelled) setHydrated({ key: hydrationKey, row: null, loading: false,
+        error: error instanceof Error ? error.message : 'Could not load value.' });
+    });
+    return () => { cancelled = true; };
+  }, [columns, hydrationKey, rowId, selectedColumn]);
+  const row = hydrated.key === hydrationKey ? hydrated.row : null;
   useEffect(() => {
     if (chooserVisible) pickerRef.current?.focus();
     else changeRef.current?.focus();
@@ -67,8 +90,14 @@ export function DocumentAlongsidePane({
 
   const content = !selectedColumn ? (
     <p className={styles.empty}>Choose a column to show alongside the document.</p>
-  ) : !row ? (
+  ) : !rowId ? (
     <p className={styles.empty}>Choose a document to view its value.</p>
+  ) : hydrated.key !== hydrationKey || hydrated.loading ? (
+    <p className={styles.empty}>Loading value…</p>
+  ) : hydrated.error ? (
+    <p className={styles.empty} role="alert">{hydrated.error}</p>
+  ) : !row ? (
+    <p className={styles.empty}>The document is no longer available.</p>
   ) : (
     <FieldValue key={`${row.id}:${selectedColumn.id}`} col={selectedColumn} columns={columns}
       row={row} sheetId={sheetId} value={value} />

@@ -1,13 +1,12 @@
 import { Search } from 'lucide-react';
 import type { CSSProperties } from 'react';
-import type { Row, SheetMeta } from '../api/types';
+import type { DocumentListPage, Row, SheetMeta } from '../api/types';
 import { MenuPop } from '../components/MenuPop';
 import type { DocumentViewState } from '../workspace/useWorkspaceChromeState';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnnotatedTextReader } from './AnnotatedTextReader';
 import { MentionDetailPanel } from './MentionDetailPanel';
 import { mentionTargetForMark, type MentionDetailTarget } from './mentionDetailModel';
-import { documentMediaKind } from './documentMedia';
 import { DocumentReader } from './DocumentReader';
 import { DocumentAlongsidePane } from './DocumentAlongsidePane';
 import { useDocumentAlongsidePreference } from '../workspace/useWorkspaceChromeState';
@@ -16,6 +15,7 @@ import { useDocumentView } from './useDocumentView';
 import { LIST_ITEM_HEIGHT } from './useWindowedRowList';
 import { PanelLoading } from '../components/PanelPrimitives';
 import { PanelSelect } from '../components/PanelSelect';
+import { mediaFilename } from '../media/resolveMediaValue';
 
 interface DocumentViewProps {
   projectId: string;
@@ -26,10 +26,9 @@ interface DocumentViewProps {
   onDocumentFocus(rowId: string): void;
   /** Open the resident Detail column for a row (openRowById): selects + docks. */
   onOpenDetail(rowId: string): void;
-  queryRows(args: { columnIds?: string[]; offset: number; limit: number }): Promise<{
-    rows: Row[];
-    total: number;
-  }>;
+  queryDocuments(args: { sourceColumnId: string; titleColumnId: string | null; query: string;
+    cursor?: string; anchorRowId?: string; limit: number }): Promise<DocumentListPage>;
+  hydrateRow(rowId: string, columnIds: string[]): Promise<Row | null>;
   /** Drives the SHEET's grid sort on the title column (list stays the sheet's
    *  order — the list never re-implements its own sort/filter). */
   onListSort(columnName: string, dir: 'asc' | 'desc' | null): void;
@@ -59,7 +58,8 @@ export function DocumentView({
   onChangeState,
   onDocumentFocus,
   onOpenDetail,
-  queryRows,
+  queryDocuments,
+  hydrateRow,
   onListSort,
   orderKey,
   listSortDir,
@@ -117,13 +117,14 @@ export function DocumentView({
     optionsOpen,
     setOptionsOpen,
     listBodyRef,
-    filteredRows,
+    items,
     activeRowId,
+    activeItem,
     activeRow,
     activeMedia,
     activeMediaKind,
-    resolveRowMedia,
-    rowTitle,
+    hydrationLoading,
+    hydrationError,
     recordPageCount,
     selectDocument,
     onListKeyDown,
@@ -138,7 +139,8 @@ export function DocumentView({
     state,
     onChangeState,
     onDocumentFocus,
-    queryRows,
+    queryDocuments,
+    hydrateRow,
     orderKey,
     titleColumnOrder,
     annotatedTextColumnIds,
@@ -155,12 +157,12 @@ export function DocumentView({
       sheet,
       media: activeMedia,
       kind: activeMediaKind,
-      title: rowTitle(activeRow, activeMedia),
+      title: activeItem?.title ?? 'Document',
       videoClassName: activeMediaKind === 'video' ? `document-video-${state.videoFit}` : undefined,
     };
-  }, [activeMedia, activeMediaKind, activeRow, rowTitle, sheet, state.videoFit]);
+  }, [activeItem?.title, activeMedia, activeMediaKind, activeRow, sheet, state.videoFit]);
 
-  if (list.loading && list.rows.length === 0) {
+  if (list.loading && list.pages.length === 0) {
     return (
       <div
         className="document-view"
@@ -316,7 +318,7 @@ export function DocumentView({
           />
         </div>
         <div className="document-list-count muted mono">
-          {filteredRows.length.toLocaleString()} of {list.total.toLocaleString()}
+          {items.length.toLocaleString()} loaded
         </div>
         <div
           className="document-list-body drawer-body"
@@ -333,38 +335,35 @@ export function DocumentView({
               {list.error}
             </div>
           )}
-          {!list.loading && filteredRows.length === 0 && (
+          {!list.loading && items.length === 0 && (
             <div className="document-list-empty" data-testid="document-list-empty">
               No documents match.
             </div>
           )}
           <div
             className="document-list-scroller"
-            style={{ height: `${filteredRows.length * LIST_ITEM_HEIGHT}px` }}
+            style={{ height: `${items.length * LIST_ITEM_HEIGHT}px` }}
           >
-            {windowRows.map((row, offset) => {
+            {windowRows.map((item, offset) => {
               const index = startIndex + offset;
-              const media = resolveRowMedia(row);
-              const rowId = String(row.id);
+              const rowId = item.rowId;
               const active = rowId === activeRowId;
               const count = pageCounts[rowId];
-              // A text source has no media and no pages; its honest secondary
-              // line is the size of the thing you are about to read.
-              const textLength =
-                source?.kind === 'text'
-                  ? String(row.cells[String(source.column.id)] ?? '').length
-                  : null;
+              const characterCount = item.sourceKind === 'annotated_text'
+                ? item.characterCount ?? 0
+                : item.characterCount;
               const secondary =
-                textLength !== null
-                  ? textLength > 0
-                    ? `${textLength.toLocaleString()} characters`
+                characterCount !== null
+                  ? characterCount > 0
+                    ? `${characterCount.toLocaleString()} characters`
                     : 'Empty'
+                  : !item.sourcePresent
+                    ? 'No document'
                   : count != null
                     ? `${count} page${count === 1 ? '' : 's'}`
-                    : media
-                      ? documentMediaKind(media, sourceColumn?.type ?? 'file') === 'pdf'
-                        ? 'PDF'
-                        : (media.mime ?? 'File')
+                    : item.sourceLabel
+                      ? mediaFilename({ url: item.sourceLabel, label: item.sourceLabel })
+                        ?? item.sourceKind.toUpperCase()
                       : 'No document';
               return (
                 <button
@@ -374,20 +373,20 @@ export function DocumentView({
                   data-testid="document-list-item"
                   data-row-id={rowId}
                   data-active={active ? 'true' : 'false'}
-                  data-has-media={media ? 'true' : 'false'}
+                  data-has-media={item.sourceKind !== 'annotated_text' && item.sourcePresent ? 'true' : 'false'}
                   role="option"
                   aria-selected={active}
                   style={{ position: 'absolute', top: `${index * LIST_ITEM_HEIGHT}px`, height: `${LIST_ITEM_HEIGHT}px` }}
                   onClick={() => selectDocument(rowId)}
                   onDoubleClick={() => onOpenDetail(rowId)}
                 >
-                  <span className="document-list-item-title">{rowTitle(row, media)}</span>
+                  <span className="document-list-item-title">{item.title}</span>
                   <span className="document-list-item-secondary muted">{secondary}</span>
                 </button>
               );
             })}
           </div>
-          {list.rows.length < list.total && (
+          {list.pages.at(-1)?.nextCursor && (
             <button
               type="button"
               className="mini-btn document-list-more"
@@ -405,7 +404,7 @@ export function DocumentView({
           key={`text-reader-${activeRowId ?? 'none'}`}
           rowId={activeRowId}
           columnId={String(source.column.id)}
-          title={activeRow ? rowTitle(activeRow, null) : 'No document selected'}
+          title={activeItem?.title ?? 'No document selected'}
           disabledToggleKeys={disabledToggleKeys}
           onSetDisabledToggleKeys={onSetDisabledToggleKeys}
           onOpenMention={(mark) => {
@@ -426,12 +425,20 @@ export function DocumentView({
           selectionCount={0}
           onReplayLayer={onReplayAnnotationLayer ?? null}
         />
+      ) : hydrationLoading ? (
+        <section className="document-reader" data-testid="document-reader">
+          <PanelLoading className="main-view-loading" label="Loading document…" />
+        </section>
+      ) : hydrationError ? (
+        <section className="document-reader" data-testid="document-reader">
+          <div className="document-list-message" role="alert">{hydrationError}</div>
+        </section>
       ) : (
         <DocumentReader
           key={`reader-${activeRowId ?? 'none'}`}
           media={activeMedia}
           mediaKind={activeMediaKind}
-          title={activeRow ? rowTitle(activeRow, activeMedia) : 'No document selected'}
+          title={activeItem?.title ?? 'No document selected'}
           layout={state.layout}
           fit={state.fit}
           videoFit={state.videoFit}
@@ -460,7 +467,8 @@ export function DocumentView({
         projectId={projectId}
         sheetId={sheet.id}
         columns={sheet.columns}
-        row={activeRow}
+        rowId={activeRowId}
+        hydrateRow={hydrateRow}
         selectedColumnId={alongside.columnId}
         onChangeColumn={(columnId) => setAlongside({ open: true, columnId })}
         onClose={() => setAlongside({ ...alongside, open: false })}

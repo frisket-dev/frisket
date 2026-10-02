@@ -109,6 +109,20 @@ class SheetDataQuery(NonNullQueryWireModel):
     sort: str | None = None
     row_ids: str | None = None
     scope_row_ids: str | None = None
+    column_ids: str | None = None
+
+
+class DocumentBrowseQuery(NonNullQueryWireModel):
+    source_column_id: int = Field(ge=1)
+    title_column_id: int | None = Field(default=None, ge=1)
+    parent_row_id: int | None = Field(default=None, ge=1)
+    filter_: str | None = Field(default=None, alias="filter")
+    sort: str | None = None
+    scope_row_ids: str | None = None
+    q: str | None = Field(default=None, max_length=256)
+    cursor: str | None = Field(default=None, max_length=2048)
+    anchor_row_id: int | None = Field(default=None, ge=1)
+    limit: int = Field(default=100, ge=1, le=200)
 
 
 class ColumnStatsQuery(NonNullQueryWireModel):
@@ -311,6 +325,30 @@ class SheetData(WireModel):
     columns: list[SheetDataColumn]
     rows: list[SheetDataRow]
     total: int = Field(ge=0)
+
+
+class DocumentDescriptor(WireModel):
+    row_id: int
+    ordinal: int = Field(ge=1)
+    title: str = Field(max_length=256)
+    title_truncated: bool
+    source_kind: Literal[
+        "annotated_text", "text", "pdf", "image", "video", "audio", "other"
+    ]
+    source_present: bool
+    source_label: str | None = Field(max_length=256)
+    source_label_truncated: bool
+    character_count: int | None = Field(ge=0)
+
+
+class DocumentPage(WireModel):
+    schema_version: Literal["frisket.document_page.v1"]
+    sheet_id: int
+    source_column_id: int
+    title_column_id: int | None
+    items: list[DocumentDescriptor]
+    next_cursor: str | None
+    previous_cursor: str | None
 
 
 class ColumnStatsColumn(WireModel):
@@ -895,6 +933,8 @@ __all__ = [
     "ActionJobsQuery",
     "CreateProjectRequest",
     "EmptyQuery",
+    "DocumentBrowseQuery",
+    "DocumentPage",
     "HttpError",
     "ProjectDeleteRequest",
     "ProjectDelete",

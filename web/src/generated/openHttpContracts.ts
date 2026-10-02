@@ -442,6 +442,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
+      "id": "tenant.browse_sheet_documents.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/sheets/{sheet_id}/documents",
+      "request": null
+    },
+    {
       "id": "tenant.cancel_import_session.post",
       "method": "POST",
       "path": "/api/projects/{pid}/import/files/sessions/{ref}/cancel",
@@ -4055,6 +4061,28 @@ export type HttpDiagnosticsReport = ({
 }) | (boolean);
 });
 
+type HttpDocumentPage_DocumentDescriptor = ({
+  "character_count": (((number)) | ((null)));
+  "ordinal": (number);
+  "row_id": (number);
+  "source_kind": ("annotated_text" | "text" | "pdf" | "image" | "video" | "audio" | "other") & (string);
+  "source_label": (((string)) | ((null)));
+  "source_label_truncated": (boolean);
+  "source_present": (boolean);
+  "title": (string);
+  "title_truncated": (boolean);
+});
+
+export type HttpDocumentPage = ({
+  "items": (Array<(HttpDocumentPage_DocumentDescriptor)>);
+  "next_cursor": (((string)) | ((null)));
+  "previous_cursor": (((string)) | ((null)));
+  "schema_version": ("frisket.document_page.v1") & (string);
+  "sheet_id": (number);
+  "source_column_id": (number);
+  "title_column_id": (((number)) | ((null)));
+});
+
 type HttpEmbeddingHybridPreviewResponse_EmbeddingHybridHit = ({
   "distance": (((number)) | ((null)));
   "keyword_rank": (((number)) | ((null)));
@@ -5315,16 +5343,6 @@ export type HttpInline_4b0663e5e5e7d871 = ({
   "plan_id": (string);
 });
 
-export type HttpInline_4d4b7b353500ed59 = ({
-  "filter"?: (string);
-  "limit"?: (number);
-  "offset"?: (number);
-  "parent_row_id"?: (number);
-  "row_ids"?: (string);
-  "scope_row_ids"?: (string);
-  "sort"?: (string);
-});
-
 type HttpInline_524de52122d1c461_ActionError = ({
   "action_kind"?: (((string)) | ((null)));
   "code": (string);
@@ -5644,6 +5662,19 @@ export type HttpInline_766f205ee1bdd9db = ({
   "offset"?: (number);
 });
 
+export type HttpInline_7d6bd08839bc6472 = ({
+  "anchor_row_id"?: (((number)) | ((null)));
+  "cursor"?: (((string)) | ((null)));
+  "filter"?: (((string)) | ((null)));
+  "limit"?: (number);
+  "parent_row_id"?: (((number)) | ((null)));
+  "q"?: (((string)) | ((null)));
+  "scope_row_ids"?: (((string)) | ((null)));
+  "sort"?: (((string)) | ((null)));
+  "source_column_id": (number);
+  "title_column_id"?: (((number)) | ((null)));
+});
+
 export type HttpInline_7daea3dbdfe86f78 = ({
   "lens_id": (number);
   "pid": (string);
@@ -5791,6 +5822,17 @@ export type HttpInline_8b265931c6336b68 = ({
 
 export type HttpInline_8dd8e83611062581 = ({
   "user_ref": (string);
+});
+
+export type HttpInline_903a523d1148350b = ({
+  "column_ids"?: (string);
+  "filter"?: (string);
+  "limit"?: (number);
+  "offset"?: (number);
+  "parent_row_id"?: (number);
+  "row_ids"?: (string);
+  "scope_row_ids"?: (string);
+  "sort"?: (string);
 });
 
 type HttpInline_95dd5aaa354f43b3_ActionError = ({
@@ -10826,6 +10868,20 @@ export type HttpContractOperationMap = {
       readonly "500": HttpInline_487c3cda92b800f4;
     };
   };
+  readonly "tenant.browse_sheet_documents.get": {
+    readonly pathParams: HttpInline_fa1495952891aea0;
+    readonly query: HttpInline_7d6bd08839bc6472;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpDocumentPage;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
   readonly "tenant.cancel_import_session.post": {
     readonly pathParams: HttpInline_8527488b5f6abaa7;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -12871,7 +12927,7 @@ export type HttpContractOperationMap = {
   };
   readonly "tenant.sheet_data.get": {
     readonly pathParams: HttpInline_fa1495952891aea0;
-    readonly query: HttpInline_4d4b7b353500ed59;
+    readonly query: HttpInline_903a523d1148350b;
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpSheetData;

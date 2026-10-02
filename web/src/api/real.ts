@@ -82,6 +82,7 @@ import { createProjectCollaborationApi } from './projectCollaboration';
 import { createColumnTypesDomainApi } from './columnTypes';
 import { createTranslateComparisonApi } from './translateComparison';
 import { createProjectSearchApi } from './projectSearch';
+import { createDocumentBrowsingApi } from './documentBrowsing';
 import { createProjectDataManagementApi } from './projectDataManagement';
 import { createProjectProviderKeysApi, type ProjectProviderKeysOptions } from './projectProviderKeys';
 import { createProjectSecretsApi } from './projectSecrets';
@@ -313,6 +314,9 @@ const identityProfileApi = createIdentityProfileApi(apiErrorFromContract);
 const errorIntakeApi = createErrorIntakeApi(apiErrorFromContract);
 const workbenchPluginsApi = createWorkbenchPluginsApi(workbenchPluginErrorFromContract);
 const projectCollaborationApi = createProjectCollaborationApi(apiErrorFromContract);
+const documentBrowsingApi = createDocumentBrowsingApi(apiErrorFromContract);
+
+export const listProjectDocuments = documentBrowsingApi.listDocuments;
 const apiTokensApi = createApiTokensApi(apiErrorFromContract);
 const organizationProvidersApi = createOrganizationProvidersApi(apiErrorFromContract);
 const organizationOperationsApi = createOrganizationOperationsApi(apiErrorFromContract);
