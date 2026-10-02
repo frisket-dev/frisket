@@ -816,13 +816,14 @@ class Workspace:
         def schedule_metadata(receipt_id: str = "recovery") -> int | None:
             # Opening a million-blob project must not synchronously inspect
             # every metadata document. The worker filters completed probes.
-            if not MediaBlobStore(project).hashes_needing_metadata(
-                force=True, limit=1, after_hash=""
-            ):
-                return None
             # Each completed import gets its own trigger: an already-running
             # scan may have passed the hashes this import just published.
             try:
+                if not MediaBlobStore(project).hashes_needing_metadata(
+                    force=True, limit=1, after_hash=""
+                ):
+                    self._metadata_enqueue_pending.discard(project_id)
+                    return None
                 job_id = self.queue.enqueue(
                     BLOB_METADATA_KIND,
                     {

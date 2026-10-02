@@ -58,7 +58,7 @@ def test_import_returns_before_probe_and_enqueues_durable_backfill(
     assert job.payload["project_id"] == pid
     handler = workspace.registry.get(job.kind)
     result = handler(job.payload, JobHandlerContext.without_job_row())
-    assert result == {"project_id": pid, "updated": 1}
+    assert result == {"project_id": pid, "updated": 1, "failed": 0}
     assert store.probe_metadata(digest)["size_bytes"] == len(b"source notes")
     assert store.hashes_needing_metadata() == []
     project.close()
@@ -151,13 +151,13 @@ def test_failure_retries_only_remaining_blobs(tmp_path, monkeypatch):
 
     monkeypatch.setattr(blob_metadata, "update_blob_metadata", interrupted)
     handler = _handler(tmp_path)
-    with pytest.raises(OSError):
-        handler({"project_id": "files"}, JobHandlerContext.without_job_row())
-    assert attempted == digests[:2]
+    result = handler({"project_id": "files"}, JobHandlerContext.without_job_row())
+    assert result == {"project_id": "files", "updated": 2, "failed": 1}
+    assert attempted == digests
     monkeypatch.setattr(blob_metadata, "update_blob_metadata", original)
     assert (
         handler({"project_id": "files"}, JobHandlerContext.without_job_row())["updated"]
-        == 2
+        == 1
     )
 
 
@@ -259,3 +259,65 @@ def test_failed_continuation_enqueue_can_retry_without_reprobing(tmp_path, monke
         handler({"project_id": "files"}, JobHandlerContext.without_job_row())["updated"]
         == 1
     )
+
+
+def test_delete_stops_metadata_then_waits_for_the_actual_handler_exit(
+    tmp_path, monkeypatch
+):
+    app = create_app(tmp_path / "workspace")
+    client = TestClient(app)
+    workspace = app.state.workspace
+    pid = workspace.create("Delete media")["id"]
+    project = workspace.get(pid)
+    for i in range(3):
+        project.add_blob(str(i).encode(), filename=f"{i}.txt", mime="text/plain")
+    job_id = project._frisket_schedule_blob_metadata("import-one")
+    job = workspace.queue.claim("metadata-test")
+    assert job.id == job_id
+    monkeypatch.setattr(blob_metadata, "PROBE_BATCH_SIZE", 1)
+    probe = blob_metadata.update_blob_metadata
+    calls = []
+
+    def stop_during_probe(project, digest):
+        calls.append(digest)
+        result = probe(project, digest)
+        response = client.request(
+            "DELETE", f"/api/projects/{pid}", json={"confirm_name": "Delete media"}
+        )
+        assert response.status_code == 409, response.text
+        assert "Stopping background metadata" in response.json()["detail"]
+        assert (workspace.root / f"{pid}.frisket").exists()
+        return result
+
+    monkeypatch.setattr(blob_metadata, "update_blob_metadata", stop_during_probe)
+    result = workspace.registry.get(job.kind)(
+        {**job.payload, "job_id": job_id}, JobHandlerContext.without_job_row()
+    )
+    assert result["updated"] == len(calls) == 1
+    assert workspace.queue.get(job_id).status == "cancelled"
+    assert workspace.queue.list_project_jobs(pid, status="queued") == []
+    # The normal worker acknowledges exit even though cancellation rejected
+    # its completion write; until then deletion must not ignore its authority.
+    assert not workspace.queue.complete(job_id, "metadata-test", result)
+    response = client.request(
+        "DELETE", f"/api/projects/{pid}", json={"confirm_name": "Delete media"}
+    )
+    assert response.status_code == 200, response.text
+    assert not (workspace.root / f"{pid}.frisket").exists()
+    workspace.queue.close()
+
+
+def test_optional_probe_inventory_failure_does_not_block_open(tmp_path, monkeypatch):
+    app = create_app(tmp_path / "workspace")
+    workspace = app.state.workspace
+    pid = workspace.create("Readable")["id"]
+
+    def unavailable(*args, **kwargs):
+        raise OSError("optional inventory unavailable")
+
+    monkeypatch.setattr(MediaBlobStore, "hashes_needing_metadata", unavailable)
+    project = workspace.get(pid)
+    assert project.project_metadata()["name"] == "Readable"
+    assert workspace.get(pid) is project
+    project.close()
+    workspace.queue.close()
