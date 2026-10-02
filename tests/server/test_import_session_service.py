@@ -133,6 +133,40 @@ async def test_total_limits_apply_across_bounded_upload_chunks(project):
     assert (status.admitted_files, status.admitted_bytes) == (1, 3)
 
 
+@pytest.mark.asyncio
+async def test_upload_failure_before_canonical_admission_is_not_acknowledged(
+    project, monkeypatch
+):
+    service = ImportSessionService(SimpleNamespace(get=lambda _project_id: project))
+    created = service.create("project-1", "Failure")
+    directory = import_intake_dir(project.path, created.import_ref)
+
+    def fail_admission(*_args, **_kwargs):
+        raise OSError("canonical admission failed")
+
+    monkeypatch.setattr(project.blob_store, "put_path", fail_admission)
+    with pytest.raises(OSError, match="canonical admission failed"):
+        await service.upload(
+            "project-1",
+            created.import_ref,
+            [_upload("one.bin", b"payload")],
+            batch_id="failed",
+        )
+
+    status = service.status("project-1", created.import_ref)
+    assert (status.admitted_files, status.admitted_bytes, status.through) == (0, 0, 0)
+    assert not any(path.name.startswith(".batch-") for path in directory.iterdir())
+
+    monkeypatch.undo()
+    retried = await service.upload(
+        "project-1",
+        created.import_ref,
+        [_upload("one.bin", b"payload")],
+        batch_id="failed",
+    )
+    assert (retried.admitted_files, retried.through) == (1, 1)
+
+
 def test_cancel_sets_durable_intent_even_while_worker_lock_is_busy(project):
     service = ImportSessionService(SimpleNamespace(get=lambda _project_id: project))
     created = service.create("project-1", "Cancelled")

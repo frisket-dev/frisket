@@ -160,15 +160,17 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
           if (!session || !files.length) return;
           const paths = files.map(logicalPath);
           const expected = rememberedImportSelection(session.import_ref);
-          if (!matchesImportSelection(expected, files, paths)) {
-            setMessage('These are not the same files in the same order. Reselect the original set, or cancel this import.');
-            return;
-          }
-          if (files.length < session.through) {
-            setMessage(`Reselect the original file set (${session.through} files were already uploaded).`);
-            return;
-          }
-          void continueUpload(session, files, paths);
+          void (async () => {
+            if (!await matchesImportSelection(expected, files, paths)) {
+              setMessage('These are not the same files in the same order. Reselect the original set, or cancel this import.');
+              return;
+            }
+            if (files.length < session.through) {
+              setMessage(`Reselect the original file set (${session.through} files were already uploaded).`);
+              return;
+            }
+            await continueUpload(session, files, paths);
+          })();
         }}
       />
       <div>

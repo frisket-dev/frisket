@@ -150,7 +150,14 @@ class ImportSessionService:
             (scratch / "files").mkdir(parents=True)
             try:
                 staged = await import_bulk_sources.stage_uploads(
-                    uploads, scratch, False, self._chunk_limits(len(uploads))
+                    uploads,
+                    scratch,
+                    False,
+                    self._chunk_limits(len(uploads)),
+                    # This request-private scratch is never recovery authority.
+                    # Canonical blob durability and the inventory commit happen
+                    # before the upload is acknowledged.
+                    durable=False,
                 )
                 facts = [inventory_item_from_staged(item) for item in staged]
                 retry_through = inventory_batch_through(inventory, batch_id, facts)
