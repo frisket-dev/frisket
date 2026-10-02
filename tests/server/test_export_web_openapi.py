@@ -393,8 +393,8 @@ def _case_local_team_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         "outer.request_link.post",
         "outer.logout.post",
     }
-    assert len(exporter.CANONICAL_OPERATION_IDS) == 234
-    assert len(_operation_ids(document)) == 239
+    assert len(exporter.CANONICAL_OPERATION_IDS) == 242
+    assert len(_operation_ids(document)) == 247
 
     for operation_id in (
         "tenant.review_runs_ep.get",
