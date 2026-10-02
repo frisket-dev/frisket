@@ -7,6 +7,8 @@ from fastapi import FastAPI, Query, Request
 from frisket.contracts.http.models import (
     ColumnStatsQuery,
     ColumnStats,
+    DocumentBrowseQuery,
+    DocumentPage,
     SheetData,
     SheetDataQuery,
     SheetRowLocationQuery,
@@ -41,6 +43,7 @@ def register_sheet_grid_routes(
         sort: str = None,  # type: ignore[assignment]
         row_ids: str = Query(default=None),  # type: ignore[assignment]
         scope_row_ids: str = Query(default=None),  # type: ignore[assignment]
+        column_ids: str = Query(default=None),  # type: ignore[assignment]
     ) -> SheetData:
         reject_unknown_query_parameters(request, SheetDataQuery)
         return SheetData.model_validate(
@@ -54,6 +57,46 @@ def register_sheet_grid_routes(
                 sort=sort,
                 row_ids=row_ids,
                 scope_row_ids=scope_row_ids,
+                column_ids=column_ids,
+            )
+        )
+
+    @app.get(
+        "/api/projects/{pid}/sheets/{sheet_id}/documents",
+        response_model=DocumentPage,
+        response_model_exclude_unset=True,
+        responses=http_error_responses(400, 401, 403, 404, 422, 500),
+    )
+    def browse_sheet_documents(
+        request: Request,
+        pid: str,
+        sheet_id: int,
+        source_column_id: int = Query(ge=1),
+        title_column_id: int | None = Query(default=None, ge=1),
+        parent_row_id: int | None = Query(default=None, ge=1),
+        filter_: str | None = Query(default=None, alias="filter"),
+        sort: str | None = None,
+        scope_row_ids: str | None = None,
+        q: str | None = Query(default=None, max_length=256),
+        cursor: str | None = Query(default=None, max_length=2048),
+        anchor_row_id: int | None = Query(default=None, ge=1),
+        limit: int = Query(default=100, ge=1, le=200),
+    ) -> DocumentPage:
+        reject_unknown_query_parameters(request, DocumentBrowseQuery)
+        return DocumentPage.model_validate(
+            service.document_page(
+                pid,
+                sheet_id,
+                source_column_id=source_column_id,
+                title_column_id=title_column_id,
+                parent_row_id=parent_row_id,
+                filter_=filter_,
+                sort=sort,
+                scope_row_ids=scope_row_ids,
+                q=q,
+                cursor=cursor,
+                anchor_row_id=anchor_row_id,
+                limit=limit,
             )
         )
 

@@ -129,6 +129,7 @@ def test_document_browse_is_bounded_projection_and_searches_beyond_first_page(
         "source_kind",
         "source_label",
         "source_label_truncated",
+        "source_present",
         "character_count",
     }
 
