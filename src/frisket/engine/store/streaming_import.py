@@ -309,7 +309,15 @@ class StreamingSheetWriter:
                     raise ImportSessionConflict(
                         "reserved import receipt belongs to another project"
                     )
-                receipt = reserved_receipt.model_copy(update={"op_ids": [op_id]})
+                receipt = reserved_receipt.model_copy(
+                    update={
+                        "op_ids": [op_id],
+                        "inputs": [
+                            *reserved_receipt.inputs,
+                            ReceiptIO(name="source", ref=dict(source_ref)),
+                        ],
+                    }
+                )
                 if not receipt_store.update_body_status(
                     receipt, require_status="running", commit=False
                 ):
@@ -387,7 +395,14 @@ class StreamingSheetWriter:
                 (session.sheet_id,),
             ).fetchall()
         }
-        source_ref = receipt.inputs[0].ref if receipt.inputs else {}
+        source_ref = next(
+            (
+                item.ref
+                for item in reversed(receipt.inputs)
+                if item.name == "source"
+            ),
+            {},
+        )
         return cls(
             project,
             sheet_id=session.sheet_id,

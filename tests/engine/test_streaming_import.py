@@ -150,9 +150,20 @@ def test_resumable_session_preserves_reserved_receipt_through_terminalization(
         assert stored is not None
         adopted = stored.parsed()
         assert adopted.op_ids == [writer._op_id]
-        assert adopted.inputs == reserved.inputs
+        assert adopted.inputs[:-1] == reserved.inputs
+        assert adopted.inputs[-1] == ReceiptIO(
+            name="source",
+            ref={"kind": "file_inventory", "inventory_id": "inventory:one"},
+        )
         assert adopted.evidence == reserved.evidence
         assert adopted.warnings == reserved.warnings
+        writer.abort()
+        writer = StreamingSheetWriter.resume_session(
+            project,
+            session_id="import:one",
+            writer_authority="claim:resumed",
+            expected_cursor=0,
+        )
         writer.set_warnings(["bounded parser warning"])
         writer.append_page(_records(0, 1), expected_cursor=0, next_cursor=1)
         if terminal == "completed":
@@ -168,6 +179,15 @@ def test_resumable_session_preserves_reserved_receipt_through_terminalization(
         assert terminal_receipt is not None
         parsed = terminal_receipt.parsed()
         assert reserved.evidence[0] in parsed.evidence
+        assert any(
+            item.ref
+            == {
+                "kind": "import_source",
+                "inventory_id": "inventory:one",
+                "source_kind": "file_inventory",
+            }
+            for item in parsed.evidence
+        )
         assert "bounded parser warning" in parsed.warnings
         assert terminal_receipt.status == {
             "completed": "completed",
