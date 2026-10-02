@@ -7,6 +7,11 @@ import sqlite3
 import pytest
 
 from frisket.engine.store import Project
+from frisket.engine.store.bundle_open import (
+    _migrate_search_work,
+    _SEARCH_WORK_FROM_DIGEST,
+    _SEARCH_WORK_TO_DIGEST,
+)
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
 
 
@@ -226,3 +231,19 @@ def test_rowid_layout_migration_rolls_back_swap_and_stamp_together(tmp_path) -> 
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='cells'"
         ).fetchone()[0]
         assert "WITHOUT ROWID" in table_sql
+
+
+def test_historical_search_migration_keeps_its_nonunique_index(tmp_path) -> None:
+    path, *_ = _prior_bundle(tmp_path)
+    with sqlite3.connect(path / "project.db") as db:
+        db.execute("DROP INDEX idx_current_cells_column_row")
+        db.execute(
+            "UPDATE meta SET value=? WHERE key=?",
+            (_SEARCH_WORK_FROM_DIGEST, SCHEMA_DIGEST_META_KEY),
+        )
+        db.commit()
+        _migrate_search_work(db)
+        assert _index(db, "idx_current_cells_column_row")[2] == 0
+        assert db.execute(
+            "SELECT value FROM meta WHERE key=?", (SCHEMA_DIGEST_META_KEY,)
+        ).fetchone() == (_SEARCH_WORK_TO_DIGEST,)

@@ -521,12 +521,13 @@ def _migrate_search_work(db: sqlite3.Connection) -> None:
     try:
         row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
         if row is not None and row[0] == _SEARCH_WORK_FROM_DIGEST:
-            # Pull the exact fresh-schema objects so migration and creation cannot drift.
+            # Reuse worklist DDL, preserving this historical endpoint's index.
             from .schema import SCHEMA
 
             marker = "CREATE UNIQUE INDEX IF NOT EXISTS idx_current_cells_column_row"
             tail = SCHEMA[SCHEMA.index(marker) :]
             tail = tail[: tail.index("-- SEARCH_INDEX_WORK_END")]
+            tail = tail.replace(marker, marker.replace("UNIQUE ", ""), 1)
             statement = ""
             for line in tail.splitlines():
                 statement += line + "\n"
