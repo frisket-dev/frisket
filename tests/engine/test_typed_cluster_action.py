@@ -275,7 +275,7 @@ def test_cluster_publication_rolls_back_then_retries_without_recomputing(
     import frisket.engine.executor.cluster_program as backend
 
     project, sheet, source, execute = cluster_project
-    original = host._typed_receipt
+    original = host.set_attempt_state
     compute = backend.compute_reviewed_clusters
     calls = []
 
@@ -285,21 +285,42 @@ def test_cluster_publication_rolls_back_then_retries_without_recomputing(
 
     monkeypatch.setattr(backend, "compute_reviewed_clusters", counted)
 
-    def broken(*args, **kwargs):
-        raise RuntimeError("receipt failure")
+    fail_next = True
 
-    monkeypatch.setattr(host, "_typed_receipt", broken)
-    with pytest.raises(RuntimeError, match="receipt failure"):
+    def broken(*args, **kwargs):
+        nonlocal fail_next
+        if fail_next:
+            fail_next = False
+            raise RuntimeError("terminal handoff failure")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(host, "set_attempt_state", broken)
+    with pytest.raises(RuntimeError, match="terminal handoff failure"):
         execute()
     assert [column["name"] for column in project.columns(sheet)] == ["name"]
     assert (
         project.db.execute("SELECT count(*) FROM cell_result_heads").fetchone()[0] == 0
     )
     assert project.db.execute("SELECT status FROM receipts").fetchone()[0] == "running"
-    monkeypatch.setattr(host, "_typed_receipt", original)
+    staged = json.loads(
+        project.db.execute(
+            "SELECT ops.spec FROM runs JOIN ops ON ops.id=runs.op_id "
+            "WHERE runs.action_kind='custom.cluster' ORDER BY runs.id DESC LIMIT 1"
+        ).fetchone()[0]
+    )
+    assert "value_clusters_result" in staged
+    assert "value_clusters_result_storage" not in staged
     result = execute()
     assert result.status == "completed", result.model_dump()
     assert len(calls) == 1
+    terminal = json.loads(
+        project.db.execute(
+            "SELECT ops.spec FROM runs JOIN ops ON ops.id=runs.op_id "
+            "WHERE runs.action_kind='custom.cluster' ORDER BY runs.id DESC LIMIT 1"
+        ).fetchone()[0]
+    )
+    assert "value_clusters_result" not in terminal
+    assert terminal["value_clusters_result_storage"] == "receipt_evidence_v1"
 
 
 def test_actual_prepared_call_not_builtin_parameter_names_controls_source(
@@ -411,7 +432,9 @@ def test_cluster_publishes_actual_groups_with_canonical_values(
             "SELECT ops.spec FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
             (result.run_id,),
         ).fetchone()
-        assert json.loads(run["spec"])["value_clusters_result"] == fact
+        op_spec = json.loads(run["spec"])
+        assert "value_clusters_result" not in op_spec
+        assert op_spec["value_clusters_result_storage"] == "receipt_evidence_v1"
         assert len(fact["clusters"]) == (1 if values else 0)
         replay = run_typed_cluster_action(
             project, "test", bound, None, _default_map_runner_factory

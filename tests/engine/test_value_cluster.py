@@ -1,7 +1,10 @@
 """Reviewed cluster computation reuses preview rules over the captured source."""
 
 from frisket.actions.cluster_types import ClusterOptions, ClusterReview
-from frisket.engine.executor.value_cluster import compute_reviewed_clusters
+from frisket.engine.executor.value_cluster import (
+    compute_reviewed_clusters,
+    recompute_cluster_coverage,
+)
 
 
 def test_reviewed_groups_preserve_exact_member_coverage_and_normalization():
@@ -61,3 +64,39 @@ def test_no_groups_still_returns_every_admitted_row():
     )
     assert result.values == {9: "Alpha", 12: "Beta"}
     assert result.clusters == []
+
+
+def test_cluster_coverage_indexes_each_source_row_once():
+    class CountingValues(dict[int, str]):
+        reads = 0
+
+        def get(self, key, default=None):
+            self.reads += 1
+            return super().get(key, default)
+
+    values = CountingValues()
+    clusters = []
+    row_ids = []
+    for group in range(40):
+        members = [group * 2 + 1, group * 2 + 2]
+        surfaces = [f"Entity {group}", f"ENTITY {group}"]
+        row_ids.extend(members)
+        values.update(zip(members, surfaces, strict=True))
+        clusters.append(
+            {
+                "key": str(group),
+                "canonical": surfaces[0],
+                "values": [{"value": value, "count": 1} for value in surfaces],
+                "row_ids": list(reversed(members)),
+                "size": 2,
+            }
+        )
+
+    rebuilt = recompute_cluster_coverage(clusters, values, row_ids)
+
+    assert values.reads == len(row_ids)
+    assert rebuilt[0]["row_ids"] == [1, 2]
+    assert rebuilt[-1]["values"] == [
+        {"value": "ENTITY 39", "count": 1},
+        {"value": "Entity 39", "count": 1},
+    ]
