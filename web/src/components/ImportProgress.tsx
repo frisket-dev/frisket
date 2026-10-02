@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   cancelImportSession,
   listImportSessions,
@@ -7,75 +7,19 @@ import {
   uploadFilesToImportSession,
   type ImportSessionStatus,
 } from '../api/open';
+import {
+  forgetImportSelection,
+  importSessionSnapshot,
+  isImportSessionBrowserUploading,
+  matchesImportSelection,
+  rememberedImportSelection,
+  subscribeImportSessions,
+} from './importProgressSession';
 
-const IMPORT_SESSION_CHANGED = 'frisket:import-session-changed';
 const POLL_MS = 2_000;
-const browserUploads = new Set<string>();
-
-function selectionKey(importRef: string): string {
-  return `frisket:import-session-files:${importRef}`;
-}
-
-function selectionSignature(files: File[], logicalPaths: string[]): string {
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < files.length; index += 1) {
-    const file = files[index];
-    const value = `${logicalPaths[index]}\0${file.size}\0${file.lastModified}\0${file.type}\n`;
-    for (let offset = 0; offset < value.length; offset += 1) {
-      hash = Math.imul(hash ^ value.charCodeAt(offset), 0x01000193);
-    }
-  }
-  return `${files.length}:${(hash >>> 0).toString(16).padStart(8, '0')}`;
-}
-
-function isDirectorySelection(files: File[]): boolean {
-  return files.some((file) => Boolean(
-    (file as File & { webkitRelativePath?: unknown }).webkitRelativePath,
-  ));
-}
-
-export function rememberImportSessionFiles(
-  importRef: string,
-  files: File[],
-  logicalPaths: string[],
-): void {
-  try {
-    const kind = isDirectorySelection(files) ? 'directory' : 'files';
-    localStorage.setItem(selectionKey(importRef), `${kind}:${selectionSignature(files, logicalPaths)}`);
-  } catch {
-    // Admission still works when browser storage is disabled; only safe
-    // re-selection after a reload is unavailable.
-  }
-}
-
-function rememberedSelection(importRef: string): string | null {
-  try {
-    return localStorage.getItem(selectionKey(importRef));
-  } catch {
-    return null;
-  }
-}
-
-function forgetSelection(importRef: string): void {
-  try { localStorage.removeItem(selectionKey(importRef)); } catch { /* storage is optional */ }
-}
-
-export function notifyImportSessionChanged(projectId: string): void {
-  window.dispatchEvent(new CustomEvent(IMPORT_SESSION_CHANGED, { detail: { projectId } }));
-}
-
-export function setImportSessionBrowserUploading(
-  projectId: string,
-  importRef: string,
-  uploading: boolean,
-): void {
-  if (uploading) browserUploads.add(importRef);
-  else browserUploads.delete(importRef);
-  notifyImportSessionChanged(projectId);
-}
 
 function isPolling(session: ImportSessionStatus): boolean {
-  return session.state === 'admitting' || session.state === 'running' || session.state === 'cancelling';
+  return ['admitting', 'running', 'paused', 'cancelling'].includes(session.state);
 }
 
 function isReadOnly(session: ImportSessionStatus): boolean {
@@ -107,7 +51,11 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
   const [sessions, setSessions] = useState<ImportSessionStatus[]>([]);
   const [busyRef, setBusyRef] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [, setBrowserUploadVersion] = useState(0);
+  const browserUploadVersion = useSyncExternalStore(
+    subscribeImportSessions,
+    importSessionSnapshot,
+    importSessionSnapshot,
+  );
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const continueRef = useRef<ImportSessionStatus | null>(null);
   const previousRef = useRef<Map<string, string> | null>(null);
@@ -122,7 +70,7 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
         ]));
         for (const session of result.sessions) {
           if (session.sealed || ['cancelled', 'completed', 'kept', 'removed'].includes(session.state)) {
-            forgetSelection(session.import_ref);
+            forgetImportSelection(session.import_ref);
           }
         }
         const previous = previousRef.current;
@@ -139,19 +87,12 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
 
   useEffect(() => {
     const controller = new AbortController();
-    void refresh(controller.signal);
-    const changed = (event: Event) => {
-      if ((event as CustomEvent<{ projectId?: string }>).detail?.projectId === projectId) {
-        setBrowserUploadVersion((version) => version + 1);
-        void refresh(controller.signal);
-      }
-    };
-    window.addEventListener(IMPORT_SESSION_CHANGED, changed);
+    const timer = window.setTimeout(() => void refresh(controller.signal), 0);
     return () => {
       controller.abort();
-      window.removeEventListener(IMPORT_SESSION_CHANGED, changed);
+      window.clearTimeout(timer);
     };
-  }, [projectId, refresh]);
+  }, [browserUploadVersion, projectId, refresh]);
 
   useEffect(() => {
     if (!sessions.some(isPolling)) return;
@@ -198,9 +139,8 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
           event.target.value = '';
           if (!session || !files.length) return;
           const paths = files.map(logicalPath);
-          const expected = rememberedSelection(session.import_ref);
-          const kind = isDirectorySelection(files) ? 'directory' : 'files';
-          if (!expected || expected !== `${kind}:${selectionSignature(files, paths)}`) {
+          const expected = rememberedImportSelection(session.import_ref);
+          if (!matchesImportSelection(expected, files, paths)) {
             setMessage('These are not the same files in the same order. Reselect the original set, or cancel this import.');
             return;
           }
@@ -217,7 +157,7 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
         <strong>Imports</strong>
         {sessions.map((session) => {
           const busy = busyRef === session.import_ref;
-          const browserUploading = browserUploads.has(session.import_ref);
+          const browserUploading = isImportSessionBrowserUploading(session.import_ref);
           return (
             <div key={session.import_ref} data-testid={`import-progress-${session.state}`}>
               <span>{session.sheet_name || 'Files'}: {sessionSummary(session)}</span>
@@ -236,7 +176,7 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
                   <span>Upload was interrupted. Reselect the same files to continue, or cancel.</span>{' '}
                   <button type="button" className="mini-btn" disabled={busy} onClick={() => {
                     continueRef.current = session;
-                    const remembered = rememberedSelection(session.import_ref);
+                    const remembered = rememberedImportSelection(session.import_ref);
                     if (remembered?.startsWith('directory:')) {
                       fileInputRef.current?.setAttribute('webkitdirectory', '');
                     } else {

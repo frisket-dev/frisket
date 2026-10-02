@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const listImportSessions = vi.hoisted(() => vi.fn());
@@ -19,10 +19,10 @@ vi.mock('../../src/api/open', () => ({
 }));
 
 import {
-  ImportProgress,
   rememberImportSessionFiles,
   setImportSessionBrowserUploading,
-} from '../../src/components/ImportProgress';
+} from '../../src/components/importProgressSession';
+import { ImportProgress } from '../../src/components/ImportProgress';
 
 const running = {
   import_ref: 'import-1', state: 'running', admitted_files: 10, admitted_bytes: 100,
@@ -74,14 +74,32 @@ describe('persistent import progress', () => {
     const file = new File(['one'], 'one.pdf');
     Object.defineProperty(file, 'webkitRelativePath', { value: 'folder/one.pdf' });
     rememberImportSessionFiles('import-1', [file], ['folder/one.pdf']);
-    setImportSessionBrowserUploading('project-1', 'import-1', true);
+    setImportSessionBrowserUploading('import-1', true);
     render(<ImportProgress projectId="project-1" onOpenSheet={vi.fn()} />);
 
     expect(await screen.findByText(/Uploading files/)).toBeInTheDocument();
     expect(screen.queryByText(/Upload was interrupted/)).not.toBeInTheDocument();
-    setImportSessionBrowserUploading('project-1', 'import-1', false);
+    setImportSessionBrowserUploading('import-1', false);
     await waitFor(() => expect(screen.getByText(/Upload was interrupted/)).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'Reselect files' }));
     expect(screen.getByLabelText('Reselect import files')).toHaveAttribute('webkitdirectory');
+  });
+
+  it('keeps polling a paused session through an automatic retry to completion', async () => {
+    vi.useFakeTimers();
+    const paused = { ...running, state: 'paused', committed_rows: 3 };
+    const completed = { ...running, state: 'completed', committed_rows: 10 };
+    listImportSessions
+      .mockResolvedValueOnce({ sessions: [paused] })
+      .mockResolvedValue({ sessions: [completed] });
+    render(<ImportProgress projectId="project-1" onOpenSheet={vi.fn()} />);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByTestId('import-progress-paused')).toBeInTheDocument();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(screen.getByTestId('import-progress-completed')).toHaveTextContent('10 rows added');
+    expect(listImportSessions).toHaveBeenCalledTimes(2);
   });
 });

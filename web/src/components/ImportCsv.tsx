@@ -44,7 +44,7 @@ import {
   notifyImportSessionChanged,
   rememberImportSessionFiles,
   setImportSessionBrowserUploading,
-} from './ImportProgress';
+} from './importProgressSession';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { PanelSelect } from './PanelSelect';
 import { ImportDraftMappingPanel } from './importWorkspace/ImportDraftMappingPanel';
@@ -776,7 +776,7 @@ function useImportUpload({ onError }: ImportHandlers) {
                 const logicalPaths = list.map(logicalPathForImport);
                 rememberImportSessionFiles(session.import_ref, list, logicalPaths);
                 setSessionBusy(true);
-                setImportSessionBrowserUploading(projectId, session.import_ref, true);
+                setImportSessionBrowserUploading(session.import_ref, true);
                 try {
                   const status = await uploadFilesToImportSession(
                     projectId,
@@ -784,7 +784,7 @@ function useImportUpload({ onError }: ImportHandlers) {
                     list,
                     logicalPaths,
                   );
-                  notifyImportSessionChanged(projectId);
+                  notifyImportSessionChanged();
                   return {
                     sheet_id: status.sheet_id,
                     rows: status.committed_rows,
@@ -793,11 +793,11 @@ function useImportUpload({ onError }: ImportHandlers) {
                 } catch (error) {
                   // The durable admitting session remains visible after a lost
                   // request or closed picker, so the user can reselect or cancel.
-                  notifyImportSessionChanged(projectId);
+                  notifyImportSessionChanged();
                   throw error;
                 } finally {
                   setSessionBusy(false);
-                  setImportSessionBrowserUploading(projectId, session.import_ref, false);
+                  setImportSessionBrowserUploading(session.import_ref, false);
                 }
               })()
               : await importFiles(projectId, list);
