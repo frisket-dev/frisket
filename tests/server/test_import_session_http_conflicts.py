@@ -10,6 +10,7 @@ from tests.http_test_helpers import (
     post_column_patch_as_v1_action,
     post_column_set_type_as_v1_action,
     post_operation_undo_as_v1_action,
+    post_row_add_as_v1_action,
 )
 
 
@@ -76,8 +77,41 @@ def test_importing_sheet_mutations_are_http_conflicts(tmp_path) -> None:
     assert retyped.status_code == 409, retyped.text
     added = post_column_add_as_v1_action(client, project_id, writer.sheet_id, "Blocked")
     assert added.status_code == 409, added.text
+    empty_row = post_row_add_as_v1_action(client, project_id, writer.sheet_id, {})
+    assert empty_row.status_code == 409, empty_row.text
+    deleted_row = client.post(
+        f"/api/projects/{project_id}/actions/v1/run",
+        json={
+            "action_id": "row.delete",
+            "scope": {"kind": "project"},
+            "params": {"sheet_id": writer.sheet_id, "row_ids": [row_id]},
+            "idempotency_key": "row-delete-importing@sha256:stable",
+        },
+    )
+    assert deleted_row.status_code == 409, deleted_row.text
+    query_edit = client.post(
+        f"/api/projects/{project_id}/actions/v1/run",
+        json={
+            "action_id": "cell.edit_query",
+            "scope": {"kind": "project"},
+            "params": {
+                "query": {
+                    "schema_version": "frisket.query.v1",
+                    "kind": "sheet.filter",
+                    "scope": {"kind": "sheet", "sheet_id": writer.sheet_id},
+                    "filter": {},
+                },
+                "column_id": column_id,
+                "value": "blocked",
+            },
+            "idempotency_key": "query-edit-importing@sha256:stable",
+        },
+    )
+    assert query_edit.status_code == 409, query_edit.text
 
     unrelated = project.add_sheet("Still mutable")
     allowed = post_column_add_as_v1_action(client, project_id, unrelated, "Allowed")
     assert allowed.status_code == 200, allowed.text
+    allowed_row = post_row_add_as_v1_action(client, project_id, unrelated, {})
+    assert allowed_row.status_code == 200, allowed_row.text
     assert project.get_values(writer.sheet_id, column_id)[row_id] == "visible"
