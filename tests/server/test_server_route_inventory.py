@@ -206,5 +206,5 @@ def test_inventory_captures_download_blob_and_import_headers(tmp_path):
 
     bundle_response = client.get(f"/api/projects/{pid}/export")
     assert bundle_response.status_code == 200, bundle_response.text
-    assert bundle_response.headers["content-type"].startswith("application/zip")
-    assert "inventory.frisket.zip" in bundle_response.headers["content-disposition"]
+    assert bundle_response.headers["content-type"].startswith("application/gzip")
+    assert "inventory.frisket.tar.gz" in bundle_response.headers["content-disposition"]

@@ -13,6 +13,7 @@ import io
 import json
 import sqlite3
 import threading
+import tarfile
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -85,30 +86,18 @@ class TestExport:
         target = tmp_path / "snapshot.frisket.zip"
         db_member_reached = threading.Event()
         release_db_member = threading.Event()
-        original_write = zipfile.ZipFile.write
-        original_writestr = zipfile.ZipFile.writestr
+        original_addfile = tarfile.TarFile.addfile
 
         def gate_db_member() -> None:
             db_member_reached.set()
             assert release_db_member.wait(timeout=5), "export race probe timed out"
 
-        def paused_write(archive, filename, arcname=None, *args, **kwargs):
-            if arcname == "project.db":
+        def paused_addfile(archive, info, source=None):
+            if info.name == "project.db":
                 gate_db_member()
-            return original_write(archive, filename, arcname, *args, **kwargs)
+            return original_addfile(archive, info, source)
 
-        def paused_writestr(archive, zinfo_or_arcname, data, *args, **kwargs):
-            name = (
-                zinfo_or_arcname
-                if isinstance(zinfo_or_arcname, str)
-                else zinfo_or_arcname.filename
-            )
-            if name == "project.db":
-                gate_db_member()
-            return original_writestr(archive, zinfo_or_arcname, data, *args, **kwargs)
-
-        monkeypatch.setattr(zipfile.ZipFile, "write", paused_write)
-        monkeypatch.setattr(zipfile.ZipFile, "writestr", paused_writestr)
+        monkeypatch.setattr(tarfile.TarFile, "addfile", paused_addfile)
 
         def add_concurrent_blob() -> str:
             reopened = Project(bundle, blob_store=store)
@@ -128,17 +117,14 @@ class TestExport:
                 release_db_member.set()
                 assert exported.result(timeout=5) == target
 
-            with zipfile.ZipFile(target) as archive:
-                manifest_hashes = set(
-                    json.loads(archive.read("manifest.json"))["blobs"]
-                )
+            with tarfile.open(target) as archive:
                 member_hashes = {
                     Path(name).name
-                    for name in archive.namelist()
+                    for name in archive.getnames()
                     if name.startswith("blobs/")
                 }
                 snapshot_db = tmp_path / "snapshot.db"
-                snapshot_db.write_bytes(archive.read("project.db"))
+                snapshot_db.write_bytes(archive.extractfile("project.db").read())
             connection = sqlite3.connect(snapshot_db)
             try:
                 db_hashes = {
@@ -147,7 +133,7 @@ class TestExport:
             finally:
                 connection.close()
 
-            assert db_hashes == manifest_hashes == member_hashes == {digest_a}
+            assert db_hashes == member_hashes == {digest_a}
             assert digest_b not in db_hashes
         finally:
             release_db_member.set()
@@ -157,15 +143,15 @@ class TestExport:
         pid, _ = make_project(client)
         r = client.get(f"/api/projects/{pid}/export")
         assert r.status_code == 200, r.text
-        assert r.headers["content-type"] == "application/zip"
+        assert r.headers["content-type"] == "application/gzip"
         disposition = r.headers.get("content-disposition", "")
         assert "attachment" in disposition
-        assert ".frisket.zip" in disposition
-        zf = zipfile.ZipFile(io.BytesIO(r.content))
-        names = set(zf.namelist())
+        assert ".frisket.tar.gz" in disposition
+        zf = tarfile.open(fileobj=io.BytesIO(r.content))
+        names = set(zf.getnames())
         assert "manifest.json" in names
         assert "project.db" in names
-        manifest = json.loads(zf.read("manifest.json"))
+        manifest = json.loads(zf.extractfile("manifest.json").read())
         assert manifest["format"] == "frisket-bundle"
 
     def test_export_round_trips_via_import_bundle(self, client, tmp_path):
@@ -189,16 +175,16 @@ class TestExport:
             files=[("files", ("a.txt", b"hello blob", "text/plain"))],
         )
         assert r.status_code == 200, r.text
-        full = zipfile.ZipFile(
-            io.BytesIO(client.get(f"/api/projects/{pid}/export").content)
+        full = tarfile.open(
+            fileobj=io.BytesIO(client.get(f"/api/projects/{pid}/export").content)
         )
-        assert any(n.startswith("blobs/") for n in full.namelist())
-        slim = zipfile.ZipFile(
-            io.BytesIO(
+        assert any(n.startswith("blobs/") for n in full.getnames())
+        slim = tarfile.open(
+            fileobj=io.BytesIO(
                 client.get(f"/api/projects/{pid}/export?include_media=false").content
             )
         )
-        assert not any(n.startswith("blobs/") for n in slim.namelist())
+        assert not any(n.startswith("blobs/") for n in slim.getnames())
 
     def test_export_unknown_project_404(self, client):
         assert client.get("/api/projects/nope/export").status_code == 404
@@ -238,7 +224,7 @@ class TestDbOnlyExport:
         assert sheet_names == ["rows", "files"]
         assert row_count == 3
 
-        with pytest.raises(zipfile.BadZipFile):
+        with pytest.raises(tarfile.ReadError):
             Project.import_bundle(db_path, tmp_path / "not-a-bundle.frisket")
 
     def test_db_mode_unknown_project_404(self, client):

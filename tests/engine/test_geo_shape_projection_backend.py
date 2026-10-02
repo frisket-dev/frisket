@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import zipfile
+import tarfile
 
 import pytest
 
@@ -110,9 +110,9 @@ def test_query_shapes_bbox_prefilter_and_rebuild(project, tmp_path):
     other.close()
 
     # The rebuildable sidecar is excluded from the default project export.
-    out = tmp_path / "export.frisket.zip"
+    out = tmp_path / "export.frisket.tar.gz"
     project.export(out)
-    with zipfile.ZipFile(out) as zf:
-        names = zf.namelist()
+    with tarfile.open(out) as archive:
+        names = archive.getnames()
     assert "project.db" in names
     assert not any(n.endswith(GEO_SIDECAR_FILENAME) for n in names)
