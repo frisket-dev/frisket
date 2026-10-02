@@ -12,6 +12,7 @@ import sqlite3
 from collections.abc import Collection, Iterator
 
 from frisket.authoring import column_types
+from frisket.engine.store.search_index_work import enqueue_dirty_scope
 
 _SQLITE_BIND_LIMIT = 900
 
@@ -255,6 +256,12 @@ def refresh_current_cells(
         for column_chunk in _chunks(columns, _SQLITE_BIND_LIMIT):
             _delete_region(db, column_ids=column_chunk, row_ids=None)
             total += _insert_region(db, column_ids=column_chunk, row_ids=None)
+        for column_id in columns:
+            sheet = db.execute(
+                "SELECT sheet_id FROM columns WHERE id=?", (column_id,)
+            ).fetchone()
+            if sheet is not None:
+                enqueue_dirty_scope(db, sheet_id=int(sheet[0]), column_id=column_id)
         return total
 
     # Keep the combined target CTE below SQLite's conservative bind budget.
@@ -264,6 +271,18 @@ def refresh_current_cells(
         for row_chunk in _chunks(rows, row_chunk_size):
             _delete_region(db, column_ids=column_chunk, row_ids=row_chunk)
             total += _insert_region(db, column_ids=column_chunk, row_ids=row_chunk)
+    for column_id in columns:
+        sheet = db.execute(
+            "SELECT sheet_id FROM columns WHERE id=?", (column_id,)
+        ).fetchone()
+        if sheet is not None:
+            enqueue_dirty_scope(
+                db,
+                sheet_id=int(sheet[0]),
+                column_id=column_id,
+                row_id_start=min(rows),
+                row_id_end=max(rows),
+            )
     return total
 
 
@@ -302,4 +321,5 @@ def rebuild_current_cells(db: sqlite3.Connection) -> int:
             column_ids=[int(row[0]) for row in batch],
             row_ids=None,
         )
+    enqueue_dirty_scope(db)
     return total

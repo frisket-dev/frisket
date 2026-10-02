@@ -964,6 +964,57 @@ CREATE TABLE IF NOT EXISTS current_cells (
 CREATE INDEX IF NOT EXISTS idx_current_cells_row ON current_cells(row_id);
 -- CURRENT_CELLS_END
 
+-- Compact invalidation worklist for the rebuildable search sidecar. IDs are
+-- never reused: sqlite_sequence remains the revision after acknowledged rows
+-- are deleted.
+-- SEARCH_INDEX_WORK_BEGIN
+CREATE TABLE IF NOT EXISTS search_dirty_scopes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sheet_id INTEGER,
+  column_id INTEGER,
+  row_id_start INTEGER,
+  row_id_end INTEGER,
+  scan_cursor TEXT NOT NULL DEFAULT '[0,0]' CHECK (length(scan_cursor) > 0),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  CHECK (column_id IS NULL OR sheet_id IS NOT NULL),
+  CHECK ((row_id_start IS NULL) = (row_id_end IS NULL)),
+  CHECK (row_id_start IS NULL OR row_id_start <= row_id_end)
+);
+INSERT INTO search_dirty_scopes DEFAULT VALUES;
+
+CREATE TRIGGER IF NOT EXISTS trg_search_sheet_insert AFTER INSERT ON sheets BEGIN
+  INSERT INTO search_dirty_scopes(sheet_id) VALUES (NEW.id);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_search_sheet_change
+AFTER UPDATE OF name,hidden ON sheets BEGIN
+  INSERT INTO search_dirty_scopes(sheet_id) VALUES (NEW.id);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_search_sheet_delete BEFORE DELETE ON sheets BEGIN
+  INSERT INTO search_dirty_scopes(sheet_id) VALUES (OLD.id);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_search_column_insert AFTER INSERT ON columns BEGIN
+  INSERT INTO search_dirty_scopes(sheet_id,column_id) VALUES (NEW.sheet_id,NEW.id);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_search_column_change
+AFTER UPDATE OF name,type,hidden ON columns BEGIN
+  INSERT INTO search_dirty_scopes(sheet_id,column_id) VALUES (NEW.sheet_id,NEW.id);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_search_column_delete BEFORE DELETE ON columns BEGIN
+  INSERT INTO search_dirty_scopes(sheet_id,column_id) VALUES (OLD.sheet_id,OLD.id);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_search_row_visibility
+AFTER UPDATE OF hidden ON rows BEGIN
+  DELETE FROM search_dirty_scopes
+  WHERE sheet_id=NEW.sheet_id AND column_id IS NULL AND row_id_start IS NULL;
+  INSERT INTO search_dirty_scopes(sheet_id) VALUES (NEW.sheet_id);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_search_row_delete BEFORE DELETE ON rows BEGIN
+  DELETE FROM search_dirty_scopes
+  WHERE sheet_id=OLD.sheet_id AND column_id IS NULL AND row_id_start IS NULL;
+  INSERT INTO search_dirty_scopes(sheet_id) VALUES (OLD.sheet_id);
+END;
+-- SEARCH_INDEX_WORK_END
+
 -- Replay preserve+surface (replay-accept-surface-v1,
 -- public schema boundary): a durable, PROJECT-GLOBAL
 -- acknowledgement that a human reaffirmed their edit against a specific fresh

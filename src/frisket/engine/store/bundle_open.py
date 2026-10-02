@@ -12,7 +12,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from .schema import SCHEMA_DIGEST_META_KEY, require_current_schema
+from .schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY, require_current_schema
 
 # v0.1.1a62 (907a324c) -> v0.1.1a64's receipt-owned execution attempts.
 # Fixed endpoints cannot accidentally stamp a future schema edit as current.
@@ -58,6 +58,7 @@ _PROJECT_QA_RESEARCH_TO_DIGEST = "frisket.schema.v1:21bac5506d1f7cc240dbc5191391
 
 _IMPORT_SESSIONS_FROM_DIGEST = _PROJECT_QA_RESEARCH_TO_DIGEST
 _IMPORT_SESSIONS_TO_DIGEST = "frisket.schema.v1:cb9a46c224c6d5e95af3c7e91df76e26"
+_SEARCH_WORK_FROM_DIGEST = _IMPORT_SESSIONS_TO_DIGEST
 
 # The frontend fires hot read endpoints (/sheets, /review/queue) concurrently,
 # so two threads can open the same per-project DB at once. Both open-time
@@ -93,6 +94,7 @@ def open_bundle(project: Any) -> None:
         _migrate_run_review_status(project.db)
         _migrate_project_qa_research(project.db)
         _migrate_import_sessions(project.db)
+        _migrate_search_work(project.db)
         require_current_schema(project.db, bundle_path=project.path)
         _reconcile_open_time_policy(project)
 
@@ -483,6 +485,44 @@ def _migrate_import_sessions(db: sqlite3.Connection) -> None:
             db.execute(
                 "UPDATE meta SET value=? WHERE key=?",
                 (_IMPORT_SESSIONS_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
+            )
+        db.commit()
+    except BaseException:
+        db.rollback()
+        raise
+
+
+def _migrate_search_work(db: sqlite3.Connection) -> None:
+    """Add the sidecar worklist and seed existing projects for full repair."""
+
+    query = "SELECT value FROM meta WHERE key=?"
+    try:
+        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
+    except sqlite3.DatabaseError:
+        return
+    if row is None or row[0] != _SEARCH_WORK_FROM_DIGEST:
+        return
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
+        if row is not None and row[0] == _SEARCH_WORK_FROM_DIGEST:
+            # Pull the exact fresh-schema objects so migration and creation cannot drift.
+            from .schema import SCHEMA
+
+            marker = "CREATE TABLE IF NOT EXISTS search_dirty_scopes"
+            tail = SCHEMA[SCHEMA.index(marker) :]
+            tail = tail[: tail.index("-- SEARCH_INDEX_WORK_END")]
+            statement = ""
+            for line in tail.splitlines():
+                statement += line + "\n"
+                if sqlite3.complete_statement(statement):
+                    db.execute(statement)
+                    statement = ""
+            if statement.strip():
+                raise RuntimeError("incomplete search work migration DDL")
+            db.execute(
+                "UPDATE meta SET value=? WHERE key=?",
+                (SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY),
             )
         db.commit()
     except BaseException:
