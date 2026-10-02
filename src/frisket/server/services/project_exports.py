@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from frisket.authoring import actions as action_contract
+from frisket.engine.store.bundle_io import UnresolvedImportExportError
 from frisket.server.downloads import download_filename
 from frisket.server.workspace import Workspace
 
@@ -52,7 +53,7 @@ class ProjectExportService:
                 include_media=include_media,
                 include_traces=include_traces,
             )
-        except ValueError as exc:
+        except UnresolvedImportExportError as exc:
             path.unlink(missing_ok=True)
             raise ProjectExportError(409, str(exc)) from exc
         except Exception as exc:  # noqa: BLE001

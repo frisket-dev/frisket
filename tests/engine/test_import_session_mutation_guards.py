@@ -172,9 +172,12 @@ def test_bundle_export_refuses_unresolved_import_in_snapshot_transaction(
 
 
 @pytest.mark.parametrize("mode", ["bundle", "database"])
-def test_export_service_sanitizes_storage_failure(tmp_path, monkeypatch, caplog, mode):
+@pytest.mark.parametrize("error_type", [OSError, ValueError])
+def test_export_service_sanitizes_storage_failure(
+    tmp_path, monkeypatch, caplog, mode, error_type
+):
     def fail(*_args, **_kwargs):
-        raise OSError("write failed at /private/operator/workspace")
+        raise error_type("write failed at /private/operator/workspace")
 
     project = SimpleNamespace(export=fail, export_database=fail)
     service = ProjectExportService(SimpleNamespace(get=lambda _id: project))

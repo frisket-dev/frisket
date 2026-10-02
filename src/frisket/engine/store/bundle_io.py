@@ -19,6 +19,10 @@ from pathlib import Path
 from typing import Any
 
 
+class UnresolvedImportExportError(ValueError):
+    """A bundle cannot preserve the external custody of an unfinished import."""
+
+
 def _reject_unsafe_bundle_member(info: zipfile.ZipInfo, target_root: str) -> None:
     """Refuse a bundle zip member that is unsafe to extract.
 
@@ -82,7 +86,7 @@ def export(
                 "SELECT 1 FROM import_sessions "
                 "WHERE state IN ('active','paused','cancelled') LIMIT 1"
             ).fetchone():
-                raise ValueError(
+                raise UnresolvedImportExportError(
                     "Finish imports, or cancel them and choose Keep "
                     "or Remove, before exporting a project bundle."
                 )
