@@ -9,7 +9,8 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { FieldValue, fieldValueDependencyColumnIds } from '../../src/components/RowDrawer';
+import { FieldValue } from '../../src/components/RowDrawer';
+import { fieldValueDependencyColumnIds } from '../../src/components/fieldValueDependencies';
 import { createProjectApi } from '../../src/api/real';
 import { aiMeta, columnDef, row } from '../support/domainFixtures';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';

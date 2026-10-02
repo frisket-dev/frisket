@@ -1,7 +1,8 @@
 import { Check, Columns2, Copy, Maximize2, X } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
 import type { ColumnDef, Row } from '../api/types';
-import { FieldValue, fieldValueDependencyColumnIds } from '../components/RowDrawer';
+import { FieldValue } from '../components/RowDrawer';
+import { fieldValueDependencyColumnIds } from '../components/fieldValueDependencies';
 import { PanelSelect } from '../components/PanelSelect';
 import { ResizeSeam } from '../components/ResizeSeam';
 import { useResizable } from '../components/useResizable';

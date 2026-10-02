@@ -54,7 +54,9 @@ export function useDocumentView(args: UseDocumentViewArgs) {
   }, [search]);
   const listKey = `${projectId}:${sheet.id}:${orderKey}:${sourceColumn?.id ?? ''}:${titleColumn?.id ?? ''}:${query}`;
   const [list, setList] = useState<ListState>({ key: listKey, pages: [], pinned: null, loading: true, error: null });
-  const visibleList = list.key === listKey ? list : { key: listKey, pages: [], pinned: null, loading: true, error: null };
+  const visibleList = useMemo<ListState>(() => list.key === listKey
+    ? list
+    : { key: listKey, pages: [], pinned: null, loading: true, error: null }, [list, listKey]);
   const [pageCounts, setPageCounts] = useState<Record<string, number>>({});
   const [optionsOpen, setOptionsOpen] = useState(false);
   const queryDocumentsRef = useRef(queryDocuments);
