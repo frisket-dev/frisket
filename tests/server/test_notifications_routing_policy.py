@@ -6,6 +6,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from helpers import make_client as _client
+from frisket.search_index import drain_index
 
 
 CSV = (
@@ -25,6 +26,7 @@ def _seed_watch_events(client: TestClient) -> tuple[str, dict[str, Any], list[di
         files={"file": ("watch.csv", CSV, "text/csv")},
     )
     assert import_response.status_code == 200, import_response.text
+    drain_index(client.app.state.workspace.get(pid))
     watch_response = client.post(
         f"/api/projects/{pid}/watches",
         json={
