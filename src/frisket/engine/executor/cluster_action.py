@@ -396,10 +396,7 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
         if result is not None:
             project.db.rollback()
             return result
-        if op_spec.pop(CLUSTER_RESULT_SPEC_KEY, None) != fact:
-            raise StaleAttemptWriter(
-                "Cluster staging result changed during publication"
-            )
+        del op_spec[CLUSTER_RESULT_SPEC_KEY]
         op_spec[CLUSTER_RESULT_STORAGE_SPEC_KEY] = CLUSTER_RESULT_RECEIPT_STORAGE
         project.db.execute(
             "UPDATE ops SET spec=? WHERE id=?",

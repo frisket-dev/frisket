@@ -82,6 +82,26 @@ def test_reader_snapshot_is_read_only_and_fence_rechecks_source(seeded):
         validate_cluster_receipt_fence(project, reader.facts[0])
 
 
+def test_cluster_receipt_fence_pages_canonical_value_validation(seeded, monkeypatch):
+    project, _, _, _, receipt_id = seeded
+    reader = AdmittedClusterReceiptReader(project)
+    reader.read(ClusterReceiptSource(kind="cluster_values", receipt_id=receipt_id))
+    original = project.get_values
+    page_sizes = []
+
+    def get_values(sheet_id, column_id, row_ids=None, **kwargs):
+        assert row_ids is not None
+        page_sizes.append(len(row_ids))
+        return original(sheet_id, column_id, row_ids=row_ids, **kwargs)
+
+    monkeypatch.setattr(project, "get_values", get_values)
+
+    validate_cluster_receipt_fence(project, reader.facts[0])
+
+    assert page_sizes
+    assert max(page_sizes) <= 128
+
+
 def test_reader_refuses_changed_published_canonical_value(seeded):
     project, _, _, rows, receipt_id = seeded
     body = json.loads(
