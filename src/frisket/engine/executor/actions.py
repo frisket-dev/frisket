@@ -497,6 +497,25 @@ def run_action_spec(
                 action_kind=str(data.get("action_id", "unknown")),
             ),
         )
+    from frisket.actions.types import SheetRows
+    from frisket.engine.executor.import_read_guard import (
+        require_action_sheet_readable,
+    )
+
+    if isinstance(typed.request.scope, SheetRows):
+        try:
+            require_action_sheet_readable(project, typed.request.scope.sheet_id)
+        except ValueError as exc:
+            return _runtime_support._failed_result(
+                project_id=project_id,
+                action_kind=typed.action.action_id,
+                error=ActionError(
+                    code=getattr(exc, "code", "import_in_progress"),
+                    message=str(exc),
+                    action_kind=typed.action.action_id,
+                    details=getattr(exc, "details", None),
+                ),
+            )
     if isinstance(typed.action.definition.run, GoogleSheetsExport):
         from frisket.engine.executor.google_sheets_action import (
             run_typed_google_sheets_export,

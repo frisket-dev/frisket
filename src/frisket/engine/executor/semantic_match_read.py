@@ -569,6 +569,12 @@ class AdmittedSemanticMatchReader:
             raise TableReadRefused(
                 resolved.model_copy(update={"action_kind": self.action_kind})
             )
+        from frisket.engine.executor.import_read_guard import (
+            require_action_sheet_readable,
+        )
+
+        require_action_sheet_readable(self.project, resolved["source_sheet_id"])
+        require_action_sheet_readable(self.project, resolved["target_sheet_id"])
         if isinstance(self.scope, SheetRows) and (
             selected is None or self.scope.sheet_id != resolved["source_sheet_id"]
         ):

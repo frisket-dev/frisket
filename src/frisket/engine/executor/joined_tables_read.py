@@ -21,6 +21,7 @@ from frisket.actions.types import (
 )
 from frisket.contracts.action import ActionError
 from frisket.engine.executor.embedding_read import TableReadRefused
+from frisket.engine.executor.import_read_guard import require_action_sheet_readable
 from frisket.engine.executor.joined_table import (
     _pair_mode,
     _row_key,
@@ -261,6 +262,7 @@ class AdmittedJoinedTablesReader:
             raise TableError("invalid_params", "Invalid join options")
         if right.sheet_id == self.scope.sheet_id:
             raise TableError("invalid_input_ref", "Choose two different sheets")
+        require_action_sheet_readable(self.project, right.sheet_id)
         if len({(key.left_column, key.right_column) for key in keys}) != len(keys):
             raise TableError("invalid_input_ref", "Join key pairs must be distinct")
         requested = None if self.scope.row_ids is None else list(self.scope.row_ids)

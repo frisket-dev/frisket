@@ -17,13 +17,14 @@ from frisket.actions.types import (
 )
 from frisket.contracts.action import Receipt
 from frisket.engine.executor.action_support import _json_schema_error
+from frisket.engine.executor.import_read_guard import require_action_sheet_readable
 from frisket.engine.executor.recordsets import (
     DERIVE_TABLE_FROM_LIST,
     is_feedable_named_result_ref,
     json_schema_equal,
 )
-from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.evidence import find_item_evidence_link
+from frisket.engine.store.receipts import ReceiptStore
 
 
 class AdmittedListTableReader:
@@ -52,6 +53,7 @@ class AdmittedListTableReader:
             raise TableError(
                 "invalid_item_schema", "Live columns do not accept item_schema"
             )
+        require_action_sheet_readable(self.project, source.sheet_id)
         if self.parent_sheet_id not in (None, source.sheet_id):
             raise TableError(
                 "invalid_input_ref", "A list table must have one parent sheet"

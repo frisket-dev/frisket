@@ -9,6 +9,7 @@ from typing import Any, Callable
 from frisket.actions.types import CollectionItem, RowSource, TableError
 from frisket.contracts.action import ActionError
 from frisket.engine.executor.embedding_read import TableReadRefused
+from frisket.engine.executor.import_read_guard import require_action_sheet_readable
 from frisket.engine.runner.confirmation_context import (
     ParamsScope,
     mint_confirmation_hash,
@@ -86,6 +87,7 @@ class AdmittedCollectionReader:
     def read(
         self, *, sheet_id: int, column_id: int, row_id: int
     ) -> tuple[CollectionItem, ...]:
+        require_action_sheet_readable(self.project, sheet_id)
         if self.parent_sheet_id not in (None, sheet_id):
             raise TableError(
                 "invalid_input_ref", "Collection reads must share one parent sheet"
