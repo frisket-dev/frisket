@@ -14,7 +14,9 @@ from tests.http_test_helpers import (
 
 
 def test_importing_sheet_mutations_are_http_conflicts(tmp_path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"), raise_server_exceptions=False)
+    client = TestClient(
+        create_app(tmp_path / "workspace"), raise_server_exceptions=False
+    )
     created = client.post("/api/projects", json={"name": "Import conflicts"})
     assert created.status_code == 200, created.text
     project_id = created.json()["id"]
@@ -43,14 +45,10 @@ def test_importing_sheet_mutations_are_http_conflicts(tmp_path) -> None:
     )[0]
     column_id = int(project.columns(writer.sheet_id)[0]["id"])
 
-    browsed = client.get(
-        f"/api/projects/{project_id}/sheets/{writer.sheet_id}/data"
-    )
+    browsed = client.get(f"/api/projects/{project_id}/sheets/{writer.sheet_id}/data")
     assert browsed.status_code == 200, browsed.text
 
-    deleted = client.delete(
-        f"/api/projects/{project_id}/sheets/{writer.sheet_id}"
-    )
+    deleted = client.delete(f"/api/projects/{project_id}/sheets/{writer.sheet_id}")
     assert deleted.status_code == 409, deleted.text
     assert deleted.json() == {
         "detail": "This sheet is read-only while its import is in progress."
@@ -76,9 +74,7 @@ def test_importing_sheet_mutations_are_http_conflicts(tmp_path) -> None:
         client, project_id, column_id, "integer"
     )
     assert retyped.status_code == 409, retyped.text
-    added = post_column_add_as_v1_action(
-        client, project_id, writer.sheet_id, "Blocked"
-    )
+    added = post_column_add_as_v1_action(client, project_id, writer.sheet_id, "Blocked")
     assert added.status_code == 409, added.text
 
     unrelated = project.add_sheet("Still mutable")

@@ -91,7 +91,6 @@ class ImportSessionStore:
             raise ImportSessionConflict("import session writer or cursor is stale")
         return session
 
-
     def replace_writer(
         self, session_id: str, authority: str, *, expected_cursor: int
     ) -> ImportSession:
