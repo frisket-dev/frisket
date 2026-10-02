@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import mimetypes
-from contextlib import AbstractContextManager
+import asyncio
+import tempfile
+from contextlib import AbstractContextManager, ExitStack
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -12,6 +15,13 @@ from frisket.engine.store.media_blobs import backfill_blob_metadata
 from frisket.server.workspace import Workspace
 from frisket.server.route_errors import RouteError
 from frisket.engine.store.blob_backend import BlobNotFoundError, validate_blob_digest
+from frisket.engine.pdf_render import (
+    PdfPageOutOfRange,
+    PdfRenderError,
+    PdfRenderCancelled,
+    render_pdf_pages,
+)
+from frisket.server.thread_worker import await_thread_worker
 
 
 @dataclass
@@ -74,3 +84,50 @@ class ProjectBlobService:
             force=force,
             limit=limit,
         )
+
+    async def pdf_page_image(
+        self,
+        project_id: str,
+        digest: str,
+        page: int,
+        *,
+        should_cancel: Callable[[], bool],
+    ) -> BlobDownload:
+        """Render one disposable page with OCR's MediaBox/rotation geometry."""
+        resources = ExitStack()
+        try:
+
+            def acquire_source():
+                source = self.blob_download(project_id, digest)
+                resources.callback(source.close)
+                return source
+
+            source = await await_thread_worker(acquire_source)
+            if source.media_type != "application/pdf" or page < 1:
+                raise ProjectBlobRouteError(422, "A valid PDF page is required")
+            scratch = Path(
+                resources.enter_context(
+                    tempfile.TemporaryDirectory(prefix="frisket-page-")
+                )
+            )
+            try:
+                rendered = await render_pdf_pages(
+                    source.path,
+                    scratch,
+                    dpi=144,
+                    pages=[page],
+                    max_edge=2000,
+                    should_cancel=should_cancel,
+                )
+            except PdfRenderCancelled:
+                raise asyncio.CancelledError from None
+            except PdfPageOutOfRange as exc:
+                raise ProjectBlobRouteError(422, "PDF page is out of range") from exc
+            except PdfRenderError as exc:
+                raise ProjectBlobRouteError(
+                    503, "PDF page could not be rendered"
+                ) from exc
+            return BlobDownload(rendered.pages[0][1], "image/png", resources)
+        except BaseException:
+            resources.close()
+            raise

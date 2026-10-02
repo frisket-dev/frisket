@@ -56,6 +56,40 @@ def test_pdfium_renders_selected_one_based_pages_at_requested_dpi(tmp_path):
         assert image.size == (288, 144)
 
 
+@pytest.mark.parametrize("rotate", [False, True])
+def test_display_render_bounds_giant_media_box_before_rasterizing(tmp_path, rotate):
+    source = tmp_path / "giant.pdf"
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=72000, height=36000)
+    page.cropbox.lower_left = (100, 100)
+    page.cropbox.upper_right = (200, 200)
+    if rotate:
+        page.rotate(90)
+    with source.open("wb") as stream:
+        writer.write(stream)
+    scratch = tmp_path / "pages"
+    scratch.mkdir()
+    result = asyncio.run(
+        pdf_render.render_pdf_pages(source, scratch, dpi=144, pages=[1], max_edge=2000)
+    )
+    assert len(result.pages) == 1
+    with Image.open(result.pages[0][1]) as image:
+        assert image.size == ((1000, 2000) if rotate else (2000, 1000))
+
+
+def test_display_render_rejects_out_of_range_page(tmp_path):
+    source = tmp_path / "source.pdf"
+    _pdf(source)
+    scratch = tmp_path / "pages"
+    scratch.mkdir()
+    with pytest.raises(pdf_render.PdfPageOutOfRange):
+        asyncio.run(
+            pdf_render.render_pdf_pages(
+                source, scratch, dpi=144, pages=[3], max_edge=2000
+            )
+        )
+
+
 def test_pdfium_keeps_intrinsic_rotation_and_honors_page_limit(tmp_path):
     source = tmp_path / "rotated.pdf"
     output = tmp_path / "output"

@@ -23,7 +23,7 @@ def _register_page_images(project, page_images):
     """The reader promotes CAS bytes; only the accepted writer registers them."""
     blobs = MediaBlobStore(project)
     for image in page_images.values():
-        if image.get("source_blob"):
+        if image.get("source_blob") or not image.get("blob_hash"):
             continue
         metadata = owned_media_metadata_document(
             probe={

@@ -379,6 +379,7 @@ _TENANT_VIEWER: tuple[RouteSpec, ...] = (
         "GET",
     ),
     ("get_blob", "GET"),
+    ("get_pdf_page_image", "GET"),
     ("get_lens_ep", "GET"),
     ("get_project", "GET"),
     ("get_project_network", "GET"),

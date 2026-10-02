@@ -452,7 +452,7 @@ def _fake_pdf_engine():
     return fake_page_images, fake_rapidocr
 
 
-def test_pdf_row_persists_downscaled_page_images_and_page_only_for_empty_page(
+def test_pdf_row_retains_geometry_without_display_blobs_and_keeps_empty_page(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     seeded = _seed_pdf_project(tmp_path)
@@ -503,19 +503,15 @@ def test_pdf_row_persists_downscaled_page_images_and_page_only_for_empty_page(
 
         page_images = artifact["metadata"]["page_images"]
         assert set(page_images) == {"1", "2"}
-        # size honesty: a 4000x5000 render is downscaled so its longest edge is
-        # capped; the persisted blob is NOT the source PDF blob.
-        cap = 2000
         for meta in page_images.values():
-            assert max(meta["width"], meta["height"]) <= cap
-            assert meta["blob_hash"] != seeded["blob"]
-            # the downscaled page image is a real, servable PNG blob.
-            with project.materialize_blob(meta["blob_hash"]) as path:
-                assert path.exists()
-        # honest bookkeeping of the downscale decision.
-        assert page_images["1"]["downscaled"] is True
+            assert "blob_hash" not in meta
         assert page_images["1"]["source_width"] == 4000
         assert page_images["1"]["source_height"] == 5000
+        assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 1
+        assert all(page["image"] is None for page in artifact["pages"])
+        assert artifact["pages"][0]["render_url"].endswith(
+            f"/{seeded['blob']}/pages/1/image"
+        )
 
         by_page: dict[int, list[str]] = {1: [], 2: []}
         for span in artifact["spans"]:

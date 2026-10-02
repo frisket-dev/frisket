@@ -319,36 +319,28 @@ class _BoundOcrReader:
         images = {}
         is_pdf = self._owner._engines._is_pdf(original, source)
         for index, path in enumerate(paths, 1):
-            width, height = engines.image_dimensions(path.read_bytes()) or (None, None)
-            actual_width, actual_height = width, height
-            downscaled = bool(is_pdf and max(width or 0, height or 0) > 2000)
-            if downscaled:
-                with Image.open(path) as image:
-                    image.thumbnail((2000, 2000))
-                    path = scratch / f"display-{index}.png"
-                    image.save(path, format="PNG")
-                    width, height = image.size
-            digest = source["blob_hash"]
             if is_pdf:
-                expected = hashlib.sha256(path.read_bytes()).hexdigest()
-                digest = self._owner._project.blob_store.put_path(
-                    path, expected_digest=expected
-                )
-                if digest != expected:
-                    raise RowError(
-                        "invalid_output", "OCR page storage returned different bytes"
-                    )
+                with Image.open(path) as image:
+                    width, height = image.size
+                # The original PDF is the durable source. Display pages are
+                # rendered on demand; retain only OCR's exact coordinate frame.
+                images[str(index)] = {
+                    "source_width": width,
+                    "source_height": height,
+                }
+                continue
+            width, height = engines.image_dimensions(path.read_bytes()) or (None, None)
             images[str(index)] = {
-                "blob_hash": digest,
-                "mime": "image/png" if is_pdf else source["mime"],
-                "filename": f"page-{index}.png" if is_pdf else source["filename"],
+                "blob_hash": source["blob_hash"],
+                "mime": source["mime"],
+                "filename": source["filename"],
                 "size": path.stat().st_size,
                 "width": width,
                 "height": height,
-                "source_width": actual_width,
-                "source_height": actual_height,
-                "downscaled": downscaled,
-                "source_blob": not is_pdf,
+                "source_width": width,
+                "source_height": height,
+                "downscaled": False,
+                "source_blob": True,
             }
         return images
 

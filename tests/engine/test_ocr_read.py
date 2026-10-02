@@ -265,7 +265,7 @@ async def test_preview_does_not_persist_page_bytes(source, recognition, monkeypa
 
 
 @pytest.mark.asyncio
-async def test_pdf_uses_actual_capped_raster_and_stages_searchable_pdf(
+async def test_pdf_retains_geometry_without_display_blob_and_stages_searchable_pdf(
     source, recognition, monkeypatch
 ):
     project, sheet, column, row_id, _ = source
@@ -275,6 +275,12 @@ async def test_pdf_uses_actual_capped_raster_and_stages_searchable_pdf(
     value = {"blob": digest, "filename": "scan.pdf", "mime": "application/pdf"}
     source = (project, sheet, column, row_id, value)
     renders = []
+    blob_count = project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0]
+
+    def forbid_display_blob(*args, **kwargs):
+        raise AssertionError("OCR display pages must not enter canonical storage")
+
+    monkeypatch.setattr(type(project.blob_store), "put_path", forbid_display_blob)
 
     async def pages(self, path, media, options, scratch):
         renders.append(path)
@@ -300,20 +306,10 @@ async def test_pdf_uses_actual_capped_raster_and_stages_searchable_pdf(
         assert isinstance(result.pdf.value, StagedFile)
         image = owner.calls_by_row[row_id][0]["page_images"]["1"]
         assert (image["source_width"], image["source_height"]) == (2200, 1100)
-        assert (image["width"], image["height"], image["downscaled"]) == (
-            2000,
-            1000,
-            True,
-        )
-        with project.blob_store.materialize(image["blob_hash"]) as path:
-            with Image.open(path) as stored:
-                assert stored.size == (2000, 1000)
+        assert "blob_hash" not in image
         assert len(renders) == 1
         assert (
-            project.db.execute(
-                "SELECT 1 FROM blobs WHERE hash=?", (image["blob_hash"],)
-            ).fetchone()
-            is None
+            project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == blob_count
         )
 
 

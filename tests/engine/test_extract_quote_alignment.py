@@ -240,7 +240,8 @@ def test_hyphenated_two_line_quote_aligns_to_region_spans(
         # The borrowed OCR page_images make the region drawable on page 1.
         pages = artifact_payload["pages"]
         page1 = next(p for p in pages if p["page"] == 1)
-        assert page1["image"] is not None
+        assert page1["image"] is None
+        assert page1["render_url"].endswith("/pages/1/image")
         assert len(page1["regions"]) >= 1
         # The region is INSIDE the answer's lines, not the whole page.
         for region in page1["regions"]:

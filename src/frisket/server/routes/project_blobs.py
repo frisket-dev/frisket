@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from typing import Any
+import asyncio
+from contextlib import suppress
+from threading import Event
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Path as PathParam
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
@@ -12,6 +15,22 @@ from frisket.server import schemas
 from frisket.server.services.project_blobs import (
     ProjectBlobService,
 )
+
+
+class _PageImageResponse(FileResponse):
+    def __init__(self, blob):
+        super().__init__(
+            blob.path,
+            media_type="image/png",
+            headers={"Cache-Control": "private, max-age=3600"},
+        )
+        self._blob = blob
+
+    async def __call__(self, scope, receive, send):
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self._blob.close()
 
 
 def register_project_blob_routes(
@@ -27,6 +46,35 @@ def register_project_blob_routes(
             media_type=blob.media_type,
             background=BackgroundTask(blob.close),
         )
+
+    @app.get("/api/projects/{pid}/blobs/{digest}/pages/{page}/image")
+    async def get_pdf_page_image(
+        pid: str, digest: str, request: Request, page: int = PathParam(ge=1)
+    ) -> FileResponse:
+        cancelled = Event()
+
+        async def watch_disconnect():
+            while True:
+                if (await request.receive())["type"] == "http.disconnect":
+                    cancelled.set()
+                    return
+
+        watcher = asyncio.create_task(watch_disconnect())
+        blob = None
+        try:
+            try:
+                blob = await service.pdf_page_image(
+                    pid, digest, page, should_cancel=cancelled.is_set
+                )
+            finally:
+                watcher.cancel()
+                with suppress(asyncio.CancelledError):
+                    await watcher
+            return _PageImageResponse(blob)
+        except BaseException:
+            if blob is not None:
+                blob.close()
+            raise
 
     @app.post("/api/projects/{pid}/blobs/metadata/backfill")
     def backfill_metadata(

@@ -20,6 +20,10 @@ class PdfRenderCancelled(PdfRenderError):
     pass
 
 
+class PdfPageOutOfRange(PdfRenderError):
+    pass
+
+
 @dataclass(frozen=True)
 class PdfRenderResult:
     page_count: int
@@ -58,11 +62,14 @@ async def render_pdf_pages(
     page_limit: int | None = None,
     timeout_seconds: int = 30,
     should_cancel: Callable[[], bool] | None = None,
+    max_edge: int | None = None,
 ) -> PdfRenderResult:
     """Render selected 1-based pages in one owned, fenced PDFium child."""
     source, scratch, selected, page_limit = _validate(
         source, scratch, dpi, pages, page_limit
     )
+    if max_edge is not None and (type(max_edge) is not int or max_edge < 1):
+        raise ValueError("PDF display edge must be a positive integer")
     if type(timeout_seconds) is not int or timeout_seconds < 1:
         raise ValueError("PDF render timeout must be a positive integer")
     payload = json.dumps(
@@ -72,6 +79,7 @@ async def render_pdf_pages(
             "dpi": dpi,
             "pages": selected,
             "page_limit": page_limit,
+            "max_edge": max_edge,
         },
         separators=(",", ":"),
     ).encode()
@@ -97,6 +105,8 @@ async def render_pdf_pages(
         raise PdfRenderError("PDF rendering failed")
     try:
         response = json.loads(result.stdout)
+        if isinstance(response, dict) and response.get("error") == "page_out_of_range":
+            raise PdfPageOutOfRange("PDF page is out of range")
         if not isinstance(response, dict) or response.get("ok") is not True:
             raise ValueError
         page_count = response.get("page_count")
@@ -123,6 +133,7 @@ async def render_pdf_pages(
 
 
 __all__ = [
+    "PdfPageOutOfRange",
     "PdfRenderCancelled",
     "PdfRenderError",
     "PdfRenderResult",
