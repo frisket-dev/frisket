@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
-from collections.abc import Collection, Iterator
+from collections.abc import Callable, Collection, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from typing import Any
@@ -777,6 +777,92 @@ class RunResultStore:
             raise
         self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
         if commit:
+            self.db.commit()
+
+    def publish_result_batch(
+        self,
+        run_id: int,
+        batch: list[dict[str, Any]],
+        *,
+        writer_attempt_id: str | None = None,
+        claim_token: str | None = None,
+        claimless_direct_effect: bool = False,
+        authorized_attempt_id: str | None = None,
+        checkpoint: tuple[str, int, str] | None = None,
+        checkpoint_action_kind: str | None = None,
+        defer_generation_seal: bool = False,
+        evidence_writer: Callable[[], None] | None = None,
+    ) -> None:
+        """Publish results with optional recipe-owned evidence in one transaction.
+
+        The store owns result persistence, row-effect retirement, and result-head
+        projection.  A recipe may supply its domain-specific evidence write as a
+        closure; any failure rolls that closure and every publication effect back
+        together.  Deferred generations still project only when their existing
+        sealing policy permits it.
+        """
+        if checkpoint is not None and not checkpoint_action_kind:
+            raise ValueError("checkpoint publication requires its action kind")
+
+        def write(commit: bool) -> None:
+            project_heads = not defer_generation_seal and evidence_writer is None
+            if checkpoint is None:
+                self.write_results(
+                    run_id,
+                    batch,
+                    writer_attempt_id=writer_attempt_id,
+                    claim_token=claim_token,
+                    claimless_direct_effect=claimless_direct_effect,
+                    authorized_attempt_id=authorized_attempt_id,
+                    project_heads=project_heads,
+                    commit=commit,
+                )
+                return
+            checkpoint_id, checkpoint_row_id, checkpoint_identity = checkpoint
+            self.consume_returned_row_effect_checkpoint(
+                checkpoint_id,
+                run_id=run_id,
+                row_id=checkpoint_row_id,
+                action_kind=checkpoint_action_kind,
+                identity=checkpoint_identity,
+                batch=batch,
+                writer_attempt_id=writer_attempt_id,
+                claim_token=claim_token,
+                claimless_direct_effect=claimless_direct_effect,
+                project_heads=project_heads,
+                commit=commit,
+            )
+
+        if evidence_writer is None:
+            write(True)
+            return
+
+        started_transaction = not self.db.in_transaction
+        if started_transaction:
+            self.db.execute("BEGIN IMMEDIATE")
+        savepoint = f"result_publication_{uuid.uuid4().hex}"
+        self.db.execute(f"SAVEPOINT {savepoint}")
+        try:
+            write(False)
+            evidence_writer()
+            # Evidence may normalize or withhold a value before a fresh
+            # generation becomes visible. Replacement and staged generations
+            # retain their existing seal-time projection behavior.
+            from frisket.engine.store.result_generations import ResultGenerationStore
+
+            ResultGenerationStore(self.project)._project_written_results_uncommitted(
+                run_id,
+                batch,
+                claim_token=claim_token,
+            )
+        except BaseException:
+            self.db.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+            self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
+            if started_transaction:
+                self.db.rollback()
+            raise
+        self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
+        if started_transaction:
             self.db.commit()
 
     def write_precomputed_results(

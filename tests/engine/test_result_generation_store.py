@@ -553,8 +553,8 @@ def test_result_publication_rolls_back_callback_result_and_head_together(
 
         def fail_after_evidence_write() -> None:
             project.db.execute(
-                "UPDATE runs SET error_summary='evidence started' WHERE id=?",
-                (claimed_run.run_id,),
+                "UPDATE ops SET label='evidence started' WHERE id=?",
+                (claimed_run.op_id,),
             )
             raise RuntimeError("evidence unavailable")
 
@@ -585,9 +585,9 @@ def test_result_publication_rolls_back_callback_result_and_head_together(
         assert generations.read_cell_heads(output_column_id) == {}
         assert (
             project.db.execute(
-                "SELECT error_summary FROM runs WHERE id=?", (claimed_run.run_id,)
+                "SELECT label FROM ops WHERE id=?", (claimed_run.op_id,)
             ).fetchone()[0]
-            is None
+            == "publication callback rollback"
         )
     finally:
         _release(project, claimed_run)
@@ -701,15 +701,15 @@ def test_checkpoint_result_publication_defers_heads_until_seal(
             checkpoint_action_kind="map.regex_extract",
             defer_generation_seal=True,
             evidence_writer=lambda: project.db.execute(
-                "UPDATE runs SET error_summary='evidence saved' WHERE id=?",
-                (claimed_run.run_id,),
+                "UPDATE ops SET label='evidence saved' WHERE id=?",
+                (claimed_run.op_id,),
             ),
         )
 
         assert generations.read_cell_heads(output_column_id) == {}
         assert (
             project.db.execute(
-                "SELECT error_summary FROM runs WHERE id=?", (claimed_run.run_id,)
+                "SELECT label FROM ops WHERE id=?", (claimed_run.op_id,)
             ).fetchone()[0]
             == "evidence saved"
         )

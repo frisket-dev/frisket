@@ -15,7 +15,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable
@@ -698,91 +697,41 @@ class MapRunner:
         ) -> None:
             writer_attempt_id = attempt.attempt_id if attempt is not None else None
 
-            def write(commit: bool) -> None:
-                if checkpoint is None:
-                    self.run_store.write_results(
-                        run_id,
-                        batch,
-                        writer_attempt_id=writer_attempt_id,
-                        claim_token=claim_token,
-                        authorized_attempt_id=writer_attempt_id,
-                        claimless_direct_effect=self.claimless_direct_effect,
-                        project_heads=(
-                            not defer_generation_seal
-                            and not callable(write_result_evidence)
-                        ),
-                        commit=commit,
-                    )
-                    return
-                checkpoint_id, checkpoint_row_id, checkpoint_identity = checkpoint
-                self.run_store.consume_returned_row_effect_checkpoint(
-                    checkpoint_id,
-                    run_id=run_id,
-                    row_id=checkpoint_row_id,
-                    action_kind=spec["action_kind"],
-                    identity=checkpoint_identity,
-                    batch=batch,
-                    writer_attempt_id=writer_attempt_id,
-                    claim_token=claim_token,
-                    claimless_direct_effect=self.claimless_direct_effect,
-                    project_heads=(
-                        not defer_generation_seal
-                        and not callable(write_result_evidence)
-                    ),
-                    commit=commit,
-                )
+            evidence_writer = None
+            if callable(write_result_evidence):
 
-            if not callable(write_result_evidence):
-                write(True)
-                return
-            started_transaction = not self.project.db.in_transaction
-            if started_transaction:
-                self.project.db.execute("BEGIN IMMEDIATE")
-            savepoint = f"map_result_evidence_{uuid.uuid4().hex}"
-            self.project.db.execute(f"SAVEPOINT {savepoint}")
-            try:
-                write(False)
-                try:
-                    write_result_evidence(
-                        self.project,
-                        spec,
-                        batch=batch,
-                        sheet_id=prepared.sheet_id,
-                        run_id=run_id,
-                        op_id=op_id,
-                        output_columns=out_cols,
-                        input_column_ids=col_map,
-                        claim_token=claim_token,
-                    )
-                except (StaleAttemptWriter, ClaimLeaseRenewalFailed):
-                    raise
-                except Exception as exc:
-                    raise ResultEvidenceWriteFailed(run_id, writer_attempt_id) from exc
-                # A recipe-owned evidence/final-value hook may normalize or
-                # withhold result semantics.  Fresh create-mode heads become
-                # visible only after that owning savepoint has finalized the
-                # value and its sidecars; replacement generations still wait
-                # for the all-column seal as before.
-                from frisket.engine.store.result_generations import (
-                    ResultGenerationStore,
-                )
+                def evidence_writer() -> None:
+                    try:
+                        write_result_evidence(
+                            self.project,
+                            spec,
+                            batch=batch,
+                            sheet_id=prepared.sheet_id,
+                            run_id=run_id,
+                            op_id=op_id,
+                            output_columns=out_cols,
+                            input_column_ids=col_map,
+                            claim_token=claim_token,
+                        )
+                    except (StaleAttemptWriter, ClaimLeaseRenewalFailed):
+                        raise
+                    except Exception as exc:
+                        raise ResultEvidenceWriteFailed(
+                            run_id, writer_attempt_id
+                        ) from exc
 
-                ResultGenerationStore(
-                    self.project
-                )._project_written_results_uncommitted(
-                    run_id,
-                    batch,
-                    claim_token=claim_token,
-                )
-            except BaseException:
-                self.project.db.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
-                self.project.db.execute(f"RELEASE SAVEPOINT {savepoint}")
-                if started_transaction:
-                    self.project.db.rollback()
-                raise
-            self.project.db.execute(f"RELEASE SAVEPOINT {savepoint}")
-            if started_transaction:
-                self.project.db.commit()
+            self.run_store.publish_result_batch(
+                run_id,
+                batch,
+                writer_attempt_id=writer_attempt_id,
+                claim_token=claim_token,
+                authorized_attempt_id=writer_attempt_id,
+                claimless_direct_effect=self.claimless_direct_effect,
+                checkpoint=checkpoint,
+                checkpoint_action_kind=(spec["action_kind"] if checkpoint else None),
+                defer_generation_seal=defer_generation_seal,
+                evidence_writer=evidence_writer,
+            )
 
         # Route-binding extras are
         # merged HERE, on the one execution path every routed run shares
