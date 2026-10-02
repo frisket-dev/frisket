@@ -31,6 +31,7 @@ export interface SheetGridContractOptions {
 export interface SheetDataContractQuery {
   offset?: number;
   limit?: number;
+  column_ids?: string;
   parent_row_id?: number;
   filter?: string;
   sort?: string;

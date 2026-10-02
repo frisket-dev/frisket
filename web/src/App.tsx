@@ -53,6 +53,7 @@ import {
 } from 'lucide-react';
 import {
   ConfirmationRequiredError,
+  listProjectDocuments,
   listProjects,
   MAX_LENS_VIEW_ROWS,
   type ProjectInfo,
@@ -3522,6 +3523,9 @@ function WorkspacePrimarySurface() {
     workbenchHostContext,
   } = useMainViewModel();
   const gridView = useGridViewHandle();
+  const detail = useDetailHandle();
+  const childFilter = useSelector(detail.store, (current) => current.childFilter);
+  const activeChildFilter = childFilter?.sheetId === sheet?.id ? childFilter : null;
   const workView = useWorkViewHandle();
   const answersViewState = useSelector(workView.store, (state) => state.answersView);
 
@@ -3590,9 +3594,30 @@ function WorkspacePrimarySurface() {
         | 'asc'
         | 'desc'
         | undefined) ?? null;
-    const orderKey = `${JSON.stringify(scopeRowIds)}|${JSON.stringify(activeGridFilter ?? null)}|${JSON.stringify(
+    const orderKey = `${activeChildFilter?.parentRowId ?? ''}|${JSON.stringify(scopeRowIds)}|${JSON.stringify(activeGridFilter ?? null)}|${JSON.stringify(
       activeGridSort ?? null,
     )}`;
+    const queryDocuments = (args: {
+      sourceColumnId: string; titleColumnId: string | null; query: string;
+      cursor?: string; anchorRowId?: string; limit: number;
+    }) => listProjectDocuments(project.id, sheet.id, {
+      sourceColumnId: args.sourceColumnId,
+      titleColumnId: args.titleColumnId,
+      parentRowId: activeChildFilter?.parentRowId ?? null,
+      filter: activeGridFilter,
+      sort: activeGridSort,
+      scopeRowIds,
+      query: args.query,
+      cursor: args.cursor,
+      anchorRowId: args.anchorRowId,
+      limit: args.limit,
+    });
+    const hydrateDocumentRow = async (rowId: string, columnIds: string[]) => {
+      const page = await projectApi.getSheetData(sheet.id, 0, 1, {
+        rowIds: [Number(rowId)], columnIds,
+      });
+      return page.rows[0] ?? null;
+    };
     return (
       <DocumentView
         projectId={project.id}
@@ -3601,7 +3626,8 @@ function WorkspacePrimarySurface() {
         onChangeState={setDocumentView}
         onDocumentFocus={selectDocumentRow}
         onOpenDetail={openRowById}
-        queryRows={queryImageGalleryRows}
+        queryDocuments={queryDocuments}
+        hydrateRow={hydrateDocumentRow}
         orderKey={orderKey}
         listSortDir={listSortDir}
         titleColumnOrder={titleColumnOrder}

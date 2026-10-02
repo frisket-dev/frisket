@@ -37,6 +37,8 @@ export interface UseWindowedRowListArgs<T extends { id: string }> {
   /** Called with the next row's id when Arrow nav moves the active row
    *  (AnswersView: onSyncSelectRow; DocumentView: selectDocument). */
   onSelect(id: string): void;
+  /** Load/select beyond the currently resident bounded window. */
+  onBoundary?(direction: 'previous' | 'next'): void;
 }
 
 export interface WindowedRowList<T> {
@@ -55,6 +57,7 @@ export function useWindowedRowList<T extends { id: string }>({
   rows,
   activeId,
   onSelect,
+  onBoundary,
 }: UseWindowedRowListArgs<T>): WindowedRowList<T> {
   const listBodyRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -86,6 +89,18 @@ export function useWindowedRowList<T extends { id: string }>({
       if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
       event.preventDefault();
       const index = rows.findIndex((row) => row.id === activeId);
+      if (index === -1 && activeId !== null) {
+        onBoundary?.(event.key === 'ArrowDown' ? 'next' : 'previous');
+        return;
+      }
+      if (event.key === 'ArrowDown' && index === rows.length - 1) {
+        onBoundary?.('next');
+        return;
+      }
+      if (event.key === 'ArrowUp' && index === 0) {
+        onBoundary?.('previous');
+        return;
+      }
       const nextIndex = Math.min(
         Math.max((index === -1 ? 0 : index) + (event.key === 'ArrowDown' ? 1 : -1), 0),
         rows.length - 1,
@@ -97,7 +112,7 @@ export function useWindowedRowList<T extends { id: string }>({
         onSelect(nextRow.id);
       }
     },
-    [rows, activeId, onSelect],
+    [rows, activeId, onBoundary, onSelect],
   );
 
   return { listBodyRef, onListScroll, onListKeyDown, startIndex, windowRows };
