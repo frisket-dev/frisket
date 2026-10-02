@@ -22,6 +22,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from frisket.server.exports.sheet_csv import SheetExportLimits
 from frisket.engine.jobs import JobQueue, WorkerPorts
+from frisket.engine.jobs.queue import IMPORT_FILES_PAGE_KIND
 from frisket.project_opener import ProjectOpener
 from frisket.engine.executor import (
     CellEditQueryLimits,
@@ -80,6 +81,7 @@ from frisket.server.routes.imports import (
     register_import_urls_routes,
     register_import_xlsx_routes,
 )
+from frisket.server.routes.import_sessions import register_import_session_routes
 from frisket.server.routes.instance import (
     register_admin_pricing_routes,
     register_health_routes,
@@ -107,6 +109,7 @@ from frisket.server.routes.providers import register_provider_config_routes
 from frisket.server.routes.selector_choices import register_selector_choices_routes
 from frisket.server.routes.models_gateway import register_models_gateway_routes
 from frisket.server.services.models_gateway import ModelsGatewayService
+from frisket.server.services.import_sessions import ImportSessionService
 from frisket.ai.models.gateway_config import (
     InvalidModelsGatewayConfig,
     ModelsGatewayConnection,
@@ -679,6 +682,40 @@ def create_app(
     register_import_draft_routes(app, service=ImportDraftService(ws))
 
     register_import_bulk_routes(app, service=ImportBulkService(ws, limits=bulk_limits))
+
+    def enqueue_import_page(
+        project_id: str, ref: str, through: int, sealed: bool
+    ) -> None:
+        ws.queue.enqueue(
+            IMPORT_FILES_PAGE_KIND,
+            {
+                **ws.queue_payload_extra,
+                "workspace_root": str(ws.root),
+                "project_id": project_id,
+                "import_ref": ref,
+                "through": through,
+                "sealed": sealed,
+                "dedupe_key": (
+                    f"import-files-page:{project_id}:{ref}:{through}:{int(sealed)}"
+                ),
+            },
+        )
+
+    def import_max_rows(project_id: str, request: Request) -> int | None:
+        factory = ws.executor_deps_factory
+        deps = factory(project_id, request) if factory is not None else None
+        limits = None if deps is None else deps.import_workload_limits
+        return None if limits is None else limits.max_rows
+
+    register_import_session_routes(
+        app,
+        service=ImportSessionService(
+            ws,
+            limits=bulk_limits,
+            enqueue=enqueue_import_page,
+        ),
+        max_rows_for_request=import_max_rows,
+    )
 
     register_import_csv_routes(
         app,

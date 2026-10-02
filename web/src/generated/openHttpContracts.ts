@@ -442,6 +442,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
+      "id": "tenant.cancel_import_session.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/import/files/sessions/{ref}/cancel",
+      "request": null
+    },
+    {
       "id": "tenant.cancel_model_pull.post",
       "method": "POST",
       "path": "/api/providers/models/pulls/{pull_id}/cancel",
@@ -506,6 +512,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "method": "POST",
       "path": "/api/projects/{pid}/compact",
       "request": null
+    },
+    {
+      "id": "tenant.create_import_session.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/import/files/sessions",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
     },
     {
       "id": "tenant.create_lens.post",
@@ -745,6 +760,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "tenant.get_import_session.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/import/files/sessions/{ref}",
+      "request": null
+    },
+    {
       "id": "tenant.get_model_pull.get",
       "method": "GET",
       "path": "/api/providers/models/pulls/{pull_id}",
@@ -964,6 +985,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "id": "tenant.list_column_types.get",
       "method": "GET",
       "path": "/api/column-types",
+      "request": null
+    },
+    {
+      "id": "tenant.list_import_sessions.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/import/files/sessions",
       "request": null
     },
     {
@@ -1336,9 +1363,24 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
+      "id": "tenant.resolve_import_session.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/import/files/sessions/{ref}/resolve",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "tenant.resolve_lens.get",
       "method": "GET",
       "path": "/api/projects/{pid}/lenses/{lens_id}/resolve",
+      "request": null
+    },
+    {
+      "id": "tenant.resume_import_session.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/import/files/sessions/{ref}/resume",
       "request": null
     },
     {
@@ -1418,6 +1460,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
         "mediaType": "application/json",
         "required": true
       }
+    },
+    {
+      "id": "tenant.seal_import_session.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/import/files/sessions/{ref}/seal",
+      "request": null
     },
     {
       "id": "tenant.search_ep.get",
@@ -1666,6 +1714,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "id": "tenant.update_xlsx.post",
       "method": "POST",
       "path": "/api/projects/{pid}/import/xlsx/update",
+      "request": {
+        "mediaType": "multipart/form-data",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.upload_import_session_files.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/import/files/sessions/{ref}/files",
       "request": {
         "mediaType": "multipart/form-data",
         "required": true
@@ -4832,6 +4889,48 @@ export type HttpImportPdfResponse = ({
   "sheet_id": (number);
 });
 
+export type HttpImportSessionCreateBody = ({
+  "sheet_name": (string);
+});
+
+type HttpImportSessionList_ImportSessionStatus = ({
+  "admitted_bytes": (number);
+  "admitted_files": (number);
+  "cancel_requested": (boolean);
+  "committed_bytes"?: (number);
+  "committed_rows"?: (number);
+  "error"?: (((string)) | ((null)));
+  "import_ref": (string);
+  "sealed": (boolean);
+  "sheet_id"?: (((number)) | ((null)));
+  "sheet_name": (string);
+  "state": ("admitting" | "running" | "paused" | "cancelling" | "cancelled" | "completed" | "kept" | "removed") & (string);
+  "through": (number);
+});
+
+export type HttpImportSessionList = ({
+  "sessions": (Array<(HttpImportSessionList_ImportSessionStatus)>);
+});
+
+export type HttpImportSessionResolveBody = ({
+  "decision": ("keep" | "remove") & (string);
+});
+
+export type HttpImportSessionStatus = ({
+  "admitted_bytes": (number);
+  "admitted_files": (number);
+  "cancel_requested": (boolean);
+  "committed_bytes"?: (number);
+  "committed_rows"?: (number);
+  "error"?: (((string)) | ((null)));
+  "import_ref": (string);
+  "sealed": (boolean);
+  "sheet_id"?: (((number)) | ((null)));
+  "sheet_name": (string);
+  "state": ("admitting" | "running" | "paused" | "cancelling" | "cancelled" | "completed" | "kept" | "removed") & (string);
+  "through": (number);
+});
+
 type HttpImportUpdatePreviewBody_ImportUpdatePreviewColumn = ({
   "format"?: (((string)) | ((null)));
   "name"?: (((string)) | ((null)));
@@ -5669,6 +5768,11 @@ export type HttpInline_841c7d86b3cf748c = ({
 
 export type HttpInline_847173c14adf5b62 = ({
   "endpoint_id": (string);
+});
+
+export type HttpInline_8527488b5f6abaa7 = ({
+  "pid": (string);
+  "ref": (string);
 });
 
 export type HttpInline_86e1c5cbf35ec2ae = ({
@@ -10718,6 +10822,22 @@ export type HttpContractOperationMap = {
       readonly "500": HttpInline_487c3cda92b800f4;
     };
   };
+  readonly "tenant.cancel_import_session.post": {
+    readonly pathParams: HttpInline_8527488b5f6abaa7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpImportSessionStatus;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
   readonly "tenant.cancel_model_pull.post": {
     readonly pathParams: HttpInline_c775a438f1aaffc0;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -10851,6 +10971,22 @@ export type HttpContractOperationMap = {
       readonly "401": HttpError;
       readonly "403": HttpError;
       readonly "404": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.create_import_session.post": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpImportSessionCreateBody;
+    readonly responses: {
+      readonly "200": HttpImportSessionStatus;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
       readonly "500": HttpError;
     };
   };
@@ -11269,6 +11405,22 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.get_import_session.get": {
+    readonly pathParams: HttpInline_8527488b5f6abaa7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpImportSessionStatus;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
   readonly "tenant.get_model_pull.get": {
     readonly pathParams: HttpInline_c775a438f1aaffc0;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -11661,6 +11813,22 @@ export type HttpContractOperationMap = {
     readonly responses: {
       readonly "200": HttpColumnTypeList;
       readonly "401": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.list_import_sessions.get": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpImportSessionList;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
       readonly "500": HttpError;
     };
   };
@@ -12366,6 +12534,22 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.resolve_import_session.post": {
+    readonly pathParams: HttpInline_8527488b5f6abaa7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpImportSessionResolveBody;
+    readonly responses: {
+      readonly "200": HttpImportSessionStatus;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
   readonly "tenant.resolve_lens.get": {
     readonly pathParams: HttpInline_7daea3dbdfe86f78;
     readonly query: HttpInline_766f205ee1bdd9db;
@@ -12377,6 +12561,22 @@ export type HttpContractOperationMap = {
       readonly "403": HttpError;
       readonly "404": HttpError;
       readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.resume_import_session.post": {
+    readonly pathParams: HttpInline_8527488b5f6abaa7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpImportSessionStatus;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
     };
@@ -12529,6 +12729,22 @@ export type HttpContractOperationMap = {
       readonly "422": HttpError;
       readonly "500": HttpError;
       readonly "502": HttpError;
+    };
+  };
+  readonly "tenant.seal_import_session.post": {
+    readonly pathParams: HttpInline_8527488b5f6abaa7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpImportSessionStatus;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
     };
   };
   readonly "tenant.search_ep.get": {
@@ -12954,6 +13170,22 @@ export type HttpContractOperationMap = {
       readonly "413": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpInline_5a665aadb5efda0c;
+    };
+  };
+  readonly "tenant.upload_import_session_files.post": {
+    readonly pathParams: HttpInline_8527488b5f6abaa7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: FormData;
+    readonly responses: {
+      readonly "200": HttpImportSessionStatus;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
     };
   };
   readonly "tenant.upload_skill.post": {

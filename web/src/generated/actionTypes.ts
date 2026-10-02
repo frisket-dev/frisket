@@ -522,7 +522,8 @@ type ImportFilesParams_FileImportSource = ({
 });
 
 export type ImportFilesParams = ({
-  "files": (Array<(ImportFilesParams_FileImportSource)>);
+  "files"?: (((Array<(ImportFilesParams_FileImportSource)>)) | ((null)));
+  "inventory_ref"?: (((string)) | ((null)));
 });
 
 type ImportGeojsonParams_FileSource = ({
