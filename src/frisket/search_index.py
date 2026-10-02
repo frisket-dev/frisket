@@ -78,14 +78,19 @@ def _next_column(source, index, scope, after: int) -> int | None:
     if scope.column_id is not None:
         return scope.column_id if scope.column_id > after else None
     params = [after]
-    where = "id>?"
+    where = (
+        "c.id>? AND c.hidden=0 AND s.hidden=0 "
+        "AND c.type IN ('text','category','json','link')"
+    )
     indexed_where = "column_id>?"
     if scope.sheet_id is not None:
-        where += " AND sheet_id=?"
+        where += " AND c.sheet_id=?"
         indexed_where += " AND sheet_id=?"
         params.append(scope.sheet_id)
     live = source.execute(
-        f"SELECT id FROM columns WHERE {where} ORDER BY id LIMIT 1", params
+        "SELECT c.id FROM columns c JOIN sheets s ON s.id=c.sheet_id "
+        f"WHERE {where} ORDER BY c.id LIMIT 1",
+        params,
     ).fetchone()
     old = index.execute(
         f"SELECT column_id FROM search_cells WHERE {indexed_where} "
@@ -96,17 +101,23 @@ def _next_column(source, index, scope, after: int) -> int | None:
     return min(candidates) if candidates else None
 
 
-def _column_page(source, index, scope, column: int, after: int, limit: int):
+def _column_page(
+    source, index, scope, column: int, after: int, limit: int, *, searchable: bool
+):
     lower = max(after, (scope.row_id_start or 1) - 1)
     upper = scope.row_id_end or 9_223_372_036_854_775_807
     params = (column, lower, upper, limit)
-    live = source.execute(
-        "SELECT cc.row_id,cc.value,cc.validity,r.hidden FROM current_cells cc "
-        "JOIN rows r ON r.id=cc.row_id "
-        "WHERE cc.column_id=? AND cc.row_id>? AND cc.row_id<=? "
-        "ORDER BY cc.row_id LIMIT ?",
-        params,
-    ).fetchall()
+    live = (
+        source.execute(
+            "SELECT cc.row_id,cc.value,cc.validity,r.hidden FROM current_cells cc "
+            "JOIN rows r ON r.id=cc.row_id "
+            "WHERE cc.column_id=? AND cc.row_id>? AND cc.row_id<=? "
+            "ORDER BY cc.row_id LIMIT ?",
+            params,
+        ).fetchall()
+        if searchable
+        else []
+    )
     old = index.execute(
         "SELECT row_id FROM search_cells "
         "WHERE column_id=? AND row_id>? AND row_id<=? ORDER BY row_id LIMIT ?",
@@ -210,10 +221,16 @@ def index_batch(
                 column = _next_column(snapshot.db, index, scope, 0)
             while column is not None and processed < batch_size:
                 _raise_if_cancelled(cancel_event)
-                ids, cells = _column_page(
-                    snapshot.db, index, scope, column, row, batch_size - processed
-                )
                 descriptor = _column_descriptor(snapshot.db, column)
+                ids, cells = _column_page(
+                    snapshot.db,
+                    index,
+                    scope,
+                    column,
+                    row,
+                    batch_size - processed,
+                    searchable=descriptor is not None,
+                )
                 for row_id in ids:
                     _raise_if_cancelled(cancel_event)
                     _replace_cell(index, column, row_id, cells.get(row_id), descriptor)

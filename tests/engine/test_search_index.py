@@ -170,3 +170,56 @@ def test_foreground_read_does_not_wait_for_index_writer(documents):
     finally:
         writer.rollback()
         writer.close()
+
+
+@pytest.mark.parametrize("size", [10, 2000])
+def test_nonsearchable_columns_do_not_scan_cell_corpus(tmp_path, size):
+    project = Project.create(tmp_path / "nontext.frisket", name="nontext")
+    try:
+        sheet = project.add_sheet("Documents")
+        columns = {
+            "amount": project.add_column(sheet, "amount", type="number"),
+            "date": project.add_column(sheet, "date", type="date"),
+            "file": project.add_column(sheet, "file", type="file"),
+            "hidden": project.add_column(sheet, "hidden", hidden=True),
+        }
+        records = [
+            {
+                "amount": i,
+                "date": "2026-10-02",
+                "file": {"name": "a.pdf"},
+                "hidden": "secret",
+            }
+            for i in range(size)
+        ]
+        project.add_rows(sheet, records, columns)
+        progress = index_batch(project, batch_size=5)
+        assert progress.complete and progress.processed == 0
+        # Explicit column-range invalidations from a subsequent append must
+        # also skip live values, not only the initial whole-project walk.
+        project.add_rows(sheet, records, columns)
+        processed = 0
+        for _ in range(10):
+            progress = index_batch(project, batch_size=5)
+            processed += progress.processed
+            if progress.complete:
+                break
+        assert progress.complete and processed <= len(columns)
+    finally:
+        project.close()
+
+
+def test_former_text_column_purges_only_previously_indexed_cells(documents):
+    project, sheet, column, rows = documents
+    drain_index(project)
+    project.db.execute("UPDATE columns SET type='number' WHERE id=?", (column,))
+    project.db.commit()
+    project.add_rows(sheet, [{"body": i} for i in range(2000)], {"body": column})
+    processed = 0
+    for _ in range(10):
+        progress = index_batch(project, batch_size=5)
+        processed += progress.processed
+        if progress.complete:
+            break
+    assert progress.complete and processed <= len(rows) + 3
+    assert search_project(project, "needle", rerank="off") == []
