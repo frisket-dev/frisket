@@ -51,6 +51,7 @@ def resolve_embedding_hybrid(
     *,
     gateway: Any = None,
     backend: VectorBackend | None = None,
+    effect_project: Project | None = None,
 ) -> HybridResult:
     """Resolve an ``embedding_hybrid`` query into a fused, ranked row-set. The vector
     side reuses resolve_embedding_similarity (so the SAME remote-egress gate fires before
@@ -120,7 +121,11 @@ def resolve_embedding_hybrid(
         "limit": pool,
     }
     vec_result = resolve_embedding_similarity(
-        project, vec_query, gateway=gateway, backend=backend
+        project,
+        vec_query,
+        gateway=gateway,
+        backend=backend,
+        effect_project=effect_project,
     )
     vec_ids = [hit.row_id for hit in vec_result.hits]
 

@@ -80,7 +80,9 @@ class EmbeddingRouteService:
             try:
                 with project.read_snapshot() as snapshot:
                     self._check_search_freshness(snapshot, query)
-                    result = resolve_embedding_hybrid(snapshot, query, gateway=gateway)
+                    result = resolve_embedding_hybrid(
+                        snapshot, query, gateway=gateway, effect_project=project
+                    )
                     return _embedding_hybrid_preview_payload(snapshot, result)
             except SearchIndexNotReady as exc:
                 if attempt:
