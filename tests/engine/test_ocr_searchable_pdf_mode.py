@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from PIL import Image
 
 from pypdf import PdfReader, PdfWriter
 
@@ -63,9 +64,16 @@ def _project_with_media(
 
 def _patch_engine(monkeypatch: pytest.MonkeyPatch, pages: list[dict[str, Any]]) -> None:
     async def fake_page_images(self, path, media, spec, scratch):  # noqa: ANN001
-        del self, media, spec, scratch
-        # one path per page is enough — the stubbed engine ignores it.
-        return [path for _ in pages]
+        del self, path, media
+        # Match the renderer's PNG contract even though OCR itself is stubbed.
+        size = (round(612 * spec["dpi"] / 72), round(792 * spec["dpi"] / 72))
+        rendered = []
+        for number in range(1, len(pages) + 1):
+            target = scratch / f"page-{number}.png"
+            with Image.new("RGB", size, "white") as image:
+                image.save(target)
+            rendered.append(target)
+        return rendered
 
     async def fake_rapidocr(self, page_paths, scratch, language=None):  # noqa: ANN001
         del self, page_paths, scratch, language
