@@ -123,8 +123,11 @@ def test_resumable_session_reopens_without_duplicate_rows(tmp_path: Path) -> Non
         project.close()
 
 
-def test_resumable_session_adopts_matching_running_receipt(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "reserved.frisket", name="reserved")
+@pytest.mark.parametrize("terminal", ["completed", "kept", "removed"])
+def test_resumable_session_preserves_reserved_receipt_through_terminalization(
+    tmp_path: Path, terminal: str
+) -> None:
+    project = Project.create(tmp_path / f"reserved-{terminal}.frisket", name="reserved")
     try:
         reserved = Receipt(
             receipt_id="receipt:inventory-one",
@@ -150,6 +153,27 @@ def test_resumable_session_adopts_matching_running_receipt(tmp_path: Path) -> No
         assert adopted.inputs == reserved.inputs
         assert adopted.evidence == reserved.evidence
         assert adopted.warnings == reserved.warnings
+        writer.set_warnings(["bounded parser warning"])
+        writer.append_page(_records(0, 1), expected_cursor=0, next_cursor=1)
+        if terminal == "completed":
+            writer.finalize_session(expected_cursor=1)
+        else:
+            writer.cancel(expected_cursor=1)
+            if terminal == "kept":
+                writer.finalize_session(expected_cursor=1, keep_cancelled=True)
+            else:
+                writer.remove_session(expected_cursor=1)
+
+        terminal_receipt = ReceiptStore(project).find_by_id(reserved.receipt_id)
+        assert terminal_receipt is not None
+        parsed = terminal_receipt.parsed()
+        assert reserved.evidence[0] in parsed.evidence
+        assert "bounded parser warning" in parsed.warnings
+        assert terminal_receipt.status == {
+            "completed": "completed",
+            "kept": "partial",
+            "removed": "cancelled",
+        }[terminal]
         assert project.db.execute(
             "SELECT edition_run_context FROM receipts WHERE id=?",
             (reserved.receipt_id,),

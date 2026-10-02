@@ -673,6 +673,7 @@ class StreamingSheetWriter:
             ),
         ]
         evidence = [
+            *receipt.evidence,
             ReceiptEvidence(
                 ref={
                     "kind": "source_rows",
@@ -698,12 +699,20 @@ class StreamingSheetWriter:
                 "outputs": outputs,
                 "evidence": evidence,
                 "warnings": (
-                    [*receipt.warnings, "Import was stopped; committed rows were kept."]
+                    [
+                        *receipt.warnings,
+                        *self._warnings,
+                        "Import was stopped; committed rows were kept.",
+                    ]
                     if status == "partial"
                     else (
-                        [*receipt.warnings, "Import was stopped; added rows were removed."]
+                        [
+                            *receipt.warnings,
+                            *self._warnings,
+                            "Import was stopped; added rows were removed.",
+                        ]
                         if status == "cancelled"
-                        else receipt.warnings
+                        else [*receipt.warnings, *self._warnings]
                     )
                 ),
             }
