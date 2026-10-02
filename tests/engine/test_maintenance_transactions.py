@@ -22,14 +22,20 @@ def test_maintenance_rejects_pending_writes_without_rolling_them_back(
             else:
                 getattr(project, operation)(target)
         assert project.db.in_transaction
-        assert project.db.execute(
-            "SELECT value FROM meta WHERE key='op_cursor'"
-        ).fetchone()[0] == "12345"
+        assert (
+            project.db.execute(
+                "SELECT value FROM meta WHERE key='op_cursor'"
+            ).fetchone()[0]
+            == "12345"
+        )
         assert not target.exists()
         project.db.rollback()
-        assert project.db.execute(
-            "SELECT value FROM meta WHERE key='op_cursor'"
-        ).fetchone()[0] == original
+        assert (
+            project.db.execute(
+                "SELECT value FROM meta WHERE key='op_cursor'"
+            ).fetchone()[0]
+            == original
+        )
     finally:
         project.close()
 
@@ -46,8 +52,11 @@ def test_retention_policy_read_does_not_commit_or_rewrite_project(tmp_path):
         assert project.db.total_changes == before + 1
         assert manifest.stat().st_mtime_ns == before_manifest
         project.db.rollback()
-        assert project.db.execute(
-            "SELECT value FROM meta WHERE key='op_cursor'"
-        ).fetchone()[0] != "12345"
+        assert (
+            project.db.execute(
+                "SELECT value FROM meta WHERE key='op_cursor'"
+            ).fetchone()[0]
+            != "12345"
+        )
     finally:
         project.close()
