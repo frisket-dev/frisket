@@ -93,6 +93,8 @@ def _expected_open_ids(registry_ids: list[str], posture: str) -> set[str]:
     # Notifications is a complete capability-gated definition: both open
     # editions opt in, while a downstream managed edition can omit it.
     ids.add("project.notifications")
+    # Both open editions support Skills; downstream editions can opt out.
+    ids.update({"personal.skills", "organization.skills"})
     # Usage/spend is an explicit open contribution while its definition is not
     # one of SETTINGS_SECTIONS. Private funding/billing contributions are never
     # implicit members of this open result.
