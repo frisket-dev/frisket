@@ -108,6 +108,16 @@ def test_importing_sheet_mutations_are_http_conflicts(tmp_path) -> None:
         },
     )
     assert query_edit.status_code == 409, query_edit.text
+    replay_column = client.post(
+        f"/api/projects/{project_id}/actions/v1/run",
+        json={
+            "action_id": "replay.accept_column",
+            "scope": {"kind": "project"},
+            "params": {"sheet_id": writer.sheet_id, "column_id": column_id},
+            "idempotency_key": "replay-column-importing@sha256:stable",
+        },
+    )
+    assert replay_column.status_code == 409, replay_column.text
 
     unrelated = project.add_sheet("Still mutable")
     allowed = post_column_add_as_v1_action(client, project_id, unrelated, "Allowed")

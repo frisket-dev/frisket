@@ -26,8 +26,13 @@ from frisket.actions.types import (
     PatchedColumn,
     QueryCellEditor,
     QueryEditedCells,
+    ReplayColumnAcceptor,
+    ReplayValueAcceptor,
+    ReplayValueDismissor,
+    ReviewDecider,
     ReviewDecision,
     ReviewNote,
+    ReviewNoter,
     RetypedColumn,
     RowCreator,
     RowsAppender,
@@ -1361,12 +1366,23 @@ def _require_mutation_targets_mutable(
         scope = bound.request.scope
         if getattr(scope, "kind", None) == "sheet_rows":
             sheet_ids.add(int(scope.sheet_id))
-    elif "run_id" in params:
+    elif capability in {
+        ReviewDecider,
+        ReviewNoter,
+        ReplayValueAcceptor,
+        ReplayValueDismissor,
+    }:
         run = project.db.execute(
             "SELECT sheet_id FROM runs WHERE id=?", (int(params["run_id"]),)
         ).fetchone()
         if run is not None:
             sheet_ids.add(int(run["sheet_id"]))
+    elif capability is ReplayColumnAcceptor:
+        sheet_ids.add(int(params["sheet_id"]))
+    else:
+        raise TypeError(
+            f"mutation capability {capability.__name__} has no target admission"
+        )
     for sheet_id in sheet_ids:
         require_import_sheet_write(project.db, sheet_id)
 
