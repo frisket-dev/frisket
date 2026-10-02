@@ -698,32 +698,54 @@ def run_qualification(rows: int, work_root: Path) -> dict[str, Any]:
                 },
                 "qualification-edit-v1",
             )
+            edit_action_seconds = time.perf_counter() - started
             assert len(edit.op_ids) == 1
-            report["edit_index"] = _drain_index(project, sampler, soft_scratch)
+            edit_index = _drain_index(project, sampler, soft_scratch)
+            assert edit_index["processed_units"] == 1
             if marker is not None:
                 assert not search_project_page(project, marker, rerank="off")["hits"]
                 assert search_project_page(project, edited_marker, rerank="off")["hits"]
+            action_started = time.perf_counter()
             _action(
                 project,
                 "operation.undo",
                 {"expected_op_id": edit.op_ids[0]},
                 "qualification-undo-v1",
             )
-            _drain_index(project, sampler, soft_scratch)
+            undo_action_seconds = time.perf_counter() - action_started
+            undo_index = _drain_index(project, sampler, soft_scratch)
+            assert undo_index["processed_units"] == 1
             if marker is not None:
                 assert search_project_page(project, marker, rerank="off")["hits"]
                 assert not search_project_page(project, edited_marker, rerank="off")[
                     "hits"
                 ]
+            action_started = time.perf_counter()
             _action(
                 project,
                 "operation.redo",
                 {"expected_op_id": edit.op_ids[0]},
                 "qualification-redo-v1",
             )
-            _drain_index(project, sampler, soft_scratch)
+            redo_action_seconds = time.perf_counter() - action_started
+            redo_index = _drain_index(project, sampler, soft_scratch)
+            assert redo_index["processed_units"] == 1
             if marker is not None:
                 assert search_project_page(project, edited_marker, rerank="off")["hits"]
+            report["mutations"] = {
+                "edit": {
+                    "action_seconds": edit_action_seconds,
+                    "index": edit_index,
+                },
+                "undo": {
+                    "action_seconds": undo_action_seconds,
+                    "index": undo_index,
+                },
+                "redo": {
+                    "action_seconds": redo_action_seconds,
+                    "index": redo_index,
+                },
+            }
             history = history_page_payload(project, limit=20)
             assert any(
                 item["id"] == edit.op_ids[0] and item["status"] == "applied"

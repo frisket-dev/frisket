@@ -8,6 +8,8 @@
 invalid typed input, builds the real FTS sidecar, searches a unique token at
 the end of a long document, runs bounded sort/filter/grouped analytics, and
 uses typed `cell.edit`, undo, and redo actions before checkpoint and reopen.
+Each single-cell transition must enqueue exactly one FTS unit; the report keeps
+the three action and index timings separate so a whole-column regression fails.
 It does not describe the app schema as the normalized SQLite prototype below.
 
 Run the tiny correctness smoke before a timed tier:
