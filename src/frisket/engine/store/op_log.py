@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any, Literal, Mapping
 
 from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.import_sessions import active_import_session, ImportInProgress
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 
@@ -160,6 +161,15 @@ def step_operation(
     target_op_id = int(target["id"])
     if expected_op_id is not None and expected_op_id != target_op_id:
         raise OperationMismatch(expected_op_id, target_op_id)
+    session = project.db.execute(
+        "SELECT sheet_id FROM import_sessions WHERE op_id=? "
+        "AND state IN ('active','paused','cancelled')",
+        (target_op_id,),
+    ).fetchone()
+    if session is not None:
+        active = active_import_session(project.db, int(session["sheet_id"]))
+        if active is not None:
+            raise ImportInProgress(active)
     if direction == "undo" and target["barrier"]:
         raise IrreversibleOperation(target)
     try:

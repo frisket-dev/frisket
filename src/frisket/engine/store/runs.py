@@ -24,6 +24,7 @@ from frisket.engine.store.effect_checkpoints import (
     is_operator_attestation,
     require_model_call_ids,
 )
+from frisket.engine.store.import_sessions import require_import_sheet_write
 from frisket.redaction import redact_text
 
 _RUN_SCOPE_INSERT_CHUNK_SIZE = 1000
@@ -293,6 +294,14 @@ class RunResultStore:
 
     def get_run(self, run_id: int) -> sqlite3.Row | None:
         return self.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+
+    def _require_run_sheet_mutable(self, run_id: int) -> None:
+        row = self.db.execute(
+            "SELECT sheet_id FROM runs WHERE id=?", (int(run_id),)
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"unknown run {int(run_id)}")
+        require_import_sheet_write(self.db, int(row[0]))
 
     def repoint_run_for_result(
         self,
@@ -612,6 +621,7 @@ class RunResultStore:
         *,
         commit: bool = True,
     ) -> None:
+        self._require_run_sheet_mutable(run_id)
         self.db.execute(
             "UPDATE results SET justification=NULL "
             "WHERE run_id=? AND row_id=? AND column_id=?",
@@ -629,6 +639,7 @@ class RunResultStore:
         *,
         commit: bool = True,
     ) -> None:
+        self._require_run_sheet_mutable(run_id)
         self.db.execute(
             "UPDATE results SET value=NULL, error=?, justification=NULL, "
             "outcome='model_error', publication_effect='publish_error' "
@@ -651,6 +662,7 @@ class RunResultStore:
         null the value + record the human-readable reason, but mark it terminal
         `withheld_unverified` -- NOT a failure. So it does not inflate failed_rows and is
         not re-run by backfill (the run-completion queries treat it as done)."""
+        self._require_run_sheet_mutable(run_id)
         self.db.execute(
             "UPDATE results SET value=NULL, error=?, justification=NULL, "
             "outcome='withheld_unverified', publication_effect='publish_error' "
@@ -669,6 +681,7 @@ class RunResultStore:
         *,
         commit: bool = True,
     ) -> int:
+        self._require_run_sheet_mutable(run_id)
         cur = self.db.execute(
             "UPDATE results SET review_state=? "
             "WHERE run_id=? AND row_id=? AND column_id=?",
@@ -688,6 +701,7 @@ class RunResultStore:
         *,
         commit: bool = True,
     ) -> int:
+        self._require_run_sheet_mutable(run_id)
         cur = self.db.execute(
             "UPDATE results SET review_decision=?, review_note=? "
             "WHERE run_id=? AND row_id=? AND column_id=?",
@@ -705,6 +719,7 @@ class RunResultStore:
         queue. Only ``unreviewed`` rows flip — a re-run that upserts over a
         previously accepted/edited/rejected cell keeps that human decision (the
         write_results ON CONFLICT clause never touches review_state)."""
+        self._require_run_sheet_mutable(run_id)
         cur = self.db.execute(
             "UPDATE results SET review_state='verified' "
             "WHERE run_id=? AND review_state='unreviewed'",
@@ -792,6 +807,7 @@ class RunResultStore:
         savepoint = f"write_precomputed_results_{uuid.uuid4().hex}"
         self.db.execute(f"SAVEPOINT {savepoint}")
         try:
+            self._require_run_sheet_mutable(run_id)
             from frisket.engine.store.result_generations import ResultGenerationStore
 
             generations = ResultGenerationStore(self.project)
@@ -975,6 +991,7 @@ class RunResultStore:
         authorized_attempt_id: str | None,
         project_heads: bool,
     ) -> None:
+        self._require_run_sheet_mutable(run_id)
         self._fence_effect_write(
             run_id,
             batch,

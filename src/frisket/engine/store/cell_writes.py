@@ -15,6 +15,11 @@ from dataclasses import dataclass
 from typing import Any
 
 from .current_cells import refresh_current_cell_pairs, refresh_current_cells
+from .import_sessions import (
+    active_import_session,
+    require_cancelled_import_removal,
+    require_import_sheet_write,
+)
 
 
 @dataclass(frozen=True)
@@ -224,6 +229,26 @@ def _refresh_written_region(
     )
 
 
+def _require_cell_targets_mutable(
+    db: sqlite3.Connection,
+    pairs: Collection[tuple[int, int]],
+    *,
+    producer_id: int | None = None,
+) -> None:
+    if not pairs:
+        return
+    row_ids = sorted({int(row_id) for row_id, _column_id in pairs})
+    marks = ",".join("?" for _ in row_ids)
+    sheet_ids = {
+        int(row[0])
+        for row in db.execute(
+            f"SELECT DISTINCT sheet_id FROM rows WHERE id IN ({marks})", row_ids
+        )
+    }
+    for sheet_id in sheet_ids:
+        require_import_sheet_write(db, sheet_id, producer_id=producer_id)
+
+
 def initialize_base_cells(
     db: sqlite3.Connection,
     *,
@@ -242,6 +267,11 @@ def initialize_base_cells(
         db,
         [(row_id, column_id) for row_id, column_id, _value in encoded],
         require_hidden_sheet=producing_op_id is None,
+    )
+    _require_cell_targets_mutable(
+        db,
+        [(row_id, column_id) for row_id, column_id, _value in encoded],
+        producer_id=producer_id,
     )
     db.executemany(
         "INSERT INTO cells (row_id,column_id,value,producer_id) VALUES (?,?,?,?)",
@@ -266,6 +296,18 @@ def remove_base_cells(
     rows = None if row_ids is None else sorted({int(row_id) for row_id in row_ids})
     if not columns or rows == []:
         return 0
+    target_rows = rows or [
+        int(row[0])
+        for row in db.execute(
+            "SELECT DISTINCT row_id FROM cells WHERE column_id IN ("
+            + ",".join("?" for _ in columns)
+            + ")",
+            columns,
+        )
+    ]
+    _require_cell_targets_mutable(
+        db, [(row_id, columns[0]) for row_id in target_rows]
+    )
     params: list[int] = list(columns)
     where = f"column_id IN ({','.join('?' for _ in columns)})"
     if rows is not None:
@@ -277,7 +319,12 @@ def remove_base_cells(
 
 
 def delete_sheet_rows(
-    db: sqlite3.Connection, *, sheet_id: int, producer_id: int
+    db: sqlite3.Connection,
+    *,
+    sheet_id: int,
+    producer_id: int,
+    import_writer_authority: str | None = None,
+    import_expected_cursor: int | None = None,
 ) -> int:
     """Delete one sheet's rows under a known base-write producer.
 
@@ -288,6 +335,16 @@ def delete_sheet_rows(
 
     _require_transaction(db)
     _require_base_producer(db, int(producer_id))
+    if active_import_session(db, sheet_id) is not None:
+        if import_writer_authority is None or import_expected_cursor is None:
+            require_import_sheet_write(db, sheet_id)
+        require_cancelled_import_removal(
+            db,
+            sheet_id,
+            producer_id=producer_id,
+            writer_authority=import_writer_authority,
+            expected_cursor=import_expected_cursor,
+        )
     cursor = db.execute("DELETE FROM rows WHERE sheet_id=?", (int(sheet_id),))
     return int(cursor.rowcount)
 
@@ -320,6 +377,18 @@ def replace_base_cells(
         raise ValueError("replacement cell falls outside its declared region")
     _validate_cell_pairs(
         db, [(row_id, column_id) for row_id, column_id, _value in encoded]
+    )
+    target_rows = rows or [
+        int(row[0])
+        for row in db.execute(
+            "SELECT DISTINCT row_id FROM cells WHERE column_id IN ("
+            + ",".join("?" for _ in columns)
+            + ")",
+            columns,
+        )
+    ]
+    _require_cell_targets_mutable(
+        db, [(row_id, columns[0]) for row_id in target_rows]
     )
 
     params: list[int] = list(columns)
@@ -358,6 +427,10 @@ def insert_edits(
         return 0
     _validate_cell_pairs(
         db, [(row_id, column_id) for _op, row_id, column_id, _value in encoded]
+    )
+    _require_cell_targets_mutable(
+        db,
+        [(row_id, column_id) for _op, row_id, column_id, _value in encoded],
     )
     db.executemany(
         "INSERT INTO edits (op_id,row_id,column_id,value) VALUES (?,?,?,?)",

@@ -631,7 +631,11 @@ class StreamingSheetWriter:
                     f"DELETE FROM source_artifacts WHERE id IN ({marks})", artifact_ids
                 )
             delete_sheet_rows(
-                db, sheet_id=session.sheet_id, producer_id=session.producer_id
+                db,
+                sheet_id=session.sheet_id,
+                producer_id=session.producer_id,
+                import_writer_authority=self._writer_authority,
+                import_expected_cursor=expected_cursor,
             )
             stored = ReceiptStore(self.project).find_by_id(self._receipt_id)
             if stored is None or stored.status != "running":

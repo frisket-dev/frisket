@@ -15,6 +15,16 @@ class ImportSessionConflict(RuntimeError):
     """The caller no longer owns the session or supplied a stale cursor."""
 
 
+class ImportInProgress(RuntimeError):
+    """A mutation or action targeted a sheet owned by an unfinished import."""
+
+    def __init__(self, session: ImportSession) -> None:
+        self.sheet_id = session.sheet_id
+        self.session_id = session.id
+        self.state = session.state
+        super().__init__(f"sheet {session.sheet_id} has an import in progress")
+
+
 @dataclass(frozen=True)
 class ImportSession:
     id: str
@@ -81,6 +91,7 @@ class ImportSessionStore:
             raise ImportSessionConflict("import session writer or cursor is stale")
         return session
 
+
     def replace_writer(
         self, session_id: str, authority: str, *, expected_cursor: int
     ) -> ImportSession:
@@ -135,9 +146,64 @@ class ImportSessionStore:
         return session
 
 
+def active_import_session(db: Any, sheet_id: int) -> ImportSession | None:
+    row = db.execute(
+        "SELECT id,sheet_id,producer_id,op_id,receipt_id,writer_authority,"
+        "cursor,committed_rows,committed_bytes,state FROM import_sessions "
+        "WHERE sheet_id=? AND state IN ('active','paused','cancelled')",
+        (int(sheet_id),),
+    ).fetchone()
+    return None if row is None else ImportSession.from_row(row)
+
+
+def require_import_sheet_write(
+    db: Any, sheet_id: int, *, producer_id: int | None = None
+) -> None:
+    """Block writes during import, except its active append producer."""
+
+    session = active_import_session(db, sheet_id)
+    if session is None:
+        return
+    if (
+        session.state == "active"
+        and producer_id is not None
+        and session.producer_id == int(producer_id)
+    ):
+        return
+    raise ImportInProgress(session)
+
+
+def require_cancelled_import_removal(
+    db: Any,
+    sheet_id: int,
+    *,
+    producer_id: int,
+    writer_authority: str,
+    expected_cursor: int,
+) -> ImportSession:
+    """Authorize only the explicit Remove choice for a cancelled session."""
+
+    session = active_import_session(db, sheet_id)
+    if (
+        session is None
+        or session.state != "cancelled"
+        or session.producer_id != int(producer_id)
+        or session.writer_authority != writer_authority
+        or session.cursor != int(expected_cursor)
+    ):
+        if session is not None:
+            raise ImportInProgress(session)
+        raise ImportSessionConflict("cancelled import removal authority is stale")
+    return session
+
+
 __all__ = [
     "ImportSession",
     "ImportSessionConflict",
+    "ImportInProgress",
     "ImportSessionState",
     "ImportSessionStore",
+    "active_import_session",
+    "require_cancelled_import_removal",
+    "require_import_sheet_write",
 ]
