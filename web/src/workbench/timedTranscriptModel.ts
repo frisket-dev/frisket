@@ -23,23 +23,30 @@ interface TimedTranscriptValue {
   segments: CellValue | undefined;
 }
 
+/** Columns needed to retain timed playback while hydrating one media row. */
+export function timedTranscriptColumnIds(sheet: Pick<SheetMeta, 'columns'>): string[] {
+  const transcriptColumn = sheet.columns.find(
+    (column) => column.type === 'timestamped_transcript',
+  );
+  if (!transcriptColumn) return [];
+  const segmentsColumn = sheet.columns.find((column) => (
+    column.name === `${transcriptColumn.name}_segments` && column.type === 'json'
+  ));
+  return [String(transcriptColumn.id), ...(segmentsColumn ? [String(segmentsColumn.id)] : [])];
+}
+
 /** Resolve the conventional transcribe output pair from a document row once,
  *  here at the renderer boundary. Callers pass the document object; they do
  *  not need to know that the stored transcript currently spans a semantic
  *  text column plus its `{name}_segments` companion column. */
 export function timedTranscriptValue(document: TimedTranscriptDocument): TimedTranscriptValue | null {
-  const transcriptColumn = document.sheet.columns.find(
-    (column) => column.type === 'timestamped_transcript',
-  );
-  if (!transcriptColumn) return null;
-  const segmentsColumn = document.sheet.columns.find((column) => (
-    column.name === `${transcriptColumn.name}_segments` && column.type === 'json'
-  ));
-  const rawText = document.row.cells[String(transcriptColumn.id)];
+  const [transcriptColumnId, segmentsColumnId] = timedTranscriptColumnIds(document.sheet);
+  if (!transcriptColumnId) return null;
+  const rawText = document.row.cells[transcriptColumnId];
   return {
     text: typeof rawText === 'string' && rawText.trim() ? rawText : null,
-    segments: segmentsColumn
-      ? document.row.cells[String(segmentsColumn.id)]
+    segments: segmentsColumnId
+      ? document.row.cells[segmentsColumnId]
       : undefined,
   };
 }

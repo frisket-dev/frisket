@@ -7,9 +7,9 @@
 
 import '@testing-library/jest-dom/vitest';
 import { cleanup, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { FieldValue } from '../../src/components/RowDrawer';
+import { FieldValue, fieldValueDependencyColumnIds } from '../../src/components/RowDrawer';
 import { createProjectApi } from '../../src/api/real';
 import { aiMeta, columnDef, row } from '../support/domainFixtures';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
@@ -20,9 +20,66 @@ const { render } = createWorkspaceTestHarness({
   api: { projectApi: projectApi },
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe('FieldValue renderer', () => {
+  it('reports the same projected sibling cells used for media enhancements', () => {
+    const image = columnDef({ id: 'image', name: 'photo', type: 'image' });
+    const video = columnDef({ id: 'video', name: 'interview', type: 'video' });
+    const namedTranscript = columnDef({ id: 'transcript', name: 'interview transcript', type: 'text' });
+    const captions = columnDef({ id: 'captions', name: 'captions', type: 'text' });
+    const unrelated = columnDef({ id: 'notes', name: 'notes', type: 'text' });
+    const regions = columnDef({ id: 'faces', name: 'faces', type: 'text' });
+    const columns = [image, video, namedTranscript, captions, unrelated, regions];
+
+    expect(fieldValueDependencyColumnIds(columns, video)).toEqual(['transcript', 'captions']);
+    expect(fieldValueDependencyColumnIds(columns, image)).toEqual([
+      'video', 'transcript', 'captions', 'notes', 'faces',
+    ]);
+    expect(fieldValueDependencyColumnIds(columns, unrelated)).toEqual([]);
+  });
+
+  it('renders projected sibling regions over an image', () => {
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      disconnect() {}
+    });
+    const image = columnDef({ id: 'image', name: 'photo', type: 'image' });
+    const regions = columnDef({ id: 'faces', name: 'faces', type: 'text' });
+    const value = 'https://example.test/photo.png';
+    render(
+      <FieldValue
+        col={image}
+        columns={[image, regions]}
+        row={row({ image: value, faces: JSON.stringify([{ x: 0.1, y: 0.2, w: 0.3, h: 0.4 }]) })}
+        value={value}
+      />,
+    );
+
+    expect(screen.getByTestId('row-region-image')).toBeInTheDocument();
+  });
+
+  it('renders a projected matching caption cell as the video track', () => {
+    const video = columnDef({ id: 'video', name: 'interview', type: 'video' });
+    const transcript = columnDef({ id: 'transcript', name: 'interview transcript', type: 'text' });
+    const value = 'https://example.test/interview.mp4';
+    render(
+      <FieldValue
+        col={video}
+        columns={[video, transcript]}
+        row={row({ video: value, transcript: 'Projected caption text' })}
+        value={value}
+      />,
+    );
+
+    const track = document.querySelector('track');
+    expect(track).toHaveAttribute('label', 'interview transcript');
+    expect(track?.getAttribute('src')).toContain(encodeURIComponent('Projected caption text'));
+  });
+
   it('decodes literal escaped newline and unicode sequences for AI text columns', () => {
     const col = columnDef({ id: 'summary', name: 'summary', type: 'text', ai: aiMeta() });
     const value = 'First line\\nSecond line \\u2014 dash';

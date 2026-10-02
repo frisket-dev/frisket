@@ -1057,10 +1057,33 @@ type CaptionTrack = {
 const CAPTION_COLUMN_TERMS = ['transcript', 'caption', 'captions', 'subtitle', 'subtitles'];
 const MAX_CAPTION_TRACK_CHARS = 40000;
 
+/** Additional row cells consumed by FieldValue for media presentation.
+ * Images deliberately inspect every sibling cell for region-shaped JSON, so
+ * the projection must retain every sibling to preserve that existing rule. */
+export function fieldValueDependencyColumnIds(
+  columns: ColumnDef[],
+  mediaCol: ColumnDef,
+): string[] {
+  if (mediaCol.type === 'image') {
+    return columns
+      .filter((column) => column.id !== mediaCol.id)
+      .map((column) => String(column.id));
+  }
+  if (mediaCol.type !== 'video') return [];
+  return columns
+    .filter((candidate) => (
+      candidate.id !== mediaCol.id &&
+      candidate.type === 'text' &&
+      captionColumnScore(candidate.name, mediaCol) !== null
+    ))
+    .map((candidate) => String(candidate.id));
+}
+
 function mediaCaptionTrack(row: Row, columns: ColumnDef[], mediaCol: ColumnDef): CaptionTrack {
   let best: { score: number; columnName: string; text: string } | null = null;
+  const dependencyIds = new Set(fieldValueDependencyColumnIds(columns, mediaCol));
   for (const candidate of columns) {
-    if (candidate.id === mediaCol.id || candidate.type !== 'text') continue;
+    if (!dependencyIds.has(String(candidate.id))) continue;
     const score = captionColumnScore(candidate.name, mediaCol);
     if (score === null) continue;
     const text = captionTrackText(row.cells[candidate.id]);
