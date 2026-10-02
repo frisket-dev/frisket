@@ -68,8 +68,9 @@ def run_scanned_csv_import(
     keep_existing_on_blank: bool = False,
     confirmation: str | None = None,
     router: Any | None = None,
+    bound_sources: dict[str, BoundLocalFile] | None = None,
 ):
-    """Bind borrowed scans and delegate action envelope policy to the common runner."""
+    """Run analyzed CSVs using borrowed streams or explicitly bound lazy sources."""
 
     params = params_from_scans(
         scans,
@@ -79,10 +80,16 @@ def run_scanned_csv_import(
         key_columns=key_columns,
         keep_existing_on_blank=keep_existing_on_blank,
     )
-    files = {
-        path: BoundLocalFile(stream=scan.source, sha256=f"sha256:{digest}")
-        for scan, path, digest in zip(scans, source_paths, source_sha256, strict=True)
-    }
+    files = (
+        bound_sources
+        if bound_sources is not None
+        else {
+            path: BoundLocalFile(stream=scan.source, sha256=f"sha256:{digest}")
+            for scan, path, digest in zip(
+                scans, source_paths, source_sha256, strict=True
+            )
+        }
+    )
     return run_tabular_action(
         project,
         project_id=project_id,

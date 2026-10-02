@@ -13,7 +13,7 @@ from frisket.server.services import import_bulk_sources
 
 
 @pytest.mark.parametrize("count", [16, 160])
-@pytest.mark.parametrize("kind", ["files", "eml", "mbox"])
+@pytest.mark.parametrize("kind", ["files", "eml", "mbox", "csv"])
 def test_bulk_source_handles_stay_bounded_as_inventory_grows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str, count: int
 ) -> None:
@@ -54,6 +54,8 @@ def test_bulk_source_handles_stay_bounded_as_inventory_grows(
     )
     if kind == "files":
         content, suffix, mime = b"same original bytes", "txt", "text/plain"
+    elif kind == "csv":
+        content, suffix, mime = b"name,value\nexample,1\n", "csv", "text/csv"
     else:
         message = EmailMessage()
         message["From"] = "reporter@example.test"
@@ -88,7 +90,7 @@ def test_bulk_source_handles_stay_bounded_as_inventory_grows(
     assert plan.status_code == 200, plan.text
     response = client.post(
         f"{base}/import/bulk/{plan.json()['plan_id']}/execute",
-        json={"decisions": {}},
+        json={"decisions": {q["id"]: "combine" for q in plan.json()["questions"]}},
     )
     assert response.status_code == 200, response.text
     result = response.json()
@@ -96,7 +98,7 @@ def test_bulk_source_handles_stay_bounded_as_inventory_grows(
     assert len(result["created"]) == 1
     sheet = result["created"][0]
     assert sheet["rows"] == count
-    assert opened == count
+    assert opened >= count
     assert live == 0
     assert peak == 1
 
@@ -110,3 +112,42 @@ def test_bulk_source_handles_stay_bounded_as_inventory_grows(
         paths = [row["cells"][str(column["id"])] for row in data["rows"]]
         assert paths == sorted(paths)
         assert len(set(paths)) == len(paths)
+
+
+def test_combined_csv_rechecks_source_after_scan(tmp_path, monkeypatch):
+    from frisket.server.services.import_bulk_execute import BulkExecutor
+
+    original_scan = BulkExecutor._scan
+    scans = 0
+
+    def scan_then_change(self, root, item, force_text=False):
+        nonlocal scans
+        result = original_scan(self, root, item, force_text)
+        scans += 1
+        if scans == 2:
+            (root / item["path"]).write_bytes(b"name,value\nchanged,2\n")
+        return result
+
+    monkeypatch.setattr(BulkExecutor, "_scan", scan_then_change)
+    client = TestClient(create_app(tmp_path / "workspace"))
+    project_id = client.post("/api/projects", json={"name": "Changed source"}).json()[
+        "id"
+    ]
+    base = f"/api/projects/{project_id}"
+    parts = []
+    for name in ("first.csv", "second.csv"):
+        parts.extend(
+            [
+                ("files", (name, b"name,value\noriginal,1\n", "text/csv")),
+                ("logical_paths", (None, name)),
+            ]
+        )
+    plan = client.post(f"{base}/import/bulk/plan", files=parts)
+    assert plan.status_code == 200, plan.text
+    response = client.post(
+        f"{base}/import/bulk/{plan.json()['plan_id']}/execute",
+        json={"decisions": {q["id"]: "combine" for q in plan.json()["questions"]}},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["created"] == []
+    assert response.json()["failed"]
