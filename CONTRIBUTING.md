@@ -90,6 +90,7 @@ executor, receipt store or action catalog.
 | Creating a table, its evidence and blobs | `engine/executor/table_action.py` |
 | Append/update and exact update confirmation | `engine/executor/mutation_action.py`, `import_update.py` |
 | Bulk staging, grouping and independent output commits | `server/services/import_bulk*.py` |
+| Resumable attachment intake and progress | `server/services/import_sessions.py`, `engine/jobs/import_files.py` |
 | Runtime providers and URL acquisition | `engine/executor/runtime_import_read.py`, `url_import_read.py` |
 | FollowTheMoney atomic multi-table import | `engine/executor/entity_package.py` and the bundled FtM plugin |
 
@@ -109,6 +110,14 @@ open and verify each staged source on demand, including after email sorting;
 they do not hold the entire group's files open together. It commits each output
 independently. A later fatal error stops further work and reports earlier
 committed sheets together with failed and unattempted outputs.
+
+Resumable attachments use a paged inventory of canonical blobs and the same typed
+`import.files` producer. Pages atomically commit rows, provenance and a cursor to
+one new sheet under one operation/receipt. Completed rows are browsable, but the
+sheet is read-only until completion or Cancel followed by Keep/Remove. Remove
+clears only that session's new sheet; this is not append-to-existing-sheet undo.
+Queue claims own publication authority. Upload batches and worker claims are
+bounded independently; neither carries the full corpus in a request or receipt.
 
 CSV, XLSX and paste build their existing typed Params and use
 `run_tabular_action` for create, append and update. The browser sends raw paste

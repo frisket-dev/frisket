@@ -20,6 +20,7 @@ from frisket.engine.executor.map_rows_action import (
     TypedMapRowsPlanError,
     validate_typed_project_references,
 )
+from frisket.engine.executor.import_read_guard import require_action_sheet_readable
 
 
 _READ_BATCH_SIZE = 500
@@ -50,6 +51,7 @@ class AdmittedSheetRowsReader:
     def read(self) -> Iterable[SheetRowInput]:
         if self._read:
             raise TableError("invalid_input_ref", "Sheet rows may be read only once")
+        require_action_sheet_readable(self._project, self._scope.sheet_id)
         self._read = True
         self.parent_sheet_id = self._scope.sheet_id
         self._iterator = self._rows()

@@ -359,6 +359,7 @@ def register_production_handlers(
     from frisket.server.notifications.delivery import default_delivery_runtime
 
     from .blob_metadata import register_blob_metadata_handler
+    from .import_files import register_import_files_handler
     from .embeddings import register_embedding_refresh_handler
     from .enclosures import register_enclosure_download_handler
     from .notifications_delivery import register_notification_handlers
@@ -455,6 +456,14 @@ def register_production_handlers(
         workspace_root_storage_org_id=workspace_root_storage_org_id,
         project_opener=project_opener,
     )
+    import_files_registration = register_import_files_handler(
+        registry,
+        workspace_root=root,
+        queue=queue,
+        require_storage_identity=strict_hosted_storage,
+        workspace_root_storage_org_id=workspace_root_storage_org_id,
+        project_opener=project_opener,
+    )
     source_poll_registration = register_source_poll_handler(
         registry,
         workspace_root=root,
@@ -512,6 +521,7 @@ def register_production_handlers(
             "source.poll": source_poll_registration,
             "enclosure.download": enclosure_download_registration,
             "blob.metadata.backfill": blob_metadata_registration,
+            "import.files.page": import_files_registration,
             "notification.deliver": notification_delivery_registration,
             "notification.digest": notification_digest_registration,
         }
@@ -873,7 +883,10 @@ class Worker:
                 )
                 return
             handler_context = JobHandlerContext.from_claimed_job(
-                trusted_org_id=trusted_org_id
+                trusted_org_id=trusted_org_id,
+                job_id=job.id,
+                job_attempt=job.attempts,
+                handler_authority_id=job.handler_authority_id,
             )
             stop_hb = threading.Event()
             hb = threading.Thread(

@@ -287,7 +287,11 @@ def test_queued_cache_factory_uses_trusted_context_and_owns_cache(
 
     assert Worker(queue, registry, worker_id="cache-owner").run_once()
     assert queue.get(job_id).status == "done"
-    assert contexts == [JobHandlerContext.from_claimed_job(trusted_org_id=TRUSTED_ORG)]
+    assert len(contexts) == 1
+    assert contexts[0].trusted_job_org_id == TRUSTED_ORG
+    assert contexts[0].job_id == job_id
+    assert contexts[0].job_attempt == 1
+    assert contexts[0].handler_authority_id
     assert routed_caches == [cache]
     assert cache.close_calls == 1
     queue.close()

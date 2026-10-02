@@ -6,10 +6,11 @@ import mimetypes
 from itertools import chain
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from frisket.actions.core import ActionCategory, action, create_sheet
 from frisket.actions.imports import FileSource
+from frisket.actions.import_inventory_types import FileInventoryReader
 from frisket.actions.types import (
     ActionParams,
     DynamicOutput,
@@ -32,7 +33,14 @@ class FileImportSource(ActionParams):
 
 
 class ImportFilesParams(ActionParams):
-    files: list[FileImportSource] = Field(min_length=1)
+    files: list[FileImportSource] | None = Field(default=None, min_length=1)
+    inventory_ref: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def _exactly_one_source(self) -> ImportFilesParams:
+        if (self.files is None) == (self.inventory_ref is None):
+            raise ValueError("choose exactly one of files or inventory_ref")
+        return self
 
 
 class ImportPdfParams(ActionParams):
@@ -51,18 +59,19 @@ def _file_name_and_mime(source: FileImportSource) -> tuple[str, str]:
 
 def file_columns(params: ImportFilesParams) -> tuple[TableColumn, ...]:
     kinds = set()
-    for source in params.files:
-        _, mime = _file_name_and_mime(source)
-        kinds.add(
-            next(
-                (
-                    kind
-                    for kind in ("audio", "video", "image")
-                    if mime.startswith(f"{kind}/")
-                ),
-                "file",
+    if params.files is not None:
+        for source in params.files:
+            _, mime = _file_name_and_mime(source)
+            kinds.add(
+                next(
+                    (
+                        kind
+                        for kind in ("audio", "video", "image")
+                        if mime.startswith(f"{kind}/")
+                    ),
+                    "file",
+                )
             )
-        )
     return (
         TableColumn(key="filename", type="text"),
         TableColumn(key="media", type=next(iter(kinds)) if len(kinds) == 1 else "file"),
@@ -71,16 +80,34 @@ def file_columns(params: ImportFilesParams) -> tuple[TableColumn, ...]:
 
 
 def import_files(
-    params: ImportFilesParams, files: LocalFileReader, blobs: ImportBlobStager
+    params: ImportFilesParams,
+    files: LocalFileReader,
+    blobs: ImportBlobStager,
+    inventory: FileInventoryReader = None,  # type: ignore[assignment]
 ) -> TableResult[DynamicOutput]:
     def rows():
-        for source in params.files:
-            filename, mime = _file_name_and_mime(source)
-            with files.open_binary(source.path) as stream:
-                staged = blobs.stage(stream, filename=filename, mime=mime)
+        if params.files is not None:
+            for source in params.files:
+                filename, mime = _file_name_and_mime(source)
+                with files.open_binary(source.path) as stream:
+                    staged = blobs.stage(stream, filename=filename, mime=mime)
+                yield TableRow(
+                    output=DynamicOutput(
+                        {"filename": filename, "media": staged, "size": staged.size}
+                    )
+                )
+            return
+        assert params.inventory_ref is not None
+        if inventory is None:
+            raise RuntimeError("file inventory reader was not admitted")
+        for source in inventory.files(params.inventory_ref):
             yield TableRow(
                 output=DynamicOutput(
-                    {"filename": filename, "media": staged, "size": staged.size}
+                    {
+                        "filename": source.filename,
+                        "media": source.file,
+                        "size": source.file.size,
+                    }
                 )
             )
 

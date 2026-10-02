@@ -56,6 +56,15 @@ def is_native_import_request(scope: Scope) -> bool:
     if scope["type"] != "http" or scope.get("method") != "POST":
         return False
     parts = scope.get("path", "").split("/")
+    if (
+        len(parts) == 9
+        and parts[1:3] == ["api", "projects"]
+        and bool(parts[3])
+        and parts[4:7] == ["import", "files", "sessions"]
+        and bool(parts[7])
+        and parts[8] in {"cancel", "resolve", "resume", "seal"}
+    ):
+        return False
     return (
         len(parts) >= 6
         and parts[1:3] == ["api", "projects"]

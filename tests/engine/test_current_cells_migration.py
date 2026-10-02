@@ -79,6 +79,7 @@ def _table_names(db: sqlite3.Connection) -> set[str]:
 def _drop_later_schema(db: sqlite3.Connection) -> None:
     """Restore the historical bundle fixtures after seeding with current DDL."""
 
+    db.execute("DROP TABLE import_sessions")
     db.execute("ALTER TABLE runs DROP COLUMN review_completed_at")
     db.execute("DROP TABLE project_qa_usage_calls")
     db.execute("DROP TABLE project_qa_citations")

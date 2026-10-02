@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import os
+import logging
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from frisket.authoring import actions as action_contract
+from frisket.engine.store.bundle_io import UnresolvedImportExportError
 from frisket.server.downloads import download_filename
 from frisket.server.workspace import Workspace
+
+LOG = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -49,11 +53,15 @@ class ProjectExportService:
                 include_media=include_media,
                 include_traces=include_traces,
             )
+        except UnresolvedImportExportError as exc:
+            path.unlink(missing_ok=True)
+            raise ProjectExportError(409, str(exc)) from exc
         except Exception as exc:  # noqa: BLE001
             path.unlink(missing_ok=True)
+            LOG.exception("Project bundle export failed")
             raise ProjectExportError(
                 500,
-                f"export failed: {exc}",
+                "Project export failed. Please try again.",
             ) from exc
         return ProjectExportArtifact(
             path=path,
@@ -67,9 +75,10 @@ class ProjectExportService:
             project.export_database(path)
         except Exception as exc:  # noqa: BLE001
             path.unlink(missing_ok=True)
+            LOG.exception("Project database export failed")
             raise ProjectExportError(
                 500,
-                f"export failed: {exc}",
+                "Project export failed. Please try again.",
             ) from exc
         return ProjectExportArtifact(
             path=path,

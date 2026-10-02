@@ -10,6 +10,7 @@ import pytest
 import frisket.search as search_mod
 from frisket.engine.store import Project
 from frisket.engine.store.project import ProjectReadSnapshot
+from frisket.engine.store.streaming_import import StreamingSheetWriter
 from frisket.search import (
     _sidecar,
     fts_indexed_at_op,
@@ -26,6 +27,89 @@ from frisket.semantic import (
 
 
 NEEDLE = "nebulaquartz"
+
+
+def _import_writer(project: Project) -> StreamingSheetWriter:
+    return StreamingSheetWriter.start_session(
+        project,
+        session_id="import:search",
+        writer_authority="claim:search",
+        sheet_name="Documents",
+        columns=[{"name": "body", "type": "text"}],
+        project_id="search-project",
+        action_kind="import.files",
+        idempotency_key="search:one",
+        params_hash="sha256:search",
+        action_id="act:search",
+        receipt_id="receipt:search",
+        source_ref={"kind": "file_inventory", "inventory_id": "inventory:search"},
+    )
+
+
+def test_search_tracks_import_pages_and_removal_under_one_op(tmp_path):
+    project = Project.create(tmp_path / "pages.frisket", name="pages")
+    try:
+        writer = _import_writer(project)
+        op_cursor = project.op_cursor
+        writer.append_page([{"body": "firstneedle"}], expected_cursor=0, next_cursor=1)
+        assert search_project(project, "firstneedle", rerank="off")
+        writer.append_page([{"body": "secondneedle"}], expected_cursor=1, next_cursor=2)
+        assert project.op_cursor == op_cursor
+        assert search_project(project, "secondneedle", rerank="off")
+        writer.cancel(expected_cursor=2)
+        assert search_project(project, "firstneedle", rerank="off")
+        writer.remove_session(expected_cursor=2)
+        assert project.op_cursor == op_cursor
+        assert search_project(project, "firstneedle", rerank="off") == []
+        assert search_project(project, "secondneedle", rerank="off") == []
+    finally:
+        project.close()
+
+
+def test_missing_import_stamp_rebuilds_once(tmp_path, monkeypatch):
+    project = Project.create(tmp_path / "unstamped.frisket", name="unstamped")
+    try:
+        writer = _import_writer(project)
+        writer.append_page([{"body": NEEDLE}], expected_cursor=0, next_cursor=1)
+        rebuild_index(project)
+        db = _sidecar(project)
+        db.execute("DELETE FROM fts_state WHERE key='indexed_import_stamp'")
+        db.commit()
+        db.close()
+        rebuilds = []
+        original = search_mod.rebuild_index
+
+        def rebuild(*args, **kwargs):
+            rebuilds.append(True)
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(search_mod, "rebuild_index", rebuild)
+        assert search_project(project, NEEDLE, rerank="off")
+        writer.pause(expected_cursor=1)
+        assert search_project(project, NEEDLE, rerank="off")
+        assert rebuilds == [True]
+    finally:
+        project.close()
+
+
+def test_import_stamp_belongs_to_indexed_snapshot(tmp_path, monkeypatch):
+    project = Project.create(tmp_path / "import-snapshot.frisket", name="snapshot")
+    try:
+        writer = _import_writer(project)
+        writer.append_page([{"body": "original"}], expected_cursor=0, next_cursor=1)
+        checks = 0
+
+        def append_during_scan(_cancel_event):
+            nonlocal checks
+            checks += 1
+            if checks == 2:
+                writer.append_page([{"body": NEEDLE}], expected_cursor=1, next_cursor=2)
+
+        monkeypatch.setattr(search_mod, "_raise_if_cancelled", append_during_scan)
+        assert rebuild_index(project) == 1
+        assert search_project(project, NEEDLE, rerank="off")
+    finally:
+        project.close()
 
 
 def _project_with_large_match(tmp_path: object) -> tuple[Project, int, int, int]:

@@ -153,7 +153,7 @@ def rebuild_index(
                 snapshot.db.set_progress_handler(progress, 1_000)
                 snapshot_progress_installed = True
         try:
-            indexed_at_op = snapshot.op_cursor
+            indexed_at_op, import_stamp = _source_watermark(snapshot)
             db.execute("BEGIN")
             db.execute("DELETE FROM cell_fts")
             n = 0
@@ -200,6 +200,7 @@ def rebuild_index(
                     )
             for key, value in (
                 ("indexed_at_op", str(indexed_at_op)),
+                ("indexed_import_stamp", import_stamp),
                 ("index_content_version", FTS_INDEX_CONTENT_VERSION),
             ):
                 db.execute(
@@ -246,18 +247,39 @@ def fts_index_content_version(db: sqlite3.Connection) -> str | None:
     return str(state["value"]) if state is not None else None
 
 
+def _source_watermark(project: SearchProject) -> tuple[int, str]:
+    """Read op and resumable-import progress from one committed source state.
+
+    Import pages share one op. Session cursors advance monotonically, sessions
+    are retained, and removal is terminal, so these aggregates also detect
+    visible changes made without advancing the op cursor.
+    """
+    row = project.db.execute(
+        "SELECT COALESCE((SELECT value FROM meta WHERE key='op_cursor'),'0'), "
+        "COUNT(*),COALESCE(SUM(cursor),0),"
+        "COALESCE(SUM(state='removed'),0) FROM import_sessions"
+    ).fetchone()
+    return int(row[0]), json.dumps([int(value) for value in row[1:]])
+
+
 def fresh_sidecar(
     project: SearchProject, *, cancel_event: threading.Event | None = None
 ) -> sqlite3.Connection:
-    """An FTS sidecar connection whose index is current for project.op_cursor.
+    """An FTS sidecar current for the op cursor and committed import pages.
 
     The lazy pull-style staleness check (watermark != op_cursor -> rebuild)
     used to be copy-pasted at every reader; it lives only here now."""
     _raise_if_cancelled(cancel_event)
     db = _sidecar(project)
     try:
+        op_cursor, import_stamp = _source_watermark(project)
+        indexed_import = db.execute(
+            "SELECT value FROM fts_state WHERE key='indexed_import_stamp'"
+        ).fetchone()
         if (
-            fts_indexed_at_op(db) != project.op_cursor
+            fts_indexed_at_op(db) != op_cursor
+            or indexed_import is None
+            or indexed_import["value"] != import_stamp
             or fts_index_content_version(db) != FTS_INDEX_CONTENT_VERSION
         ):
             db.close()

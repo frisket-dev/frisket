@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from frisket.engine.store.import_sessions import require_import_sheet_write
+
 
 class SheetDeleteNotFound(LookupError):
     pass
@@ -90,6 +92,7 @@ def delete_sheet(project: Any, sheet_id: int) -> dict[str, Any]:
     ).fetchone()
     if sheet is None:
         raise SheetDeleteNotFound(f"no sheet {sheet_id}")
+    require_import_sheet_write(project.db, sheet_id)
 
     dependents = dependent_sheets(project, sheet_id)
     if dependents:

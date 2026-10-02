@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
 
@@ -12,14 +12,14 @@ from frisket.engine.store.evidence import (
     record_source_artifact,
     record_source_span,
 )
-from frisket.engine.store.blob_backend import BlobIntegrityError
+from frisket.engine.store.blob_backend import BlobIntegrityError, ProjectBlobStore
 from frisket.engine.store.project_blobs import publish_prepared_blob
 
 
 @dataclass(frozen=True)
 class ImportBlob:
     occurrence_id: int
-    path: Path
+    path: Path | None
     digest: str
     size: int
     filename: str
@@ -30,6 +30,10 @@ class ImportBlob:
     provider: str | None = None
     document_id: int | None = None
     page: int | None = None
+    # Host-admitted inventory may already own canonical bytes. Never deserialize
+    # this authority from action params or infer it from a digest supplied there.
+    owner: ProjectBlobStore | None = field(default=None, repr=False, compare=False)
+    occurrence_ref: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -96,6 +100,12 @@ def prepare_import_blobs(project: Any, plan: ImportBlobPlan) -> PreparedImportBl
     _blob_records(plan)
     project._assert_blob_write_open()
     for blob in plan.blobs:
+        if blob.owner is not None:
+            if blob.owner is not project.blob_store or blob.path is not None:
+                raise ValueError("owned import blob belongs to another blob store")
+            continue
+        if blob.path is None:
+            raise ValueError("import blob has neither staged bytes nor an owner")
         digest = project.blob_store.put_path(
             blob.path,
             expected_digest=blob.digest,
@@ -127,6 +137,11 @@ def publish_import_blobs(
         raise TypeError("import blobs must be prepared before publication")
     plan = prepared.plan
     records = _blob_records(plan)
+    if any(
+        blob.owner is not None and blob.owner is not project.blob_store
+        for blob in plan.blobs
+    ):
+        raise ValueError("owned import blob belongs to another blob store")
     positions: dict[int, int] = {}
     for cell in plan.cells:
         if cell.occurrence_id not in records or cell.column_name not in column_ids:
@@ -196,6 +211,21 @@ def publish_import_blobs(
         }
         if blob.source_url is not None:
             ref.update(source_url=blob.source_url, provider=blob.provider)
+        if blob.occurrence_ref is not None:
+            # Paged imports keep occurrence provenance in project data, not an
+            # ever-growing receipt or an expiring upload inventory.
+            artifact = record_source_artifact(
+                project,
+                artifact_kind="file",
+                media_type=blob.mime,
+                blob_hash=blob.digest,
+                filename=blob.filename,
+                source_sheet_id=sheet_id,
+                source_row_id=cell.row_id,
+                source_column_id=column_id,
+                external_ref=blob.occurrence_ref,
+            )
+            ref["artifact_id"] = artifact["id"]
         if blob.role == "page":
             artifact = artifacts[blob.document_id]
             span = record_source_span(

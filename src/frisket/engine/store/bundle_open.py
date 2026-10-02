@@ -56,6 +56,9 @@ _RUN_REVIEW_STATUS_TO_DIGEST = "frisket.schema.v1:caa3ac7c8aaa66153dd8e2cad59509
 _PROJECT_QA_RESEARCH_FROM_DIGEST = _RUN_REVIEW_STATUS_TO_DIGEST
 _PROJECT_QA_RESEARCH_TO_DIGEST = "frisket.schema.v1:21bac5506d1f7cc240dbc519139168db"
 
+_IMPORT_SESSIONS_FROM_DIGEST = _PROJECT_QA_RESEARCH_TO_DIGEST
+_IMPORT_SESSIONS_TO_DIGEST = "frisket.schema.v1:cb9a46c224c6d5e95af3c7e91df76e26"
+
 # The frontend fires hot read endpoints (/sheets, /review/queue) concurrently,
 # so two threads can open the same per-project DB at once. Both open-time
 # reconciliations below are read-then-write with no CAS: two threads that both
@@ -89,6 +92,7 @@ def open_bundle(project: Any) -> None:
         _migrate_project_qa(project.db)
         _migrate_run_review_status(project.db)
         _migrate_project_qa_research(project.db)
+        _migrate_import_sessions(project.db)
         require_current_schema(project.db, bundle_path=project.path)
         _reconcile_open_time_policy(project)
 
@@ -435,6 +439,50 @@ def _migrate_project_qa_research(db: sqlite3.Connection) -> None:
             db.execute(
                 "UPDATE meta SET value=? WHERE key=?",
                 (_PROJECT_QA_RESEARCH_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
+            )
+        db.commit()
+    except BaseException:
+        db.rollback()
+        raise
+
+
+def _migrate_import_sessions(db: sqlite3.Connection) -> None:
+    """Add the resumable import checkpoint owner without rewriting user data."""
+
+    query = "SELECT value FROM meta WHERE key=?"
+    try:
+        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
+    except sqlite3.DatabaseError:
+        return
+    if row is None or row[0] != _IMPORT_SESSIONS_FROM_DIGEST:
+        return
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
+        if row is not None and row[0] == _IMPORT_SESSIONS_FROM_DIGEST:
+            db.execute(
+                "CREATE TABLE import_sessions ("
+                "id TEXT PRIMARY KEY,"
+                "sheet_id INTEGER REFERENCES sheets(id) ON DELETE SET NULL,"
+                "producer_id INTEGER REFERENCES base_cell_producers(id) ON DELETE SET NULL,"
+                "op_id INTEGER NOT NULL REFERENCES ops(id) ON DELETE RESTRICT,"
+                "receipt_id TEXT REFERENCES receipts(id) ON DELETE SET NULL,"
+                "writer_authority TEXT NOT NULL,"
+                "cursor INTEGER NOT NULL DEFAULT 0 CHECK (cursor >= 0),"
+                "committed_rows INTEGER NOT NULL DEFAULT 0 CHECK (committed_rows >= 0),"
+                "committed_bytes INTEGER NOT NULL DEFAULT 0 CHECK (committed_bytes >= 0),"
+                "state TEXT NOT NULL CHECK (state IN ('active','paused','cancelled','kept','completed','removed')),"
+                "created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+                "updated_at TEXT NOT NULL DEFAULT (datetime('now')))"
+            )
+            db.execute(
+                "CREATE UNIQUE INDEX uq_import_sessions_active_sheet "
+                "ON import_sessions(sheet_id) "
+                "WHERE state IN ('active','paused','cancelled')"
+            )
+            db.execute(
+                "UPDATE meta SET value=? WHERE key=?",
+                (_IMPORT_SESSIONS_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
             )
         db.commit()
     except BaseException:

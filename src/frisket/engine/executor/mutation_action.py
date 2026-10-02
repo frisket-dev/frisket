@@ -26,8 +26,13 @@ from frisket.actions.types import (
     PatchedColumn,
     QueryCellEditor,
     QueryEditedCells,
+    ReplayColumnAcceptor,
+    ReplayValueAcceptor,
+    ReplayValueDismissor,
+    ReviewDecider,
     ReviewDecision,
     ReviewNote,
+    ReviewNoter,
     RetypedColumn,
     RowCreator,
     RowsAppender,
@@ -84,6 +89,7 @@ from frisket.engine.store.current_cells import (
     decoded_cell_validity,
     refresh_current_cells,
 )
+from frisket.engine.store.import_sessions import require_import_sheet_write
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.artifact_timeline import TimelineError
 from frisket.features.temporal_ingress import (
@@ -181,6 +187,7 @@ class _ColumnPatcher(_CallOnce):
                 field="params.column_id",
                 details={"column_id": column_id},
             )
+        require_import_sheet_write(self._project.db, int(row["sheet_id"]))
         _claimed_column(self._project, column_id, action_kind=self._action.kind)
         self._cur.execute("UPDATE columns SET format=? WHERE id=?", (format, column_id))
         op_id = _write_op(
@@ -256,6 +263,7 @@ class _ColumnCreator(_CallOnce):
                 field="params.sheet_id",
                 details={"sheet_id": sheet_id},
             )
+        require_import_sheet_write(self._project.db, sheet_id)
         if (
             self._cur.execute(
                 "SELECT id FROM columns WHERE sheet_id=? AND name=? AND hidden=0",
@@ -972,6 +980,7 @@ class _ColumnTyper(_CallOnce):
                     "actual_sheet_id": int(column["sheet_id"]),
                 },
             )
+        require_import_sheet_write(self._project.db, int(column["sheet_id"]))
         _claimed_column(self._project, column_id, action_kind=self._action.kind)
         values = self._project.get_values(
             int(column["sheet_id"]), column_id, preserve_invalid=True
@@ -1322,6 +1331,60 @@ def supports_typed_mutation_action(terminal: object) -> bool:
             **CAPABILITY_IMPL,
         }
     )
+
+
+def _require_mutation_targets_mutable(
+    project: Any,
+    bound: BoundTypedActionRequest,
+    terminal: _ProjectAction[Any, Any],
+    params: dict[str, Any],
+) -> None:
+    """Resolve concrete project-mutation targets before the write lifecycle."""
+
+    capability = terminal.single_capability()
+    sheet_ids: set[int] = set()
+    if capability in {ColumnCreator, RowCreator, RowDeleter}:
+        sheet_ids.add(int(params["sheet_id"]))
+    elif capability in {ColumnPatcher, ColumnTyper, QueryCellEditor}:
+        column = project.db.execute(
+            "SELECT sheet_id FROM columns WHERE id=?", (int(params["column_id"]),)
+        ).fetchone()
+        if column is not None:
+            sheet_ids.add(int(column["sheet_id"]))
+    elif capability is CellEditor:
+        row_ids = sorted({int(edit["row_id"]) for edit in params["edits"]})
+        if row_ids:
+            marks = ",".join("?" for _ in row_ids)
+            sheet_ids.update(
+                int(row["sheet_id"])
+                for row in project.db.execute(
+                    f"SELECT DISTINCT sheet_id FROM rows WHERE id IN ({marks})",
+                    row_ids,
+                )
+            )
+    elif capability in {RowsAppender, RowsUpdater}:
+        scope = bound.request.scope
+        if getattr(scope, "kind", None) == "sheet_rows":
+            sheet_ids.add(int(scope.sheet_id))
+    elif capability in {
+        ReviewDecider,
+        ReviewNoter,
+        ReplayValueAcceptor,
+        ReplayValueDismissor,
+    }:
+        run = project.db.execute(
+            "SELECT sheet_id FROM runs WHERE id=?", (int(params["run_id"]),)
+        ).fetchone()
+        if run is not None:
+            sheet_ids.add(int(run["sheet_id"]))
+    elif capability is ReplayColumnAcceptor:
+        sheet_ids.add(int(params["sheet_id"]))
+    else:
+        raise TypeError(
+            f"mutation capability {capability.__name__} has no target admission"
+        )
+    for sheet_id in sheet_ids:
+        require_import_sheet_write(project.db, sheet_id)
 
 
 def _result_and_receipt(
@@ -1906,6 +1969,8 @@ def run_typed_mutation_action(
     terminal = bound.action.definition.run
     if not supports_typed_mutation_action(terminal):
         raise TypeError("typed mutation executor requires a column or row action")
+    params = bound.params.model_dump(mode="json")
+    _require_mutation_targets_mutable(project, bound, terminal, params)
     if (
         isinstance(bound.params, ReviewDecisionParams)
         and bound.params.decision == "edit"
@@ -1927,7 +1992,7 @@ def run_typed_mutation_action(
     envelope = _TypedProjectEnvelope(
         kind=bound.action.action_id,
         idempotency_key=bound.request.idempotency_key,
-        params=bound.params.model_dump(mode="json"),
+        params=params,
         row_scope=bound.request.scope,
         confirmation=bound.request.confirmation,
     )

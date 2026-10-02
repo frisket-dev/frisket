@@ -8,7 +8,7 @@ vi.mock('pluralize', () => ({
   }),
 }));
 
-import { ApiError, confirmImportRowsDraft, detectPastedRowsDraft, importCsv, importFiles, importPdf, importXlsx, importUrls, previewCsv, previewImportRowUpdates, seedSampleProject } from '../../src/api/open';
+import { ApiError, cancelImportSession, chunkImportFiles, confirmImportRowsDraft, createImportSession, detectPastedRowsDraft, importCsv, importFiles, importPdf, importXlsx, importUrls, listImportSessions, previewCsv, previewImportRowUpdates, resolveImportSession, resumeImportSession, sealImportSession, seedSampleProject, uploadImportSessionFiles } from '../../src/api/open';
 import {
   createOnboardingImportsApi,
   type OnboardingImportOptions,
@@ -63,6 +63,71 @@ afterEach(() => {
 });
 
 describe('onboarding/import generated HTTP contracts', () => {
+  it('chunks resumable file admission by count and byte budget while allowing one oversized file', () => {
+    const oversized = new File(['x'], 'oversized.bin');
+    Object.defineProperty(oversized, 'size', { value: 65 * 1024 * 1024 });
+    const files = [
+      oversized,
+      ...Array.from({ length: 257 }, (_, index) => new File(['x'], `${index}.txt`)),
+    ];
+    const paths = files.map((file) => `folder/${file.name}`);
+
+    const chunks = chunkImportFiles(files, paths);
+
+    expect(chunks.map((chunk) => chunk.files.length)).toEqual([1, 256, 1]);
+    expect(chunks.map((chunk) => chunk.start)).toEqual([0, 1, 257]);
+    expect(chunks.flatMap((chunk) => chunk.logicalPaths)).toEqual(paths);
+  });
+
+  it('continues chunking after the server inventory cursor without resending admitted files', () => {
+    const files = Array.from({ length: 5 }, (_, index) => new File(['x'], `${index}.txt`));
+    const chunks = chunkImportFiles(files, files.map((file) => file.name), 3);
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].start).toBe(3);
+    expect(chunks[0].files.map((file) => file.name)).toEqual(['3.txt', '4.txt']);
+  });
+
+  it('uses generated resumable import routes and aligned multipart fields', async () => {
+    const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+    const status = {
+      import_ref: 'import-abcd', state: 'admitting', admitted_files: 0, admitted_bytes: 0,
+      through: 0, committed_rows: 0, committed_bytes: 0, sheet_id: null,
+      sheet_name: 'Files', cancel_requested: false, sealed: false, error: null,
+    };
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ input, init });
+      return jsonResponse(String(input).endsWith('/sessions') && init?.method === 'GET'
+        ? { sessions: [status] }
+        : status);
+    }));
+    const projectId = 'project / imports';
+    const first = new File(['one'], 'one.txt');
+    const second = new File(['two'], 'two.pdf', { type: 'application/pdf' });
+
+    await createImportSession(projectId, { sheetName: 'Documents' });
+    await listImportSessions(projectId);
+    await uploadImportSessionFiles(projectId, status.import_ref, [first, second], {
+      logicalPaths: ['folder/one.txt', 'folder/two.pdf'], batchId: 'batch-1',
+    });
+    await sealImportSession(projectId, status.import_ref);
+    await cancelImportSession(projectId, status.import_ref);
+    await resumeImportSession(projectId, status.import_ref);
+    await resolveImportSession(projectId, status.import_ref, 'remove');
+
+    const base = '/api/projects/project%20%2F%20imports/import/files/sessions';
+    expect(requests.map(({ input, init }) => [String(input), init?.method])).toEqual([
+      [base, 'POST'], [base, 'GET'], [`${base}/import-abcd/files`, 'POST'],
+      [`${base}/import-abcd/seal`, 'POST'], [`${base}/import-abcd/cancel`, 'POST'],
+      [`${base}/import-abcd/resume`, 'POST'], [`${base}/import-abcd/resolve`, 'POST'],
+    ]);
+    expect(JSON.parse(String(requests[0].init?.body))).toEqual({ sheet_name: 'Documents' });
+    const upload = requests[2].init?.body as FormData;
+    expect(upload.getAll('files')).toEqual([first, second]);
+    expect(upload.getAll('logical_paths')).toEqual(['folder/one.txt', 'folder/two.pdf']);
+    expect(upload.get('batch_id')).toBe('batch-1');
+    expect(JSON.parse(String(requests[6].init?.body))).toEqual({ decision: 'remove' });
+  });
+
   it('posts FollowTheMoney multipart fields through its generated contract', async () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

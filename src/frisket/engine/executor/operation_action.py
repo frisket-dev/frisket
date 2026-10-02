@@ -45,6 +45,7 @@ from frisket.engine.store.op_log import (
     step_operation,
 )
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.store.import_sessions import active_import_session, ImportInProgress
 
 
 logger = logging.getLogger("frisket.executor")
@@ -346,6 +347,29 @@ def run_typed_operation_action(
     terminal = bound.action.definition.run
     if not supports_typed_operation_action(terminal):
         raise TypeError("typed operation executor requires undo or redo")
+    cursor = project.op_cursor
+    if bound.action.action_id == "operation.undo":
+        target = project.db.execute(
+            "SELECT id FROM ops WHERE id<=? AND status='applied' "
+            "ORDER BY id DESC LIMIT 1",
+            (cursor,),
+        ).fetchone()
+    else:
+        target = project.db.execute(
+            "SELECT id FROM ops WHERE id>? AND status='undone' ORDER BY id LIMIT 1",
+            (cursor,),
+        ).fetchone()
+    expected = getattr(bound.params, "expected_op_id", None)
+    if target is not None and (expected is None or int(target["id"]) == expected):
+        row = project.db.execute(
+            "SELECT sheet_id FROM import_sessions WHERE op_id=? "
+            "AND state IN ('active','paused','cancelled')",
+            (int(target["id"]),),
+        ).fetchone()
+        if row is not None:
+            session = active_import_session(project.db, int(row["sheet_id"]))
+            if session is not None:
+                raise ImportInProgress(session)
     envelope = _TypedProjectEnvelope(
         kind=bound.action.action_id,
         idempotency_key=bound.request.idempotency_key,

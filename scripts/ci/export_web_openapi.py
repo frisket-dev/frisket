@@ -253,6 +253,46 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
         ("tenant", "import_files", "POST"): "tenant.import_files.post",
         (
             "tenant",
+            "cancel_import_session",
+            "POST",
+        ): "tenant.cancel_import_session.post",
+        (
+            "tenant",
+            "create_import_session",
+            "POST",
+        ): "tenant.create_import_session.post",
+        (
+            "tenant",
+            "get_import_session",
+            "GET",
+        ): "tenant.get_import_session.get",
+        (
+            "tenant",
+            "list_import_sessions",
+            "GET",
+        ): "tenant.list_import_sessions.get",
+        (
+            "tenant",
+            "resolve_import_session",
+            "POST",
+        ): "tenant.resolve_import_session.post",
+        (
+            "tenant",
+            "resume_import_session",
+            "POST",
+        ): "tenant.resume_import_session.post",
+        (
+            "tenant",
+            "seal_import_session",
+            "POST",
+        ): "tenant.seal_import_session.post",
+        (
+            "tenant",
+            "upload_import_session_files",
+            "POST",
+        ): "tenant.upload_import_session_files.post",
+        (
+            "tenant",
             "import_followthemoney",
             "POST",
         ): "tenant.import_followthemoney.post",
@@ -871,6 +911,7 @@ def _native_form_data_request(
         ("tenant", "import_xlsx", "POST"),
         ("tenant", "import_pdf", "POST"),
         ("tenant", "import_files", "POST"),
+        ("tenant", "upload_import_session_files", "POST"),
         ("tenant", "import_followthemoney", "POST"),
         ("tenant", "ocr_compare_scratch", "POST"),
         ("tenant", "ocr_compare_scratch_estimate", "POST"),

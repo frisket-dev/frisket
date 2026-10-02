@@ -32,6 +32,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from frisket.contracts.http.models import HttpError
+from frisket.engine.store.import_sessions import ImportInProgress
 
 
 LOG = logging.getLogger("frisket.server")
@@ -88,6 +89,12 @@ def register_route_error_handler(app: FastAPI) -> None:
         )
 
     app.add_exception_handler(RouteError, _handle_route_error)
+    register_typed_error(
+        app,
+        ImportInProgress,
+        409,
+        "This sheet is read-only while its import is in progress.",
+    )
     app.add_exception_handler(Exception, _handle_unexpected_error)
 
 

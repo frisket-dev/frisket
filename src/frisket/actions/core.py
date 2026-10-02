@@ -15,6 +15,7 @@ from pydantic import BaseModel, JsonValue, TypeAdapter
 from pydantic.fields import FieldInfo
 from pydantic_core import SchemaSerializer, SchemaValidator
 from frisket.actions.url_import_types import UrlImporter
+from frisket.actions.import_inventory_types import FileInventoryReader
 from frisket.actions.entity_package_types import (
     FollowTheMoneyImporter,
     FollowTheMoneyExporter,
@@ -3114,6 +3115,7 @@ def create_sheet(
             RuntimeImporter,
             UrlImporter,
             LocalFileReader,
+            FileInventoryReader,
             ListTableReader,
             SheetRowsReader,
             CollectionReader,
@@ -3128,7 +3130,7 @@ def create_sheet(
         for capability in capabilities
     ):
         raise TypeError(
-            "create_sheet supports only EmbeddingIndexReader, LocalFileReader, "
+            "create_sheet supports only EmbeddingIndexReader, LocalFileReader, FileInventoryReader, "
             "ListTableReader, SheetRowsReader, CollectionReader, SemanticMatchReader, JoinedTablesReader, TranscriptReader, ClusterReceiptReader, EmailSourceReader, RuntimeImporter, UrlImporter, ImportBlobStager and PdfPageRenderer injection"
         )
     if len(injections) != len(set(injections)):
@@ -3907,6 +3909,11 @@ class RegisteredAction:
                     *(
                         ["resolve_server_issued_email_sources"]
                         if EmailSourceReader in definition.run.capabilities
+                        else []
+                    ),
+                    *(
+                        ["read_admitted_import_inventory"]
+                        if FileInventoryReader in definition.run.capabilities
                         else []
                     ),
                     *(

@@ -15,10 +15,12 @@ import {
   confirmImportRowsDraft,
   detectPastedRowsDraft,
   importCsv,
+  createImportSession,
   importFiles,
   importFollowTheMoney,
   importUrls,
   importXlsx,
+  uploadFilesToImportSession,
   executeBulkImport,
   planBulkImport,
   previewCsv,
@@ -38,6 +40,11 @@ import {
   type SourceInterval,
   type SheetMeta,
 } from '../api/open';
+import {
+  notifyImportSessionChanged,
+  rememberImportSessionFiles,
+  setImportSessionBrowserUploading,
+} from './importProgressSession';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { PanelSelect } from './PanelSelect';
 import { ImportDraftMappingPanel } from './importWorkspace/ImportDraftMappingPanel';
@@ -187,12 +194,18 @@ function logicalPathForImport(file: File): string {
 }
 
 function directSelectionNeedsBulkPlan(files: File[]): boolean {
-  return files.length >= 2 || (
+  return (files.length >= 2 && !attachmentSelectionUsesSession(files)) || (
     files.length === 1 && (
       /\.(?:eml|mbox|zip)$/i.test(files[0].name) ||
       !/\.[^./]+$/.test(files[0].name)
     )
   );
+}
+
+function attachmentSelectionUsesSession(files: File[]): boolean {
+  return files.length >= 2 && files.every((file) => (
+    /\.[^./]+$/.test(file.name) && !/\.(?:csv|xlsx|eml|mbox|zip)$/i.test(file.name)
+  ));
 }
 
 function directSelectionExpandsArchive(files: File[]): boolean {
@@ -715,6 +728,7 @@ function resultRows(result: unknown): number | undefined {
 function useImportUpload({ onError }: ImportHandlers) {
   const { projectId } = useWorkspaceStores().chromePreferences;
   const [busy, setBusy] = useState(false);
+  const [sessionBusy, setSessionBusy] = useState(false);
 
   const uploadFiles = async (
     mode: FileImportMode | SingleFileFormat,
@@ -756,7 +770,38 @@ function useImportUpload({ onError }: ImportHandlers) {
             )
             : resolvedMode === 'ftm'
               ? await importFollowTheMoney(projectId, file, datasetName)
-            : await importFiles(projectId, list);
+            : attachmentSelectionUsesSession(list)
+              ? await (async () => {
+                const session = await createImportSession(projectId, { sheetName: 'files' });
+                const logicalPaths = list.map(logicalPathForImport);
+                rememberImportSessionFiles(session.import_ref, list, logicalPaths);
+                setSessionBusy(true);
+                setImportSessionBrowserUploading(session.import_ref, true);
+                try {
+                  const status = await uploadFilesToImportSession(
+                    projectId,
+                    session,
+                    list,
+                    logicalPaths,
+                  );
+                  notifyImportSessionChanged();
+                  return {
+                    sheet_id: status.sheet_id,
+                    rows: status.committed_rows,
+                    import_pending: true,
+                  };
+                } catch (error) {
+                  // The durable admitting session remains visible after a lost
+                  // request or closed picker, so the user can reselect or cancel.
+                  notifyImportSessionChanged();
+                  throw error;
+                } finally {
+                  setSessionBusy(false);
+                  setImportSessionBrowserUploading(session.import_ref, false);
+                }
+              })()
+              : await importFiles(projectId, list);
+      if ('import_pending' in result && result.import_pending) return null;
       sendProductTelemetry({
         type: 'Import.finished',
         properties: {
@@ -840,7 +885,7 @@ function useImportUpload({ onError }: ImportHandlers) {
     }
   };
 
-  return { busy, uploadFiles, uploadUrls };
+  return { busy, sessionBusy, uploadFiles, uploadUrls };
 }
 
 type ImportWorkspaceDialogProps = ImportHandlers & {
@@ -894,7 +939,12 @@ function OpenImportWorkspaceSession({
   onSessionModeChange(mode: ImportMode): void;
 }) {
   const { projectApi, chromePreferences: { projectId } } = useWorkspaceStores();
-  const { busy: uploadBusy, uploadFiles, uploadUrls } = useImportUpload({ onImported, onError, onLaunchDownload });
+  const {
+    busy: uploadBusy,
+    sessionBusy,
+    uploadFiles,
+    uploadUrls,
+  } = useImportUpload({ onImported, onError, onLaunchDownload });
   const inputRef = useRef<HTMLInputElement | null>(null);
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const onCloseRef = useRef(onClose);
@@ -1118,9 +1168,9 @@ function OpenImportWorkspaceSession({
     onClose();
   }, [onClose, resetBulkPlan, resetCsvPreview, resetDraft]);
   const closeWorkspaceFromUser = useCallback(() => {
-    if (busy || bulkBusy || draftBusy) return;
+    if ((busy && !sessionBusy) || bulkBusy || draftBusy) return;
     closeWorkspace();
-  }, [bulkBusy, busy, closeWorkspace, draftBusy]);
+  }, [bulkBusy, busy, closeWorkspace, draftBusy, sessionBusy]);
 
   // The ONE shared success
   // handler replacing the three independent close-on-success calls
@@ -1511,6 +1561,7 @@ function OpenImportWorkspaceSession({
               resetBulkPlan();
               void uploadFiles(singleFileFormat === 'ftm' ? 'ftm' : fileMode, files, undefined, ftmDatasetName).then((sheetId) => {
                 if (sheetId != null) void finishImport(sheetId);
+                else if (attachmentSelectionUsesSession(files)) closeWorkspace();
               });
             }
             e.target.value = '';
@@ -1529,7 +1580,15 @@ function OpenImportWorkspaceSession({
           onChange={(e) => {
             const files = Array.from(e.target.files ?? []);
             resetCsvPreview();
-            startBulkPlan(files, false);
+            if (attachmentSelectionUsesSession(files)) {
+              resetBulkPlan();
+              void uploadFiles('files', files).then((sheetId) => {
+                if (sheetId != null) void finishImport(sheetId);
+                else closeWorkspace();
+              });
+            } else {
+              startBulkPlan(files, false);
+            }
             e.target.value = '';
           }}
         />
@@ -1562,7 +1621,7 @@ function OpenImportWorkspaceSession({
             className="icon-btn"
             aria-label="Close import"
             data-testid="import-workspace-close"
-            disabled={busy || bulkBusy || draftBusy}
+            disabled={(busy && !sessionBusy) || bulkBusy || draftBusy}
             onClick={closeWorkspaceFromUser}
           >
             <X size={16} />

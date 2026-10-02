@@ -287,6 +287,7 @@ def test_schema_migration_preserves_existing_bundle_and_stamps_new_digest(
     project.close()
 
     with sqlite3.connect(path / "project.db") as db:
+        db.execute("DROP TABLE import_sessions")
         db.execute("DROP TABLE project_qa_usage_calls")
         db.execute("DROP TABLE project_qa_citations")
         db.execute("DROP TABLE project_qa_events")

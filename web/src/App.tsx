@@ -80,6 +80,7 @@ import { entityTableDraft } from './actions/entityTable';
 import { HomeScreen } from './components/HomeScreen';
 import { ReplayModeBanner } from './components/ReplayModeBanner';
 import { ImportDropzone, ImportWorkspaceDialog } from './components/ImportCsv';
+import { ImportProgress } from './components/ImportProgress';
 import { CostGateModal } from './components/CostGateModal';
 import { ApplicationGuidance } from './components/ApplicationGuidance';
 import { SampleProjectOnboarding } from './workbench/SampleProjectOnboarding';
@@ -995,6 +996,9 @@ const WorkspaceActRegion = memo(function WorkspaceActRegion() {
     revealPluginLauncher,
     onImported,
     showError,
+    project,
+    refreshSheets,
+    selectSheet,
     setRibbonMode,
     setActiveRibbonTab,
   } = useWorkspaceShell();
@@ -1019,6 +1023,7 @@ const WorkspaceActRegion = memo(function WorkspaceActRegion() {
       && state.resolvedTemplates.some((template) => template.kind === 'frisket.ftm.ftm_import'),
   );
   const closeImportDialog = actSurface.closeImportDialog;
+  const importSessionChanged = useCallback(() => { void refreshSheets(); }, [refreshSheets]);
   useEffect(() => {
     // Command tabs appear before catalog-backed tabs; keep the saved selection
     // until the catalog has settled so loading cannot overwrite it.
@@ -1067,6 +1072,14 @@ const WorkspaceActRegion = memo(function WorkspaceActRegion() {
         onExtractEntities={() => runActionFromSurface(MENTIONS_EXTRACT_ACTION_KIND)}
         nerTemplate={nerTemplate}
         ftmImportEnabled={ftmImportEnabled}
+      />
+      <ImportProgress
+        projectId={project.id}
+        onOpenSheet={(sheetId) => {
+          void refreshSheets().then(() => selectSheet(String(sheetId)));
+        }}
+        onChanged={importSessionChanged}
+        onError={showError}
       />
     </section>
   );
