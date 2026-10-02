@@ -1401,7 +1401,6 @@ CREATE TABLE IF NOT EXISTS source_runs (
   started_at TEXT NOT NULL DEFAULT (datetime('now')),
   finished_at TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_source_runs_source ON source_runs(source_id);
 CREATE INDEX IF NOT EXISTS idx_source_runs_source_started
   ON source_runs(source_id, started_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_source_runs_receipt ON source_runs(receipt_id);
@@ -1422,8 +1421,6 @@ CREATE TABLE IF NOT EXISTS source_items (
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(source_id, dedupe_key)
 );
-CREATE INDEX IF NOT EXISTS idx_source_items_source_dedupe
-  ON source_items(source_id, dedupe_key);
 CREATE INDEX IF NOT EXISTS idx_source_items_run
   ON source_items(last_seen_run_id);
 
@@ -1944,8 +1941,6 @@ CREATE TABLE IF NOT EXISTS execution_attempts (
   UNIQUE (receipt_id, seq),
   CHECK (run_id IS NULL OR receipt_id IS NULL)
 );
-CREATE INDEX IF NOT EXISTS idx_execution_attempts_run
-  ON execution_attempts(run_id, seq DESC);
 -- ONE dispatch per run, ENFORCED. UNIQUE(run_id, seq) alone only stops a
 -- retry from reusing a sequence number; nothing stopped two ADMITTED attempts
 -- on one run from both winning their `state='admitted'` CAS and both
