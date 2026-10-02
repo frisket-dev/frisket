@@ -14,9 +14,53 @@ from frisket.features.watchlists.triggers import (
     source_poll_materialization_from_receipt,
     trigger_source_materialized_watches,
 )
+from frisket.features.watchlists.service import WatchBindingError
 
 
 PROJECT_ID = "source-watch-project"
+
+
+def test_standalone_index_race_retries_only_failed_keyword_watch(monkeypatch):
+    import frisket.features.watchlists.triggers as triggers
+    import frisket.search
+
+    watches = [
+        {"id": 1, "query": '{"kind":"fts","q":"one"}'},
+        {"id": 2, "query": '{"kind":"fts","q":"two"}'},
+    ]
+    calls = {1: 0, 2: 0}
+    drains = []
+    monkeypatch.setattr(
+        triggers, "affected_enabled_watches", lambda _project, _event: watches
+    )
+    monkeypatch.setattr(
+        frisket.search, "drain_index", lambda _project: drains.append(1)
+    )
+
+    def evaluate(_project, watch):
+        watch_id = int(watch["id"])
+        calls[watch_id] += 1
+        if watch_id == 2 and calls[watch_id] == 1:
+            raise WatchBindingError("search_index_not_ready", "edited")
+        return {"watch_id": watch_id}
+
+    monkeypatch.setattr(triggers, "run_watch_evaluation", evaluate)
+    event = {
+        "kind": "source_poll_materialized",
+        "project_id": PROJECT_ID,
+        "source_id": 1,
+        "source_run_id": 2,
+        "sheet_id": 3,
+        "op_id": 4,
+        "row_ids": [5],
+        "materialized_rows": 1,
+    }
+
+    results = trigger_source_materialized_watches(object(), event)
+
+    assert [result["watch_id"] for result in results] == [1, 2]
+    assert calls == {1: 1, 2: 2}
+    assert len(drains) == 2
 
 
 def _feed(items: list[dict[str, Any]], feed_title: str = "Public Notices") -> str:

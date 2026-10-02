@@ -146,13 +146,13 @@ def register_source_poll_handler(
                 sheet_id=int(summary["sheet_id"]),
                 row_ids=list(summary.get("enclosure_row_ids") or []),
             )
-            from frisket.engine.jobs.watches import enqueue_keyword_watch_evaluations
+            enqueue_keyword_watches = None
+            if queue is not None:
+                from frisket.engine.jobs.watches import (
+                    enqueue_keyword_watch_evaluations,
+                )
 
-            triggered_watch_runs = trigger_completed_source_poll_watches(
-                project,
-                project_id=project_id,
-                receipt_id=result.receipt_id,
-                enqueue_keyword_watches=lambda watches, materialization: (
+                def enqueue_keyword_watches(watches, materialization):
                     enqueue_keyword_watch_evaluations(
                         queue,
                         watches=watches,
@@ -161,7 +161,12 @@ def register_source_poll_handler(
                         storage_org_id=_coerce_storage_org_id(payload),
                         trigger_ref={"source_run_id": materialization["source_run_id"]},
                     )
-                ),
+
+            triggered_watch_runs = trigger_completed_source_poll_watches(
+                project,
+                project_id=project_id,
+                receipt_id=result.receipt_id,
+                enqueue_keyword_watches=enqueue_keyword_watches,
             )
             if queue is not None:
                 for evaluation in triggered_watch_runs:

@@ -8,7 +8,11 @@ from typing import Any, TypedDict
 
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
-from frisket.features.watchlists.service import run_watch_evaluation, watch_query
+from frisket.features.watchlists.service import (
+    WatchBindingError,
+    run_watch_evaluation,
+    watch_query,
+)
 
 
 class SourcePollMaterialization(TypedDict):
@@ -105,7 +109,17 @@ def trigger_source_materialized_watches(
         drain_index(project)
     out: list[dict[str, Any]] = []
     for watch in watches:
-        evaluation = run_watch_evaluation(project, watch)
+        try:
+            evaluation = run_watch_evaluation(project, watch)
+        except WatchBindingError as exc:
+            if exc.code != "search_index_not_ready" or not _is_keyword_watch(watch):
+                raise
+            # A writer may land after the standalone drain. Retry only this
+            # watch once; previous successful watches must not emit twice.
+            from frisket.search import drain_index
+
+            drain_index(project)
+            evaluation = run_watch_evaluation(project, watch)
         evaluation.update(
             {
                 "trigger_kind": "source_poll_materialized",
