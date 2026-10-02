@@ -15,6 +15,7 @@ from frisket.engine.jobs import (
     SqliteJobQueue,
     Worker,
 )
+from frisket.engine.jobs import import_files as import_files_module
 from frisket.engine.jobs.import_files import register_import_files_handler
 from frisket.engine.jobs.search_index import register_search_index_handler
 from frisket.engine.jobs.queue import BLOB_METADATA_KIND, IMPORT_FILES_PAGE_KIND
@@ -28,6 +29,7 @@ from frisket.engine.store.import_intake import (
 from frisket.engine.store.import_inventory import ImportInventory
 from frisket.engine.store.import_sessions import ImportSessionStore
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.server.services import import_sessions as import_sessions_module
 from frisket.server.services.import_sessions import ImportSessionService
 from frisket.server.services.sheet_grid import SheetGridService
 
@@ -133,6 +135,114 @@ def test_worker_consumes_uploaded_cursor_then_seal_finalizes_same_receipt(tmp_pa
             assert (
                 project.db.execute("SELECT count(*) FROM receipts").fetchone()[0] == 1
             )
+
+
+def test_worker_restart_reclaims_terminal_inventory_after_cleanup_failure(
+    tmp_path, monkeypatch
+):
+    envelope, directory = setup_import(tmp_path, sealed=True)
+    original_compact = import_files_module.compact_terminal_inventory
+    queue_path = tmp_path / "queue.db"
+
+    def fail_compaction(_directory):
+        raise OSError("synthetic temporary compaction failure")
+
+    monkeypatch.setattr(
+        import_files_module, "compact_terminal_inventory", fail_compaction
+    )
+    with closing(SqliteJobQueue(queue_path)) as queue:
+        first_worker = Worker(
+            queue, registry_for(tmp_path, queue), retry_base_seconds=0
+        )
+        terminal_job = enqueue(queue, 5)
+        assert first_worker.run_once()
+
+        assert queue.get(terminal_job).status == "queued"
+        with closing(Project(tmp_path / "files.frisket")) as project:
+            session = ImportSessionStore(project).get(REF)
+            assert session is not None and session.state == "completed"
+            assert project.row_count(session.sheet_id) == 5
+            assert (
+                ReceiptStore(project).find_by_id(envelope.receipt_id).status
+                == "completed"
+            )
+        with ImportInventory(directory / "inventory.db") as inventory:
+            assert len(inventory.page(limit=1)) == 1
+
+        monkeypatch.setattr(
+            import_files_module, "compact_terminal_inventory", original_compact
+        )
+
+    with closing(SqliteJobQueue(queue_path)) as restarted_queue:
+        restarted_worker = Worker(
+            restarted_queue,
+            registry_for(tmp_path, restarted_queue),
+            retry_base_seconds=0,
+        )
+        assert restarted_worker.run_once()
+        assert restarted_queue.get(terminal_job).status == "done"
+
+    with ImportInventory(directory / "inventory.db") as inventory:
+        assert inventory.page(limit=1) == []
+
+
+@pytest.mark.parametrize(
+    ("decision", "expected_state"),
+    [("keep", "kept"), ("remove", "removed")],
+)
+def test_resolution_enqueues_one_terminal_cleanup_after_failure(
+    tmp_path, monkeypatch, decision, expected_state
+):
+    _envelope, directory = setup_import(tmp_path, sealed=True)
+    queue_path = tmp_path / "queue.db"
+    original_compact = import_sessions_module.compact_terminal_inventory
+
+    def fail_compaction(_directory):
+        raise OSError("synthetic temporary compaction failure")
+
+    with closing(SqliteJobQueue(queue_path)) as queue:
+        with closing(Project(tmp_path / "files.frisket")) as project:
+            workspace = SimpleNamespace(
+                get=lambda _project_id: project,
+                queue=queue,
+                root=tmp_path,
+                queue_payload_extra={},
+                queue_storage_org_id=None,
+            )
+            service = ImportSessionService(workspace)
+            assert service.cancel("files", REF).state == "cancelled"
+            monkeypatch.setattr(
+                import_sessions_module,
+                "compact_terminal_inventory",
+                fail_compaction,
+            )
+
+            resolved = service.resolve("files", REF, decision=decision)
+            assert resolved.state == expected_state
+            assert (
+                service.resolve("files", REF, decision=decision).state == expected_state
+            )
+            [cleanup_job] = queue.list_project_jobs(
+                "files", kind=IMPORT_FILES_PAGE_KIND
+            )
+            assert cleanup_job.status == "queued"
+
+        monkeypatch.setattr(
+            import_sessions_module,
+            "compact_terminal_inventory",
+            original_compact,
+        )
+
+    with closing(SqliteJobQueue(queue_path)) as restarted_queue:
+        restarted_worker = Worker(
+            restarted_queue,
+            registry_for(tmp_path, restarted_queue),
+            retry_base_seconds=0,
+        )
+        assert restarted_worker.run_once()
+
+    with ImportInventory(directory / "inventory.db") as inventory:
+        assert inventory.page(limit=1) == []
 
 
 def test_cancel_intent_stops_next_job_without_deleting_committed_rows(tmp_path):
