@@ -204,7 +204,9 @@ def test_edit_undo_redo_refreshes_only_the_changed_search_cell(tmp_path: Path) -
         )
         assert project.get_values(sheet_id, source_column_id)[row_ids[0]] == "manual"
         assert index_batch(project, batch_size=100).processed == 1
-        project.db.execute("CREATE TEMP TABLE current_cell_audit(kind,row_id,column_id)")
+        project.db.execute(
+            "CREATE TEMP TABLE current_cell_audit(kind,row_id,column_id)"
+        )
         project.db.execute(
             "CREATE TEMP TRIGGER audit_current_cell_delete AFTER DELETE ON current_cells "
             "BEGIN INSERT INTO current_cell_audit VALUES ('delete',OLD.row_id,OLD.column_id); END"
@@ -220,7 +222,9 @@ def test_edit_undo_redo_refreshes_only_the_changed_search_cell(tmp_path: Path) -
         assert index_batch(project, batch_size=100).processed == 1
         assert {
             (int(row["row_id"]), int(row["column_id"]))
-            for row in project.db.execute("SELECT row_id,column_id FROM current_cell_audit")
+            for row in project.db.execute(
+                "SELECT row_id,column_id FROM current_cell_audit"
+            )
         } == {(row_ids[0], source_column_id)}
         project.db.execute("DELETE FROM current_cell_audit")
         project.db.commit()
@@ -230,7 +234,9 @@ def test_edit_undo_redo_refreshes_only_the_changed_search_cell(tmp_path: Path) -
         assert index_batch(project, batch_size=100).processed == 1
         assert {
             (int(row["row_id"]), int(row["column_id"]))
-            for row in project.db.execute("SELECT row_id,column_id FROM current_cell_audit")
+            for row in project.db.execute(
+                "SELECT row_id,column_id FROM current_cell_audit"
+            )
         } == {(row_ids[0], source_column_id)}
     finally:
         project.close()
