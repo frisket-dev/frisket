@@ -8,7 +8,7 @@ import pytest
 from frisket.engine.store import Project
 
 
-def test_add_rows_commits_nested_batch_and_records_one_producer(tmp_path):
+def test_add_rows_nested_batch_publishes_when_caller_commits(tmp_path):
     with closing(Project.create(tmp_path / "project")) as project:
         sheet_id = project.add_sheet("Records")
         column_id = project.add_column(sheet_id, "value")
@@ -20,7 +20,15 @@ def test_add_rows_commits_nested_batch_and_records_one_producer(tmp_path):
             {"value": column_id},
         )
 
+        assert project.db.in_transaction
         with sqlite3.connect(project.db_path) as db:
+            assert (
+                db.execute(
+                    "SELECT COUNT(*) FROM rows WHERE sheet_id=?", (sheet_id,)
+                ).fetchone()[0]
+                == 0
+            )
+            project.db.commit()
             assert (
                 db.execute(
                     "SELECT COUNT(*) FROM rows WHERE sheet_id=?", (sheet_id,)
