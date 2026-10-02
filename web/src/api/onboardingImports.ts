@@ -1,5 +1,7 @@
 import type {
   HttpContractOperationMap,
+  HttpImportSessionList,
+  HttpImportSessionStatus,
   HttpImportUpdatePreviewResponse,
 } from '../generated/openHttpContracts';
 import {
@@ -11,6 +13,85 @@ import { httpContract, type HttpContractSuccessResponse } from './httpContract';
 export interface OnboardingImportOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
+}
+
+export type ImportSessionState = HttpImportSessionStatus['state'];
+
+export type ImportSessionStatus = HttpImportSessionStatus & {
+  committed_rows: number;
+  committed_bytes: number;
+  sheet_id: number | null;
+  error: string | null;
+};
+
+export type ImportSessionList = Omit<HttpImportSessionList, 'sessions'> & {
+  sessions: ImportSessionStatus[];
+};
+
+function normalizeImportSession(status: HttpImportSessionStatus): ImportSessionStatus {
+  return {
+    ...status,
+    committed_rows: status.committed_rows ?? 0,
+    committed_bytes: status.committed_bytes ?? 0,
+    sheet_id: status.sheet_id ?? null,
+    error: status.error ?? null,
+  };
+}
+
+export interface ImportSessionCreateOptions extends OnboardingImportOptions {
+  sheetName?: string;
+}
+
+export interface ImportSessionUploadOptions extends OnboardingImportOptions {
+  logicalPaths: string[];
+  batchId: string;
+}
+
+export const IMPORT_SESSION_CHUNK_FILES = 256;
+export const IMPORT_SESSION_CHUNK_BYTES = 64 * 1024 * 1024;
+
+export interface ImportFileChunk {
+  files: File[];
+  logicalPaths: string[];
+  start: number;
+}
+
+/** Bounds request bodies without rejecting a single input larger than the
+ * target byte budget. The server remains authoritative for deployment caps. */
+export function chunkImportFiles(
+  files: File[],
+  logicalPaths: string[],
+  start = 0,
+): ImportFileChunk[] {
+  if (files.length !== logicalPaths.length) {
+    throw new TypeError('Import files and logical paths must stay aligned.');
+  }
+  const chunks: ImportFileChunk[] = [];
+  let chunkFiles: File[] = [];
+  let chunkPaths: string[] = [];
+  let chunkBytes = 0;
+  let chunkStart = start;
+  for (let index = start; index < files.length; index += 1) {
+    const file = files[index];
+    const wouldOverflow = chunkFiles.length > 0 && (
+      chunkFiles.length >= IMPORT_SESSION_CHUNK_FILES
+      || chunkBytes + file.size > IMPORT_SESSION_CHUNK_BYTES
+    );
+    if (wouldOverflow) {
+      chunks.push({ files: chunkFiles, logicalPaths: chunkPaths, start: chunkStart });
+      chunkFiles = [];
+      chunkPaths = [];
+      chunkBytes = 0;
+      chunkStart = index;
+    }
+    chunkFiles.push(file);
+    chunkPaths.push(logicalPaths[index]);
+    chunkBytes += file.size;
+  }
+  if (chunkFiles.length) {
+    chunks.push({ files: chunkFiles, logicalPaths: chunkPaths, start: chunkStart });
+  }
+  return chunks;
 }
 
 export interface CsvImportOptions extends OnboardingImportOptions {
@@ -708,6 +789,121 @@ export function importPdf(projectId: string, file: File): Promise<ImportPdfWire>
 
 export function importFiles(projectId: string, files: File[]): Promise<ImportFilesWire> {
   return createOnboardingImportsApi(actionLaunchErrorFromContract, projectId).importFiles(files);
+}
+
+export function createImportSession(
+  projectId: string,
+  options: ImportSessionCreateOptions = {},
+): Promise<ImportSessionStatus> {
+  return httpContract('tenant.create_import_session.post', {
+    pathParams: { pid: projectId },
+    query: {},
+    body: { sheet_name: options.sheetName?.trim() || 'files' },
+    signal: options.signal,
+    headers: options.headers,
+    errorFactory: actionLaunchErrorFromContract,
+  }, normalizeImportSession);
+}
+
+export function listImportSessions(
+  projectId: string,
+  options: OnboardingImportOptions = {},
+): Promise<ImportSessionList> {
+  return httpContract('tenant.list_import_sessions.get', {
+    pathParams: { pid: projectId }, query: {}, signal: options.signal,
+    headers: options.headers, errorFactory: actionLaunchErrorFromContract,
+  }, (wire): ImportSessionList => ({
+    ...wire,
+    sessions: wire.sessions.map(normalizeImportSession),
+  }));
+}
+
+export function getImportSession(
+  projectId: string,
+  importRef: string,
+  options: OnboardingImportOptions = {},
+): Promise<ImportSessionStatus> {
+  return httpContract('tenant.get_import_session.get', {
+    pathParams: { pid: projectId, ref: importRef }, query: {}, signal: options.signal,
+    headers: options.headers, errorFactory: actionLaunchErrorFromContract,
+  }, normalizeImportSession);
+}
+
+export function uploadImportSessionFiles(
+  projectId: string,
+  importRef: string,
+  files: File[],
+  options: ImportSessionUploadOptions,
+): Promise<ImportSessionStatus> {
+  if (!files.length || files.length > IMPORT_SESSION_CHUNK_FILES) {
+    throw new TypeError('Import upload chunks must contain 1 to 256 files.');
+  }
+  if (files.length !== options.logicalPaths.length) {
+    throw new TypeError('Import files and logical paths must stay aligned.');
+  }
+  const body = new FormData();
+  for (let index = 0; index < files.length; index += 1) {
+    body.append('files', files[index]);
+    body.append('logical_paths', options.logicalPaths[index]);
+  }
+  body.append('batch_id', options.batchId);
+  return httpContract('tenant.upload_import_session_files.post', {
+    pathParams: { pid: projectId, ref: importRef }, query: {}, body,
+    signal: options.signal, headers: options.headers, errorFactory: actionLaunchErrorFromContract,
+  }, normalizeImportSession);
+}
+
+export function sealImportSession(projectId: string, importRef: string, options: OnboardingImportOptions = {}) {
+  return httpContract('tenant.seal_import_session.post', {
+    pathParams: { pid: projectId, ref: importRef }, query: {},
+    signal: options.signal, headers: options.headers, errorFactory: actionLaunchErrorFromContract,
+  }, normalizeImportSession);
+}
+
+export function cancelImportSession(projectId: string, importRef: string, options: OnboardingImportOptions = {}) {
+  return httpContract('tenant.cancel_import_session.post', {
+    pathParams: { pid: projectId, ref: importRef }, query: {},
+    signal: options.signal, headers: options.headers, errorFactory: actionLaunchErrorFromContract,
+  }, normalizeImportSession);
+}
+
+export function resumeImportSession(projectId: string, importRef: string, options: OnboardingImportOptions = {}) {
+  return httpContract('tenant.resume_import_session.post', {
+    pathParams: { pid: projectId, ref: importRef }, query: {},
+    signal: options.signal, headers: options.headers, errorFactory: actionLaunchErrorFromContract,
+  }, normalizeImportSession);
+}
+
+export function resolveImportSession(
+  projectId: string,
+  importRef: string,
+  decision: 'keep' | 'remove',
+  options: OnboardingImportOptions = {},
+): Promise<ImportSessionStatus> {
+  return httpContract('tenant.resolve_import_session.post', {
+    pathParams: { pid: projectId, ref: importRef }, query: {}, body: { decision },
+    signal: options.signal, headers: options.headers, errorFactory: actionLaunchErrorFromContract,
+  }, normalizeImportSession);
+}
+
+export async function uploadFilesToImportSession(
+  projectId: string,
+  session: ImportSessionStatus,
+  files: File[],
+  logicalPaths: string[],
+  options: OnboardingImportOptions = {},
+): Promise<ImportSessionStatus> {
+  for (const chunk of chunkImportFiles(files, logicalPaths, session.through)) {
+    const end = chunk.start + chunk.files.length;
+    await uploadImportSessionFiles(projectId, session.import_ref, chunk.files, {
+      ...options,
+      logicalPaths: chunk.logicalPaths,
+      // Stable across a re-selection of the same ordered file set. A response
+      // lost after commit can safely retry this exact server batch marker.
+      batchId: `${session.import_ref}:${chunk.start + 1}-${end}`,
+    });
+  }
+  return sealImportSession(projectId, session.import_ref, options);
 }
 
 export function importFollowTheMoney(
