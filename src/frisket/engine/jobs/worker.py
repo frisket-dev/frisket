@@ -451,6 +451,7 @@ def register_production_handlers(
     blob_metadata_registration = register_blob_metadata_handler(
         registry,
         workspace_root=root,
+        queue=queue,
         workspace_root_storage_org_id=workspace_root_storage_org_id,
         project_opener=project_opener,
     )

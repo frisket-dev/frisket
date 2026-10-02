@@ -7,10 +7,15 @@ from typing import Any
 
 from frisket.engine.store.media_blobs import MediaBlobStore, update_blob_metadata
 from frisket.engine.store import Project
+from frisket.project_identity import ProjectStorageKey
 
 from .ports import JobHandlerContext
-from .project_opener import ProjectOpener, open_payload_project
-from .queue import claimed_project_location
+from .project_opener import ProjectOpener, open_claimed_project
+from .queue import (
+    CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY,
+    JobQueue,
+    claimed_project_location,
+)
 from .worker import HandlerRegistration, HandlerRegistry
 
 BLOB_METADATA_KIND = "blob.metadata.backfill"
@@ -21,38 +26,49 @@ def register_blob_metadata_handler(
     registry: HandlerRegistry,
     *,
     workspace_root: str | Path,
+    queue: JobQueue,
     workspace_root_storage_org_id: int | None = None,
     project_opener: ProjectOpener | None = None,
 ) -> HandlerRegistration:
-    def handle(payload: dict, _context: JobHandlerContext) -> dict[str, Any]:
+    def handle(payload: dict, context: JobHandlerContext) -> dict[str, Any]:
+        project_id, project_root, path = claimed_project_location(
+            payload,
+            workspace_root=workspace_root,
+            workspace_root_storage_org_id=workspace_root_storage_org_id,
+            require_storage_identity=project_opener is not None,
+        )
         if project_opener is None:
-            project_id, _, path = claimed_project_location(
-                payload,
-                workspace_root=workspace_root,
-                workspace_root_storage_org_id=workspace_root_storage_org_id,
-                require_storage_identity=False,
-            )
             project = Project(path)
         else:
-            project_id, project = open_payload_project(
-                payload,
-                workspace_root=workspace_root,
-                workspace_root_storage_org_id=workspace_root_storage_org_id,
-                project_opener=project_opener,
-            )
+            project = open_claimed_project(payload, path, project_opener)
         updated = 0
         try:
             store = MediaBlobStore(project)
-            cursor = ""
-            while digests := store.hashes_needing_metadata(
+            cursor = str(payload.get("after_hash") or "")
+            digests = store.hashes_needing_metadata(
                 limit=PROBE_BATCH_SIZE, after_hash=cursor
-            ):
-                for digest in digests:
-                    # A row may have been removed since this bounded scan.
-                    if store.blob_exists(digest):
-                        update_blob_metadata(project, digest)
-                        updated += 1
-                cursor = digests[-1]
+            )
+            for digest in digests:
+                # A row may have been removed since this bounded scan.
+                if store.blob_exists(digest):
+                    update_blob_metadata(project, digest)
+                    updated += 1
+            if len(digests) == PROBE_BATCH_SIZE:
+                # Yield the worker between batches. A failed enqueue retries
+                # this job; completed probe namespaces already mark progress.
+                # Carry only serializable queue identity, not injected claims.
+                continuation = {
+                    "project_id": project_id,
+                    "workspace_root": str(project_root),
+                    "after_hash": digests[-1],
+                    "dedupe_key": f"blob-metadata:after:{digests[-1]}",
+                }
+                claimed = payload.get(CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY)
+                if isinstance(claimed, ProjectStorageKey):
+                    continuation["storage_org_id"] = claimed.storage_org_id
+                if isinstance(context.trusted_job_org_id, int):
+                    continuation["org_id"] = context.trusted_job_org_id
+                queue.enqueue(BLOB_METADATA_KIND, continuation)
             return {"project_id": project_id, "updated": updated}
         finally:
             project.close()

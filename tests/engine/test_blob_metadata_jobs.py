@@ -1,21 +1,32 @@
 """Import completion does not wait for optional media parsers."""
 
 from contextlib import closing
+from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
 
-from frisket.engine.jobs import HandlerRegistry, JobHandlerContext
+from frisket.engine.jobs import (
+    HandlerRegistry,
+    JobHandlerContext,
+    SqliteJobQueue,
+    Worker,
+)
 from frisket.engine.jobs import blob_metadata
+from frisket.engine.jobs.queue import CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY
 from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import MediaBlobStore
 from frisket.server.app import create_app
+from frisket.project_identity import ProjectStorageKey
 
 
-def _handler(root, **kwargs):
+def _handler(root, *, queue=None, **kwargs):
     registry = HandlerRegistry()
     blob_metadata.register_blob_metadata_handler(
-        registry, workspace_root=root, **kwargs
+        registry,
+        workspace_root=root,
+        queue=queue if queue is not None else Mock(),
+        **kwargs,
     )
     return registry.get(blob_metadata.BLOB_METADATA_KIND)
 
@@ -54,7 +65,10 @@ def test_import_returns_before_probe_and_enqueues_durable_backfill(
     workspace.queue.close()
 
 
-def test_reopen_recovers_missing_enqueue_without_blocking_reads(tmp_path, monkeypatch):
+@pytest.mark.parametrize("drop_cache", [False, True])
+def test_reopen_recovers_missing_enqueue_without_blocking_reads(
+    tmp_path, monkeypatch, drop_cache
+):
     app = create_app(tmp_path / "workspace")
     workspace = app.state.workspace
     pid = workspace.create("Existing")["id"]
@@ -68,8 +82,9 @@ def test_reopen_recovers_missing_enqueue_without_blocking_reads(tmp_path, monkey
     )
     project = workspace.get(pid)
     assert MediaBlobStore(project).blob_exists(digest)
-    project.close()
-    workspace._projects.clear()
+    if drop_cache:
+        project.close()
+        workspace._projects.clear()
     monkeypatch.setattr(workspace.queue, "enqueue", enqueue)
     reopened = workspace.get(pid)
     job = workspace.queue.claim("metadata-test")
@@ -103,9 +118,15 @@ def test_bounded_scan_preserves_acquisition_and_skips_completed_probes(
         return result
 
     monkeypatch.setattr(MediaBlobStore, "hashes_needing_metadata", record)
-    handler = _handler(root)
-    result = handler({"project_id": "files"}, JobHandlerContext.without_job_row())
-    assert result["updated"] == 4
+    queued = [{"project_id": "files"}]
+    queue = Mock()
+    queue.enqueue.side_effect = lambda kind, payload: queued.append(payload)
+    handler = _handler(root, queue=queue)
+    updates = []
+    while queued:
+        result = handler(queued.pop(0), JobHandlerContext.without_job_row())
+        updates.append(result["updated"])
+    assert updates == [2, 2, 0]
     assert scanned == sorted(set(digests) - {digests[1]})
     with closing(Project(root / "files.frisket")) as project:
         store = MediaBlobStore(project)
@@ -150,3 +171,91 @@ def test_hosted_opener_refuses_unclaimed_payload_before_open(tmp_path):
             {"project_id": "files", "workspace_root": "/wrong"},
             JobHandlerContext.without_job_row(),
         )
+
+
+def test_worker_yields_to_other_work_between_batches(tmp_path, monkeypatch):
+    with closing(Project.create(tmp_path / "files.frisket")) as project:
+        for i in range(5):
+            project.add_blob(str(i).encode(), filename=f"{i}.txt", mime="text/plain")
+    monkeypatch.setattr(blob_metadata, "PROBE_BATCH_SIZE", 2)
+    with closing(SqliteJobQueue(tmp_path / "queue.db")) as queue:
+        registry = HandlerRegistry()
+        blob_metadata.register_blob_metadata_handler(
+            registry, workspace_root=tmp_path, queue=queue
+        )
+        other_work = []
+        registry.register("other", lambda *_: other_work.append("ran"))
+        first = queue.enqueue(
+            blob_metadata.BLOB_METADATA_KIND,
+            {"project_id": "files", "dedupe_key": "import-one"},
+        )
+        other = queue.enqueue("other", {})
+        worker = Worker(queue, registry)
+        assert worker.run_once()
+        assert queue.get(first).status == "done"
+        with closing(Project(tmp_path / "files.frisket")) as project:
+            assert len(MediaBlobStore(project).hashes_needing_metadata()) == 3
+        assert worker.run_once()
+        assert other_work == ["ran"]
+        assert queue.get(other).status == "done"
+        while worker.run_once():
+            pass
+        with closing(Project(tmp_path / "files.frisket")) as project:
+            assert MediaBlobStore(project).hashes_needing_metadata() == []
+
+
+def test_continuation_preserves_claimed_tenant_not_payload_identity(
+    tmp_path, monkeypatch
+):
+    root = tmp_path / "7"
+    with closing(Project.create(root / "files.frisket")) as project:
+        project.add_blob(b"a", filename="a.txt", mime="text/plain")
+    monkeypatch.setattr(blob_metadata, "PROBE_BATCH_SIZE", 1)
+    queue = Mock()
+    opened = []
+
+    def opener(key, path):
+        opened.append((key, path))
+        return Project(path)
+
+    handler = _handler(
+        root, queue=queue, project_opener=opener, workspace_root_storage_org_id=7
+    )
+    key = ProjectStorageKey(7, "files")
+    handler(
+        {
+            "project_id": "wrong",
+            "workspace_root": "/wrong",
+            "storage_org_id": 99,
+            "org_id": 99,
+            CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY: key,
+        },
+        JobHandlerContext.from_claimed_job(trusted_org_id=8),
+    )
+    assert opened == [(key, root / "files.frisket")]
+    [call] = queue.enqueue.call_args_list
+    payload = call.args[1]
+    assert payload["project_id"] == "files"
+    assert payload["workspace_root"] == str(root)
+    assert payload["storage_org_id"] == 7
+    assert payload["org_id"] == 8
+    assert CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY not in payload
+
+
+def test_failed_continuation_enqueue_can_retry_without_reprobing(tmp_path, monkeypatch):
+    with closing(Project.create(tmp_path / "files.frisket")) as project:
+        for i in range(3):
+            project.add_blob(str(i).encode(), filename=f"{i}.txt", mime="text/plain")
+    monkeypatch.setattr(blob_metadata, "PROBE_BATCH_SIZE", 2)
+    queue = Mock()
+    queue.enqueue.side_effect = OSError("queue temporarily unavailable")
+    handler = _handler(tmp_path, queue=queue)
+    with pytest.raises(OSError):
+        handler({"project_id": "files"}, JobHandlerContext.without_job_row())
+    # The first two probe documents committed before enqueue failed. A retry
+    # consumes the remainder, not the already completed expensive probes.
+    queue.enqueue.side_effect = None
+    assert (
+        handler({"project_id": "files"}, JobHandlerContext.without_job_row())["updated"]
+        == 1
+    )

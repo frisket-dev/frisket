@@ -177,6 +177,7 @@ class Workspace:
         self.root.mkdir(parents=True, exist_ok=True)
         ensure_writable_data_root(self.root)
         self._projects: dict[str, Project] = {}
+        self._metadata_enqueue_pending: set[str] = set()
         self._router = router
         # An edition may construct a fresh base router for each execution
         # while deliberately sharing its cache/config. Project-key overlays
@@ -802,6 +803,8 @@ class Workspace:
                 raise HTTPException(404, f"no project '{project_id}'")
             self._projects[project_id] = self._open_project(project_id, path)
             self._attach_project_jobs(project_id, self._projects[project_id])
+        elif project_id in self._metadata_enqueue_pending:
+            self._projects[project_id]._frisket_schedule_blob_metadata()
         return self._projects[project_id]
 
     def _attach_project_jobs(self, project_id: str, project: Project) -> None:
@@ -819,23 +822,27 @@ class Workspace:
                 return None
             # Each completed import gets its own trigger: an already-running
             # scan may have passed the hashes this import just published.
-            return self.queue.enqueue(
-                BLOB_METADATA_KIND,
-                {
-                    **self.queue_payload_extra,
-                    "project_id": project_id,
-                    "workspace_root": str(self.root),
-                    "dedupe_key": f"blob-metadata:{receipt_id}",
-                },
-            )
+            try:
+                job_id = self.queue.enqueue(
+                    BLOB_METADATA_KIND,
+                    {
+                        **self.queue_payload_extra,
+                        "project_id": project_id,
+                        "workspace_root": str(self.root),
+                        "dedupe_key": f"blob-metadata:{receipt_id}",
+                    },
+                )
+            except Exception:
+                self._metadata_enqueue_pending.add(project_id)
+                _log.warning("import_metadata_enqueue_failed", exc_info=True)
+                return None
+            self._metadata_enqueue_pending.discard(project_id)
+            return job_id
 
         setattr(project, "_frisket_schedule_blob_metadata", schedule_metadata)
         # Recover the commit/enqueue crash window when a project is reopened.
         # Probe namespaces are the durable progress marker; no second state table.
-        try:
-            schedule_metadata()
-        except Exception:
-            _log.warning("import_metadata_recovery_enqueue_failed", exc_info=True)
+        schedule_metadata()
 
     def create(
         self,
