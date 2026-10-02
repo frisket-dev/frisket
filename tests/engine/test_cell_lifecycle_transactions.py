@@ -8,6 +8,47 @@ from frisket.engine.store.media_blobs import media_cell
 from frisket.engine.store.project import Project
 
 
+def test_apply_edits_default_commit_preserves_ambient_transaction(
+    tmp_path: Path,
+) -> None:
+    project = Project.create(tmp_path / "ambient-edits.frisket", "ambient edits")
+    try:
+        sheet_id = project.add_sheet("Source")
+        column_id = project.add_column(sheet_id, "value")
+        row_id = project.add_rows(
+            sheet_id,
+            [{"value": "original"}],
+            {"value": column_id},
+        )[0]
+
+        project.db.execute("BEGIN IMMEDIATE")
+        project.db.execute("UPDATE sheets SET name='Sentinel' WHERE id=?", (sheet_id,))
+        project.apply_edits(
+            [{"row_id": row_id, "column_id": column_id, "value": "edited"}]
+        )
+
+        assert project.db.in_transaction
+        assert project.get_values(sheet_id, column_id) == {row_id: "edited"}
+
+        project.db.rollback()
+
+        assert (
+            project.db.execute(
+                "SELECT name FROM sheets WHERE id=?", (sheet_id,)
+            ).fetchone()["name"]
+            == "Source"
+        )
+        assert project.get_values(sheet_id, column_id) == {row_id: "original"}
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM ops WHERE kind='edit'"
+            ).fetchone()[0]
+            == 0
+        )
+    finally:
+        project.close()
+
+
 def test_add_rows_default_commit_preserves_ambient_transaction(tmp_path: Path) -> None:
     project = Project.create(tmp_path / "ambient-rows.frisket", "ambient rows")
     try:
