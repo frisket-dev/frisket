@@ -68,6 +68,12 @@ class AdmittedFileInventoryReader:
                     size=item["size"],
                     filename=item["filename"],
                     mime=item["mime"],
+                    occurrence_ref={
+                        "kind": "import_inventory",
+                        "ref": admission.ref,
+                        "ordinal": item["ordinal"],
+                        "logical_path": item["logical_path"],
+                    },
                 ),
             )
             for item in page

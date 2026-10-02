@@ -33,6 +33,7 @@ class ImportBlob:
     # Host-admitted inventory may already own canonical bytes. Never deserialize
     # this authority from action params or infer it from a digest supplied there.
     owner: ProjectBlobStore | None = field(default=None, repr=False, compare=False)
+    occurrence_ref: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -210,6 +211,21 @@ def publish_import_blobs(
         }
         if blob.source_url is not None:
             ref.update(source_url=blob.source_url, provider=blob.provider)
+        if blob.occurrence_ref is not None:
+            # Paged imports keep occurrence provenance in project data, not an
+            # ever-growing receipt or an expiring upload inventory.
+            artifact = record_source_artifact(
+                project,
+                artifact_kind="file",
+                media_type=blob.mime,
+                blob_hash=blob.digest,
+                filename=blob.filename,
+                source_sheet_id=sheet_id,
+                source_row_id=cell.row_id,
+                source_column_id=column_id,
+                external_ref=blob.occurrence_ref,
+            )
+            ref["artifact_id"] = artifact["id"]
         if blob.role == "page":
             artifact = artifacts[blob.document_id]
             span = record_source_span(

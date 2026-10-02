@@ -148,6 +148,7 @@ class AdmittedImportBlobStager:
         size: int,
         filename: str,
         mime: str,
+        occurrence_ref: dict[str, Any] | None = None,
     ) -> StagedFile:
         """Reuse host inventory facts after verified canonical-byte admission.
 
@@ -179,6 +180,7 @@ class AdmittedImportBlobStager:
             metadata={},
             role="attachment",
             owner=owner,
+            occurrence_ref=dict(occurrence_ref) if occurrence_ref is not None else None,
         )
         return file
 

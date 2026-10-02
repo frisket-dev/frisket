@@ -131,6 +131,11 @@ from frisket.engine.store.materialization import (
     materialized_row_sources_ref_matches,
 )
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.store.import_sessions import (
+    ImportSession,
+    ImportSessionConflict,
+    ImportSessionStore,
+)
 from frisket.engine.store.streaming_import import (
     StreamingSheetWriter,
     DuplicateStreamingPublication,
@@ -874,6 +879,115 @@ def run_typed_create_sheet_action(
         reserved_action_id=reserved_action_id,
         reserved_receipt_id=reserved_receipt_id,
     )
+
+
+def run_inventory_table_page(
+    project: Project,
+    project_id: str,
+    bound: BoundTypedActionRequest,
+    *,
+    admission: FileInventoryAdmission,
+    session_id: str,
+    writer_authority: str,
+    reserved_action_id: str,
+    reserved_receipt_id: str,
+    deps: ExecutorDeps | None = None,
+) -> ImportSession:
+    """Publish one admitted inventory page through the ordinary typed table host.
+
+    The queue owns admission, authority takeover and continuation. This host
+    never renews a claim: a replaced worker cannot regain authority by retrying.
+    Each call gets a fresh stager, bounded row validation and one checkpoint
+    transaction rather than an invocation-wide file/evidence accumulator.
+    """
+    source = builtin_table_source(project, project_id, bound, deps=deps)
+    if (
+        FileInventoryReader not in source.capabilities
+        or ImportBlobStager not in source.capabilities
+        or admission.owner is not project.blob_store
+    ):
+        raise ValueError("inventory page requires matching table and blob admission")
+    stored = ReceiptStore(project).find_by_id(reserved_receipt_id)
+    if stored is None or (
+        stored.action_id != reserved_action_id
+        or stored.action_kind != source.envelope.kind
+        or stored.params_hash != source.params_hash
+        or stored.idempotency_key != source.envelope.idempotency_key
+        or stored.parsed().project_id != project_id
+    ):
+        raise ValueError("inventory reservation does not match its canonical request")
+    sessions = ImportSessionStore(project)
+    session = sessions.get(session_id)
+    if session is not None and session.receipt_id != reserved_receipt_id:
+        raise ImportSessionConflict("import session belongs to another receipt")
+    if session is not None and session.state in {"completed", "kept", "removed"}:
+        return session
+    if stored.status != "running":
+        raise ImportSessionConflict("inventory receipt is no longer running")
+    writer = None
+    if session is not None:
+        session = sessions.require_writer(session_id, writer_authority, admission.after)
+        writer = StreamingSheetWriter._from_session(project, session)
+    elif admission.after != 0:
+        raise ImportSessionConflict("new import must start at the beginning")
+    with AdmittedImportBlobStager(probe_metadata=False) as stager:
+        with source.prepare(
+            blob_stager=stager,
+            inventory_admission=admission,
+            check_sheet_name=session is None,
+        ) as prepared:
+            if prepared.parent_sheet_id is not None:
+                raise ValueError("inventory import cannot produce a parented table")
+            reader = prepared.readers[FileInventoryReader]
+            batch, occurrences = [], []
+            for ordinal, (row, lineage, files) in enumerate(prepared.rows):
+                if ordinal >= admission.limit:
+                    raise ValueError("inventory action exceeded its bounded page")
+                if lineage.sources or lineage.parent is not None:
+                    raise ValueError("inventory rows cannot reference parent sheets")
+                batch.append(row)
+                occurrences.extend((ordinal, name, handle) for name, handle in files)
+            prepared.row_count = len(batch)
+            if not reader.used:
+                raise ValueError("inventory action did not consume its admitted page")
+            if writer is None:
+                writer = StreamingSheetWriter.start_session(
+                    project,
+                    session_id=session_id,
+                    writer_authority=writer_authority,
+                    sheet_name=prepared.table.sheet_name,
+                    columns=[
+                        column.model_dump(mode="json")
+                        for column in prepared.table.columns
+                    ],
+                    project_id=project_id,
+                    action_kind=source.envelope.kind,
+                    idempotency_key=source.envelope.idempotency_key,
+                    params_hash=source.params_hash,
+                    action_id=reserved_action_id,
+                    receipt_id=reserved_receipt_id,
+                    source_ref={"kind": "import_inventory", "ref": admission.ref},
+                )
+        stager.finish_reads()
+        if batch:
+            blob_plan = prepare_import_blobs(
+                project, stager.publication_plan(occurrences)
+            )
+            writer.append_page(
+                batch,
+                expected_cursor=admission.after,
+                next_cursor=reader.next_cursor,
+                committed_bytes=reader.admitted_bytes,
+                blob_plan=blob_plan,
+            )
+        elif reader.next_cursor != admission.after:
+            raise ValueError("inventory action skipped admitted occurrences")
+        writer.set_warnings(prepared.warnings)
+        if reader.complete:
+            writer.finalize_session(expected_cursor=reader.next_cursor)
+    result = sessions.get(session_id)
+    assert result is not None
+    return result
 
 
 def run_table_source(
