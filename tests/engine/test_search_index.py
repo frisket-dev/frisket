@@ -350,3 +350,46 @@ def test_candidate_discovery_does_not_read_cell_values(documents):
             assert live_ids == set(rows)
     finally:
         index.close()
+
+
+def test_sparse_column_discovery_does_not_scan_other_columns(tmp_path):
+    project = Project.create(tmp_path / "wide.frisket", name="wide")
+    from frisket.search import _sidecar
+
+    index = _sidecar(project)
+    try:
+        sheet = project.add_sheet("Wide")
+        columns = {
+            f"column{i}": project.add_column(sheet, f"column{i}") for i in range(16)
+        }
+        rows = project.add_rows(
+            sheet, [{name: "value" for name in columns}] * 200, columns
+        )
+        empty = project.add_column(sheet, "empty")
+        sparse = project.add_column(sheet, "sparse")
+        project.apply_edits(
+            [{"row_id": rows[-1], "column_id": sparse, "value": "only"}]
+        )
+        for column, expected in ((empty, []), (sparse, [rows[-1]])):
+            with project.read_snapshot() as snapshot:
+                instructions = 0
+
+                def enforce_bounded_lookup():
+                    nonlocal instructions
+                    instructions += 100
+                    return int(instructions > 2000)
+
+                # A row-first identity scan visits thousands of unrelated
+                # entries. A column-first covering seek touches only our scope.
+                snapshot.db.set_progress_handler(enforce_bounded_lookup, 100)
+                scope = SimpleNamespace(
+                    sheet_id=sheet, column_id=column, row_id_start=None, row_id_end=None
+                )
+                ids, live_ids = maintenance._column_page(
+                    snapshot.db, index, scope, column, 0, 500, searchable=True
+                )
+                assert ids == expected
+                assert live_ids == set(expected)
+    finally:
+        index.close()
+        project.close()
