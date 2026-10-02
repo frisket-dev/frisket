@@ -833,10 +833,6 @@ class RunResultStore:
                 commit=commit,
             )
 
-        if evidence_writer is None:
-            write(True)
-            return
-
         started_transaction = not self.db.in_transaction
         if started_transaction:
             self.db.execute("BEGIN IMMEDIATE")
@@ -844,17 +840,22 @@ class RunResultStore:
         self.db.execute(f"SAVEPOINT {savepoint}")
         try:
             write(False)
-            evidence_writer()
-            # Evidence may normalize or withhold a value before a fresh
-            # generation becomes visible. Replacement and staged generations
-            # retain their existing seal-time projection behavior.
-            from frisket.engine.store.result_generations import ResultGenerationStore
+            if evidence_writer is not None:
+                evidence_writer()
+                # Evidence may normalize or withhold a value before a fresh
+                # generation becomes visible. Replacement and staged generations
+                # retain their existing seal-time projection behavior.
+                from frisket.engine.store.result_generations import (
+                    ResultGenerationStore,
+                )
 
-            ResultGenerationStore(self.project)._project_written_results_uncommitted(
-                run_id,
-                batch,
-                claim_token=claim_token,
-            )
+                ResultGenerationStore(
+                    self.project
+                )._project_written_results_uncommitted(
+                    run_id,
+                    batch,
+                    claim_token=claim_token,
+                )
         except BaseException:
             self.db.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
             self.db.execute(f"RELEASE SAVEPOINT {savepoint}")

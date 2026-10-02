@@ -823,7 +823,8 @@ def test_result_publication_preserves_ambient_transaction_ownership(
         if with_checkpoint:
             assert (
                 project.db.execute(
-                    "SELECT COUNT(*) FROM effect_checkpoints WHERE id=?", (checkpoint_id,)
+                    "SELECT COUNT(*) FROM effect_checkpoints WHERE id=?",
+                    (checkpoint_id,),
                 ).fetchone()[0]
                 == 0
             )
