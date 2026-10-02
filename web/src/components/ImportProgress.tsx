@@ -13,6 +13,7 @@ import {
   isImportSessionBrowserUploading,
   matchesImportSelection,
   rememberedImportSelection,
+  setImportSessionBrowserUploading,
   subscribeImportSessions,
 } from './importProgressSession';
 
@@ -124,6 +125,25 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
     }
   };
 
+  const continueUpload = async (
+    session: ImportSessionStatus,
+    files: File[],
+    paths: string[],
+  ) => {
+    setMessage(null);
+    setImportSessionBrowserUploading(session.import_ref, true);
+    try {
+      await uploadFilesToImportSession(projectId, session, files, paths);
+      onChanged?.(session.sheet_id);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      setMessage(text);
+      onError?.(`Import failed: ${text}`);
+    } finally {
+      setImportSessionBrowserUploading(session.import_ref, false);
+    }
+  };
+
   if (!sessions.length) return null;
   return (
     <section className="notification-settings-notice" aria-label="Import progress" data-testid="import-progress">
@@ -148,9 +168,7 @@ export function ImportProgress({ projectId, onOpenSheet, onChanged, onError }: {
             setMessage(`Reselect the original file set (${session.through} files were already uploaded).`);
             return;
           }
-          void command(session, () => uploadFilesToImportSession(
-            projectId, session, files, paths,
-          ));
+          void continueUpload(session, files, paths);
         }}
       />
       <div>

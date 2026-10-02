@@ -102,4 +102,27 @@ describe('persistent import progress', () => {
     expect(screen.getByTestId('import-progress-completed')).toHaveTextContent('10 rows added');
     expect(listImportSessions).toHaveBeenCalledTimes(2);
   });
+
+  it('allows cancellation while a resumed browser upload chunk is pending', async () => {
+    const admitting = {
+      ...running, state: 'admitting', through: 0, committed_rows: 0, sheet_id: null, sealed: false,
+    };
+    listImportSessions.mockResolvedValue({ sessions: [admitting] });
+    cancelImportSession.mockResolvedValue({ ...admitting, state: 'cancelling', cancel_requested: true });
+    let finishUpload!: () => void;
+    uploadFilesToImportSession.mockImplementation(() => new Promise((resolve) => {
+      finishUpload = () => resolve({ ...admitting, state: 'running', sealed: true });
+    }));
+    const file = new File(['one'], 'one.pdf');
+    rememberImportSessionFiles('import-1', [file], ['one.pdf']);
+    render(<ImportProgress projectId="project-1" onOpenSheet={vi.fn()} />);
+
+    await screen.findByText(/Upload was interrupted/);
+    fireEvent.click(screen.getByRole('button', { name: 'Reselect files' }));
+    fireEvent.change(screen.getByLabelText('Reselect import files'), { target: { files: [file] } });
+    await waitFor(() => expect(uploadFilesToImportSession).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(cancelImportSession).toHaveBeenCalledWith('project-1', 'import-1'));
+    await act(async () => { finishUpload(); });
+  });
 });
