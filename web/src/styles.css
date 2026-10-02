@@ -5682,10 +5682,18 @@ li.panel-empty { list-style: none; }
 .evidence-page-image-frame {
   position: relative;
   width: min(100%, 760px);
+  min-height: 180px;
   background: #fff;
   border: 1px solid var(--border);
   border-radius: var(--radius-6);
   overflow: hidden;
+}
+.evidence-page-image-pending {
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  color: var(--text-light);
+  font-size: 11px;
 }
 .evidence-page-image {
   display: block;

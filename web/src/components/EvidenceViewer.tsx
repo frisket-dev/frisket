@@ -1,5 +1,5 @@
 import { Check, Copy, Download, ExternalLink, FileText, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type RefObject } from 'react';
 import {
   type EvidenceArtifact,
   type EvidenceCitationRun,
@@ -399,7 +399,8 @@ function EvidencePageView({
   artifactStableId: string;
   emphasizedSpanIds: readonly string[];
 }) {
-  if (!page.image) {
+  const imageUrl = page.image?.url ?? page.render_url ?? null;
+  if (!imageUrl) {
     return (
       <div
         className="evidence-page-fallback"
@@ -414,20 +415,98 @@ function EvidencePageView({
   return (
     <div className="evidence-page" data-testid="evidence-page" id={pageAnchorId(artifactStableId, page.page)}>
       <div className="evidence-page-label">Page {page.page}</div>
-      <div className="evidence-page-image-frame">
-        <img
-          className="evidence-page-image"
-          src={page.image.url}
-          alt={`Source page ${page.page}`}
-          data-testid="evidence-page-image"
-        />
-        {page.regions.map((region) => (
-          <RegionOverlay key={region.stable_id} region={region} emphasized={emphasizedSpanIds.includes(region.stable_id)} />
-        ))}
-      </div>
+      <LazyEvidencePageImage
+        key={imageUrl}
+        imageUrl={imageUrl}
+        page={page}
+        emphasizedSpanIds={emphasizedSpanIds}
+      />
       {page.text && <pre className="evidence-page-text" data-testid="evidence-page-text">{page.text}</pre>}
     </div>
   );
+}
+
+function LazyEvidencePageImage({
+  imageUrl,
+  page,
+  emphasizedSpanIds,
+}: {
+  imageUrl: string;
+  page: EvidencePage;
+  emphasizedSpanIds: readonly string[];
+}) {
+  const { frameRef, state, measuredHeight, onLoad, onError } = useVisiblePageImage();
+  const frameStyle: CSSProperties | undefined = measuredHeight > 0
+    ? { minHeight: `${measuredHeight}px` }
+    : undefined;
+  return (
+    <div className="evidence-page-image-frame" ref={frameRef} style={frameStyle}>
+      {(state === 'loading' || state === 'loaded') && (
+        <img
+          className="evidence-page-image"
+          src={imageUrl}
+          alt={`Source page ${page.page}`}
+          data-testid="evidence-page-image"
+          onLoad={(event) => onLoad(event.currentTarget.getBoundingClientRect().height)}
+          onError={onError}
+        />
+      )}
+      {state === 'waiting' && (
+        <div className="evidence-page-image-pending" data-testid="evidence-page-image-pending">
+          Page image loads when visible.
+        </div>
+      )}
+      {state === 'error' && (
+        <div className="evidence-page-image-pending" data-testid="evidence-page-image-error">
+          Could not render page {page.page}.
+        </div>
+      )}
+      {(state === 'loading' || state === 'loaded') && page.regions.map((region) => (
+        <RegionOverlay key={region.stable_id} region={region} emphasized={emphasizedSpanIds.includes(region.stable_id)} />
+      ))}
+    </div>
+  );
+}
+
+function useVisiblePageImage(): {
+  frameRef: RefObject<HTMLDivElement>;
+  state: 'waiting' | 'loading' | 'loaded' | 'error';
+  measuredHeight: number;
+  onLoad(height: number): void;
+  onError(): void;
+} {
+  const frameRef = useRef<HTMLDivElement>(null);
+  const [state, setState] = useState<'waiting' | 'loading' | 'loaded' | 'error'>(
+    typeof IntersectionObserver === 'undefined' ? 'loading' : 'waiting',
+  );
+  const [measuredHeight, setMeasuredHeight] = useState(0);
+  useEffect(() => {
+    const frame = frameRef.current;
+    if (!frame || typeof IntersectionObserver === 'undefined') return;
+    let alive = true;
+    const observer = new IntersectionObserver((entries) => {
+      const entry = entries.find((candidate) => candidate.target === frame);
+      if (!alive || !entry) return;
+      setState((current) => entry.isIntersecting
+        ? (current === 'loaded' || current === 'error' ? current : 'loading')
+        : 'waiting');
+    }, { rootMargin: '240px 0px' });
+    observer.observe(frame);
+    return () => {
+      alive = false;
+      observer.disconnect();
+    };
+  }, []);
+  return {
+    frameRef,
+    state,
+    measuredHeight,
+    onLoad: (height) => {
+      if (height > 0) setMeasuredHeight(height);
+      setState('loaded');
+    },
+    onError: () => setState('error'),
+  };
 }
 
 function RegionOverlay({ region, emphasized, coordinateSpace = 'page_normalized' }: {
