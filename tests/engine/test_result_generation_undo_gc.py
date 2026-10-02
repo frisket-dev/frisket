@@ -8,6 +8,7 @@ from frisket.engine.store import bundle_io
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
+from frisket.search_index import drain_index, index_batch
 from test_result_generation_store import (
     _declare,
     _publish_initial_generation,
@@ -172,6 +173,65 @@ def test_direct_edit_undo_and_redo_refuse_claim_on_managed_column(
             project.redo()
         claims.release(claim_token="claim:edit-redo")
         assert project.redo() == edit_op_id
+    finally:
+        project.close()
+
+
+def test_edit_undo_redo_refreshes_only_the_changed_search_cell(tmp_path: Path) -> None:
+    project, sheet_id, column_id, row_ids = _seed_project(tmp_path)
+    try:
+        source_column_id = next(
+            int(column["id"])
+            for column in project.columns(sheet_id)
+            if column["name"] == "source"
+        )
+        row_ids.extend(
+            project.add_rows(
+                sheet_id,
+                [{"source": f"many-row-{index}"} for index in range(64)],
+                {"source": source_column_id},
+            )
+        )
+        drain_index(project)
+        edit_op_id = project.apply_edits(
+            [
+                {
+                    "row_id": row_ids[0],
+                    "column_id": source_column_id,
+                    "value": "manual",
+                }
+            ]
+        )
+        assert project.get_values(sheet_id, source_column_id)[row_ids[0]] == "manual"
+        assert index_batch(project, batch_size=100).processed == 1
+        project.db.execute("CREATE TEMP TABLE current_cell_audit(kind,row_id,column_id)")
+        project.db.execute(
+            "CREATE TEMP TRIGGER audit_current_cell_delete AFTER DELETE ON current_cells "
+            "BEGIN INSERT INTO current_cell_audit VALUES ('delete',OLD.row_id,OLD.column_id); END"
+        )
+        project.db.execute(
+            "CREATE TEMP TRIGGER audit_current_cell_insert AFTER INSERT ON current_cells "
+            "BEGIN INSERT INTO current_cell_audit VALUES ('insert',NEW.row_id,NEW.column_id); END"
+        )
+        project.db.commit()
+
+        assert project.undo() == edit_op_id
+        assert project.get_values(sheet_id, source_column_id)[row_ids[0]] != "manual"
+        assert index_batch(project, batch_size=100).processed == 1
+        assert {
+            (int(row["row_id"]), int(row["column_id"]))
+            for row in project.db.execute("SELECT row_id,column_id FROM current_cell_audit")
+        } == {(row_ids[0], source_column_id)}
+        project.db.execute("DELETE FROM current_cell_audit")
+        project.db.commit()
+
+        assert project.redo() == edit_op_id
+        assert project.get_values(sheet_id, source_column_id)[row_ids[0]] == "manual"
+        assert index_batch(project, batch_size=100).processed == 1
+        assert {
+            (int(row["row_id"]), int(row["column_id"]))
+            for row in project.db.execute("SELECT row_id,column_id FROM current_cell_audit")
+        } == {(row_ids[0], source_column_id)}
     finally:
         project.close()
 

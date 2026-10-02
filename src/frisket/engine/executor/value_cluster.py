@@ -125,16 +125,18 @@ def recompute_cluster_coverage(
     row_ids: list[int],
 ) -> list[dict[str, Any]]:
     """Bind surviving variants to their exact rows after review exclusions."""
+    rows_by_surface: dict[str, list[int]] = {}
+    for row_id in row_ids:
+        raw = values_by_row.get(row_id)
+        surface = "" if raw is None else str(raw).strip()
+        rows_by_surface.setdefault(surface, []).append(row_id)
+
     rebuilt: list[dict[str, Any]] = []
     for cluster in clusters:
         surfaces = [value["value"] for value in cluster["values"]]
-        surface_set = set(surfaces)
-        per_surface: dict[str, list[int]] = {surface: [] for surface in surfaces}
-        for row_id in row_ids:
-            raw = values_by_row.get(row_id)
-            surface = "" if raw is None else str(raw).strip()
-            if surface in surface_set:
-                per_surface[surface].append(row_id)
+        per_surface = {
+            surface: rows_by_surface.get(surface, []) for surface in surfaces
+        }
         member_row_ids = sorted(
             row_id for rows in per_surface.values() for row_id in rows
         )

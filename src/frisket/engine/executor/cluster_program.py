@@ -26,6 +26,11 @@ from frisket.ops.base import RecipeInvocationHalt
 from frisket.ops.cost_source import free_local_estimate, unknown_cost_estimate
 
 
+CLUSTER_RESULT_SPEC_KEY = "value_clusters_result"
+CLUSTER_RESULT_STORAGE_SPEC_KEY = "value_clusters_result_storage"
+CLUSTER_RESULT_RECEIPT_STORAGE = "receipt_evidence_v1"
+
+
 def _cache_only_embedding(_texts):
     raise RuntimeError(
         "Clustering lost admitted vectors before computation; refusing another embedding call"
@@ -182,13 +187,13 @@ def persist_cluster_fact(project, fact, *, writer_attempt_id, claim_token):
         ).fetchone()
         provenance = json.loads(run["spec"])
         if (
-            "value_clusters_result" in provenance
-            and provenance["value_clusters_result"] != fact
+            CLUSTER_RESULT_SPEC_KEY in provenance
+            and provenance[CLUSTER_RESULT_SPEC_KEY] != fact
         ):
             raise RuntimeError(
                 "The prepared cluster operation already recorded different groups"
             )
-        provenance["value_clusters_result"] = fact
+        provenance[CLUSTER_RESULT_SPEC_KEY] = fact
         db.execute(
             "UPDATE ops SET spec=? WHERE id=?",
             (json.dumps(provenance, sort_keys=True, allow_nan=False), run["id"]),

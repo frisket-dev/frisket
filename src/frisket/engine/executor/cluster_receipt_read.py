@@ -13,6 +13,11 @@ from frisket.actions.entity_types import (
 )
 from frisket.actions.types import RowSource, TableError
 from frisket.engine.executor.action_receipts import _receipt_ops_are_applied
+from frisket.engine.executor.cluster_program import (
+    CLUSTER_RESULT_RECEIPT_STORAGE,
+    CLUSTER_RESULT_SPEC_KEY,
+    CLUSTER_RESULT_STORAGE_SPEC_KEY,
+)
 from frisket.engine.store.artifact_timeline import canonical_json_hash
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.sdk.replay import output_column_value_hash, output_columns_replay_error
@@ -62,11 +67,18 @@ def _published_clusters(project: Any, receipt_id: str):
         fact = facts[0]
         provenance = json.loads(run["spec"] or "{}")
         persisted = (
-            provenance.get("value_clusters_result")
+            provenance.get(CLUSTER_RESULT_SPEC_KEY)
             if isinstance(provenance, dict)
             else None
         )
-        if persisted != fact or fact.get("run_id") != receipt.run_id:
+        storage = (
+            provenance.get(CLUSTER_RESULT_STORAGE_SPEC_KEY)
+            if isinstance(provenance, dict)
+            else None
+        )
+        compact = persisted is None and storage == CLUSTER_RESULT_RECEIPT_STORAGE
+        legacy = persisted == fact and storage is None
+        if (not compact and not legacy) or fact.get("run_id") != receipt.run_id:
             raise ValueError(
                 "Cluster receipt differs from the actual capability result"
             )
@@ -129,11 +141,35 @@ def _published_clusters(project: Any, receipt_id: str):
             compare_declared_format=True,
         ):
             raise ValueError(error.message)
-        values = project.get_values(sheet_id, output["column_id"])
-        if fact["canonical_values"] != [
-            {"row_id": row, "value": values.get(row)} for row in row_ids
-        ]:
+        surface_to_canonical = {}
+        for group in fact["clusters"]:
+            canonical = group["canonical"]
+            for variant in group["values"]:
+                surface_to_canonical[variant["value"]] = canonical
+        canonical_values = fact["canonical_values"]
+        if not isinstance(canonical_values, list) or len(canonical_values) != len(
+            row_ids
+        ):
             raise ValueError("Published canonical values changed")
+        for offset in range(0, len(row_ids), 128):
+            page = row_ids[offset : offset + 128]
+            source_values = project.get_values(sheet_id, column_id, row_ids=page)
+            output_values = project.get_values(
+                sheet_id, output["column_id"], row_ids=page
+            )
+            for index, row_id in enumerate(page, start=offset):
+                raw = source_values.get(row_id)
+                surface = "" if raw is None else str(raw).strip()
+                expected = surface_to_canonical.get(surface, surface)
+                if (
+                    canonical_values[index]
+                    != {
+                        "row_id": row_id,
+                        "value": expected,
+                    }
+                    or output_values.get(row_id) != expected
+                ):
+                    raise ValueError("Published canonical values changed")
     except (KeyError, TypeError, ValueError) as exc:
         raise TableError("stale_replay", str(exc)) from exc
     return receipt, fact
