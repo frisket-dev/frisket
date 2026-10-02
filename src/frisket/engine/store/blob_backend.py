@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from frisket.project_identity import ProjectStorageKey
+from frisket.engine.store.disk_capacity import require_disk_headroom
 
 
 class BlobStoreError(RuntimeError):
@@ -121,6 +122,7 @@ class FilesystemProjectBlobStore:
             if _sha256_path(target) != digest:
                 raise BlobIntegrityError(f"canonical blob {digest} is corrupt")
             return digest
+        require_disk_headroom(target.parent, len(payload))
         fd, raw_temp = tempfile.mkstemp(prefix=f".{digest}.", dir=target.parent)
         temp_path = Path(raw_temp)
         try:
@@ -156,6 +158,7 @@ class FilesystemProjectBlobStore:
             if expected_digest is not None
             else None
         )
+        require_disk_headroom(self.root, source_path.stat().st_size)
         fd, raw_temp = tempfile.mkstemp(prefix=".blob-path.", dir=self.root)
         temp_path = Path(raw_temp)
         digest_builder = hashlib.sha256()
@@ -314,6 +317,7 @@ class S3ProjectBlobStore:
             # Upload an immutable private snapshot, not the caller's live path.
             # A renderer cleaning up or replacing its scratch file mid-upload can
             # therefore never poison the canonical content-addressed key.
+            require_disk_headroom(raw_dir, source_path.stat().st_size)
             snapshot = Path(raw_dir) / "payload"
             digest_builder = hashlib.sha256()
             with source_path.open("rb") as source, snapshot.open("xb") as sink:

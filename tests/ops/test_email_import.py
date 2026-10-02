@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import mailbox
+import errno
 from collections.abc import Mapping
 from email.message import EmailMessage
 from email.mime.message import MIMEMessage
@@ -477,3 +478,53 @@ def test_streaming_requires_scratch_before_sources_are_opened(tmp_path: Path) ->
         )
 
     assert warnings.values() == []
+
+
+@pytest.mark.parametrize("format", ["eml", "mbox"])
+@pytest.mark.parametrize("failure", ["write", "close"])
+def test_attachment_disk_full_aborts_and_removes_partial_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, format: str, failure: str
+) -> None:
+    module = _email_import()
+    payload = _message_bytes(
+        "Attachment", plain="body", attachment=(b"content", "text/plain", "note.txt")
+    )
+    source = tmp_path / f"source.{format}"
+    if format == "eml":
+        source.write_bytes(payload)
+    else:
+        _write_mbox(source, [payload])
+    original = module.tempfile.NamedTemporaryFile
+
+    class FailingFile:
+        def __init__(self, *args, **kwargs):
+            self.stream = original(*args, **kwargs)
+            self.name = self.stream.name
+
+        def __enter__(self):
+            return self
+
+        def write(self, data):
+            self.stream.write(data[:1])
+            if failure == "write":
+                raise OSError(errno.ENOSPC, "disk full")
+
+        def __exit__(self, *_exc):
+            self.stream.close()
+            if failure == "close":
+                raise OSError(errno.ENOSPC, "disk full")
+
+    monkeypatch.setattr(module.tempfile, "NamedTemporaryFile", FailingFile)
+    scratch = tmp_path / "attachments"
+    warnings = module.EmailParseWarnings()
+    with pytest.raises(OSError) as error:
+        list(
+            module.iter_email_messages(
+                [_source(module, source, source.name, format)],
+                attachment_dir=scratch,
+                warnings=warnings,
+            )
+        )
+    assert error.value.errno == errno.ENOSPC
+    assert warnings.values() == []
+    assert list(scratch.iterdir()) == []

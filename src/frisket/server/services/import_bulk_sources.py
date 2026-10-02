@@ -12,6 +12,8 @@ import zipfile
 import zlib
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO
+
+from frisket.engine.store.disk_capacity import require_disk_headroom
 from frisket.server.services.import_bulk_types import (
     BulkImportLimits,
     BulkUpload,
@@ -245,6 +247,7 @@ async def stage_uploads(
                     enforce_limit("upload bytes", total_size, limits.max_upload_bytes)
                     digest.update(chunk)
                     extend_detection_prefix(prefix, chunk)
+                    require_disk_headroom(temp.parent, len(chunk))
                     sink.write(chunk)
                 sink.flush()
                 os.fsync(sink.fileno())
@@ -338,6 +341,7 @@ def stage_zip(
                             )
                             digest.update(chunk)
                             extend_detection_prefix(prefix, chunk)
+                            require_disk_headroom(temp.parent, len(chunk))
                             sink.write(chunk)
                         sink.flush()
                         os.fsync(sink.fileno())

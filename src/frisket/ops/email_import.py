@@ -516,8 +516,8 @@ def _stage_attachment(
             prefix=f"{digest}-",
             delete=False,
         ) as stream:
-            stream.write(payload)
             path = Path(stream.name)
+            stream.write(payload)
         return EmailAttachment(
             path=path,
             mime=part.get_content_type() or "application/octet-stream",
