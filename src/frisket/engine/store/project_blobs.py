@@ -289,15 +289,32 @@ def _root_texts(db: sqlite3.Connection):
 
 
 def _retained_payloads(db: sqlite3.Connection):
-    """All retained receipt/effect references, not only their current UI shape."""
+    """Published receipt ownership and conservatively retained effect payloads."""
     for row in db.execute(
         "SELECT body, 'receipt' AS family, status AS state FROM receipts "
         "UNION ALL SELECT payload,family,state FROM effect_checkpoints "
         "WHERE payload IS NOT NULL"
     ):
         payload = json.loads(row[0])
-        if row[1] == "receipt" and not isinstance(payload, dict):
-            raise ValueError("invalid retained receipt")
+        if row[1] == "receipt":
+            if not isinstance(payload, dict):
+                raise ValueError("invalid retained receipt")
+            # Inputs and descriptive metadata merely mention bytes. Ownership
+            # belongs to published files, even if their handler later failed.
+            for evidence in payload.get("evidence", []):
+                ref = evidence.get("ref", {})
+                if ref.get("kind") == "row_file_output":
+                    for blob in (ref["primary"], *ref["supplemental"]):
+                        yield blob["blob_hash"]
+            for artifact in payload.get("exports", []):
+                if (
+                    isinstance(artifact, dict)
+                    and artifact.get("kind") == "export_project_file"
+                ):
+                    digest = artifact.get("blob_hash")
+                    if isinstance(digest, str):
+                        yield digest
+            continue
         if row[1] == "row_effect" and row[2] == "returned":
             # Preserve the existing fail-closed behavior for damaged unresolved
             # file returns whose ownership cannot be reconstructed safely.

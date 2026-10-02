@@ -101,6 +101,29 @@ def test_receipt_and_paid_effect_payloads_are_conservative_roots(project):
     assert project.gc_blobs()["hashes"] == [orphan]
 
 
+def test_receipt_export_metadata_mentions_do_not_own_blobs(project):
+    published = project.add_blob(b"published export")
+    mentioned = project.add_blob(b"only mentioned in metadata")
+    project.db.execute(
+        "INSERT INTO receipts(id,action_kind,status,body) VALUES ('receipt','test','failed',?)",
+        (
+            json.dumps(
+                {
+                    "exports": [
+                        {
+                            "kind": "export_project_file",
+                            "blob_hash": published,
+                            "description": mentioned,
+                        }
+                    ]
+                }
+            ),
+        ),
+    )
+    project.db.commit()
+    assert project.gc_blobs()["hashes"] == [mentioned]
+
+
 def _inventory(project, digest):
     directory = project.path / ".imports" / ("import-" + "a" * 32)
     directory.mkdir(parents=True)
