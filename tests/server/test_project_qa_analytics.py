@@ -194,6 +194,20 @@ def test_having_is_numeric_and_denominator_precedes_group_filtering(tmp_path):
         "reason": None,
         "mixed_sign": False,
     }
+
+    off_end = evaluate_analytics(
+        project,
+        {
+            "sheet_id": sheet,
+            "groups": [{"column_id": columns["supplier"]}],
+            "metrics": [{"id": "rows", "kind": "count", "percent_of_total": True}],
+            "offset": 99,
+        },
+        {"kind": "sheet", "sheet_id": sheet},
+    )
+    assert off_end["groups"] == []
+    assert off_end["row_count"] == 6
+    assert off_end["denominators"]["rows"]["value"] == 6
     project.close()
 
 
