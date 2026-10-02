@@ -13,6 +13,7 @@ from frisket.server.notifications.delivery import (
 )
 from frisket.server.notifications.secrets import StaticNotificationSecretResolver
 from frisket.server.app import create_app
+from frisket.search_index import drain_index
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -49,6 +50,7 @@ def _seed_watch(client: TestClient) -> tuple[str, dict[str, Any], list[dict]]:
         files={"file": ("watch.csv", CSV, "text/csv")},
     )
     assert imported.status_code == 200, imported.text
+    drain_index(client.app.state.workspace.get(pid))
     watch = client.post(
         f"/api/projects/{pid}/watches",
         json={

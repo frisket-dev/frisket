@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from helpers import make_client
 from frisket.engine.jobs import Worker
+from frisket.search_index import drain_index
 from frisket.server.notifications.delivery import NotificationDeliveryRuntime
 from frisket.server.notifications.providers import (
     ProviderHttpResponse,
@@ -70,6 +71,7 @@ def test_watch_event_routes_through_worker_to_recorded_slack_transport(
         files={"file": ("watch.csv", CSV, "text/csv")},
     )
     assert imported.status_code == 200, imported.text
+    drain_index(client.app.state.workspace.get(pid))
     watch_response = client.post(
         f"/api/projects/{pid}/watches",
         json={

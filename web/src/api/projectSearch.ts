@@ -9,14 +9,16 @@ export interface ProjectSearchOptions {
   headers?: HeadersInit;
 }
 
-export type ProjectSearchHitWire =
-  HttpContractSuccessResponse<'tenant.search_ep.get'>[number];
+export type ProjectSearchPageWire =
+  HttpContractSuccessResponse<'tenant.search_ep.get'>;
+
+export type ProjectSearchHitWire = ProjectSearchPageWire['hits'][number];
 
 export interface ProjectSearchApi {
   searchProject(
     q: string,
     options?: ProjectSearchOptions | number,
-  ): Promise<ProjectSearchHitWire[]>;
+  ): Promise<ProjectSearchPageWire>;
 }
 
 type ContractErrorFactory = (status: number, payload: unknown) => Error;

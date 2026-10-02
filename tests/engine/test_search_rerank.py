@@ -17,7 +17,13 @@ from pathlib import Path
 import pytest
 
 import frisket.search as search_mod
-from frisket.search import RERANK_MODEL, local_reranker, rerank_hits, search_project
+from frisket.search import (
+    RERANK_MODEL,
+    drain_index,
+    local_reranker,
+    rerank_hits,
+    search_project,
+)
 from frisket.semantic import semantic_search
 from frisket.engine.store import Project
 
@@ -29,6 +35,7 @@ def _seed(tmp_path, notes: list[str]) -> Project:
     sheet = p.add_sheet("data")
     cols = {"note": p.add_column(sheet, "note")}
     p.add_rows(sheet, [{"note": n} for n in notes], cols)
+    drain_index(p)
     return p
 
 

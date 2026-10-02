@@ -15,6 +15,7 @@ from frisket.engine.jobs import (
     Worker,
 )
 from frisket.engine.jobs.import_files import register_import_files_handler
+from frisket.engine.jobs.search_index import register_search_index_handler
 from frisket.engine.jobs.queue import BLOB_METADATA_KIND, IMPORT_FILES_PAGE_KIND
 from frisket.engine.store import Project
 from frisket.engine.store.import_intake import (
@@ -69,7 +70,24 @@ def setup_import(root, *, count=5, sealed=False):
 def registry_for(root, queue):
     registry = HandlerRegistry()
     register_import_files_handler(registry, workspace_root=root, queue=queue)
+    register_search_index_handler(registry, workspace_root=root, queue=queue)
     return registry
+
+
+def run_until_settled(worker, queue, job_id):
+    for _ in range(20):
+        if queue.get(job_id).status not in {"queued", "running"}:
+            return
+        assert worker.run_once()
+    pytest.fail(f"job {job_id} did not settle")
+
+
+def run_until_attempted(worker, queue, job_id):
+    for _ in range(20):
+        if queue.get(job_id).attempts:
+            return
+        worker.run_once()
+    pytest.fail(f"job {job_id} was not attempted")
 
 
 def enqueue(queue, through):
@@ -84,7 +102,7 @@ def test_worker_consumes_uploaded_cursor_then_seal_finalizes_same_receipt(tmp_pa
     with closing(SqliteJobQueue(tmp_path / "queue.db")) as queue:
         worker = Worker(queue, registry_for(tmp_path, queue))
         first = enqueue(queue, 2)
-        assert worker.run_once()
+        run_until_settled(worker, queue, first)
         assert queue.get(first).status == "done", queue.get(first).error
         with closing(Project(tmp_path / "files.frisket")) as project:
             session = ImportSessionStore(project).get(REF)
@@ -94,12 +112,12 @@ def test_worker_consumes_uploaded_cursor_then_seal_finalizes_same_receipt(tmp_pa
                 == "running"
             )
         second = enqueue(queue, 5)
-        assert worker.run_once()
+        run_until_settled(worker, queue, second)
         assert queue.get(second).status == "done", queue.get(second).error
         with ImportInventory(directory / "inventory.db") as inventory:
             inventory.seal()
         final = enqueue(queue, 5)
-        assert worker.run_once()
+        run_until_settled(worker, queue, final)
         assert queue.get(final).status == "done", queue.get(final).error
         with closing(Project(tmp_path / "files.frisket")) as project:
             session = ImportSessionStore(project).get(REF)
@@ -118,13 +136,13 @@ def test_cancel_intent_stops_next_job_without_deleting_committed_rows(tmp_path):
     _envelope, directory = setup_import(tmp_path)
     with closing(SqliteJobQueue(tmp_path / "queue.db")) as queue:
         worker = Worker(queue, registry_for(tmp_path, queue))
-        enqueue(queue, 2)
-        worker.run_once()
+        first = enqueue(queue, 2)
+        run_until_settled(worker, queue, first)
         write_import_header(
             directory, replace(read_import_header(directory), cancel_requested=True)
         )
         cancelled = enqueue(queue, 5)
-        worker.run_once()
+        run_until_settled(worker, queue, cancelled)
         assert queue.get(cancelled).status == "done", queue.get(cancelled).error
         with closing(Project(tmp_path / "files.frisket")) as project:
             session = ImportSessionStore(project).get(REF)
@@ -145,11 +163,11 @@ def test_completed_retry_schedules_metadata_without_reimporting(tmp_path, monkey
         monkeypatch.setattr(queue, "enqueue", fail_metadata)
         worker = Worker(queue, registry_for(tmp_path, queue))
         first = enqueue(queue, 5)
-        worker.run_once()
+        run_until_attempted(worker, queue, first)
         assert queue.get(first).status != "done"
         monkeypatch.setattr(queue, "enqueue", original_enqueue)
         retry = enqueue(queue, 5)
-        worker.run_once()
+        run_until_settled(worker, queue, retry)
         assert queue.get(retry).status == "done", queue.get(retry).error
         with closing(Project(tmp_path / "files.frisket")) as project:
             session = ImportSessionStore(project).get(REF)
@@ -171,7 +189,7 @@ def test_large_resume_yields_to_another_queue_claim(tmp_path):
     with closing(SqliteJobQueue(tmp_path / "queue.db")) as queue:
         worker = Worker(queue, registry_for(tmp_path, queue))
         first = enqueue(queue, 1030)
-        worker.run_once()
+        run_until_settled(worker, queue, first)
         assert queue.get(first).status == "done", queue.get(first).error
         with closing(Project(tmp_path / "files.frisket")) as project:
             session = ImportSessionStore(project).get(REF)
@@ -202,7 +220,7 @@ def test_job_refuses_payload_authority_and_another_project_inventory(tmp_path):
             directory, replace(read_import_header(directory), storage_identity="other")
         )
         job = queue.get(enqueue(queue, 5))
-        Worker(queue, registry).run_once()
+        run_until_attempted(Worker(queue, registry), queue, job.id)
         assert queue.get(job.id).status != "done"
         with closing(Project(tmp_path / "files.frisket")) as project:
             assert project.sheets() == []

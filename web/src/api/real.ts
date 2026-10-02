@@ -175,7 +175,7 @@ import type {
   ProjectRole,
   RemovalResult,
   RuntimeConfig,
-  SearchHit,
+  ProjectSearchPage,
   SearchOptions,
   SpendReport,
 } from './types';
@@ -673,7 +673,7 @@ export function searchProject(
   projectId: string,
   q: string,
   options: SearchOptions | number = {},
-): Promise<SearchHit[]> {
+): Promise<ProjectSearchPage> {
   return createProjectSearchApi(apiErrorFromContract, projectId).searchProject(q, options);
 }
 

@@ -25,11 +25,19 @@ import os
 import sqlite3
 import threading
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from typing import Any
 
 from frisket.engine.store import Project
 from frisket.engine.store.project import ProjectReadSnapshot
+from frisket.search_index import (
+    SearchIndexNotReady,
+    drain_index,  # noqa: F401 -- public explicit maintenance entry point
+    index_batch,  # noqa: F401 -- public background maintenance entry point
+    index_is_complete,
+    index_needs_work,  # noqa: F401 -- public scheduling hint
+    source_hash,
+)
 
 # ~80MB onnx cross-encoder, downloads on first use into the SAME fastembed
 # cache as the semantic embedder (fastembed define_cache_dir: FASTEMBED_CACHE_PATH
@@ -37,7 +45,7 @@ from frisket.engine.store.project import ProjectReadSnapshot
 RERANK_MODEL = "Xenova/ms-marco-MiniLM-L-6-v2"
 RERANK_POOL = 50  # second stage runs over the top-50 first-stage candidates
 RERANK_MIN_SPREAD = 1.0  # logits; flatter than this = uninformative, keep stage-1
-FTS_INDEX_CONTENT_VERSION = "2"
+FTS_INDEX_CONTENT_VERSION = "3"
 _rerank_model: Any = None  # lazy fastembed TextCrossEncoder singleton
 
 Scorer = Callable[[str, list[str]], list[float]]
@@ -107,6 +115,16 @@ CREATE VIRTUAL TABLE IF NOT EXISTS cell_fts USING fts5(
   column_name UNINDEXED
 );
 CREATE TABLE IF NOT EXISTS fts_state (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS search_cells (
+  id INTEGER PRIMARY KEY,
+  sheet_id INTEGER NOT NULL,
+  column_id INTEGER NOT NULL,
+  row_id INTEGER NOT NULL,
+  source_hash TEXT NOT NULL,
+  UNIQUE(column_id,row_id)
+);
+CREATE INDEX IF NOT EXISTS search_cells_sheet_column
+  ON search_cells(sheet_id,column_id,row_id);
 -- semantic-search vector cache: key = sha1(model_id + content), vec = packed
 -- float32. Content-addressed, so it never goes stale (edits make new keys) and
 -- survives FTS rebuilds; the sidecar stays rebuildable by contract.
@@ -117,8 +135,32 @@ CREATE TABLE IF NOT EXISTS cell_vec (key TEXT PRIMARY KEY, vec BLOB NOT NULL);
 def _sidecar(project: SearchProject) -> sqlite3.Connection:
     db = sqlite3.connect(project.path / "project.search.db", check_same_thread=False)
     db.row_factory = sqlite3.Row
+    db.execute("PRAGMA journal_mode=WAL")
+    db.execute("PRAGMA busy_timeout=10000")
     db.executescript(SIDECAR_SCHEMA)
     return db
+
+
+def _read_sidecar(project: SearchProject) -> sqlite3.Connection:
+    """Open a pinned existing index without foreground DDL or writer waits."""
+    path = project.path / "project.search.db"
+    try:
+        db = sqlite3.connect(
+            f"{path.as_uri()}?mode=ro", uri=True, timeout=0, check_same_thread=False
+        )
+    except sqlite3.OperationalError as exc:
+        raise SearchIndexNotReady() from exc
+    db.row_factory = sqlite3.Row
+    try:
+        db.execute("BEGIN")
+        # Pin and validate this read transaction even when the caller intends
+        # to serve an explicitly incomplete set of results.
+        if fts_index_content_version(db) != FTS_INDEX_CONTENT_VERSION:
+            raise SearchIndexNotReady()
+        return db
+    except (sqlite3.OperationalError, SearchIndexNotReady) as exc:
+        db.close()
+        raise SearchIndexNotReady() from exc
 
 
 def _raise_if_cancelled(cancel_event: threading.Event | None) -> None:
@@ -135,104 +177,26 @@ def _cancel_progress(cancel_event: threading.Event | None) -> Callable[[], int] 
 def rebuild_index(
     project: SearchProject, *, cancel_event: threading.Event | None = None
 ) -> int:
-    """Publish a complete-cell index and watermark from one read snapshot.
+    """Explicitly refresh the complete latest index through bounded maintenance."""
+    if not isinstance(project, Project):
+        raise SearchIndexNotReady()
+    if project.db.in_transaction:
+        raise RuntimeError("index maintenance requires its own source transaction")
+    from frisket.engine.store.search_index_work import enqueue_dirty_scope
 
-    Vector entries are content-addressed; rebuilding keyword search leaves them
-    untouched. A failed rebuild retains the previous committed index.
-    """
-    db = _sidecar(project)
-    owns_snapshot = isinstance(project, Project)
-    snapshot = project.read_snapshot() if owns_snapshot else project
-    snapshot_progress_installed = False
-    progress = _cancel_progress(cancel_event)
+    _raise_if_cancelled(cancel_event)
+    project.db.execute("BEGIN IMMEDIATE")
     try:
-        _raise_if_cancelled(cancel_event)
-        if progress is not None:
-            db.set_progress_handler(progress, 1_000)
-            if owns_snapshot:
-                snapshot.db.set_progress_handler(progress, 1_000)
-                snapshot_progress_installed = True
-        try:
-            indexed_at_op, import_stamp = _source_watermark(snapshot)
-            db.execute("BEGIN")
-            db.execute("DELETE FROM cell_fts")
-            n = 0
-            for sheet in snapshot.sheets():
-                if "(undone:" in sheet["name"]:
-                    continue
-                for column in snapshot.columns(sheet["id"]):
-                    if column["type"] not in ("text", "category", "json", "link"):
-                        continue
-
-                    def rows() -> Iterator[tuple[str, int, int, int, str]]:
-                        nonlocal n
-                        source_rows = snapshot.db.execute(
-                            "SELECT r.id, c.value, COALESCE(c.validity, 'missing') AS validity "
-                            "FROM rows r LEFT JOIN current_cells c "
-                            "ON c.column_id=? AND c.row_id=r.id "
-                            "WHERE r.sheet_id=? AND r.hidden=0",
-                            (column["id"], sheet["id"]),
-                        )
-                        for row in source_rows:
-                            _raise_if_cancelled(cancel_event)
-                            stored = (
-                                None if row["validity"] == "invalid" else row["value"]
-                            )
-                            value = None if stored is None else json.loads(stored)
-                            if value is None:
-                                continue
-                            text = str(value)
-                            if not text.strip():
-                                continue
-                            n += 1
-                            yield (
-                                text,
-                                sheet["id"],
-                                int(row["id"]),
-                                column["id"],
-                                column["name"],
-                            )
-
-                    db.executemany(
-                        "INSERT INTO cell_fts (content, sheet_id, row_id, column_id, "
-                        "column_name) VALUES (?,?,?,?,?)",
-                        rows(),
-                    )
-            for key, value in (
-                ("indexed_at_op", str(indexed_at_op)),
-                ("indexed_import_stamp", import_stamp),
-                ("index_content_version", FTS_INDEX_CONTENT_VERSION),
-            ):
-                db.execute(
-                    "INSERT INTO fts_state (key, value) VALUES (?, ?) "
-                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                    (key, value),
-                )
-            db.commit()
-            return n
-        finally:
-            if snapshot_progress_installed:
-                snapshot.db.set_progress_handler(None, 0)
-    except sqlite3.OperationalError:
-        db.rollback()
-        _raise_if_cancelled(cancel_event)
-        raise
+        enqueue_dirty_scope(project.db)
+        project.db.commit()
     except BaseException:
-        db.rollback()
+        project.db.rollback()
         raise
-    finally:
-        if owns_snapshot:
-            snapshot.close()
-        if progress is not None:
-            db.set_progress_handler(None, 0)
-        db.close()
+    return drain_index(project, cancel_event=cancel_event)
 
 
 def fts_indexed_at_op(db: sqlite3.Connection) -> int | None:
-    """The op-cursor watermark rebuild_index stamps into fts_state.
-
-    One accessor for the copied ``SELECT value FROM fts_state`` reads (the
-    writer stays inline in rebuild_index above — it is the only stamper)."""
+    """The source op cursor at the last complete index publication."""
     state = db.execute(
         "SELECT value FROM fts_state WHERE key='indexed_at_op'"
     ).fetchone()
@@ -247,44 +211,15 @@ def fts_index_content_version(db: sqlite3.Connection) -> str | None:
     return str(state["value"]) if state is not None else None
 
 
-def _source_watermark(project: SearchProject) -> tuple[int, str]:
-    """Read op and resumable-import progress from one committed source state.
-
-    Import pages share one op. Session cursors advance monotonically, sessions
-    are retained, and removal is terminal, so these aggregates also detect
-    visible changes made without advancing the op cursor.
-    """
-    row = project.db.execute(
-        "SELECT COALESCE((SELECT value FROM meta WHERE key='op_cursor'),'0'), "
-        "COUNT(*),COALESCE(SUM(cursor),0),"
-        "COALESCE(SUM(state='removed'),0) FROM import_sessions"
-    ).fetchone()
-    return int(row[0]), json.dumps([int(value) for value in row[1:]])
-
-
 def fresh_sidecar(
     project: SearchProject, *, cancel_event: threading.Event | None = None
 ) -> sqlite3.Connection:
-    """An FTS sidecar current for the op cursor and committed import pages.
-
-    The lazy pull-style staleness check (watermark != op_cursor -> rebuild)
-    used to be copy-pasted at every reader; it lives only here now."""
+    """Pin a complete matching index; readers never run index maintenance."""
     _raise_if_cancelled(cancel_event)
-    db = _sidecar(project)
+    db = _read_sidecar(project)
     try:
-        op_cursor, import_stamp = _source_watermark(project)
-        indexed_import = db.execute(
-            "SELECT value FROM fts_state WHERE key='indexed_import_stamp'"
-        ).fetchone()
-        if (
-            fts_indexed_at_op(db) != op_cursor
-            or indexed_import is None
-            or indexed_import["value"] != import_stamp
-            or fts_index_content_version(db) != FTS_INDEX_CONTENT_VERSION
-        ):
-            db.close()
-            rebuild_index(project, cancel_event=cancel_event)
-            db = _sidecar(project)
+        if not index_is_complete(db, project):
+            raise SearchIndexNotReady()
         _raise_if_cancelled(cancel_event)
         return db
     except BaseException:
@@ -307,6 +242,68 @@ _SEARCH_SQL = (
     "snippet(cell_fts, 0, '', '', '…', 64) AS rerank_text "
     "FROM cell_fts WHERE cell_fts MATCH ? ORDER BY rank LIMIT ?"
 )
+
+
+def search_project_page(
+    project: Project, query: str, limit: int = 50, rerank: str = "auto"
+) -> dict[str, Any]:
+    """Bounded interactive results; discard stale cells before exposing snippets."""
+    if not 1 <= limit <= 500:
+        raise ValueError("search limit must be between 1 and 500")
+    try:
+        db = _read_sidecar(project)
+    except SearchIndexNotReady:
+        return {"hits": [], "complete": False}
+    snapshot = project.read_snapshot()
+    try:
+        complete = index_is_complete(db, snapshot)
+        pool = max(limit, RERANK_POOL) if rerank != "off" else limit
+        # A bounded overfetch tolerates recently changed candidates. Incomplete
+        # coverage is explicit; never scan the whole ranked result set to fill a page.
+        sql = _SEARCH_SQL.replace(
+            "SELECT sheet_id", "SELECT rowid AS index_id, sheet_id", 1
+        )
+        try:
+            rows = db.execute(sql, (query, min(1000, pool * 4))).fetchall()
+        except sqlite3.OperationalError:
+            rows = db.execute(sql, (f'"{query}"', min(1000, pool * 4))).fetchall()
+        hits = []
+        texts = []
+        for indexed in rows:
+            identity = db.execute(
+                "SELECT source_hash FROM search_cells WHERE id=?",
+                (indexed["index_id"],),
+            ).fetchone()
+            live = snapshot.db.execute(
+                "SELECT cc.value,c.name,c.ai_generated FROM current_cells cc "
+                "JOIN columns c ON c.id=cc.column_id JOIN rows r ON r.id=cc.row_id "
+                "JOIN sheets s ON s.id=c.sheet_id "
+                "WHERE cc.column_id=? AND cc.row_id=? AND c.sheet_id=? "
+                "AND r.sheet_id=s.id AND r.hidden=0 AND c.hidden=0 AND s.hidden=0 "
+                "AND cc.validity='valid' AND c.type IN ('text','category','json','link')",
+                (indexed["column_id"], indexed["row_id"], indexed["sheet_id"]),
+            ).fetchone()
+            if (
+                identity is None
+                or live is None
+                or live["value"] is None
+                or live["name"] != indexed["column_name"]
+                or source_hash(str(json.loads(live["value"]))) != identity[0]
+            ):
+                continue
+            hit = dict(indexed)
+            hit.pop("index_id")
+            texts.append(hit.pop("rerank_text"))
+            hit["ai_generated"] = bool(live["ai_generated"])
+            hits.append(hit)
+            if len(hits) >= pool:
+                break
+        if rerank != "off":
+            hits = rerank_hits(query, hits, texts)
+        return {"hits": hits[:limit], "complete": complete}
+    finally:
+        snapshot.close()
+        db.close()
 
 
 def search_project(
@@ -347,8 +344,8 @@ def search_sheet(
     project: Project, sheet_id: int, query: str, limit: int = 50
 ) -> list[int]:
     """Sheet-scoped FTS/BM25 keyword ranking -> ordered, de-duplicated row_ids (Stage 7
-    Lane H, the keyword half of hybrid search). Reuses the project ``cell_fts`` index +
-    its op-cursor staleness rebuild + the bad-syntax quote-retry. A row matching in
+    Lane H, the keyword half of hybrid search). Requires the matching complete
+    project ``cell_fts`` index and retains bad-syntax quote-retry. A row matching in
     multiple cells appears ONCE, at its best (first) rank. NEVER returns another sheet's
     rows (the ``AND sheet_id=?`` scope)."""
     db = fresh_sidecar(project)
@@ -389,6 +386,11 @@ def search_cells_scoped(
         return []
     db = fresh_sidecar(project, cancel_event=cancel_event)
     indexed_at_op = fts_indexed_at_op(db)
+    indexed_revision = int(
+        db.execute(
+            "SELECT value FROM fts_state WHERE key='complete_revision'"
+        ).fetchone()[0]
+    )
     marker = uuid.uuid4().hex
     anchor_start = f"__frisket_fts_{marker}_start__"
     anchor_end = f"__frisket_fts_{marker}_end__"
@@ -439,7 +441,13 @@ def search_cells_scoped(
         hit["snip"] = snippet.replace(anchor_start, "<b>").replace(anchor_end, "</b>")
         if found and closed and anchor:
             hit["fts_anchor"] = anchor
-        hits.append({**hit, "_indexed_at_op": indexed_at_op})
+        hits.append(
+            {
+                **hit,
+                "_indexed_at_op": indexed_at_op,
+                "_indexed_revision": indexed_revision,
+            }
+        )
     return hits
 
 

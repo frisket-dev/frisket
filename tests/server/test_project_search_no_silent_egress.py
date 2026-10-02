@@ -102,14 +102,17 @@ def test_semantic_search_without_a_local_embedder_does_not_egress(
         )
 
     workspace, project_id = _project_with_text(tmp_path)
+    search_module.drain_index(workspace.get(project_id))
     tripwire = _EgressTripwire()
     monkeypatch.setattr(
         Workspace, "router_for", lambda self, project: tripwire, raising=True
     )
 
-    hits = ProjectSearchService(workspace).search(
+    page = ProjectSearchService(workspace).search(
         project_id, q="stadium bond", limit=10, mode="semantic", rerank="auto"
     )
+    assert page["indexing"] is False
+    hits = page["hits"]
 
     # The request is still SERVED — degraded to lexical, not refused ...
     assert len(hits) == 2 and all(hit["semantic"] is False for hit in hits)

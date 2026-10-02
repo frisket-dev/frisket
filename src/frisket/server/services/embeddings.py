@@ -34,6 +34,7 @@ from frisket.server.workspace import Workspace
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore, StoredReceipt
 from frisket.server.route_errors import RouteError
+from frisket.search import SearchIndexNotReady
 
 
 EMBEDDING_SIMILARITY_PREVIEW_SCHEMA = "frisket.embedding_similarity_preview.v1"
@@ -71,13 +72,30 @@ class EmbeddingRouteService:
 
     def hybrid_preview(self, project_id: str, query: dict[str, Any]) -> dict:
         project = self._workspace.get(project_id)
-        self._check_search_freshness(project, query)
+        schedule = getattr(project, "_frisket_schedule_search_index", None)
+        if schedule is not None:
+            schedule()
         gateway = EmbeddingGateway(router=self._workspace.router_for(project))
-        try:
-            result = resolve_embedding_hybrid(project, query, gateway=gateway)
-        except SimilarityError as exc:
-            raise _embedding_request_error(exc) from exc
-        return _embedding_hybrid_preview_payload(project, result)
+        for attempt in range(2):
+            try:
+                with project.read_snapshot() as snapshot:
+                    self._check_search_freshness(snapshot, query)
+                    result = resolve_embedding_hybrid(
+                        snapshot, query, gateway=gateway, effect_project=project
+                    )
+                    return _embedding_hybrid_preview_payload(snapshot, result)
+            except SearchIndexNotReady as exc:
+                if attempt:
+                    raise EmbeddingRouteError(
+                        409,
+                        {
+                            "code": "search_index_not_ready",
+                            "message": "Search is still indexing. Please try again shortly.",
+                        },
+                    ) from exc
+            except SimilarityError as exc:
+                raise _embedding_request_error(exc) from exc
+        raise AssertionError("unreachable")
 
     def provider_catalog(
         self,

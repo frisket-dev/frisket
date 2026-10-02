@@ -359,6 +359,7 @@ def register_production_handlers(
     from frisket.server.notifications.delivery import default_delivery_runtime
 
     from .blob_metadata import register_blob_metadata_handler
+    from .search_index import register_search_index_handler
     from .import_files import register_import_files_handler
     from .embeddings import register_embedding_refresh_handler
     from .enclosures import register_enclosure_download_handler
@@ -464,6 +465,13 @@ def register_production_handlers(
         workspace_root_storage_org_id=workspace_root_storage_org_id,
         project_opener=project_opener,
     )
+    search_index_registration = register_search_index_handler(
+        registry,
+        workspace_root=root,
+        queue=queue,
+        workspace_root_storage_org_id=workspace_root_storage_org_id,
+        project_opener=project_opener,
+    )
     source_poll_registration = register_source_poll_handler(
         registry,
         workspace_root=root,
@@ -521,6 +529,7 @@ def register_production_handlers(
             "source.poll": source_poll_registration,
             "enclosure.download": enclosure_download_registration,
             "blob.metadata.backfill": blob_metadata_registration,
+            "search.index": search_index_registration,
             "import.files.page": import_files_registration,
             "notification.deliver": notification_delivery_registration,
             "notification.digest": notification_digest_registration,

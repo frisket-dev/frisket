@@ -12,7 +12,9 @@ from frisket.engine.store import Project
 from frisket.engine.store.project import ProjectReadSnapshot
 from frisket.engine.store.streaming_import import StreamingSheetWriter
 from frisket.search import (
+    SearchIndexNotReady,
     _sidecar,
+    drain_index,
     fts_indexed_at_op,
     rebuild_index,
     search_cells_scoped,
@@ -52,28 +54,33 @@ def test_search_tracks_import_pages_and_removal_under_one_op(tmp_path):
         writer = _import_writer(project)
         op_cursor = project.op_cursor
         writer.append_page([{"body": "firstneedle"}], expected_cursor=0, next_cursor=1)
+        drain_index(project)
         assert search_project(project, "firstneedle", rerank="off")
         writer.append_page([{"body": "secondneedle"}], expected_cursor=1, next_cursor=2)
         assert project.op_cursor == op_cursor
+        with pytest.raises(SearchIndexNotReady):
+            search_project(project, "secondneedle", rerank="off")
+        drain_index(project)
         assert search_project(project, "secondneedle", rerank="off")
         writer.cancel(expected_cursor=2)
         assert search_project(project, "firstneedle", rerank="off")
         writer.remove_session(expected_cursor=2)
         assert project.op_cursor == op_cursor
+        drain_index(project)
         assert search_project(project, "firstneedle", rerank="off") == []
         assert search_project(project, "secondneedle", rerank="off") == []
     finally:
         project.close()
 
 
-def test_missing_import_stamp_rebuilds_once(tmp_path, monkeypatch):
+def test_missing_revision_requires_explicit_maintenance(tmp_path, monkeypatch):
     project = Project.create(tmp_path / "unstamped.frisket", name="unstamped")
     try:
         writer = _import_writer(project)
         writer.append_page([{"body": NEEDLE}], expected_cursor=0, next_cursor=1)
         rebuild_index(project)
         db = _sidecar(project)
-        db.execute("DELETE FROM fts_state WHERE key='indexed_import_stamp'")
+        db.execute("DELETE FROM fts_state WHERE key='complete_revision'")
         db.commit()
         db.close()
         rebuilds = []
@@ -84,15 +91,20 @@ def test_missing_import_stamp_rebuilds_once(tmp_path, monkeypatch):
             return original(*args, **kwargs)
 
         monkeypatch.setattr(search_mod, "rebuild_index", rebuild)
+        with pytest.raises(SearchIndexNotReady):
+            search_project(project, NEEDLE, rerank="off")
+        drain_index(project)
         assert search_project(project, NEEDLE, rerank="off")
         writer.pause(expected_cursor=1)
         assert search_project(project, NEEDLE, rerank="off")
-        assert rebuilds == [True]
+        assert rebuilds == []
     finally:
         project.close()
 
 
-def test_import_stamp_belongs_to_indexed_snapshot(tmp_path, monkeypatch):
+def test_explicit_rebuild_catches_import_pages_arriving_during_maintenance(
+    tmp_path, monkeypatch
+):
     project = Project.create(tmp_path / "import-snapshot.frisket", name="snapshot")
     try:
         writer = _import_writer(project)
@@ -106,7 +118,7 @@ def test_import_stamp_belongs_to_indexed_snapshot(tmp_path, monkeypatch):
                 writer.append_page([{"body": NEEDLE}], expected_cursor=1, next_cursor=2)
 
         monkeypatch.setattr(search_mod, "_raise_if_cancelled", append_during_scan)
-        assert rebuild_index(project) == 1
+        assert rebuild_index(project) == 2
         assert search_project(project, NEEDLE, rerank="off")
     finally:
         project.close()
@@ -144,6 +156,7 @@ def test_complete_fts_finds_late_multi_megabyte_cell_in_project_sheet_and_scope(
 
     monkeypatch.setattr(search_mod, "local_reranker", lambda: score)
 
+    drain_index(project)
     unreranked = search_project(project, NEEDLE, rerank="off")
     reranked = search_project(project, NEEDLE, rerank="on")
     assert late_row in {int(hit["row_id"]) for hit in unreranked}
@@ -189,6 +202,9 @@ def test_same_op_truncated_sidecar_rebuilds_for_content_version(tmp_path):
     finally:
         db.close()
 
+    with pytest.raises(SearchIndexNotReady):
+        search_project(project, NEEDLE, rerank="off")
+    drain_index(project)
     hits = search_project(project, NEEDLE, rerank="off")
     assert late_row in {int(hit["row_id"]) for hit in hits}
     db = _sidecar(project)
@@ -249,6 +265,7 @@ def test_semantic_keeps_the_existing_prefix_input_and_cache_identity(tmp_path):
         embedded.extend(texts)
         return [[1.0, 0.0] for _text in texts]
 
+    drain_index(project)
     hits = semantic_search(project, "query", embed=embed, embed_id="stub/fulltext-v1")
     corpus_inputs = [text for text in embedded if text != "query"]
     assert corpus_inputs
@@ -258,7 +275,9 @@ def test_semantic_keeps_the_existing_prefix_input_and_cache_identity(tmp_path):
     project.close()
 
 
-def test_rebuild_watermark_belongs_to_the_indexed_snapshot(tmp_path, monkeypatch):
+def test_explicit_rebuild_catches_writes_arriving_during_maintenance(
+    tmp_path, monkeypatch
+):
     project = Project.create(tmp_path / "snapshot.frisket", name="snapshot")
     sheet = project.add_sheet("documents")
     column = project.add_column(sheet, "body")
@@ -277,7 +296,7 @@ def test_rebuild_watermark_belongs_to_the_indexed_snapshot(tmp_path, monkeypatch
     db = _sidecar(project)
     try:
         assert project.op_cursor > original_op
-        assert fts_indexed_at_op(db) == original_op
+        assert fts_indexed_at_op(db) == project.op_cursor
         assert search_project(project, "concurrentneedle", rerank="off")
     finally:
         db.close()

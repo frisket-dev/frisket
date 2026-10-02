@@ -35,7 +35,6 @@ from typing import Any, Literal
 
 from frisket.search import (
     RERANK_POOL,
-    _sidecar,
     column_ai_flags,
     fresh_sidecar,
     rerank_hits,
@@ -369,13 +368,67 @@ def _vec_key(model_id: str, content: str) -> str:
     ).hexdigest()
 
 
-def _cached_vectors(db: sqlite3.Connection, keys: list[str]) -> dict[str, list[float]]:
+def _vector_cache(project: Project) -> sqlite3.Connection | None:
+    """Open the optional cache without waiting or creating a keyword index."""
+    db = None
+    try:
+        db = sqlite3.connect(
+            project.path / "project.search.db",
+            timeout=0,
+        )
+        db.row_factory = sqlite3.Row
+        if (
+            db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cell_vec'"
+            ).fetchone()
+            is None
+        ):
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS cell_vec (key TEXT PRIMARY KEY, vec BLOB NOT NULL)"
+            )
+        return db
+    except sqlite3.OperationalError:
+        if db is not None:
+            db.close()
+        return None
+
+
+def _store_vectors(
+    db: sqlite3.Connection | None, rows: list[tuple[str, bytes]]
+) -> None:
+    if db is None:
+        return
+    try:
+        db.executemany("INSERT OR REPLACE INTO cell_vec (key, vec) VALUES (?, ?)", rows)
+        db.commit()
+    except sqlite3.OperationalError as exc:
+        # These vectors remain usable in memory. Index maintenance must never
+        # delay a completed model call just to populate a disposable cache.
+        if getattr(exc, "sqlite_errorcode", 0) & 0xFF not in {
+            sqlite3.SQLITE_BUSY,
+            sqlite3.SQLITE_LOCKED,
+        }:
+            raise
+        db.rollback()
+
+
+def _cached_vectors(
+    db: sqlite3.Connection | None, keys: list[str]
+) -> dict[str, list[float]]:
     out: dict[str, list[float]] = {}
+    if db is None:
+        return out
     CHUNK = 500  # stay under SQLite's bound-parameter cap
     for i in range(0, len(keys), CHUNK):
         chunk = keys[i : i + CHUNK]
         q = ",".join("?" * len(chunk))
-        for r in db.execute(f"SELECT key, vec FROM cell_vec WHERE key IN ({q})", chunk):
+        try:
+            rows = db.execute(
+                f"SELECT key, vec FROM cell_vec WHERE key IN ({q})", chunk
+            )
+        except sqlite3.OperationalError:
+            return out
+        for r in rows:
             a = array("f")
             a.frombytes(r["vec"])
             out[r["key"]] = list(a)
@@ -392,8 +445,12 @@ def _doc_vectors(
     (model, content) pair is unseen get embedded — the content-addressed key
     makes edits incremental and model switches stale-proof."""
     keys = [_vec_key(model_id, r["content"]) for r in corpus]
-    db = _sidecar(project)
-    cached = _cached_vectors(db, keys)
+    db = _vector_cache(project)
+    try:
+        cached = _cached_vectors(db, keys)
+    finally:
+        if db is not None:
+            db.close()
     missing_idx = [i for i, k in enumerate(keys) if k not in cached]
     if missing_idx:
         result = embed([corpus[i]["content"] for i in missing_idx])
@@ -403,9 +460,12 @@ def _doc_vectors(
         for i, vec in zip(missing_idx, fresh, strict=True):
             cached[keys[i]] = vec
             rows.append((keys[i], array("f", vec).tobytes()))
-        db.executemany("INSERT OR REPLACE INTO cell_vec (key, vec) VALUES (?, ?)", rows)
-        db.commit()
-    db.close()
+        db = _vector_cache(project)
+        try:
+            _store_vectors(db, rows)
+        finally:
+            if db is not None:
+                db.close()
     return [cached[k] for k in keys]
 
 
@@ -465,7 +525,7 @@ async def _doc_vectors_async(
     """
 
     keys = [_vec_key(model_id, row["content"]) for row in corpus]
-    db = _sidecar(project)
+    db = _vector_cache(project)
     try:
         cached = _cached_vectors(db, keys)
         missing_idx = [i for i, key in enumerate(keys) if key not in cached]
@@ -489,13 +549,11 @@ async def _doc_vectors_async(
             for i, vec in zip(missing_idx, fresh, strict=True):
                 cached[keys[i]] = vec
                 rows.append((keys[i], array("f", vec).tobytes()))
-            db.executemany(
-                "INSERT OR REPLACE INTO cell_vec (key, vec) VALUES (?, ?)", rows
-            )
-            db.commit()
+            _store_vectors(db, rows)
         return [cached[key] for key in keys]
     finally:
-        db.close()
+        if db is not None:
+            db.close()
 
 
 def semantic_search(
@@ -646,7 +704,7 @@ def semantic_passage_search(
             "coverage": {"complete": True, "passages": 0, "semantic": True},
         }
 
-    cache = _sidecar(project)
+    cache = _vector_cache(project)
     try:
         cached, keys, fresh_count, embedding_error = _cache_passage_vectors(
             cache,
@@ -702,7 +760,8 @@ def semantic_passage_search(
             "coverage": {"complete": True, "semantic": True, "passages": len(passages)},
         }
     finally:
-        cache.close()
+        if cache is not None:
+            cache.close()
 
 
 def _passage_scope(
@@ -776,7 +835,7 @@ def _collect_passages(
 
 
 def _cache_passage_vectors(
-    cache: sqlite3.Connection,
+    cache: sqlite3.Connection | None,
     passages: list[dict[str, Any]],
     embed: Embedder,
     embed_id: str,
@@ -809,14 +868,13 @@ def _cache_passage_vectors(
         except Exception:
             return cached, keys, fresh_count, "embedding_failed"
         _refuse_misaligned_batch(batch, vectors)
-        cache.executemany(
-            "INSERT OR REPLACE INTO cell_vec (key, vec) VALUES (?, ?)",
+        _store_vectors(
+            cache,
             [
                 (keys[index], array("f", vector).tobytes())
                 for index, vector in zip(batch, vectors, strict=True)
             ],
         )
-        cache.commit()
         for index, vector in zip(batch, vectors, strict=True):
             for duplicate in missing_by_key[keys[index]]:
                 cached[keys[duplicate]] = vector

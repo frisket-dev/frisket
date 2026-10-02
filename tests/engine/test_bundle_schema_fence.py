@@ -44,6 +44,9 @@ def _without_current_cells_foundation(schema: str) -> str:
 
 
 def _without_import_sessions(schema: str) -> str:
+    before, marked = schema.split("-- SEARCH_INDEX_WORK_BEGIN", 1)
+    _removed, after = marked.split("-- SEARCH_INDEX_WORK_END", 1)
+    schema = before + after
     before, marked = schema.split("-- IMPORT_SESSIONS_BEGIN", 1)
     _removed, after = marked.split("-- IMPORT_SESSIONS_END", 1)
     return before + after

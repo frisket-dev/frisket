@@ -76,6 +76,8 @@ def _client(tmp_path, router):
 
 
 def _seed(client, *, provider="fastembed", policy=None, dim=384):
+    from frisket.search import drain_index
+
     pid = client.post("/api/projects", json={"name": "sim"}).json()["id"]
     project = client.app.state.workspace.get(pid)
     sheet = project.add_sheet("animals")
@@ -110,6 +112,7 @@ def _seed(client, *, provider="fastembed", policy=None, dim=384):
         project_id=pid,
         deps=ExecutorDeps(embedding_gateway=MappedGateway(dim)),
     )
+    drain_index(project)
     return pid, project, sheet, cols, index_id
 
 

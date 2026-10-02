@@ -363,6 +363,11 @@ export interface SearchHit {
   snip: string;
 }
 
+export interface ProjectSearchPage {
+  hits: SearchHit[];
+  indexing: boolean;
+}
+
 export interface SearchOptions {
   limit?: number;
   mode?: 'keyword' | 'semantic';

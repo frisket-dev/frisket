@@ -19,6 +19,7 @@ from frisket.features.watchlists.specs import (
     query_spec_hash,
 )
 from http_test_helpers import post_row_add_as_v1_action
+from frisket.search_index import drain_index
 
 
 CSV = (
@@ -36,6 +37,7 @@ def _seed_project(client: TestClient) -> tuple[str, int]:
         files={"file": ("watch.csv", CSV, "text/csv")},
     )
     assert response.status_code == 200, response.text
+    drain_index(client.app.state.workspace.get(pid))
     return pid, int(response.json()["sheet_id"])
 
 
@@ -213,6 +215,7 @@ def test_watch_runs_record_row_entered_events_and_keep_mvp_tables(
         },
     )
     assert added.status_code == 200, added.text
+    drain_index(client.app.state.workspace.get(pid))
     third = _run_watch(client, pid, watch["id"])
     assert third["run"]["new_rows"] == 1
     third_events = client.get(

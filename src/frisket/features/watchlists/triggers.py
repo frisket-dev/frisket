@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any, TypedDict
 
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
-from frisket.features.watchlists.service import run_watch_evaluation, watch_query
+from frisket.features.watchlists.service import (
+    WatchBindingError,
+    run_watch_evaluation,
+    watch_query,
+)
 
 
 class SourcePollMaterialization(TypedDict):
@@ -81,6 +86,9 @@ def source_poll_materialization_from_receipt(
 def trigger_source_materialized_watches(
     project: Project,
     materialization: SourcePollMaterialization,
+    *,
+    enqueue_keyword_watches: Callable[[list[Any], SourcePollMaterialization], None]
+    | None = None,
 ) -> list[dict[str, Any]]:
     if (
         materialization.get("kind") != "source_poll_materialized"
@@ -88,9 +96,30 @@ def trigger_source_materialized_watches(
         or not materialization.get("row_ids")
     ):
         return []
+    watches = affected_enabled_watches(project, materialization)
+    keyword_watches = [watch for watch in watches if _is_keyword_watch(watch)]
+    if keyword_watches and enqueue_keyword_watches is not None:
+        enqueue_keyword_watches(keyword_watches, materialization)
+        watches = [watch for watch in watches if not _is_keyword_watch(watch)]
+    elif keyword_watches:
+        # Standalone synchronous callers have no worker that could finish this
+        # dependency; preserve their established complete-on-return contract.
+        from frisket.search import drain_index
+
+        drain_index(project)
     out: list[dict[str, Any]] = []
-    for watch in affected_enabled_watches(project, materialization):
-        evaluation = run_watch_evaluation(project, watch)
+    for watch in watches:
+        try:
+            evaluation = run_watch_evaluation(project, watch)
+        except WatchBindingError as exc:
+            if exc.code != "search_index_not_ready" or not _is_keyword_watch(watch):
+                raise
+            # A writer may land after the standalone drain. Retry only this
+            # watch once; previous successful watches must not emit twice.
+            from frisket.search import drain_index
+
+            drain_index(project)
+            evaluation = run_watch_evaluation(project, watch)
         evaluation.update(
             {
                 "trigger_kind": "source_poll_materialized",
@@ -110,6 +139,8 @@ def trigger_completed_source_poll_watches(
     *,
     project_id: str,
     receipt_id: str | None,
+    enqueue_keyword_watches: Callable[[list[Any], SourcePollMaterialization], None]
+    | None = None,
 ) -> list[dict[str, Any]]:
     if not receipt_id:
         return []
@@ -120,7 +151,11 @@ def trigger_completed_source_poll_watches(
     )
     if materialization is None:
         return []
-    return trigger_source_materialized_watches(project, materialization)
+    return trigger_source_materialized_watches(
+        project,
+        materialization,
+        enqueue_keyword_watches=enqueue_keyword_watches,
+    )
 
 
 def affected_enabled_watches(
@@ -147,6 +182,11 @@ def affected_enabled_watches(
 def _is_embedding_similarity_watch(watch: Any) -> bool:
     query = watch_query(watch)
     return str(query.get("kind") or "").strip().lower() == "embedding_similarity"
+
+
+def _is_keyword_watch(watch: Any) -> bool:
+    query = watch_query(watch)
+    return str(query.get("kind") or "").strip().lower() in {"fts", "search.fts"}
 
 
 def _watch_may_be_affected(watch: Any, *, sheet_id: int) -> bool:

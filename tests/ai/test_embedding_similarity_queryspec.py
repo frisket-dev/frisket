@@ -523,7 +523,10 @@ def test_typed_preview_rejects_same_second_highest_vector_replacement(env, monke
 def test_typed_preview_refuses_remote_query_text_before_gateway(
     env, monkeypatch, query_kind
 ):
+    from frisket.search import drain_index
+
     project, sheet, _cols, index_id = env
+    drain_index(project)
     project.db.execute(
         "UPDATE embedding_spaces SET provider_id='openai', "
         "provider_kind='platform_api' WHERE id=(SELECT space_id FROM "

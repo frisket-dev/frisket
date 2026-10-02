@@ -6,7 +6,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from frisket.engine.executor import run_action_spec
-from frisket.engine.jobs import EMBEDDING_REFRESH_KIND
+from frisket.engine.jobs import EMBEDDING_REFRESH_KIND, Worker
 from frisket.server.app import create_app
 from frisket.engine.store import Project
 from frisket.engine.store.sources import SourceStore
@@ -14,9 +14,53 @@ from frisket.features.watchlists.triggers import (
     source_poll_materialization_from_receipt,
     trigger_source_materialized_watches,
 )
+from frisket.features.watchlists.service import WatchBindingError
 
 
 PROJECT_ID = "source-watch-project"
+
+
+def test_standalone_index_race_retries_only_failed_keyword_watch(monkeypatch):
+    import frisket.features.watchlists.triggers as triggers
+    import frisket.search
+
+    watches = [
+        {"id": 1, "query": '{"kind":"fts","q":"one"}'},
+        {"id": 2, "query": '{"kind":"fts","q":"two"}'},
+    ]
+    calls = {1: 0, 2: 0}
+    drains = []
+    monkeypatch.setattr(
+        triggers, "affected_enabled_watches", lambda _project, _event: watches
+    )
+    monkeypatch.setattr(
+        frisket.search, "drain_index", lambda _project: drains.append(1)
+    )
+
+    def evaluate(_project, watch):
+        watch_id = int(watch["id"])
+        calls[watch_id] += 1
+        if watch_id == 2 and calls[watch_id] == 1:
+            raise WatchBindingError("search_index_not_ready", "edited")
+        return {"watch_id": watch_id}
+
+    monkeypatch.setattr(triggers, "run_watch_evaluation", evaluate)
+    event = {
+        "kind": "source_poll_materialized",
+        "project_id": PROJECT_ID,
+        "source_id": 1,
+        "source_run_id": 2,
+        "sheet_id": 3,
+        "op_id": 4,
+        "row_ids": [5],
+        "materialized_rows": 1,
+    }
+
+    results = trigger_source_materialized_watches(object(), event)
+
+    assert [result["watch_id"] for result in results] == [1, 2]
+    assert calls == {1: 1, 2: 2}
+    assert len(drains) == 2
 
 
 def _feed(items: list[dict[str, Any]], feed_title: str = "Public Notices") -> str:
@@ -308,6 +352,14 @@ def test_v1_source_poll_action_triggers_watch_run(
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["status"] == "completed"
+    assert project.watch_latest_run(watch_id) is None
+    worker = Worker(
+        client.app.state.workspace.queue, client.app.state.workspace.registry
+    )
+    for _ in range(20):
+        if project.watch_latest_run(watch_id) is not None:
+            break
+        assert worker.run_once()
     run = project.watch_latest_run(watch_id)
     assert run is not None
     assert run["matched_rows"] == 1

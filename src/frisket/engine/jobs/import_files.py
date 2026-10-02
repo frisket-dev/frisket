@@ -270,6 +270,15 @@ def register_import_files_handler(
                 )
             raise
         finally:
+            if live():
+                from .search_index import enqueue_search_index
+
+                try:
+                    enqueue_search_index(project, queue, project_payload())
+                except Exception:
+                    logging.getLogger(__name__).warning(
+                        "search_index_enqueue_failed", exc_info=True
+                    )
             project.close()
 
     return registry.add(

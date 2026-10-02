@@ -79,6 +79,13 @@ def _table_names(db: sqlite3.Connection) -> set[str]:
 def _drop_later_schema(db: sqlite3.Connection) -> None:
     """Restore the historical bundle fixtures after seeding with current DDL."""
 
+    for row in db.execute(
+        "SELECT name FROM sqlite_master "
+        "WHERE type='trigger' AND name LIKE 'trg_search_%'"
+    ).fetchall():
+        db.execute(f'DROP TRIGGER "{row[0]}"')
+    db.execute("DROP INDEX idx_current_cells_column_row")
+    db.execute("DROP TABLE search_dirty_scopes")
     db.execute("DROP TABLE import_sessions")
     db.execute("ALTER TABLE runs DROP COLUMN review_completed_at")
     db.execute("DROP TABLE project_qa_usage_calls")
@@ -113,6 +120,10 @@ def test_migration_backfills_current_precedence_without_inventing_base_origins(
         (101, None, "run_result", 2, 20, None),
     ]
     assert project.db.execute("PRAGMA foreign_key_check").fetchall() == []
+    repair = project.db.execute(
+        "SELECT sheet_id,column_id,row_id_start,row_id_end FROM search_dirty_scopes"
+    ).fetchall()
+    assert [tuple(row) for row in repair] == [(None, None, None, None)]
     project.close()
 
     # The fixed endpoint makes a second open a no-op, not a destructive rebuild.

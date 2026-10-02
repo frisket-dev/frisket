@@ -31,6 +31,17 @@ def _handler(root, *, queue=None, **kwargs):
     return registry.get(blob_metadata.BLOB_METADATA_KIND)
 
 
+def _claim_kind(queue, worker_id, kind):
+    """Claim the requested job without assuming maintenance queue position."""
+    for _ in range(20):
+        job = queue.claim(worker_id)
+        assert job is not None
+        if job.kind == kind:
+            return job
+        assert queue.complete(job.id, worker_id, {"skipped_by_test": True})
+    pytest.fail(f"no queued {kind} job")
+
+
 def test_import_returns_before_probe_and_enqueues_durable_backfill(
     tmp_path, monkeypatch
 ):
@@ -53,7 +64,9 @@ def test_import_returns_before_probe_and_enqueues_durable_backfill(
     store = MediaBlobStore(project)
     [digest] = store.hashes_needing_metadata()
     assert store.probe_metadata(digest) == {}
-    job = workspace.queue.claim("metadata-test")
+    job = _claim_kind(
+        workspace.queue, "metadata-test", blob_metadata.BLOB_METADATA_KIND
+    )
     assert job.kind == blob_metadata.BLOB_METADATA_KIND
     assert job.payload["project_id"] == pid
     handler = workspace.registry.get(job.kind)
@@ -87,7 +100,9 @@ def test_reopen_recovers_missing_enqueue_without_blocking_reads(
         workspace._projects.clear()
     monkeypatch.setattr(workspace.queue, "enqueue", enqueue)
     reopened = workspace.get(pid)
-    job = workspace.queue.claim("metadata-test")
+    job = _claim_kind(
+        workspace.queue, "metadata-test", blob_metadata.BLOB_METADATA_KIND
+    )
     assert job.kind == blob_metadata.BLOB_METADATA_KIND
     assert job.payload["dedupe_key"] == "blob-metadata:recovery"
     reopened.close()
@@ -272,7 +287,9 @@ def test_delete_stops_metadata_then_waits_for_the_actual_handler_exit(
     for i in range(3):
         project.add_blob(str(i).encode(), filename=f"{i}.txt", mime="text/plain")
     job_id = project._frisket_schedule_blob_metadata("import-one")
-    job = workspace.queue.claim("metadata-test")
+    job = _claim_kind(
+        workspace.queue, "metadata-test", blob_metadata.BLOB_METADATA_KIND
+    )
     assert job.id == job_id
     monkeypatch.setattr(blob_metadata, "PROBE_BATCH_SIZE", 1)
     probe = blob_metadata.update_blob_metadata
@@ -285,7 +302,7 @@ def test_delete_stops_metadata_then_waits_for_the_actual_handler_exit(
             "DELETE", f"/api/projects/{pid}", json={"confirm_name": "Delete media"}
         )
         assert response.status_code == 409, response.text
-        assert "Stopping background metadata" in response.json()["detail"]
+        assert "Stopping background" in response.json()["detail"]
         assert (workspace.root / f"{pid}.frisket").exists()
         return result
 

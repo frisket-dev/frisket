@@ -24,6 +24,7 @@ from frisket.contracts.http.endpoint_catalog import BASE_ENDPOINT_CATALOG
 from frisket.contracts.http.models import HttpError, WireModel
 from frisket.features.watchlists.events import WATCH_RUN_EVENT_SCHEMA_VERSION
 from frisket.server.app import create_app
+from frisket.search_index import drain_index
 
 
 _CONTRACT_MODULE = "frisket.contracts.http.watches"
@@ -919,6 +920,7 @@ def test_live_watch_routes_preserve_their_current_payloads(tmp_path: Path) -> No
         assert paused.json()["enabled"] is False
         assert paused.json()["name"] == "Renamed budget"
 
+        drain_index(workspace.get(project_id))
         run_result = client.post(f"/api/projects/{project_id}/watches/{watch_id}/run")
         assert run_result.status_code == 200, run_result.text
         body = run_result.json()
@@ -989,6 +991,7 @@ def test_watch_error_oracles_preserve_existing_http_behavior(tmp_path: Path) -> 
                 "query": {"kind": "fts", "q": "x"},
             },
         ).json()["id"]
+        drain_index(workspace.get(project_id))
         run_id = client.post(
             f"/api/projects/{project_id}/watches/{watch_id}/run"
         ).json()["run"]["id"]

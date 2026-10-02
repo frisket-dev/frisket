@@ -83,6 +83,8 @@ def run_watch_evaluation(project: Project, row: Any) -> dict[str, Any]:
         op_cursor_after = project.op_cursor
         advance_cursor = True
     except WatchBindingError as exc:
+        if exc.code == "search_index_not_ready":
+            raise
         resolution = {
             "resolved_query": {},
             "resolved_query_hash": None,
@@ -170,18 +172,21 @@ def _query_sheet_id(query: dict[str, Any], watch: dict[str, Any]) -> int | None:
 def _evaluate_fts_watch(
     project: Project, watch: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    from frisket.search import search_project
+    from frisket.search import SearchIndexNotReady, search_project
 
     query = watch["query"]
     limit = _coerce_positive_int(query.get("limit") or 50, "limit")
     sheet_id = _query_sheet_id(query, watch)
     search_limit = max(limit, 100) if sheet_id is not None else limit
-    raw_hits = search_project(
-        project,
-        str(query["q"]),
-        limit=search_limit,
-        rerank=str(query.get("rerank") or "off"),
-    )
+    try:
+        raw_hits = search_project(
+            project,
+            str(query["q"]),
+            limit=search_limit,
+            rerank=str(query.get("rerank") or "off"),
+        )
+    except SearchIndexNotReady as exc:
+        raise WatchBindingError(exc.code, str(exc)) from exc
     hits: list[dict[str, Any]] = []
     seen_rows: set[tuple[int, int]] = set()
     for raw in raw_hits:

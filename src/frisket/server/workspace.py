@@ -809,9 +809,29 @@ class Workspace:
 
     def _attach_project_jobs(self, project_id: str, project: Project) -> None:
         from frisket.engine.jobs.blob_metadata import BLOB_METADATA_KIND
+        from frisket.engine.jobs.search_index import enqueue_search_index
         from frisket.engine.store.media_blobs import MediaBlobStore
 
         setattr(project, "_frisket_run_queue", self.queue)
+
+        def schedule_search() -> int | None:
+            try:
+                return enqueue_search_index(
+                    project,
+                    self.queue,
+                    {
+                        **self.queue_payload_extra,
+                        "project_id": project_id,
+                        "workspace_root": str(self.root),
+                    },
+                )
+            except Exception:
+                # The dirty scope is already durable. The next search retries
+                # the commit/enqueue window without failing a read.
+                _log.warning("search_index_enqueue_failed", exc_info=True)
+                return None
+
+        setattr(project, "_frisket_schedule_search_index", schedule_search)
 
         def schedule_metadata(receipt_id: str = "recovery") -> int | None:
             # Opening a million-blob project must not synchronously inspect

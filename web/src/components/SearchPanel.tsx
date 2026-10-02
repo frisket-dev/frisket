@@ -1,9 +1,10 @@
-import { useEffect, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { Bell, Search } from 'lucide-react';
 import { searchProject, type SearchHit, type SheetMeta } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { decodeEscapedText } from '../displayText';
 import { requestGridCellReveal } from '../grid/gridCellReveal';
+import { usePoll } from '../hooks/usePoll';
 import { PanelSelect } from './PanelSelect';
 
 export interface SearchPanelProps {
@@ -19,6 +20,7 @@ type SearchState = {
   mode: 'keyword' | 'semantic';
   rerank: boolean;
   hits: SearchHit[] | null;
+  indexing: boolean;
   error: string | null;
 };
 
@@ -29,7 +31,7 @@ type SearchAction =
   | { type: 'queryChanged'; value: string }
   | { type: 'modeChanged'; value: 'keyword' | 'semantic' }
   | { type: 'rerankChanged'; value: boolean }
-  | { type: 'searchLoaded'; hits: SearchHit[] }
+  | { type: 'searchLoaded'; hits: SearchHit[]; indexing: boolean }
   | { type: 'searchFailed'; message: string };
 
 const SEARCH_INITIAL_STATE: SearchState = {
@@ -38,6 +40,7 @@ const SEARCH_INITIAL_STATE: SearchState = {
   mode: 'keyword',
   rerank: false,
   hits: null,
+  indexing: false,
   error: null,
 };
 
@@ -52,13 +55,13 @@ function searchReducer(state: SearchState, action: SearchAction): SearchState {
     case 'queryChanged':
       return action.value.trim()
         ? { ...state, q: action.value }
-        : { ...state, q: action.value, hits: null, error: null };
+        : { ...state, q: action.value, hits: null, indexing: false, error: null };
     case 'modeChanged':
       return { ...state, mode: action.value };
     case 'rerankChanged':
       return { ...state, rerank: action.value };
     case 'searchLoaded':
-      return { ...state, hits: action.hits, error: null };
+      return { ...state, hits: action.hits, indexing: action.indexing, error: null };
     case 'searchFailed':
       return { ...state, error: action.message };
     default:
@@ -74,7 +77,7 @@ export function SearchPanel({ sheets, onPick }: SearchPanelProps) {
   const [state, dispatch] = useReducer(searchReducer, SEARCH_INITIAL_STATE);
   const [watchBusy, setWatchBusy] = useState(false);
   const [watchStatus, setWatchStatus] = useState<string | null>(null);
-  const { open, q, mode, rerank, hits, error } = state;
+  const { open, q, mode, rerank, hits, indexing, error } = state;
   const seq = useRef(0);
 
   // ⌘K / ctrl-K from anywhere in the workspace
@@ -89,6 +92,19 @@ export function SearchPanel({ sheets, onPick }: SearchPanelProps) {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  const loadSearch = useCallback(async (query: string, mine: number) => {
+    try {
+      const page = await searchProject(projectId, query, { mode, rerank });
+      if (seq.current === mine) {
+        dispatch({ type: 'searchLoaded', hits: page.hits, indexing: page.indexing });
+      }
+    } catch (e) {
+      if (seq.current === mine) {
+        dispatch({ type: 'searchFailed', message: e instanceof Error ? e.message : String(e) });
+      }
+    }
+  }, [mode, projectId, rerank]);
+
   // debounced query; seq guards against out-of-order responses (the empty-
   // query reset happens in the input onChange handler, not here)
   useEffect(() => {
@@ -97,17 +113,16 @@ export function SearchPanel({ sheets, onPick }: SearchPanelProps) {
     if (!query) return;
     const mine = ++seq.current;
     const t = setTimeout(() => {
-      searchProject(projectId, query, { mode, rerank })
-        .then((h) => {
-          if (seq.current !== mine) return;
-          dispatch({ type: 'searchLoaded', hits: h });
-        })
-        .catch((e: Error) => {
-          if (seq.current === mine) dispatch({ type: 'searchFailed', message: e.message });
-        });
+      void loadSearch(query, mine);
     }, 180);
     return () => clearTimeout(t);
-  }, [q, open, mode, rerank, projectId]);
+  }, [q, open, mode, rerank, projectId, loadSearch]);
+
+  usePoll(() => loadSearch(q.trim(), seq.current), {
+    active: open && Boolean(q.trim()) && indexing,
+    intervalMs: 2_000,
+    guardOverlap: true,
+  });
 
   const close = () => {
     seq.current++;
@@ -269,9 +284,12 @@ export function SearchPanel({ sheets, onPick }: SearchPanelProps) {
             </div>
 
             {error && <div className="picker-error">{error}</div>}
+            {!error && indexing && (
+              <div className="search-empty" role="status">Indexing… results may be incomplete.</div>
+            )}
             {!error && hits !== null && (
               hits.length === 0 ? (
-                <div className="search-empty">No matches for “{q.trim()}”.</div>
+                !indexing && <div className="search-empty">No matches for “{q.trim()}”.</div>
               ) : (
                 <div className="search-results" data-testid="search-results">
                   {groups.map((g) => (

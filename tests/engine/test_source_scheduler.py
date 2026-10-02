@@ -20,9 +20,11 @@ from frisket.engine.jobs import (
     enqueue_enclosure_downloads,
     enqueue_due_source_polls,
     register_source_poll_handler,
+    register_watch_evaluate_handler,
 )
 from frisket.engine.store import Project
 from frisket.engine.store.sources import SourceStore
+from frisket.search_index import drain_index
 
 
 def _feed(items: list[dict], feed_title: str = "Queued Feed") -> str:
@@ -60,6 +62,8 @@ def _register(workspace, fetch, queue=None):
     register_source_poll_handler(
         reg, workspace_root=workspace, queue=queue, fetch=fetch
     )
+    if queue is not None:
+        register_watch_evaluate_handler(reg, workspace_root=workspace, queue=queue)
     return reg
 
 
@@ -193,8 +197,14 @@ def test_source_poll_watch_notification_enqueues_external_delivery_only_for_even
 
     q.enqueue(SOURCE_POLL_KIND, {"project_id": "news", "source_id": sid})
     assert worker.run_once()
+    p = Project(workspace / "news.frisket")
+    drain_index(p)
+    p.close()
+    assert worker.run_once()  # watch.evaluate emits and plans notification delivery
     delivery_jobs = q.list_project_jobs("news", kind=NOTIFICATION_DELIVER_KIND)
-    assert len(delivery_jobs) == 1
+    assert len(delivery_jobs) == 1, [
+        (job.kind, job.status, job.error) for job in q.list_project_jobs("news")
+    ]
     assert delivery_jobs[0].status == "queued"
     assert delivery_jobs[0].payload["workspace_root"] == str(workspace)
 
@@ -202,6 +212,10 @@ def test_source_poll_watch_notification_enqueues_external_delivery_only_for_even
     # row emits no notification and cannot enqueue a second delivery.
     q.enqueue(SOURCE_POLL_KIND, {"project_id": "news", "source_id": sid})
     assert worker.run_once()
+    p = Project(workspace / "news.frisket")
+    drain_index(p)
+    p.close()
+    assert worker.run_once()  # watch.evaluate observes no new matching row
     assert len(q.list_project_jobs("news", kind=NOTIFICATION_DELIVER_KIND)) == 1
     q.close()
 

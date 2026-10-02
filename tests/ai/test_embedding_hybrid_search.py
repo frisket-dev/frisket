@@ -16,6 +16,7 @@ import pytest
 from frisket.ai.embeddings import build_batch_result
 from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.engine.store import Project
+from frisket.search import drain_index
 
 PROJECT_ID = "p"
 
@@ -79,6 +80,8 @@ def _create_index(project, sheet, *, provider="fastembed", policy=None, key="c")
         project_id=PROJECT_ID,
     )
     assert res.status == "completed", res.errors
+
+    drain_index(project)
     return res.outputs[0].ref["index_id"]
 
 
@@ -151,6 +154,7 @@ def test_search_sheet_scopes_to_one_sheet_in_bm25_order(env):
     project.add_rows(
         other, [{"headline": "drone in another sheet"}], {"headline": ocol}
     )
+    drain_index(project)
 
     rows = search_sheet(project, sheet, "drone", limit=10)
     # only THIS sheet's rows that contain "drone" — never the other sheet's row
@@ -185,6 +189,24 @@ def test_hybrid_surfaces_keyword_only_and_vector_only_and_ranks_dual_first(env):
     # a KEYWORD-only match (semantically far) surfaces via fusion, above "neither"
     assert bee in order
     assert order.index(bee) < order.index(tractor) if tractor in order else True
+
+
+def test_hybrid_route_service_resolves_inside_source_snapshot(env, monkeypatch):
+    from types import SimpleNamespace
+    from frisket.server.services import embeddings
+
+    project, sheet, _cols, index_id = env
+    monkeypatch.setattr(
+        embeddings, "EmbeddingGateway", lambda **kwargs: MappedGateway()
+    )
+    service = embeddings.EmbeddingRouteService(
+        SimpleNamespace(
+            get=lambda _id: project,
+            router_for=lambda _project: None,
+        )
+    )
+    result = service.hybrid_preview(PROJECT_ID, _hybrid_query(index_id, sheet, "drone"))
+    assert result["sheet_id"] == sheet
 
 
 def test_typed_preview_preserves_local_hybrid_and_receipt_facts(env, monkeypatch):
@@ -270,6 +292,7 @@ def test_hybrid_remote_without_allow_remote_blocks_before_embed(tmp_path):
     index_id = _create_index(
         project, sheet, provider="openai", policy={"allow_remote": False}, key="hyr"
     )
+    drain_index(project)
     gw = MappedGateway()
     with pytest.raises(SimilarityError) as exc:
         resolve_embedding_hybrid(

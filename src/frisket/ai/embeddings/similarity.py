@@ -292,6 +292,7 @@ def resolve_embedding_similarity(
     *,
     gateway: Any = None,
     backend: VectorBackend | None = None,
+    effect_project: Project | None = None,
 ) -> SimilarityResult:
     """Resolve an ``embedding_similarity`` QuerySpec into ranked source rows.
 
@@ -368,7 +369,12 @@ def resolve_embedding_similarity(
             query_embedding_use = None
         elif anchor_kind == "manual_text_query":
             qvec, exclude, query_embedding_use = _manual_text_vector(
-                project, index, space, anchor, gateway, backend
+                effect_project if effect_project is not None else project,
+                index,
+                space,
+                anchor,
+                gateway,
+                backend,
             )
         else:
             raise SimilarityError(
