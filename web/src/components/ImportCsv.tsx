@@ -97,15 +97,20 @@ type FeedSourceKind =
 function importFormat(files: File[], mode?: FileImportMode): ImportFormat {
   if (mode === 'csv') return 'csv';
   if (mode === 'xlsx') return 'xlsx';
-  const formats = new Set(files.map((file) => {
+  const formats = new Set<ImportFormat>();
+  for (const file of files) {
     const suffix = file.name.split('.').pop()?.toLowerCase();
-    if (suffix === 'jpeg' || suffix === 'jpg' || suffix === 'png' || suffix === 'gif' || suffix === 'webp') return 'image';
-    if (suffix === 'mp3' || suffix === 'wav' || suffix === 'm4a' || suffix === 'flac') return 'audio';
-    if (suffix === 'mp4' || suffix === 'mov' || suffix === 'webm') return 'video';
-    if (suffix === 'txt' || suffix === 'md') return 'text';
-    if (suffix && ['csv', 'xlsx', 'json', 'jsonl', 'parquet', 'pdf', 'html', 'htm'].includes(suffix)) return suffix === 'htm' ? 'html' : suffix;
-    return 'other';
-  }));
+    let format: ImportFormat = 'other';
+    if (suffix === 'jpeg' || suffix === 'jpg' || suffix === 'png' || suffix === 'gif' || suffix === 'webp') format = 'image';
+    else if (suffix === 'mp3' || suffix === 'wav' || suffix === 'm4a' || suffix === 'flac') format = 'audio';
+    else if (suffix === 'mp4' || suffix === 'mov' || suffix === 'webm') format = 'video';
+    else if (suffix === 'txt' || suffix === 'md') format = 'text';
+    else if (suffix && ['csv', 'xlsx', 'json', 'jsonl', 'parquet', 'pdf', 'html', 'htm'].includes(suffix)) {
+      format = suffix === 'htm' ? 'html' : suffix as ImportFormat;
+    }
+    formats.add(format);
+    if (formats.size > 1) return 'mixed';
+  }
   return formats.size === 1 ? Array.from(formats)[0] as ImportFormat : 'mixed';
 }
 
@@ -740,7 +745,7 @@ function useImportUpload({ onError }: ImportHandlers) {
     appendRequestKey?: string,
   ): Promise<number | null> => {
     if (busy) return null;
-    const list = Array.from(files ?? []);
+    const list = Array.isArray(files) ? files : Array.from(files ?? []);
     if (!list.length) return null;
     const file = list[0];
     const resolvedMode = file && mode === 'csv' ? classifySingleImportFile(file) : mode;
@@ -773,11 +778,11 @@ function useImportUpload({ onError }: ImportHandlers) {
             : attachmentSelectionUsesSession(list)
               ? await (async () => {
                 const session = await createImportSession(projectId, { sheetName: 'files' });
-                const logicalPaths = list.map(logicalPathForImport);
-                rememberImportSessionFiles(session.import_ref, list, logicalPaths);
                 setSessionBusy(true);
                 setImportSessionBrowserUploading(session.import_ref, true);
                 try {
+                  const logicalPaths = list.map(logicalPathForImport);
+                  await rememberImportSessionFiles(session.import_ref, list, logicalPaths);
                   const status = await uploadFilesToImportSession(
                     projectId,
                     session,
