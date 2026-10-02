@@ -139,6 +139,45 @@ def enqueue_index_watch_evaluations(
     return job_ids
 
 
+def enqueue_keyword_watch_evaluations(
+    queue: JobQueue,
+    *,
+    watches: list[Any],
+    project_id: str,
+    workspace_root: str | Path,
+    storage_org_id: int | None,
+    trigger_ref: dict[str, Any],
+) -> list[int]:
+    """Enqueue affected FTS watches without evaluating on the caller thread."""
+    job_ids = []
+    for watch in watches:
+        watch_id = int(watch["id"])
+        dedupe_key = _watch_eval_dedupe_key(watch_id, trigger_ref)
+        if _eval_already_pending(
+            queue, project_id, dedupe_key, storage_org_id=storage_org_id
+        ):
+            continue
+        job_ids.append(
+            queue.enqueue(
+                WATCH_EVALUATE_KIND,
+                {
+                    "project_id": project_id,
+                    "watch_id": watch_id,
+                    "trigger_ref": trigger_ref,
+                    "dedupe_key": dedupe_key,
+                    "workspace_root": str(workspace_root),
+                    **(
+                        {"storage_org_id": storage_org_id}
+                        if storage_org_id is not None
+                        else {}
+                    ),
+                },
+                max_attempts=3,
+            )
+        )
+    return job_ids
+
+
 def register_watch_evaluate_handler(
     registry: HandlerRegistry,
     *,
@@ -150,7 +189,7 @@ def register_watch_evaluate_handler(
     """Register the worker handler that runs one queued watch evaluation."""
     root = Path(workspace_root)
 
-    def handle(payload: dict, _context: JobHandlerContext) -> dict:
+    def handle(payload: dict, context: JobHandlerContext) -> dict:
         project_id = str(payload["project_id"])
         watch_id = int(payload["watch_id"])
         if project_opener is None:
@@ -185,6 +224,40 @@ def register_watch_evaluate_handler(
                     "skipped": True,
                     "reason": "disabled",
                 }
+            query_kind = str(_watch_query(row).get("kind") or "").strip().lower()
+            if query_kind in {"fts", "search.fts"}:
+                from .search_index import index_work_marker, process_index_batches
+
+                processed, complete = process_index_batches(project)
+                if not complete:
+                    continuation = {
+                        "project_id": project_id,
+                        "watch_id": watch_id,
+                        "trigger_ref": payload.get("trigger_ref") or {},
+                        "workspace_root": str(project_root),
+                    }
+                    if delivery_storage_org_id is not None:
+                        continuation["storage_org_id"] = delivery_storage_org_id
+                    if isinstance(context.trusted_job_org_id, int):
+                        continuation["org_id"] = context.trusted_job_org_id
+                    marker = index_work_marker(project) or "repair"
+                    trigger_key = _watch_eval_dedupe_key(
+                        watch_id, continuation["trigger_ref"]
+                    )
+                    queue.enqueue(
+                        WATCH_EVALUATE_KIND,
+                        {
+                            **continuation,
+                            "dedupe_key": f"{trigger_key}:index:{marker}",
+                        },
+                        max_attempts=3,
+                    )
+                    return {
+                        "project_id": project_id,
+                        "watch_id": watch_id,
+                        "status": "indexing",
+                        "indexed": processed,
+                    }
             evaluation = run_watch_evaluation(project, row)
             enqueue_notification_emit_result(
                 queue,

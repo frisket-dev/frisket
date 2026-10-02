@@ -39,6 +39,15 @@ TRUSTED_ORG = 7001  # the org that owns the stored project (trusted columns)
 ATTACKER_ORG = 7002  # the org named by a forged/stale/mis-migrated payload
 
 
+def _run_until_settled(worker: Worker, queue: SqliteJobQueue, job_id: int) -> None:
+    """Run past independently scheduled maintenance to the asserted job."""
+    for _ in range(20):
+        if queue.get(job_id).status not in {"queued", "running"}:
+            return
+        assert worker.run_once()
+    pytest.fail(f"job {job_id} did not settle")
+
+
 class _RecordingCredentialPort:
     """Records exactly which org each credential resolution asked for.
 
@@ -165,7 +174,7 @@ def test_forged_payload_org_never_resolves_credentials_and_fails_closed(
         )
     _forge_payload_org(queue, job_id, ATTACKER_ORG)
 
-    Worker(queue, registry, worker_id="h2-trust").run_once()
+    _run_until_settled(Worker(queue, registry, worker_id="h2-trust"), queue, job_id)
 
     # The attacker's org keys were NEVER resolved for org A's stored project.
     assert ATTACKER_ORG not in port.requested_org_ids, port.requested_org_ids
@@ -204,7 +213,7 @@ def test_agreeing_payload_org_resolves_trusted_org_and_runs(tmp_path: Path) -> N
         },
     )
 
-    assert Worker(queue, registry, worker_id="h2-normal").run_once()
+    _run_until_settled(Worker(queue, registry, worker_id="h2-normal"), queue, job_id)
 
     job = queue.get(job_id)
     assert job.status == "done", job.error
@@ -237,7 +246,7 @@ def test_local_tier_without_org_is_unaffected(tmp_path: Path) -> None:
         sheet_id=sheet,
     )
 
-    assert Worker(queue, registry, worker_id="h2-local").run_once()
+    _run_until_settled(Worker(queue, registry, worker_id="h2-local"), queue, job_id)
 
     job = queue.get(job_id)
     assert job.status == "done", job.error
@@ -285,7 +294,7 @@ def test_queued_cache_factory_uses_trusted_context_and_owns_cache(
         execution_composition_factory=compose,
     )
 
-    assert Worker(queue, registry, worker_id="cache-owner").run_once()
+    _run_until_settled(Worker(queue, registry, worker_id="cache-owner"), queue, job_id)
     assert queue.get(job_id).status == "done"
     assert len(contexts) == 1
     assert contexts[0].trusted_job_org_id == TRUSTED_ORG
@@ -326,7 +335,9 @@ def test_queued_cache_factory_closes_cache_when_composition_fails(
         execution_composition_factory=fail_composition,
     )
 
-    assert Worker(queue, registry, worker_id="cache-failure").run_once()
+    _run_until_settled(
+        Worker(queue, registry, worker_id="cache-failure"), queue, job_id
+    )
     assert queue.get(job_id).status != "done"
     assert cache.close_calls == 1
     queue.close()
@@ -363,7 +374,7 @@ def test_queued_cache_factory_none_explicitly_disables_template_cache(
         execution_composition_factory=compose,
     )
 
-    assert Worker(queue, registry, worker_id="cacheless").run_once()
+    _run_until_settled(Worker(queue, registry, worker_id="cacheless"), queue, job_id)
     assert queue.get(job_id).status == "done"
     assert routed_caches == [None]
     assert template_cache.count() == 0
@@ -476,7 +487,7 @@ def test_column_present_payload_missing_org_fails_closed(tmp_path: Path) -> None
         )
     _drop_payload_org(queue, job_id)
 
-    Worker(queue, registry, worker_id="h2-missing").run_once()
+    _run_until_settled(Worker(queue, registry, worker_id="h2-missing"), queue, job_id)
 
     assert port.requested_org_ids == [], port.requested_org_ids
     job = queue.get(job_id)

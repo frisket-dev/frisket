@@ -171,6 +171,22 @@ layout. Custom code edits Params only: the host retains validation, output
 names, preview, execution, consent, and cancellation. Rebuild and reinstall
 after changing code; stale package URLs and missing exports fail closed.
 
+## Search indexing
+
+Keyword search is a rebuildable sidecar, not a second data authority. Current-cell
+projection changes and visibility/schema changes record dirty scopes in the same
+source transaction. The existing job queue reconciles those scopes in bounded
+batches; a lost enqueue is recovered on reopen or search. Search reads never
+rebuild the corpus. Interactive responses include `indexing` and may contain
+validated partial results; action/agent consumers require a complete matching
+source snapshot and otherwise return `search_index_not_ready`.
+
+Without a worker, library callers can explicitly run
+`frisket.search.drain_index(project)` before searching. Background watch evaluation
+also completes its required index before evaluating, so indexing does not drop
+an automatic notification. Do not add ad-hoc invalidation calls to individual
+actions: use the current-cell writers and existing metadata mutations.
+
 ## Cell storage writes
 
 Base cells, generated results, and manual edits have distinct storage owners.

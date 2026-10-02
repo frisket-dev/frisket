@@ -341,14 +341,17 @@ def test_server_workspace_registry_drains_embedding_refresh(tmp_path):
         )
         # Drain through Worker(ws.queue, ws.registry) end to end.
         worker = Worker(ws.queue, ws.registry)
-        assert worker.run_once() is True
+        [job] = ws.queue.list_project_jobs(pid, kind=EMBEDDING_REFRESH_KIND)
+        for _ in range(20):
+            if ws.queue.get(job.id).status == "done":
+                break
+            assert worker.run_once() is True
         backend = VectorBackend(project)
         backend.ensure_schema()
         assert backend.item_counts(index_id) == {"ready": 2}
         backend.close()
-        [job] = ws.queue.list_project_jobs(pid, kind=EMBEDDING_REFRESH_KIND)
-        assert job.status == "done"
-        assert job.result["status"] == "completed"
+        assert ws.queue.get(job.id).status == "done"
+        assert ws.queue.get(job.id).result["status"] == "completed"
     finally:
         ws.queue.close()
 
@@ -488,8 +491,10 @@ def test_source_append_embedding_watch_evaluates_after_refresh_not_before(env):
     # exactly one notification for the entered rows
     assert _notification_count(env) == 1
 
-    # draining again does nothing (exactly once)
-    assert worker.run_once() is False
+    # Other independent maintenance may remain, but the watch is exactly once.
+    while worker.run_once():
+        pass
+    assert env.project.watch_runs_total(watch_id) == 1
     assert env.project.watch_runs_total(watch_id) == 1
     assert _notification_count(env) == 1
 

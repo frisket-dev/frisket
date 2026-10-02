@@ -6,7 +6,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from frisket.engine.executor import run_action_spec
-from frisket.engine.jobs import EMBEDDING_REFRESH_KIND
+from frisket.engine.jobs import EMBEDDING_REFRESH_KIND, Worker
 from frisket.server.app import create_app
 from frisket.engine.store import Project
 from frisket.engine.store.sources import SourceStore
@@ -308,6 +308,14 @@ def test_v1_source_poll_action_triggers_watch_run(
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["status"] == "completed"
+    assert project.watch_latest_run(watch_id) is None
+    worker = Worker(
+        client.app.state.workspace.queue, client.app.state.workspace.registry
+    )
+    for _ in range(20):
+        if project.watch_latest_run(watch_id) is not None:
+            break
+        assert worker.run_once()
     run = project.watch_latest_run(watch_id)
     assert run is not None
     assert run["matched_rows"] == 1

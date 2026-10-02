@@ -6,6 +6,16 @@ from fastapi.testclient import TestClient
 from frisket.server.app import create_app
 
 
+def _claim_job(queue, worker_id: str, job_id: int):
+    for _ in range(20):
+        claimed = queue.claim(worker_id)
+        assert claimed is not None
+        if claimed.id == job_id:
+            return claimed
+        assert queue.complete(claimed.id, worker_id, {"skipped_by_test": True})
+    pytest.fail(f"job {job_id} was not claimable")
+
+
 def test_project_lifecycle_routes_preserve_http_contract(tmp_path) -> None:
     client = TestClient(create_app(tmp_path / "workspace"))
 
@@ -171,7 +181,7 @@ def test_project_delete_refused_while_runs_in_flight(tmp_path) -> None:
 
     workspace = client.app.state.workspace
     job_id = workspace.queue.enqueue("project.run", {"project_id": pid})
-    claimed = workspace.queue.claim("project-delete-test-worker")
+    claimed = _claim_job(workspace.queue, "project-delete-test-worker", job_id)
     assert claimed is not None
     assert claimed.id == job_id
 
@@ -202,7 +212,7 @@ def test_project_delete_refused_while_cancelled_handler_still_has_authority(
     pid = created.json()["id"]
     queue = client.app.state.workspace.queue
     job_id = queue.enqueue("action.run", {"project_id": pid})
-    claimed = queue.claim("active-handler")
+    claimed = _claim_job(queue, "active-handler", job_id)
     assert claimed is not None and claimed.handler_authority_id
     assert queue.cancel(job_id)
     assert queue.get(job_id).status == "cancelled"

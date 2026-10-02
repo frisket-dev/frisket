@@ -864,11 +864,23 @@ class ActionRunService:
                     "sheet_id": materialization["sheet_id"],
                 },
             )
+        from frisket.engine.jobs.watches import enqueue_keyword_watch_evaluations
+
         return len(
             trigger_completed_source_poll_watches(
                 project,
                 project_id=project_id,
                 receipt_id=result.receipt_id,
+                enqueue_keyword_watches=lambda watches, materialization: (
+                    enqueue_keyword_watch_evaluations(
+                        self._workspace.queue,
+                        watches=watches,
+                        project_id=project_id,
+                        workspace_root=self._workspace.root,
+                        storage_org_id=self._workspace.queue_storage_org_id,
+                        trigger_ref={"source_run_id": materialization["source_run_id"]},
+                    )
+                ),
             )
         )
 

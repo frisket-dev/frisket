@@ -899,27 +899,30 @@ class ProjectLifecycleService:
         # Optional maintenance must not hold deletion hostage for the entire
         # corpus. Cancel it, but retain the ordinary handler-exit fence below:
         # deleting underneath a live SQLite/blob reader is unsafe on Windows.
-        from frisket.engine.jobs.queue import BLOB_METADATA_KIND
+        from frisket.engine.jobs.queue import BLOB_METADATA_KIND, SEARCH_INDEX_KIND
 
         stopping_metadata = False
-        for status in ("queued", "running"):
-            while jobs := self._workspace.queue.list_project_jobs(
-                project_id,
-                storage_org_id=self._workspace.queue_storage_org_id,
-                kind=BLOB_METADATA_KIND,
-                status=status,
-                limit=100,
-            ):
-                cancelled = sum(self._workspace.queue.cancel(job.id) for job in jobs)
-                stopping_metadata |= status == "running" and cancelled > 0
-                if not cancelled:
-                    break
+        for kind in (BLOB_METADATA_KIND, SEARCH_INDEX_KIND):
+            for status in ("queued", "running"):
+                while jobs := self._workspace.queue.list_project_jobs(
+                    project_id,
+                    storage_org_id=self._workspace.queue_storage_org_id,
+                    kind=kind,
+                    status=status,
+                    limit=100,
+                ):
+                    cancelled = sum(
+                        self._workspace.queue.cancel(job.id) for job in jobs
+                    )
+                    stopping_metadata |= status == "running" and cancelled > 0
+                    if not cancelled:
+                        break
         self._cancel_unstarted_project_jobs(project_id)
         if self._project_has_runs_in_flight(project_id):
             if stopping_metadata:
                 raise ProjectDeletionBlocked(
-                    "Stopping background metadata processing; wait for the current "
-                    "file to finish and try deletion again."
+                    "Stopping background processing; wait for the current "
+                    "batch to finish and try deletion again."
                 )
             raise ProjectDeletionBlocked(
                 "cannot delete this project while it has runs in flight — wait "
