@@ -13,6 +13,7 @@ from typing import Any, BinaryIO, cast
 
 from frisket.actions.types import PdfDocument, PdfPage, StagedFile, TableError
 from frisket.engine.executor.local_file_read import _ReadOnlyBinary
+from frisket.engine.store.blob_backend import ProjectBlobStore, validate_blob_digest
 from frisket.engine.store.import_blobs import ImportBlob, ImportBlobCell, ImportBlobPlan
 from frisket.engine.store.media_blobs import media_cell, owned_media_metadata_document
 from frisket.ops.media_probe import probe_for_ingest
@@ -139,6 +140,48 @@ class AdmittedImportBlobStager:
         blob = self._admitted(file)
         return media_cell(blob.digest, mime=blob.mime, filename=blob.filename)
 
+    def admit_owned(
+        self,
+        owner: ProjectBlobStore,
+        *,
+        digest: str,
+        size: int,
+        filename: str,
+        mime: str,
+    ) -> StagedFile:
+        """Reuse host inventory facts after verified canonical-byte admission.
+
+        This is not an authored action capability. The import host must obtain
+        these facts from its durable inventory, written only after put_path
+        succeeds, and bind the same project's backend. It avoids downloading or
+        copying originals again merely to publish their row references.
+        """
+        self._require_open()
+        self._check_cancelled()
+        validate_blob_digest(digest)
+        if type(size) is not int or size < 0:
+            raise ValueError("owned import blob size must be nonnegative")
+        if (
+            not isinstance(filename, str)
+            or not filename
+            or not isinstance(mime, str)
+            or not mime
+        ):
+            raise ValueError("owned import blobs require a filename and MIME type")
+        file = StagedFile(size=size)
+        self._manifest[file] = ImportBlob(
+            occurrence_id=len(self._manifest),
+            path=None,
+            digest=digest,
+            size=size,
+            filename=filename,
+            mime=mime,
+            metadata={},
+            role="attachment",
+            owner=owner,
+        )
+        return file
+
     def describe(self, file: StagedFile) -> ImportBlob:
         """Host-only metadata for an admitted scratch file; never publish a path."""
         return self._admitted(file)
@@ -169,7 +212,14 @@ class AdmittedImportBlobStager:
         blob = self._admitted(file)
         with ExitStack() as opened:
             self._readers.callback(opened.close)
-            stream = opened.enter_context(blob.path.open("rb"))
+            path = (
+                opened.enter_context(blob.owner.materialize(blob.digest))
+                if blob.owner is not None
+                else blob.path
+            )
+            if path is None:
+                raise ValueError("import blob has no readable bytes")
+            stream = opened.enter_context(path.open("rb"))
             reader = opened.enter_context(_ReadOnlyBinary(stream))
             yield cast(BinaryIO, reader)
 
