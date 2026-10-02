@@ -133,6 +133,34 @@ def test_watch_refuses_partial_search(monkeypatch):
     assert error.value.code == "search_index_not_ready"
 
 
+def test_manual_watch_readiness_is_http_conflict_and_schedules_index(tmp_path):
+    from contextlib import closing
+    from unittest.mock import Mock
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from frisket.engine.store import Project
+    from frisket.server.routes.watches import register_watch_routes
+    from frisket.server.services.watches import WatchService
+
+    with closing(Project.create(tmp_path / "docs.frisket")) as project:
+        watch_id = project.add_watch(
+            "Needle", scope="project", query={"kind": "fts", "q": "needle"}
+        )
+        schedule = Mock()
+        project._frisket_schedule_search_index = schedule
+        app = FastAPI()
+        register_watch_routes(
+            app, service=WatchService(SimpleNamespace(get=lambda _id: project))
+        )
+        response = TestClient(app).post(f"/api/projects/docs/watches/{watch_id}/run")
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"]["code"] == "search_index_not_ready"
+        schedule.assert_called_once_with()
+        assert project.watch_runs_total(watch_id) == 0
+
+
 @pytest.mark.parametrize("indexing", [False, True])
 def test_hosted_mcp_preserves_readiness(indexing):
     import asyncio

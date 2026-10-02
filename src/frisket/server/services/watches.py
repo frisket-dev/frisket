@@ -79,15 +79,6 @@ class WatchService:
                 detection_policy=normalized_policy,
                 enabled=enabled,
             )
-        except WatchBindingError as exc:
-            if exc.code == "search_index_not_ready":
-                schedule = getattr(project, "_frisket_schedule_search_index", None)
-                if schedule is not None:
-                    schedule()
-                raise WatchRequestError(
-                    {"code": exc.code, "message": exc.message}, status_code=409
-                ) from exc
-            raise WatchRequestError(str(exc)) from exc
         except ValueError as exc:
             raise WatchRequestError(str(exc)) from exc
         return _watch_dict(project, project.get_watch(watch_id))
@@ -99,6 +90,15 @@ class WatchService:
             raise WatchNotFound("watch not found")
         try:
             evaluation = run_watch_evaluation(project, row)
+        except WatchBindingError as exc:
+            if exc.code == "search_index_not_ready":
+                schedule = getattr(project, "_frisket_schedule_search_index", None)
+                if schedule is not None:
+                    schedule()
+                raise WatchRequestError(
+                    {"code": exc.code, "message": exc.message}, status_code=409
+                ) from exc
+            raise WatchRequestError(str(exc)) from exc
         except ValueError as exc:
             raise WatchRequestError(str(exc)) from exc
         enqueue_notification_emit_result(
