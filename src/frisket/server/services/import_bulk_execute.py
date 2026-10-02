@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from frisket.actions.types import EmailInput
-from frisket.engine.executor import ExecutorDeps, run_action_spec
+from frisket.engine.executor import BoundLocalFile, ExecutorDeps, run_action_spec
 from frisket.server.route_errors import RouteError
 from frisket.server.services import import_bulk_sources
 from frisket.server.services.import_bulk_plan import (
@@ -194,6 +194,8 @@ class BulkExecutor:
     def _scan(
         self, root: Path, item: dict[str, Any], force_text: bool = False
     ) -> CsvFileScan:
+        # Keep analysis facts only; execution reopens and verifies one source
+        # at a time through _csv_sources instead of holding the whole group.
         source = import_bulk_sources.open_verified_source(root, item)
         try:
             return scan_csv_stream(
@@ -201,9 +203,22 @@ class BulkExecutor:
                 logical_path=str(item["logical_path"]),
                 force_text_columns=force_text,
             )
-        except Exception:
+        finally:
             source.close()
-            raise
+
+    def _csv_sources(
+        self, root: Path, items: list[dict[str, Any]]
+    ) -> dict[str, BoundLocalFile]:
+        return {
+            str((root / item["path"]).absolute()): BoundLocalFile(
+                stream=None,
+                sha256=f"sha256:{item['sha256']}",
+                open_source=lambda item=item: import_bulk_sources.open_verified_source(
+                    root, item
+                ),
+            )
+            for item in items
+        }
 
     def _csv(
         self,
@@ -258,6 +273,7 @@ class BulkExecutor:
                             scans=[scan],
                             source_paths=[str((root / item["path"]).absolute())],
                             source_sha256=[item["sha256"]],
+                            bound_sources=self._csv_sources(root, [item]),
                             source_column=None,
                             request_key=csv_request_key(root.name, single["id"], name),
                             deps=deps,
@@ -297,10 +313,6 @@ class BulkExecutor:
                         for next_item in items[item_index + 1 :]
                     ]
                     raise _BulkExecutionFatal(exc, single, remaining) from exc
-                finally:
-                    if "scan" in locals():
-                        scan.source.close()
-                        del scan
             return good, bad, bad_omitted
         inserting = False
         scans = []
@@ -340,6 +352,7 @@ class BulkExecutor:
                         str((root / item["path"]).absolute()) for item in items
                     ],
                     source_sha256=[item["sha256"] for item in items],
+                    bound_sources=self._csv_sources(root, items),
                     source_column=source,
                     columns_override=columns,
                     request_key=csv_request_key(root.name, output["id"], name),
@@ -366,9 +379,6 @@ class BulkExecutor:
             record_bad(failure_output(output, str(exc)))
         except ValueError as exc:
             record_bad(failure_output(output, str(getattr(exc, "detail", exc))))
-        finally:
-            for scan in scans:
-                scan.source.close()
         return good, bad, bad_omitted
 
     def _xlsx(self, project, pid, o, items, root, *, deps: ExecutorDeps):
