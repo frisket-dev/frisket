@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const listImportSessions = vi.hoisted(() => vi.fn());
@@ -128,5 +128,32 @@ describe('persistent import progress', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(cancelImportSession).toHaveBeenCalledWith('project-1', 'import-1'));
     await act(async () => { finishUpload(); });
+  });
+
+  it('does not abort one session preparation when another session is cancelled', async () => {
+    const preparing = {
+      ...running, import_ref: 'import-a', state: 'admitting', through: 0,
+      committed_rows: 0, sheet_id: null, sealed: false,
+    };
+    const other = { ...running, import_ref: 'import-b' };
+    listImportSessions.mockResolvedValue({ sessions: [preparing, other] });
+    cancelImportSession.mockResolvedValue({ ...other, state: 'cancelling', cancel_requested: true });
+    uploadFilesToImportSession.mockResolvedValue({ ...preparing, state: 'running', sealed: true });
+    const files = Array.from({ length: 2_048 }, (_, index) => new File(['x'], `${index}.pdf`));
+    await rememberImportSessionFiles('import-a', files);
+    render(<ImportProgress projectId="project-1" onOpenSheet={vi.fn()} />);
+
+    const interrupted = await screen.findByText(/Upload was interrupted/);
+    fireEvent.click(within(interrupted.parentElement!).getByRole('button', { name: 'Reselect files' }));
+    fireEvent.change(screen.getByLabelText('Reselect import files'), { target: { files } });
+    expect(screen.getByText(/Preparing files/)).toBeInTheDocument();
+    const otherSession = screen.getAllByTestId('import-progress-running')
+      .find((element) => element.textContent?.includes('3 of 10'))!;
+    fireEvent.click(within(otherSession).getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => expect(cancelImportSession).toHaveBeenCalledWith('project-1', 'import-b'));
+    await waitFor(() => expect(uploadFilesToImportSession).toHaveBeenCalledWith(
+      'project-1', expect.objectContaining({ import_ref: 'import-a' }), files,
+    ));
   });
 });
