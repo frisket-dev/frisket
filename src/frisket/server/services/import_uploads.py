@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, Callable, ContextManager
 
 from fastapi import UploadFile
 from frisket.engine.store.receipts import ReceiptStore
@@ -22,9 +22,14 @@ class AdmittedUpload:
 
     filename: str
     mime: str
-    source: BinaryIO
+    source: BinaryIO | None
     sha256: str
     size: int
+    open_source: Callable[[], ContextManager[BinaryIO]] | None = None
+
+    def __post_init__(self) -> None:
+        if (self.source is None) == (self.open_source is None):
+            raise ValueError("admitted upload requires exactly one source")
 
 
 class ImportUploadRouteError(RouteError):

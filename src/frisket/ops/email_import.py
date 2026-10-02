@@ -12,7 +12,8 @@ from email.parser import BytesParser
 from email.policy import default
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import BinaryIO, Literal, TypeVar
+from typing import BinaryIO, ContextManager, Literal, TypeVar
+from contextlib import ExitStack
 
 
 _MAX_WARNINGS = 20
@@ -29,6 +30,9 @@ class EmailSource:
     # Trusted ingress may pin an already-verified inode for the duration of an
     # import. The parser borrows this seekable stream and never closes it.
     stream: BinaryIO | None = field(default=None, repr=False, compare=False)
+    open_source: Callable[[], ContextManager[BinaryIO]] | None = field(
+        default=None, repr=False, compare=False
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -268,6 +272,10 @@ def _read_eml(source: EmailSource) -> bytes:
     if source.stream is not None:
         source.stream.seek(0)
         return source.stream.read()
+    if source.open_source is not None:
+        with source.open_source() as stream:
+            stream.seek(0)
+            return stream.read()
     if source.path is None:
         raise OSError("email source is unavailable")
     return source.path.read_bytes()
@@ -309,10 +317,26 @@ def _iter_email_messages(
 
     for source in sorted(sources, key=lambda item: item.logical_path):
         if source.format == "eml":
+            if source.open_source is not None:
+                # Opening is trusted-ingress admission, not recoverable parsing.
+                # In particular, a staged fingerprint mismatch must abort the
+                # complete source set rather than become a per-message warning.
+                with source.open_source() as stream:
+                    try:
+                        stream.seek(0)
+                        payload = stream.read()
+                    except (LookupError, OSError, UnicodeError, ValueError) as exc:
+                        collector.add(f"{source.logical_path}: {exc}")
+                        continue
+            else:
+                try:
+                    payload = _read_eml(source)
+                except (LookupError, OSError, UnicodeError, ValueError) as exc:
+                    collector.add(f"{source.logical_path}: {exc}")
+                    continue
             try:
-                payload = _read_eml(source)
                 yield _parse_message(payload, source.logical_path, attachment_dir)
-            except (LookupError, OSError, UnicodeError, ValueError) as exc:
+            except (LookupError, UnicodeError, ValueError) as exc:
                 collector.add(f"{source.logical_path}: {exc}")
             continue
         if source.format != "mbox":
@@ -321,29 +345,37 @@ def _iter_email_messages(
             )
             continue
 
-        try:
-            if source.stream is not None:
-                box = _MboxStream(source.stream)
-            elif source.path is not None:
-                box = open_mbox(source.path, create=False)
-            else:
-                raise OSError("email source is unavailable")
-        except (LookupError, OSError, ValueError) as exc:
-            collector.add(f"{source.logical_path}: {exc}")
-            continue
-        found = False
-        try:
-            for index, message in enumerate(box, start=1):
-                found = True
-                location = f"{source.logical_path}#{index}"
-                try:
-                    yield _parse_message(message, location, attachment_dir)
-                except (LookupError, UnicodeError, ValueError) as exc:
-                    collector.add(f"{location}: {exc}")
-        finally:
-            close = getattr(box, "close", None)
-            if close is not None:
-                close()
+        with ExitStack() as source_stack:
+            opened_stream = (
+                source_stack.enter_context(source.open_source())
+                if source.open_source is not None
+                else None
+            )
+            try:
+                if source.stream is not None:
+                    box = _MboxStream(source.stream)
+                elif opened_stream is not None:
+                    box = _MboxStream(opened_stream)
+                elif source.path is not None:
+                    box = open_mbox(source.path, create=False)
+                else:
+                    raise OSError("email source is unavailable")
+            except (LookupError, OSError, ValueError) as exc:
+                collector.add(f"{source.logical_path}: {exc}")
+                continue
+            found = False
+            try:
+                for index, message in enumerate(box, start=1):
+                    found = True
+                    location = f"{source.logical_path}#{index}"
+                    try:
+                        yield _parse_message(message, location, attachment_dir)
+                    except (LookupError, UnicodeError, ValueError) as exc:
+                        collector.add(f"{location}: {exc}")
+            finally:
+                close = getattr(box, "close", None)
+                if close is not None:
+                    close()
         if not found:
             collector.add(f"{source.logical_path}: mailbox contains no messages")
 

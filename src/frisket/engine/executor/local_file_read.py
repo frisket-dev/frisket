@@ -115,57 +115,74 @@ class AdmittedLocalFileReader:
     def __init__(self, sources: Mapping[str, BoundLocalFile] | None = None) -> None:
         self.facts: list[dict[str, Any]] = []
         self.sources = sources
-        self.resources = ExitStack()
+        self._active: set[Any] = set()
+        self._closed = False
 
     def close(self) -> None:
-        self.resources.close()
+        self._closed = True
+        for resource in tuple(self._active):
+            resource.close()
+        self._active.clear()
 
     @contextmanager
     def _source(self, path: str) -> Iterator[tuple[BinaryIO, str, str | None]]:
+        if self._closed:
+            raise TableError("invalid_file_source", "Source reader is closed")
         if not isinstance(path, str) or not path:
             raise TableError(
                 "invalid_file_source", "Source must be a readable local file"
             )
-        with ExitStack() as opened:
-            self.resources.callback(opened.close)
-            try:
-                if self.sources is not None:
-                    admitted = self.sources.get(path)
-                    if admitted is None:
-                        raise ValueError("Source path was not admitted")
-                    stream, actual_path, expected = (
-                        admitted.stream,
-                        path,
-                        admitted.sha256,
-                    )
-                    stream.seek(0)
-                else:
-                    source = Path(path).resolve()
-                    if not source.is_file():
-                        raise OSError("source is not a regular file")
-                    stream = opened.enter_context(source.open("rb"))
-                    if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-                        raise OSError("source is not a regular file")
-                    actual_path, expected = str(source), None
-            except (OSError, ValueError, RuntimeError) as exc:
-                if isinstance(exc, TableError):
-                    raise
-                raise TableError(
-                    "invalid_file_source", "Source must be a readable local file"
-                ) from exc
-            yield stream, actual_path, expected
+        opened = ExitStack()
+        self._active.add(opened)
+        try:
+            with opened:
+                try:
+                    if self.sources is not None:
+                        admitted = self.sources.get(path)
+                        if admitted is None:
+                            raise ValueError("Source path was not admitted")
+                        stream = (
+                            opened.enter_context(admitted.open_source())
+                            if admitted.open_source is not None
+                            else admitted.stream
+                        )
+                        if stream is None:
+                            raise ValueError("Source path was not admitted")
+                        actual_path, expected = path, admitted.sha256
+                        stream.seek(0)
+                    else:
+                        source = Path(path).resolve()
+                        if not source.is_file():
+                            raise OSError("source is not a regular file")
+                        stream = opened.enter_context(source.open("rb"))
+                        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                            raise OSError("source is not a regular file")
+                        actual_path, expected = str(source), None
+                except (OSError, ValueError, RuntimeError) as exc:
+                    if isinstance(exc, TableError):
+                        raise
+                    raise TableError(
+                        "invalid_file_source", "Source must be a readable local file"
+                    ) from exc
+                yield stream, actual_path, expected
+        finally:
+            self._active.discard(opened)
 
     @contextmanager
     def _open(self, path: str) -> Iterator[io.BufferedReader]:
         with self._source(path) as (stream, actual_path, expected):
             observed = _ObservedRaw(stream, actual_path, expected, self.facts)
             with io.BufferedReader(observed) as buffered:
-                self.resources.callback(buffered.close)
-                yield buffered
-                if not observed.finished:
-                    raise TableError(
-                        "invalid_file_source", "Admitted source was not read completely"
-                    )
+                self._active.add(buffered)
+                try:
+                    yield buffered
+                    if not observed.finished:
+                        raise TableError(
+                            "invalid_file_source",
+                            "Admitted source was not read completely",
+                        )
+                finally:
+                    self._active.discard(buffered)
 
     @contextmanager
     def open_binary(self, path: str) -> Iterator[BinaryIO]:
@@ -179,8 +196,11 @@ class AdmittedLocalFileReader:
                     "invalid_file_source", "Source must be a seekable local file"
                 ) from exc
             with _ReadOnlyBinary(stream) as binary:
-                self.resources.callback(binary.close)
-                yield cast(BinaryIO, binary)
+                self._active.add(binary)
+                try:
+                    yield cast(BinaryIO, binary)
+                finally:
+                    self._active.discard(binary)
             # Only normal consumption reaches this pass: parser failures,
             # cancellation and GeneratorExit must never drain the source.
             try:
