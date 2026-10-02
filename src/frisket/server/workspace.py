@@ -826,8 +826,8 @@ class Workspace:
                     },
                 )
             except Exception:
-                # The dirty scope is already durable. Reopen or the next search
-                # retries the commit/enqueue window without failing a read.
+                # The dirty scope is already durable. The next search retries
+                # the commit/enqueue window without failing a read.
                 _log.warning("search_index_enqueue_failed", exc_info=True)
                 return None
 
@@ -864,7 +864,6 @@ class Workspace:
         # Recover the commit/enqueue crash window when a project is reopened.
         # Probe namespaces are the durable progress marker; no second state table.
         schedule_metadata()
-        schedule_search()
 
     def create(
         self,

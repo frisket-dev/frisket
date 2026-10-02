@@ -18,6 +18,7 @@ from frisket.engine.jobs.watches import (
 from frisket.engine.store import Project
 from frisket.search import search_project
 from frisket.server.workspace import Workspace
+from frisket.server.services.project_search import ProjectSearchService
 
 
 def _project(root):
@@ -69,7 +70,7 @@ def test_worker_bounds_claims_and_recovers_deleted_sidecar(tmp_path, monkeypatch
             assert len(search_project(project, "needle", rerank="off")) == 9
 
 
-def test_reopen_or_search_retries_failed_enqueue(tmp_path, monkeypatch):
+def test_readonly_open_does_not_enqueue_but_first_search_does(tmp_path, monkeypatch):
     _project(tmp_path)
     workspace = Workspace(tmp_path)
     enqueue = workspace.queue.enqueue
@@ -80,8 +81,18 @@ def test_reopen_or_search_retries_failed_enqueue(tmp_path, monkeypatch):
     )
     project = workspace.get("docs")
     monkeypatch.setattr(workspace.queue, "enqueue", enqueue)
-    job_id = project._frisket_schedule_search_index()
-    assert workspace.queue.get(job_id).kind == search_index.SEARCH_INDEX_KIND
+    assert (
+        workspace.queue.list_project_jobs("docs", kind=search_index.SEARCH_INDEX_KIND)
+        == []
+    )
+    result = ProjectSearchService(workspace).search(
+        "docs", q="needle", limit=10, mode="keyword", rerank="off"
+    )
+    assert result["indexing"] is True
+    [job] = workspace.queue.list_project_jobs(
+        "docs", kind=search_index.SEARCH_INDEX_KIND
+    )
+    assert job.status == "queued"
     project.close()
     workspace.queue.close()
 

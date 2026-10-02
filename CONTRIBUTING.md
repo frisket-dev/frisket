@@ -176,8 +176,9 @@ after changing code; stale package URLs and missing exports fail closed.
 Keyword search is a rebuildable sidecar, not a second data authority. Current-cell
 projection changes and visibility/schema changes record dirty scopes in the same
 source transaction. The existing job queue reconciles those scopes in bounded
-batches; a lost enqueue is recovered on reopen or search. Search reads never
-rebuild the corpus. Interactive responses include `indexing` and may contain
+batches; a lost enqueue is recovered by the next search, while merely opening a
+project remains read-only with respect to the job queue. Search reads never rebuild
+the corpus. Interactive responses include `indexing` and may contain
 validated partial results; action/agent consumers require a complete matching
 source snapshot and otherwise return `search_index_not_ready`.
 
