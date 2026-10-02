@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 import json
 import sqlite3
-import zipfile
+import tarfile
 from pathlib import Path
 from typing import NoReturn
 
@@ -14,6 +14,16 @@ from fastapi.testclient import TestClient
 from frisket.server.app import create_app
 from frisket.server.routes.exports import register_project_export_routes
 from frisket.server.services.project_exports import ProjectExportError
+
+
+def _tar(content: bytes) -> tarfile.TarFile:
+    return tarfile.open(fileobj=io.BytesIO(content), mode="r:gz")
+
+
+def _json_member(bundle: tarfile.TarFile, name: str) -> dict:
+    member = bundle.extractfile(name)
+    assert member is not None
+    return json.load(member)
 
 
 def _make_project(client: TestClient) -> tuple[str, int]:
@@ -68,12 +78,21 @@ def test_project_export_routes_preserve_bundle_and_action_contract(
 
     response = client.get(f"/api/projects/{pid}/export")
     assert response.status_code == 200, response.text
-    assert response.headers["content-type"] == "application/zip"
-    assert "bundle-test.frisket.zip" in response.headers["content-disposition"]
-    bundle = zipfile.ZipFile(io.BytesIO(response.content))
-    names = set(bundle.namelist())
-    assert {"manifest.json", "project.db"} <= names
-    assert json.loads(bundle.read("manifest.json"))["format"] == "frisket-bundle"
+    assert response.headers["content-type"] == "application/gzip"
+    assert "bundle-test.frisket.tar.gz" in response.headers["content-disposition"]
+    bundle = _tar(response.content)
+    names = set(bundle.getnames())
+    assert {"bundle.json", "manifest.json", "project.db"} <= names
+    assert _json_member(bundle, "bundle.json") == {
+        "format": "frisket-bundle",
+        "version": 1,
+        "include_media": True,
+        "include_traces": False,
+    }
+    manifest = _json_member(bundle, "manifest.json")
+    assert manifest["format"] == "frisket-bundle"
+    assert "include_media" not in manifest
+    assert "include_traces" not in manifest
 
 
 def test_project_export_routes_preserve_include_media_and_database_mode(
@@ -91,29 +110,24 @@ def test_project_export_routes_preserve_include_media_and_database_mode(
     trace.parent.mkdir(parents=True, exist_ok=True)
     trace.write_bytes(b"diagnostic")
 
-    slim = zipfile.ZipFile(
-        io.BytesIO(
-            client.get(f"/api/projects/{pid}/export?include_media=false").content
-        )
-    )
-    assert not any(name.startswith("blobs/") for name in slim.namelist())
-    assert not any(name.startswith("traces/") for name in slim.namelist())
+    slim = _tar(client.get(f"/api/projects/{pid}/export?include_media=false").content)
+    assert not any(name.startswith("blobs/") for name in slim.getnames())
+    assert not any(name.startswith("traces/") for name in slim.getnames())
+    assert _json_member(slim, "bundle.json")["include_media"] is False
 
-    with_traces = zipfile.ZipFile(
-        io.BytesIO(
-            client.get(f"/api/projects/{pid}/export?include_traces=true").content
-        )
+    with_traces = _tar(
+        client.get(f"/api/projects/{pid}/export?include_traces=true").content
     )
-    assert "traces/run-7.jsonl.gz" in with_traces.namelist()
-    assert json.loads(with_traces.read("manifest.json"))["include_traces"] is True
+    assert "traces/run-7.jsonl.gz" in with_traces.getnames()
+    assert _json_member(with_traces, "bundle.json")["include_traces"] is True
 
     response = client.get(f"/api/projects/{pid}/export?mode=db")
     assert response.status_code == 200, response.text
     assert response.headers["content-type"] == "application/vnd.sqlite3"
     assert "bundle-test.frisket.db" in response.headers["content-disposition"]
     assert response.content.startswith(b"SQLite format 3\x00")
-    with pytest.raises(zipfile.BadZipFile):
-        zipfile.ZipFile(io.BytesIO(response.content)).namelist()
+    with pytest.raises(tarfile.ReadError):
+        _tar(response.content).getnames()
 
     db_path = tmp_path / "snapshot.frisket.db"
     db_path.write_bytes(response.content)
@@ -151,7 +165,7 @@ def test_project_export_filenames_use_safe_download_helper(tmp_path: Path) -> No
     assert response.status_code == 200, response.text
     disposition = response.headers["content-disposition"]
     assert disposition.startswith("attachment;")
-    assert f'filename="{pid}.frisket.zip"' in disposition
+    assert f'filename="{pid}.frisket.tar.gz"' in disposition
 
     database = client.get(f"/api/projects/{pid}/export?mode=db")
     assert database.status_code == 200, database.text
