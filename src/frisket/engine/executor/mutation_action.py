@@ -84,6 +84,7 @@ from frisket.engine.store.current_cells import (
     decoded_cell_validity,
     refresh_current_cells,
 )
+from frisket.engine.store.import_sessions import require_import_sheet_write
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.artifact_timeline import TimelineError
 from frisket.features.temporal_ingress import (
@@ -181,6 +182,7 @@ class _ColumnPatcher(_CallOnce):
                 field="params.column_id",
                 details={"column_id": column_id},
             )
+        require_import_sheet_write(self._project.db, int(row["sheet_id"]))
         _claimed_column(self._project, column_id, action_kind=self._action.kind)
         self._cur.execute("UPDATE columns SET format=? WHERE id=?", (format, column_id))
         op_id = _write_op(
@@ -256,6 +258,7 @@ class _ColumnCreator(_CallOnce):
                 field="params.sheet_id",
                 details={"sheet_id": sheet_id},
             )
+        require_import_sheet_write(self._project.db, sheet_id)
         if (
             self._cur.execute(
                 "SELECT id FROM columns WHERE sheet_id=? AND name=? AND hidden=0",
@@ -972,6 +975,7 @@ class _ColumnTyper(_CallOnce):
                     "actual_sheet_id": int(column["sheet_id"]),
                 },
             )
+        require_import_sheet_write(self._project.db, int(column["sheet_id"]))
         _claimed_column(self._project, column_id, action_kind=self._action.kind)
         values = self._project.get_values(
             int(column["sheet_id"]), column_id, preserve_invalid=True
@@ -1906,6 +1910,24 @@ def run_typed_mutation_action(
     terminal = bound.action.definition.run
     if not supports_typed_mutation_action(terminal):
         raise TypeError("typed mutation executor requires a column or row action")
+    params = bound.params.model_dump(mode="json")
+    kind = bound.action.action_id
+    if kind == "column.add":
+        require_import_sheet_write(project.db, int(params["sheet_id"]))
+    elif kind in {"column.patch", "column.set_type"}:
+        column = project.db.execute(
+            "SELECT sheet_id FROM columns WHERE id=?", (int(params["column_id"]),)
+        ).fetchone()
+        if column is not None:
+            require_import_sheet_write(project.db, int(column["sheet_id"]))
+    elif kind == "cell.edit":
+        row_ids = sorted({int(edit["row_id"]) for edit in params["edits"]})
+        if row_ids:
+            marks = ",".join("?" for _ in row_ids)
+            for row in project.db.execute(
+                f"SELECT DISTINCT sheet_id FROM rows WHERE id IN ({marks})", row_ids
+            ):
+                require_import_sheet_write(project.db, int(row["sheet_id"]))
     if (
         isinstance(bound.params, ReviewDecisionParams)
         and bound.params.decision == "edit"
@@ -1927,7 +1949,7 @@ def run_typed_mutation_action(
     envelope = _TypedProjectEnvelope(
         kind=bound.action.action_id,
         idempotency_key=bound.request.idempotency_key,
-        params=bound.params.model_dump(mode="json"),
+        params=params,
         row_scope=bound.request.scope,
         confirmation=bound.request.confirmation,
     )
