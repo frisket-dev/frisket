@@ -29,6 +29,7 @@ TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION = (
 # reuses _link_summary's per-link shape — the ENVELOPE differs (a `rows`
 # array keyed by row_id, not one row's `links`).
 COLUMN_EVIDENCE_BATCH_SCHEMA_VERSION = "frisket.column_evidence_batch.v1"
+_MAP_EXTRACT_ITEM_EVIDENCE_SCHEMA_VERSION = "frisket.map_extract_item_evidence_link.v1"
 
 # A layer_family is a lowercase slug (e.g. 'entities').
 # Mirrors the fresh-schema CHECK on evidence_links.layer_family; the writer is the
@@ -920,6 +921,7 @@ def mark_evidence_stale_for_cell_refs(
     targets: list[dict[str, Any]],
     *,
     reason: str = "manual_cell_edit",
+    preserve_map_extract_item_links: bool = False,
 ) -> list[str]:
     """Mark active evidence for the targets' current value refs stale.
 
@@ -927,6 +929,11 @@ def mark_evidence_stale_for_cell_refs(
     unrelated active link for the same cell but a different run/manual value is
     not incorrectly hidden. This is the manual-edit/review-decision shape:
     the caller knows the EXACT prior ref being replaced.
+
+    Edit overlays may preserve map-extract item links. Those links are immutable
+    run facts whose consumers independently require the exact item index, value
+    hash, and run; current-cell evidence views still hide them after an edit by
+    requiring the link subject ref to match the current value ref.
 
     A target may instead set ``match_all_active=True`` (no ``current_value_ref``
     needed) for the producing-run-reprocess shape (evidence-stale-on-reprocess-v1):
@@ -974,19 +981,49 @@ def mark_evidence_stale_for_cell_refs(
                 )
                 update_params: tuple[Any, ...] = (reason, row_id, column_id)
             else:
+                preserve_sql = (
+                    " AND COALESCE(CASE WHEN json_valid(metadata) THEN ("
+                    "COALESCE(json_extract(metadata,'$.schema_version'),'')=? "
+                    "AND json_type(metadata,'$.item_index')='integer' "
+                    "AND json_extract(metadata,'$.item_index')>=0 "
+                    "AND json_type(metadata,'$.value_hash')='text' "
+                    "AND run_id IS NOT NULL"
+                    ") ELSE 0 END,0)=0"
+                    if preserve_map_extract_item_links
+                    else ""
+                )
                 select_sql = (
                     "SELECT stable_id FROM evidence_links "
                     "WHERE status='active' AND row_id=? AND column_id=? "
-                    "AND subject_ref_json=?"
+                    "AND subject_ref_json=?" + preserve_sql
                 )
-                select_params = (row_id, column_id, _json_dumps(ref))
+                select_params = (
+                    row_id,
+                    column_id,
+                    _json_dumps(ref),
+                    *(
+                        (_MAP_EXTRACT_ITEM_EVIDENCE_SCHEMA_VERSION,)
+                        if preserve_map_extract_item_links
+                        else ()
+                    ),
+                )
                 update_sql = (
                     "UPDATE evidence_links SET status='stale', stale_reason=?, "
                     "stale_at=datetime('now') "
                     "WHERE status='active' AND row_id=? AND column_id=? "
-                    "AND subject_ref_json=?"
+                    "AND subject_ref_json=?" + preserve_sql
                 )
-                update_params = (reason, row_id, column_id, _json_dumps(ref))
+                update_params = (
+                    reason,
+                    row_id,
+                    column_id,
+                    _json_dumps(ref),
+                    *(
+                        (_MAP_EXTRACT_ITEM_EVIDENCE_SCHEMA_VERSION,)
+                        if preserve_map_extract_item_links
+                        else ()
+                    ),
+                )
             rows = project.db.execute(select_sql, select_params).fetchall()
             if not rows:
                 continue

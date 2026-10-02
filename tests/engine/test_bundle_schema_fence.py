@@ -29,6 +29,43 @@ _REVIEW_METADATA_DDL = (
 )
 
 
+def _with_pre_hygiene_indexes(schema: str) -> str:
+    """Restore indexes that existed in every schema fixture below."""
+
+    assert "idx_execution_attempts_run" not in schema
+    assert "idx_source_items_source_dedupe" not in schema
+    assert "idx_source_runs_source ON" not in schema
+    schema = schema.replace(
+        "CREATE INDEX IF NOT EXISTS idx_source_runs_source_started",
+        "CREATE INDEX IF NOT EXISTS idx_source_runs_source "
+        "ON source_runs(source_id);\n"
+        "CREATE INDEX IF NOT EXISTS idx_source_runs_source_started",
+    )
+    schema = schema.replace(
+        "CREATE INDEX IF NOT EXISTS idx_source_items_run",
+        "CREATE INDEX IF NOT EXISTS idx_source_items_source_dedupe\n"
+        "  ON source_items(source_id, dedupe_key);\n"
+        "CREATE INDEX IF NOT EXISTS idx_source_items_run",
+    )
+    return schema.replace(
+        "-- ONE dispatch per run, ENFORCED.",
+        "CREATE INDEX IF NOT EXISTS idx_execution_attempts_run\n"
+        "  ON execution_attempts(run_id, seq DESC);\n"
+        "-- ONE dispatch per run, ENFORCED.",
+    )
+
+
+def _restore_pre_hygiene_indexes(db: sqlite3.Connection) -> None:
+    db.executescript(
+        "CREATE INDEX IF NOT EXISTS idx_execution_attempts_run "
+        "ON execution_attempts(run_id,seq DESC);"
+        "CREATE INDEX IF NOT EXISTS idx_source_items_source_dedupe "
+        "ON source_items(source_id,dedupe_key);"
+        "CREATE INDEX IF NOT EXISTS idx_source_runs_source "
+        "ON source_runs(source_id);"
+    )
+
+
 def _without_current_cells_foundation(schema: str) -> str:
     prior = schema
     for marker in (
@@ -44,6 +81,7 @@ def _without_current_cells_foundation(schema: str) -> str:
 
 
 def _without_import_sessions(schema: str) -> str:
+    schema = _with_pre_hygiene_indexes(schema)
     before, marked = schema.split("-- SEARCH_INDEX_WORK_BEGIN", 1)
     _removed, after = marked.split("-- SEARCH_INDEX_WORK_END", 1)
     schema = before + after
@@ -94,6 +132,7 @@ def _physically_remove_current_cells_foundation(db: sqlite3.Connection) -> None:
     db.execute("ALTER TABLE cells DROP COLUMN producer_id")
     db.execute("DROP TABLE base_cell_producers")
     db.execute("ALTER TABLE runs DROP COLUMN review_completed_at")
+    _restore_pre_hygiene_indexes(db)
 
 
 def _a64_bundle(tmp_path):
@@ -181,6 +220,7 @@ def test_run_review_status_migration_preserves_existing_runs(tmp_path):
         db.execute("DROP TABLE import_sessions")
         _physically_remove_project_qa_research(db)
         db.execute("ALTER TABLE runs DROP COLUMN review_completed_at")
+        _restore_pre_hygiene_indexes(db)
         db.execute(
             "UPDATE meta SET value=? WHERE key=?",
             (prior_digest, SCHEMA_DIGEST_META_KEY),

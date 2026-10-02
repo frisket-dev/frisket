@@ -17,6 +17,51 @@ from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
 
 
+def _attach_whole_cell_evidence(
+    project: Project,
+    *,
+    sheet_id: int,
+    row_id: int,
+    column_id: int,
+    subject_ref: dict,
+    op_id: int,
+    run_id: int,
+) -> dict:
+    artifact = record_source_artifact(
+        project,
+        artifact_kind="row",
+        media_type="application/vnd.frisket.row+json",
+        source_sheet_id=sheet_id,
+        source_row_id=row_id,
+    )
+    span = record_source_span(
+        project,
+        artifact_id=int(artifact["id"]),
+        span_kind="whole",
+        snippet="cell evidence",
+    )
+    return record_evidence_link(
+        project,
+        subject_kind="cell_value",
+        subject_ref=subject_ref,
+        spans=[{"span_id": span["id"]}],
+        sheet_id=sheet_id,
+        row_id=row_id,
+        column_id=column_id,
+        run_id=run_id,
+        op_id=op_id,
+    )
+
+
+def _operation_action(kind: str, *, key: str, expected_op_id: int) -> dict:
+    return {
+        "action_id": kind,
+        "scope": {"kind": "project"},
+        "params": {"expected_op_id": expected_op_id},
+        "idempotency_key": key,
+    }
+
+
 def _table_names(project: Project) -> set[str]:
     return {
         str(row["name"])
@@ -481,5 +526,131 @@ def test_investigative_evidence_substrate_contract(tmp_path: Path) -> None:
         assert (
             sum(len(artifact["spans"]) for artifact in stale_viewer["artifacts"]) == 7
         )
+    finally:
+        project.close()
+
+
+def test_facade_edit_stales_exact_current_evidence(tmp_path: Path) -> None:
+    project = Project.create(tmp_path / "facade-edit-evidence.frisket")
+    try:
+        sheet_id, row_id, column_id, op_id, run_id, current_ref = _seed_generated_cell(
+            project
+        )
+        link = _attach_whole_cell_evidence(
+            project,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
+            subject_ref=current_ref,
+            op_id=op_id,
+            run_id=run_id,
+        )
+
+        project.apply_edits(
+            [{"row_id": row_id, "column_id": column_id, "value": "corrected"}]
+        )
+
+        evidence = list_cell_evidence(
+            project,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
+            include_stale=True,
+        )
+        assert [item["stable_id"] for item in evidence["links"]] == [link["stable_id"]]
+        assert evidence["links"][0]["status"] == "stale"
+        assert evidence["stale_count"] == 1
+    finally:
+        project.close()
+
+
+def test_typed_edit_undo_redo_restores_exact_evidence_status(tmp_path: Path) -> None:
+    project = Project.create(tmp_path / "edit-evidence-history.frisket")
+    try:
+        sheet_id, row_id, column_id, op_id, run_id, current_ref = _seed_generated_cell(
+            project
+        )
+        link = _attach_whole_cell_evidence(
+            project,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
+            subject_ref=current_ref,
+            op_id=op_id,
+            run_id=run_id,
+        )
+        already_stale = _attach_whole_cell_evidence(
+            project,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
+            subject_ref={"kind": "manual_edit", "op_id": 999},
+            op_id=op_id,
+            run_id=run_id,
+        )
+        project.db.execute(
+            "UPDATE evidence_links SET status='stale',stale_reason='older_change',"
+            "stale_at='2026-01-02 03:04:05' WHERE stable_id=?",
+            (already_stale["stable_id"],),
+        )
+        project.db.commit()
+
+        edited = run_action_spec(
+            project,
+            {
+                "action_id": "cell.edit",
+                "scope": {"kind": "project"},
+                "params": {
+                    "edits": [
+                        {
+                            "row_id": row_id,
+                            "column_id": column_id,
+                            "value": "corrected",
+                        }
+                    ]
+                },
+                "idempotency_key": "edit-evidence-history@sha256:v1",
+            },
+            project_id="project-edit-evidence-history",
+        )
+        assert edited.status == "completed", edited.errors
+        edit_op_id = edited.op_ids[0]
+        stale = resolve_evidence_viewer(project, link["stable_id"])["link"]
+        assert stale["status"] == "stale"
+        assert stale["stale_reason"] == "manual_cell_edit"
+
+        undone = run_action_spec(
+            project,
+            _operation_action(
+                "operation.undo",
+                key="undo-edit-evidence-history@sha256:v1",
+                expected_op_id=edit_op_id,
+            ),
+            project_id="project-edit-evidence-history",
+        )
+        assert undone.status == "completed", undone.errors
+        restored = resolve_evidence_viewer(project, link["stable_id"])["link"]
+        assert restored["status"] == "active"
+        assert restored["stale_reason"] is None
+        assert restored["stale_at"] is None
+        untouched = resolve_evidence_viewer(project, already_stale["stable_id"])["link"]
+        assert untouched["status"] == "stale"
+        assert untouched["stale_reason"] == "older_change"
+        assert untouched["stale_at"] == "2026-01-02 03:04:05"
+
+        redone = run_action_spec(
+            project,
+            _operation_action(
+                "operation.redo",
+                key="redo-edit-evidence-history@sha256:v1",
+                expected_op_id=edit_op_id,
+            ),
+            project_id="project-edit-evidence-history",
+        )
+        assert redone.status == "completed", redone.errors
+        restaled = resolve_evidence_viewer(project, link["stable_id"])["link"]
+        assert restaled["status"] == "stale"
+        assert restaled["stale_reason"] == "manual_cell_edit"
+        assert restaled["stale_at"] is not None
     finally:
         project.close()

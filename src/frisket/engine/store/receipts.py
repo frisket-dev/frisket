@@ -28,6 +28,15 @@ _BACKFILL_ACTIVITY_COLUMN_EXPR = (
 
 
 @dataclass(frozen=True)
+class ReceiptSummary:
+    id: str
+    run_id: int | None
+    action_kind: str
+    status: str
+    created_at: str
+
+
+@dataclass(frozen=True)
 class StoredReceipt:
     id: str
     run_id: int | None
@@ -327,7 +336,15 @@ class ReceiptStore:
             "FROM receipts ORDER BY rowid"
         ).fetchall()
 
-    def recent_metadata_page(self, *, limit: int, offset: int) -> list[StoredReceipt]:
+    def recent_metadata_page(self, *, limit: int, offset: int) -> list[ReceiptSummary]:
+        rows = self.db.execute(
+            "SELECT id, run_id, action_kind, status, created_at "
+            "FROM receipts ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?",
+            (int(limit), int(offset)),
+        )
+        return [ReceiptSummary(**dict(row)) for row in rows]
+
+    def recent_page(self, *, limit: int, offset: int) -> list[StoredReceipt]:
         rows = self.db.execute(
             "SELECT id, run_id, action_kind, action_id, "
             "idempotency_key, params_hash, status, body, created_at "

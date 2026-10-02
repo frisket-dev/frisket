@@ -14,16 +14,15 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import uuid
 from collections.abc import Iterator
 from typing import Any
 
 from frisket.authoring import column_types
 from frisket.engine.store.cell_writes import (
     BaseCellWrite,
-    EditCellWrite,
     create_base_cell_producer,
     initialize_base_cells,
-    insert_edits,
 )
 from frisket.engine.store.current_cells import (
     decoded_cell_validity,
@@ -790,32 +789,81 @@ def apply_edits(
     ``spec`` merges honest-provenance fields into the op's spec (e.g. an
     accept-regenerated-value op records ``source_run_id`` /
     ``from_replay_accept`` / ``value_hash``; replay-accept-surface-v1)."""
-    row_ids = sorted({int(e["row_id"]) for e in edits if e.get("row_id") is not None})
-    if row_ids:
-        ph = ",".join("?" * len(row_ids))
-        visible = {
-            r["id"]
-            for r in project.db.execute(
-                f"SELECT id FROM rows WHERE id IN ({ph}) AND hidden=0",
-                row_ids,
-            )
-        }
-        missing = [rid for rid in row_ids if rid not in visible]
-        if missing:
-            raise ValueError(f"cannot edit hidden or missing row(s): {missing}")
-    op_spec: dict[str, Any] = {"count": len(edits)}
-    if spec:
-        op_spec.update(spec)
-    with project.db:
-        op_id = project.append_op("edit", op_spec, label=label, commit=False)
-        insert_edits(
-            project.db,
-            op_id=op_id,
-            edits=[
-                EditCellWrite(e["row_id"], e["column_id"], e.get("value"))
-                for e in edits
-            ],
+    from frisket.engine.store.edit_overlays import write_edit_overlay
+
+    db = project.db
+    started_transaction = not db.in_transaction
+    if started_transaction:
+        db.execute("BEGIN IMMEDIATE")
+    savepoint = f"apply_edits_{uuid.uuid4().hex}"
+    db.execute(f"SAVEPOINT {savepoint}")
+    try:
+        row_ids = sorted(
+            {int(e["row_id"]) for e in edits if e.get("row_id") is not None}
         )
+        if row_ids:
+            ph = ",".join("?" * len(row_ids))
+            visible = {
+                r["id"]
+                for r in db.execute(
+                    f"SELECT id FROM rows WHERE id IN ({ph}) AND hidden=0",
+                    row_ids,
+                )
+            }
+            missing = [rid for rid in row_ids if rid not in visible]
+            if missing:
+                raise ValueError(f"cannot edit hidden or missing row(s): {missing}")
+        targets: list[dict[str, Any]] = []
+        for edit in edits:
+            row_id = int(edit["row_id"])
+            column_id = int(edit["column_id"])
+            sheet = db.execute(
+                "SELECT rows.sheet_id FROM rows JOIN columns "
+                "ON columns.id=? AND columns.sheet_id=rows.sheet_id WHERE rows.id=?",
+                (column_id, row_id),
+            ).fetchone()
+            current_ref = None
+            if sheet is not None:
+                _values, refs = project.get_values_with_refs(
+                    int(sheet["sheet_id"]), column_id, row_ids=[row_id]
+                )
+                current_ref = refs.get(row_id)
+            targets.append(
+                {
+                    "row_id": row_id,
+                    "column_id": column_id,
+                    "value_after": edit.get("value"),
+                    **(
+                        {"current_value_ref": current_ref}
+                        if current_ref is not None
+                        else {}
+                    ),
+                }
+            )
+        op_spec: dict[str, Any] = {"count": len(edits)}
+        if spec:
+            op_spec.update(spec)
+        op_id = write_edit_overlay(
+            project,
+            kind="edit",
+            label=label,
+            spec=op_spec,
+            targets=targets,
+            stale_reason="manual_cell_edit",
+        )
+    except BaseException:
+        db.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+        db.execute(f"RELEASE SAVEPOINT {savepoint}")
+        if started_transaction:
+            db.rollback()
+        raise
+    db.execute(f"RELEASE SAVEPOINT {savepoint}")
+    if started_transaction:
+        try:
+            db.commit()
+        except BaseException:
+            db.rollback()
+            raise
     return op_id
 
 

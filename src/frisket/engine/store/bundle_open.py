@@ -12,7 +12,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from .schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY, require_current_schema
+from .schema import SCHEMA_DIGEST_META_KEY, require_current_schema
 
 # v0.1.1a62 (907a324c) -> v0.1.1a64's receipt-owned execution attempts.
 # Fixed endpoints cannot accidentally stamp a future schema edit as current.
@@ -59,6 +59,12 @@ _PROJECT_QA_RESEARCH_TO_DIGEST = "frisket.schema.v1:21bac5506d1f7cc240dbc5191391
 _IMPORT_SESSIONS_FROM_DIGEST = _PROJECT_QA_RESEARCH_TO_DIGEST
 _IMPORT_SESSIONS_TO_DIGEST = "frisket.schema.v1:cb9a46c224c6d5e95af3c7e91df76e26"
 _SEARCH_WORK_FROM_DIGEST = _IMPORT_SESSIONS_TO_DIGEST
+_SEARCH_WORK_TO_DIGEST = "frisket.schema.v1:f2d652e33a1633c4367813af3c2d3746"
+
+# Remove secondary indexes exactly duplicated by UNIQUE constraints, plus the
+# measured source-run prefix made redundant by its ordered composite index.
+_INDEX_HYGIENE_FROM_DIGEST = _SEARCH_WORK_TO_DIGEST
+_INDEX_HYGIENE_TO_DIGEST = "frisket.schema.v1:348c367f3a24a414ba6f1e612e40ea15"
 
 # The frontend fires hot read endpoints (/sheets, /review/queue) concurrently,
 # so two threads can open the same per-project DB at once. Both open-time
@@ -95,6 +101,7 @@ def open_bundle(project: Any) -> None:
         _migrate_project_qa_research(project.db)
         _migrate_import_sessions(project.db)
         _migrate_search_work(project.db)
+        _migrate_index_hygiene(project.db)
         require_current_schema(project.db, bundle_path=project.path)
         _reconcile_open_time_policy(project)
 
@@ -522,7 +529,35 @@ def _migrate_search_work(db: sqlite3.Connection) -> None:
                 raise RuntimeError("incomplete search work migration DDL")
             db.execute(
                 "UPDATE meta SET value=? WHERE key=?",
-                (SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY),
+                (_SEARCH_WORK_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
+            )
+        db.commit()
+    except BaseException:
+        db.rollback()
+        raise
+
+
+def _migrate_index_hygiene(db: sqlite3.Connection) -> None:
+    """Drop redundant b-trees without changing their constraints or rows."""
+
+    query = "SELECT value FROM meta WHERE key=?"
+    try:
+        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
+    except sqlite3.DatabaseError:
+        return
+    if row is None or row[0] != _INDEX_HYGIENE_FROM_DIGEST:
+        return
+
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
+        if row is not None and row[0] == _INDEX_HYGIENE_FROM_DIGEST:
+            db.execute("DROP INDEX IF EXISTS idx_execution_attempts_run")
+            db.execute("DROP INDEX IF EXISTS idx_source_items_source_dedupe")
+            db.execute("DROP INDEX IF EXISTS idx_source_runs_source")
+            db.execute(
+                "UPDATE meta SET value=? WHERE key=?",
+                (_INDEX_HYGIENE_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
             )
         db.commit()
     except BaseException:

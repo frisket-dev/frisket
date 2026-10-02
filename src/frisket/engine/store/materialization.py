@@ -548,6 +548,7 @@ def write_aggregate_sheet(
         materialized_row_sources_ref=materialized_row_sources_ref(
             op_id=op_id,
             rows=membership_rows,
+            include_rows=False,
         ),
     )
 
@@ -753,15 +754,20 @@ def write_join_table(
 
 
 def materialized_row_sources_ref(
-    *, op_id: int, rows: Sequence[Mapping[str, Any]]
+    *,
+    op_id: int,
+    rows: Sequence[Mapping[str, Any]],
+    include_rows: bool = True,
 ) -> dict[str, Any]:
     normalized = _normalized_materialized_row_sources(rows)
-    return {
+    ref: dict[str, Any] = {
         "kind": "materialized_row_sources",
         "op_id": op_id,
         "row_count": len(normalized),
         "sha256": _materialized_row_sources_hash(normalized),
-        "rows": [
+    }
+    if include_rows:
+        ref["rows"] = [
             {
                 "materialized_row_id": materialized_row_id,
                 "source_row_id": source_row_id,
@@ -774,8 +780,10 @@ def materialized_row_sources_ref(
                 source_sheet_id,
                 role,
             ) in normalized
-        ],
-    }
+        ]
+    else:
+        ref["storage"] = "normalized_relation_v1"
+    return ref
 
 
 def _materialized_row_source_dict(
@@ -1011,15 +1019,22 @@ def materialized_row_sources_ref_matches(
 ) -> bool:
     if ref.get("kind") != "materialized_row_sources":
         return False
+    has_embedded_rows = "rows" in ref
+    if not has_embedded_rows and ref.get("storage") != "normalized_relation_v1":
+        return False
     try:
         normalized = _normalized_materialized_row_sources(rows)
-        ref_rows = _normalized_materialized_row_sources(ref.get("rows") or [])
+        ref_rows = (
+            _normalized_materialized_row_sources(ref.get("rows") or [])
+            if has_embedded_rows
+            else None
+        )
     except (KeyError, TypeError, ValueError):
         return False
     return (
         ref.get("row_count") == len(normalized)
         and ref.get("sha256") == _materialized_row_sources_hash(normalized)
-        and ref_rows == normalized
+        and (ref_rows is None or ref_rows == normalized)
     )
 
 

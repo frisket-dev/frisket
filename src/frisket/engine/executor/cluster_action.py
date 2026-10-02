@@ -15,7 +15,12 @@ from frisket.actions.cluster_types import (
 )
 from frisket.actions.core import OutputField, _ProjectAction
 from frisket.actions.types import SheetRows
-from frisket.engine.executor.cluster_program import _ClusterProgram
+from frisket.engine.executor.cluster_program import (
+    CLUSTER_RESULT_RECEIPT_STORAGE,
+    CLUSTER_RESULT_SPEC_KEY,
+    CLUSTER_RESULT_STORAGE_SPEC_KEY,
+    _ClusterProgram,
+)
 from frisket.engine.executor.map_rows_action import (
     TypedMapRowsPlan,
     TypedMapRowsPlanError,
@@ -287,7 +292,8 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
         op = project.db.execute(
             "SELECT spec,undo_info FROM ops WHERE id=?", (run["op_id"],)
         ).fetchone()
-        fact = json.loads(op["spec"]).get("value_clusters_result")
+        op_spec = json.loads(op["spec"])
+        fact = op_spec.get(CLUSTER_RESULT_SPEC_KEY)
         if not fact or fact["source"] != state["source"]:
             raise ClusterSourceChanged("Clustering has no complete admitted result")
         if [item["row_id"] for item in fact["canonical_values"]] != state["source"][
@@ -390,6 +396,12 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
         if result is not None:
             project.db.rollback()
             return result
+        del op_spec[CLUSTER_RESULT_SPEC_KEY]
+        op_spec[CLUSTER_RESULT_STORAGE_SPEC_KEY] = CLUSTER_RESULT_RECEIPT_STORAGE
+        project.db.execute(
+            "UPDATE ops SET spec=? WHERE id=?",
+            (json.dumps(op_spec, sort_keys=True, allow_nan=False), run["op_id"]),
+        )
         set_attempt_state(project, writer, "effected", commit=False)
         if not claims.release(claim_token=claim, status="released", commit=False):
             raise StaleAttemptWriter("Cluster publication lost its output claim")

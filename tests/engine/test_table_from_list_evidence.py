@@ -554,6 +554,38 @@ def test_manual_list_edit_cannot_borrow_an_unrelated_item_citation(
                     }
                 ]
             )
+            current = list_cell_evidence(
+                project,
+                sheet_id=seeded["sheet_id"],
+                row_id=seeded["row_ids"][0],
+                column_id=seeded["moments_column_id"],
+            )
+            assert current["links"] == []
+            preserved = project.db.execute(
+                "SELECT status FROM evidence_links WHERE row_id=? AND column_id=? "
+                "AND json_extract(metadata,'$.schema_version')="
+                "'frisket.map_extract_item_evidence_link.v1'",
+                (seeded["row_ids"][0], seeded["moments_column_id"]),
+            ).fetchall()
+            assert len(preserved) == len(original)
+            assert {row["status"] for row in preserved} == {"active"}
+            edit_op_id = project.op_cursor
+            assert project.undo() == edit_op_id
+            restored = list_cell_evidence(
+                project,
+                sheet_id=seeded["sheet_id"],
+                row_id=seeded["row_ids"][0],
+                column_id=seeded["moments_column_id"],
+            )
+            assert len(restored["links"]) == len(original)
+            assert project.redo() == edit_op_id
+            hidden_again = list_cell_evidence(
+                project,
+                sheet_id=seeded["sheet_id"],
+                row_id=seeded["row_ids"][0],
+                column_id=seeded["moments_column_id"],
+            )
+            assert hidden_again["links"] == []
 
         if not refresh_existing:
             replace_first_item()

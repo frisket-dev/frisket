@@ -16,7 +16,12 @@ from frisket.actions.system import (
 )
 from frisket.ops.capture import url as capture_url
 from frisket.contracts.action import Receipt
-from frisket.engine.store.evidence import list_cell_evidence
+from frisket.engine.store.evidence import (
+    list_cell_evidence,
+    record_evidence_link,
+    record_source_artifact,
+    record_source_span,
+)
 from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.engine.executor.page_capture_action import prepare_page_capture_action
 from frisket.engine.store import Project
@@ -121,6 +126,121 @@ def _staged_blob_files(project: Project) -> list[Path]:
     if not stage_dir.exists():
         return []
     return [path for path in stage_dir.iterdir() if path.is_file()]
+
+
+def test_capture_page_overwrite_undo_redo_restores_prior_evidence(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    from frisket.ops.capture.url import StaticUrlFetchResult
+
+    monkeypatch.setattr(capture_url, "url_is_safe", lambda url: True)
+    project, sheet_id, row_ids, _url_column_id = _seed_project(tmp_path)
+    row_id = row_ids[0]
+    bodies = [HTML_BYTES, HTML_BYTES.replace(b"river cleanup", b"school repairs")]
+
+    def fake_fetch(url: str, **_kwargs: Any) -> StaticUrlFetchResult:
+        return StaticUrlFetchResult(
+            requested_url=url,
+            final_url=FINAL_URL,
+            status_code=200,
+            headers={"content-type": "text/html"},
+            body=bodies.pop(0),
+            elapsed_ms=1,
+            redirects=[],
+        )
+
+    try:
+        first = run_action_spec(
+            project,
+            _capture_action(sheet_id=sheet_id, row_ids=[row_id]),
+            project_id=PROJECT_ID,
+            deps=ExecutorDeps(url_capture_fetcher=fake_fetch),
+        )
+        assert first.status == "completed", first.errors
+        output_column_id = int(_columns(project, sheet_id)["page"]["id"])
+        _values, refs = project.get_values_with_refs(
+            sheet_id, output_column_id, row_ids=[row_id]
+        )
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="row",
+            media_type="application/vnd.frisket.row+json",
+            source_sheet_id=sheet_id,
+            source_row_id=row_id,
+        )
+        span = record_source_span(
+            project,
+            artifact_id=int(artifact["id"]),
+            span_kind="whole",
+            snippet="first capture evidence",
+        )
+        attached = record_evidence_link(
+            project,
+            subject_kind="cell_value",
+            subject_ref=refs[row_id],
+            spans=[{"span_id": span["id"]}],
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=output_column_id,
+            op_id=first.op_ids[0],
+        )
+        first_evidence = list_cell_evidence(
+            project,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=output_column_id,
+        )
+        assert len(first_evidence["links"]) == 1
+        first_stable_id = attached["stable_id"]
+
+        second = run_action_spec(
+            project,
+            _capture_action(
+                sheet_id=sheet_id,
+                row_ids=[row_id],
+                idempotency_key="web_capture_page@sha256:replacement",
+            ),
+            project_id=PROJECT_ID,
+            deps=ExecutorDeps(url_capture_fetcher=fake_fetch),
+        )
+        assert second.status == "completed", second.errors
+        after_second = list_cell_evidence(
+            project,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=output_column_id,
+            include_stale=True,
+        )
+        by_id = {item["stable_id"]: item for item in after_second["links"]}
+        assert by_id[first_stable_id]["status"] == "stale"
+        assert after_second["stale_count"] == 1
+
+        assert project.undo() == second.op_ids[0]
+        after_undo = list_cell_evidence(
+            project,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=output_column_id,
+            include_stale=True,
+        )
+        restored = {item["stable_id"]: item for item in after_undo["links"]}
+        assert restored[first_stable_id]["status"] == "active"
+        assert after_undo["stale_count"] == 0
+
+        assert project.redo() == second.op_ids[0]
+        after_redo = list_cell_evidence(
+            project,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=output_column_id,
+            include_stale=True,
+        )
+        redone = {item["stable_id"]: item for item in after_redo["links"]}
+        assert redone[first_stable_id]["status"] == "stale"
+        assert after_redo["stale_count"] == 1
+    finally:
+        project.close()
 
 
 def test_extract_html_links_uses_first_valid_base_for_every_anchor() -> None:
