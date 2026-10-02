@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,6 +15,10 @@ from frisket.engine.store.cell_writes import (
 from frisket.engine.store.import_sessions import ImportInProgress, ImportSessionStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.streaming_import import StreamingSheetWriter
+from frisket.server.services.project_exports import (
+    ProjectExportError,
+    ProjectExportService,
+)
 
 
 COLUMNS = [{"name": "value", "type": "text"}]
@@ -153,12 +158,38 @@ def test_bundle_export_refuses_unresolved_import_in_snapshot_transaction(
         assert not project.db.in_transaction
         assert not target.exists()
         assert not list(tmp_path.glob(".export.zip.*"))
+        service = ProjectExportService(SimpleNamespace(get=lambda _id: project))
+        with pytest.raises(ProjectExportError) as conflict:
+            service.export_bundle("source", include_media=True)
+        assert conflict.value.status_code == 409
+        assert "Finish imports" in conflict.value.detail
         # Raw SQLite download remains an inspection snapshot, not a restorable
         # bundle; it deliberately excludes original media and import inventory.
         project.export_database(tmp_path / "inspection.db")
         assert (tmp_path / "inspection.db").is_file()
     finally:
         project.close()
+
+
+@pytest.mark.parametrize("mode", ["bundle", "database"])
+def test_export_service_sanitizes_storage_failure(tmp_path, monkeypatch, caplog, mode):
+    def fail(*_args, **_kwargs):
+        raise OSError("write failed at /private/operator/workspace")
+
+    project = SimpleNamespace(export=fail, export_database=fail)
+    service = ProjectExportService(SimpleNamespace(get=lambda _id: project))
+    scratch = tmp_path / "partial-export"
+    scratch.write_bytes(b"partial")
+    monkeypatch.setattr(service, "_temporary_artifact", lambda **_kw: scratch)
+    with pytest.raises(ProjectExportError) as error:
+        if mode == "bundle":
+            service.export_bundle("source", include_media=True)
+        else:
+            service.export_database("source")
+    assert error.value.status_code == 500
+    assert error.value.detail == "Project export failed. Please try again."
+    assert not scratch.exists()
+    assert "write failed at /private/operator/workspace" in caplog.text
 
 
 @pytest.mark.parametrize("state", ["completed", "kept", "removed"])

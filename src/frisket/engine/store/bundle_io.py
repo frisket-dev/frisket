@@ -83,7 +83,7 @@ def export(
                 "WHERE state IN ('active','paused','cancelled') LIMIT 1"
             ).fetchone():
                 raise ValueError(
-                    "Finish unfinished imports, or cancel them and choose Keep "
+                    "Finish imports, or cancel them and choose Keep "
                     "or Remove, before exporting a project bundle."
                 )
             blob_hashes = [r["hash"] for r in db.execute("SELECT hash FROM blobs")]
