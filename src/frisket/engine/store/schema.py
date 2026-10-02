@@ -412,6 +412,31 @@ CREATE TABLE IF NOT EXISTS receipts (
   edition_run_context TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- IMPORT_SESSIONS_BEGIN
+-- One durable owner for a progressively visible attachment import. Detailed
+-- inventory remains outside the project bundle; this row is only the atomic
+-- publication/checkpoint boundary.
+CREATE TABLE IF NOT EXISTS import_sessions (
+  id TEXT PRIMARY KEY,
+  sheet_id INTEGER REFERENCES sheets(id) ON DELETE SET NULL,
+  producer_id INTEGER REFERENCES base_cell_producers(id) ON DELETE SET NULL,
+  op_id INTEGER NOT NULL REFERENCES ops(id) ON DELETE RESTRICT,
+  receipt_id TEXT REFERENCES receipts(id) ON DELETE SET NULL,
+  writer_authority TEXT NOT NULL,
+  cursor INTEGER NOT NULL DEFAULT 0 CHECK (cursor >= 0),
+  committed_rows INTEGER NOT NULL DEFAULT 0 CHECK (committed_rows >= 0),
+  committed_bytes INTEGER NOT NULL DEFAULT 0 CHECK (committed_bytes >= 0),
+  state TEXT NOT NULL CHECK (
+    state IN ('active','paused','cancelled','kept','completed','removed')
+  ),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_import_sessions_active_sheet
+  ON import_sessions(sheet_id)
+  WHERE state IN ('active','paused','cancelled');
+-- IMPORT_SESSIONS_END
 CREATE INDEX IF NOT EXISTS idx_receipts_run ON receipts(run_id);
 -- Newest-first receipt scans tiebreak on insertion order (rowid), not the
 -- random receipt id: created_at has second granularity, so two receipts in

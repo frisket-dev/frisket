@@ -10,6 +10,11 @@ from fastapi.testclient import TestClient
 
 from frisket.contracts.action import Receipt
 from frisket.engine.store import Project
+from frisket.engine.store.import_blobs import ImportBlobPlan, PreparedImportBlobPlan
+from frisket.engine.store.import_sessions import (
+    ImportSessionConflict,
+    ImportSessionStore,
+)
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.streaming_import import (
     DuplicateStreamingPublication,
@@ -60,6 +65,133 @@ def _records(start: int, stop: int) -> list[dict[str, Any]]:
         {"ordinal": ordinal, "subject": f"message {ordinal}", "attachment": None}
         for ordinal in range(start, stop)
     ]
+
+
+def _start_session(project: Project, *, authority: str = "claim:one"):
+    return StreamingSheetWriter.start_session(
+        project,
+        session_id="import:one",
+        writer_authority=authority,
+        sheet_name="Visible import",
+        columns=COLUMNS,
+        project_id="streaming-project",
+        action_kind="import.files",
+        idempotency_key="inventory:one",
+        params_hash="sha256:inventory-one",
+        action_id="act:inventory-one",
+        receipt_id="receipt:inventory-one",
+        source_ref={"kind": "file_inventory", "inventory_id": "inventory:one"},
+    )
+
+
+def test_resumable_session_reopens_without_duplicate_rows(tmp_path: Path) -> None:
+    project = Project.create(tmp_path / "resume.frisket", name="resume")
+    try:
+        writer = _start_session(project)
+        assert project.sheets()[0]["id"] == writer.sheet_id
+        writer.append_page(_records(0, 2), expected_cursor=0, next_cursor=2)
+        writer.abort()
+
+        resumed = StreamingSheetWriter.resume_session(
+            project,
+            session_id="import:one",
+            writer_authority="claim:two",
+            expected_cursor=2,
+        )
+        resumed.append_page(_records(2, 4), expected_cursor=2, next_cursor=4)
+        publication = resumed.finalize_session(expected_cursor=4)
+
+        assert publication.row_count == 4
+        session = ImportSessionStore(project).get("import:one")
+        assert session is not None and session.state == "completed"
+        assert session.cursor == 4 and session.committed_rows == 4
+        assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 1
+        producer = project.db.execute(
+            "SELECT id,op_id FROM base_cell_producers"
+        ).fetchone()
+        assert producer is not None and producer["op_id"] == publication.op_id
+        receipt = ReceiptStore(project).find_by_id(publication.receipt_id)
+        assert receipt is not None and receipt.status == "completed"
+        assert receipt.parsed().op_ids == [publication.op_id]
+        assert (
+            project.db.execute(
+                "SELECT COUNT(DISTINCT producer_id) FROM cells"
+            ).fetchone()[0]
+            == 1
+        )
+    finally:
+        project.close()
+
+
+def test_resumable_page_cursor_and_rows_roll_back_together(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = Project.create(tmp_path / "rollback.frisket", name="rollback")
+    try:
+        writer = _start_session(project)
+
+        def fail(*_args, **_kwargs):
+            raise RuntimeError("publication failed")
+
+        monkeypatch.setattr(
+            "frisket.engine.store.streaming_import.publish_import_blobs", fail
+        )
+        with pytest.raises(RuntimeError, match="publication failed"):
+            writer.append_page(
+                _records(0, 1),
+                expected_cursor=0,
+                next_cursor=1,
+                blob_plan=PreparedImportBlobPlan(ImportBlobPlan()),
+            )
+        session = ImportSessionStore(project).get("import:one")
+        assert session is not None and session.cursor == 0
+        assert session.committed_rows == 0
+        assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 0
+    finally:
+        project.close()
+
+
+def test_resumable_session_rejects_stale_writer_and_keeps_cancelled_rows(
+    tmp_path: Path,
+) -> None:
+    project = Project.create(tmp_path / "stale.frisket", name="stale")
+    try:
+        stale = _start_session(project)
+        stale.append_page(_records(0, 1), expected_cursor=0, next_cursor=1)
+        current = StreamingSheetWriter.resume_session(
+            project,
+            session_id="import:one",
+            writer_authority="claim:two",
+            expected_cursor=1,
+        )
+        with pytest.raises(ImportSessionConflict):
+            stale.append_page(_records(1, 2), expected_cursor=1, next_cursor=2)
+
+        current.cancel(expected_cursor=1)
+        assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 1
+        kept = current.finalize_session(expected_cursor=1, keep_cancelled=True)
+        assert kept.receipt.status == "partial"
+        assert project.sheets()[0]["name"] == "Visible import"
+        assert ImportSessionStore(project).get("import:one").state == "kept"
+    finally:
+        project.close()
+
+
+def test_cancelled_session_can_remove_only_its_visible_sheet(tmp_path: Path) -> None:
+    project = Project.create(tmp_path / "remove.frisket", name="remove")
+    try:
+        writer = _start_session(project)
+        writer.append_page(_records(0, 2), expected_cursor=0, next_cursor=2)
+        writer.cancel(expected_cursor=2)
+        writer.remove_session(expected_cursor=2)
+
+        assert project.sheets() == []
+        assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 0
+        assert ReceiptStore(project).find_by_id("receipt:inventory-one") is None
+        session = ImportSessionStore(project).get("import:one")
+        assert session is not None and session.state == "removed"
+    finally:
+        project.close()
 
 
 def _assert_committed_staging(

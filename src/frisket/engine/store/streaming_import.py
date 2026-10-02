@@ -19,11 +19,16 @@ from frisket.engine.store.cell_writes import (
     create_base_cell_producer,
     discard_pending_base_cell_producer,
 )
-from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.import_blobs import (
     PreparedImportBlobPlan,
     publish_import_blobs,
 )
+from frisket.engine.store.import_sessions import (
+    ImportSession,
+    ImportSessionConflict,
+    ImportSessionStore,
+)
+from frisket.engine.store.receipts import ReceiptStore
 
 
 @dataclass(frozen=True)
@@ -71,6 +76,10 @@ class StreamingSheetWriter:
         source_ref: dict[str, Any],
         producer_id: int,
         warnings: Iterable[str] = (),
+        session_id: str | None = None,
+        writer_authority: str | None = None,
+        op_id: int | None = None,
+        row_count: int = 0,
     ) -> None:
         self.project = project
         self.sheet_id = sheet_id
@@ -85,10 +94,13 @@ class StreamingSheetWriter:
         self._source_ref = source_ref
         self._producer_id = producer_id
         self._warnings = [str(warning) for warning in warnings]
-        self._row_count = 0
+        self._row_count = int(row_count)
         self._first_row_id: int | None = None
         self._closed = False
         self._publication: StreamingSheetPublication | None = None
+        self._session_id = session_id
+        self._writer_authority = writer_authority
+        self._op_id = op_id
 
     @classmethod
     def start(
@@ -175,6 +187,196 @@ class StreamingSheetWriter:
             warnings=warnings,
         )
 
+    @classmethod
+    def start_session(
+        cls,
+        project: Any,
+        *,
+        session_id: str,
+        writer_authority: str,
+        sheet_name: str,
+        columns: Iterable[Mapping[str, Any]],
+        project_id: str,
+        action_kind: str,
+        idempotency_key: str | None,
+        params_hash: str,
+        action_id: str,
+        receipt_id: str,
+        source_ref: Mapping[str, Any],
+    ) -> Self:
+        """Create one visible, resumable sheet under a running receipt."""
+
+        if not session_id or not writer_authority:
+            raise ValueError("session id and writer authority must be non-empty")
+        requested_name = str(sheet_name).strip()
+        column_specs = [dict(column) for column in columns]
+        names = [str(column.get("name", "")).strip() for column in column_specs]
+        if not requested_name or not names or any(not name for name in names):
+            raise ValueError("sheet and column names must be non-empty")
+        if len(names) != len(set(names)):
+            raise ValueError("column names must be unique")
+        if not params_hash or not action_id or not receipt_id:
+            raise ValueError("reserved action identity must be complete")
+
+        db = project.db
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            if ReceiptStore(project).find_by_id(receipt_id) is not None:
+                raise DuplicateStreamingPublication(
+                    existing_receipt_id=receipt_id,
+                    idempotency_key=idempotency_key,
+                    params_hash=params_hash,
+                )
+            cursor = db.execute(
+                "INSERT INTO sheets (name,position,hidden) VALUES "
+                "(?,(SELECT COALESCE(MAX(position),0)+1 FROM sheets),0)",
+                (requested_name,),
+            )
+            sheet_id = int(cursor.lastrowid)
+            column_ids: dict[str, int] = {}
+            for position, (name, column) in enumerate(zip(names, column_specs), 1):
+                cursor = db.execute(
+                    "INSERT INTO columns "
+                    "(sheet_id,name,type,position,ai_generated,hidden,default_hidden,format,semantic_type) "
+                    "VALUES (?,?,?,?,0,?,?,?,?)",
+                    (
+                        sheet_id,
+                        name,
+                        str(column.get("type", "text")),
+                        position,
+                        int(bool(column.get("hidden", False))),
+                        int(bool(column.get("default_hidden", False))),
+                        column.get("format"),
+                        column.get("semantic_type"),
+                    ),
+                )
+                column_ids[name] = int(cursor.lastrowid)
+            op_id = op_log.append_op(
+                project,
+                action_kind,
+                spec={
+                    "schema_version": "frisket.action.v2",
+                    "kind": action_kind,
+                    "params": {
+                        "sheet_name": requested_name,
+                        "source": dict(source_ref),
+                    },
+                },
+                label=f"import {requested_name}",
+                barrier=True,
+                commit=False,
+            )
+            op_log.set_undo_info(
+                project, op_id, {"created_sheets": [sheet_id]}, commit=False
+            )
+            producer_id = create_base_cell_producer(
+                db, stage_id=f"import-session:{session_id}", op_id=op_id
+            )
+            receipt = Receipt(
+                receipt_id=receipt_id,
+                project_id=project_id,
+                action_id=action_id,
+                action_kind=action_kind,
+                op_ids=[op_id],
+                idempotency_key=idempotency_key,
+                params_hash=params_hash,
+                status="running",
+                inputs=[ReceiptIO(name="source", ref=dict(source_ref))],
+            )
+            ReceiptStore(project).insert_running(receipt, commit=False)
+            db.execute(
+                "INSERT INTO import_sessions "
+                "(id,sheet_id,producer_id,op_id,receipt_id,writer_authority,state) "
+                "VALUES (?,?,?,?,?,?,'active')",
+                (
+                    session_id,
+                    sheet_id,
+                    producer_id,
+                    op_id,
+                    receipt_id,
+                    writer_authority,
+                ),
+            )
+            db.commit()
+        except BaseException:
+            db.rollback()
+            raise
+        return cls(
+            project,
+            sheet_id=sheet_id,
+            sheet_name=requested_name,
+            column_ids=column_ids,
+            project_id=project_id,
+            action_kind=action_kind,
+            idempotency_key=idempotency_key,
+            params_hash=params_hash,
+            action_id=action_id,
+            receipt_id=receipt_id,
+            source_ref=dict(source_ref),
+            producer_id=producer_id,
+            session_id=session_id,
+            writer_authority=writer_authority,
+            op_id=op_id,
+        )
+
+    @classmethod
+    def resume_session(
+        cls,
+        project: Any,
+        *,
+        session_id: str,
+        writer_authority: str,
+        expected_cursor: int,
+    ) -> Self:
+        session = ImportSessionStore(project).replace_writer(
+            session_id, writer_authority, expected_cursor=expected_cursor
+        )
+        return cls._from_session(project, session)
+
+    @classmethod
+    def _from_session(cls, project: Any, session: ImportSession) -> Self:
+        if (
+            session.sheet_id is None
+            or session.producer_id is None
+            or session.receipt_id is None
+        ):
+            raise ImportSessionConflict("import session no longer owns its sheet")
+        stored = ReceiptStore(project).find_by_id(session.receipt_id)
+        if stored is None or stored.status != "running":
+            raise ImportSessionConflict("import session lost its running receipt")
+        receipt = stored.parsed()
+        sheet = project.db.execute(
+            "SELECT name FROM sheets WHERE id=? AND hidden=0", (session.sheet_id,)
+        ).fetchone()
+        if sheet is None:
+            raise ImportSessionConflict("import session sheet is unavailable")
+        column_ids = {
+            str(row["name"]): int(row["id"])
+            for row in project.db.execute(
+                "SELECT id,name FROM columns WHERE sheet_id=? ORDER BY position,id",
+                (session.sheet_id,),
+            ).fetchall()
+        }
+        source_ref = receipt.inputs[0].ref if receipt.inputs else {}
+        return cls(
+            project,
+            sheet_id=session.sheet_id,
+            sheet_name=str(sheet["name"]),
+            column_ids=column_ids,
+            project_id=receipt.project_id,
+            action_kind=receipt.action_kind,
+            idempotency_key=receipt.idempotency_key,
+            params_hash=receipt.params_hash or "",
+            action_id=receipt.action_id,
+            receipt_id=receipt.receipt_id,
+            source_ref=source_ref,
+            producer_id=session.producer_id,
+            session_id=session.id,
+            writer_authority=session.writer_authority,
+            op_id=session.op_id,
+            row_count=session.committed_rows,
+        )
+
     @property
     def row_count(self) -> int:
         return self._row_count
@@ -203,6 +405,262 @@ class StreamingSheetWriter:
             self._first_row_id = row_ids[0]
         return row_ids
 
+    def append_page(
+        self,
+        records: Iterable[Mapping[str, Any]],
+        *,
+        expected_cursor: int,
+        next_cursor: int,
+        committed_bytes: int = 0,
+        blob_plan: PreparedImportBlobPlan | None = None,
+    ) -> list[int]:
+        """Atomically publish one page and advance its durable checkpoint."""
+
+        self._require_session()
+        batch = [dict(record) for record in records]
+        if not batch or next_cursor <= expected_cursor or committed_bytes < 0:
+            raise ValueError("import page must advance a non-empty bounded batch")
+        db = self.project.db
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            ImportSessionStore(self.project).require_writer(
+                self._session_id,
+                self._writer_authority,
+                expected_cursor,
+            )
+            row_ids = self.project.add_rows(
+                self.sheet_id,
+                batch,
+                self._column_ids,
+                producer_id=self._producer_id,
+                commit=False,
+            )
+            if blob_plan is not None:
+                publish_import_blobs(
+                    self.project,
+                    blob_plan.bind_row_ordinals(row_ids),
+                    sheet_id=self.sheet_id,
+                    column_ids=self._column_ids,
+                    op_id=self._op_id,
+                    receipt_id=self._receipt_id,
+                )
+            updated = db.execute(
+                "UPDATE import_sessions SET cursor=?,committed_rows=committed_rows+?,"
+                "committed_bytes=committed_bytes+?,updated_at=datetime('now') "
+                "WHERE id=? AND writer_authority=? AND cursor=? AND state='active'",
+                (
+                    int(next_cursor),
+                    len(row_ids),
+                    int(committed_bytes),
+                    self._session_id,
+                    self._writer_authority,
+                    int(expected_cursor),
+                ),
+            )
+            if updated.rowcount != 1:
+                raise ImportSessionConflict("import session changed during page write")
+            db.commit()
+        except BaseException:
+            db.rollback()
+            raise
+        self._row_count += len(row_ids)
+        if self._first_row_id is None and row_ids:
+            self._first_row_id = row_ids[0]
+        return row_ids
+
+    def pause(self, *, expected_cursor: int) -> ImportSession:
+        self._require_session()
+        return ImportSessionStore(self.project).set_state(
+            self._session_id,
+            self._writer_authority,
+            expected_cursor,
+            from_states=("active",),
+            state="paused",
+        )
+
+    def cancel(self, *, expected_cursor: int) -> ImportSession:
+        """Stop acquisition while retaining every committed visible page."""
+
+        self._require_session()
+        return ImportSessionStore(self.project).set_state(
+            self._session_id,
+            self._writer_authority,
+            expected_cursor,
+            from_states=("active", "paused"),
+            state="cancelled",
+        )
+
+    def finalize_session(
+        self, *, expected_cursor: int, keep_cancelled: bool = False
+    ) -> StreamingSheetPublication:
+        """Finalize the one reserved receipt; cancelled sessions require Keep."""
+
+        self._require_session()
+        db = self.project.db
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            allowed = ("cancelled",) if keep_cancelled else ("active", "paused")
+            session = ImportSessionStore(self.project).require_writer(
+                self._session_id,
+                self._writer_authority,
+                expected_cursor,
+                states=allowed,
+            )
+            stored = ReceiptStore(self.project).find_by_id(self._receipt_id)
+            if stored is None or stored.status != "running":
+                raise ImportSessionConflict("import receipt is no longer running")
+            receipt = self._completed_session_receipt(
+                stored.parsed(),
+                row_count=session.committed_rows,
+                status="partial" if keep_cancelled else "completed",
+            )
+            if not ReceiptStore(self.project).update_body_status(
+                receipt, require_status="running", commit=False
+            ):
+                raise ImportSessionConflict("import receipt finalization lost its CAS")
+            db.execute("UPDATE ops SET barrier=0 WHERE id=?", (self._op_id,))
+            final_state = "kept" if keep_cancelled else "completed"
+            updated = db.execute(
+                "UPDATE import_sessions SET state=?,updated_at=datetime('now') "
+                "WHERE id=? AND writer_authority=? AND cursor=? AND state=?",
+                (
+                    final_state,
+                    self._session_id,
+                    self._writer_authority,
+                    int(expected_cursor),
+                    allowed[0] if len(allowed) == 1 else session.state,
+                ),
+            )
+            if updated.rowcount != 1:
+                raise ImportSessionConflict("import session finalization lost its CAS")
+            db.commit()
+        except BaseException:
+            db.rollback()
+            raise
+        self._closed = True
+        publication = StreamingSheetPublication(
+            sheet_id=self.sheet_id,
+            sheet_name=self._requested_sheet_name,
+            row_count=session.committed_rows,
+            op_id=self._op_id,
+            receipt_id=self._receipt_id,
+            receipt=receipt,
+        )
+        self._publication = publication
+        return publication
+
+    def remove_session(self, *, expected_cursor: int) -> None:
+        """Remove only this cancelled session's sheet; never erase on stop."""
+
+        self._require_session()
+        db = self.project.db
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            session = ImportSessionStore(self.project).require_writer(
+                self._session_id,
+                self._writer_authority,
+                expected_cursor,
+                states=("cancelled",),
+            )
+            db.execute(
+                "UPDATE import_sessions SET sheet_id=NULL,producer_id=NULL,"
+                "receipt_id=NULL,state='removed',updated_at=datetime('now') WHERE id=?",
+                (self._session_id,),
+            )
+            db.execute("DELETE FROM sheets WHERE id=?", (session.sheet_id,))
+            ReceiptStore(self.project).delete_running(self._receipt_id, commit=False)
+            db.execute(
+                "DELETE FROM base_cell_producers WHERE id=?", (session.producer_id,)
+            )
+            db.execute(
+                "UPDATE ops SET status='discarded',barrier=0 WHERE id=?", (self._op_id,)
+            )
+            cursor = int(
+                db.execute("SELECT value FROM meta WHERE key='op_cursor'").fetchone()[0]
+            )
+            if cursor == self._op_id:
+                previous = int(
+                    db.execute(
+                        "SELECT COALESCE(MAX(id),0) FROM ops WHERE status='applied'"
+                    ).fetchone()[0]
+                )
+                db.execute(
+                    "UPDATE meta SET value=? WHERE key='op_cursor'", (str(previous),)
+                )
+            db.commit()
+        except BaseException:
+            db.rollback()
+            raise
+        self._closed = True
+
+    def _completed_session_receipt(
+        self, receipt: Receipt, *, row_count: int, status: str
+    ) -> Receipt:
+        source = self._source_ref
+        outputs = [
+            ReceiptIO(
+                name=self._requested_sheet_name,
+                ref={
+                    "kind": "materialized_sheet",
+                    "sheet_id": self.sheet_id,
+                    "op_id": self._op_id,
+                    "row_count": row_count,
+                    "columns": dict(self._column_ids),
+                    "reads": [],
+                },
+            ),
+            ReceiptIO(
+                name="rows",
+                ref={
+                    "kind": "source_rows",
+                    "sheet_id": self.sheet_id,
+                    "row_count": row_count,
+                    "op_id": self._op_id,
+                },
+            ),
+        ]
+        evidence = [
+            ReceiptEvidence(
+                ref={
+                    "kind": "source_rows",
+                    "sheet_id": self.sheet_id,
+                    "row_count": row_count,
+                    "op_id": self._op_id,
+                }
+            )
+        ]
+        if source:
+            evidence.append(
+                ReceiptEvidence(
+                    ref={
+                        **source,
+                        "kind": "import_source",
+                        "source_kind": source.get("importer") or source.get("kind"),
+                    }
+                )
+            )
+        return receipt.model_copy(
+            update={
+                "status": status,
+                "outputs": outputs,
+                "evidence": evidence,
+                "warnings": (
+                    [*receipt.warnings, "Import was stopped; committed rows were kept."]
+                    if status == "partial"
+                    else receipt.warnings
+                ),
+            }
+        )
+
+    def _require_session(self) -> None:
+        self._require_open()
+        if (
+            self._session_id is None
+            or self._writer_authority is None
+            or self._op_id is None
+        ):
+            raise RuntimeError("streaming writer is not resumable")
+
     def set_warnings(self, warnings: Iterable[str]) -> None:
         """Set the bounded diagnostics written with the final receipt."""
 
@@ -217,6 +675,8 @@ class StreamingSheetWriter:
         source_ref: Mapping[str, Any] | None = None,
         blob_plan: PreparedImportBlobPlan | None = None,
     ) -> StreamingSheetPublication:
+        if self._session_id is not None:
+            raise RuntimeError("resumable imports must use finalize_session")
         if self._publication is not None:
             return self._publication
         self._require_open()
@@ -393,6 +853,10 @@ class StreamingSheetWriter:
 
     def abort(self) -> None:
         if self._publication is not None or self._closed:
+            return
+        if self._session_id is not None:
+            # A worker stopping never owns deletion of already committed pages.
+            self._closed = True
             return
         self._delete_staging()
         self._closed = True

@@ -43,6 +43,12 @@ def _without_current_cells_foundation(schema: str) -> str:
     return prior
 
 
+def _without_import_sessions(schema: str) -> str:
+    before, marked = schema.split("-- IMPORT_SESSIONS_BEGIN", 1)
+    _removed, after = marked.split("-- IMPORT_SESSIONS_END", 1)
+    return before + after
+
+
 def _without_project_qa(schema: str) -> str:
     """Reconstruct the predecessor DDL for the pinned a62/a64 fixtures."""
 
@@ -73,6 +79,7 @@ def _physically_remove_current_cells_foundation(db: sqlite3.Connection) -> None:
     """Restore the exact predecessor tables after seeding with today's facade."""
 
     db.execute("PRAGMA foreign_keys=OFF")
+    db.execute("DROP TABLE import_sessions")
     _physically_remove_project_qa_research(db)
     db.execute("DROP TABLE project_qa_usage_calls")
     db.execute("DROP TABLE project_qa_citations")
@@ -90,7 +97,9 @@ def _a64_bundle(tmp_path):
     from frisket.engine.store.runs import RunResultStore
 
     prior_ddl = (
-        _without_project_qa(_without_current_cells_foundation(SCHEMA))
+        _without_project_qa(
+            _without_current_cells_foundation(_without_import_sessions(SCHEMA))
+        )
         .replace(
             "  edition_run_context TEXT,\n  consent_principal TEXT",
             "  edition_run_context TEXT",
@@ -152,7 +161,7 @@ def test_a64_bundle_migrates_without_losing_rows_cells_or_runs(tmp_path):
 
 def test_run_review_status_migration_preserves_existing_runs(tmp_path):
     prior_digest = "frisket.schema.v1:b540a83f8325e5cbcd52fc3fac64eeb5"
-    prior_ddl = _without_project_qa_research(SCHEMA).replace(
+    prior_ddl = _without_project_qa_research(_without_import_sessions(SCHEMA)).replace(
         "  review_completed_at TEXT,\n", ""
     )
     assert schema_digest(prior_ddl) == prior_digest
@@ -166,6 +175,7 @@ def test_run_review_status_migration_preserves_existing_runs(tmp_path):
     run_id = RunResultStore(project).start_run(op, sheet, "map.classify")
     project.close()
     with sqlite3.connect(path / "project.db") as db:
+        db.execute("DROP TABLE import_sessions")
         _physically_remove_project_qa_research(db)
         db.execute("ALTER TABLE runs DROP COLUMN review_completed_at")
         db.execute(
@@ -240,7 +250,9 @@ def _a62_bundle(tmp_path):
     from frisket.engine.store.runs import RunResultStore
 
     prior_ddl = (
-        _without_project_qa(_without_current_cells_foundation(SCHEMA))
+        _without_project_qa(
+            _without_current_cells_foundation(_without_import_sessions(SCHEMA))
+        )
         .replace(
             "  edition_run_context TEXT,\n  consent_principal TEXT",
             "  edition_run_context TEXT",
