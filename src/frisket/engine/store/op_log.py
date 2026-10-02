@@ -13,6 +13,7 @@ from typing import Any, Literal, Mapping
 
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.import_sessions import active_import_session, ImportInProgress
+from frisket.engine.store.current_cells import refresh_current_cell_pairs
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 
@@ -214,6 +215,15 @@ def step_operation(
         project, target_op_id, undo_info
     )
     ResultGenerationStore(project).rebuild_heads(projection_column_ids, commit=False)
+    refresh_current_cell_pairs(
+        project.db,
+        [
+            (int(row["row_id"]), int(row["column_id"]))
+            for row in project.db.execute(
+                "SELECT row_id,column_id FROM edits WHERE op_id=?", (target_op_id,)
+            )
+        ],
+    )
     project.db.execute(
         "UPDATE meta SET value=? WHERE key='op_cursor'", (str(cursor_after),)
     )
@@ -365,12 +375,6 @@ def operation_projection_column_ids(
             column_ids.update(int(column_id) for column_id in value)
         elif isinstance(value, list):
             column_ids.update(int(column_id) for column_id in value)
-    column_ids.update(
-        int(row["column_id"])
-        for row in project.db.execute(
-            "SELECT DISTINCT column_id FROM edits WHERE op_id=?", (op_id,)
-        ).fetchall()
-    )
     return frozenset(column_ids)
 
 

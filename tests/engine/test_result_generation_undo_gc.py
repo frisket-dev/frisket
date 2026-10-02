@@ -8,6 +8,7 @@ from frisket.engine.store import bundle_io
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
+from frisket.search_index import drain_index, index_batch
 from test_result_generation_store import (
     _declare,
     _publish_initial_generation,
@@ -172,6 +173,27 @@ def test_direct_edit_undo_and_redo_refuse_claim_on_managed_column(
             project.redo()
         claims.release(claim_token="claim:edit-redo")
         assert project.redo() == edit_op_id
+    finally:
+        project.close()
+
+
+def test_edit_undo_redo_refreshes_only_the_changed_search_cell(tmp_path: Path) -> None:
+    project, sheet_id, column_id, row_ids = _seed_project(tmp_path)
+    try:
+        drain_index(project)
+        edit_op_id = project.apply_edits(
+            [{"row_id": row_ids[0], "column_id": column_id, "value": "manual"}]
+        )
+        assert project.get_values(sheet_id, column_id)[row_ids[0]] == "manual"
+        assert index_batch(project, batch_size=100).processed == 1
+
+        assert project.undo() == edit_op_id
+        assert project.get_values(sheet_id, column_id)[row_ids[0]] != "manual"
+        assert index_batch(project, batch_size=100).processed == 1
+
+        assert project.redo() == edit_op_id
+        assert project.get_values(sheet_id, column_id)[row_ids[0]] == "manual"
+        assert index_batch(project, batch_size=100).processed == 1
     finally:
         project.close()
 
