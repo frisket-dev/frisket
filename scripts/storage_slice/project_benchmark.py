@@ -967,6 +967,11 @@ def run_qualification(
                 os.environ.pop("SQLITE_TMPDIR", None)
             else:
                 os.environ["SQLITE_TMPDIR"] = previous_sqlite_tmpdir
+            if report["status"] == "completed" and sampler.hard_limit.is_set():
+                report["status"] = "resource_stopped"
+                report["stop_reason"] = (
+                    sampler.limit_reason or "sampled resource limit reached"
+                )
             report["sampled_phase_peaks"] = sampler.peaks
             report["host_free_bytes_min"] = min(
                 phase["host_free_bytes_min"] for phase in sampler.peaks.values()

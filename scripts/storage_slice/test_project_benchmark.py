@@ -91,6 +91,24 @@ class ProjectQualificationTests(unittest.TestCase):
         self.assertTrue(interrupted["retention"]["requested"])
         self.assertIsNone(interrupted["retention"]["bundle"])
 
+    def test_final_sampler_limit_prevents_success_retention(self):
+        original_stop = PhaseSampler.stop
+
+        def stop_after_forced_final_sample(sampler):
+            sampler.limit_probe = lambda _observed: "forced final sampled limit"
+            original_stop(sampler)
+
+        with tempfile.TemporaryDirectory() as raw:
+            work_root = Path(raw)
+            with patch.object(PhaseSampler, "stop", stop_after_forced_final_sample):
+                result = run_qualification(200, work_root, retain_success=True)
+            self.assertEqual(list(work_root.glob("project-qualification-*")), [])
+
+        self.assertEqual(result["status"], "resource_stopped")
+        self.assertEqual(result["stop_reason"], "forced final sampled limit")
+        self.assertTrue(result["retention"]["requested"])
+        self.assertIsNone(result["retention"]["bundle"])
+
     def test_sampler_interrupts_an_active_sqlite_query(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
