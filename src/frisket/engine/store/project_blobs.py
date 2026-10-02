@@ -16,6 +16,31 @@ from .blob_backend import BlobIntegrityError, BlobNotFoundError, sha256_blob_pat
 from .runs import FAILURE_OUTCOMES, outcome_sql_list
 
 
+def publish_prepared_blob(
+    project: Any,
+    *,
+    digest: str,
+    size: int,
+    filename: str | None = None,
+    mime: str | None = None,
+    source_url: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    """Publish metadata for bytes already verified by the project blob backend."""
+
+    if not project.db.in_transaction:
+        raise ValueError("prepared blob publication requires a transaction")
+    project.db.execute(
+        "INSERT OR IGNORE INTO blobs "
+        "(hash, filename, mime, size, source_url, metadata) VALUES (?,?,?,?,?,?)",
+        (digest, filename, mime, int(size), source_url, "{}"),
+    )
+    if metadata:
+        from frisket.engine.store.media_blobs import MediaBlobStore
+
+        MediaBlobStore(project).merge_metadata(digest, metadata)
+
+
 def add_blob(
     project: Any,
     data: bytes,

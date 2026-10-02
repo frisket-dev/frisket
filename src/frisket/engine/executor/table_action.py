@@ -114,7 +114,7 @@ from frisket.engine.executor.cluster_receipt_read import (
 )
 from frisket.engine.executor.import_blob_stage import AdmittedImportBlobStager
 from frisket.engine.executor.table_producer import TableProducer
-from frisket.engine.store.import_blobs import publish_import_blobs
+from frisket.engine.store.import_blobs import prepare_import_blobs, publish_import_blobs
 from frisket.engine.store import Project
 from frisket.engine.store.blob_backend import BlobStoreError
 from frisket.engine.store.materialization import (
@@ -1010,7 +1010,11 @@ def run_table_source(
             # Publication removes invocation-owned scratch files. Windows,
             # unlike POSIX, refuses that removal while readers remain open.
             stager.finish_reads()
-        blob_plan = stager.publication_plan(occurrences) if stager is not None else None
+        blob_plan = (
+            prepare_import_blobs(project, stager.publication_plan(occurrences))
+            if stager is not None
+            else None
+        )
         if writer is None:
             list_reader = prepared.readers.get(ListTableReader)
             resolved = {
