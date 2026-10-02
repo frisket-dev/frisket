@@ -17,7 +17,7 @@ from frisket.engine.store.artifact_timeline import (
     media_timeline_fingerprint,
     read_timeline_source,
 )
-from frisket.engine.store.media_blobs import MediaBlobStore
+from frisket.engine.store.media_blobs import MediaBlobStore, update_blob_metadata
 from frisket.execution.provider import ExecutionLimits, enforce_media_duration_limit
 from frisket.features.temporal.visual_cuts import visual_cuts_value
 from frisket.features.temporal_values import TimelinePointsValue
@@ -94,14 +94,29 @@ class AdmittedVisualCutsReader:
         self, *, sheet_id: int, row_id: int, captured: Mapping[str, Any]
     ) -> TimelinePointsValue:
         self._check_open()
-        source = read_timeline_source(
-            self._project,
-            sheet_id=sheet_id,
-            row_id=row_id,
-            column_id=captured["column_id"],
-            value=captured["value"],
-            current_value_ref=captured["value_ref"],
-        )
+        try:
+            source = read_timeline_source(
+                self._project,
+                sheet_id=sheet_id,
+                row_id=row_id,
+                column_id=captured["column_id"],
+                value=captured["value"],
+                current_value_ref=captured["value_ref"],
+            )
+        except TimelineError as exc:
+            value = captured["value"]
+            digest = value.get("blob") if isinstance(value, dict) else None
+            if exc.code != "timeline_duration_required" or not isinstance(digest, str):
+                raise
+            update_blob_metadata(self._project, digest)
+            source = read_timeline_source(
+                self._project,
+                sheet_id=sheet_id,
+                row_id=row_id,
+                column_id=captured["column_id"],
+                value=value,
+                current_value_ref=captured["value_ref"],
+            )
         column = self._project.db.execute(
             "SELECT type FROM columns WHERE id=?", (captured["column_id"],)
         ).fetchone()
@@ -110,6 +125,8 @@ class AdmittedVisualCutsReader:
         maximum = self._limits.max_media_seconds if self._limits is not None else None
         if maximum is not None:
             probe = MediaBlobStore(self._project).probe_metadata(source.blob_hash)
+            if probe.get("duration_seconds") is None:
+                probe = update_blob_metadata(self._project, source.blob_hash)
             enforce_media_duration_limit(maximum, probe.get("duration_seconds"))
         self._check_open()
         anchor = source.anchor

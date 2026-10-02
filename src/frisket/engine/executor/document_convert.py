@@ -26,7 +26,7 @@ from frisket.engine.sandbox.shim import SandboxPolicy, run_sandboxed
 from frisket.runtime.launch import worker_argv
 from frisket.engine.store.artifact_timeline import canonical_json_hash
 from frisket.engine.store.blob_backend import BlobNotFoundError
-from frisket.engine.store.media_blobs import MediaBlobStore
+from frisket.engine.store.media_blobs import MediaBlobStore, update_blob_metadata
 from frisket.execution.attempt import routed_admission_in_scope
 from frisket.execution.provider import enforce_pdf_page_limit
 from frisket.execution.runtime_binding import ROUTE_OBSERVATION_KEY, bind_fact_to_route
@@ -356,6 +356,8 @@ class _BoundDocumentConverter:
             if digest and self._ctx.project is not None
             else {}
         )
+        if probe.get("pages") is None and digest and self._ctx.project is not None:
+            probe = update_blob_metadata(self._ctx.project, str(digest))
         enforce_pdf_page_limit(limits.max_pdf_pages, probe.get("pages"))
 
     # -- engine + route selection -----------------------------------------

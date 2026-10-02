@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import wave
 from io import BytesIO
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -120,6 +121,11 @@ async def _recognize(media, ctx):
 
 
 async def _transcribe(media, ctx):
+    result, _calls = await _transcribe_with_calls(media, ctx)
+    return result
+
+
+async def _transcribe_with_calls(media, ctx):
     options = TranscriptionOptions()
     reader = AdmittedTranscriber(
         ctx, engine="faster_whisper", options=options.normalize("faster_whisper")
@@ -127,7 +133,8 @@ async def _transcribe(media, ctx):
     try:
         await reader.start(expected_rows=1)
         row, bound = _bound_media(reader, media, ctx, column_type="audio")
-        return await bound.transcribe(row, ColumnRef("source"), options=options)
+        result = await bound.transcribe(row, ColumnRef("source"), options=options)
+        return result, list(reader.calls_by_row.values())
     finally:
         await reader.aclose()
 
@@ -152,6 +159,16 @@ def _pdf_bytes(page_count: int) -> bytes:
     for _ in range(page_count):
         writer.add_blank_page(width=100, height=100)
     writer.write(output)
+    return output.getvalue()
+
+
+def _wav_bytes(*, seconds: int = 1) -> bytes:
+    output = BytesIO()
+    with wave.open(output, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(8_000)
+        wav.writeframes(b"\0\0" * 8_000 * seconds)
     return output.getvalue()
 
 
@@ -225,6 +242,11 @@ def test_transcription_limit_uses_stored_measurement_and_precedes_dispatch(
 
     monkeypatch.setattr(MediaBlobStore, "probe_metadata", recording_probe)
     monkeypatch.setattr(transcribe_engines, "run_transcription_engine", fake_dispatch)
+    if "duration_seconds" not in probe:
+        monkeypatch.setattr(
+            "frisket.ops.media_probe.probe_for_ingest",
+            lambda *_args, **_kwargs: pytest.fail("reprobed completed metadata"),
+        )
     try:
         context = _context(
             project,
@@ -243,7 +265,62 @@ def test_transcription_limit_uses_stored_measurement_and_precedes_dispatch(
     assert bool(dispatch_calls) is dispatches
     # The admitted reader also uses stored duration for transcript evidence;
     # this is a metadata lookup, not a fresh ffprobe invocation.
-    assert probe_calls == [media["blob"]]
+    assert probe_calls == [media["blob"]] * (
+        2 if "duration_seconds" not in probe else 1
+    )
+
+
+@pytest.mark.parametrize(
+    ("limit", "dispatches"),
+    [(None, True), (1, True), (0.5, False)],
+    ids=["no-limit", "exact", "excess"],
+)
+def test_transcription_recovers_real_duration_for_unprobed_import_before_dispatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    limit: float,
+    dispatches: bool,
+) -> None:
+    project, media = _project_with_blob(
+        tmp_path,
+        payload=_wav_bytes(),
+        probe={},
+        mime="audio/wav",
+        filename="deferred.wav",
+    )
+    dispatch_calls: list[str] = []
+
+    async def fake_dispatch(
+        _engine: str,
+        path: str,
+        _spec: dict[str, Any],
+        _ctx: OpContext,
+        **_kwargs: Any,
+    ) -> transcribe_engines.TranscriptionEngineResult:
+        dispatch_calls.append(path)
+        return transcribe_engines.TranscriptionEngineResult(
+            output={"text": "ok", "segments": [], "language": "en", "cost": 0.0},
+            model_calls=(),
+        )
+
+    monkeypatch.setattr(transcribe_engines, "run_transcription_engine", fake_dispatch)
+    try:
+        context = _context(
+            project,
+            _limits(**({"max_media_seconds": limit} if limit is not None else {})),
+        )
+        if dispatches:
+            _, calls = asyncio.run(_transcribe_with_calls(media, context))
+            assert calls[0][0]["source"]["duration_ms"] == 1_000
+        else:
+            with pytest.raises(_limit_error(), match="max_media_seconds"):
+                asyncio.run(_transcribe(media, context))
+        probe = MediaBlobStore(project).probe_metadata(media["blob"])
+        assert probe["duration_seconds"] == pytest.approx(1.0)
+    finally:
+        project.close()
+
+    assert bool(dispatch_calls) is dispatches
 
 
 @pytest.mark.parametrize(

@@ -12,7 +12,7 @@ from frisket.actions.types import ColumnRef, DynamicOutput, Outcome, RowError
 from frisket.engine.executor.visual_cuts_read import _settle
 from frisket.engine.store.artifact_timeline import canonical_json_hash
 from frisket.engine.store.blob_backend import BlobNotFoundError
-from frisket.engine.store.media_blobs import MediaBlobStore
+from frisket.engine.store.media_blobs import MediaBlobStore, update_blob_metadata
 from frisket.execution.provider import ExecutionLimitExceeded, enforce_pdf_page_limit
 from frisket.ops.integrations import natural_pdf
 from frisket.ops.pdf_tables import _pdf_table_extract_options, _pdf_table_records
@@ -130,16 +130,24 @@ class _BoundPdfTablesReader:
 
         def extract():
             project = self._owner._project
+            maximum = (
+                self._owner._limits.max_pdf_pages
+                if self._owner._limits is not None
+                else None
+            )
+            if maximum is not None:
+                metadata = MediaBlobStore(project).probe_metadata(ref["blob_hash"])
+                pages = metadata.get("pages")
+                if type(pages) is not int or pages <= 0:
+                    metadata = update_blob_metadata(project, ref["blob_hash"])
+                    pages = metadata.get("pages")
+                if type(pages) is not int or pages <= 0:
+                    pages = None
+                enforce_pdf_page_limit(maximum, pages)
             with project.materialize_blob(ref["blob_hash"]) as path:
                 with open(path, "rb") as handle:
                     if handle.read(5) != b"%PDF-":
                         raise RowError("invalid_pdf_cell", "Source has no PDF header.")
-                metadata = MediaBlobStore(project).probe_metadata(ref["blob_hash"])
-                pages = metadata.get("pages")
-                if type(pages) is not int or pages <= 0:
-                    pages = None
-                if self._owner._limits is not None:
-                    enforce_pdf_page_limit(self._owner._limits.max_pdf_pages, pages)
                 tables = natural_pdf.extract_pdf_tables(
                     natural_pdf.PdfTableExtractRequest(
                         path=Path(path),
