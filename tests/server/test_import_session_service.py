@@ -16,6 +16,7 @@ from frisket.engine.store.import_intake import (
     import_worker_lock,
     read_import_header,
 )
+from frisket.engine.store.import_inventory import ImportInventory
 from frisket.server.services.import_bulk_types import (
     BulkImportLimits,
     BulkUpload,
@@ -196,8 +197,23 @@ def test_failure_before_first_page_is_paused_until_latest_retry_is_queued(projec
 def test_early_cancel_and_resolution_are_durable_and_idempotent(project):
     service = ImportSessionService(SimpleNamespace(get=lambda _project_id: project))
     created = service.create("project-1", "Never started")
+    directory = import_intake_dir(project.path, created.import_ref)
+    with ImportInventory(directory / "inventory.db") as inventory:
+        inventory.append(
+            [
+                {
+                    "logical_path": "unpublished.bin",
+                    "mime": "application/octet-stream",
+                    "sha256": "0" * 64,
+                    "size": 7,
+                    "kind": "files",
+                }
+            ]
+        )
     cancelled = service.cancel("project-1", created.import_ref)
     assert cancelled.state == "cancelled" and cancelled.sheet_id is None
+    with ImportInventory(directory / "inventory.db") as inventory:
+        assert len(inventory.page(limit=1)) == 1
     receipt_id = read_import_header(
         import_intake_dir(project.path, created.import_ref)
     ).envelope["receipt_id"]
@@ -210,6 +226,9 @@ def test_early_cancel_and_resolution_are_durable_and_idempotent(project):
 
     kept = service.resolve("project-1", created.import_ref, decision="keep")
     assert kept.state == "kept" and kept.sheet_id is None
+    assert (kept.admitted_files, kept.admitted_bytes, kept.through) == (1, 7, 1)
+    with ImportInventory(directory / "inventory.db") as inventory:
+        assert inventory.sealed and inventory.page(limit=1) == []
     assert (
         service.resolve("project-1", created.import_ref, decision="keep").state
         == "kept"
@@ -217,6 +236,25 @@ def test_early_cancel_and_resolution_are_durable_and_idempotent(project):
     with pytest.raises(ValueError, match="differently"):
         service.resolve("project-1", created.import_ref, decision="remove")
     assert service.list("project-1").sessions == []
+
+
+def test_terminal_resolution_survives_inventory_compaction_failure(
+    project, monkeypatch
+):
+    from frisket.server.services import import_sessions as service_module
+
+    service = ImportSessionService(SimpleNamespace(get=lambda _project_id: project))
+    created = service.create("project-1", "Failure is nonfatal")
+    assert service.cancel("project-1", created.import_ref).state == "cancelled"
+
+    def fail_compaction(_directory):
+        raise OSError("synthetic compaction failure")
+
+    monkeypatch.setattr(service_module, "compact_terminal_inventory", fail_compaction)
+    assert (
+        service.resolve("project-1", created.import_ref, decision="remove").state
+        == "removed"
+    )
 
 
 @pytest.mark.asyncio

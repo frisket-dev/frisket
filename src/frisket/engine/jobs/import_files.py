@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from frisket.contracts.action import ActionResult
@@ -10,6 +11,8 @@ from frisket.engine.executor.file_inventory_read import FileInventoryAdmission
 from frisket.engine.executor.table_action import run_inventory_table_page
 from frisket.engine.store import Project
 from frisket.engine.store.import_intake import (
+    compact_terminal_inventory,
+    import_admit_lock,
     import_intake_dir,
     import_worker_lock,
     read_import_header,
@@ -32,6 +35,7 @@ from .queue import (
 from .worker import HandlerRegistration, HandlerRegistry
 
 _PAGES_PER_CLAIM = 4
+logger = logging.getLogger(__name__)
 
 
 def register_import_files_handler(
@@ -94,6 +98,17 @@ def register_import_files_handler(
             continuation["dedupe_key"] = f"blob-metadata:{receipt_id}"
             queue.enqueue(BLOB_METADATA_KIND, continuation)
 
+        def compact_terminal(directory: Path) -> None:
+            try:
+                with import_admit_lock(directory):
+                    compact_terminal_inventory(directory)
+            except Exception:
+                # Terminal publication/resolution is already durable. Capacity
+                # reclamation must never turn successful import work into failure.
+                logger.warning(
+                    "terminal import inventory compaction failed", exc_info=True
+                )
+
         try:
             directory = import_intake_dir(project.path, ref)
             # Concurrent upload batches may enqueue this session more than once.
@@ -126,6 +141,8 @@ def register_import_files_handler(
                 }:
                     if session.state in {"completed", "kept"}:
                         schedule_metadata(envelope.receipt_id)
+                    if session.state in {"completed", "kept", "removed"}:
+                        compact_terminal(directory)
                     return {
                         "status": session.state,
                         "completed_rows": session.committed_rows,
@@ -235,6 +252,7 @@ def register_import_files_handler(
                         pages += 1
                         if session.state == "completed":
                             schedule_metadata(envelope.receipt_id)
+                            compact_terminal(directory)
                             return {
                                 "status": "completed",
                                 "completed_rows": session.committed_rows,
