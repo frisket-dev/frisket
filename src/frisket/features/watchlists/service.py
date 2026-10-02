@@ -83,6 +83,8 @@ def run_watch_evaluation(project: Project, row: Any) -> dict[str, Any]:
         op_cursor_after = project.op_cursor
         advance_cursor = True
     except WatchBindingError as exc:
+        if exc.code == "search_index_not_ready":
+            raise
         resolution = {
             "resolved_query": {},
             "resolved_query_hash": None,

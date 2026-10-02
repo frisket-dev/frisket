@@ -132,3 +132,60 @@ def test_queued_fts_watch_drains_dirty_index_before_evaluation(tmp_path):
             assert run is not None
             assert run["status"] == "ok"
             assert run["matched_rows"] == 9
+
+
+def test_watch_edit_after_index_quantum_continues_without_false_run(
+    tmp_path, monkeypatch
+):
+    _project(tmp_path)
+    with closing(Project(tmp_path / "docs.frisket")) as project:
+        watch_id = project.add_watch(
+            "needle",
+            scope="project",
+            query={"kind": "fts", "q": "needle", "limit": 20},
+        )
+    original = search_index.process_index_batches
+    injected = False
+
+    def edit_after_complete(project, **kwargs):
+        nonlocal injected
+        result = original(project, **kwargs)
+        if result[1] and not injected:
+            injected = True
+            sheet = int(project.sheets()[0]["id"])
+            column = int(project.columns(sheet)[0]["id"])
+            project.add_rows(sheet, [{"body": "needle late"}], {"body": column})
+        return result
+
+    monkeypatch.setattr(search_index, "process_index_batches", edit_after_complete)
+    with closing(SqliteJobQueue(tmp_path / "queue.db")) as queue:
+        registry = HandlerRegistry()
+        search_index.register_search_index_handler(
+            registry, workspace_root=tmp_path, queue=queue
+        )
+        register_watch_evaluate_handler(registry, workspace_root=tmp_path, queue=queue)
+        first = queue.enqueue(
+            WATCH_EVALUATE_KIND,
+            {"project_id": "docs", "watch_id": watch_id},
+        )
+        worker = Worker(queue, registry)
+        assert worker.run_once()
+        assert queue.get(first).result["status"] == "indexing"
+        with closing(Project(tmp_path / "docs.frisket")) as project:
+            assert project.watch_runs_total(watch_id) == 0
+            assert (
+                project.db.execute(
+                    "SELECT COUNT(*) FROM notification_items"
+                ).fetchone()[0]
+                == 0
+            )
+        for _ in range(20):
+            with closing(Project(tmp_path / "docs.frisket")) as project:
+                if project.watch_runs_total(watch_id):
+                    break
+            assert worker.run_once()
+        with closing(Project(tmp_path / "docs.frisket")) as project:
+            run = project.watch_latest_run(watch_id)
+            assert run["status"] == "ok"
+            assert run["matched_rows"] == 10
+            assert project.watch_runs_total(watch_id) == 1

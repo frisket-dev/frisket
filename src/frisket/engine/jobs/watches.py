@@ -21,7 +21,7 @@ from frisket.engine.store import Project
 from frisket.engine.jobs.notifications_delivery import (
     enqueue_notification_emit_result,
 )
-from frisket.features.watchlists.service import run_watch_evaluation
+from frisket.features.watchlists.service import WatchBindingError, run_watch_evaluation
 
 from .queue import JobQueue, claimed_project_location
 from .project_opener import ProjectOpener, claimed_opener_key
@@ -208,6 +208,34 @@ def register_watch_evaluate_handler(
             claimed = claimed_opener_key(payload)
             project = project_opener(claimed, project_path)
             delivery_storage_org_id = claimed.storage_org_id
+
+        def continue_after_indexing(processed: int) -> dict:
+            from .search_index import index_work_marker
+
+            continuation = {
+                "project_id": project_id,
+                "watch_id": watch_id,
+                "trigger_ref": payload.get("trigger_ref") or {},
+                "workspace_root": str(project_root),
+            }
+            if delivery_storage_org_id is not None:
+                continuation["storage_org_id"] = delivery_storage_org_id
+            if isinstance(context.trusted_job_org_id, int):
+                continuation["org_id"] = context.trusted_job_org_id
+            marker = index_work_marker(project) or "repair"
+            trigger_key = _watch_eval_dedupe_key(watch_id, continuation["trigger_ref"])
+            queue.enqueue(
+                WATCH_EVALUATE_KIND,
+                {**continuation, "dedupe_key": f"{trigger_key}:index:{marker}"},
+                max_attempts=3,
+            )
+            return {
+                "project_id": project_id,
+                "watch_id": watch_id,
+                "status": "indexing",
+                "indexed": processed,
+            }
+
         try:
             row = project.get_watch(watch_id)
             if row is None:
@@ -226,39 +254,17 @@ def register_watch_evaluate_handler(
                 }
             query_kind = str(_watch_query(row).get("kind") or "").strip().lower()
             if query_kind in {"fts", "search.fts"}:
-                from .search_index import index_work_marker, process_index_batches
+                from .search_index import process_index_batches
 
                 processed, complete = process_index_batches(project)
                 if not complete:
-                    continuation = {
-                        "project_id": project_id,
-                        "watch_id": watch_id,
-                        "trigger_ref": payload.get("trigger_ref") or {},
-                        "workspace_root": str(project_root),
-                    }
-                    if delivery_storage_org_id is not None:
-                        continuation["storage_org_id"] = delivery_storage_org_id
-                    if isinstance(context.trusted_job_org_id, int):
-                        continuation["org_id"] = context.trusted_job_org_id
-                    marker = index_work_marker(project) or "repair"
-                    trigger_key = _watch_eval_dedupe_key(
-                        watch_id, continuation["trigger_ref"]
-                    )
-                    queue.enqueue(
-                        WATCH_EVALUATE_KIND,
-                        {
-                            **continuation,
-                            "dedupe_key": f"{trigger_key}:index:{marker}",
-                        },
-                        max_attempts=3,
-                    )
-                    return {
-                        "project_id": project_id,
-                        "watch_id": watch_id,
-                        "status": "indexing",
-                        "indexed": processed,
-                    }
-            evaluation = run_watch_evaluation(project, row)
+                    return continue_after_indexing(processed)
+            try:
+                evaluation = run_watch_evaluation(project, row)
+            except WatchBindingError as exc:
+                if exc.code != "search_index_not_ready":
+                    raise
+                return continue_after_indexing(0)
             enqueue_notification_emit_result(
                 queue,
                 workspace_root=project_root,
