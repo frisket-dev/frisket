@@ -630,6 +630,8 @@ def _denominator_fields(
             fields.extend(
                 (
                     f"SUM({numeric}) AS d{index}",
+                    f"COALESCE(SUM({_valid_present(request, metric.column_id)}), 0) "
+                    f"AS d{index}_present",
                     f"MIN({numeric}) < 0 AND MAX({numeric}) > 0 AS d{index}_mixed",
                 )
             )
@@ -807,13 +809,26 @@ def _attach_percentages(
 
 
 def _finite_checks(request: AnalyticsRequest) -> tuple[list[str], list[float]]:
-    names = [metric.id for metric in request.metrics if metric.kind in _NUMERIC_METRICS]
-    checks = [
-        f"({_metric_ref(request, metric_id)} IS NOT NULL AND "
-        f"NOT ({_metric_ref(request, metric_id)} BETWEEN ? AND ?))"
-        for metric_id in names
-    ]
-    bounds = [-sys.float_info.max, sys.float_info.max] * len(checks)
+    checks: list[str] = []
+    bounds: list[float] = []
+    for index, metric in enumerate(request.metrics):
+        if metric.kind not in _NUMERIC_METRICS:
+            continue
+        value = _metric_ref(request, metric.id)
+        pos = _column_pos(request, metric.column_id)
+        checks.append(
+            f"(({value} IS NULL AND a.q{pos}_present > 0) OR "
+            f"({value} IS NOT NULL AND NOT ({value} BETWEEN ? AND ?)))"
+        )
+        bounds.extend((-sys.float_info.max, sys.float_info.max))
+        if metric.kind == "sum" and metric.percent_of_total:
+            denominator = f"d.d{index}"
+            checks.append(
+                f"(({denominator} IS NULL AND d.d{index}_present > 0) OR "
+                f"({denominator} IS NOT NULL AND "
+                f"NOT ({denominator} BETWEEN ? AND ?)))"
+            )
+            bounds.extend((-sys.float_info.max, sys.float_info.max))
     return checks, bounds
 
 
