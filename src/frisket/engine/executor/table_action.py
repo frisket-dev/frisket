@@ -17,6 +17,7 @@ from pydantic_core import SchemaValidator
 
 from frisket.actions.core import CreateSheet, OutputField, _publication_return_schema
 from frisket.actions.url_import_types import UrlImporter
+from frisket.actions.import_inventory_types import FileInventoryReader
 from frisket.actions.entity_types import ClusterReceiptReader
 from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.types import (
@@ -113,6 +114,10 @@ from frisket.engine.executor.cluster_receipt_read import (
     validate_cluster_receipt_fence,
 )
 from frisket.engine.executor.import_blob_stage import AdmittedImportBlobStager
+from frisket.engine.executor.file_inventory_read import (
+    AdmittedFileInventoryReader,
+    FileInventoryAdmission,
+)
 from frisket.engine.executor.table_producer import TableProducer
 from frisket.engine.store.import_blobs import prepare_import_blobs, publish_import_blobs
 from frisket.engine.store import Project
@@ -520,6 +525,7 @@ def prepare_table_producer(
     check_sheet_name: bool = True,
     project_id: str | None = None,
     blob_stager: AdmittedImportBlobStager | None = None,
+    inventory_admission: FileInventoryAdmission | None = None,
     publication_resources: ExitStack | None = None,
     join_refresh: JoinRefreshAdmission | None = None,
     schema_only: bool = False,
@@ -574,6 +580,8 @@ def prepare_table_producer(
                 reader = resources.enter_context(
                     open_local_file_reader(deps.local_file_sources)
                 )
+            elif capability is FileInventoryReader:
+                reader = AdmittedFileInventoryReader(inventory_admission, blob_stager)
             elif capability is EmailSourceReader:
                 reader = AdmittedEmailSourceReader(deps.email_sources)
                 resources.callback(reader.close)
