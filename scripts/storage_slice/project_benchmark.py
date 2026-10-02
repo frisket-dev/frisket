@@ -23,7 +23,6 @@ from frisket.engine.store import Project
 from frisket.engine.store.streaming_import import StreamingSheetWriter
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.search_index_work import latest_revision
-from frisket.search import search_project_page
 from frisket.search_index import index_batch
 from frisket.server.services.project_qa_analytics import (
     AnalyticsCancelled,
@@ -38,6 +37,7 @@ from .project_workloads import (
     run_analytics_workload,
     run_grid_workload,
     run_mutation_workload,
+    run_reopen_marker_check,
     run_search_workload,
     verify_history,
 )
@@ -165,6 +165,8 @@ def _drain_index(project: Project, sampler: PhaseSampler, soft_scratch: int) -> 
                 "complete": progress.complete,
                 "scratch_bytes": directory_bytes(sampler.root),
                 "rss_kib": current_rss_kib(),
+                "source_revision": latest_revision(project.db),
+                "files": _file_sizes(sampler.root),
             }
         )
         if progress.complete:
@@ -506,6 +508,7 @@ def run_qualification(
             top_amounts: list[tuple[int, int, int]] = []
             bottom_amounts: list[tuple[int, int, int]] = []
             date_first: list[tuple[str, int]] = []
+            category_first: list[tuple[str, int]] = []
             environment_first: list[int] = []
             import_pages: list[dict[str, Any]] = []
             generation_seconds = 0.0
@@ -591,6 +594,9 @@ def run_qualification(
                     date_first.append((str(item["published_at"]), number))
                     if len(date_first) > 50:
                         date_first.remove(max(date_first))
+                    category_first.append((category, number))
+                    if len(category_first) > 50:
+                        category_first.remove(max(category_first))
                     if category == "environment" and len(environment_first) < 50:
                         environment_first.append(number)
                 input_bytes += committed
@@ -689,6 +695,9 @@ def run_qualification(
                     )
                 ],
                 "date_asc_record_ids": [number for _date, number in sorted(date_first)],
+                "category_asc_record_ids": [
+                    number for _category, number in sorted(category_first)
+                ],
                 "environment_first_record_ids": environment_first,
             }
             report["fixture"] = {
@@ -812,10 +821,17 @@ def run_qualification(
                 _assertions,
                 edited=True,
             )
-            reopened = search_project_page(
-                project, report["mutations"]["new_marker"], rerank="off"
+            marker_edit = next(
+                edit
+                for edit in mutation_state["batch_edits"]
+                if edit["number"] == report["mutations"]["marker_number"]
             )
-            assert reopened["complete"] and reopened["hits"]
+            reopened_search = run_reopen_marker_check(
+                project,
+                report["mutations"]["new_marker"],
+                report["mutations"]["old_marker"],
+                int(marker_edit["row_id"]),
+            )
             reopened_history = verify_history(project, mutation_state)
             reopened_grid = run_grid_workload(
                 project,
@@ -843,13 +859,16 @@ def run_qualification(
                 "grid": reopened_grid,
                 "analytics": reopened_analytics,
                 "history": reopened_history,
-                "late_search_hits": len(reopened["hits"]),
+                "marker_search": reopened_search,
             }
             report["phases"]["checkpoint_reopen"] = _phase_record(bundle, started)
             report["status"] = "completed"
         except ResourceStop as exc:
             report["status"] = "resource_stopped"
             report["stop_reason"] = str(exc)
+        except KeyboardInterrupt:
+            report["status"] = "interrupted"
+            report["stop_reason"] = "received KeyboardInterrupt"
         finally:
             if project is not None:
                 project.close()
@@ -859,6 +878,9 @@ def run_qualification(
             else:
                 os.environ["SQLITE_TMPDIR"] = previous_sqlite_tmpdir
             report["sampled_phase_peaks"] = sampler.peaks
+            report["host_free_bytes_min"] = min(
+                phase["host_free_bytes_min"] for phase in sampler.peaks.values()
+            )
             report["peak_rss_kib"] = (
                 __import__("resource")
                 .getrusage(__import__("resource").RUSAGE_SELF)

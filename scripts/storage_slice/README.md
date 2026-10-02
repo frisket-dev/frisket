@@ -19,7 +19,8 @@ Run the tiny correctness smoke before a timed tier:
 ```sh
 PYTHONPATH=src:. python -m unittest scripts.storage_slice.test_project_benchmark
 
-PYTHONPATH=src:. python -m scripts.storage_slice.project_benchmark \
+PYTHONPATH=src:. timeout --signal=INT --kill-after=30s 45m \
+  python -m scripts.storage_slice.project_benchmark \
   --rows 300000 \
   --composition-sha <reviewed-production-composition-sha> \
   --work-dir /path/to/disposable-local-filesystem \
@@ -37,6 +38,8 @@ batches, so brief peaks can be missed. The JSON records logical input/body
 bytes separately from physical bundle files. The temporary bundle is removed
 after the JSON result is assembled. The runner accepts 200–500,000 rows; the
 shared-host invocation supplies the approved 45-minute external timeout.
+An interrupt from that timeout returns a partial JSON report after closing the
+project and removing its owned scratch, so completed phase evidence is retained.
 
 The runner retains the first 300k experiment's 500-row import pages and
 5,000-unit/8 MiB FTS batches so the corrected run remains comparable. This
@@ -74,6 +77,14 @@ to the runner's structured resource-stop result. The later workload functions
 remain concrete calls to existing runtime helpers and small loops. This is an
 opt-in research artifact with no production import or standing CI role, not a
 query engine, benchmark framework, or alternate persistence API.
+
+The workload-coverage review triggered a second proportionality checkpoint.
+The ideal shape remains concrete calls through Frisket's public runtime with
+exact expected values and one report; realistic failures are a wrong search
+row after reopen, an unobserved undo cursor, an omitted long edit or category
+sort, opaque index growth, and lost evidence on interruption. The repair adds
+direct assertions and existing file/revision facts for those cases. It adds no
+adapter, query abstraction, workload matrix, or persistent monitoring service.
 
 An opt-in experiment comparing **typed SQLite and native DuckDB**, using the
 same logical document, extraction, review, and citation operations. Nothing in

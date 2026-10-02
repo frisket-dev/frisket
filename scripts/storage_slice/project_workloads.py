@@ -188,6 +188,10 @@ def run_grid_workload(
             "sort": json.dumps([{"column": "published_at", "dir": "asc"}]),
             "expected": expected["date_asc_record_ids"],
         },
+        "category_asc": {
+            "sort": json.dumps([{"column": "category", "dir": "asc"}]),
+            "expected": expected["category_asc_record_ids"],
+        },
         "filter_0_1_percent": {
             "filter_": json.dumps({"record_id": {"gte": str(narrow_start)}}),
             "expected": list(range(narrow_start, min(rows, narrow_start + 49) + 1)),
@@ -384,6 +388,14 @@ def _timed_search(project: Project, token: str, expected_row_id: int) -> dict[st
     }
 
 
+def run_reopen_marker_check(
+    project: Project, new_marker: str, old_marker: str, expected_row_id: int
+) -> dict[str, Any]:
+    result = _timed_search(project, new_marker, expected_row_id)
+    assert not search_project_page(project, old_marker, rerank="off")["hits"]
+    return result
+
+
 def run_mutation_workload(
     project: Project,
     sheet_id: int,
@@ -399,7 +411,9 @@ def run_mutation_workload(
     action_seconds: list[float] = []
     receipt_by_op: dict[int, str] = {}
     for index in range(ordinary_count):
-        number = 1 + (index * 1499) % ordinary_space
+        number = (
+            199 if rows >= 2_000 and index == 0 else 1 + (index * 1499) % ordinary_space
+        )
         row_id = int(
             project.db.execute(
                 "SELECT row_id FROM current_cells WHERE column_id=? AND value=json(?)",
@@ -443,6 +457,9 @@ def run_mutation_workload(
     first_body = next(
         edit for edit in ordinary_edits if edit["column_id"] == columns["body"]
     )
+    if rows >= 2_000:
+        assert first_body["number"] == 199
+        assert len(str(first_body["before"]).encode()) >= 96 * 1024
 
     ordinary_search = _timed_search(
         project,
@@ -520,6 +537,21 @@ def run_mutation_workload(
     undo_action_seconds = time.perf_counter() - started
     assert undo.op_ids == [batch_op_id]
     assert_edit_values(project, sheet_id, batch_edits, edited=False)
+    undo_history = history_page_payload(
+        project, offset=max(0, project.history_total() - 50), limit=50
+    )
+    undo_ops = {int(item["id"]): item for item in undo_history["ops"]}
+    assert undo_ops[batch_op_id]["status"] == "undone"
+    expected_undo_cursor = max(op_id for op_id in receipt_by_op if op_id != batch_op_id)
+    assert int(undo_history["revision"]["op_cursor"]) == expected_undo_cursor
+    assert int(undo_history["redo_target"]["id"]) == batch_op_id
+    undo_snapshot = {
+        "op_status": undo_ops[batch_op_id]["status"],
+        "op_cursor": int(undo_history["revision"]["op_cursor"]),
+        "expected_op_cursor": expected_undo_cursor,
+        "cursor_index": int(undo_history["cursor_index"]),
+        "redo_target_op_id": int(undo_history["redo_target"]["id"]),
+    }
     undo_index = drain_index(project)
     assert undo_index["processed_units"] == batch_count
     after_undo_search = _timed_search(
@@ -563,6 +595,10 @@ def run_mutation_workload(
                 "action": sample_distribution(action_seconds),
                 "index": ordinary_index,
                 "search": ordinary_search,
+                "long_body_edit": {
+                    "record_id": int(first_body["number"]),
+                    "source_utf8_bytes": len(str(first_body["before"]).encode()),
+                },
             },
             "batch": {
                 "count": batch_count,
@@ -574,6 +610,7 @@ def run_mutation_workload(
                 "action_seconds": undo_action_seconds,
                 "index": undo_index,
                 "search": after_undo_search,
+                "history_snapshot": undo_snapshot,
             },
             "redo": {
                 "action_seconds": redo_action_seconds,

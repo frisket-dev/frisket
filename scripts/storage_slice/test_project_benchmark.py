@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from frisket.engine.store import Project
@@ -28,14 +29,25 @@ class ProjectQualificationTests(unittest.TestCase):
         self.assertEqual(result["fixture"]["amount_states"]["missing"], 20)
         self.assertEqual(result["fixture"]["amount_states"]["invalid"], 20)
         self.assertEqual(len(result["search"]) - 1, 4)
-        self.assertEqual(len(result["grid_queries"]), 8)
+        self.assertEqual(len(result["grid_queries"]), 9)
         self.assertEqual(len(result["analytics"]), 2)
         self.assertEqual(result["mutations"]["ordinary"]["count"], 5)
         self.assertEqual(result["mutations"]["batch"]["count"], 20)
         self.assertEqual(result["history"]["total"], 7)
-        self.assertEqual(len(result["checkpoint_reopen"]["grid"]), 8)
+        self.assertEqual(len(result["checkpoint_reopen"]["grid"]), 9)
         self.assertEqual(len(result["checkpoint_reopen"]["analytics"]), 2)
         self.assertEqual(result["checkpoint_reopen"]["history"]["total"], 7)
+        self.assertEqual(result["checkpoint_reopen"]["marker_search"]["hits"], 1)
+
+        with tempfile.TemporaryDirectory() as raw:
+            with patch(
+                "scripts.storage_slice.project_benchmark."
+                "StreamingSheetWriter.start_session",
+                side_effect=KeyboardInterrupt,
+            ):
+                interrupted = run_qualification(200, Path(raw))
+        self.assertEqual(interrupted["status"], "interrupted")
+        self.assertTrue(interrupted["owned_scratch_removed"])
 
     def test_sampler_interrupts_an_active_sqlite_query(self):
         with tempfile.TemporaryDirectory() as raw:
