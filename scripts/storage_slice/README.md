@@ -25,10 +25,12 @@ The 500,000-row tier is conditional on the 300,000-row result and host
 headroom. The limits apply to the whole runner process and its owned work
 directory: 6/8 GiB soft/hard RSS, a 4 GiB `MemAvailable` floor, a 15 GiB host
 free-space reserve, and at most 18 GiB scratch (soft stop 2 GiB below the
-computed hard limit). Sampling occurs every 250 ms and between import/index
+computed hard limit). SQLite temp files are directed into that owned scratch;
+the sampler interrupts active sort and analytics statements when a sampled
+limit trips. Sampling occurs every 250 ms and between import/index/readback
 batches, so brief peaks can be missed. The JSON records logical input/body
 bytes separately from physical bundle files. The temporary bundle is removed
-after the JSON result is assembled.
+after the JSON result is assembled. The runner accepts 200–500,000 rows.
 
 Generated-result generations and canonical evidence links are deliberately a
 small real-schema fixture gate rather than repeated for every corpus row. Run:
@@ -55,8 +57,8 @@ the application imports this package; existing Frisket projects are untouched.
 
 The question is whether one database can keep project facts consistent and
 interactive while handling bulk work. This is not an ORM, project-format
-migration, or production storage adapter. See [RESULTS.md](RESULTS.md) for the
-measured outcome and remaining qualification work.
+migration, production storage adapter, or result from the actual-Project
+qualification above.
 
 ## What runs
 

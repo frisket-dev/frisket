@@ -4,9 +4,14 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+import hashlib
+import heapq
 import json
+import os
 from pathlib import Path
 import shutil
+import sqlite3
+import statistics
 import tempfile
 import time
 from typing import Any
@@ -81,7 +86,9 @@ def _guard(sampler: PhaseSampler, *, soft_scratch: int) -> None:
     rss = current_rss_kib()
     available = _mem_available_kib()
     used = directory_bytes(sampler.root)
-    if sampler.hard_limit.is_set() or used >= sampler.hard_limit_bytes:
+    if sampler.hard_limit.is_set():
+        raise ResourceStop(sampler.limit_reason or "sampled resource limit reached")
+    if used >= sampler.hard_limit_bytes:
         raise ResourceStop("hard scratch limit reached")
     if used >= soft_scratch:
         raise ResourceStop("soft scratch limit reached")
@@ -134,11 +141,37 @@ def _expected_record(row_number: int) -> dict:
     return next(stress_project_records(row_number, 1))
 
 
+def _governed_query(project: Project, sampler: PhaseSampler, soft_scratch: int, call):
+    """Interrupt an active SQLite statement when the sampler trips."""
+
+    _guard(sampler, soft_scratch=soft_scratch)
+    sampler.on_limit = project.db.interrupt
+    try:
+        value = call()
+    except sqlite3.OperationalError as exc:
+        if sampler.hard_limit.is_set():
+            raise ResourceStop(
+                sampler.limit_reason or "sampled resource limit reached"
+            ) from exc
+        raise
+    finally:
+        sampler.on_limit = None
+    _guard(sampler, soft_scratch=soft_scratch)
+    return value
+
+
 def _check_values(
-    project: Project, sheet_id: int, columns: dict[str, int], row_map: dict[int, int]
+    project: Project,
+    sheet_id: int,
+    columns: dict[str, int],
+    row_map: dict[int, int],
+    *,
+    body_overrides: dict[int, str] | None = None,
 ) -> None:
     for number, row_id in row_map.items():
         expected = _expected_record(number)
+        if body_overrides and number in body_overrides:
+            expected["body"] = body_overrides[number]
         for name in (
             "record_id",
             "title",
@@ -165,54 +198,237 @@ def _check_values(
             )
 
 
-def _query_workload(
-    project: Project, sheet_id: int, columns: dict[str, int]
+def _verify_persisted_corpus(
+    project: Project,
+    sheet_id: int,
+    columns: dict[str, int],
+    rows: int,
+    sampler: PhaseSampler,
+    soft_scratch: int,
 ) -> dict[str, Any]:
-    timings: dict[str, list[float]] = {"sort": [], "filter": [], "aggregate": []}
+    """Compare every stored current value to a regenerated bounded page."""
+
+    expected_hash = hashlib.sha256()
+    actual_hash = hashlib.sha256()
+    names = [spec["name"] for spec in COLUMNS]
+    compared = 0
+    last_position = last_id = 0
+    for start in range(1, rows + 1, PAGE_ROWS):
+        expected_page = list(
+            stress_project_records(start, min(PAGE_ROWS, rows - start + 1))
+        )
+        row_ids = [
+            int(row["id"])
+            for row in project.db.execute(
+                "SELECT id,position FROM rows WHERE sheet_id=? AND hidden=0 "
+                "AND (position>? OR (position=? AND id>?)) "
+                "ORDER BY position,id LIMIT ?",
+                (sheet_id, last_position, last_position, last_id, len(expected_page)),
+            )
+        ]
+        assert len(row_ids) == len(expected_page)
+        last_row = project.db.execute(
+            "SELECT position,id FROM rows WHERE id=?", (row_ids[-1],)
+        ).fetchone()
+        last_position, last_id = int(last_row["position"]), int(last_row["id"])
+        values_by_name: dict[str, dict[int, Any]] = {}
+        refs_by_name: dict[str, dict[int, dict[str, Any]]] = {}
+        for name in names:
+            values, refs = project.get_values_with_refs(
+                sheet_id,
+                columns[name],
+                row_ids,
+                preserve_invalid=True,
+                include_validity=True,
+            )
+            values_by_name[name] = values
+            refs_by_name[name] = refs
+        for row_id, expected in zip(row_ids, expected_page, strict=True):
+            actual = {name: values_by_name[name].get(row_id) for name in names}
+            for name in names:
+                assert actual[name] == expected[name], (start, row_id, name)
+                if expected[name] is not None:
+                    assert refs_by_name[name][row_id]["validity"] == (
+                        "invalid" if expected[name] == "not-stated" else "valid"
+                    )
+            for digest, record in (
+                (expected_hash, expected),
+                (actual_hash, actual),
+            ):
+                digest.update(
+                    json.dumps(
+                        record,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode()
+                    + b"\n"
+                )
+            compared += 1
+        _guard(sampler, soft_scratch=soft_scratch)
+    expected_cells = rows * len(COLUMNS) - rows // 10
+    counts = {
+        "rows": int(
+            project.db.execute(
+                "SELECT COUNT(*) FROM rows WHERE sheet_id=? AND hidden=0", (sheet_id,)
+            ).fetchone()[0]
+        ),
+        "cells": int(
+            project.db.execute(
+                "SELECT COUNT(*) FROM cells c JOIN rows r ON r.id=c.row_id "
+                "WHERE r.sheet_id=?",
+                (sheet_id,),
+            ).fetchone()[0]
+        ),
+        "current_cells": int(
+            project.db.execute(
+                "SELECT COUNT(*) FROM current_cells cc JOIN rows r ON r.id=cc.row_id "
+                "WHERE r.sheet_id=?",
+                (sheet_id,),
+            ).fetchone()[0]
+        ),
+    }
+    assert counts == {
+        "rows": rows,
+        "cells": expected_cells,
+        "current_cells": expected_cells,
+    }
+    assert actual_hash.digest() == expected_hash.digest()
+    return {
+        "rows_compared": compared,
+        "expected_cells": expected_cells,
+        "table_counts": counts,
+        "sha256": actual_hash.hexdigest(),
+    }
+
+
+def _query_workload(
+    project: Project,
+    sheet_id: int,
+    columns: dict[str, int],
+    expected: dict[str, Any],
+    sampler: PhaseSampler,
+    soft_scratch: int,
+) -> dict[str, Any]:
+    timings: dict[str, list[float]] = {
+        "sort": [],
+        "filter": [],
+        "aggregate": [],
+        "median": [],
+    }
     sort_spec = json.dumps([{"column": "amount", "dir": "desc"}])
     filter_spec = json.dumps({"category": {"eq": "courts"}})
-    sorted_page = filtered = analytics = None
+    sorted_page = filtered = analytics = median = None
     for _ in range(5):
         started = time.perf_counter()
-        sorted_page = resolve_sheet_filter_rows(
-            project, sheet_id, sort=sort_spec, limit=50
+        sorted_page = _governed_query(
+            project,
+            sampler,
+            soft_scratch,
+            lambda: resolve_sheet_filter_rows(
+                project, sheet_id, sort=sort_spec, limit=50
+            ),
         )
         timings["sort"].append(time.perf_counter() - started)
         started = time.perf_counter()
-        filtered = resolve_sheet_filter_rows(
-            project, sheet_id, filter_=filter_spec, limit=50
+        filtered = _governed_query(
+            project,
+            sampler,
+            soft_scratch,
+            lambda: resolve_sheet_filter_rows(
+                project, sheet_id, filter_=filter_spec, limit=50
+            ),
         )
         timings["filter"].append(time.perf_counter() - started)
         started = time.perf_counter()
-        analytics = evaluate_analytics(
+        analytics = _governed_query(
             project,
-            {
-                "sheet_id": sheet_id,
-                "groups": [{"column_id": columns["category"]}],
-                "metrics": [
-                    {"id": "rows", "kind": "count"},
-                    {
-                        "id": "values",
-                        "kind": "value_count",
-                        "column_id": columns["amount"],
-                    },
-                    {
-                        "id": "missing",
-                        "kind": "missing_count",
-                        "column_id": columns["amount"],
-                    },
-                    {"id": "sum", "kind": "sum", "column_id": columns["amount"]},
-                    {"id": "median", "kind": "median", "column_id": columns["amount"]},
-                ],
-                "sort": [{"kind": "group", "group_index": 0, "direction": "asc"}],
-                "limit": 20,
-            },
-            {"kind": "sheet", "sheet_id": sheet_id},
+            sampler,
+            soft_scratch,
+            lambda: evaluate_analytics(
+                project,
+                {
+                    "sheet_id": sheet_id,
+                    "groups": [{"column_id": columns["category"]}],
+                    "metrics": [
+                        {"id": "rows", "kind": "count"},
+                        {
+                            "id": "values",
+                            "kind": "value_count",
+                            "column_id": columns["amount"],
+                        },
+                        {
+                            "id": "missing",
+                            "kind": "missing_count",
+                            "column_id": columns["amount"],
+                        },
+                        {
+                            "id": "sum",
+                            "kind": "sum",
+                            "column_id": columns["amount"],
+                        },
+                    ],
+                    "sort": [{"kind": "group", "group_index": 0, "direction": "asc"}],
+                    "limit": 20,
+                },
+                {"kind": "sheet", "sheet_id": sheet_id},
+                cancel_event=sampler.hard_limit,
+            ),
         )
         timings["aggregate"].append(time.perf_counter() - started)
-    assert sorted_page is not None and sorted_page.total > 0
-    assert filtered is not None and filtered.total > 0
+        started = time.perf_counter()
+        median = _governed_query(
+            project,
+            sampler,
+            soft_scratch,
+            lambda: evaluate_analytics(
+                project,
+                {
+                    "sheet_id": sheet_id,
+                    "filter": {"category": {"eq": "transport"}},
+                    "metrics": [
+                        {
+                            "id": "median",
+                            "kind": "median",
+                            "column_id": columns["amount"],
+                        }
+                    ],
+                },
+                {"kind": "sheet", "sheet_id": sheet_id},
+                cancel_event=sampler.hard_limit,
+            ),
+        )
+        timings["median"].append(time.perf_counter() - started)
+    assert sorted_page is not None and sorted_page.total == expected["rows"]
+    sorted_ids = project.get_values(sheet_id, columns["record_id"], sorted_page.row_ids)
+    assert [sorted_ids[row_id] for row_id in sorted_page.row_ids] == expected[
+        "top_amount_record_ids"
+    ]
+    assert filtered is not None
+    assert filtered.total == expected["categories"]["courts"]
+    filtered_categories = project.get_values(
+        sheet_id, columns["category"], filtered.row_ids
+    )
+    assert set(filtered_categories.values()) == {"courts"}
     assert analytics is not None and analytics["row_count"] == sorted_page.total
+    groups = {group["group"][0]["value"]: group for group in analytics["groups"]}
+    assert set(groups) == set(expected["aggregates"])
+    for category, facts in expected["aggregates"].items():
+        group = groups[category]
+        assert group["metrics"] == {
+            "rows": facts["rows"],
+            "values": facts["valid"],
+            "missing": facts["missing"],
+            "sum": facts["sum"],
+        }
+        assert group["quality"][str(columns["amount"])] == {
+            "column_id": columns["amount"],
+            "present": facts["valid"],
+            "missing": facts["missing"],
+            "invalid": facts["invalid"],
+        }
+    assert median is not None
+    assert median["groups"][0]["metrics"]["median"] == expected["transport_median"]
     return {
         name: {
             "samples": len(samples),
@@ -224,8 +440,8 @@ def _query_workload(
 
 
 def run_qualification(rows: int, work_root: Path) -> dict[str, Any]:
-    if not 1 <= rows <= 500_000:
-        raise ValueError("rows must be between 1 and 500000")
+    if not 200 <= rows <= 500_000:
+        raise ValueError("rows must be between 200 and 500000")
     free_at_start = shutil.disk_usage(work_root).free
     hard_scratch = min(MAX_SCRATCH, free_at_start - HOST_FREE_RESERVE)
     if hard_scratch < 3 * GIB:
@@ -252,7 +468,28 @@ def run_qualification(rows: int, work_root: Path) -> dict[str, Any]:
     ) as raw:
         owned = Path(raw)
         bundle = owned / "qualification.frisket"
-        sampler = PhaseSampler(owned, hard_limit_bytes=hard_scratch)
+        sqlite_temp = owned / "sqlite-tmp"
+        sqlite_temp.mkdir()
+        previous_sqlite_tmpdir = os.environ.get("SQLITE_TMPDIR")
+        os.environ["SQLITE_TMPDIR"] = str(sqlite_temp)
+
+        def sampled_limit(observed: dict[str, Any]) -> str | None:
+            if observed["project_bytes"] >= soft_scratch:
+                return "soft scratch limit reached"
+            if observed["rss_kib"] >= HARD_RSS_KIB:
+                return "hard RSS limit reached"
+            if observed["rss_kib"] >= SOFT_RSS_KIB:
+                return "soft RSS limit reached"
+            available = _mem_available_kib()
+            if available is not None and available < MIN_AVAILABLE_KIB:
+                return "host MemAvailable floor reached"
+            return None
+
+        sampler = PhaseSampler(
+            owned,
+            hard_limit_bytes=hard_scratch,
+            limit_probe=sampled_limit,
+        )
         sampler.start()
         project: Project | None = None
         try:
@@ -280,6 +517,10 @@ def run_qualification(rows: int, work_root: Path) -> dict[str, Any]:
             input_bytes = body_bytes = 0
             text_lengths = Counter()
             amount_states = Counter()
+            category_counts = Counter()
+            aggregates: dict[str, dict[str, int]] = {}
+            top_amounts: list[tuple[int, int, int]] = []
+            transport_amounts: list[int] = []
             row_map: dict[int, int] = {}
             sample_numbers = sorted(
                 {1, min(rows, 2), min(rows, 199), (rows + 1) // 2, rows}
@@ -324,6 +565,33 @@ def run_qualification(rows: int, work_root: Path) -> dict[str, Any]:
                         if item["amount"] == "not-stated"
                         else "valid"
                     ] += 1
+                    category = str(item["category"])
+                    category_counts[category] += 1
+                    facts = aggregates.setdefault(
+                        category,
+                        {
+                            "rows": 0,
+                            "valid": 0,
+                            "missing": 0,
+                            "invalid": 0,
+                            "sum": 0,
+                        },
+                    )
+                    facts["rows"] += 1
+                    amount = item["amount"]
+                    if amount is None:
+                        facts["missing"] += 1
+                    elif amount == "not-stated":
+                        facts["invalid"] += 1
+                    else:
+                        amount = int(amount)
+                        facts["valid"] += 1
+                        facts["sum"] += amount
+                        heapq.heappush(top_amounts, (amount, -number, number))
+                        if len(top_amounts) > 50:
+                            heapq.heappop(top_amounts)
+                        if category == "transport":
+                            transport_amounts.append(amount)
                 input_bytes += committed
                 cursor += len(page)
                 _guard(sampler, soft_scratch=soft_scratch)
@@ -336,15 +604,40 @@ def run_qualification(rows: int, work_root: Path) -> dict[str, Any]:
             assert set(columns) == {spec["name"] for spec in COLUMNS}
             assert project.row_count(publication.sheet_id) == rows
             _check_values(project, publication.sheet_id, columns, row_map)
+            report["phases"]["import"] = _phase_record(bundle, started)
+            sampler.set_phase("persisted_readback")
+            started_readback = time.perf_counter()
+            report["persisted_corpus"] = _verify_persisted_corpus(
+                project,
+                publication.sheet_id,
+                columns,
+                rows,
+                sampler,
+                soft_scratch,
+            )
+            report["phases"]["persisted_readback"] = _phase_record(
+                bundle, started_readback
+            )
+            expected_queries = {
+                "rows": rows,
+                "categories": dict(category_counts),
+                "aggregates": aggregates,
+                "top_amount_record_ids": [
+                    entry[2]
+                    for entry in sorted(
+                        top_amounts, key=lambda value: (-value[0], value[2])
+                    )
+                ],
+                "transport_median": statistics.median(transport_amounts),
+            }
             report["fixture"] = {
                 "input_ndjson_bytes": input_bytes,
                 "body_utf8_bytes": body_bytes,
                 "text_lengths": dict(text_lengths),
                 "amount_states": dict(amount_states),
             }
-            report["phases"]["import"] = _phase_record(bundle, started)
-
             sampler.set_phase("index")
+            started = time.perf_counter()
             report["phases"]["index"] = _drain_index(project, sampler, soft_scratch)
             report["phases"]["index"].update(_phase_record(bundle, started))
 
@@ -369,7 +662,14 @@ def run_qualification(rows: int, work_root: Path) -> dict[str, Any]:
 
             sampler.set_phase("queries")
             started = time.perf_counter()
-            report["queries"] = _query_workload(project, publication.sheet_id, columns)
+            report["queries"] = _query_workload(
+                project,
+                publication.sheet_id,
+                columns,
+                expected_queries,
+                sampler,
+                soft_scratch,
+            )
             report["phases"]["queries"] = _phase_record(bundle, started)
 
             sampler.set_phase("edit_undo_redo")
@@ -438,6 +738,13 @@ def run_qualification(rows: int, work_root: Path) -> dict[str, Any]:
             project.close()
             project = Project(bundle)
             assert project.row_count(publication.sheet_id) == rows
+            _check_values(
+                project,
+                publication.sheet_id,
+                columns,
+                row_map,
+                body_overrides={marker_number: edited_body},
+            )
             if marker is not None:
                 reopened = search_project_page(project, edited_marker, rerank="off")
                 assert reopened["complete"] and reopened["hits"]
@@ -451,6 +758,10 @@ def run_qualification(rows: int, work_root: Path) -> dict[str, Any]:
             if project is not None:
                 project.close()
             sampler.stop()
+            if previous_sqlite_tmpdir is None:
+                os.environ.pop("SQLITE_TMPDIR", None)
+            else:
+                os.environ["SQLITE_TMPDIR"] = previous_sqlite_tmpdir
             report["sampled_phase_peaks"] = sampler.peaks
             report["peak_rss_kib"] = (
                 __import__("resource")

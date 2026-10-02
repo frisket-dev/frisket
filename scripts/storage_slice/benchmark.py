@@ -86,9 +86,12 @@ def current_rss_kib():
 
 
 class PhaseSampler:
-    def __init__(self, root, *, hard_limit_bytes=10 * 1024**3):
+    def __init__(self, root, *, hard_limit_bytes=10 * 1024**3, limit_probe=None):
         self.root = Path(root)
         self.hard_limit_bytes = hard_limit_bytes
+        self.limit_probe = limit_probe
+        self.limit_reason = None
+        self.on_limit = None
         self.phase = "setup"
         self.peaks = {}
         self.stop_event = threading.Event()
@@ -125,8 +128,16 @@ class PhaseSampler:
             observed["host_load_1m_max"] = max(
                 observed["host_load_1m_max"], os.getloadavg()[0]
             )
+        reason = None
         if size >= self.hard_limit_bytes:
+            reason = "hard scratch limit reached"
+        elif self.limit_probe is not None:
+            reason = self.limit_probe(observed)
+        if reason and not self.hard_limit.is_set():
+            self.limit_reason = str(reason)
             self.hard_limit.set()
+            if self.on_limit is not None:
+                self.on_limit()
 
     def _run(self):
         while not self.stop_event.wait(0.25):
