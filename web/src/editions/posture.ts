@@ -7,6 +7,7 @@ export interface PostureCapabilities {
   configurableNotificationDestinations: boolean;
   configurableNotificationEmail: boolean;
   identity: boolean;
+  skills: boolean;
   team: boolean;
 }
 
@@ -32,6 +33,7 @@ export const LOCAL_EDITION_DESCRIPTOR = immutableEditionDescriptor({
     configurableNotificationDestinations: true,
     configurableNotificationEmail: true,
     identity: false,
+    skills: true,
     team: false,
   },
 });
@@ -42,6 +44,7 @@ export const TEAM_EDITION_DESCRIPTOR = immutableEditionDescriptor({
     configurableNotificationDestinations: true,
     configurableNotificationEmail: true,
     identity: true,
+    skills: true,
     team: true,
   },
 });

@@ -25,6 +25,7 @@ const edition = defineEditionModule({
         configurableNotificationDestinations: false,
         configurableNotificationEmail: false,
         identity: true,
+        skills: false,
         team: true,
       },
     },

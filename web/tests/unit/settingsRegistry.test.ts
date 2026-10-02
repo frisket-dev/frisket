@@ -90,9 +90,13 @@ describe('settings registry contract', () => {
     expect(local).toContain('project.notifications');
     expect(local).toContain('organization.ai-providers');
     expect(local).toContain('organization.api-keys');
+    expect(local).toContain('personal.skills');
+    expect(local).toContain('organization.skills');
     expect(local).not.toContain('project.access');
     expect(team).toContain('project.access');
     expect(team).toContain('project.notifications');
+    expect(team).toContain('personal.skills');
+    expect(team).toContain('organization.skills');
   });
 
   it('removes notification destination settings when the edition does not configure them', () => {
@@ -103,12 +107,15 @@ describe('settings registry contract', () => {
         configurableNotificationDestinations: false,
         configurableNotificationEmail: false,
         identity: true,
+        skills: false,
         team: true,
       },
     });
 
     const ids = settingsSectionsFor(edition).map((definition) => definition.id);
     expect(ids).not.toContain('project.notifications');
+    expect(ids).not.toContain('personal.skills');
+    expect(ids).not.toContain('organization.skills');
     expect(ids).toContain('project.general');
     expect(ids).toContain('project.access');
   });

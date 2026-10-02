@@ -24,6 +24,7 @@ const descriptor = {
     configurableNotificationDestinations: true,
     configurableNotificationEmail: true,
     identity: true,
+    skills: true,
     team: true,
   },
 } as const;

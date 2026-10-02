@@ -34,6 +34,7 @@ const edition = (id: string) => immutableEditionDescriptor({
     configurableNotificationDestinations: false,
     configurableNotificationEmail: false,
     identity: true,
+    skills: false,
     team: true,
   },
 });
