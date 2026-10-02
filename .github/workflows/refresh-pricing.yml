@@ -97,6 +97,9 @@ jobs:
             git fetch --no-tags origin "$remote_tip"
             branch_files="$(git diff --name-only "$(git merge-base HEAD "$remote_tip")" "$remote_tip")"
             if [ -n "$branch_files" ] && [ "$branch_files" != "$pricing_path" ]; then
+              if [ "${#pr_numbers[@]}" -eq 1 ]; then
+                gh pr close "${pr_numbers[0]}" --comment "Closing automated pricing refresh: branch contains changes outside pricing_data.json. Branch preserved for review."
+              fi
               echo "Refusing existing branch changes outside pricing_data.json" >&2
               exit 1
             fi

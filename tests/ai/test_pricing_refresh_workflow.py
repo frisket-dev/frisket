@@ -569,7 +569,11 @@ def test_existing_human_changes_are_not_overwritten_or_merged(tmp_path: Path) ->
     )
     assert result["remote_tip"] == result["existing_tip"]
     assert result["open_pr_returncodes"] == [1]
-    assert [call[:2] for call in result["pr_calls"]] == [["pr", "list"]]
+    assert result["pr_numbers"] == []
+    assert [call[:2] for call in result["pr_calls"]] == [
+        ["pr", "list"],
+        ["pr", "close"],
+    ]
 
 
 def test_unexpected_generated_file_is_not_published(tmp_path: Path) -> None:
