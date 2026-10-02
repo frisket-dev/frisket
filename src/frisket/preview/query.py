@@ -15,6 +15,7 @@ from frisket.querysets import (
     resolve_sheet_filter_rows,
 )
 from frisket.engine.store import Project
+from frisket.search import SearchIndexNotReady
 from frisket.features.watchlists.specs import (
     canonical_json,
     normalize_query_spec,
@@ -65,10 +66,23 @@ def resolve_query_preview_resolution(
     limit: int = DEFAULT_QUERY_PREVIEW_LIMIT,
     offset: int = 0,
 ) -> QueryPreviewResolution:
-    with project.read_snapshot() as snapshot:
-        return _resolve_query_preview_in_snapshot(
-            snapshot, query, limit=limit, offset=offset
-        )
+    if query.get("kind") == "embedding_hybrid":
+        schedule = getattr(project, "_frisket_schedule_search_index", None)
+        if schedule is not None:
+            schedule()
+    for attempt in range(2):
+        try:
+            with project.read_snapshot() as snapshot:
+                return _resolve_query_preview_in_snapshot(
+                    snapshot, query, limit=limit, offset=offset
+                )
+        except SearchIndexNotReady as exc:
+            if attempt:
+                raise QueryPreviewError(
+                    "search_index_not_ready",
+                    "Search is still indexing. Please try again shortly.",
+                ) from exc
+    raise AssertionError("unreachable")
 
 
 def _resolve_query_preview_in_snapshot(

@@ -107,8 +107,11 @@ def resolve_embedding_hybrid(
     available_rows = project.row_count(sheet_id)
     pool = min(max(_HYBRID_POOL, want * 4), max(1, available_rows))
 
-    # VECTOR side first — its egress gate raises BEFORE any embed for a remote index
-    # without allow_remote, so the FTS work below never runs in that case.
+    # Check the local index against this source snapshot before embedding. A
+    # snapshot retry must not repeat paid work merely because FTS was behind.
+    fts_ids = search_sheet(project, sheet_id, text, limit=pool)
+
+    # Vector execution retains its own remote-egress gate before any embed.
     vec_query = {
         "kind": "embedding_similarity",
         "embedding_index_id": index_id,
@@ -120,9 +123,6 @@ def resolve_embedding_hybrid(
         project, vec_query, gateway=gateway, backend=backend
     )
     vec_ids = [hit.row_id for hit in vec_result.hits]
-
-    # KEYWORD side — local sheet-scoped FTS.
-    fts_ids = search_sheet(project, sheet_id, text, limit=pool)
 
     fused = rrf_fuse([vec_ids, fts_ids], k=k_rrf)
     vec_rank = {rid: i + 1 for i, rid in enumerate(vec_ids)}

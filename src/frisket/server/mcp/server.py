@@ -114,9 +114,15 @@ def create_mcp_server(backend: LocalBackend | HostedBackend) -> FastMCP:
         """Full-text search across every sheet of a project. Returns ranked
         hits with sheet/row/column coordinates and a snippet; feed a hit's
         sheet_id into read_sheet to see the full row in context."""
+        from frisket.search import SearchIndexNotReady
+
+        try:
+            results = await _call(backend.search, project_id, query, limit)
+        except SearchIndexNotReady as exc:
+            return {"query": query, "error": {"code": exc.code, "message": str(exc)}}
         return {
             "query": query,
-            "results": await _call(backend.search, project_id, query, limit),
+            "results": results,
         }
 
     @server.tool()

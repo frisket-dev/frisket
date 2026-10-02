@@ -40,7 +40,7 @@ def store_roundtrip_report() -> dict[str, Any]:
     search sidecar indexes it. Raises on failure — callers decide whether
     that flips a "healthy" bit (cli.py) or just an "ok": False (the API
     route never lets a probe failure 500 the whole diagnose response)."""
-    from frisket.search import rebuild_index, search_project
+    from frisket.search import drain_index, search_project
     from frisket.engine.store import Project
 
     with tempfile.TemporaryDirectory() as td:
@@ -51,7 +51,7 @@ def store_roundtrip_report() -> dict[str, Any]:
             p.add_rows(sheet, [{"note": "doctor probe row"}], cols)
             (val,) = p.get_values(sheet, cols["note"]).values()
             assert val == "doctor probe row", f"read-back mismatch: {val!r}"
-            n = rebuild_index(p)
+            n = drain_index(p)
             hits = search_project(p, "doctor")
             assert n >= 1 and hits, "search sidecar found nothing"
         finally:

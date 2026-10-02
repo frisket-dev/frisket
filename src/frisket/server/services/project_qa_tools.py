@@ -19,7 +19,8 @@ from frisket.server.services.project_qa_query import (
     evaluate_analytics,
     evaluate_query,
 )
-from frisket.search import search_cells_scoped
+from frisket.search import SearchIndexNotReady, search_cells_scoped
+from frisket.engine.store.search_index_work import latest_revision
 from frisket.semantic import semantic_passage_search
 from frisket.authoring.project_ask_actions import (
     describe_project_ask_action,
@@ -439,6 +440,25 @@ class ProjectQATools:
         allowed_rows: set[int] | None,
         target_cells: set[tuple[int, int]],
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        schedule = getattr(self.project, "_frisket_schedule_search_index", None)
+        if schedule is not None:
+            schedule()
+        try:
+            return self._ready_search_hits(
+                query, sheet_id, limit, mode, allowed_rows, target_cells
+            )
+        except SearchIndexNotReady:
+            return [], {"complete": False, "reason": "indexing", "semantic": False}
+
+    def _ready_search_hits(
+        self,
+        query: str,
+        sheet_id: int,
+        limit: int,
+        mode: Literal["keyword", "semantic"],
+        allowed_rows: set[int] | None,
+        target_cells: set[tuple[int, int]],
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         if mode == "semantic":
             searched = semantic_passage_search(
                 self.project,
@@ -491,8 +511,8 @@ class ProjectQATools:
         ):
             return None
         semantic = bool(hit.get("semantic"))
-        indexed_at_op = hit.get("_indexed_at_op")
-        if not semantic and indexed_at_op != self.project.op_cursor:
+        indexed_revision = hit.get("_indexed_revision")
+        if not semantic and indexed_revision != latest_revision(self.project.db):
             raise ValueError("source_changed")
         if prepared_target is not None:
             current_cell, original, current_prepared = read_source_with_prepared(
@@ -540,7 +560,7 @@ class ProjectQATools:
                 or confirmed_prepared["prepared_version"] != source["version"]
             ):
                 raise ValueError("source_changed")
-        if not semantic and indexed_at_op != self.project.op_cursor:
+        if not semantic and indexed_revision != latest_revision(self.project.db):
             raise ValueError("source_changed")
         if semantic and source["text"] != snippet:
             # Embedding may overlap an edit: never give old text a new value reference.

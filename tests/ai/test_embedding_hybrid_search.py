@@ -16,6 +16,7 @@ import pytest
 from frisket.ai.embeddings import build_batch_result
 from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.engine.store import Project
+from frisket.search import drain_index
 
 PROJECT_ID = "p"
 
@@ -79,6 +80,8 @@ def _create_index(project, sheet, *, provider="fastembed", policy=None, key="c")
         project_id=PROJECT_ID,
     )
     assert res.status == "completed", res.errors
+
+    drain_index(project)
     return res.outputs[0].ref["index_id"]
 
 
@@ -151,6 +154,7 @@ def test_search_sheet_scopes_to_one_sheet_in_bm25_order(env):
     project.add_rows(
         other, [{"headline": "drone in another sheet"}], {"headline": ocol}
     )
+    drain_index(project)
 
     rows = search_sheet(project, sheet, "drone", limit=10)
     # only THIS sheet's rows that contain "drone" — never the other sheet's row
@@ -270,6 +274,7 @@ def test_hybrid_remote_without_allow_remote_blocks_before_embed(tmp_path):
     index_id = _create_index(
         project, sheet, provider="openai", policy={"allow_remote": False}, key="hyr"
     )
+    drain_index(project)
     gw = MappedGateway()
     with pytest.raises(SimilarityError) as exc:
         resolve_embedding_hybrid(

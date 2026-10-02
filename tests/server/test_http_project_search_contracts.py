@@ -12,7 +12,7 @@ from starlette.testclient import TestClient
 
 from frisket.contracts.http.endpoint_catalog import BASE_ENDPOINT_CATALOG
 from frisket.contracts.http.models import HttpError
-from frisket.contracts.http.project_search import ProjectSearchHit, ProjectSearchHits
+from frisket.contracts.http.project_search import ProjectSearchHit, ProjectSearchPage
 from frisket.server.routes.project_research import register_project_search_routes
 from scripts.ci import export_web_openapi as exporter
 
@@ -24,9 +24,9 @@ class _SearchService:
     def __post_init__(self) -> None:
         self.calls: list[dict[str, object]] = []
 
-    def search(self, pid: str, **query: object) -> list[dict[str, object]]:
+    def search(self, pid: str, **query: object) -> dict[str, object]:
         self.calls.append({"pid": pid, **query})
-        return self.hits
+        return {"hits": self.hits, "indexing": False}
 
 
 def _route(service: _SearchService) -> APIRoute:
@@ -46,7 +46,7 @@ def test_project_search_route_declares_its_exact_generated_wire_truth() -> None:
     assert route.name == "search_ep"
     assert route.methods == {"GET"}
     assert route.path == "/api/projects/{pid}/search"
-    assert route.response_model is ProjectSearchHits
+    assert route.response_model is ProjectSearchPage
     assert route.response_model_exclude_unset is True
     assert set(route.responses) == {401, 403, 404, 422, 500}
     assert all(value == {"model": HttpError} for value in route.responses.values())
@@ -81,9 +81,9 @@ def test_project_search_hit_is_open_but_strict_and_sparse_optional_fields_are_no
     assert hit.model_dump(exclude_unset=True)["producer_extension"] == {
         "preserved": True
     }
-    assert ProjectSearchHits.model_validate(
-        [hit.model_dump(exclude_unset=True)]
-    ).root == [hit]
+    assert ProjectSearchPage.model_validate(
+        {"hits": [hit.model_dump(exclude_unset=True)], "indexing": True}
+    ).hits == [hit]
 
     for field in ("score", "semantic", "rerank_score"):
         with pytest.raises(ValidationError):
@@ -91,7 +91,7 @@ def test_project_search_hit_is_open_but_strict_and_sparse_optional_fields_are_no
     with pytest.raises(ValidationError):
         ProjectSearchHit.model_validate({**hit.model_dump(), "sheet_id": "1"})
     with pytest.raises(ValidationError):
-        ProjectSearchHits.model_validate({"hits": []})
+        ProjectSearchPage.model_validate({"hits": []})
 
 
 def test_project_search_route_keeps_producer_order_and_omits_unset_fields() -> None:
@@ -123,7 +123,7 @@ def test_project_search_route_keeps_producer_order_and_omits_unset_fields() -> N
     )
 
     assert response.status_code == 200
-    assert response.json() == hits
+    assert response.json() == {"hits": hits, "indexing": False}
     assert service.calls == [
         {
             "pid": "project",

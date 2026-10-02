@@ -402,7 +402,11 @@ class LocalBackend:
     def search(self, project_id: str, query: str, limit: int = 20) -> list[dict]:
         from frisket.search import search_project
 
-        return search_project(self.ws.get(project_id), query, limit=limit)
+        project = self.ws.get(project_id)
+        schedule = getattr(project, "_frisket_schedule_search_index", None)
+        if schedule is not None:
+            schedule()
+        return search_project(project, query, limit=limit)
 
     async def run_action(
         self,
@@ -593,12 +597,17 @@ class HostedBackend:
         }
 
     async def search(self, project_id: str, query: str, limit: int = 20) -> list[dict]:
-        return await self._json(
+        from frisket.search import SearchIndexNotReady
+
+        page = await self._json(
             await self._client.get(
                 f"/api/projects/{project_id}/search",
                 params={"q": query, "limit": limit},
             )
         )
+        if page["indexing"]:
+            raise SearchIndexNotReady()
+        return page["hits"]
 
     async def run_action(
         self,

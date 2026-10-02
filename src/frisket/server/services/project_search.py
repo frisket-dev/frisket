@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from frisket.search import search_project
+from frisket.search import SearchIndexNotReady, fresh_sidecar, search_project_page
 from frisket.semantic import resolve_embedder, semantic_search
 from frisket.server.workspace import Workspace
 
@@ -21,26 +21,34 @@ class ProjectSearchService:
         limit: int,
         mode: str,
         rerank: str,
-    ) -> list[dict[str, Any]]:
+    ) -> dict[str, Any]:
         project = self._workspace.get(project_id)
+        schedule = getattr(project, "_frisket_schedule_search_index", None)
+        if schedule is not None:
+            schedule()
         if mode == "semantic":
             # allow_remote=False: project search has no cost gate and no
             # consent dialog, so it must never egress the corpus to a remote
             # embeddings API. With no local model
             # installed resolve_embedder returns None and semantic_search
             # degrades to its lexical path below.
-            backend = resolve_embedder(
-                self._workspace.router_for(project), allow_remote=False
-            )
-            if backend is not None:
-                embed, embed_id = backend
-                return semantic_search(
-                    project,
-                    q,
-                    limit=limit,
-                    embed=embed,
-                    embed_id=embed_id,
-                    rerank=rerank,
-                )
-            return semantic_search(project, q, limit=limit, rerank=rerank)
-        return search_project(project, q, limit=limit, rerank=rerank)
+            try:
+                with project.read_snapshot() as snapshot:
+                    fresh_sidecar(snapshot).close()
+                    backend = resolve_embedder(
+                        self._workspace.router_for(project), allow_remote=False
+                    )
+                    embed, embed_id = backend if backend is not None else (None, None)
+                    hits = semantic_search(
+                        snapshot,
+                        q,
+                        limit=limit,
+                        embed=embed,
+                        embed_id=embed_id,
+                        rerank=rerank,
+                    )
+                return {"hits": hits, "indexing": False}
+            except SearchIndexNotReady:
+                return {"hits": [], "indexing": True}
+        page = search_project_page(project, q, limit=limit, rerank=rerank)
+        return {"hits": page["hits"], "indexing": not page["complete"]}

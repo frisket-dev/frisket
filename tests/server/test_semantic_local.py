@@ -19,6 +19,7 @@ from frisket.ai.llm import ModelRouter
 from frisket.semantic import local_embedder, semantic_search
 from frisket.server.app import create_app
 from frisket.engine.store import Project
+from frisket.search import drain_index
 
 _needs_real_local = pytest.mark.skipif(
     local_embedder() is None,
@@ -43,11 +44,12 @@ def test_real_model_ranks_by_meaning_end_to_end(tmp_path):
     client.post(
         f"/api/projects/{pid}/import/csv", files={"file": ("n.csv", csv, "text/csv")}
     )
+    drain_index(client.app.state.workspace.get(pid))
     r = client.get(
         f"/api/projects/{pid}/search", params={"q": "car trouble", "mode": "semantic"}
     )
     assert r.status_code == 200, r.text
-    hits = r.json()
+    hits = r.json()["hits"]
     assert hits and hits[0]["semantic"] is True
     assert "automobile" in hits[0]["snip"].lower(), (
         f"real model failed to rank the semantic match first: {hits}"
@@ -58,7 +60,7 @@ def test_real_model_ranks_by_meaning_end_to_end(tmp_path):
         f"/api/projects/{pid}/search",
         params={"q": "growing vegetables", "mode": "semantic"},
     )
-    hits = r.json()
+    hits = r.json()["hits"]
     assert hits and "tomatoes" in hits[0]["snip"].lower(), (
         f"out-of-lexicon query not meaning-ranked: {hits}"
     )
@@ -68,7 +70,7 @@ def test_real_model_ranks_by_meaning_end_to_end(tmp_path):
         r = client.get(
             f"/api/projects/{pid}/search", params={"q": q, "mode": "semantic"}
         )
-        hits = r.json()
+        hits = r.json()["hits"]
         assert hits and "automobile" in hits[0]["snip"].lower(), (
             f"cross-lingual query {q!r} not meaning-ranked: {hits}"
         )
@@ -106,6 +108,7 @@ def _seed_project(tmp_path) -> Project:
     sheet = p.add_sheet("data")
     cols = {"note": p.add_column(sheet, "note")}
     p.add_rows(sheet, [{"note": "alpha bravo"}, {"note": "charlie delta"}], cols)
+    drain_index(p)
     return p
 
 

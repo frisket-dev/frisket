@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from frisket.engine.store import Project
+from frisket.search import drain_index
 from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.server.services.project_qa_citations import resolve_citation
 from frisket.server.services.project_qa_sources import read_source_text
@@ -26,6 +27,7 @@ def source(tmp_path):
     turn = store.submit_turn(
         thread["id"], request_id="one", question="Find the evidence"
     )
+    drain_index(project)
     try:
         yield project, store, thread, turn, sheet, column, row
     finally:
@@ -42,6 +44,17 @@ def test_search_opens_late_passage_and_continues_without_repeating_prefix(source
     assert sum(len(p["text"]) for p in opened["passages"]) <= 8000
     continued = tools.open_source(hit["citation_id"], cursor=opened["next_cursor"])
     assert continued["range"]["start"] == opened["range"]["end"]
+
+
+def test_keyword_search_uses_search_revision_not_unrelated_operation_cursor(source):
+    project, store, _, turn, sheet, _, _ = source
+    project.db.execute(
+        "UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='op_cursor'"
+    )
+    project.db.commit()
+    result = ProjectQATools(project, turn, store).search_cells("NEEDLE", sheet)
+    assert result["hits"]
+    assert result["coverage"]["complete"] is True
 
 
 def test_exact_cell_scope_still_searches_its_original_text(source):
@@ -338,6 +351,7 @@ def test_fts_anchor_ignores_raw_b_tags_before_the_actual_match(source):
         + "<b>Methodology</b> immediately before ACTUALNEEDLE"
     )
     project.apply_edits([{"row_id": row, "column_id": column, "value": text}])
+    drain_index(project)
     tools = ProjectQATools(project, turn, store)
 
     [hit] = tools.search_cells("ACTUALNEEDLE", sheet)["hits"]
@@ -596,6 +610,7 @@ def test_file_scope_reads_current_prepared_text_and_finds_it(tmp_path, monkeypat
             },
         )
         tools = ProjectQATools(project, turn, store)
+        drain_index(project)
         [hit] = tools.search_cells("NEEDLE", sheet)["hits"]
         assert hit["column_id"] == source_column
         citation_id = hit["citation_id"]

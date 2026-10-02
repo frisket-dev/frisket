@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, RootModel
+from pydantic import BaseModel, ConfigDict
 
 
 class ProjectSearchHit(BaseModel):
@@ -21,7 +21,9 @@ class ProjectSearchHit(BaseModel):
     rerank_score: float = None  # type: ignore[assignment]
 
 
-class ProjectSearchHits(RootModel[list[ProjectSearchHit]]):
-    """A strict root list: rank order is the producer's response order."""
+class ProjectSearchPage(BaseModel):
+    """Ranked hits with explicit background-indexing status."""
 
     model_config = ConfigDict(strict=True)
+    hits: list[ProjectSearchHit]
+    indexing: bool
