@@ -38,6 +38,18 @@ def enqueue_dirty_scope(
         raise ValueError("row range requires both bounds")
     if row_id_start is not None and row_id_start > row_id_end:
         raise ValueError("row range is reversed")
+    if sheet_id is None:
+        # A fresh global repair supersedes every older scope. Deleting first is
+        # safe because the replacement ID fences a worker holding an old cursor.
+        db.execute("DELETE FROM search_dirty_scopes")
+    elif column_id is None and row_id_start is None:
+        db.execute("DELETE FROM search_dirty_scopes WHERE sheet_id=?", (sheet_id,))
+    else:
+        db.execute(
+            "DELETE FROM search_dirty_scopes WHERE sheet_id=? "
+            "AND column_id IS ? AND row_id_start IS ? AND row_id_end IS ?",
+            (sheet_id, column_id, row_id_start, row_id_end),
+        )
     cursor = db.execute(
         "INSERT INTO search_dirty_scopes "
         "(sheet_id,column_id,row_id_start,row_id_end) VALUES (?,?,?,?)",

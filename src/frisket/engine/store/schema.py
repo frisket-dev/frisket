@@ -981,6 +981,8 @@ CREATE TABLE IF NOT EXISTS search_dirty_scopes (
   CHECK (row_id_start IS NULL OR row_id_start <= row_id_end)
 );
 INSERT INTO search_dirty_scopes DEFAULT VALUES;
+CREATE INDEX IF NOT EXISTS idx_search_dirty_scopes_sheet
+  ON search_dirty_scopes(sheet_id);
 
 CREATE TRIGGER IF NOT EXISTS trg_search_sheet_insert AFTER INSERT ON sheets BEGIN
   INSERT INTO search_dirty_scopes(sheet_id) VALUES (NEW.id);

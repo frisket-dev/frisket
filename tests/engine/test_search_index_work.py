@@ -6,6 +6,7 @@ import pytest
 
 from frisket.engine.store.project import Project
 from frisket.engine.store.search_index_work import (
+    SearchDirtyScope,
     ack_dirty_scope,
     advance_dirty_scope,
     enqueue_dirty_scope,
@@ -49,6 +50,24 @@ def test_worklist_mutations_require_authoritative_transaction(tmp_path) -> None:
     project = Project.create(tmp_path / "project", name="search-work")
     with pytest.raises(RuntimeError, match="caller transaction"):
         enqueue_dirty_scope(project.db)
+
+
+def test_broader_scope_supersedes_narrow_work_with_fresh_revision(tmp_path) -> None:
+    project = Project.create(tmp_path / "project", name="search-work")
+    db = project.db
+    db.execute("DELETE FROM search_dirty_scopes")
+    db.commit()
+    db.execute("BEGIN")
+    narrow = enqueue_dirty_scope(
+        db, sheet_id=4, column_id=5, row_id_start=10, row_id_end=20
+    )
+    broad = enqueue_dirty_scope(db, sheet_id=4)
+    db.commit()
+
+    assert broad > narrow
+    assert read_dirty_scopes(db, limit=10) == [
+        SearchDirtyScope(broad, 4, None, None, None, "[0,0]")
+    ]
 
 
 def test_current_cell_refresh_enqueues_bounded_region(tmp_path) -> None:
