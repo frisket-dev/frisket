@@ -36,8 +36,8 @@ try:
         filename="source.pdf", page_count=2, source_sheet_id=sheet_id,
         source_row_id=row_id, source_column_id=source_column_id,
         metadata={"engine": "fixture", "output_name": "Text", "page_images": {
-            "1": {"mime": "application/pdf", "source_width": 288, "source_height": 144},
-            "2": {"mime": "application/pdf", "source_width": 144, "source_height": 288},
+            "1": {"mime": "application/pdf", "source_width": 1224, "source_height": 1584},
+            "2": {"mime": "application/pdf", "source_width": 1224, "source_height": 1584},
         }},
     )
     spans = [record_source_span(project, artifact_id=artifact["id"], span_kind="page_range", page_start=page, page_end=page, snippet=f"page {page}", metadata={"engine": "fixture"}) for page in (1, 2)]
