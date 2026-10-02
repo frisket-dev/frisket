@@ -157,3 +157,79 @@ def test_hosted_mcp_preserves_readiness(indexing):
                 assert await backend.search("p", "word") == [{"row_id": 1}]
 
     asyncio.run(run())
+
+
+def test_semantic_cache_does_not_wait_for_index_writer(tmp_path):
+    import sqlite3
+    import time
+    from frisket.engine.store import Project
+    from frisket.search import drain_index
+    from frisket.semantic import semantic_search
+
+    project = Project.create(tmp_path / "search.frisket", name="Search")
+    try:
+        sheet = project.add_sheet("notes")
+        column = project.add_column(sheet, "text")
+        project.add_rows(sheet, [{"text": "searchable word"}], {"text": column})
+        drain_index(project)
+        writer = sqlite3.connect(project.path / "project.search.db")
+        try:
+            writer.execute("BEGIN IMMEDIATE")
+            started = time.monotonic()
+            hits = semantic_search(
+                project,
+                "word",
+                embed=lambda texts: [[1.0] for _ in texts],
+                embed_id="test/cache-contention",
+                rerank="off",
+            )
+            assert hits and hits[0]["semantic"] is True
+            assert time.monotonic() - started < 2
+            assert writer.execute("SELECT COUNT(*) FROM cell_vec").fetchone()[0] == 0
+        finally:
+            writer.rollback()
+            writer.close()
+        semantic_search(
+            project,
+            "word",
+            embed=lambda texts: [[1.0] for _ in texts],
+            embed_id="test/cache-contention",
+            rerank="off",
+        )
+        with sqlite3.connect(project.path / "project.search.db") as cache:
+            assert cache.execute("SELECT COUNT(*) FROM cell_vec").fetchone()[0] == 1
+    finally:
+        project.close()
+
+
+@pytest.mark.parametrize("asynchronous", [False, True])
+def test_standalone_vectors_cache_without_keyword_index(tmp_path, asynchronous):
+    import asyncio
+    import sqlite3
+    from frisket.engine.store import Project
+    from frisket.semantic import _doc_vectors, _doc_vectors_async
+
+    project = Project.create(tmp_path / "standalone.frisket", name="Standalone")
+    calls = []
+
+    def embed(texts):
+        calls.append(texts)
+        return [[1.0] for _ in texts]
+
+    try:
+        corpus = [{"content": "standalone document"}]
+        for _ in range(2):
+            if asynchronous:
+                vectors = asyncio.run(
+                    _doc_vectors_async(project, corpus, embed, "test/v1")
+                )
+            else:
+                vectors = _doc_vectors(project, corpus, embed, "test/v1")
+            assert vectors == [[1.0]]
+        assert calls == [["standalone document"]]
+        with sqlite3.connect(project.path / "project.search.db") as cache:
+            assert cache.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+            ).fetchall() == [("cell_vec",)]
+    finally:
+        project.close()

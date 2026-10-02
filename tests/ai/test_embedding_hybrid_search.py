@@ -191,6 +191,24 @@ def test_hybrid_surfaces_keyword_only_and_vector_only_and_ranks_dual_first(env):
     assert order.index(bee) < order.index(tractor) if tractor in order else True
 
 
+def test_hybrid_route_service_resolves_inside_source_snapshot(env, monkeypatch):
+    from types import SimpleNamespace
+    from frisket.server.services import embeddings
+
+    project, sheet, _cols, index_id = env
+    monkeypatch.setattr(
+        embeddings, "EmbeddingGateway", lambda **kwargs: MappedGateway()
+    )
+    service = embeddings.EmbeddingRouteService(
+        SimpleNamespace(
+            get=lambda _id: project,
+            router_for=lambda _project: None,
+        )
+    )
+    result = service.hybrid_preview(PROJECT_ID, _hybrid_query(index_id, sheet, "drone"))
+    assert result["sheet_id"] == sheet
+
+
 def test_typed_preview_preserves_local_hybrid_and_receipt_facts(env, monkeypatch):
     from frisket.engine.store.receipts import ReceiptStore
 
