@@ -688,6 +688,7 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
         ("outer", "revoke_token", "DELETE"): "outer.revoke_token.delete",
         ("outer", "get_project_blob", "GET"): "tenant.get_blob.get",
         ("tenant", "get_blob", "GET"): "tenant.get_blob.get",
+        ("tenant", "get_pdf_page_image", "GET"): "tenant.get_pdf_page_image.get",
         (
             "outer",
             "update_project_sensitivity",

@@ -1520,6 +1520,7 @@ def _page_payloads(
         for page in range(start_int, min(end_int, start_int + 100) + 1):
             pages.add(page)
     payloads: list[dict[str, Any]] = []
+    source_blob = (artifact.get("artifact_ref") or {}).get("blob") or {}
     for page in sorted(pages):
         image = page_images.get(str(page)) or page_images.get(page)
         if isinstance(image, dict) and image.get("blob_hash"):
@@ -1548,6 +1549,19 @@ def _page_payloads(
             {
                 "page": page,
                 "image": image_payload,
+                "render_url": (
+                    f"{source_blob['url']}/pages/{page}/image"
+                    if image_payload is None
+                    and (
+                        artifact.get("media_type") == "application/pdf"
+                        or (
+                            isinstance(image, dict)
+                            and image.get("mime") == "application/pdf"
+                        )
+                    )
+                    and source_blob.get("url")
+                    else None
+                ),
                 "text": text_pages.get(str(page)) or text_pages.get(page),
                 "regions": regions,
             }

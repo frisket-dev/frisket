@@ -193,6 +193,7 @@ class EvidencePageRegion(WireModel):
 class EvidenceViewerPage(WireModel):
     page: int
     image: EvidencePageImage | None
+    render_url: str | None = None
     text: str | None
     regions: list[EvidencePageRegion]
 

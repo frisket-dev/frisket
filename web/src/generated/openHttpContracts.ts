@@ -4639,6 +4639,7 @@ type HttpEvidenceViewerResponse_EvidenceViewerPage = ({
   "image": (((HttpEvidenceViewerResponse_EvidencePageImage)) | ((null)));
   "page": (number);
   "regions": (Array<(HttpEvidenceViewerResponse_EvidencePageRegion)>);
+  "render_url"?: (((string)) | ((null)));
   "text": (((string)) | ((null)));
 });
 

@@ -61,8 +61,8 @@ def resolve_ocr_word_stream(
         if not isinstance(metadata, dict):
             continue
         page_images = metadata.get("page_images")
-        # An OCR artifact is the one carrying a persisted page_images map + an
-        # engine (media.ocr's evidence writer).
+        # OCR carries an engine and page geometry. New PDF entries contain no
+        # image hash: the original PDF renders lazily; old PNG entries still work.
         if not isinstance(page_images, dict) or not metadata.get("engine"):
             continue
         artifact_id = int(row["id"])

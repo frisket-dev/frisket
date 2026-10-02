@@ -17,7 +17,7 @@ def _reply(value: dict[str, Any]) -> None:
     print(json.dumps(value, separators=(",", ":"), allow_nan=False))
 
 
-def _request() -> tuple[Path, Path, int, list[int] | None, int | None]:
+def _request() -> tuple[Path, Path, int, list[int] | None, int | None, int | None]:
     try:
         value = json.load(sys.stdin)
     except (TypeError, ValueError, json.JSONDecodeError) as exc:
@@ -28,6 +28,7 @@ def _request() -> tuple[Path, Path, int, list[int] | None, int | None]:
         "dpi",
         "pages",
         "page_limit",
+        "max_edge",
     }:
         raise ValueError("invalid_request")
     source, output, dpi, pages, page_limit = (
@@ -52,9 +53,13 @@ def _request() -> tuple[Path, Path, int, list[int] | None, int | None]:
         or (isinstance(pages, list) and len(pages) != len(set(pages)))
         or (page_limit is not None and (type(page_limit) is not int or page_limit < 0))
         or (pages is not None and page_limit is not None)
+        or (
+            value["max_edge"] is not None
+            and (type(value["max_edge"]) is not int or value["max_edge"] < 1)
+        )
     ):
         raise ValueError("invalid_request")
-    return Path(source), Path(output), dpi, pages, page_limit
+    return Path(source), Path(output), dpi, pages, page_limit, value["max_edge"]
 
 
 def _close(value: Any) -> None:
@@ -65,7 +70,7 @@ def _close(value: Any) -> None:
 
 def main() -> None:
     try:
-        source, output, dpi, pages, page_limit = _request()
+        source, output, dpi, pages, page_limit, max_edge = _request()
     except ValueError as exc:
         _reply({"ok": False, "error": str(exc)})
         return
@@ -95,7 +100,10 @@ def main() -> None:
             bitmap = None
             image = None
             try:
-                bitmap = page.render(scale=dpi / 72)
+                scale = dpi / 72
+                if max_edge is not None:
+                    scale = min(scale, max_edge / max(page.get_size()))
+                bitmap = page.render(scale=scale)
                 image = bitmap.to_pil()
                 image.save(output / f"page-{number}.png", format="PNG")
                 rendered.append(number)
