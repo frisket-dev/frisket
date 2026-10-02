@@ -94,14 +94,19 @@ executor, receipt store or action catalog.
 | FollowTheMoney atomic multi-table import | `engine/executor/entity_package.py` and the bundled FtM plugin |
 
 A borrowed `BoundLocalFile` remains owned by its caller. Closing an admitted
-reader must not close that source. An upload caller must retain its input until
+reader must not close that source. A descriptor may instead provide an
+`open_source` context manager: the reader opens it only for consumption and
+closes it before moving to the next source. These two ownership forms are
+mutually exclusive. An upload caller must retain its input until
 the actual worker exits, including when its coroutine is cancelled. Completed
 replay stays ahead of input access in the existing execution host.
 
 HTTP routes admit the existing multipart spool as an `AdmittedUpload`; they do
 not first read the whole file into bytes or make another persistent input copy.
-Bulk keeps its staged plan files across requests and passes verified open
-sources to the same format services at execution. It commits each output
+Bulk keeps its staged plan files across requests and passes admitted source
+descriptors to the same format services at execution. File and email groups
+open and verify each staged source on demand, including after email sorting;
+they do not hold the entire group's files open together. It commits each output
 independently. A later fatal error stops further work and reports earlier
 committed sheets together with failed and unattempted outputs.
 
