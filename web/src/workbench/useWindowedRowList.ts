@@ -7,7 +7,7 @@
 //
 // `Row.id` (api/types.ts) is typed `string`, so this hook compares `row.id`
 // directly rather than wrapping it in `String(...)` — the wrap would be a no-op.
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
 
 /** Fixed row height both views render at — drives the scroller's total
  *  height and the window math alike. */
@@ -76,6 +76,16 @@ export function useWindowedRowList<T extends { id: string }>({
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
+
+  // Browsers clamp the DOM scroll offset when a replacement result set is
+  // shorter, but that implicit clamp does not dispatch a scroll event. Keep
+  // the window cursor aligned with the actual element after its row count
+  // changes; otherwise a deep prior offset can slice every new row away.
+  useLayoutEffect(() => {
+    const node = listBodyRef.current;
+    if (!node) return;
+    setScrollTop((current) => current === node.scrollTop ? current : node.scrollTop);
+  }, [rows.length]);
 
   const startIndex = Math.max(0, Math.floor(scrollTop / LIST_ITEM_HEIGHT) - OVERSCAN);
   const endIndex = Math.min(
