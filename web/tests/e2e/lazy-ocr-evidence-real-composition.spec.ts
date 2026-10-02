@@ -87,8 +87,9 @@ test('retained PDF evidence renders its two pages lazily through the authenticat
   const page1 = pages.filter({ hasText: 'Page 1' });
   const image1 = page1.getByTestId('evidence-page-image');
   await expect(image1).toBeVisible();
-  expect(await image1.evaluate((node) => ({
-    loaded: (node as HTMLImageElement).complete && (node as HTMLImageElement).naturalWidth > 0,
+  await expect.poll(() => image1.evaluate((node) => ({
+    loaded: (node as HTMLImageElement).complete
+      && (node as HTMLImageElement).naturalWidth > 0,
     source: (node as HTMLImageElement).src,
   }))).toEqual(expect.objectContaining({
     loaded: true, source: expect.stringContaining('/pages/1/image'),
@@ -98,8 +99,9 @@ test('retained PDF evidence renders its two pages lazily through the authenticat
   await page2.evaluate((node) => node.scrollIntoView());
   const image2 = page2.getByTestId('evidence-page-image');
   await expect(image2).toBeVisible();
-  expect(await image2.evaluate((node) => ({
-    loaded: (node as HTMLImageElement).complete && (node as HTMLImageElement).naturalWidth > 0,
+  await expect.poll(() => image2.evaluate((node) => ({
+    loaded: (node as HTMLImageElement).complete
+      && (node as HTMLImageElement).naturalWidth > 0,
     source: (node as HTMLImageElement).src,
   }))).toEqual(expect.objectContaining({
     loaded: true, source: expect.stringContaining('/pages/2/image'),
