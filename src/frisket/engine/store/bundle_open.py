@@ -243,7 +243,7 @@ def _migrate_current_cells(db: sqlite3.Connection) -> None:
             # Lazy leaf import avoids loading the facade during bundle open.
             from .current_cells import rebuild_current_cells
 
-            rebuild_current_cells(db)
+            rebuild_current_cells(db, invalidate_search=False)
             db.execute(
                 "UPDATE meta SET value=? WHERE key=?",
                 (_CURRENT_CELLS_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
@@ -275,7 +275,7 @@ def _migrate_cell_validity(db: sqlite3.Connection) -> None:
             )
             from .current_cells import rebuild_current_cells
 
-            rebuild_current_cells(db)
+            rebuild_current_cells(db, invalidate_search=False)
             db.execute(
                 "UPDATE meta SET value=? WHERE key=?",
                 (_CELL_VALIDITY_TO_DIGEST, SCHEMA_DIGEST_META_KEY),

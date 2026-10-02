@@ -308,8 +308,14 @@ def refresh_current_cell_pairs(
     )
 
 
-def rebuild_current_cells(db: sqlite3.Connection) -> int:
-    """Rebuild the complete projection in bounded column batches."""
+def rebuild_current_cells(
+    db: sqlite3.Connection, *, invalidate_search: bool = True
+) -> int:
+    """Rebuild the complete projection in bounded column batches.
+
+    Historical migrations that predate the search worklist explicitly suppress
+    invalidation; their later search-schema migration seeds a full repair.
+    """
 
     _require_transaction(db)
     db.execute("DELETE FROM current_cells")
@@ -321,5 +327,6 @@ def rebuild_current_cells(db: sqlite3.Connection) -> int:
             column_ids=[int(row[0]) for row in batch],
             row_ids=None,
         )
-    enqueue_dirty_scope(db)
+    if invalidate_search:
+        enqueue_dirty_scope(db)
     return total
