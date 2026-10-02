@@ -1,0 +1,403 @@
+{
+  "batch_rows": 10000,
+  "fresh_projection": {
+    "duckdb_native": {
+      "artifact_bytes": 8663040,
+      "peak_replacement_bytes": 8663040,
+      "seconds": 4.9546403819695115
+    },
+    "parquet": {
+      "artifact_bytes": 2531845,
+      "peak_replacement_bytes": 2531845,
+      "seconds": 4.245061703957617
+    },
+    "sqlite_wide": {
+      "artifact_bytes": 59691008,
+      "indexes": [
+        "UNIQUE(position)",
+        "record_id,position,row_id",
+        "category",
+        "amount,position,row_id WHERE amount_quality='valid'"
+      ],
+      "peak_replacement_bytes": 59691008,
+      "rows": 500000,
+      "seconds": 4.870105747133493
+    }
+  },
+  "mode": "retained_actual_project",
+  "native_full_replacement_after_edits": {
+    "artifact_bytes": 8663040,
+    "peak_replacement_bytes": 17326080,
+    "seconds": 5.103047979995608
+  },
+  "project": {
+    "columns": {
+      "amount": 5,
+      "category": 4,
+      "published_at": 6,
+      "record_id": 1,
+      "status": 7
+    },
+    "current_cell_count": 3450007,
+    "op_cursor": 202,
+    "row_count": 500000,
+    "sheet_id": 1,
+    "sheet_name": "Investigative records"
+  },
+  "queries": {
+    "duckdb_native": {
+      "filter_0_1_percent": {
+        "first_ms": 1.0343529284000397,
+        "max_ms": 1.0724859312176704,
+        "median_ms": 1.0253451764583588,
+        "returned": 50,
+        "samples": 5
+      },
+      "filtered_10_percent": {
+        "first_ms": 5.768020637333393,
+        "max_ms": 6.042259745299816,
+        "median_ms": 5.768020637333393,
+        "returned": 1,
+        "samples": 5
+      },
+      "grouped_analytics": {
+        "first_ms": 17.34964083880186,
+        "max_ms": 17.34964083880186,
+        "median_ms": 15.624433755874634,
+        "returned": 8,
+        "samples": 5
+      },
+      "read_middle_50": {
+        "first_ms": 7.257063873112202,
+        "max_ms": 7.257063873112202,
+        "median_ms": 6.2897466123104095,
+        "returned": 50,
+        "samples": 5
+      },
+      "sort_amount_asc": {
+        "first_ms": 14.380544424057007,
+        "max_ms": 14.380544424057007,
+        "median_ms": 9.841552935540676,
+        "returned": 50,
+        "samples": 5
+      },
+      "sort_amount_desc": {
+        "first_ms": 8.142666891217232,
+        "max_ms": 8.142666891217232,
+        "median_ms": 8.021797984838486,
+        "returned": 50,
+        "samples": 5
+      }
+    },
+    "duckdb_parquet": {
+      "filter_0_1_percent": {
+        "first_ms": 1.9312957301735878,
+        "max_ms": 1.9312957301735878,
+        "median_ms": 1.815497875213623,
+        "returned": 50,
+        "samples": 5
+      },
+      "filtered_10_percent": {
+        "first_ms": 11.456483043730259,
+        "max_ms": 12.813045643270016,
+        "median_ms": 11.913025751709938,
+        "returned": 1,
+        "samples": 5
+      },
+      "grouped_analytics": {
+        "first_ms": 23.706255480647087,
+        "max_ms": 32.30647277086973,
+        "median_ms": 25.599339045584202,
+        "returned": 8,
+        "samples": 5
+      },
+      "read_middle_50": {
+        "first_ms": 68.4234444051981,
+        "max_ms": 70.54286543279886,
+        "median_ms": 68.4234444051981,
+        "returned": 50,
+        "samples": 5
+      },
+      "sort_amount_asc": {
+        "first_ms": 50.37711653858423,
+        "max_ms": 50.37711653858423,
+        "median_ms": 45.945778489112854,
+        "returned": 50,
+        "samples": 5
+      },
+      "sort_amount_desc": {
+        "first_ms": 36.761777475476265,
+        "max_ms": 36.761777475476265,
+        "median_ms": 36.17341350764036,
+        "returned": 50,
+        "samples": 5
+      }
+    },
+    "frisket_public": {
+      "filter_0_1_percent": {
+        "first_ms": 2751.060876995325,
+        "max_ms": 2949.920012615621,
+        "median_ms": 2751.060876995325,
+        "returned": 50,
+        "samples": 5
+      },
+      "filtered_10_percent": {
+        "first_ms": 1013.6044826358557,
+        "max_ms": 1013.6044826358557,
+        "median_ms": 989.8151671513915,
+        "returned": 1,
+        "samples": 5
+      },
+      "grouped_analytics": {
+        "first_ms": 4245.891239494085,
+        "max_ms": 4333.384840749204,
+        "median_ms": 4245.891239494085,
+        "returned": 8,
+        "samples": 5
+      },
+      "read_middle_50": {
+        "first_ms": 102.88986563682556,
+        "max_ms": 109.86395366489887,
+        "median_ms": 102.88986563682556,
+        "returned": 50,
+        "samples": 5
+      },
+      "sort_amount_asc": {
+        "first_ms": 1323.951244354248,
+        "max_ms": 1323.951244354248,
+        "median_ms": 1282.210959121585,
+        "returned": 50,
+        "samples": 5
+      },
+      "sort_amount_desc": {
+        "first_ms": 1208.995670080185,
+        "max_ms": 1221.799809485674,
+        "median_ms": 1194.9447896331549,
+        "returned": 50,
+        "samples": 5
+      }
+    },
+    "sqlite_direct": {
+      "filter_0_1_percent": {
+        "first_ms": 188.9838557690382,
+        "max_ms": 192.35616270452738,
+        "median_ms": 188.6688405647874,
+        "returned": 50,
+        "samples": 5
+      },
+      "filtered_10_percent": {
+        "first_ms": 654.6562192961574,
+        "max_ms": 669.2532123997808,
+        "median_ms": 663.9417428523302,
+        "returned": 1,
+        "samples": 5
+      },
+      "grouped_analytics": {
+        "first_ms": 3779.189955443144,
+        "max_ms": 4002.6253247633576,
+        "median_ms": 3897.8817500174046,
+        "returned": 8,
+        "samples": 5
+      },
+      "read_middle_50": {
+        "first_ms": 613.1297741085291,
+        "max_ms": 640.8182987943292,
+        "median_ms": 624.541474506259,
+        "returned": 50,
+        "samples": 5
+      },
+      "sort_amount_asc": {
+        "first_ms": 1479.929830878973,
+        "max_ms": 1515.255507081747,
+        "median_ms": 1474.2470812052488,
+        "returned": 50,
+        "samples": 5
+      },
+      "sort_amount_desc": {
+        "first_ms": 1385.137747041881,
+        "max_ms": 1449.4907036423683,
+        "median_ms": 1421.934699639678,
+        "returned": 50,
+        "samples": 5
+      }
+    },
+    "sqlite_wide": {
+      "filter_0_1_percent": {
+        "first_ms": 0.34510064870119095,
+        "max_ms": 0.34510064870119095,
+        "median_ms": 0.31787995249032974,
+        "returned": 50,
+        "samples": 5
+      },
+      "filtered_10_percent": {
+        "first_ms": 127.9144985601306,
+        "max_ms": 160.94198543578386,
+        "median_ms": 133.98797810077667,
+        "returned": 1,
+        "samples": 5
+      },
+      "grouped_analytics": {
+        "first_ms": 1296.7722276225686,
+        "max_ms": 1456.0593171045184,
+        "median_ms": 1296.7722276225686,
+        "returned": 8,
+        "samples": 5
+      },
+      "read_middle_50": {
+        "first_ms": 11.562053114175797,
+        "max_ms": 11.562053114175797,
+        "median_ms": 10.134276002645493,
+        "returned": 50,
+        "samples": 5
+      },
+      "sort_amount_asc": {
+        "first_ms": 0.0627981498837471,
+        "max_ms": 0.08459854871034622,
+        "median_ms": 0.0627981498837471,
+        "returned": 50,
+        "samples": 5
+      },
+      "sort_amount_desc": {
+        "first_ms": 0.14204811304807663,
+        "max_ms": 0.14204811304807663,
+        "median_ms": 0.09821541607379913,
+        "returned": 50,
+        "samples": 5
+      }
+    }
+  },
+  "row_group_size": 122880,
+  "samples": 5,
+  "scope": "Read-only retained Project source; matched public/direct analytical queries and rebuildable narrow projections, not a production adapter. Wide SQLite is a read/build/storage control; synchronization is unmeasured.",
+  "simulated_projection_catch_up": {
+    "1": {
+      "native_incremental": {
+        "artifact_bytes": 8663040,
+        "cells": 1,
+        "seconds": 0.01862349361181259
+      },
+      "parquet_full_replacement": {
+        "artifact_bytes": 2535064,
+        "peak_replacement_bytes": 5066909,
+        "seconds": 4.3564742766320705
+      }
+    },
+    "1000": {
+      "native_incremental": {
+        "artifact_bytes": 8663040,
+        "cells": 1000,
+        "seconds": 0.014244341291487217
+      },
+      "parquet_full_replacement": {
+        "artifact_bytes": 2532999,
+        "peak_replacement_bytes": 5065299,
+        "seconds": 4.56573648378253
+      }
+    },
+    "200": {
+      "native_incremental": {
+        "artifact_bytes": 8663040,
+        "cells": 200,
+        "seconds": 0.016818540170788765
+      },
+      "parquet_full_replacement": {
+        "artifact_bytes": 2532300,
+        "peak_replacement_bytes": 5067364,
+        "seconds": 4.24518898781389
+      }
+    }
+  },
+  "source_bundle": "/project",
+  "source_files_after": {
+    "manifest.json": {
+      "bytes": 413,
+      "mtime_ns": 1790978683033256978
+    },
+    "project.db": {
+      "bytes": 4963090432,
+      "mtime_ns": 1790978680125219753
+    },
+    "project.search.db": {
+      "bytes": 1337077760,
+      "mtime_ns": 1790978677774189659
+    },
+    "project.search.db-shm": {
+      "bytes": 32768,
+      "mtime_ns": 1790978683129258207
+    },
+    "project.search.db-wal": {
+      "bytes": 0,
+      "mtime_ns": 1790978677815190184
+    }
+  },
+  "source_files_before": {
+    "manifest.json": {
+      "bytes": 413,
+      "mtime_ns": 1790978683033256978
+    },
+    "project.db": {
+      "bytes": 4963090432,
+      "mtime_ns": 1790978680125219753
+    },
+    "project.search.db": {
+      "bytes": 1337077760,
+      "mtime_ns": 1790978677774189659
+    },
+    "project.search.db-shm": {
+      "bytes": 32768,
+      "mtime_ns": 1790978683129258207
+    },
+    "project.search.db-wal": {
+      "bytes": 0,
+      "mtime_ns": 1790978677815190184
+    }
+  },
+  "source_sha": "b4e5906e97aeaa9a677a827b04a9605fad9052cc",
+  "status": "passed",
+  "storage_accounting": {
+    "authority_bytes": 4963090432,
+    "authority_fts_native_bytes": 6308864000,
+    "authority_fts_parquet_bytes": 6302733959,
+    "authority_fts_wide_sqlite_bytes": 6359891968,
+    "authority_plus_fts_bytes": 6300200960,
+    "fts_bytes": 1337110528,
+    "manifest_bytes": 413,
+    "native_projection_bytes": 8663040,
+    "native_replacement_peak_bytes": 6317527453,
+    "owned_output_bytes": 70887047,
+    "parquet_projection_bytes": 2532999,
+    "parquet_replacement_peak_bytes": 6305268737,
+    "retained_bundle_bytes": 6300201373,
+    "retained_bundle_native_bytes": 6308864413,
+    "retained_bundle_parquet_bytes": 6302734372,
+    "retained_bundle_wide_sqlite_bytes": 6359892381,
+    "wide_sqlite_initial_build_peak_bytes": 6359892381,
+    "wide_sqlite_projection_bytes": 59691008
+  },
+  "versions": {
+    "duckdb": "1.5.6",
+    "pyarrow": "24.0.0",
+    "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+    "sqlite": "3.45.1"
+  },
+  "workload": {
+    "amount_quality_counts": {
+      "invalid": 49993,
+      "missing": 49993,
+      "valid": 400014
+    },
+    "category_counts": {
+      "contracts": 190000,
+      "courts": 105000,
+      "education": 70000,
+      "environment": 50000,
+      "health": 35000,
+      "housing": 25000,
+      "labor": 15000,
+      "transport": 10000
+    },
+    "filtered_category": "environment",
+    "narrow_rows": 500,
+    "narrow_threshold": 499501
+  }
+}

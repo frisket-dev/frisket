@@ -1,0 +1,14 @@
+{
+  "limits": {
+    "output_bytes": 1073741824,
+    "recursive_rss_bytes": 1073741824,
+    "seconds": 600
+  },
+  "minimum_mem_available_bytes": 12595806208,
+  "outer_pid": 2910069,
+  "returncode": 0,
+  "sampled_peak_output_bytes": 91638703,
+  "sampled_peak_recursive_rss_bytes": 325537792,
+  "seconds": 167.19385656155646,
+  "stop_reason": null
+}
