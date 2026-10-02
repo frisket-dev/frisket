@@ -159,6 +159,24 @@ def test_hosted_mcp_preserves_readiness(indexing):
     asyncio.run(run())
 
 
+def test_local_mcp_search_prepares_fresh_index_without_worker(tmp_path, monkeypatch):
+    from frisket.server.mcp.backends import LocalBackend
+
+    monkeypatch.setenv("FRISKET_DISABLE_RERANK", "1")
+    backend = LocalBackend(tmp_path / "workspace")
+    project_id = backend.ws.create("Local search")["id"]
+    project = backend.ws.get(project_id)
+    sheet = project.add_sheet("notes")
+    column = project.add_column(sheet, "text")
+    rows = project.add_rows(sheet, [{"text": "needle"}], {"text": column})
+    try:
+        assert not (project.path / "project.search.db").exists()
+        hits = backend.search(project_id, "needle")
+        assert [hit["row_id"] for hit in hits] == rows
+    finally:
+        project.close()
+
+
 def test_semantic_cache_does_not_wait_for_index_writer(tmp_path):
     import sqlite3
     import time

@@ -400,12 +400,12 @@ class LocalBackend:
         }
 
     def search(self, project_id: str, query: str, limit: int = 20) -> list[dict]:
-        from frisket.search import search_project
+        from frisket.search import drain_index, search_project
 
         project = self.ws.get(project_id)
-        schedule = getattr(project, "_frisket_schedule_search_index", None)
-        if schedule is not None:
-            schedule()
+        # Local stdio owns no persistent worker. Explicit maintenance at this
+        # CLI boundary keeps search usable without first running an action.
+        drain_index(project)
         return search_project(project, query, limit=limit)
 
     async def run_action(
