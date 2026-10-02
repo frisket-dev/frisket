@@ -9,6 +9,7 @@ vi.mock('../../src/media/pdfjsSetup', () => ({
 }));
 vi.mock('../../src/components/RowDrawer', () => ({
   FieldValue: ({ value }: { value: unknown }) => <>{String(value ?? '')}</>,
+  fieldValueDependencyColumnIds: () => [],
 }));
 
 import type { SheetMeta } from '../../src/api/types';
@@ -142,5 +143,42 @@ describe('DocumentView loading state', () => {
     await waitFor(() => expect(screen.getAllByText('No document').length).toBeGreaterThanOrEqual(2));
     expect(screen.getByText('Empty')).toBeVisible();
     expect(screen.getAllByTestId('document-list-item').every((node) => node.dataset.hasMedia === 'false')).toBe(true);
+  });
+
+  it('shows active media hydration progress instead of an empty-document flash', async () => {
+    let resolveHydration!: (row: Row | null) => void;
+    const hydration = new Promise<Row | null>((resolve) => { resolveHydration = resolve; });
+    render(
+      <DocumentView
+        projectId="project-1" sheet={sheet} state={state}
+        onChangeState={() => undefined} onDocumentFocus={() => undefined} onOpenDetail={() => undefined}
+        queryDocuments={async () => ({ items: [{ rowId: '4', ordinal: 4, title: 'Loading media',
+          titleTruncated: false, sourceKind: 'audio', sourcePresent: true, sourceLabel: 'clip.mp3',
+          sourceLabelTruncated: false, characterCount: null }], nextCursor: null, previousCursor: null })}
+        hydrateRow={() => hydration} onListSort={() => undefined} orderKey="none"
+        listSortDir={null} annotatedTextColumnIds={[]} disabledToggleKeys={[]}
+        onSetDisabledToggleKeys={() => undefined}
+      />,
+    );
+    await screen.findByText('Loading document…');
+    expect(screen.queryByText('No document')).toBeNull();
+    await act(async () => { resolveHydration(null); });
+  });
+
+  it('surfaces active media hydration failures', async () => {
+    render(
+      <DocumentView
+        projectId="project-1" sheet={sheet} state={state}
+        onChangeState={() => undefined} onDocumentFocus={() => undefined} onOpenDetail={() => undefined}
+        queryDocuments={async () => ({ items: [{ rowId: '5', ordinal: 5, title: 'Broken media',
+          titleTruncated: false, sourceKind: 'video', sourcePresent: true, sourceLabel: 'clip.mp4',
+          sourceLabelTruncated: false, characterCount: null }], nextCursor: null, previousCursor: null })}
+        hydrateRow={async () => { throw new Error('Could not hydrate media.'); }}
+        onListSort={() => undefined} orderKey="none" listSortDir={null}
+        annotatedTextColumnIds={[]} disabledToggleKeys={[]} onSetDisabledToggleKeys={() => undefined}
+      />,
+    );
+    expect((await screen.findAllByRole('alert'))[0]).toHaveTextContent('Could not hydrate media.');
+    expect(screen.queryByText('No document')).toBeNull();
   });
 });

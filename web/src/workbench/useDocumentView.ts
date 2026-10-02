@@ -5,6 +5,7 @@ import type { DocumentViewState } from '../workspace/useWorkspaceChromeState';
 import { documentMediaKind, documentSources } from './documentMedia';
 import { resolveTitleColumn } from './rowTitle';
 import { useWindowedRowList } from './useWindowedRowList';
+import { timedTranscriptColumnIds } from './timedTranscriptModel';
 
 const PAGE_SIZE = 100;
 const MAX_PAGES = 3;
@@ -139,10 +140,11 @@ export function useDocumentView(args: UseDocumentViewArgs) {
   const [hydrated, setHydrated] = useState<{ key: string; row: Row | null; loading: boolean; error: string | null }>({ key: '', row: null, loading: false, error: null });
   const hydrationColumns = useMemo(() => Array.from(new Set([
     source?.kind === 'media' ? sourceColumn?.id : null,
-  ].filter(Boolean).map(String))), [source, sourceColumn]);
+    ...(source?.kind === 'media' ? timedTranscriptColumnIds(sheet) : []),
+  ].filter(Boolean).map(String))), [sheet, source, sourceColumn]);
   const hydrationKey = `${projectId}:${sheet.id}:${activeRowId ?? ''}:${hydrationColumns.join(',')}`;
   useEffect(() => {
-    if (!activeRowId) return;
+    if (!activeRowId || hydrationColumns.length === 0) return;
     let cancelled = false;
     void hydrateRowRef.current(activeRowId, hydrationColumns).then((row) => {
       if (!cancelled) setHydrated({ key: hydrationKey, row, loading: false, error: null });
@@ -199,7 +201,10 @@ export function useDocumentView(args: UseDocumentViewArgs) {
   const setState = useCallback((patch: Partial<DocumentViewState>) => onChangeState({ ...state, ...patch }), [state, onChangeState]);
   return { sources, source, sourceColumn, defaultTitleColumn, titleColumn, list: visibleList, items,
     pageCounts, search, setSearch, optionsOpen, setOptionsOpen, listBodyRef, activeRowId, activeItem,
-    activeRow, activeMedia, activeMediaKind, hydrationLoading: hydrated.key !== hydrationKey || hydrated.loading,
-    hydrationError: hydrated.key === hydrationKey ? hydrated.error : null, recordPageCount, selectDocument,
+    activeRow, activeMedia, activeMediaKind,
+    hydrationLoading: Boolean(activeRowId && hydrationColumns.length > 0
+      && (hydrated.key !== hydrationKey || hydrated.loading)),
+    hydrationError: activeRowId && hydrated.key === hydrationKey ? hydrated.error : null,
+    recordPageCount, selectDocument,
     onListKeyDown, onListScroll, startIndex, windowRows, loadMore: () => loadBoundary('next'), setState };
 }

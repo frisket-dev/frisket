@@ -10,6 +10,9 @@ import { useDocumentView, type UseDocumentViewArgs } from '../../src/workbench/u
 
 vi.mock('../../src/components/RowDrawer', () => ({
   FieldValue: ({ value }: { value: unknown }) => <span>{String(value ?? '')}</span>,
+  fieldValueDependencyColumnIds: (columns: Array<{ id: string; type: string; name: string }>, column: { id: string; type: string }) =>
+    column.type === 'video' ? columns.filter((candidate) => candidate.id !== column.id && candidate.type === 'text')
+      .map((candidate) => candidate.id) : [],
 }));
 
 afterEach(cleanup);
@@ -54,6 +57,30 @@ function hookArgs(overrides: Partial<UseDocumentViewArgs> = {}): UseDocumentView
 }
 
 describe('useDocumentView bounded paging', () => {
+  it('hydrates only media and timed-transcript companion columns', async () => {
+    const transcriptSheet: SheetMeta = { ...sheet, columns: [
+      ...sheet.columns,
+      { id: '20', name: 'transcript', type: 'timestamped_transcript', ai_generated: true },
+      { id: '21', name: 'transcript_segments', type: 'json', ai_generated: true },
+      { id: '22', name: 'unrelated', type: 'text', ai_generated: false },
+    ] };
+    const hydrateRow = vi.fn(async () => null);
+    renderHook(() => useDocumentView(hookArgs({ sheet: transcriptSheet, hydrateRow })));
+    await waitFor(() => expect(hydrateRow).toHaveBeenCalledWith('1', ['10', '20', '21']));
+  });
+
+  it('does not issue an empty projected row fetch for annotated text', async () => {
+    const textSheet: SheetMeta = { ...sheet,
+      columns: [{ id: '30', name: 'body', type: 'text', ai_generated: false }],
+      annotatedTextColumnIds: ['30'] };
+    const hydrateRow = vi.fn(async () => null);
+    renderHook(() => useDocumentView(hookArgs({
+      sheet: textSheet, state: { ...state, sourceColumnId: '30' },
+      annotatedTextColumnIds: ['30'], hydrateRow,
+    })));
+    await waitFor(() => expect(hydrateRow).not.toHaveBeenCalled());
+  });
+
   it('keeps at most three pages, pins an evicted active item, and navigates around it', async () => {
     const queryDocuments = vi.fn(async ({ cursor, anchorRowId }: { cursor?: string; anchorRowId?: string }) => {
       if (anchorRowId === '1') return page([1, 2], null, 'c2');
@@ -108,6 +135,19 @@ describe('useDocumentView bounded paging', () => {
 });
 
 describe('DocumentAlongsidePane hydration', () => {
+  it('requests the selected video and its presentation companion cells', async () => {
+    const columns: SheetMeta['columns'] = [
+      { id: 'video', name: 'interview', type: 'video', ai_generated: false },
+      { id: 'caption', name: 'interview transcript', type: 'text', ai_generated: false },
+      { id: 'other', name: 'duration', type: 'number', ai_generated: false },
+    ];
+    const hydrateRow = vi.fn(async () => null);
+    render(<DocumentAlongsidePane projectId="project-a" sheetId="9" columns={columns}
+      rowId="1" hydrateRow={hydrateRow} selectedColumnId="video"
+      onChangeColumn={vi.fn()} onClose={vi.fn()} />);
+    await waitFor(() => expect(hydrateRow).toHaveBeenCalledWith('1', ['video', 'caption']));
+  });
+
   it('does not flash the previous row while the next value is loading', async () => {
     const second = deferred<Row | null>();
     const hydrateRow = vi.fn((rowId: string) => rowId === '1'

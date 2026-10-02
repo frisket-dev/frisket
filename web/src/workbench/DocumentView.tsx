@@ -122,6 +122,8 @@ export function DocumentView({
     activeRow,
     activeMedia,
     activeMediaKind,
+    hydrationLoading,
+    hydrationError,
     recordPageCount,
     selectDocument,
     onListKeyDown,
@@ -419,6 +421,14 @@ export function DocumentView({
           selectionCount={0}
           onReplayLayer={onReplayAnnotationLayer ?? null}
         />
+      ) : hydrationLoading ? (
+        <section className="document-reader" data-testid="document-reader">
+          <PanelLoading className="main-view-loading" label="Loading document…" />
+        </section>
+      ) : hydrationError ? (
+        <section className="document-reader" data-testid="document-reader">
+          <div className="document-list-message" role="alert">{hydrationError}</div>
+        </section>
       ) : (
         <DocumentReader
           key={`reader-${activeRowId ?? 'none'}`}

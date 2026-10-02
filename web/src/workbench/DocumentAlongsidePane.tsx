@@ -1,7 +1,7 @@
 import { Check, Columns2, Copy, Maximize2, X } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
 import type { ColumnDef, Row } from '../api/types';
-import { FieldValue } from '../components/RowDrawer';
+import { FieldValue, fieldValueDependencyColumnIds } from '../components/RowDrawer';
 import { PanelSelect } from '../components/PanelSelect';
 import { ResizeSeam } from '../components/ResizeSeam';
 import { useResizable } from '../components/useResizable';
@@ -46,14 +46,15 @@ export function DocumentAlongsidePane({
       return;
     }
     let cancelled = false;
-    void hydrateRowRef.current(rowId, [selectedColumn.id]).then((row) => {
+    const columnIds = [selectedColumn.id, ...fieldValueDependencyColumnIds(columns, selectedColumn)];
+    void hydrateRowRef.current(rowId, columnIds).then((row) => {
       if (!cancelled) setHydrated({ key: hydrationKey, row, loading: false, error: null });
     }).catch((error: unknown) => {
       if (!cancelled) setHydrated({ key: hydrationKey, row: null, loading: false,
         error: error instanceof Error ? error.message : 'Could not load value.' });
     });
     return () => { cancelled = true; };
-  }, [hydrationKey, rowId, selectedColumn]);
+  }, [columns, hydrationKey, rowId, selectedColumn]);
   const row = hydrated.key === hydrationKey ? hydrated.row : null;
   useEffect(() => {
     if (chooserVisible) pickerRef.current?.focus();
