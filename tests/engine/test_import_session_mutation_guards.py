@@ -125,3 +125,61 @@ def test_only_importing_sheet_is_frozen(tmp_path: Path, state: str) -> None:
         assert caught.value.state == state
     finally:
         project.close()
+
+
+@pytest.mark.parametrize("state", ["active", "paused", "cancelled"])
+def test_bundle_export_refuses_unresolved_import_in_snapshot_transaction(
+    tmp_path: Path, state: str
+) -> None:
+    project = Project.create(tmp_path / "source.frisket", name="source")
+    target = tmp_path / "export.zip"
+    try:
+        writer = _session(project)
+        if state == "paused":
+            writer.pause(expected_cursor=0)
+        elif state == "cancelled":
+            writer.cancel(expected_cursor=0)
+        guard_transactions = []
+        project.db.set_trace_callback(
+            lambda sql: (
+                guard_transactions.append(project.db.in_transaction)
+                if sql.startswith("SELECT 1 FROM import_sessions")
+                else None
+            )
+        )
+        with pytest.raises(ValueError, match="before exporting a project bundle"):
+            project.export(target)
+        assert guard_transactions == [True]
+        assert not project.db.in_transaction
+        assert not target.exists()
+        assert not list(tmp_path.glob(".export.zip.*"))
+        # Raw SQLite download remains an inspection snapshot, not a restorable
+        # bundle; it deliberately excludes original media and import inventory.
+        project.export_database(tmp_path / "inspection.db")
+        assert (tmp_path / "inspection.db").is_file()
+    finally:
+        project.close()
+
+
+@pytest.mark.parametrize("state", ["completed", "kept", "removed"])
+def test_bundle_export_round_trips_resolved_import(tmp_path: Path, state: str) -> None:
+    project = Project.create(tmp_path / "source.frisket", name="source")
+    try:
+        writer = _session(project)
+        writer.append_page([{"value": "one"}], expected_cursor=0, next_cursor=1)
+        if state == "completed":
+            writer.finalize_session(expected_cursor=1)
+        else:
+            writer.cancel(expected_cursor=1)
+            if state == "kept":
+                writer.finalize_session(expected_cursor=1, keep_cancelled=True)
+            else:
+                writer.remove_session(expected_cursor=1)
+        archive = project.export(tmp_path / "export.zip")
+        restored = Project.import_bundle(archive, tmp_path / "restored.frisket")
+        try:
+            assert ImportSessionStore(restored).get("import:guard").state == state
+        finally:
+            restored.close()
+    finally:
+        project.close()

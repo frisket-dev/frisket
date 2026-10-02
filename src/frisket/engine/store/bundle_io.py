@@ -76,6 +76,16 @@ def export(
         # blocking later writes; those writes belong to the next snapshot.
         db.execute("BEGIN IMMEDIATE")
         try:
+            # Resumption also needs the external .imports inventory, which is
+            # not part of a bundle. Never export an unrestorable guarded sheet.
+            if db.execute(
+                "SELECT 1 FROM import_sessions "
+                "WHERE state IN ('active','paused','cancelled') LIMIT 1"
+            ).fetchone():
+                raise ValueError(
+                    "Finish unfinished imports, or cancel them and choose Keep "
+                    "or Remove, before exporting a project bundle."
+                )
             blob_hashes = [r["hash"] for r in db.execute("SELECT hash FROM blobs")]
             database_snapshot = db.serialize()
             manifest = json.loads((project.path / "manifest.json").read_text())
