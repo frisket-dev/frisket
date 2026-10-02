@@ -15,6 +15,7 @@ from frisket.authoring import column_types
 from frisket.engine.store.search_index_work import enqueue_dirty_scope
 
 _SQLITE_BIND_LIMIT = 900
+_MAX_SEARCH_ROW_RANGES = 128
 
 
 def decoded_cell_validity(column_type: str, value: object) -> str:
@@ -91,6 +92,25 @@ def _chunks(values: list[int], size: int) -> Iterator[list[int]]:
 
 def _ordered_ids(values: Collection[int]) -> list[int]:
     return sorted({int(value) for value in values})
+
+
+def _search_row_ranges(rows: list[int]) -> list[tuple[int, int]] | None:
+    """Keep sparse edits exact, or use one column scope for fragmented bulk work.
+
+    Input is sorted and unique. Capping the range count avoids creating a
+    worklist row per cell for large alternating-row edits.
+    """
+    ranges: list[tuple[int, int]] = []
+    start = end = rows[0]
+    for row in rows[1:]:
+        if row != end + 1:
+            ranges.append((start, end))
+            if len(ranges) == _MAX_SEARCH_ROW_RANGES:
+                return None
+            start = row
+        end = row
+    ranges.append((start, end))
+    return ranges
 
 
 def _require_transaction(db: sqlite3.Connection) -> None:
@@ -271,18 +291,23 @@ def refresh_current_cells(
         for row_chunk in _chunks(rows, row_chunk_size):
             _delete_region(db, column_ids=column_chunk, row_ids=row_chunk)
             total += _insert_region(db, column_ids=column_chunk, row_ids=row_chunk)
+    search_ranges = _search_row_ranges(rows)
     for column_id in columns:
         sheet = db.execute(
             "SELECT sheet_id FROM columns WHERE id=?", (column_id,)
         ).fetchone()
         if sheet is not None:
-            enqueue_dirty_scope(
-                db,
-                sheet_id=int(sheet[0]),
-                column_id=column_id,
-                row_id_start=min(rows),
-                row_id_end=max(rows),
-            )
+            if search_ranges is None:
+                enqueue_dirty_scope(db, sheet_id=int(sheet[0]), column_id=column_id)
+            else:
+                for start, end in search_ranges:
+                    enqueue_dirty_scope(
+                        db,
+                        sheet_id=int(sheet[0]),
+                        column_id=column_id,
+                        row_id_start=start,
+                        row_id_end=end,
+                    )
     return total
 
 
