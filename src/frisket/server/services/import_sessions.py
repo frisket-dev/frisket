@@ -250,6 +250,7 @@ class ImportSessionService:
         if decision not in {"keep", "remove"}:
             raise ValueError("decision must be keep or remove")
         project, directory, header = self._open(project_id, ref)
+        cleanup_failed = False
         with import_worker_lock(directory, timeout=0):
             with import_admit_lock(directory):
                 session = ImportSessionStore(project).get(ref)
@@ -278,6 +279,7 @@ class ImportSessionService:
                 try:
                     compact_terminal_inventory(directory)
                 except Exception:
+                    cleanup_failed = True
                     logger.warning(
                         "terminal import inventory compaction failed",
                         exc_info=True,
@@ -292,6 +294,13 @@ class ImportSessionService:
             )
             if callable(schedule_metadata):
                 schedule_metadata(str(header.envelope["receipt_id"]))
+        if cleanup_failed:
+            self._enqueue_terminal_cleanup(
+                project_id,
+                ref,
+                through=status.through,
+                sealed=status.sealed,
+            )
         return status
 
     async def resume(self, project_id: str, ref: str) -> ImportSessionStatus:
@@ -417,6 +426,46 @@ class ImportSessionService:
         result = self._enqueue(project_id, ref, through, sealed)
         if inspect.isawaitable(result):
             await result
+
+    def _enqueue_terminal_cleanup(
+        self, project_id: str, ref: str, *, through: int, sealed: bool
+    ) -> None:
+        """Wake the existing page handler after terminal cleanup failed.
+
+        ``resolve`` is synchronous, so it writes directly to the server-owned
+        queue rather than trying to drive the asynchronous upload callback.
+        The normal page dedupe key collapses repeated Keep/Remove requests
+        while the previous cleanup retry remains queued or running.
+        """
+
+        queue = getattr(self._workspace, "queue", None)
+        root = getattr(self._workspace, "root", None)
+        if queue is None or root is None:
+            logger.warning("terminal import cleanup retry could not be enqueued")
+            return
+        payload_extra = getattr(self._workspace, "queue_payload_extra", {})
+        if not isinstance(payload_extra, dict):
+            logger.warning("terminal import cleanup retry has invalid queue payload")
+            return
+        try:
+            queue.enqueue(
+                IMPORT_FILES_PAGE_KIND,
+                {
+                    **payload_extra,
+                    "workspace_root": str(root),
+                    "project_id": project_id,
+                    "import_ref": ref,
+                    "through": through,
+                    "sealed": sealed,
+                    "dedupe_key": import_page_dedupe_key(
+                        project_id, ref, through, sealed
+                    ),
+                },
+            )
+        except Exception:
+            logger.warning(
+                "terminal import cleanup retry could not be enqueued", exc_info=True
+            )
 
     def _status(
         self,

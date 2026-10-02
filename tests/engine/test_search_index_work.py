@@ -52,7 +52,10 @@ def test_worklist_mutations_require_authoritative_transaction(tmp_path) -> None:
         enqueue_dirty_scope(project.db)
 
 
-def test_broader_scope_supersedes_narrow_work_with_fresh_revision(tmp_path) -> None:
+@pytest.mark.parametrize("column_id", [None, 5])
+def test_broader_scope_supersedes_narrow_work_with_fresh_revision(
+    tmp_path, column_id
+) -> None:
     project = Project.create(tmp_path / "project", name="search-work")
     db = project.db
     db.execute("DELETE FROM search_dirty_scopes")
@@ -61,13 +64,17 @@ def test_broader_scope_supersedes_narrow_work_with_fresh_revision(tmp_path) -> N
     narrow = enqueue_dirty_scope(
         db, sheet_id=4, column_id=5, row_id_start=10, row_id_end=20
     )
-    broad = enqueue_dirty_scope(db, sheet_id=4)
+    broad = enqueue_dirty_scope(db, sheet_id=4, column_id=column_id)
     db.commit()
 
     assert broad > narrow
     assert read_dirty_scopes(db, limit=10) == [
-        SearchDirtyScope(broad, 4, None, None, None, "[0,0]")
+        SearchDirtyScope(broad, 4, column_id, None, None, "[0,0]")
     ]
+    with db:
+        db.execute("BEGIN")
+        assert not ack_dirty_scope(db, scope_id=narrow, expected_cursor="[0,0]")
+    project.close()
 
 
 def test_current_cell_refresh_enqueues_bounded_region(tmp_path) -> None:

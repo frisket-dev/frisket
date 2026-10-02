@@ -44,6 +44,11 @@ def enqueue_dirty_scope(
         db.execute("DELETE FROM search_dirty_scopes")
     elif column_id is None and row_id_start is None:
         db.execute("DELETE FROM search_dirty_scopes WHERE sheet_id=?", (sheet_id,))
+    elif row_id_start is None:
+        db.execute(
+            "DELETE FROM search_dirty_scopes WHERE sheet_id=? AND column_id=?",
+            (sheet_id, column_id),
+        )
     else:
         db.execute(
             "DELETE FROM search_dirty_scopes WHERE sheet_id=? "

@@ -35,7 +35,6 @@ from .queue import (
 from .worker import HandlerRegistration, HandlerRegistry
 
 _PAGES_PER_CLAIM = 4
-logger = logging.getLogger(__name__)
 
 
 def register_import_files_handler(
@@ -99,15 +98,11 @@ def register_import_files_handler(
             queue.enqueue(BLOB_METADATA_KIND, continuation)
 
         def compact_terminal(directory: Path) -> None:
-            try:
-                with import_admit_lock(directory):
-                    compact_terminal_inventory(directory)
-            except Exception:
-                # Terminal publication/resolution is already durable. Capacity
-                # reclamation must never turn successful import work into failure.
-                logger.warning(
-                    "terminal import inventory compaction failed", exc_info=True
-                )
+            # Terminal publication is already durable. Let cleanup failures use
+            # this existing page job's bounded queue retry; the exception fence
+            # below only pauses an active session.
+            with import_admit_lock(directory):
+                compact_terminal_inventory(directory)
 
         try:
             directory = import_intake_dir(project.path, ref)
@@ -133,19 +128,24 @@ def register_import_files_handler(
                 if stored is None:
                     raise ValueError("import reservation is missing")
                 session = sessions.get(ref)
-                if session is not None and session.state in {
+                terminal_state = (
+                    session.state if session is not None else header.resolution
+                )
+                if terminal_state in {
                     "cancelled",
                     "kept",
                     "removed",
                     "completed",
                 }:
-                    if session.state in {"completed", "kept"}:
+                    if terminal_state in {"completed", "kept"}:
                         schedule_metadata(envelope.receipt_id)
-                    if session.state in {"completed", "kept", "removed"}:
+                    if terminal_state in {"completed", "kept", "removed"}:
                         compact_terminal(directory)
                     return {
-                        "status": session.state,
-                        "completed_rows": session.committed_rows,
+                        "status": terminal_state,
+                        "completed_rows": session.committed_rows
+                        if session is not None
+                        else 0,
                     }
                 if stored.status == "queued":
                     ReceiptStore(project).update_body_status(

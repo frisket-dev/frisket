@@ -477,7 +477,7 @@ def test_map_python_claim_lease_is_liveness_without_model_calls(
     sweep because map.python emits no model-call facts; claim-lease liveness
     keeps every sweep at zero instead.
     """
-    original_write_results = RunResultStore.write_results
+    original_publish_result_batch = RunResultStore.publish_result_batch
     sweep_results: list[int] = []
 
     def write_then_sweep(
@@ -486,7 +486,8 @@ def test_map_python_claim_lease_is_liveness_without_model_calls(
         batch: list[dict[str, Any]],
         **kwargs: Any,
     ) -> None:
-        original_write_results(store, run_id, batch, **kwargs)
+        original_publish_result_batch(store, run_id, batch, **kwargs)
+        assert not store.db.in_transaction
         writer_attempt_id = kwargs.get("writer_attempt_id")
         assert isinstance(writer_attempt_id, str) and writer_attempt_id
         store.db.execute(
@@ -503,7 +504,7 @@ def test_map_python_claim_lease_is_liveness_without_model_calls(
             )
         )
 
-    monkeypatch.setattr(RunResultStore, "write_results", write_then_sweep)
+    monkeypatch.setattr(RunResultStore, "publish_result_batch", write_then_sweep)
     with case_env(CASES[0], tmp_path, monkeypatch) as env:
         result = env.run_primary()
         assert result.status == "completed", result.errors
