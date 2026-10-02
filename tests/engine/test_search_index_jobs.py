@@ -17,6 +17,7 @@ from frisket.engine.jobs.watches import (
 )
 from frisket.engine.store import Project
 from frisket.search import search_project
+from frisket.search_storage import RECLAIM_PENDING_KEY
 from frisket.server.workspace import Workspace
 from frisket.server.services.project_search import ProjectSearchService
 
@@ -95,6 +96,57 @@ def test_readonly_open_does_not_enqueue_but_first_search_does(tmp_path, monkeypa
     assert job.status == "queued"
     project.close()
     workspace.queue.close()
+
+
+def test_worker_retries_reclaim_without_blocking_search(tmp_path, monkeypatch):
+    _project(tmp_path)
+    with closing(Project(tmp_path / "docs.frisket")) as project:
+        from frisket.search import drain_index, _sidecar
+
+        drain_index(project)
+        db = _sidecar(project)
+        try:
+            db.execute(
+                "INSERT INTO fts_state(key,value) VALUES (?,?)",
+                (RECLAIM_PENDING_KEY, "test"),
+            )
+            db.commit()
+        finally:
+            db.close()
+        assert search_index.index_work_marker(project) == "reclaim"
+        assert len(search_project(project, "needle", rerank="off")) == 9
+
+    attempts = []
+    reclaim = search_index.reclaim_search_storage
+
+    def deferred_once(path):
+        attempts.append(path)
+        return False if len(attempts) == 1 else reclaim(path)
+
+    monkeypatch.setattr(search_index, "reclaim_search_storage", deferred_once)
+    with closing(SqliteJobQueue(tmp_path / "queue.db")) as queue:
+        registry = HandlerRegistry()
+        search_index.register_search_index_handler(
+            registry, workspace_root=tmp_path, queue=queue
+        )
+        with closing(Project(tmp_path / "docs.frisket")) as project:
+            job_id = search_index.enqueue_search_index(
+                project, queue, {"project_id": "docs"}
+            )
+        assert job_id is not None
+        worker = Worker(queue, registry, retry_base_seconds=0)
+
+        assert worker.run_once()
+        assert queue.get(job_id).status == "queued"
+        with closing(Project(tmp_path / "docs.frisket")) as project:
+            assert search_index.index_work_marker(project) == "reclaim"
+            assert len(search_project(project, "needle", rerank="off")) == 9
+
+        assert worker.run_once()
+        assert queue.get(job_id).status == "done"
+        assert len(attempts) == 2
+        with closing(Project(tmp_path / "docs.frisket")) as project:
+            assert search_index.index_work_marker(project) is None
 
 
 def test_hosted_search_requires_claimed_storage_before_open(tmp_path):

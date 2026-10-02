@@ -16,6 +16,12 @@ from frisket.engine.store.search_index_work import (
     latest_revision,
     read_dirty_scopes,
 )
+from frisket.search_storage import (
+    encode_search_content,
+    keyword_schema_is_current,
+    keyword_storage_has_rows,
+    reset_keyword_storage,
+)
 
 
 class SearchIndexNotReady(RuntimeError):
@@ -165,7 +171,9 @@ def _replace_cell(index, column: int, row_id: int, cell, descriptor) -> None:
         (column, row_id),
     ).fetchone()
     if old is not None:
+        # External-content FTS must see the old value while deleting its tokens.
         index.execute("DELETE FROM cell_fts WHERE rowid=?", (old[0],))
+        index.execute("DELETE FROM search_content WHERE id=?", (old[0],))
         index.execute("DELETE FROM search_cells WHERE id=?", (old[0],))
     if (
         cell is None
@@ -183,6 +191,10 @@ def _replace_cell(index, column: int, row_id: int, cell, descriptor) -> None:
         "VALUES (?,?,?,?)",
         (descriptor["sheet_id"], column, row_id, source_hash(str(value))),
     ).lastrowid
+    index.execute(
+        "INSERT INTO search_content(id,compressed_content,column_name) VALUES (?,?,?)",
+        (identity, encode_search_content(str(value)), descriptor["name"]),
+    )
     index.execute(
         "INSERT INTO cell_fts(rowid,content,sheet_id,row_id,column_id,column_name) "
         "VALUES (?,?,?,?,?,?)",
@@ -225,10 +237,15 @@ def index_batch(
             except BaseException:
                 project.db.rollback()
                 raise
-            index.execute("DELETE FROM cell_fts")
-            index.execute("DELETE FROM search_cells")
-            index.execute("DELETE FROM fts_state")
-            _set_state(index, "index_content_version", FTS_INDEX_CONTENT_VERSION)
+            reclaim = keyword_storage_has_rows(index)
+            if not keyword_schema_is_current(index) or reclaim:
+                reset_keyword_storage(
+                    index,
+                    content_version=FTS_INDEX_CONTENT_VERSION,
+                    reclaim=reclaim,
+                )
+            else:
+                _set_state(index, "index_content_version", FTS_INDEX_CONTENT_VERSION)
         # Acquire the source snapshot AFTER the sidecar writer lock. A second
         # indexer may replay a page, but cannot publish an older snapshot over it.
         snapshot = project.read_snapshot()
