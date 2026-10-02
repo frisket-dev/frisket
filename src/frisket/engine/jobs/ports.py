@@ -101,6 +101,9 @@ class JobHandlerContext:
     """Immutable row-backed facts delivered separately from a job payload."""
 
     trusted_job_org_id: TrustedJobOrg
+    job_id: int | None = None
+    job_attempt: int | None = None
+    handler_authority_id: str | None = None
 
     def __post_init__(self) -> None:
         value = self.trusted_job_org_id
@@ -113,11 +116,23 @@ class JobHandlerContext:
             )
 
     @classmethod
-    def from_claimed_job(cls, *, trusted_org_id: int | None) -> JobHandlerContext:
+    def from_claimed_job(
+        cls,
+        *,
+        trusted_org_id: int | None,
+        job_id: int | None = None,
+        job_attempt: int | None = None,
+        handler_authority_id: str | None = None,
+    ) -> JobHandlerContext:
         """Mint context from the worker's normalized immutable job column."""
-        if trusted_org_id is None:
-            return cls(TrustedJobOrgUnavailable.JOB_ROW_HAS_NO_ORG)
-        return cls(TrustedJobOrgId(trusted_org_id))
+        return cls(
+            TrustedJobOrgUnavailable.JOB_ROW_HAS_NO_ORG
+            if trusted_org_id is None
+            else TrustedJobOrgId(trusted_org_id),
+            job_id=job_id,
+            job_attempt=job_attempt,
+            handler_authority_id=handler_authority_id,
+        )
 
     @classmethod
     def without_job_row(cls) -> JobHandlerContext:
