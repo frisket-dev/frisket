@@ -79,7 +79,9 @@ def test_parent_death_cleans_nested_separate_sessions(tmp_path):
     info = tmp_path / "pids.json"
     leaf = tmp_path / "leaf.py"
     leaf.write_text(
-        "import os,sys,time,signal; from pathlib import Path; signal.signal(signal.SIGTERM,signal.SIG_IGN); Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(60)"
+        "import os,sys,time,signal; from pathlib import Path; signal.signal(signal.SIGTERM,signal.SIG_IGN); "
+        "ready=Path(sys.argv[1]); pending=ready.with_suffix('.tmp'); "
+        "pending.write_text(str(os.getpid())); pending.replace(ready); time.sleep(60)"
     )
     leaf_pid = tmp_path / "leaf.pid"
     outer = tmp_path / "outer.py"
@@ -91,7 +93,10 @@ def test_parent_death_cleans_nested_separate_sessions(tmp_path):
         # subprocess-boundary: verifies interpreter identity or real child lifetime.
         "p=subprocess.Popen(guarded_argv([sys.executable,sys.argv[1],sys.argv[2]]),start_new_session=True)\n"
         "while not Path(sys.argv[2]).exists(): time.sleep(.02)\n"
-        "Path(sys.argv[3]).write_text(json.dumps([os.getpid(),p.pid,int(Path(sys.argv[2]).read_text())]))\n"
+        # Existence is the readiness signal: publish only complete PID data.
+        "ready=Path(sys.argv[3]); pending=ready.with_suffix('.tmp')\n"
+        "pending.write_text(json.dumps([os.getpid(),p.pid,int(Path(sys.argv[2]).read_text())]))\n"
+        "pending.replace(ready)\n"
         "time.sleep(60)\n"
     )
     controller = tmp_path / "controller.py"
