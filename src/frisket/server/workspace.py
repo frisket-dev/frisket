@@ -801,8 +801,41 @@ class Workspace:
             if not path.exists():
                 raise HTTPException(404, f"no project '{project_id}'")
             self._projects[project_id] = self._open_project(project_id, path)
-            setattr(self._projects[project_id], "_frisket_run_queue", self.queue)
+            self._attach_project_jobs(project_id, self._projects[project_id])
         return self._projects[project_id]
+
+    def _attach_project_jobs(self, project_id: str, project: Project) -> None:
+        from frisket.engine.jobs.blob_metadata import BLOB_METADATA_KIND
+        from frisket.engine.store.media_blobs import MediaBlobStore
+
+        setattr(project, "_frisket_run_queue", self.queue)
+
+        def schedule_metadata(receipt_id: str = "recovery") -> int | None:
+            # Opening a million-blob project must not synchronously inspect
+            # every metadata document. The worker filters completed probes.
+            if not MediaBlobStore(project).hashes_needing_metadata(
+                force=True, limit=1, after_hash=""
+            ):
+                return None
+            # Each completed import gets its own trigger: an already-running
+            # scan may have passed the hashes this import just published.
+            return self.queue.enqueue(
+                BLOB_METADATA_KIND,
+                {
+                    **self.queue_payload_extra,
+                    "project_id": project_id,
+                    "workspace_root": str(self.root),
+                    "dedupe_key": f"blob-metadata:{receipt_id}",
+                },
+            )
+
+        setattr(project, "_frisket_schedule_blob_metadata", schedule_metadata)
+        # Recover the commit/enqueue crash window when a project is reopened.
+        # Probe namespaces are the durable progress marker; no second state table.
+        try:
+            schedule_metadata()
+        except Exception:
+            _log.warning("import_metadata_recovery_enqueue_failed", exc_info=True)
 
     def create(
         self,
@@ -857,7 +890,7 @@ class Workspace:
         project = Project.create(
             path, name=name, sensitive=sensitive, blob_store=blob_store
         )
-        setattr(project, "_frisket_run_queue", self.queue)
+        self._attach_project_jobs(path.stem, project)
         try:
             # Bundled plugins (src/frisket/authoring/bundled_plugins/) are seeded
             # installed+enabled+activated here, through the exact same

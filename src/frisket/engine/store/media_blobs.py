@@ -358,7 +358,11 @@ class MediaBlobStore(BlobMetadataDocumentStore):
         return self.blob_row(digest) is not None
 
     def hashes_needing_metadata(
-        self, *, force: bool = False, limit: int | None = None
+        self,
+        *,
+        force: bool = False,
+        limit: int | None = None,
+        after_hash: str | None = None,
     ) -> list[str]:
         where = ""
         if not force:
@@ -366,8 +370,12 @@ class MediaBlobStore(BlobMetadataDocumentStore):
                 "WHERE COALESCE(json_type(CASE WHEN json_valid(metadata) "
                 "THEN metadata ELSE '{}' END, '$._media_probe_v1'), '')!='object'"
             )
-        sql = f"SELECT hash FROM blobs {where} ORDER BY created_at, hash"
         params: list[Any] = []
+        if after_hash is not None:
+            where += (" AND " if where else "WHERE ") + "hash > ?"
+            params.append(after_hash)
+        order = "hash" if after_hash is not None else "created_at, hash"
+        sql = f"SELECT hash FROM blobs {where} ORDER BY {order}"
         if limit is not None:
             sql += " LIMIT ?"
             params.append(limit)

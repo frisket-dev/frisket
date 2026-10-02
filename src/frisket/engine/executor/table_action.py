@@ -930,13 +930,15 @@ def run_table_source(
             return replay_existing(existing)
     writer = None
     stager = None
+    schedule_metadata = getattr(project, "_frisket_schedule_blob_metadata", None)
+    defer_metadata = envelope.kind == "import.files" and callable(schedule_metadata)
     publication_resources = ExitStack()
     try:
         if (
             ImportBlobStager in source.capabilities
             or UrlImporter in source.capabilities
         ):
-            stager = AdmittedImportBlobStager()
+            stager = AdmittedImportBlobStager(probe_metadata=not defer_metadata)
         occurrences = []
         with source.prepare(
             blob_stager=stager,
@@ -1080,6 +1082,13 @@ def run_table_source(
             source_ref=source_ref or {},
             blob_plan=blob_plan,
         )
+        if defer_metadata:
+            try:
+                schedule_metadata(publication.receipt_id)
+            except Exception:
+                # Publication is already durable. Opening the project again
+                # reconciles missing probes; queue trouble cannot undo success.
+                logger.warning("import_metadata_enqueue_failed", exc_info=True)
         return _result_from_receipt(publication.receipt)
     except (ActionJobTerminalizationError, SandboxTeardownError):
         raise
