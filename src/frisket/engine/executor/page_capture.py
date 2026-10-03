@@ -257,9 +257,17 @@ def _resolve_web_capture_page_inputs(
             )
     elif admission:
         output_column = project.db.execute(
-            "SELECT id, type FROM columns WHERE sheet_id=? AND name=? AND hidden=0",
+            "SELECT id, type, hidden FROM columns WHERE sheet_id=? AND name=? AND active=1",
             (params.sheet_id, params.output_name),
         ).fetchone()
+        if output_column is not None and output_column["hidden"]:
+            return ActionError(
+                code="output_column_exists",
+                message=f"{action_kind} output name is reserved by a hidden column",
+                action_kind=action_kind,
+                field="params.output_name",
+                details={"column": params.output_name},
+            )
         if (
             output_column is not None
             and output_column["type"] != params.output_column_type
@@ -863,10 +871,12 @@ def _web_capture_page_add_output_column(
     params: CapturePlan,
 ) -> int:
     row = project.db.execute(
-        "SELECT id, type FROM columns WHERE sheet_id=? AND name=? AND hidden=0",
+        "SELECT id, type, hidden FROM columns WHERE sheet_id=? AND name=? AND active=1",
         (params.sheet_id, params.output_name),
     ).fetchone()
     if row is not None:
+        if row["hidden"]:
+            raise ValueError("output name is reserved by a hidden column")
         if row["type"] != params.output_column_type:
             raise ValueError(
                 f"output column is {row['type']}, expected {params.output_column_type}"

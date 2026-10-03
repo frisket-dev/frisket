@@ -5,8 +5,11 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from frisket.engine.store.output_claims import OutputColumnClaimStore
+
 from helpers import make_client as _client
 from http_test_helpers import (
+    post_cell_edit_as_v1_action,
     post_column_add_as_v1_action,
     post_operation_redo_as_v1_action,
     post_operation_undo_as_v1_action,
@@ -155,3 +158,114 @@ def test_column_add_is_in_action_catalog(tmp_path: Path) -> None:
     assert resp.status_code == 200, resp.text
     kinds = {entry["kind"] for entry in resp.json()["actions"]}
     assert "column.add" in kinds
+
+
+def test_undo_then_create_same_name_gets_fresh_empty_identity(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    pid, sheet_id = _seed_sheet(client)
+    first = post_column_add_as_v1_action(client, pid, sheet_id, "notes")
+    first_output = _added_column(first.json())
+    old_id = int(first_output["column_id"])
+    project = client.app.state.workspace.get(pid)
+    row_id = int(
+        project.db.execute(
+            "SELECT id FROM rows WHERE sheet_id=?", (sheet_id,)
+        ).fetchone()[0]
+    )
+    edit = post_cell_edit_as_v1_action(
+        client, pid, [{"row_id": row_id, "column_id": old_id, "value": "old text"}]
+    )
+    assert edit.status_code == 200, edit.text
+    assert (
+        post_operation_undo_as_v1_action(
+            client, pid, expected_op_id=edit.json()["op_ids"][0]
+        ).status_code
+        == 200
+    )
+    assert (
+        post_operation_undo_as_v1_action(
+            client, pid, expected_op_id=first.json()["op_ids"][0]
+        ).status_code
+        == 200
+    )
+
+    second = post_column_add_as_v1_action(
+        client, pid, sheet_id, "notes", type="integer", position=1
+    )
+    assert second.status_code == 200, second.text
+    new_id = int(_added_column(second.json())["column_id"])
+    assert new_id != old_id
+    assert _visible_columns(client, pid, sheet_id) == ["notes", "name", "age"]
+    old = project.get_column(old_id)
+    assert (old["name"], old["type"], old["active"], old["hidden"]) == (
+        "notes",
+        "text",
+        0,
+        1,
+    )
+    assert project.get_column(new_id)["type"] == "integer"
+    values, _ = project.get_values_with_refs(sheet_id, new_id, row_ids=[row_id])
+    assert values.get(row_id) is None
+    assert (
+        project.db.execute(
+            "SELECT value FROM edits WHERE column_id=?", (old_id,)
+        ).fetchone()
+        is not None
+    )
+    assert (
+        project.db.execute(
+            "SELECT status FROM ops WHERE id=?", (first.json()["op_ids"][0],)
+        ).fetchone()[0]
+        == "discarded"
+    )
+
+    # New creation owns its own undo/redo; neither operation resurrects the old ID.
+    new_op = second.json()["op_ids"][0]
+    assert (
+        post_operation_undo_as_v1_action(client, pid, expected_op_id=new_op).status_code
+        == 200
+    )
+    assert "notes" not in _visible_columns(client, pid, sheet_id)
+    assert (
+        post_operation_redo_as_v1_action(client, pid, expected_op_id=new_op).status_code
+        == 200
+    )
+    assert project.get_column(new_id)["active"] == 1
+    assert project.get_column(old_id)["active"] == 0
+    assert [c["id"] for c in project.columns(sheet_id) if c["name"] == "notes"] == [
+        new_id
+    ]
+
+
+def test_create_cannot_steal_active_hidden_column_name(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    pid, sheet_id = _seed_sheet(client)
+    project = client.app.state.workspace.get(pid)
+    hidden_id = project.add_column(sheet_id, "internal", hidden=True)
+    response = post_column_add_as_v1_action(client, pid, sheet_id, "internal")
+    assert response.status_code == 400, response.text
+    assert response.json()["errors"][0]["code"] == "column_exists"
+    assert project.get_column(hidden_id)["hidden"] == 1
+    assert project.get_column(hidden_id)["active"] == 1
+
+
+def test_create_cannot_take_name_reserved_before_worker_starts(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    pid, sheet_id = _seed_sheet(client)
+    project = client.app.state.workspace.get(pid)
+    claims = OutputColumnClaimStore(project)
+    reserved, conflict = claims.acquire(
+        sheet_id=sheet_id,
+        output_names=["summary"],
+        action_kind="map.summarize",
+        claim_token="queued-name",
+    )
+    assert conflict is None
+    assert reserved[0]["column_id"] is None
+    response = post_column_add_as_v1_action(client, pid, sheet_id, "summary")
+    assert response.status_code == 400, response.text
+    assert response.json()["errors"][0]["code"] == "output_column_busy"
+    assert "summary" not in _visible_columns(client, pid, sheet_id)
+    claims.release(claim_token="queued-name")
+    response = post_column_add_as_v1_action(client, pid, sheet_id, "summary")
+    assert response.status_code == 200, response.text

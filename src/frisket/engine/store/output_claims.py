@@ -95,7 +95,8 @@ class OutputColumnClaimStore:
                     "SELECT column.id, "
                     "(SELECT MAX(head.run_id) FROM cell_result_heads head "
                     " WHERE head.column_id=column.id) AS current_head_run_id "
-                    "FROM columns column WHERE column.sheet_id=? AND column.name=?",
+                    "FROM columns column WHERE column.sheet_id=? AND column.name=? "
+                    "AND column.active=1",
                     (sheet_id, name),
                 ).fetchone()
                 claim_id = f"claim:{uuid.uuid4()}"
@@ -185,7 +186,7 @@ class OutputColumnClaimStore:
                 )
         for claim in claims:
             column = self.db.execute(
-                "SELECT id FROM columns WHERE sheet_id=? AND name=?",
+                "SELECT id FROM columns WHERE sheet_id=? AND name=? AND active=1",
                 (claim["sheet_id"], claim["output_name"]),
             ).fetchone()
             if column is None:
@@ -226,7 +227,7 @@ class OutputColumnClaimStore:
             "JOIN runs run ON run.id=c.run_id "
             "JOIN ops op ON op.id=run.op_id "
             "WHERE c.claim_token=? AND c.run_id=? AND c.status='active' "
-            "AND col.name=c.output_name "
+            "AND col.name=c.output_name AND col.active=1 "
             "ORDER BY col.position, col.id",
             (claim_token, run_id),
         ).fetchall()
@@ -762,7 +763,7 @@ class OutputColumnClaimStore:
         query = (
             "SELECT occ.* FROM output_column_claims occ "
             "LEFT JOIN columns c ON c.sheet_id=occ.sheet_id "
-            "AND c.name=occ.output_name "
+            "AND c.name=occ.output_name AND c.active=1 "
             "WHERE occ.status='active' "
             f"AND (occ.column_id IN ({placeholders}) "
             f"OR c.id IN ({placeholders})) "

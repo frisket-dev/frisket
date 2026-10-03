@@ -1738,7 +1738,7 @@ def _parented_table_replay_error(
         and isinstance(item.ref.get("name"), str)
     }
     live_columns = project.db.execute(
-        "SELECT id, name, type, hidden FROM columns WHERE sheet_id=? ORDER BY position, id",
+        "SELECT id, name, type, hidden FROM columns WHERE sheet_id=? AND active=1 ORDER BY position, id",
         (sheet_id,),
     ).fetchall()
     if (

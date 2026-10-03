@@ -144,7 +144,7 @@ class _ClusterEmbeddingBatch:
 
 def cluster_fact(project, state, computation, *, run_id, output_name):
     column = project.db.execute(
-        "SELECT id,type FROM columns WHERE sheet_id=? AND name=?",
+        "SELECT id,type FROM columns WHERE sheet_id=? AND name=? AND active=1",
         (state["source"]["sheet_id"], output_name),
     ).fetchone()
     if column is None:

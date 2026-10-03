@@ -29,6 +29,7 @@ from frisket.engine.runner.publication import PreparedRowPublication
 from frisket.engine.runner.result_generations import _compatibility_key
 from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.op_log import append_op
 from frisket.engine.store.result_generations import (
     GenerationDeclarationConflict,
     GenerationStateError,
@@ -753,7 +754,29 @@ def _seed_managed_regex_output(
     return sheet_id, row_ids, output_id, binding[0].run_id
 
 
-def test_undo_then_same_name_managed_output_revives_as_staged_successor(
+def test_undone_scalar_ai_column_does_not_block_fresh_managed_output(tmp_path):
+    project = Project.create(tmp_path / "undone-scalar.frisket")
+    try:
+        sheet = project.add_sheet("Data")
+        source = project.add_column(sheet, "note")
+        project.add_rows(sheet, [{"note": "record 123"}], {"note": source})
+        old = project.add_column(sheet, "digits", ai_generated=True)
+        op = append_op(project, "add_column", undo_info={"created_columns": [old]})
+        assert project.undo() == op
+        result = run_typed_map_request(
+            project,
+            _regex_action(sheet, key="fresh-after-scalar@sha256:v1"),
+            project_id="p3b-writer",
+        )
+        assert result.status == "completed", result.errors
+        current = next(c for c in project.columns(sheet) if c["name"] == "digits")
+        assert current["id"] != old
+        assert project.get_column(old)["active"] == 0
+    finally:
+        project.close()
+
+
+def test_undo_then_same_name_managed_output_creates_fresh_identity(
     tmp_path: Path,
 ) -> None:
     project = Project.create(tmp_path / "managed-revival-after-undo.frisket")
@@ -781,17 +804,20 @@ def test_undo_then_same_name_managed_output_revives_as_staged_successor(
 
         assert replacement.status == "completed", replacement.errors
         assert replacement.run_id is not None
-        revived = project.db.execute(
+        replacement_column = project.db.execute(
             "SELECT id,hidden,current_run_id FROM columns "
-            "WHERE sheet_id=? AND name='digits'",
+            "WHERE sheet_id=? AND name='digits' AND active=1",
             (sheet_id,),
         ).fetchone()
-        assert tuple(revived) == (output_id, 0, None)
+        assert replacement_column["id"] != output_id
+        assert ResultGenerationStore(project).read_cell_heads(output_id, row_ids) == {}
+        output_id = int(replacement_column["id"])
+        assert tuple(replacement_column) == (output_id, 0, replacement.run_id)
         binding = ResultGenerationStore(project).get_binding(
             int(replacement.run_id), output_id
         )
         assert binding is not None
-        assert binding.write_mode == "replace_scope"
+        assert binding.write_mode == "create"
         assert binding.expected_base_run_id is None
         assert binding.state == "sealed"
         assert {
@@ -816,7 +842,7 @@ def test_undo_then_same_name_managed_output_revives_as_staged_successor(
             "SELECT hidden,current_run_id FROM columns WHERE id=?",
             (output_id,),
         ).fetchone()
-        assert tuple(redone) == (0, None)
+        assert tuple(redone) == (0, replacement.run_id)
         assert {
             head.run_id
             for head in ResultGenerationStore(project)
@@ -835,7 +861,11 @@ def test_incompatible_hidden_managed_revival_refuses_before_mutation(
         sheet_id, row_ids, output_id, first_run_id = _seed_managed_regex_output(project)
         first_run = RunResultStore(project).get_run(first_run_id)
         assert first_run is not None
-        assert project.undo() == int(first_run["op_id"])
+        project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (output_id,))
+        project.db.commit()
+        original_heads = ResultGenerationStore(project).read_cell_heads(
+            output_id, row_ids
+        )
 
         def snapshot() -> tuple[object, ...]:
             return (
@@ -876,7 +906,10 @@ def test_incompatible_hidden_managed_revival_refuses_before_mutation(
         assert refused.status == "failed"
         assert refused.errors and refused.errors[0].code == "output_column_exists"
         assert snapshot() == before
-        assert ResultGenerationStore(project).read_cell_heads(output_id, row_ids) == {}
+        assert (
+            ResultGenerationStore(project).read_cell_heads(output_id, row_ids)
+            == original_heads
+        )
 
         compatible = run_typed_map_request(
             project,
@@ -893,7 +926,7 @@ def test_incompatible_hidden_managed_revival_refuses_before_mutation(
         )
         assert binding is not None
         assert binding.write_mode == "replace_scope"
-        assert binding.expected_base_run_id is None
+        assert binding.expected_base_run_id == first_run_id
         assert binding.state == "sealed"
         assert {
             head.run_id
@@ -948,7 +981,7 @@ def test_unbound_managed_declaration_failure_never_moves_revival_pointer(
                 )
             )
         refused_run = project.db.execute(
-            "SELECT id,status FROM runs ORDER BY id DESC LIMIT 1"
+            "SELECT id,status,op_id FROM runs ORDER BY id DESC LIMIT 1"
         ).fetchone()
         assert refused_run is not None and refused_run["status"] == "failed"
         assert (
@@ -961,6 +994,16 @@ def test_unbound_managed_declaration_failure_never_moves_revival_pointer(
             "SELECT hidden,current_run_id FROM columns WHERE id=?", (output_id,)
         ).fetchone()
         assert tuple(column) == (1, None)
+        draft = project.db.execute(
+            "SELECT id FROM columns WHERE sheet_id=? AND name='digits' AND id<>?",
+            (sheet_id, output_id),
+        ).fetchone()
+        assert draft is not None
+        assert project.get_column(draft["id"])["active"] == 0
+        assert project.undo() == refused_run["op_id"]
+        assert project.redo() == refused_run["op_id"]
+        assert project.get_column(draft["id"])["active"] == 0
+        assert project.get_column(draft["id"])["hidden"] == 1
 
         monkeypatch.setattr(
             map_runner_module,
@@ -977,10 +1020,15 @@ def test_unbound_managed_declaration_failure_never_moves_revival_pointer(
         )
         assert compatible.status == "completed", compatible.errors
         assert compatible.run_id is not None
+        fresh_column = next(
+            column for column in project.columns(sheet_id) if column["name"] == "digits"
+        )
+        assert fresh_column["id"] != output_id
+        assert ResultGenerationStore(project).read_cell_heads(output_id, row_ids) == {}
         assert {
             head.run_id
             for head in ResultGenerationStore(project)
-            .read_cell_heads(output_id, row_ids)
+            .read_cell_heads(fresh_column["id"], row_ids)
             .values()
         } == {compatible.run_id}
     finally:

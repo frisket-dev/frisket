@@ -855,6 +855,14 @@ class MapRunner:
                     int(column_id) for column_id in prepared.out_cols.values()
                 ),
             )
+            if admission is None:
+                from frisket.engine.runner.column_retirement import (
+                    retire_unbound_created_columns,
+                )
+
+                retire_unbound_created_columns(
+                    self.project, op_id, prepared.created_output_column_ids
+                )
             raise
         if not cancelled():
             try:

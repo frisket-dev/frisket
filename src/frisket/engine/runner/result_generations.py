@@ -60,9 +60,9 @@ def _write_mode_for_prepared_column(
 ) -> str:
     """Separate lifecycle creation from publication-history creation.
 
-    Undo hides an op-created column, and a later action revives that same
-    physical id as one of its own ``created_columns`` for visibility/undo.
-    That is not a fresh publication substrate when immutable generations
+    A producer may reuse an active hidden output as one of its own
+    ``created_columns`` for visibility/undo. Undone columns instead receive
+    fresh identities. Reuse is not a fresh publication substrate when generations
     already exist on the id: it must stage a successor and publish only at
     seal. Excluding the recovering run keeps an originally-fresh ``create``
     declaration exactly idempotent after a crash.

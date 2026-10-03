@@ -73,6 +73,9 @@ _INDEX_HYGIENE_TO_DIGEST = "frisket.schema.v1:348c367f3a24a414ba6f1e612e40ea15"
 _ROWID_CELL_LAYOUT_FROM_DIGEST = _INDEX_HYGIENE_TO_DIGEST
 _ROWID_CELL_LAYOUT_TO_DIGEST = "frisket.schema.v1:f078f2bc57411d372468936618f2f884"
 
+_ACTIVE_COLUMNS_FROM_DIGEST = _ROWID_CELL_LAYOUT_TO_DIGEST
+_ACTIVE_COLUMNS_TO_DIGEST = "frisket.schema.v1:6213ef27396bfebb1204a9d82ea887b5"
+
 # The frontend fires hot read endpoints (/sheets, /review/queue) concurrently,
 # so two threads can open the same per-project DB at once. Both open-time
 # reconciliations below are read-then-write with no CAS: two threads that both
@@ -110,6 +113,7 @@ def open_bundle(project: Any) -> None:
         _migrate_search_work(project.db)
         _migrate_index_hygiene(project.db)
         _migrate_rowid_cell_layout(project.db)
+        _migrate_active_columns(project.db)
         require_current_schema(project.db, bundle_path=project.path)
         _reconcile_open_time_policy(project)
 
@@ -666,6 +670,90 @@ def _migrate_rowid_cell_layout(db: sqlite3.Connection) -> None:
     except BaseException:
         db.rollback()
         raise
+
+
+def _migrate_active_columns(db: sqlite3.Connection) -> None:
+    """Release undone names without changing column identity or stored history."""
+    query = "SELECT value FROM meta WHERE key=?"
+    try:
+        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
+    except sqlite3.DatabaseError:
+        return
+    if row is None or row[0] != _ACTIVE_COLUMNS_FROM_DIGEST:
+        return
+
+    # SQLite requires FK enforcement disabled outside the transaction when
+    # replacing a referenced table. Never rename the old table: that rewrites
+    # child references. Legacy ALTER permits the brief gap in trigger references.
+    foreign_keys = db.execute("PRAGMA foreign_keys").fetchone()[0]
+    legacy_alter = db.execute("PRAGMA legacy_alter_table").fetchone()[0]
+    db.execute("PRAGMA foreign_keys=OFF")
+    db.execute("PRAGMA legacy_alter_table=ON")
+    try:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
+        if row is not None and row[0] == _ACTIVE_COLUMNS_FROM_DIGEST:
+            objects = db.execute(
+                "SELECT sql FROM sqlite_master WHERE tbl_name='columns' "
+                "AND type IN ('index','trigger') AND sql IS NOT NULL"
+            ).fetchall()
+            db.execute("""
+                CREATE TABLE columns_active_new (
+                  id INTEGER PRIMARY KEY,
+                  sheet_id INTEGER NOT NULL REFERENCES sheets(id) ON DELETE CASCADE,
+                  name TEXT NOT NULL,
+                  type TEXT NOT NULL DEFAULT 'text',
+                  position INTEGER NOT NULL DEFAULT 0,
+                  current_run_id INTEGER,
+                  ai_generated INTEGER NOT NULL DEFAULT 0,
+                  hidden INTEGER NOT NULL DEFAULT 0,
+                  active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+                  default_hidden INTEGER NOT NULL DEFAULT 0,
+                  format TEXT,
+                  semantic_type TEXT,
+                  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+            """)
+            # Older writers revived hidden IDs, so only their latest creation
+            # operation determines lifecycle. Hidden columns without undone
+            # creation history remain live (e.g. internal sidecars).
+            db.execute("""
+                INSERT INTO columns_active_new
+                  (id,sheet_id,name,type,position,current_run_id,ai_generated,
+                   hidden,default_hidden,format,semantic_type,created_at,active)
+                SELECT id,sheet_id,name,type,position,current_run_id,ai_generated,
+                       hidden,default_hidden,format,semantic_type,created_at,
+                       CASE WHEN hidden=1 AND (
+                         SELECT o.status FROM ops o,
+                           json_each(o.undo_info,'$.created_columns') created
+                         WHERE CAST(created.value AS INTEGER)=columns.id
+                         ORDER BY o.id DESC LIMIT 1
+                       ) IN ('undone','discarded') THEN 0 ELSE 1 END
+                FROM columns
+            """)
+            db.execute("DROP TABLE columns")
+            db.execute("ALTER TABLE columns_active_new RENAME TO columns")
+            for (statement,) in objects:
+                db.execute(statement)
+            db.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_columns_active_name "
+                "ON columns(sheet_id,name) WHERE active=1"
+            )
+            if db.execute("PRAGMA foreign_key_check").fetchone() is not None:
+                raise sqlite3.IntegrityError(
+                    "foreign key violation during column migration"
+                )
+            db.execute(
+                "UPDATE meta SET value=? WHERE key=?",
+                (_ACTIVE_COLUMNS_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
+            )
+        db.commit()
+    except BaseException:
+        db.rollback()
+        raise
+    finally:
+        db.execute(f"PRAGMA legacy_alter_table={int(legacy_alter)}")
+        db.execute(f"PRAGMA foreign_keys={int(foreign_keys)}")
 
 
 def _reconcile_open_time_policy(project: Any) -> None:

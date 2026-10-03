@@ -391,7 +391,7 @@ class StreamingSheetWriter:
         column_ids = {
             str(row["name"]): int(row["id"])
             for row in project.db.execute(
-                "SELECT id,name FROM columns WHERE sheet_id=? ORDER BY position,id",
+                "SELECT id,name FROM columns WHERE sheet_id=? AND active=1 ORDER BY position,id",
                 (session.sheet_id,),
             ).fetchall()
         }

@@ -264,9 +264,21 @@ class _ColumnCreator(_CallOnce):
                 details={"sheet_id": sheet_id},
             )
         require_import_sheet_write(self._project.db, sheet_id)
+        from frisket.engine.store.output_claims import OutputColumnClaimStore
+
+        if OutputColumnClaimStore(self._project).active_for_output_name(
+            sheet_id=sheet_id, output_name=name
+        ) is not None:
+            _refuse(
+                "output_column_busy",
+                "The target output column is claimed by a running action.",
+                action_kind=self._action.kind,
+                field="params.name",
+                details={"name": name},
+            )
         if (
             self._cur.execute(
-                "SELECT id FROM columns WHERE sheet_id=? AND name=? AND hidden=0",
+                "SELECT id FROM columns WHERE sheet_id=? AND name=? AND active=1",
                 (sheet_id, name),
             ).fetchone()
             is not None
