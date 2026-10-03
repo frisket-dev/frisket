@@ -95,7 +95,7 @@ def prepared_atomic_output_columns_for_resume(
     placeholders = ",".join("?" for _ in prepared)
     rows = project.db.execute(
         "SELECT id,sheet_id,name,type,format,ai_generated,hidden FROM columns "
-        f"WHERE id IN ({placeholders})",
+        f"WHERE active=1 AND id IN ({placeholders})",
         tuple(prepared.values()),
     ).fetchall()
     rows_by_id = {int(row["id"]): row for row in rows}

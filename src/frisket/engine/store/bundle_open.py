@@ -12,7 +12,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from .schema import SCHEMA_DIGEST_META_KEY, require_current_schema
+from .schema import BundleSchemaMismatch, SCHEMA_DIGEST_META_KEY, require_current_schema
 
 # v0.1.1a62 (907a324c) -> v0.1.1a64's receipt-owned execution attempts.
 # Fixed endpoints cannot accidentally stamp a future schema edit as current.
@@ -74,7 +74,7 @@ _ROWID_CELL_LAYOUT_FROM_DIGEST = _INDEX_HYGIENE_TO_DIGEST
 _ROWID_CELL_LAYOUT_TO_DIGEST = "frisket.schema.v1:f078f2bc57411d372468936618f2f884"
 
 _ACTIVE_COLUMNS_FROM_DIGEST = _ROWID_CELL_LAYOUT_TO_DIGEST
-_ACTIVE_COLUMNS_TO_DIGEST = "frisket.schema.v1:6213ef27396bfebb1204a9d82ea887b5"
+_ACTIVE_COLUMNS_TO_DIGEST = "frisket.schema.v1:e865652f2f64091605730c143e3ee5f3"
 
 # The frontend fires hot read endpoints (/sheets, /review/queue) concurrently,
 # so two threads can open the same per-project DB at once. Both open-time
@@ -707,7 +707,7 @@ def _migrate_active_columns(db: sqlite3.Connection) -> None:
                   current_run_id INTEGER,
                   ai_generated INTEGER NOT NULL DEFAULT 0,
                   hidden INTEGER NOT NULL DEFAULT 0,
-                  active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+                  active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1) AND (active=1 OR hidden=1)),
                   default_hidden INTEGER NOT NULL DEFAULT 0,
                   format TEXT,
                   semantic_type TEXT,
@@ -739,10 +739,25 @@ def _migrate_active_columns(db: sqlite3.Connection) -> None:
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_columns_active_name "
                 "ON columns(sheet_id,name) WHERE active=1"
             )
-            if db.execute("PRAGMA foreign_key_check").fetchone() is not None:
-                raise sqlite3.IntegrityError(
-                    "foreign key violation during column migration"
-                )
+            # Validate only the rebuilt table and references to it, not every
+            # unrelated relationship in a potentially long-lived project.
+            for table in (
+                "columns",
+                "cells",
+                "output_column_claims",
+                "run_output_generations",
+                "current_cells",
+                "watch_run_hits",
+            ):
+                if any(
+                    table == "columns" or violation[2] == "columns"
+                    for violation in db.execute(f"PRAGMA foreign_key_check({table})")
+                ):
+                    raise BundleSchemaMismatch(
+                        "Column migration found an invalid column relationship "
+                        f"in {table}. The migration was rolled back; keep the project "
+                        "intact and repair the relationship before reopening."
+                    )
             db.execute(
                 "UPDATE meta SET value=? WHERE key=?",
                 (_ACTIVE_COLUMNS_TO_DIGEST, SCHEMA_DIGEST_META_KEY),

@@ -114,7 +114,8 @@ def _without_current_cells_foundation(schema: str) -> str:
 
 def _without_import_sessions(schema: str) -> str:
     schema = schema.replace(
-        "  active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),\n", ""
+        "  active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1) AND (active=1 OR hidden=1)),\n",
+        "",
     ).replace(
         "  created_at TEXT NOT NULL DEFAULT (datetime('now'))\n);\n"
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_columns_active_name\n"

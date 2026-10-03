@@ -524,7 +524,7 @@ class TestStoreRegressions:
         # must be pre-op (None), not intermediate r1
         assert project.get_values(sheet, col)[rid] is None
 
-    def test_hidden_column_revived_on_recreate(self, project):
+    def test_undone_column_keeps_history_when_name_is_recreated(self, project):
         sheet, _ = make_sheet(project, 1)
         col = project.add_column(sheet, "score", ai_generated=True)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
@@ -537,9 +537,12 @@ class TestStoreRegressions:
         RunResultStore(project).point_column_at_run(op, col, run)
         project.undo()
         assert "score" not in [c["name"] for c in project.columns(sheet)]
-        # re-creating the same name revives instead of UNIQUE-violating
+        # Reuse the name, not the historical identity or values.
         col2 = project.add_column(sheet, "score", ai_generated=True)
-        assert col2 == col
+        assert col2 != col
+        assert project.get_column(col)["active"] == 0
+        assert project.get_column(col2)["active"] == 1
+        assert project.get_values(sheet, col2)[rid] is None
         assert "score" in [c["name"] for c in project.columns(sheet)]
 
 

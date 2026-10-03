@@ -356,7 +356,7 @@ def test_idempotency_conflict_and_undo_redo_replay(text_project) -> None:
     assert run_action_spec(project, request, project_id=PROJECT_ID) == first
 
 
-def test_hidden_output_is_reused_by_a_new_transform(text_project) -> None:
+def test_undone_output_name_gets_fresh_identity_for_new_transform(text_project) -> None:
     project, sheet_id, _column_id, _row_ids = text_project
     first_request = _request(
         "resolve.substitute",
@@ -385,7 +385,9 @@ def test_hidden_output_is_reused_by_a_new_transform(text_project) -> None:
         project_id=PROJECT_ID,
     )
     assert second.status == "completed", second.errors
-    assert second.outputs[0].column_id == output_column_id
+    assert second.outputs[0].column_id != output_column_id
+    assert project.get_column(output_column_id)["active"] == 0
+    assert project.get_column(second.outputs[0].column_id)["active"] == 1
     assert _output_values(project, sheet_id, _row_ids, "cleaned")[1][0] == "second"
     statuses = {
         int(row["id"]): str(row["status"])

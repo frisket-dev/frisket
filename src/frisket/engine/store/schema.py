@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS columns (
   current_run_id INTEGER,
   ai_generated INTEGER NOT NULL DEFAULT 0,
   hidden INTEGER NOT NULL DEFAULT 0,
-  active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+  active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1) AND (active=1 OR hidden=1)),
   default_hidden INTEGER NOT NULL DEFAULT 0,
   format TEXT,  -- display hint: filesize | currency | percent | null
   -- Explicit semantic marker for columns whose contents follow a named

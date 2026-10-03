@@ -938,6 +938,64 @@ def test_incompatible_hidden_managed_revival_refuses_before_mutation(
         project.close()
 
 
+def test_prepared_atomic_resume_declaration_failure_preserves_retry(
+    tmp_path, monkeypatch
+):
+    """Queued preparation precedes run(resume_run_id); refusal keeps that family."""
+    project = Project.create(tmp_path / "atomic-retry.frisket")
+    try:
+        sheet = project.add_sheet("Data")
+        source = project.add_column(sheet, "seed")
+        rows = project.add_rows(sheet, [{"seed": "one"}], {"seed": source})
+        recipe = _CancellationBatchRecipe(atomic_output_columns=True)
+        recipe.keep_zero_success_output_columns = True
+        runner = MapRunner(
+            project, ModelRouter(keys={}), authority=UnroutedOnlyAuthority(project)
+        )
+        spec = {
+            "action_kind": "map.regex_extract",
+            "sheet_id": sheet,
+            "input_columns": ["seed"],
+            "phase": "initial",
+        }
+        prepared = runner._prepare(
+            spec, program=recipe, confirmed=False, resume_run_id=None
+        )
+        original = map_runner_module.declare_prepared_outputs
+
+        def fail(*args, **kwargs):
+            raise GenerationDeclarationConflict("injected atomic declaration failure")
+
+        monkeypatch.setattr(map_runner_module, "declare_prepared_outputs", fail)
+        with pytest.raises(GenerationDeclarationConflict, match="injected atomic"):
+            asyncio.run(
+                run_with_output_claim(
+                    runner,
+                    spec,
+                    program=recipe,
+                    resume_run_id=prepared.run_id,
+                )
+            )
+        run = project.db.execute(
+            "SELECT * FROM runs ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        column_id = prepared.out_cols["cleaned"]
+        retained = project.get_column(column_id)
+        assert retained["active"] == 1
+        assert retained["hidden"] == 0
+        assert retained["current_run_id"] == prepared.run_id
+        monkeypatch.setattr(map_runner_module, "declare_prepared_outputs", original)
+        result = asyncio.run(
+            run_with_output_claim(runner, spec, program=recipe, resume_run_id=run["id"])
+        )
+        assert result.run_id == run["id"]
+        assert project.get_values(sheet, column_id, row_ids=rows) == {
+            rows[0]: "initial:one"
+        }
+    finally:
+        project.close()
+
+
 def test_unbound_managed_declaration_failure_never_moves_revival_pointer(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

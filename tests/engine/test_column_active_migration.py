@@ -9,6 +9,7 @@ import pytest
 from frisket.engine.store import Project
 from frisket.engine.store.bundle_open import _migrate_active_columns
 from frisket.engine.store.schema import (
+    BundleSchemaMismatch,
     SCHEMA,
     SCHEMA_DIGEST,
     SCHEMA_DIGEST_META_KEY,
@@ -20,7 +21,8 @@ _PRIOR_DIGEST = "frisket.schema.v1:f078f2bc57411d372468936618f2f884"
 
 def _prior_bundle(tmp_path):
     schema = SCHEMA.replace(
-        "  active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),\n", ""
+        "  active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1) AND (active=1 OR hidden=1)),\n",
+        "",
     ).replace(
         "  created_at TEXT NOT NULL DEFAULT (datetime('now'))\n);\n"
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_columns_active_name\n"
@@ -158,3 +160,66 @@ def test_upgrade_rolls_back_table_swap_and_restores_connection_settings(tmp_path
         db.commit()
         _migrate_active_columns(db)
         assert db.execute("SELECT active FROM columns WHERE id=1").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("same_child_table", [False, True])
+def test_upgrade_does_not_audit_unrelated_foreign_keys(tmp_path, same_child_table):
+    path = _prior_bundle(tmp_path)
+    with sqlite3.connect(path / "project.db") as db:
+        if same_child_table:
+            db.execute("INSERT INTO cells(row_id,column_id) VALUES (999,5)")
+        else:
+            db.execute("UPDATE rows SET parent_row_id=999 WHERE id=1")
+        db.commit()
+        assert db.execute("PRAGMA foreign_key_check").fetchone() is not None
+        _migrate_active_columns(db)
+        assert (
+            db.execute(
+                "SELECT value FROM meta WHERE key=?", (SCHEMA_DIGEST_META_KEY,)
+            ).fetchone()[0]
+            == SCHEMA_DIGEST
+        )
+        # Migration neither repairs nor deletes unrelated historical data.
+        assert db.execute("PRAGMA foreign_key_check").fetchone() is not None
+
+
+def test_upgrade_reports_column_relationship_problem_without_losing_data(tmp_path):
+    path = _prior_bundle(tmp_path)
+    with sqlite3.connect(path / "project.db") as db:
+        db.execute("UPDATE cells SET column_id=999")
+        db.commit()
+        db.execute("PRAGMA foreign_keys=ON")
+        with pytest.raises(BundleSchemaMismatch, match="rolled back.*keep the project"):
+            _migrate_active_columns(db)
+        assert (
+            db.execute(
+                "SELECT value FROM meta WHERE key=?", (SCHEMA_DIGEST_META_KEY,)
+            ).fetchone()[0]
+            == _PRIOR_DIGEST
+        )
+        assert db.execute("SELECT column_id FROM cells").fetchone()[0] == 999
+        assert db.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+
+
+@pytest.mark.parametrize("migrated", [False, True])
+def test_inactive_columns_cannot_be_visible(tmp_path, migrated):
+    project = (
+        Project(_prior_bundle(tmp_path))
+        if migrated
+        else Project.create(tmp_path / "fresh.frisket")
+    )
+    try:
+        sheet_id = project.add_sheet("invariant")
+        column_id = project.add_column(sheet_id, "visible")
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK constraint failed"):
+            project.db.execute("UPDATE columns SET active=0 WHERE id=?", (column_id,))
+        project.db.rollback()
+        project.db.execute(
+            "UPDATE columns SET active=0,hidden=1 WHERE id=?", (column_id,)
+        )
+        project.db.commit()
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK constraint failed"):
+            project.db.execute("UPDATE columns SET hidden=0 WHERE id=?", (column_id,))
+        project.db.rollback()
+    finally:
+        project.close()
