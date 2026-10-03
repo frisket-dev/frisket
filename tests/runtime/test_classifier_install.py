@@ -10,7 +10,8 @@ from frisket.runtime import classifier_install, model_install
 
 
 def test_sidecar_classifier_extra_is_exact_and_cpu_only() -> None:
-    sidecar = Path(__file__).resolve().parents[2] / "sidecar" / "pyproject.toml"
+    root = Path(__file__).resolve().parents[2]
+    sidecar = root / "sidecar" / "pyproject.toml"
     project = tomllib.loads(sidecar.read_text())["project"]
 
     assert project["optional-dependencies"]["classify"] == [
@@ -24,6 +25,23 @@ def test_sidecar_classifier_extra_is_exact_and_cpu_only() -> None:
         "huggingface-hub==1.31.0",
     ]
     assert "classify" not in project["optional-dependencies"]["all"][0]
+
+    constraints = (sidecar.parent / "classify-constraints.txt").read_text()
+    assert "#    uv export --extra classify" in constraints
+    assert "gliclass==0.1.20" in constraints
+    assert "torch==2.14.0" in constraints
+    assert "transformers==5.17.0" in constraints
+    assert "scikit-learn==1.9.0" in constraints
+    assert "tokenizers==0.23.2" in constraints
+
+    build = tomllib.loads((root / "pyproject.toml").read_text())["tool"]["hatch"][
+        "build"
+    ]["targets"]
+    assert "sidecar/classify-constraints.txt" in build["sdist"]["only-include"]
+    assert (
+        build["wheel"]["force-include"]["sidecar/classify-constraints.txt"]
+        == "frisket/data/model-server/classify-constraints.txt"
+    )
 
 
 def test_classifier_runtime_is_a_versioned_docling_sibling(
@@ -47,6 +65,8 @@ def test_classifier_install_uses_its_own_profile_and_cpu_dependencies(
     monkeypatch.setattr(model_install.sys, "platform", platform)
     monkeypatch.setattr(model_install, "_uv_command", lambda: ["/bundled/uv"])
     source = tmp_path / "bundled source"
+    source.mkdir()
+    (source / "classify-constraints.txt").touch()
     monkeypatch.setattr(model_install, "model_server_source", lambda: source)
     calls: list[list[str]] = []
 
@@ -95,6 +115,8 @@ def test_classifier_install_uses_its_own_profile_and_cpu_dependencies(
                 "--python",
                 str(expected_python),
                 *(["--torch-backend", "cpu"] if platform != "darwin" else []),
+                "--constraint",
+                str(source / "classify-constraints.txt"),
                 f"{source}[classify]",
             ],
         ]
@@ -173,9 +195,10 @@ def test_failed_classifier_probe_does_not_publish_readiness(
 ) -> None:
     monkeypatch.setenv("FRISKET_MODEL_RUNTIME_DIR", str(tmp_path))
     monkeypatch.setattr(model_install, "_uv_command", lambda: ["/bundled/uv"])
-    monkeypatch.setattr(
-        model_install, "model_server_source", lambda: tmp_path / "source"
-    )
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "classify-constraints.txt").touch()
+    monkeypatch.setattr(model_install, "model_server_source", lambda: source)
 
     class CompletedProcess:
         returncode = 0
@@ -194,3 +217,22 @@ def test_failed_classifier_probe_does_not_publish_readiness(
         )
 
     assert not (classifier_install.runtime_dir() / ".ready").exists()
+
+
+def test_classifier_install_refuses_a_missing_constraints_export(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("FRISKET_MODEL_RUNTIME_DIR", str(tmp_path))
+    source = tmp_path / "source"
+    source.mkdir()
+    monkeypatch.setattr(model_install, "model_server_source", lambda: source)
+    monkeypatch.setattr(
+        model_install,
+        "spawn_service",
+        lambda *_args, **_kwargs: pytest.fail("must fail before creating the venv"),
+    )
+
+    with pytest.raises(RuntimeError, match="dependency constraints"):
+        classifier_install.install_classifiers(
+            should_cancel=lambda: False, progress=lambda _message: None
+        )

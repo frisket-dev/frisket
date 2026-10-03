@@ -75,6 +75,7 @@ class _InstallProfile:
     install_message: str
     installed_message: str
     probe_failure_message: str
+    constraint_file: str | None = None
 
 
 def model_child_environment(
@@ -259,6 +260,15 @@ def _install_profile(
             progress(profile.already_installed_message)
             return
         source = model_server_source()
+        constraint = (
+            source / profile.constraint_file
+            if profile.constraint_file is not None
+            else None
+        )
+        if constraint is not None and not constraint.is_file():
+            raise RuntimeError(
+                "bundled dependency constraints are missing; reinstall Frisket"
+            )
         (profile.root / _READY_MARKER).unlink(missing_ok=True)
         uv = _uv_command()
         progress(profile.create_message)
@@ -285,6 +295,8 @@ def _install_profile(
         ]
         if sys.platform in {"linux", "win32"}:
             install_argv.extend(["--torch-backend", "cpu"])
+        if constraint is not None:
+            install_argv.extend(["--constraint", str(constraint)])
         install_argv.append(f"{source}[{profile.extra}]")
         progress(profile.install_message)
         _run_uv(install_argv, should_cancel=should_cancel, progress=progress)

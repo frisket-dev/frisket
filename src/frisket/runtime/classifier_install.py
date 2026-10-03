@@ -58,6 +58,7 @@ def install_classifiers(
             probe_failure_message=(
                 "installed classifier environment failed its import check"
             ),
+            constraint_file="classify-constraints.txt",
         ),
         should_cancel=should_cancel,
         progress=progress,
