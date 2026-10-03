@@ -95,7 +95,7 @@ def prepared_atomic_output_columns_for_resume(
     placeholders = ",".join("?" for _ in prepared)
     rows = project.db.execute(
         "SELECT id,sheet_id,name,type,format,ai_generated,hidden FROM columns "
-        f"WHERE id IN ({placeholders})",
+        f"WHERE active=1 AND id IN ({placeholders})",
         tuple(prepared.values()),
     ).fetchall()
     rows_by_id = {int(row["id"]): row for row in rows}
@@ -143,7 +143,7 @@ def _validate_managed_resume(
     rows = project.db.execute(
         "SELECT id,sheet_id,name,type,format,semantic_type,ai_generated,hidden,"
         "default_hidden FROM columns "
-        f"WHERE id IN ({placeholders}) ORDER BY id",
+        f"WHERE active=1 AND id IN ({placeholders}) ORDER BY id",
         column_ids,
     ).fetchall()
     fields_by_name = {str(field["name"]): field for field in fields}
@@ -243,7 +243,7 @@ def _require_compatible_hidden_managed_revival(
 
     row = project.db.execute(
         "SELECT id,type,format,semantic_type,ai_generated FROM columns "
-        "WHERE sheet_id=? AND name=? AND hidden=1",
+        "WHERE sheet_id=? AND name=? AND active=1 AND hidden=1",
         (int(sheet_id), str(field["name"])),
     ).fetchone()
     if row is None:
@@ -291,7 +291,7 @@ def _require_existing_ai_generation_history(
     placeholders = ",".join("?" for _ in names)
     rows = project.db.execute(
         "SELECT id,current_run_id FROM columns "
-        f"WHERE sheet_id=? AND ai_generated=1 AND name IN ({placeholders})",
+        f"WHERE sheet_id=? AND active=1 AND ai_generated=1 AND name IN ({placeholders})",
         (int(sheet_id), *names),
     ).fetchall()
     for row in rows:
@@ -453,6 +453,7 @@ def prepare_validated(
             exact_target = project.get_column(expected_column_id)
             if (
                 exact_target is not None
+                and bool(exact_target["active"])
                 and int(exact_target["sheet_id"]) == sheet_id
                 and str(exact_target["name"]) == output_name
                 and bool(exact_target["hidden"])

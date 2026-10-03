@@ -244,12 +244,11 @@ def add_column(
     """
     if type not in COLUMN_TYPES:
         raise ValueError(f"unknown column type: {type}")
-    # a column hidden by undo blocks its name; re-creating it revives it
-    # (its old runs remain in history; the new run will repoint it). Intentionally
-    # hidden output columns (e.g. map.python's __result_/__evidence_ plumbing) pass
-    # hidden=True so a revive keeps them hidden instead of forcing them visible.
+    # Reuse only an active producer-owned hidden column (e.g. a staged output).
+    # Undo releases name ownership: inactive historical columns keep their IDs,
+    # values and metadata, and a new declaration gets a fresh identity.
     existing_hidden = project.db.execute(
-        "SELECT id FROM columns WHERE sheet_id=? AND name=? AND hidden=1",
+        "SELECT id FROM columns WHERE sheet_id=? AND name=? AND active=1 AND hidden=1",
         (sheet_id, name),
     ).fetchone()
     if existing_hidden:
@@ -318,7 +317,7 @@ def add_column(
 def columns(
     project: Any, sheet_id: int, include_hidden: bool = False
 ) -> list[sqlite3.Row]:
-    q = "SELECT * FROM columns WHERE sheet_id=?"
+    q = "SELECT * FROM columns WHERE sheet_id=? AND active=1"
     if not include_hidden:
         q += " AND hidden=0"
     return project.db.execute(q + " ORDER BY position", (sheet_id,)).fetchall()

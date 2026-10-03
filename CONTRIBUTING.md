@@ -204,6 +204,12 @@ the generated candidate beneath an edit. The projection is rebuildable; it is
 not a second writable authority. Historical source references stay unchanged,
 and missing historical producer links mean unknown—not inferred provenance.
 
+Column IDs are permanent history identities; names are unique only among active
+columns on a sheet. Undoing creation deactivates the column and frees its name;
+new creation gets a fresh ID. Hidden internal outputs remain active and reserve
+their names. Resolve current names with `active=1` (including hidden outputs);
+read historical values by ID, without substituting a same-name successor.
+
 ## Testing
 
 - Each test should own a distinct behavior, security, or durability risk.

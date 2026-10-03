@@ -303,15 +303,19 @@ def _check_rerun(
     project: Project, seeded: dict[str, Any], first: Any, second: Any
 ) -> None:
     del first
-    revived = project.db.execute(
+    current = project.db.execute(
         "SELECT id, hidden, current_run_id FROM columns "
-        "WHERE sheet_id=? AND name='people'",
+        "WHERE sheet_id=? AND name='people' AND active=1",
         (seeded["sheet_id"],),
     ).fetchone()
-    assert revived is not None
-    assert int(revived["id"]) == seeded["people_column_id"]
-    assert revived["hidden"] == 0
-    assert revived["current_run_id"] is None
+    assert current is not None
+    assert int(current["id"]) != seeded["people_column_id"]
+    assert current["hidden"] == 0
+    assert current["current_run_id"] == second.run_id
+    historical = project.get_column(seeded["people_column_id"])
+    assert historical["active"] == 0
+    assert historical["hidden"] == 1
+    assert historical["current_run_id"] is None
 
 
 CASES = [

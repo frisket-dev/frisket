@@ -368,16 +368,20 @@ def _check_rerun(
     project: Project, seeded: dict[str, Any], first: Any, second: Any
 ) -> None:
     del first
-    revived = project.db.execute(
+    current = project.db.execute(
         "SELECT id, hidden, current_run_id FROM columns "
-        "WHERE sheet_id=? AND name='transcript'",
+        "WHERE sheet_id=? AND name='transcript' AND active=1",
         (seeded["sheet_id"],),
     ).fetchone()
-    assert int(revived["id"]) == seeded["transcript_column_id"]
-    assert revived["hidden"] == 0
-    assert revived["current_run_id"] is None
+    assert int(current["id"]) != seeded["transcript_column_id"]
+    assert current["hidden"] == 0
+    assert current["current_run_id"] == second.run_id
+    historical = project.get_column(seeded["transcript_column_id"])
+    assert historical["active"] == 0
+    assert historical["hidden"] == 1
+    assert historical["current_run_id"] is None
     values = project.get_values(
-        seeded["sheet_id"], int(revived["id"]), row_ids=seeded["row_ids"]
+        seeded["sheet_id"], int(current["id"]), row_ids=seeded["row_ids"]
     )
     assert values == {
         seeded["row_ids"][0]: f"transcript {seeded['blobs'][0]}",

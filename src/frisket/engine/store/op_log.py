@@ -47,9 +47,7 @@ def append_op(
     undo_info: Mapping[str, Any] | None = None,
     commit: bool = True,
 ) -> int:
-    """Append an op. Appending truncates the redo future: any ops after
-    the cursor in 'undone' state are marked unreachable (status stays
-    'undone' but the cursor moves past them — OpenRefine semantics)."""
+    """Append an op, discarding the undone redo branch."""
     # appending while ops are undone discards that redo branch forever
     # (otherwise a later undo could resurrect it out of order)
     project.db.execute("UPDATE ops SET status='discarded' WHERE status='undone'")
@@ -190,11 +188,32 @@ def step_operation(
     if validation_error is not None:
         raise CorruptOperation(target_op_id, validation_error)
     column_ids = operation_touched_column_ids(project, target_op_id, undo_info)
-    claim = OutputColumnClaimStore(project).active_for_columns(column_ids)
+    claims = OutputColumnClaimStore(project)
+    claim = claims.active_for_columns(column_ids)
     if claim is not None:
         raise ClaimedOperation(target_op_id, dict(claim))
+    if direction == "redo":
+        # A queued job can reserve a released name before creating its column
+        # or appending an operation (and thus before discarding this redo).
+        for column_id in undo_info.get("created_columns", ()):
+            column = project.get_column(column_id)
+            if column is not None:
+                claim = claims.active_for_output_name(
+                    sheet_id=int(column["sheet_id"]), output_name=str(column["name"])
+                )
+                if claim is not None:
+                    raise ClaimedOperation(target_op_id, dict(claim))
     status_before = str(target["status"])
     if direction == "undo":
+        if undo_info.get("created_columns"):
+            # A live column may be intentionally hidden. Undo changes lifecycle;
+            # redo must restore its visibility, not expose internal outputs.
+            undo_info["column_hidden_after"] = {
+                str(column_id): bool(row["hidden"])
+                for column_id in undo_info["created_columns"]
+                if (row := project.get_column(column_id)) is not None
+            }
+            set_undo_info(project, target_op_id, undo_info, commit=False)
         project._unapply(target)
         status_after = "undone"
         project.db.execute("UPDATE ops SET status='undone' WHERE id=?", (target_op_id,))
@@ -409,6 +428,15 @@ def validate_operation_undo_info(undo_info: Any) -> str | None:
                     f"Target operation undo_info.{field_name} must map column ids "
                     "to run ids or null"
                 )
+    visibility = undo_info.get("column_hidden_after")
+    if visibility is not None and (
+        not isinstance(visibility, dict)
+        or not all(
+            _is_intish_id(key) and isinstance(value, bool)
+            for key, value in visibility.items()
+        )
+    ):
+        return "Target operation undo_info.column_hidden_after must map column ids to booleans"
     for field_name in ("review_metadata", "review_metadata_after"):
         value = undo_info.get(field_name)
         if value is None:
@@ -562,7 +590,7 @@ def _unapply(project: Any, op: sqlite3.Row) -> None:
             (prev_run, int(col_id)),
         )
     for col_id in info.get("created_columns", []):
-        project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (col_id,))
+        project.db.execute("UPDATE columns SET active=0,hidden=1 WHERE id=?", (col_id,))
     for col_id, prev_fmt in info.get("column_formats", {}).items():
         project.db.execute(
             "UPDATE columns SET format=? WHERE id=?", (prev_fmt, int(col_id))
@@ -623,14 +651,12 @@ def _reapply(project: Any, op: sqlite3.Row) -> None:
         )
     zero_success_columns = set(info.get("zero_success_columns", []))
     for col_id in info.get("created_columns", []):
-        if col_id in zero_success_columns:
-            # This op's run produced zero successful rows, so
-            # MapRunner._finalize_run left the column it created hidden
-            # rather than pointing an empty column at the run. Redo must
-            # reapply that outcome exactly, not resurrect a column the op
-            # never actually populated.
-            continue
-        project.db.execute("UPDATE columns SET hidden=0 WHERE id=?", (col_id,))
+        hidden = col_id in zero_success_columns or info.get(
+            "column_hidden_after", {}
+        ).get(str(col_id), False)
+        project.db.execute(
+            "UPDATE columns SET active=1,hidden=? WHERE id=?", (int(hidden), col_id)
+        )
     for col_id, fmt in info.get("column_formats_after", {}).items():
         project.db.execute("UPDATE columns SET format=? WHERE id=?", (fmt, int(col_id)))
     for col_id, t in info.get("column_types_after", {}).items():

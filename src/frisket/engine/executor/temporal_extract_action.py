@@ -219,7 +219,7 @@ def prepare_temporal_extract_action(project, bound):
     )
     placeholders = ",".join("?" for _ in expected_names)
     duplicate = project.db.execute(
-        f"SELECT name FROM columns WHERE sheet_id=? AND name IN ({placeholders}) LIMIT 1",
+        f"SELECT name FROM columns WHERE sheet_id=? AND active=1 AND name IN ({placeholders}) LIMIT 1",
         (publication.sheet_id, *expected_names),
     ).fetchone()
     if duplicate is not None:

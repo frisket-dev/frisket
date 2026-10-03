@@ -205,6 +205,43 @@ def retire_dropped_output_columns(
     return [entry["column_id"] for entry in retired]
 
 
+def retire_unbound_created_columns(
+    project: Project, op_id: int, column_ids: frozenset[int]
+) -> None:
+    """Release fresh drafts after declaration fails, retaining failed-run history."""
+    if not column_ids:
+        return
+    with project.db:
+        retired = set()
+        for column_id in column_ids:
+            has_history = project.db.execute(
+                "SELECT 1 FROM run_output_generations WHERE column_id=? LIMIT 1",
+                (column_id,),
+            ).fetchone()
+            if has_history is None:
+                project.db.execute(
+                    "UPDATE columns SET active=0, hidden=1 WHERE id=?",
+                    (column_id,),
+                )
+                retired.add(column_id)
+        if not retired:
+            return
+        op = project.db.execute(
+            "SELECT undo_info FROM ops WHERE id=?", (op_id,)
+        ).fetchone()
+        info = json.loads(op["undo_info"])
+        # No output was published: replaying this failed operation must not
+        # reserve these names again. The failed run still references its drafts.
+        info["created_columns"] = [
+            column_id
+            for column_id in info.get("created_columns", ())
+            if column_id not in retired
+        ]
+        project.db.execute(
+            "UPDATE ops SET undo_info=? WHERE id=?", (json.dumps(info), op_id)
+        )
+
+
 def hide_zero_success_created_columns(
     project: Project,
     op_id: int,

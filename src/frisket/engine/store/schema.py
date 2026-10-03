@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS columns (
   current_run_id INTEGER,
   ai_generated INTEGER NOT NULL DEFAULT 0,
   hidden INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1) AND (active=1 OR hidden=1)),
   default_hidden INTEGER NOT NULL DEFAULT 0,
   format TEXT,  -- display hint: filesize | currency | percent | null
   -- Explicit semantic marker for columns whose contents follow a named
@@ -82,9 +83,10 @@ CREATE TABLE IF NOT EXISTS columns (
   -- contract-consuming features (e.g. the Mentions panel) when this is set.
   semantic_type TEXT,
 
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(sheet_id, name)
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_columns_active_name
+  ON columns(sheet_id,name) WHERE active=1;
 
 CREATE TABLE IF NOT EXISTS rows (
   id INTEGER PRIMARY KEY,

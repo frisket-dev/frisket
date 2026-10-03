@@ -113,6 +113,16 @@ def _without_current_cells_foundation(schema: str) -> str:
 
 
 def _without_import_sessions(schema: str) -> str:
+    schema = schema.replace(
+        "  active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1) AND (active=1 OR hidden=1)),\n",
+        "",
+    ).replace(
+        "  created_at TEXT NOT NULL DEFAULT (datetime('now'))\n);\n"
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_columns_active_name\n"
+        "  ON columns(sheet_id,name) WHERE active=1;",
+        "  created_at TEXT NOT NULL DEFAULT (datetime('now')),\n"
+        "  UNIQUE(sheet_id, name)\n);",
+    )
     schema = _with_pre_hygiene_indexes(schema)
     before, marked = schema.split("-- SEARCH_INDEX_WORK_BEGIN", 1)
     _removed, after = marked.split("-- SEARCH_INDEX_WORK_END", 1)

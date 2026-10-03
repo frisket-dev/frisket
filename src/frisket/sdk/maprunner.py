@@ -403,7 +403,7 @@ def build_precheck_fn(decl: Op) -> Callable[..., Any]:
             for row in project.db.execute(
                 f"SELECT id,name,type,semantic_type,format,current_run_id "
                 "FROM columns "
-                f"WHERE sheet_id=? AND hidden=1 AND ai_generated=1 "
+                f"WHERE sheet_id=? AND active=1 AND hidden=1 AND ai_generated=1 "
                 f"AND name IN ({placeholders})",
                 [runner_spec["sheet_id"], *output_names],
             ).fetchall():

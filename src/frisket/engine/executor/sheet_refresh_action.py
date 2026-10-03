@@ -615,7 +615,7 @@ def _rewrite_join_sheet_in_place(
     column_ids = {
         row["name"]: int(row["id"])
         for row in cur.execute(
-            "SELECT id, name FROM columns WHERE sheet_id=?", (sheet_id,)
+            "SELECT id, name FROM columns WHERE sheet_id=? AND active=1", (sheet_id,)
         ).fetchall()
     }
     max_pos = cur.execute(
@@ -708,7 +708,7 @@ def _rewrite_child_sheet_in_place(
     existing_columns = {
         row["name"]: int(row["id"])
         for row in cur.execute(
-            "SELECT id, name FROM columns WHERE sheet_id=?", (sheet_id,)
+            "SELECT id, name FROM columns WHERE sheet_id=? AND active=1", (sheet_id,)
         ).fetchall()
     }
     max_pos = cur.execute(

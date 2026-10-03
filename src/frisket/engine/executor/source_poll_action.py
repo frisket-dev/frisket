@@ -739,7 +739,7 @@ def _insert_source_poll_column_in_txn(
     cur: Any, sheet_id: int, name: str, type: str, *, default_hidden: bool
 ) -> int:
     existing_hidden = cur.execute(
-        "SELECT id FROM columns WHERE sheet_id=? AND name=? AND hidden=1",
+        "SELECT id FROM columns WHERE sheet_id=? AND name=? AND active=1 AND hidden=1",
         (sheet_id, name),
     ).fetchone()
     if existing_hidden:

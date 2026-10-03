@@ -56,7 +56,7 @@ class OutputFamilyStore:
             placeholders = ",".join("?" for _ in names)
             existing_rows = (
                 self.db.execute(
-                    "SELECT * FROM columns WHERE sheet_id=? "
+                    "SELECT * FROM columns WHERE sheet_id=? AND active=1 "
                     f"AND name IN ({placeholders})",
                     (sheet_id, *names),
                 ).fetchall()

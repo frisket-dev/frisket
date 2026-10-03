@@ -247,7 +247,7 @@ def _write_extract_in_transaction(
     ]
     placeholders = ",".join("?" for _ in output_names)
     duplicate = project.db.execute(
-        f"SELECT name FROM columns WHERE sheet_id=? AND name IN ({placeholders}) "
+        f"SELECT name FROM columns WHERE sheet_id=? AND active=1 AND name IN ({placeholders}) "
         "ORDER BY name LIMIT 1",
         (params.sheet_id, *output_names),
     ).fetchone()

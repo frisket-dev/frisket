@@ -408,7 +408,7 @@ def _write_column(
     db = cur.connection
     producer_id = create_base_cell_producer(db, stage_id=f"op:{op_id}", op_id=op_id)
     hidden = cur.execute(
-        "SELECT id FROM columns WHERE sheet_id=? AND name=? AND hidden=1",
+        "SELECT id FROM columns WHERE sheet_id=? AND name=? AND active=1 AND hidden=1",
         (sheet_id, output_name),
     ).fetchone()
     if hidden is None:
