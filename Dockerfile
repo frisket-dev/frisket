@@ -113,7 +113,7 @@ RUN uv run --no-sync python -c "import cv2" \
 COPY src/ src/
 # Bundle the standalone model-server project as data with the core wheel.
 COPY sidecar/src/ sidecar/src/
-COPY sidecar/pyproject.toml sidecar/README.md sidecar/
+COPY sidecar/pyproject.toml sidecar/README.md sidecar/classify-constraints.txt sidecar/
 COPY README.md LICENSE ./
 RUN uv sync --frozen --no-dev $FRISKET_UV_EXTRAS
 COPY --from=web /build/dist /app/static
