@@ -9,6 +9,7 @@ import sys
 import time
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
+from dataclasses import dataclass
 from pathlib import Path
 
 from filelock import FileLock, Timeout
@@ -62,6 +63,21 @@ class ModelInstallCancelled(Exception):
     """Raised after cancellation has stopped an active installer process."""
 
 
+@dataclass(frozen=True)
+class _InstallProfile:
+    """One fixed optional environment installed from the bundled sidecar."""
+
+    root: Path
+    extra: str
+    probe: Callable[[], bool]
+    already_installed_message: str
+    create_message: str
+    install_message: str
+    installed_message: str
+    probe_failure_message: str
+    constraint_file: str | None = None
+
+
 def model_child_environment(
     environ: Mapping[str, str] | None = None,
     *,
@@ -93,12 +109,16 @@ def runtime_dir() -> Path:
     return root / "frisket" / "model-server"
 
 
+def _runtime_python(root: Path) -> Path:
+    if sys.platform == "win32":
+        return root / "venv" / "Scripts" / "python.exe"
+    return root / "venv" / "bin" / "python"
+
+
 def runtime_python() -> Path:
     """Return the Python executable belonging to the optional runtime."""
 
-    if sys.platform == "win32":
-        return runtime_dir() / "venv" / "Scripts" / "python.exe"
-    return runtime_dir() / "venv" / "bin" / "python"
+    return _runtime_python(runtime_dir())
 
 
 def model_server_source() -> Path:
@@ -122,24 +142,22 @@ def install_lock(*, timeout: float = -1) -> AbstractContextManager[FileLock]:
     return FileLock(root / ".install.lock", timeout=timeout)
 
 
+def _is_installed(root: Path) -> bool:
+    return (root / _READY_MARKER).is_file() and _runtime_python(root).is_file()
+
+
 def is_installed() -> bool:
     """Passively report whether a completed runtime is present."""
 
-    return (runtime_dir() / _READY_MARKER).is_file() and runtime_python().is_file()
+    return _is_installed(runtime_dir())
 
 
-def _probe_install() -> bool:
-    """Import the installed server exactly once before publishing readiness."""
+def _probe_python(python: Path, statement: str) -> bool:
+    """Run one import/readiness statement inside an optional environment."""
 
     try:
         result = subprocess.run(  # noqa: S603
-            [
-                str(runtime_python()),
-                "-c",
-                "from docling.document_converter import DocumentConverter; "
-                "from frisket_models.local import create_app; "
-                "assert DocumentConverter and callable(create_app)",
-            ],
+            [str(python), "-c", statement],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -150,6 +168,17 @@ def _probe_install() -> bool:
     except (OSError, subprocess.TimeoutExpired):
         return False
     return result.returncode == 0
+
+
+def _probe_install() -> bool:
+    """Import the installed server exactly once before publishing readiness."""
+
+    return _probe_python(
+        runtime_python(),
+        "from docling.document_converter import DocumentConverter; "
+        "from frisket_models.local import create_app; "
+        "assert DocumentConverter and callable(create_app)",
+    )
 
 
 def _uv_command() -> list[str]:
@@ -165,9 +194,12 @@ def _uv_command() -> list[str]:
 
 
 def _acquire_install_lock(
-    *, should_cancel: Callable[[], bool], progress: Callable[[str], None]
+    *,
+    root: Path,
+    should_cancel: Callable[[], bool],
+    progress: Callable[[str], None],
 ) -> FileLock:
-    lock = FileLock(runtime_dir() / ".install.lock")
+    lock = FileLock(root / ".install.lock")
     announced = False
     while True:
         if should_cancel():
@@ -210,26 +242,44 @@ def _run_uv(
         )
 
 
-def install_docling(
-    *, should_cancel: Callable[[], bool], progress: Callable[[str], None]
+def _install_profile(
+    profile: _InstallProfile,
+    *,
+    should_cancel: Callable[[], bool],
+    progress: Callable[[str], None],
 ) -> None:
-    """Install the packaged model server with only its Docling dependency set."""
-
+    """Install one immutable optional sidecar extra in its owned environment."""
     if should_cancel():
         raise ModelInstallCancelled
-    runtime_dir().mkdir(parents=True, exist_ok=True)
-    lock = _acquire_install_lock(should_cancel=should_cancel, progress=progress)
+    profile.root.mkdir(parents=True, exist_ok=True)
+    lock = _acquire_install_lock(
+        root=profile.root, should_cancel=should_cancel, progress=progress
+    )
     try:
-        if is_installed():
-            progress("Docling model server is already installed")
+        if _is_installed(profile.root):
+            progress(profile.already_installed_message)
             return
         source = model_server_source()
-        root = runtime_dir()
-        (root / _READY_MARKER).unlink(missing_ok=True)
+        constraint = (
+            source / profile.constraint_file
+            if profile.constraint_file is not None
+            else None
+        )
+        if constraint is not None and not constraint.is_file():
+            raise RuntimeError(
+                "bundled dependency constraints are missing; reinstall Frisket"
+            )
+        (profile.root / _READY_MARKER).unlink(missing_ok=True)
         uv = _uv_command()
-        progress("Creating the private model-server environment")
-        venv_argv = [*uv, "venv", "--python", sys.executable, str(root / "venv")]
-        if (root / "venv").exists():
+        progress(profile.create_message)
+        venv_argv = [
+            *uv,
+            "venv",
+            "--python",
+            sys.executable,
+            str(profile.root / "venv"),
+        ]
+        if (profile.root / "venv").exists():
             venv_argv.append("--clear")
         _run_uv(
             venv_argv,
@@ -241,21 +291,44 @@ def install_docling(
             "pip",
             "install",
             "--python",
-            str(runtime_python()),
+            str(_runtime_python(profile.root)),
         ]
         if sys.platform in {"linux", "win32"}:
             install_argv.extend(["--torch-backend", "cpu"])
-        install_argv.append(f"{source}[convert]")
-        progress("Installing the CPU Docling runtime")
+        if constraint is not None:
+            install_argv.extend(["--constraint", str(constraint)])
+        install_argv.append(f"{source}[{profile.extra}]")
+        progress(profile.install_message)
         _run_uv(install_argv, should_cancel=should_cancel, progress=progress)
-        if not _probe_install():
-            raise RuntimeError(
-                "installed model-server environment failed its import check"
-            )
-        (root / _READY_MARKER).touch()
-        progress("Docling model server installed")
+        if not profile.probe():
+            raise RuntimeError(profile.probe_failure_message)
+        (profile.root / _READY_MARKER).touch()
+        progress(profile.installed_message)
     finally:
         lock.release()
+
+
+def install_docling(
+    *, should_cancel: Callable[[], bool], progress: Callable[[str], None]
+) -> None:
+    """Install the packaged model server with only its Docling dependency set."""
+
+    _install_profile(
+        _InstallProfile(
+            root=runtime_dir(),
+            extra="convert",
+            probe=_probe_install,
+            already_installed_message="Docling model server is already installed",
+            create_message="Creating the private model-server environment",
+            install_message="Installing the CPU Docling runtime",
+            installed_message="Docling model server installed",
+            probe_failure_message=(
+                "installed model-server environment failed its import check"
+            ),
+        ),
+        should_cancel=should_cancel,
+        progress=progress,
+    )
 
 
 __all__ = [

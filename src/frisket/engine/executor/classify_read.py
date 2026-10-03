@@ -1,4 +1,4 @@
-"""The routed ``Classifier`` capability's ``local_semantic`` engine.
+"""Invocation-owned implementations of the direct ``Classifier`` capability.
 
 FastEmbed cosine winner, no model call. The algorithm is the retired
 ``ClassifyRecipe.execute`` local path, moved verbatim: bounded deterministic
@@ -7,11 +7,9 @@ lowest index winning ties. The retired recipe ran with ``max_concurrency=1``;
 one admitted instance serializes its rows the same way so the label-vector
 cache is filled exactly once per label set.
 
-The host binds this class when the admitted engine is ``local_semantic``. For
-``llm`` it binds a model-backed ``Classifier`` instead (host-owned, not here)
-that sends the host-rendered ``classify_prompt`` for the row and folds the
-structured reply into one ``Outcome`` per field; that prompt projection is the
-engine's estimate/consent/cache input before egress.
+The host also binds this class for admitted ``gliclass`` and ``jeff`` engines;
+those delegate to one private, run-owned classifier session. The ``llm`` engine
+uses the separately inspected model path and its host-rendered prompt.
 """
 
 from __future__ import annotations
@@ -20,9 +18,15 @@ import asyncio
 import math
 import re
 from collections.abc import Callable, Sequence
+from typing import Any, Protocol
 
 from frisket.actions.classify_types import ClassifyField
 from frisket.actions.types import Outcome, Row, RowError
+from frisket.contracts.classification import (
+    LOCAL_CLASSIFIERS,
+    LOCAL_CLASSIFIER_ENGINE_IDS,
+    ClassifierError,
+)
 from frisket.semantic import PROVIDERLESS_CLASSIFY_MODEL
 from frisket.semantic import (
     ProviderlessClassifierProvisionError,
@@ -35,6 +39,44 @@ LOCAL_SEMANTIC_MODEL = PROVIDERLESS_CLASSIFY_MODEL
 LOCAL_SEMANTIC_CHUNK_WORDS = 384
 LOCAL_SEMANTIC_CHUNK_CHARS = 1_600
 LOCAL_SEMANTIC_MAX_CHUNKS = 8
+
+
+class _ClassifierSession(Protocol):
+    async def classify(
+        self,
+        text: str,
+        labels: list[str],
+        *,
+        descriptions: dict[str, str],
+        instruction: str,
+    ) -> dict[str, Any]: ...
+
+    async def aclose(self) -> None: ...
+
+
+class _SessionFactory(Protocol):
+    def __call__(
+        self, engine_id: str, *, cancelled: Callable[[], bool] | None
+    ) -> _ClassifierSession: ...
+
+
+def _new_classifier_session(
+    engine_id: str, cancelled: Callable[[], bool] | None
+) -> _ClassifierSession:
+    from frisket.engine._workers.classifier_session import ClassifierSession
+
+    return ClassifierSession(engine_id, cancelled=cancelled)
+
+
+def classifier_provenance_model(engine_id: str) -> str:
+    """Return the exact runtime identity recorded for a direct classifier."""
+
+    if engine_id == "local_semantic":
+        return f"fastembed/{LOCAL_SEMANTIC_MODEL}"
+    try:
+        return LOCAL_CLASSIFIERS[engine_id].model_identity
+    except KeyError as error:
+        raise ValueError(f"unknown direct classifier engine: {engine_id}") from error
 
 
 def local_semantic_chunks(text: str) -> list[str]:
@@ -101,17 +143,31 @@ def _cosine(left: list[float], right: list[float]) -> float:
 
 
 class AdmittedClassifier:
-    """Invocation-owned ``Classifier`` for the ``local_semantic`` engine.
+    """Invocation-owned direct classifier selected by its admitted engine.
 
-    Free and provider-less: it embeds locally through the gateway's
-    ``providerless_classify`` capability and never touches the model router.
+    Every implementation is local and provider-less. ``local_semantic`` keeps
+    its existing embedding path; GLiClass and Jeff use the private worker
+    session and never touch the model router.
     """
 
-    def __init__(self, *, cancelled: Callable[[], bool] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        engine: str = "local_semantic",
+        context: str = "",
+        cancelled: Callable[[], bool] | None = None,
+        session_factory: _SessionFactory | None = None,
+    ) -> None:
+        if engine != "local_semantic" and engine not in LOCAL_CLASSIFIER_ENGINE_IDS:
+            raise ValueError(f"unknown direct classifier engine: {engine}")
+        self._engine = engine
+        self._context = context.strip()
         self._cancelled = cancelled
         self._closed = False
         self._lock = asyncio.Lock()
         self._label_vector_cache: dict[tuple[str, ...], list[list[float]]] = {}
+        self._session_factory = session_factory or _new_classifier_session
+        self._session: _ClassifierSession | None = None
 
     def _check_open(self) -> None:
         if self._closed:
@@ -128,6 +184,13 @@ class AdmittedClassifier:
     ) -> dict[str, Outcome[str]]:
         del row
         self._check_open()
+        if self._engine in LOCAL_CLASSIFIER_ENGINE_IDS:
+            return await self._classify_native(text, fields)
+        return await self._classify_local_semantic(text, fields)
+
+    async def _classify_local_semantic(
+        self, text: str, fields: Sequence[ClassifyField]
+    ) -> dict[str, Outcome[str]]:
         if len(fields) != 1 or fields[0].type != "category":
             raise RowError(
                 "invalid_classify_field",
@@ -176,8 +239,96 @@ class AdmittedClassifier:
         )
         return {field.name: Outcome.ok(labels[winner_index])}
 
+    async def _classify_native(
+        self, text: str, fields: Sequence[ClassifyField]
+    ) -> dict[str, Outcome[str]]:
+        if not text.strip():
+            raise RowError(
+                "classify_input_empty",
+                "Classifier input must contain non-whitespace text.",
+            )
+        if not fields or any(
+            field.type != "category" or len(field.labels) < 2 for field in fields
+        ):
+            raise RowError(
+                "invalid_classify_field",
+                f"{self._engine} requires category fields with at least two labels.",
+            )
+        spec = LOCAL_CLASSIFIERS[self._engine]
+        if spec.label_limit is not None and any(
+            len(field.labels) > spec.label_limit for field in fields
+        ):
+            raise RowError(
+                "invalid_classify_field",
+                f"{self._engine} supports at most {spec.label_limit} labels per field.",
+            )
+        if self._session is None:
+            self._session = self._session_factory(
+                self._engine, cancelled=self._cancelled
+            )
+
+        outcomes: dict[str, Outcome[str]] = {}
+        for field in fields:
+            self._check_open()
+            try:
+                result = await self._session.classify(
+                    text,
+                    list(field.labels),
+                    descriptions=dict(field.label_descriptions),
+                    instruction=self._instruction(field),
+                )
+            except ClassifierError as error:
+                raise RowError(error.code, error.message) from error
+            self._check_open()
+            outcomes[field.name] = self._native_outcome(field, result, spec.revision)
+        return outcomes
+
+    def _instruction(self, field: ClassifyField) -> str:
+        parts = ["Choose the single label that best describes the text."]
+        if self._context:
+            parts.append(f"Dataset context: {self._context}")
+        if field.description.strip():
+            parts.append(f"Field: {field.description.strip()}")
+        return "\n\n".join(parts)
+
+    @staticmethod
+    def _native_outcome(
+        field: ClassifyField, result: dict[str, Any], expected_revision: str
+    ) -> Outcome[str]:
+        if not isinstance(result, dict) or set(result) != {
+            "label",
+            "score",
+            "model_revision",
+        }:
+            raise RowError(
+                "classify_output_invalid",
+                "Classifier returned a malformed result.",
+            )
+        if result["model_revision"] != expected_revision:
+            raise RowError(
+                "classify_model_mismatch",
+                "Classifier returned a result from an unexpected model revision.",
+            )
+        label = result["label"]
+        score = result["score"]
+        if (
+            not isinstance(label, str)
+            or label not in field.labels
+            or isinstance(score, bool)
+            or not isinstance(score, (int, float))
+            or not math.isfinite(score)
+            or not 0 <= score <= 1
+        ):
+            raise RowError(
+                "classify_output_invalid",
+                "Classifier returned a label or score outside the submitted choices.",
+            )
+        return Outcome.ok(label, confidence=float(score))
+
     async def aclose(self) -> None:
         self._closed = True
+        if self._session is not None:
+            await self._session.aclose()
 
 
 class _BoundClassifier:

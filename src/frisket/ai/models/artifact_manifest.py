@@ -65,6 +65,11 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 
+from frisket.contracts.classification import (
+    GLICLASS_ENGINE_ID,
+    JEFF_ENGINE_ID,
+    LOCAL_CLASSIFIERS,
+)
 from frisket.engine._workers.parakeet_model import (
     MODEL_FILES as _PARAKEET_MODEL_FILES,
     MODEL_REVISION as _PARAKEET_MODEL_REVISION,
@@ -106,6 +111,34 @@ _PROVIDERLESS_CLASSIFY_HF_FILES = (
     "special_tokens_map.json",
     "tokenizer.json",
     "tokenizer_config.json",
+)
+
+_GLICLASS_HF_FILES = (
+    "added_tokens.json",
+    "config.json",
+    "model.safetensors",
+    "special_tokens_map.json",
+    "tokenizer.json",
+    "tokenizer_config.json",
+)
+_JEFF_HF_FILES = (
+    "chat_template.jinja",
+    "config.json",
+    "decision_config.json",
+    "model.safetensors",
+    "processor_config.json",
+    "readout.safetensors",
+    "tokenizer.json",
+    "tokenizer_config.json",
+)
+
+GLICLASS_REF = (
+    f"hf-snapshot:{LOCAL_CLASSIFIERS[GLICLASS_ENGINE_ID].model_repo}"
+    f"@{LOCAL_CLASSIFIERS[GLICLASS_ENGINE_ID].revision}"
+)
+JEFF_REF = (
+    f"hf-snapshot:{LOCAL_CLASSIFIERS[JEFF_ENGINE_ID].model_repo}"
+    f"@{LOCAL_CLASSIFIERS[JEFF_ENGINE_ID].revision}"
 )
 
 
@@ -587,6 +620,44 @@ _MANIFEST: dict[str, PinnedArtifact] = {
         ),
         approx_size_bytes=147_882_941,
     ),
+    GLICLASS_REF: PinnedArtifact(
+        ref=GLICLASS_REF,
+        kind="hf_snapshot",
+        display_name="GLiClass Base v3.0",
+        manifest_version="2026.10.1",
+        license="Apache-2.0",
+        license_url="https://www.apache.org/licenses/LICENSE-2.0",
+        source_url=(
+            f"https://huggingface.co/{LOCAL_CLASSIFIERS[GLICLASS_ENGINE_ID].model_repo}"
+            f"/tree/{LOCAL_CLASSIFIERS[GLICLASS_ENGINE_ID].revision}"
+        ),
+        files=(),
+        hf_snapshot=HfSnapshotSource(
+            repo_id=LOCAL_CLASSIFIERS[GLICLASS_ENGINE_ID].model_repo,
+            revision=LOCAL_CLASSIFIERS[GLICLASS_ENGINE_ID].revision,
+            files=_GLICLASS_HF_FILES,
+        ),
+        approx_size_bytes=754_867_256,
+    ),
+    JEFF_REF: PinnedArtifact(
+        ref=JEFF_REF,
+        kind="hf_snapshot",
+        display_name="Jeff Qwen3.5 0.8B v1.2",
+        manifest_version="2026.10.1",
+        license="Apache-2.0",
+        license_url="https://www.apache.org/licenses/LICENSE-2.0",
+        source_url=(
+            f"https://huggingface.co/{LOCAL_CLASSIFIERS[JEFF_ENGINE_ID].model_repo}"
+            f"/tree/{LOCAL_CLASSIFIERS[JEFF_ENGINE_ID].revision}"
+        ),
+        files=(),
+        hf_snapshot=HfSnapshotSource(
+            repo_id=LOCAL_CLASSIFIERS[JEFF_ENGINE_ID].model_repo,
+            revision=LOCAL_CLASSIFIERS[JEFF_ENGINE_ID].revision,
+            files=_JEFF_HF_FILES,
+        ),
+        approx_size_bytes=1_726_558_966,
+    ),
     f"hf-snapshot:{_PROVIDERLESS_CLASSIFY_HF_REPO}@{_PROVIDERLESS_CLASSIFY_HF_REVISION}": PinnedArtifact(
         ref=f"hf-snapshot:{_PROVIDERLESS_CLASSIFY_HF_REPO}@{_PROVIDERLESS_CLASSIFY_HF_REVISION}",
         kind="hf_snapshot",
@@ -643,6 +714,16 @@ def hy_mt2_artifact() -> PinnedArtifact | None:
     return _MANIFEST.get(HY_MT2_REF)
 
 
+def gliclass_artifact() -> PinnedArtifact | None:
+    """The pinned GLiClass Base snapshot, or None if the manifest is broken."""
+    return _MANIFEST.get(GLICLASS_REF)
+
+
+def jeff_artifact() -> PinnedArtifact | None:
+    """The pinned Jeff snapshot, or None if the manifest is broken."""
+    return _MANIFEST.get(JEFF_REF)
+
+
 def parakeet_model_artifact() -> PinnedArtifact | None:
     """The pinned Parakeet ASR model entry, or None if unpinned."""
     return _MANIFEST.get(PARAKEET_MODEL_REF)
@@ -685,7 +766,9 @@ def installed_opus_pairs_available() -> tuple[str, ...]:
 
 __all__ = [
     "FRISKET_HF_ORG",
+    "GLICLASS_REF",
     "HY_MT2_REF",
+    "JEFF_REF",
     "PARAKEET_MODEL_HF_REPO",
     "PARAKEET_MODEL_REF",
     "PARAKEET_VAD_HF_REPO",
@@ -698,8 +781,10 @@ __all__ = [
     "PinnedArtifact",
     "PinnedFile",
     "all_pinned",
+    "gliclass_artifact",
     "hy_mt2_artifact",
     "installed_opus_pairs_available",
+    "jeff_artifact",
     "lookup",
     "opus_mt_source_url",
     "parakeet_model_artifact",

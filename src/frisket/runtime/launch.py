@@ -52,9 +52,17 @@ def worker_argv(
 
 
 def is_worker_argv(argv: list[str]) -> bool:
+    if len(argv) < 4:
+        return False
+    interpreter = PythonRuntime.current().executable
+    if argv[3] == "classifier-session":
+        from frisket.runtime.classifier_install import runtime_python
+
+        # Only this fixed worker may use the app-owned optional interpreter.
+        # Never trust an arbitrary interpreter supplied in argv.
+        interpreter = runtime_python()
     return (
-        len(argv) >= 4
-        and Path(argv[0]) == PythonRuntime.current().executable
+        Path(argv[0]) == interpreter
         and argv[1] == "-I"
         and Path(argv[2]).resolve()
         == Path(__file__).with_name("_bootstrap.py").resolve()

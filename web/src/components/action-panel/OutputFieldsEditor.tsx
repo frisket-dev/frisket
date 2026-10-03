@@ -316,7 +316,11 @@ export function OutputFieldsEditor({
               className="mini-btn"
               onClick={() => onFieldsChange((fs) => [
                 ...fs,
-                makeEditableField({ name: `field_${fs.length + 1}`, type: 'text', description: '' }),
+                makeEditableField({
+                  name: `field_${fs.length + 1}`,
+                  type: (fieldTypes?.[0] ?? 'text') as ColumnType,
+                  description: '',
+                }),
               ])}
             >
               <Plus size={12} /> Add column

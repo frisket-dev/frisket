@@ -1063,18 +1063,26 @@ requires-dist = [
     { name = "fastembed", marker = "extra == 'embed'", specifier = ">=0.4" },
     { name = "faster-whisper", marker = "extra == 'transcribe'", specifier = ">=1.2.1" },
     { name = "frisket-models", extras = ["convert", "ner", "transcribe", "rerank", "embed"], marker = "extra == 'all'" },
+    { name = "gliclass", marker = "extra == 'classify'", specifier = "==0.1.20" },
     { name = "gliner", marker = "extra == 'ner'", specifier = ">=0.2.13" },
     { name = "httpx", specifier = ">=0.28.1" },
+    { name = "huggingface-hub", marker = "extra == 'classify'", specifier = "==1.31.0" },
+    { name = "numpy", marker = "extra == 'classify'", specifier = "==2.5.3" },
     { name = "paddleocr", marker = "extra == 'ocr-paddle'", specifier = ">=3.7" },
     { name = "paddlepaddle", marker = "extra == 'ocr-paddle'", specifier = ">=3.0" },
     { name = "paddlex", extras = ["genai-client", "ocr"], marker = "extra == 'ocr-paddle'", specifier = ">=3.7" },
+    { name = "pillow", marker = "extra == 'classify'", specifier = "==12.3.0" },
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "python-multipart", specifier = ">=0.0.32" },
+    { name = "safetensors", marker = "extra == 'classify'", specifier = "==0.8.0" },
     { name = "sentence-transformers", marker = "extra == 'rerank'", specifier = ">=3.0" },
     { name = "surya-ocr", marker = "extra == 'ocr'", specifier = "==0.22.1" },
+    { name = "torch", marker = "extra == 'classify'", specifier = "==2.14.0" },
+    { name = "torchvision", marker = "extra == 'classify'", specifier = "==0.29.0" },
+    { name = "transformers", marker = "extra == 'classify'", specifier = "==5.17.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.49.0" },
 ]
-provides-extras = ["ocr", "ocr-paddle", "convert", "convert-chandra", "ner", "transcribe", "rerank", "embed", "all"]
+provides-extras = ["ocr", "ocr-paddle", "convert", "classify", "convert-chandra", "ner", "transcribe", "rerank", "embed", "all"]
 
 [package.metadata.requires-dev]
 dev = [

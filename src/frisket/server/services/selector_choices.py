@@ -89,6 +89,51 @@ from frisket.server.services.selector_choices_projection import (
 _TARGET_OVERRIDE_FIELDS = frozenset({"target", "target_id", "execution_target"})
 
 
+def _classification_options_blocker(
+    action_id: str,
+    params: Mapping[str, Any],
+    engine: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Explain why an authored Classify shape cannot use one engine."""
+    if action_id != "map.classify":
+        return None
+    options = _mapping(engine.get("classification_options"))
+    field_types = options.get("field_types")
+    fields = params.get("fields")
+    max_fields = options.get("max_fields")
+    if (
+        isinstance(fields, list)
+        and isinstance(max_fields, int)
+        and not isinstance(max_fields, bool)
+        and len(fields) > max_fields
+    ):
+        return {
+            "code": "classification_fields_unsupported",
+            "message": f"This engine supports at most {max_fields} output field(s).",
+            "field": "fields",
+        }
+    if isinstance(field_types, list) and field_types:
+        allowed = {str(value) for value in field_types}
+        if isinstance(fields, list) and any(
+            isinstance(field, Mapping)
+            and str(field.get("type") or "category") not in allowed
+            for field in fields
+        ):
+            return {
+                "code": "classification_fields_unsupported",
+                "message": "This engine supports category fields only.",
+                "field": "fields",
+            }
+    for param in ("include_confidence", "include_justification"):
+        if params.get(param) and options.get(param) is False:
+            return {
+                "code": "classification_companion_unsupported",
+                "message": "This engine emits labels without confidence or justification companions.",
+                "field": param,
+            }
+    return None
+
+
 class SelectorChoicesError(RouteError):
     pass
 
@@ -746,6 +791,7 @@ class SelectorChoiceService:
             )
             setup: dict[str, Any] | None = None
             operation: dict[str, Any] | None = None
+            engine_setup_ref = _optional_str(engine.get("setup_ref"))
             downloadable = engine.get("downloadable_models") or []
             artifact_ref = (
                 _optional_str(_mapping(downloadable[0]).get("ref"))
@@ -774,6 +820,35 @@ class SelectorChoiceService:
                     ),
                     "field": None,
                 }
+            elif engine_setup_ref is not None:
+                operation, blocked = self._setup.model_pull_operations(engine_setup_ref)
+                if operation is not None or not available:
+                    status = "working" if operation is not None else "needs_setup"
+                    blocker = {
+                        "code": (
+                            "engine_setup_in_progress"
+                            if operation is not None
+                            else "engine_setup_required"
+                        ),
+                        "message": (
+                            "Engine setup is still in progress."
+                            if operation is not None
+                            else str(engine.get("error") or "Engine setup is required.")
+                        ),
+                        "field": None,
+                    }
+                    setup = {
+                        "kind": "engine_setup",
+                        "setup_ref": engine_setup_ref,
+                        "scope": (
+                            "workspace" if self._edition == "solo" else "organization"
+                        ),
+                        "can_mutate": capabilities.manage_model_downloads,
+                        "can_start": capabilities.manage_model_downloads
+                        and operation is None
+                        and blocked is None,
+                        "blocked_by_operation": blocked or operation,
+                    }
             elif engine_id == "parakeet-tdt" and active_target_id == "local-onnx":
                 if not parakeet_runtime_present():
                     setup = {
@@ -924,6 +999,15 @@ class SelectorChoiceService:
                     "message": option_refusal.remedy,
                     "field": None,
                 }
+            elif (
+                classification_blocker := _classification_options_blocker(
+                    action_id, params, engine
+                )
+            ) is not None:
+                status = "unavailable"
+                if operation is None:
+                    setup = None
+                blocker = classification_blocker
             elif (
                 action_id == "map.translate"
                 and engine_id == "opus_mt"

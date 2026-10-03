@@ -12,6 +12,7 @@ import sys
 
 # Application-owned entrypoints, never module names supplied by a request.
 TARGETS = {
+    "classifier-session": ("frisket.engine._workers.classifier_worker", "framed_main"),
     "parakeet-session": ("frisket.engine._workers.parakeet_worker", "framed_main"),
     "rapidocr-session": ("frisket.engine._workers.rapidocr_worker", "framed_main"),
     "parakeet-artifacts": (

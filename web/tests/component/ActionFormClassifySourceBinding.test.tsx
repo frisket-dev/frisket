@@ -266,6 +266,40 @@ describe('classify source binding', () => {
     expect(request.output_names).toEqual({ category: 'topic' });
   });
 
+  it('lets GLiClass add multiple category outputs without LLM companions', async () => {
+    const user = userEvent.setup();
+    const entry = servedTypedEntry('map.classify', (engines) => [
+      ...engines,
+      {
+        id: 'gliclass', label: 'GLiClass Base', tier: 'local', available: true,
+        classification_options: {
+          field_types: ['category'], max_fields: 64,
+          include_confidence: false, include_justification: false,
+        },
+      },
+    ]);
+    mountClassify({
+      sheet: summarySheet(),
+      entry,
+      initialDraft: {
+        action_id: 'map.classify', scope: { kind: 'sheet_rows', sheet_id: 7 },
+        params: {
+          source: ['summary'], engine: 'gliclass',
+          fields: [{ name: 'topic', type: 'category', labels: ['news', 'opinion'] }],
+        },
+        output_names: { topic: 'topic' },
+      },
+    });
+
+    expect(screen.queryByLabelText('Include Confidence')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Include Justification')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Add column' }));
+    expect(screen.getAllByTestId('output-field-row')).toHaveLength(2);
+    for (const fieldType of screen.getAllByTestId('output-field-type')) {
+      expect(fieldType).toHaveTextContent('category');
+    }
+  });
+
   it('opens More details when a restored classify draft already has label descriptions', async () => {
     mountClassify({
       sheet: summarySheet(),
@@ -326,6 +360,34 @@ describe('classify source binding', () => {
     expect(onExecute.mock.calls[0][0]).toMatchObject({
       params: { engine: 'llm', model: 'openai/gpt-5-mini' },
       output_names: { category: 'topic' },
+    });
+  });
+
+  it.each([
+    ['gliclass', 'GLiClass Base'],
+    ['jeff', 'Jeff 0.8B'],
+  ])('clears the hosted model when switching to %s', async (engineId, engineLabel) => {
+    const user = userEvent.setup();
+    (listProviders as unknown as Mock).mockResolvedValue({
+      schemaVersion: 'frisket.providers.v1', tier: 'local', providers: [{
+        id: 'openai', label: 'OpenAI', kind: 'platform_api', configured: true, source: 'env', hint: null,
+        models: [{ id: 'openai/gpt-5-mini', label: 'GPT-5 mini', price: null }],
+      }],
+    } satisfies LocalProviderCatalog);
+    const { onExecute } = mountClassify({ sheet: summarySheet() });
+
+    await chooseActionSelector('openai/gpt-5-mini');
+    await waitFor(() => expect(selectorTrigger()).toHaveTextContent('GPT-5 mini'));
+    await chooseActionSelector(engineLabel);
+    await waitFor(() => expect(selectorTrigger()).toHaveTextContent(engineLabel));
+    await user.type(screen.getByTestId('classify-labels'), 'news, opinion');
+    await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
+    await user.click(screen.getByTestId('generated-action-run'));
+
+    expect(onExecute).toHaveBeenCalledTimes(1);
+    expect(onExecute.mock.calls[0][0].params).toMatchObject({
+      engine: engineId,
+      model: null,
     });
   });
 

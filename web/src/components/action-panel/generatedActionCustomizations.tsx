@@ -299,7 +299,7 @@ const EXACT_CUSTOMIZATIONS = {
     body: ClassifyParamsBody,
     inlineDiagnosticFields: (params): readonly GeneratedFieldName<'map.classify'>[] => [
       'source', 'engine', 'fields', 'context',
-      ...((params.engine ?? 'local_semantic') === 'local_semantic'
+      ...(['local_semantic', 'gliclass', 'jeff'].includes(String(params.engine ?? 'local_semantic'))
         ? [] : ['include_confidence', 'include_justification'] as const),
     ],
     initialParams: { fields: [{ name: 'category', type: 'category', labels: [], description: '' }] },

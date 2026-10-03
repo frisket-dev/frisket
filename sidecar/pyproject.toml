@@ -49,6 +49,19 @@ ocr-paddle = [
 convert = [
     "docling>=2.97.0",
 ]
+# GLiClass Base and the vendored Jeff inference adapter share this exact CPU
+# profile. It is installed only in Frisket's versioned classifier environment;
+# the default sidecar sync remains light and model weights stay separate.
+classify = [
+    "gliclass==0.1.20",
+    "torch==2.14.0",
+    "torchvision==0.29.0",
+    "transformers==5.17.0",
+    "pillow==12.3.0",
+    "safetensors==0.8.0",
+    "numpy==2.5.3",
+    "huggingface-hub==1.31.0",
+]
 # Chandra 2 (Datalab, github.com/datalab-to/chandra) is a Qwen-VL-derived
 # document VLM joining docling on /to-markdown as a second experimental
 # engine. Its OWN extra, engine-
@@ -100,6 +113,46 @@ exclude-newer = "1 week"
 # dependency bounds. ``all`` includes FastEmbed, so keep those combinations
 # explicitly separate while allowing operators to install both OCR engines.
 conflicts = [
+    [
+        # Classifiers are installed into their own versioned environment, not
+        # combined with any resident sidecar engine extra. Besides preserving
+        # that boundary, this avoids Surya's Pillow <11 and Paddle's NumPy
+        # <2.4 bounds conflicting with the evaluated classifier pins.
+        { extra = "classify" },
+        { extra = "all" },
+    ],
+    [
+        { extra = "classify" },
+        { extra = "convert" },
+    ],
+    [
+        { extra = "classify" },
+        { extra = "convert-chandra" },
+    ],
+    [
+        { extra = "classify" },
+        { extra = "embed" },
+    ],
+    [
+        { extra = "classify" },
+        { extra = "ner" },
+    ],
+    [
+        { extra = "classify" },
+        { extra = "ocr" },
+    ],
+    [
+        { extra = "classify" },
+        { extra = "ocr-paddle" },
+    ],
+    [
+        { extra = "classify" },
+        { extra = "rerank" },
+    ],
+    [
+        { extra = "classify" },
+        { extra = "transcribe" },
+    ],
     [
         { extra = "ocr" },
         { extra = "all" },

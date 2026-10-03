@@ -454,6 +454,108 @@ def _local_semantic_action(sheet_id: int, *, idempotency_key: str) -> dict[str, 
     }
 
 
+def _native_classifier_action(
+    sheet_id: int, *, engine: str, idempotency_key: str
+) -> dict[str, Any]:
+    return {
+        "action_id": "map.classify",
+        "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
+        "params": {
+            "source": ["story"],
+            "engine": engine,
+            "context": "City accountability desk.",
+            "fields": [
+                {
+                    "name": "topic",
+                    "labels": ["accountability", "infrastructure"],
+                    "description": "Primary beat.",
+                },
+                {"name": "urgency", "labels": ["urgent", "routine"]},
+            ],
+        },
+        "idempotency_key": idempotency_key,
+    }
+
+
+@pytest.mark.parametrize("engine", ["gliclass", "jeff"])
+def test_map_classify_native_engine_is_free_and_publishes_review_scores(
+    engine: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from frisket.contracts.classification import LOCAL_CLASSIFIERS
+    from frisket.actions.system import typed_action_for_request
+    from frisket.engine.executor import classify_read
+    from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
+    from frisket.engine.runner.review import review_queue
+    from frisket.engine.runner.validation import estimate_run
+    from frisket.engine.store.runs import RunResultStore
+
+    calls: list[dict[str, Any]] = []
+    closed: list[bool] = []
+
+    class Session:
+        def __init__(self, engine_id: str, *, cancelled=None) -> None:  # noqa: ANN001
+            assert engine_id == engine
+            assert callable(cancelled)
+
+        async def classify(
+            self,
+            text,
+            labels,
+            *,
+            descriptions,
+            instruction,  # noqa: ANN001
+        ) -> dict[str, Any]:
+            calls.append(
+                {
+                    "text": text,
+                    "labels": labels,
+                    "descriptions": descriptions,
+                    "instruction": instruction,
+                }
+            )
+            label = labels[0] if "no-bid" in text else labels[1]
+            return {
+                "label": label,
+                "score": 0.73,
+                "model_revision": LOCAL_CLASSIFIERS[engine].revision,
+            }
+
+        async def aclose(self) -> None:
+            closed.append(True)
+
+    monkeypatch.setattr(classify_read, "_new_classifier_session", Session)
+    with case_env(CASES[0], tmp_path, monkeypatch) as env:
+        _REQUESTS.clear()
+        action = _native_classifier_action(
+            env.seeded["sheet_id"],
+            engine=engine,
+            idempotency_key=f"map_classify_{engine}@sha256:native",
+        )
+        plan = build_typed_map_rows_plan(env.project, typed_action_for_request(action))
+        estimate = estimate_run(env.project, plan.spec_dict(), program=plan.program)
+        assert estimate["cost"] == 0.0
+        assert estimate["cost_source"] == "free_local"
+        assert calls == []
+
+        result = env.run(action)
+
+        assert result.status == "completed", result.errors
+        assert result.run_id is not None
+        assert _REQUESTS == []
+        assert RunResultStore(env.project).model_calls(result.run_id) == []
+        run = env.project.db.execute(
+            "SELECT model, cost_actual FROM runs WHERE id=?", (result.run_id,)
+        ).fetchone()
+        assert run["model"] == LOCAL_CLASSIFIERS[engine].model_identity
+        assert run["cost_actual"] == 0.0
+        assert {output.name for output in result.outputs} == {"topic", "urgency"}
+        queue = review_queue(env.project, sheet_id=env.seeded["sheet_id"])
+        assert len(queue) == 4
+        assert {item["confidence"] for item in queue} == {0.73}
+        assert all("City accountability desk." in call["instruction"] for call in calls)
+    assert closed == [True]
+
+
 @pytest.mark.parametrize("retired_name", ["minimum_similarity", "minimum_margin"])
 def test_map_classify_contract_rejects_retired_review_thresholds(
     retired_name: str,

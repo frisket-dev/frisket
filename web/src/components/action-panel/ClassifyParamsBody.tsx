@@ -5,9 +5,14 @@ import { StructuredFieldsEditor } from './StructuredFieldsEditor';
 type ClassifyField = GeneratedActionParams['map.classify']['fields'][number];
 const FIELD_TYPES: readonly NonNullable<ClassifyField['type']>[] = ['category', 'score', 'integer', 'number', 'boolean', 'text'];
 
-export function ClassifyParamsBody({ params, setParams, errors, Field, onParamInteraction }:
+export function ClassifyParamsBody({ params, setParams, errors, Field, onParamInteraction, engine }:
   GeneratedActionParamsBodyProps<'map.classify'>) {
   const local = (params.engine ?? 'local_semantic') === 'local_semantic';
+  const options = engine?.classification_options;
+  const fieldTypes = options?.field_types ?? (local ? ['category'] : FIELD_TYPES);
+  const maxFields = options?.max_fields ?? (local ? 1 : 64);
+  const includesConfidence = options?.include_confidence ?? !local;
+  const includesJustification = options?.include_justification ?? !local;
   const fieldsDiagnostic = errors.fields?.ok === false ? errors.fields : null;
   const labelsFieldIndex = fieldsDiagnostic?.path?.length === 2
     && typeof fieldsDiagnostic.path[0] === 'number'
@@ -16,8 +21,8 @@ export function ClassifyParamsBody({ params, setParams, errors, Field, onParamIn
   return <>
     <Field name="source" />
     <Field name="engine" />
-    <StructuredFieldsEditor actionKind="map.classify" maxFields={local ? 1 : 64}
-      fieldTypes={local ? ['category'] : FIELD_TYPES}
+    <StructuredFieldsEditor actionKind="map.classify" maxFields={maxFields}
+      fieldTypes={fieldTypes}
       value={(params.fields ?? []).map((field) => ({
         name: field.name, type: field.type ?? 'category', description: field.description ?? '',
         ...(field.labels?.length ? { labels: field.labels } : {}),
@@ -40,9 +45,7 @@ export function ClassifyParamsBody({ params, setParams, errors, Field, onParamIn
       error={fieldsDiagnostic && labelsFieldIndex === null
         ? fieldsDiagnostic.message : undefined} />
     <Field name="context" />
-    {!local && <>
-      <Field name="include_confidence" />
-      <Field name="include_justification" />
-    </>}
+    {includesConfidence && <Field name="include_confidence" />}
+    {includesJustification && <Field name="include_justification" />}
   </>;
 }

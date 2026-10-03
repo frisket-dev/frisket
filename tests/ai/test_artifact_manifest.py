@@ -94,6 +94,50 @@ def test_shipped_manifest_entries_are_well_formed():
             assert f.source.startswith("https://")
 
 
+def test_local_classifier_snapshots_are_exactly_pinned():
+    expected = {
+        am.GLICLASS_REF: (
+            "knowledgator/gliclass-base-v3.0",
+            "77a70e6cd52e602ed18184ef37d18bdd3741e3d5",
+            (
+                "added_tokens.json",
+                "config.json",
+                "model.safetensors",
+                "special_tokens_map.json",
+                "tokenizer.json",
+                "tokenizer_config.json",
+            ),
+            754_867_256,
+        ),
+        am.JEFF_REF: (
+            "mstrasser/Jeff-Qwen3.5-0.8B",
+            "f0a2b523f1b64c567d4628fadd60caea03cc6847",
+            (
+                "chat_template.jinja",
+                "config.json",
+                "decision_config.json",
+                "model.safetensors",
+                "processor_config.json",
+                "readout.safetensors",
+                "tokenizer.json",
+                "tokenizer_config.json",
+            ),
+            1_726_558_966,
+        ),
+    }
+    assert am.gliclass_artifact() is am.lookup(am.GLICLASS_REF)
+    assert am.jeff_artifact() is am.lookup(am.JEFF_REF)
+    for ref, (repo, revision, files, size) in expected.items():
+        artifact = am.lookup(ref)
+        assert artifact is not None
+        assert artifact.license == "Apache-2.0"
+        assert artifact.approx_size_bytes == size
+        assert artifact.hf_snapshot is not None
+        assert artifact.hf_snapshot.repo_id == repo
+        assert artifact.hf_snapshot.revision == revision
+        assert artifact.hf_snapshot.files == files
+
+
 def test_opus_mt_source_url_shape():
     url = am.opus_mt_source_url("en", "es", "abc123", "model.bin")
     assert url == (

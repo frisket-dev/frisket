@@ -13,6 +13,25 @@ import pytest
 from frisket.runtime.launch import PythonRuntime, worker_argv
 
 
+def test_classifier_policy_only_accepts_owned_optional_runtime(monkeypatch, tmp_path):
+    from frisket.runtime import classifier_install
+    from frisket.runtime.launch import is_worker_argv, with_policy
+
+    owned = tmp_path / "classifier-python"
+    monkeypatch.setattr(classifier_install, "runtime_python", lambda: owned)
+    command = worker_argv("runtime-info")
+    command[0] = str(owned)
+    command[3] = "classifier-session"
+    assert is_worker_argv(command)
+    assert "--policy" in with_policy(command, {"version": 1})
+    command[3] = "plugin"
+    assert not is_worker_argv(command)
+    command[3] = "classifier-session"
+    command[0] = str(tmp_path / "arbitrary-python")
+    with pytest.raises(ValueError, match="managed Python"):
+        with_policy(command, {"version": 1})
+
+
 def test_private_interpreter_loads_separate_app_not_ambient_pythonpath(tmp_path):
     environment = tmp_path / "private Python"
     venv.EnvBuilder(with_pip=False).create(environment)

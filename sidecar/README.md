@@ -14,6 +14,32 @@ Docling adapter below, packaged in the `frisket-data` wheel with optional
 An explicitly configured external server takes precedence. The container and
 Team/Cloud deployment paths remain operator-managed.
 
+## Local classification
+
+**Classify** offers GLiClass Base v3 and Jeff 0.8B alongside semantic and LLM
+classification. Choose either in the engine picker and use **Download and set
+up**. Frisket installs a separate CPU runtime shared by the two classifiers,
+then downloads only the selected model. No API key or separately started server
+is needed. Weights and Torch are not bundled into Frisket Desktop or the core
+Python install.
+
+Both engines choose one label for each category field. Label descriptions and
+dataset context help explain the choices. Their native scores are saved for
+review; these are model scores, not measured accuracy. They do not generate
+justifications or perform numeric scoring, extraction, or judging.
+
+GLiClass accepts up to 512 tokens across text, instructions, and labels; Jeff
+accepts up to 8,192. Oversized inputs fail with an explanation rather than
+silently losing the end of a document. Model downloads are approximately
+755 MB and 1.73 GB respectively, plus the shared runtime. Jeff uses substantially
+more memory than GLiClass (about 5.4 GiB versus 1.4 GiB in our Linux CPU check).
+
+The `classify` extra owns the heavy dependencies and the pinned Jeff inference
+adaptation; Frisket invokes these adapters through a supervised local worker,
+not a new gateway route. Inference reads cached snapshots with networking
+disabled. Upstream Jeff attribution is in
+`src/frisket_models/classification/LICENSE.jeff`.
+
 Design:
 
 - **Stateless.** The app POSTs blob *bytes* (multipart) — this service may be

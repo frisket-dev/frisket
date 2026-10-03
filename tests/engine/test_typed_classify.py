@@ -21,6 +21,14 @@ from frisket.actions.classify import (
     classify_row,
 )
 from frisket.actions.types import DynamicOutput, Outcome, Row, RowError, RowResult
+from frisket.contracts.classification import (
+    GLICLASS_ENGINE_ID,
+    GLICLASS_MODEL_REVISION,
+    JEFF_ENGINE_ID,
+    JEFF_MODEL_REVISION,
+    LOCAL_CLASSIFIERS,
+    ClassifierError,
+)
 from frisket.engine.executor.classify_read import (
     LOCAL_SEMANTIC_CHUNK_CHARS,
     LOCAL_SEMANTIC_MAX_CHUNKS,
@@ -71,12 +79,25 @@ def _llm(**overrides: Any) -> ClassifyParams:
     return ClassifyParams.model_validate(payload)
 
 
+def _native(engine: str, **overrides: Any) -> ClassifyParams:
+    payload: dict[str, Any] = {
+        "source": ["story"],
+        "engine": engine,
+        "context": "Classify city news for the accountability desk.",
+        "fields": [TOPIC_FIELD],
+    }
+    payload.update(overrides)
+    return ClassifyParams.model_validate(payload)
+
+
 # --- (a) Params validation -------------------------------------------------
 
 
 def test_engine_is_symbolic_and_defaults_to_the_free_engine() -> None:
     assert _local().engine.root == "local_semantic"
-    with pytest.raises(ValidationError, match="local_semantic or llm"):
+    assert _native(GLICLASS_ENGINE_ID).engine.root == GLICLASS_ENGINE_ID
+    assert _native(JEFF_ENGINE_ID).engine.root == JEFF_ENGINE_ID
+    with pytest.raises(ValidationError, match="gliclass"):
         _local(engine="fastembed")
 
 
@@ -102,6 +123,54 @@ def test_local_semantic_requires_exactly_one_category_field() -> None:
     with pytest.raises(ValidationError, match="only the winning label"):
         _local(include_justification=True)
     assert len(_llm().fields) == 2
+
+
+@pytest.mark.parametrize("engine", [GLICLASS_ENGINE_ID, JEFF_ENGINE_ID])
+def test_native_classifiers_allow_multiple_category_fields_only(engine: str) -> None:
+    fields = [
+        TOPIC_FIELD,
+        {"name": "urgency", "labels": ["urgent", "routine"]},
+    ]
+    assert [field.name for field in _native(engine, fields=fields).fields] == [
+        "topic",
+        "urgency",
+    ]
+    with pytest.raises(ValidationError, match="category fields"):
+        _native(engine, fields=[{"name": "risk", "type": "score"}])
+    with pytest.raises(ValidationError, match="at least two labels"):
+        _native(engine, fields=[{"name": "topic", "labels": ["only"]}])
+    with pytest.raises(ValidationError, match="does not use a model"):
+        _native(engine, model="anthropic/claude-haiku-4-5")
+    with pytest.raises(ValidationError, match="companion outputs"):
+        _native(engine, include_confidence=True)
+    with pytest.raises(ValidationError, match="companion outputs"):
+        _native(engine, include_justification=True)
+
+
+def test_native_classifier_limits_match_the_pinned_runtime_contract() -> None:
+    assert LOCAL_CLASSIFIERS[GLICLASS_ENGINE_ID].revision == GLICLASS_MODEL_REVISION
+    assert LOCAL_CLASSIFIERS[GLICLASS_ENGINE_ID].token_limit == 512
+    assert LOCAL_CLASSIFIERS[GLICLASS_ENGINE_ID].label_limit == 255
+    assert LOCAL_CLASSIFIERS[JEFF_ENGINE_ID].revision == JEFF_MODEL_REVISION
+    assert LOCAL_CLASSIFIERS[JEFF_ENGINE_ID].token_limit == 8192
+    assert LOCAL_CLASSIFIERS[JEFF_ENGINE_ID].label_limit == 254
+
+    labels = [f"label {index}" for index in range(255)]
+    with pytest.raises(ValidationError, match="at most 254 labels"):
+        _native(JEFF_ENGINE_ID, fields=[{"name": "topic", "labels": labels}])
+    assert (
+        len(
+            _native(GLICLASS_ENGINE_ID, fields=[{"name": "topic", "labels": labels}])
+            .fields[0]
+            .labels
+        )
+        == 255
+    )
+    with pytest.raises(ValidationError, match="at most 255 labels"):
+        _native(
+            GLICLASS_ENGINE_ID,
+            fields=[{"name": "topic", "labels": [*labels, "label 255"]}],
+        )
 
 
 def test_category_labels_must_be_unique_non_empty_and_describe_labels() -> None:
@@ -507,6 +576,146 @@ async def test_global_fence_refuses_before_fastembed_without_opt_in(
             "A story requiring classification",
             (ClassifyField(name="topic", labels=["news", "other"]),),
         )
+
+
+class _StubClassifierSession:
+    def __init__(
+        self,
+        replies: list[dict[str, Any] | ClassifierError],
+    ) -> None:
+        self.replies = list(replies)
+        self.calls: list[dict[str, Any]] = []
+        self.closed = False
+
+    async def classify(
+        self,
+        text: str,
+        labels: list[str],
+        *,
+        descriptions: dict[str, str],
+        instruction: str,
+    ) -> dict[str, Any]:
+        self.calls.append(
+            {
+                "text": text,
+                "labels": labels,
+                "descriptions": descriptions,
+                "instruction": instruction,
+            }
+        )
+        reply = self.replies.pop(0)
+        if isinstance(reply, ClassifierError):
+            raise reply
+        return reply
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("engine", [GLICLASS_ENGINE_ID, JEFF_ENGINE_ID])
+async def test_native_classifier_publishes_scores_for_each_field(
+    engine: str,
+) -> None:
+    revision = LOCAL_CLASSIFIERS[engine].revision
+    session = _StubClassifierSession(
+        [
+            {"label": "infrastructure", "score": 0.82, "model_revision": revision},
+            {"label": "urgent", "score": 0.61, "model_revision": revision},
+        ]
+    )
+    fields = (
+        ClassifyField.model_validate({**TOPIC_FIELD, "description": "Primary beat."}),
+        ClassifyField(name="urgency", labels=["urgent", "routine"]),
+    )
+    classifier = AdmittedClassifier(
+        engine=engine,
+        context="City newsroom.",
+        session_factory=lambda _engine, *, cancelled: session,
+    )
+
+    outcomes = await classifier.classify(Row({}), STORY_B, fields)
+
+    assert outcomes == {
+        "topic": Outcome.ok("infrastructure", confidence=0.82),
+        "urgency": Outcome.ok("urgent", confidence=0.61),
+    }
+    assert session.calls[0] == {
+        "text": STORY_B,
+        "labels": list(fields[0].labels),
+        "descriptions": dict(fields[0].label_descriptions),
+        "instruction": (
+            "Choose the single label that best describes the text.\n\n"
+            "Dataset context: City newsroom.\n\nField: Primary beat."
+        ),
+    }
+    assert session.calls[1]["instruction"].endswith("Dataset context: City newsroom.")
+    await classifier.aclose()
+    assert session.closed is True
+
+
+@pytest.mark.asyncio
+async def test_native_classifier_refuses_blank_and_preserves_long_text() -> None:
+    long_text = "unabridged " * 20_000
+    session = _StubClassifierSession(
+        [ClassifierError("classify_input_too_long", "Input exceeds 512 tokens.")]
+    )
+    classifier = AdmittedClassifier(
+        engine=GLICLASS_ENGINE_ID,
+        session_factory=lambda _engine, *, cancelled: session,
+    )
+    with pytest.raises(RowError) as blank:
+        await classifier.classify(Row({}), " \n\t", TOPIC)
+    assert blank.value.code == "classify_input_empty"
+    assert session.calls == []
+
+    with pytest.raises(RowError) as too_long:
+        await classifier.classify(Row({}), long_text, TOPIC)
+    assert too_long.value.code == "classify_input_too_long"
+    assert session.calls[0]["text"] == long_text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("reply", "code"),
+    [
+        (
+            {
+                "label": "not submitted",
+                "score": 0.7,
+                "model_revision": GLICLASS_MODEL_REVISION,
+            },
+            "classify_output_invalid",
+        ),
+        (
+            {
+                "label": "accountability",
+                "score": 1.1,
+                "model_revision": GLICLASS_MODEL_REVISION,
+            },
+            "classify_output_invalid",
+        ),
+        (
+            {
+                "label": "accountability",
+                "score": 0.7,
+                "model_revision": "wrong-revision",
+            },
+            "classify_model_mismatch",
+        ),
+    ],
+)
+async def test_native_classifier_fails_closed_on_invalid_worker_output(
+    reply: dict[str, Any], code: str
+) -> None:
+    session = _StubClassifierSession([reply])
+    classifier = AdmittedClassifier(
+        engine=GLICLASS_ENGINE_ID,
+        session_factory=lambda _engine, *, cancelled: session,
+    )
+    with pytest.raises(RowError) as raised:
+        await classifier.classify(Row({}), STORY_A, TOPIC)
+    assert raised.value.code == code
 
 
 # --- (e) classify_row end to end --------------------------------------------
