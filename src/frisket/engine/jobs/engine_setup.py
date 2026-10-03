@@ -7,6 +7,7 @@ import os
 import subprocess
 from collections.abc import Callable
 
+from frisket.contracts.classification import LOCAL_CLASSIFIERS
 from frisket.engine.jobs import model_pull_store
 
 PARAKEET_TDT_SETUP_REF = "engine-setup:parakeet-tdt.local-onnx@1"
@@ -14,7 +15,9 @@ DOCLING_SETUP_REF = "engine-setup:docling.local@1"
 
 
 def is_engine_setup_ref(ref: str) -> bool:
-    return ref in {PARAKEET_TDT_SETUP_REF, DOCLING_SETUP_REF}
+    return ref in {PARAKEET_TDT_SETUP_REF, DOCLING_SETUP_REF} or any(
+        ref == spec.setup_ref for spec in LOCAL_CLASSIFIERS.values()
+    )
 
 
 def run_engine_setup(
@@ -33,6 +36,15 @@ def run_engine_setup(
     row = model_pull_store.get(engine, pull_id)
     if row is None:
         raise LookupError(f"engine setup row {pull_id} does not exist")
+    for engine_id, spec in LOCAL_CLASSIFIERS.items():
+        if row.model_ref == spec.setup_ref:
+            return _run_classifier_setup(
+                engine_id=engine_id,
+                engine=engine,
+                pull_id=pull_id,
+                should_cancel=should_cancel,
+                is_final_attempt=is_final_attempt,
+            )
     if row.model_ref == DOCLING_SETUP_REF:
         return _run_docling_setup(
             engine=engine,
@@ -80,6 +92,63 @@ def run_engine_setup(
         model_pull_store.mark_cancelled(engine, pull_id)
         return {"status": "cancelled"}
     model_pull_store.mark_done(engine, pull_id)
+    return {"status": "done"}
+
+
+def _run_classifier_setup(
+    *,
+    engine_id: str,
+    engine,
+    pull_id: int,
+    should_cancel: Callable[[], bool],
+    is_final_attempt: bool,
+) -> dict[str, object]:
+    from frisket.engine._workers.classifier_artifacts import (
+        cached_classifier_path,
+        classifier_artifact,
+    )
+    from frisket.engine.jobs.artifact_pull import _run_hf_snapshot_pull
+    from frisket.engine.jobs.model_pull import _fail
+    from frisket.runtime.classifier_install import install_classifiers
+    from frisket.runtime.model_install import ModelInstallCancelled
+
+    try:
+        model_pull_store.update_progress(
+            engine,
+            pull_id,
+            phase="provisioning",
+            total_bytes=None,
+            completed_bytes=None,
+        )
+        install_classifiers(should_cancel=should_cancel, progress=lambda _: None)
+        artifact = classifier_artifact(engine_id)
+        result = _run_hf_snapshot_pull(
+            engine,
+            pull_id,
+            artifact,
+            should_cancel=should_cancel,
+            is_final_attempt=is_final_attempt,
+            mark_done=False,
+        )
+        if result.get("status") == "cancelled" or should_cancel():
+            raise ModelInstallCancelled
+        if cached_classifier_path(engine_id) is None:
+            raise RuntimeError("the classifier snapshot is incomplete")
+    except ModelInstallCancelled:
+        model_pull_store.mark_cancelled(engine, pull_id)
+        return {"status": "cancelled"}
+    except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+        raise _fail(
+            engine,
+            pull_id,
+            error_code="engine_setup_unavailable",
+            message="Could not set up the local classifier. Check your connection and available disk space, then retry.",
+            terminal=False,
+            is_final_attempt=is_final_attempt,
+        ) from exc
+    model_pull_store.mark_done(
+        engine, pull_id, resolved_digest=artifact.composite_digest
+    )
     return {"status": "done"}
 
 

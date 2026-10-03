@@ -275,6 +275,7 @@ def _run_hf_snapshot_pull(
     *,
     should_cancel: Callable[[], bool],
     is_final_attempt: bool,
+    mark_done: bool = True,
 ) -> dict:
     """Provision an ``hf_snapshot`` (revision-pinned) artifact for a durable
     pull row -- a THIN delegation to ``huggingface_hub.snapshot_download``.
@@ -414,12 +415,13 @@ def _run_hf_snapshot_pull(
             terminal=False,
             is_final_attempt=is_final_attempt,
         ) from None
-    model_pull_store.mark_done(
-        engine,
-        pull_id,
-        resolved_digest=pinned.composite_digest,
-        resolved_size=None,
-    )
+    if mark_done:
+        model_pull_store.mark_done(
+            engine,
+            pull_id,
+            resolved_digest=pinned.composite_digest,
+            resolved_size=None,
+        )
     return {"status": "done"}
 
 
