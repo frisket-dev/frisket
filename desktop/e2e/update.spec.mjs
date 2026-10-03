@@ -1,5 +1,5 @@
 import { test, expect, _electron } from '@playwright/test';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import {
@@ -189,6 +189,7 @@ test('signed installed baseline updates through its native updater and preserves
   expect(targetVersion).not.toBe('0.0.0');
   const feed = await serveUpdateFeed(targetDist);
   expect(feed.metadata.version).toBe(targetVersion);
+  await rm(path.join(profile, 'update-preferences.json'), { force: true });
   let running;
   try {
     const baseline = await launch(feed, testInfo);
