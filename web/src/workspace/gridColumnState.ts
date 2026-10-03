@@ -14,6 +14,7 @@ import type {
   GridFilterValue,
   GridSortDirection,
   GridSortSpec,
+  ColumnDef,
   SheetMeta,
 } from '../api/open';
 
@@ -308,6 +309,59 @@ export function loadFrozenColumnCount(
 export function hasCustomColumnOrder(order: string[] | null | undefined, sheet: SheetMeta): boolean {
   const normalized = normalizeColumnOrder(order, sheet);
   return normalized.some((name, index) => sheet.columns[index]?.name !== name);
+}
+
+/**
+ * Keep sibling outputs from one AI run contiguous in the default grid order.
+ * A saved view or drag order is intentional and remains exact.
+ */
+export function coalesceDefaultRunColumnGroups(
+  order: string[] | null | undefined,
+  sheet: SheetMeta,
+): ColumnDef[] {
+  const normalized = normalizeColumnOrder(order, sheet);
+  const byName = new Map(sheet.columns.map((column) => [column.name, column]));
+  if (hasCustomColumnOrder(normalized, sheet)) {
+    return normalized.flatMap((name) => {
+      const column = byName.get(name);
+      return column ? [column] : [];
+    });
+  }
+
+  const siblingsByRunId = new Map<string, string[]>();
+  for (const name of normalized) {
+    const column = byName.get(name);
+    if (!column?.ai || column.latestRunId == null) continue;
+    const runId = column.latestRunId;
+    const key = String(runId);
+    const siblings = siblingsByRunId.get(key) ?? [];
+    siblings.push(name);
+    siblingsByRunId.set(key, siblings);
+  }
+
+  const emittedRuns = new Set<string>();
+  const grouped: string[] = [];
+  for (const name of normalized) {
+    const column = byName.get(name);
+    if (!column?.ai || column.latestRunId == null) {
+      grouped.push(name);
+      continue;
+    }
+    const runId = column.latestRunId;
+    const key = String(runId);
+    const siblings = siblingsByRunId.get(key) ?? [];
+    if (siblings.length < 2) {
+      grouped.push(name);
+      continue;
+    }
+    if (emittedRuns.has(key)) continue;
+    emittedRuns.add(key);
+    grouped.push(...siblings);
+  }
+  return grouped.flatMap((name) => {
+    const column = byName.get(name);
+    return column ? [column] : [];
+  });
 }
 
 export function normalizeGridFilterSpec(value: unknown): GridFilterSpec | null {

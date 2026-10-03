@@ -4,6 +4,7 @@ import type { GridFilterSpec, SheetMeta } from '../../src/api/types';
 import {
   INVALID_ENTITY_FILTER_VALUE,
   INVALID_IN_FILTER_VALUE,
+  coalesceDefaultRunColumnGroups,
   entityFilterValue,
   exactViewHiddenColumns,
   filterConditionFromDraft,
@@ -29,6 +30,55 @@ const sheet: SheetMeta = {
     { id: '4', name: 'source_raw', type: 'json', defaultHidden: true },
   ],
 };
+
+const classificationAi = {
+  actionName: 'classify',
+  prompt: '',
+  model: '',
+  costSoFar: 0,
+  versions: [],
+};
+
+const splitRunSheet: SheetMeta = {
+  ...sheet,
+  columns: [
+    { id: '1', name: 'source', type: 'text' },
+    { id: '2', name: 'language', type: 'text', ai: classificationAi, latestRunId: '9' },
+    { id: '3', name: 'entities', type: 'json', ai: classificationAi, latestRunId: '8' },
+    { id: '4', name: 'text', type: 'text', ai: classificationAi, latestRunId: '9' },
+    { id: '5', name: 'segments', type: 'json', ai: classificationAi, latestRunId: '9' },
+  ],
+};
+
+describe('default AI run groups', () => {
+  it('coalesces split siblings at the first occurrence without changing sibling order', () => {
+    expect(coalesceDefaultRunColumnGroups(null, splitRunSheet).map((column) => column.name)).toEqual([
+      'source', 'language', 'text', 'segments', 'entities',
+    ]);
+  });
+
+  it('preserves an explicit column order exactly', () => {
+    const explicit = ['segments', 'source', 'language', 'entities', 'text'];
+    expect(coalesceDefaultRunColumnGroups(explicit, splitRunSheet).map((column) => column.name))
+      .toEqual(explicit);
+  });
+
+  it('keeps distinct runs separate even when they share an action', () => {
+    const twoRuns: SheetMeta = {
+      ...splitRunSheet,
+      columns: [
+        { id: '1', name: 'source', type: 'text' },
+        { id: '2', name: 'summary', type: 'text', ai: classificationAi, latestRunId: '8' },
+        { id: '3', name: 'language', type: 'text', ai: classificationAi, latestRunId: '9' },
+        { id: '4', name: 'entities', type: 'json', ai: classificationAi, latestRunId: '8' },
+        { id: '5', name: 'text', type: 'text', ai: classificationAi, latestRunId: '9' },
+      ],
+    };
+    expect(coalesceDefaultRunColumnGroups(null, twoRuns).map((column) => column.name)).toEqual([
+      'source', 'summary', 'entities', 'language', 'text',
+    ]);
+  });
+});
 
 describe('default-hidden grid columns', () => {
   beforeEach(() => localStorage.clear());
