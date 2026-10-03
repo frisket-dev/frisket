@@ -43,7 +43,6 @@ import {
 const DEFAULT_ENGINE_IDS = ['faster_whisper', 'parakeet-tdt'];
 
 const DEFAULT_MODEL_SIZE = DEFAULT_TRANSCRIBE_MODEL_SIZE;
-const MODEL_SIZE_PRESETS = ['tiny', 'base', 'small', 'medium', 'large-v3'];
 const DEFAULT_VAD = DEFAULT_TRANSCRIBE_VAD;
 
 function optionsOf(column: CompareColumn): TranscribeVariantOptions {
@@ -403,6 +402,8 @@ function TranscribeOptionFields({
   const options = optionsOf(column);
   const fields = transcribeFieldsForEngine(engine);
   const activeTarget = transcribeActiveTarget(engine);
+  const modelSizes = activeTarget?.sizes ?? [];
+  const hasModelSizeOptions = fields.modelSize && modelSizes.length > 0;
   const targetBindingMissing = Boolean(engine && !activeTarget);
   const semanticDiarization = engine?.diarization;
   const semanticDiarizationMode = resolveTranscribeDiarizationMode(semanticDiarization);
@@ -420,7 +421,7 @@ function TranscribeOptionFields({
   ];
   if (
     !fields.language
-    && !fields.modelSize
+    && !hasModelSizeOptions
     && !fields.vad
     && fields.diarizationMode === 'none'
     && !targetDiarizationUnavailable
@@ -475,11 +476,11 @@ function TranscribeOptionFields({
           </PanelSelect>
         </label>
       ) : null}
-      {fields.modelSize ? (
+      {hasModelSizeOptions ? (
         <div className="ocr-compare-configure-field">
           <span className="ocr-compare-configure-label">Model size</span>
           <div className="ocr-compare-dpi-pills" data-testid="transcribe-compare-model-pills">
-            {MODEL_SIZE_PRESETS.map((size) => (
+            {modelSizes.map((size) => (
               <button
                 type="button"
                 key={size}

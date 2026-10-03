@@ -738,17 +738,23 @@ function GeneratedActionFormContents({
   const publishSelectorChoice = (field: string, choice: SelectorChoice | null) => {
     setSelectorCurrentChoice(choice);
     // A server default makes an otherwise blank required selector executable.
-    // Do not rewrite an explicit, partial, or orphaned authored selection:
-    // a combined engine/model choice is one atomic selection owner.
+    // A combined choice may already have a compatible schema-default leaf;
+    // never overwrite an explicit conflicting or orphaned authored selection.
     if (!choice?.is_default) return;
     const updates = selectorUpdates(field, choice);
-    // A saved optional selector default is display/readiness metadata, not an
-    // authored request value. Required selector leaves still need the served
-    // default, including fresh derived forms that provide an initial draft.
-    if (!updates || !Object.keys(updates).some((name) => required.has(name))) return;
-    if (!Object.keys(updates).every((name) => (
-      draft[name] === undefined || draft[name] === ''
-    ))) return;
+    const entries = Object.entries(updates ?? {});
+    // Saved optional defaults are display/readiness metadata, not authored
+    // request values. Required leaves still need the served default; a fresh
+    // combined selector must also keep its displayed engine/model pair atomic.
+    const completesFreshCombinedChoice = initialDraft === undefined
+      && choice.authored_selection.kind === 'engine_model';
+    if (!updates
+      || (!entries.some(([name]) => required.has(name)) && !completesFreshCombinedChoice)) return;
+    const isUnset = (value: CanonicalFieldValue | undefined) => (
+      value === undefined || value === '' || value === null
+    );
+    if (!entries.every(([name, value]) => isUnset(draft[name]) || draft[name] === value)) return;
+    if (!entries.some(([name, value]) => isUnset(draft[name]) && draft[name] !== value)) return;
     setResolved((current) => ({
       ...current,
       diagnostics: {},

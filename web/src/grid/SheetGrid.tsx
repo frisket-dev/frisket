@@ -73,6 +73,7 @@ import { isActiveRunStatus, isStreamingRunStatus } from '../runStatusModel';
 import { usePoll } from '../hooks/usePoll';
 import { PanelLoading } from '../components/PanelPrimitives';
 import { createAudioPlaybackSource } from '../state/audioPlaybackStore';
+import { coalesceDefaultRunColumnGroups } from '../workspace/gridColumnState';
 import { previewGridCell } from './previewCells';
 import {
   consumeGridCellReveal,
@@ -444,19 +445,10 @@ function useColumnModel(
   const [colWidthsBySheet, setColWidthsBySheet] = useState<Record<string, Record<string, number>>>({});
   const colWidths = colWidthsBySheet[sheet.id] ?? stored;
   const hiddenNames = useMemo(() => new Set(hiddenColumnNames), [hiddenColumnNames]);
-  const orderedSheetColumns = useMemo(() => {
-    if (!columnOrder?.length) return sheet.columns;
-    const byName = new Map(sheet.columns.map((col) => [col.name, col]));
-    const ordered: ColumnDef[] = [];
-    const seen = new Set<string>();
-    for (const name of columnOrder) {
-      const col = byName.get(name);
-      if (!col) continue;
-      ordered.push(col);
-      seen.add(col.name);
-    }
-    return [...ordered, ...sheet.columns.filter((col) => !seen.has(col.name))];
-  }, [columnOrder, sheet.columns]);
+  const orderedSheetColumns = useMemo(
+    () => coalesceDefaultRunColumnGroups(columnOrder, sheet),
+    [columnOrder, sheet],
+  );
   const gridColumns = useMemo(
     () => orderedSheetColumns.filter((col) => !hiddenNames.has(col.name)),
     [hiddenNames, orderedSheetColumns],

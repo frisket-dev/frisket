@@ -8,6 +8,7 @@ import {
 import { EngineLanguageControl } from './EngineLanguageControl';
 import { TranscribeDiarizationControl } from './TranscribeDiarizationControl';
 import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
+import { PanelSelect } from '../PanelSelect';
 
 const SPEAKER_FIELDS = ['diarize', 'num_speakers', 'min_speakers', 'max_speakers'] as const;
 const TRANSCRIBE_OPTIONS = ['language', 'model_size', 'context', 'vad', 'clean', ...SPEAKER_FIELDS] as const;
@@ -50,6 +51,15 @@ export function TranscribeParamsBody({ params, setParams, setEditorProblem, engi
     semanticDiarizationSupported && !targetDiarization?.supported,
   );
   const targetOptionReason = transcribeActiveTargetOptionReason(engine);
+  const modelSizes = activeTarget?.sizes ?? [];
+  const modelSize = typeof params.model_size === 'string' ? params.model_size : '';
+  const modelSizeOptions = [
+    { value: '', label: 'Default (base)' },
+    ...modelSizes.map((size) => ({ value: size, label: size })),
+    ...(modelSize && !modelSizes.includes(modelSize)
+      ? [{ value: modelSize, label: `Unavailable saved value: ${modelSize}`, disabled: true }]
+      : []),
+  ];
   const previousEngine = useRef(engine?.id);
   useEffect(() => {
     if (previousEngine.current === engine?.id) return;
@@ -116,7 +126,16 @@ export function TranscribeParamsBody({ params, setParams, setEditorProblem, engi
         }
         setParams(next);
       }} />
-    {support.model_size && <Field name="model_size" />}
+    {support.model_size && modelSizes.length > 0 && <div className="param-row">
+      <label className="form-label" htmlFor="transcribe-model-size">Model size</label>
+      <PanelSelect id="transcribe-model-size" testId="field-model_size" value={modelSize}
+        options={modelSizeOptions} onValueChange={(next) => {
+          const updated = { ...params };
+          if (next) updated.model_size = next;
+          else delete updated.model_size;
+          setParams(updated);
+        }} />
+    </div>}
     {support.vad && <>
       <Field name="vad" label="Voice Activity Detection" />
       <p className="form-hint">Only transcribe when speech is detected (reduces hallucinations)</p>

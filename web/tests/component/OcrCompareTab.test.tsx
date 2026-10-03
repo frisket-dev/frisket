@@ -175,4 +175,40 @@ describe('comparison selector ownership', () => {
     expect(screen.getByTestId('transcribe-compare-configure')).toBeVisible();
     expect(screen.queryByTestId('transcribe-compare-add-menu')).not.toBeInTheDocument();
   });
+
+  it('uses the active Whisper target sizes and does not advertise unavailable presets', async () => {
+    vi.mocked(api.listActionCatalog).mockResolvedValue({ actions: [{ kind: 'media.transcribe', ui_hints: {
+      engines: [
+        {
+          id: 'faster_whisper', label: 'Whisper', tier: 'local', available: true, target_id: 'local',
+          transcription_options: { language: true, vad: true, model_size: true },
+          diarization: { supported: false, mode: 'none' },
+          targets: [{
+            target: 'local', target_id: 'local', available: true,
+            transcription_options: { language: true, vad: true, model_size: true },
+            diarization: { supported: false, mode: 'none' },
+            sizes: ['tiny', 'base', 'small', 'medium'],
+          }],
+        },
+        {
+          id: 'parakeet-tdt', label: 'Parakeet', tier: 'local', available: true, target_id: 'local-onnx',
+          transcription_options: { language: false, vad: true, model_size: false },
+          diarization: { supported: false, mode: 'none' },
+          targets: [{
+            target: 'local-onnx', target_id: 'local-onnx', available: true,
+            transcription_options: { language: false, vad: true, model_size: false },
+            diarization: { supported: false, mode: 'none' },
+          }],
+        },
+      ],
+    } }] } as never);
+    const user = userEvent.setup();
+    render(<TranscribeCompareTab onSessionChange={() => undefined} />);
+
+    await waitFor(() => expect(screen.getAllByTestId('transcribe-compare-engine-chip')).toHaveLength(2));
+    await user.click(screen.getAllByTestId('transcribe-compare-variant-gear')[0]);
+    const popover = screen.getByTestId('transcribe-compare-configure');
+    expect(within(popover).getByTestId('transcribe-compare-model-pill-medium')).toBeVisible();
+    expect(within(popover).queryByTestId('transcribe-compare-model-pill-large-v3')).not.toBeInTheDocument();
+  });
 });

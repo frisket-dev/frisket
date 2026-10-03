@@ -176,6 +176,30 @@ describe('typed OCR/transcription forms', () => {
     }
   });
 
+  it('uses the selected target model-size choices without authoring the base default', async () => {
+    const { entry, onExecute } = form('media.transcribe');
+    await choose(entry.ui_hints.engines!.find((engine) => engine.id === 'faster_whisper')!);
+    const modelSize = screen.getByTestId('field-model_size');
+    expect(modelSize).toHaveValue('');
+    expect(Array.from((modelSize as HTMLSelectElement).options).map(({ value }) => value)).toEqual(
+      ['', 'tiny', 'base', 'small', 'medium'],
+    );
+    fireEvent.change(modelSize, { target: { value: 'small' } });
+    await run();
+    expect(onExecute.mock.lastCall?.[0].params).toMatchObject({
+      source: 'clip', engine: 'faster_whisper', model_size: 'small',
+    });
+  });
+
+  it('keeps an invalid saved model size visible without offering a custom value', async () => {
+    form('media.transcribe', {
+      initialDraft: saved('media.transcribe', { engine: 'faster_whisper', model_size: 'large-v3' }),
+    });
+    const modelSize = await screen.findByTestId('field-model_size');
+    expect(modelSize).toHaveValue('large-v3');
+    expect(screen.getByRole('option', { name: 'Unavailable saved value: large-v3' })).toBeDisabled();
+  });
+
   it('derives OCR text boxes from the result column and preserves searchable PDF naming', async () => {
     const { onExecute } = form('media.ocr', { columns: [...sheet.columns,
       columnDef({ id: '3', name: 'ocr_text', type: 'text' })] });
