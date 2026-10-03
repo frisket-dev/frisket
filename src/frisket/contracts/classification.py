@@ -42,7 +42,7 @@ LOCAL_CLASSIFIERS = {
         revision=GLICLASS_MODEL_REVISION,
         setup_ref=GLICLASS_SETUP_REF,
         token_limit=512,
-        label_limit=None,
+        label_limit=255,
     ),
     JEFF_ENGINE_ID: LocalClassifierSpec(
         engine_id=JEFF_ENGINE_ID,

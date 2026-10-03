@@ -491,9 +491,14 @@ class _TypedMapRowsProgram(Recipe):
 
     def run_provenance_model(self, spec):
         if Classifier in getattr(self._terminal, "capabilities", ()):
-            from frisket.engine.executor.classify_read import LOCAL_SEMANTIC_MODEL
+            from frisket.engine.executor.classify_read import (
+                classifier_provenance_model,
+            )
 
-            return f"fastembed/{LOCAL_SEMANTIC_MODEL}"
+            engine = _capability_engine(self._terminal, self._params, Classifier)
+            if engine is None:
+                raise ValueError("Classifier execution requires an admitted engine")
+            return classifier_provenance_model(engine)
         if isinstance(self._terminal, _DirectModelRows):
             return getattr(self._params, self._terminal.engine_param).root
         if routed_capability(self._terminal) is not None:
@@ -557,7 +562,13 @@ class _TypedMapRowsProgram(Recipe):
                 if capability is Classifier:
                     from frisket.engine.executor.classify_read import AdmittedClassifier
 
-                    reader = AdmittedClassifier(cancelled=ctx.extras.get("cancelled"))
+                    reader = AdmittedClassifier(
+                        engine=_capability_engine(
+                            self._terminal, self._params, capability
+                        ),
+                        context=getattr(self._params, "context", ""),
+                        cancelled=ctx.extras.get("cancelled"),
+                    )
                 elif capability is NerExtractor:
                     from frisket.engine.executor.ner_read import AdmittedNerExtractor
 

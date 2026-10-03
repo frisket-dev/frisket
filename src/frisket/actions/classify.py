@@ -27,10 +27,21 @@ from frisket.actions.types import (
     RowResult,
 )
 from frisket.ai.message_content import render_input_block
+from frisket.contracts.classification import (
+    GLICLASS_ENGINE_ID,
+    JEFF_ENGINE_ID,
+    LOCAL_CLASSIFIERS,
+    LOCAL_CLASSIFIER_ENGINE_IDS,
+)
 from frisket.output_names import validate_runner_output_family
 
 
-CLASSIFY_ENGINES = ("local_semantic", "llm")
+CLASSIFY_ENGINES = (
+    "local_semantic",
+    GLICLASS_ENGINE_ID,
+    JEFF_ENGINE_ID,
+    "llm",
+)
 
 Score = Annotated[int, Field(ge=0, le=10)]
 Confidence = Annotated[float, Field(ge=0, le=1)]
@@ -50,7 +61,7 @@ class ClassifyParams(ActionParams):
     engine: EngineRef[Classifier] = Field(
         default=EngineRef[Classifier]("local_semantic"),
         title="Engine",
-        description="Local semantic (FastEmbed) or Model (hosted LLM).",
+        description="Local semantic, GLiClass, Jeff, or Model (hosted LLM).",
     )
     model: ModelRef | None = Field(
         default=None,
@@ -74,7 +85,7 @@ class ClassifyParams(ActionParams):
     @classmethod
     def _known_engine(cls, value: EngineRef[Classifier]) -> EngineRef[Classifier]:
         if value.root not in CLASSIFY_ENGINES:
-            raise ValueError("engine must be local_semantic or llm")
+            raise ValueError(f"engine must be one of {', '.join(CLASSIFY_ENGINES)}")
         return value
 
     @model_validator(mode="after")
@@ -88,11 +99,33 @@ class ClassifyParams(ActionParams):
                 raise ValueError("the llm engine requires a model")
             return self
         if self.model is not None:
-            raise ValueError("the local_semantic engine does not use a model")
-        if len(self.fields) != 1 or self.fields[0].type != "category":
+            raise ValueError(f"the {self.engine.root} engine does not use a model")
+        if self.engine.root == "local_semantic" and (
+            len(self.fields) != 1 or self.fields[0].type != "category"
+        ):
             raise ValueError("local_semantic requires exactly one category field")
-        if self.include_justification or self.include_confidence:
+        if self.engine.root == "local_semantic" and (
+            self.include_justification or self.include_confidence
+        ):
             raise ValueError("local_semantic emits only the winning label")
+        if self.engine.root in LOCAL_CLASSIFIER_ENGINE_IDS:
+            if any(field.type != "category" for field in self.fields):
+                raise ValueError(f"{self.engine.root} supports only category fields")
+            if any(len(field.labels) < 2 for field in self.fields):
+                raise ValueError(
+                    f"{self.engine.root} requires at least two labels per field"
+                )
+            label_limit = LOCAL_CLASSIFIERS[self.engine.root].label_limit
+            if label_limit is not None and any(
+                len(field.labels) > label_limit for field in self.fields
+            ):
+                raise ValueError(
+                    f"{self.engine.root} supports at most {label_limit} labels per field"
+                )
+            if self.include_justification or self.include_confidence:
+                raise ValueError(
+                    f"{self.engine.root} does not declare companion outputs"
+                )
         return self
 
 
