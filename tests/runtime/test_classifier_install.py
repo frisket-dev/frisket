@@ -78,24 +78,27 @@ def test_classifier_install_uses_its_own_profile_and_cpu_dependencies(
         / "venv"
         / ("Scripts/python.exe" if platform == "win32" else "bin/python")
     )
-    assert calls == [
-        [
-            "/bundled/uv",
-            "venv",
-            "--python",
-            model_install.sys.executable,
-            str(profile / "venv"),
-        ],
-        [
-            "/bundled/uv",
-            "pip",
-            "install",
-            "--python",
-            str(expected_python),
-            *(["--torch-backend", "cpu"] if platform != "darwin" else []),
-            f"{source}[classify]",
-        ],
-    ]
+    assert (
+        calls
+        == [
+            [
+                "/bundled/uv",
+                "venv",
+                "--python",
+                model_install.sys.executable,  # subprocess-boundary: verify the private venv uses the running app's interpreter
+                str(profile / "venv"),
+            ],
+            [
+                "/bundled/uv",
+                "pip",
+                "install",
+                "--python",
+                str(expected_python),
+                *(["--torch-backend", "cpu"] if platform != "darwin" else []),
+                f"{source}[classify]",
+            ],
+        ]
+    )
     assert (profile / ".ready").is_file()
     assert not (tmp_path / ".ready").exists()
     assert progress[-1] == "Local classifiers installed"
