@@ -6,7 +6,6 @@ import json
 import os
 import shutil
 import subprocess
-from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
@@ -21,6 +20,8 @@ BEFORE = {
     "text": {"provider/model": [1.0, 2.0]},
     "audio": {},
 }
+REFRESH_DAY = "2026-08-09"
+REFRESH_BRANCH = f"pricing-refresh-{REFRESH_DAY.replace('-', '')}"
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -133,6 +134,21 @@ raise SystemExit(result.returncode)
     )
     git.chmod(0o755)
 
+    date = fake_bin / "date"
+    date.write_text(
+        """#!/usr/bin/env python3
+import os
+import sys
+
+if sys.argv[1:] == ["-u", "+%Y-%m-%d"]:
+    print(os.environ["PRICING_REFRESH_DAY"])
+else:
+    raise SystemExit(f"unexpected date invocation: {sys.argv[1:]}")
+""",
+        encoding="utf-8",
+    )
+    date.chmod(0o755)
+
 
 def _run_workflow(
     tmp_path: Path,
@@ -178,7 +194,7 @@ def _run_workflow(
 
     existing_tip = None
     if existing_branch:
-        branch = f"pricing-refresh-{datetime.now(UTC):%Y%m%d}"
+        branch = REFRESH_BRANCH
         _git(repo, "switch", "-c", branch)
         pricing.write_text(
             json.dumps({**BEFORE, "text": {"provider/model": [1.0, 2.5]}}, indent=2)
@@ -210,9 +226,10 @@ def _run_workflow(
         "REAL_GIT": real_git,
         "INJECT_RACE_BRANCH": "1" if inject_race_branch else "",
         "RACE_REMOTE": str(remote),
-        "RACE_BRANCH": f"pricing-refresh-{datetime.now(UTC):%Y%m%d}",
+        "RACE_BRANCH": REFRESH_BRANCH,
         "RACE_MARKER": str(workflow_tmp / "race-injected"),
         "PRICING_AFTER": str(after_path),
+        "PRICING_REFRESH_DAY": REFRESH_DAY,
     }
     refresh_script = (
         refresh_step["run"]
@@ -368,9 +385,7 @@ def test_same_day_rerun_leaves_one_branch_and_one_pr_unchanged(tmp_path: Path) -
     assert result["branch"] == "main"
     assert result["remote_main_committed"] == BEFORE
     assert result["remote_branch_committed"] == after
-    assert result["remote_refresh_branches"] == [
-        f"pricing-refresh-{datetime.now(UTC):%Y%m%d}"
-    ]
+    assert result["remote_refresh_branches"] == [REFRESH_BRANCH]
     assert [call[:2] for call in result["pr_calls"]] == [
         ["pr", "list"],
         ["pr", "create"],
@@ -502,9 +517,7 @@ def test_branch_created_after_discovery_is_never_advanced(tmp_path: Path) -> Non
         expect_open_pr_success=False,
     )
 
-    assert result["remote_refresh_branches"] == [
-        f"pricing-refresh-{datetime.now(UTC):%Y%m%d}"
-    ]
+    assert result["remote_refresh_branches"] == [REFRESH_BRANCH]
     assert result["remote_tip"] == result["remote_main"]
     assert result["remote_branch_parent"] is None
     assert result["remote_main_committed"] == BEFORE
