@@ -788,6 +788,16 @@ def _recipe_engines(
     effective_router: Any = None,
 ) -> list[dict[str, Any]]:
     if action_kind == "map.classify":
+        from frisket.contracts.classification import (
+            GLICLASS_ENGINE_ID,
+            JEFF_ENGINE_ID,
+            LOCAL_CLASSIFIERS,
+        )
+        from frisket.engine._workers.classifier_artifacts import (
+            classifier_artifact,
+            classifier_ready,
+            classifier_runtime_present,
+        )
         from frisket.semantic import (
             PROVIDERLESS_CLASSIFY_MODEL,
             local_embedder,
@@ -812,35 +822,107 @@ def _recipe_engines(
             has_local_model_endpoint=has_local_model_endpoint,
             effective_router=effective_router,
         )
-        return [
-            _engine(
-                "local_semantic",
-                "Local semantic",
+        local_semantic = _engine(
+            "local_semantic",
+            "Local semantic",
+            tier="local",
+            available=local_ok,
+            error=(
+                None
+                if local_ok
+                else local_error
+                or "Local FastEmbed is unavailable; reinstall Frisket, unset FRISKET_DISABLE_LOCAL_EMBED, or explicitly enable providerless Classify."
+            ),
+            models=[PROVIDERLESS_CLASSIFY_MODEL] if local_ok else None,
+        )
+        local_semantic["classification_options"] = {
+            "field_types": ["category"],
+            "max_fields": 1,
+            "include_confidence": False,
+            "include_justification": False,
+        }
+        llm = _engine(
+            "llm",
+            "Model",
+            tier="hosted",
+            billable=True,
+            available=bool(llm_providers),
+            error=(
+                None
+                if llm_providers
+                else "Configure a provider API key ("
+                + ", ".join(PROVIDER_ENV_VAR.values())
+                + ") to enable model classification."
+            ),
+        )
+        llm["classification_options"] = {
+            "field_types": [
+                "category",
+                "score",
+                "integer",
+                "number",
+                "boolean",
+                "text",
+            ],
+            "max_fields": 64,
+            "include_confidence": True,
+            "include_justification": True,
+        }
+        runtime_present = classifier_runtime_present()
+        labels = {
+            GLICLASS_ENGINE_ID: "GLiClass Base",
+            JEFF_ENGINE_ID: "Jeff 0.8B",
+        }
+        descriptions = {
+            GLICLASS_ENGINE_ID: "Fast local zero-shot classification.",
+            JEFF_ENGINE_ID: "Higher-quality local classification.",
+        }
+        local_classifiers: list[dict[str, Any]] = []
+        for engine_id in (GLICLASS_ENGINE_ID, JEFF_ENGINE_ID):
+            spec = LOCAL_CLASSIFIERS[engine_id]
+            ready = classifier_ready(engine_id)
+            artifact = classifier_artifact(engine_id)
+            snapshot = artifact.hf_snapshot
+            if snapshot is None:
+                raise RuntimeError(f"{engine_id} must use a pinned HF snapshot")
+            row = _engine(
+                engine_id,
+                labels[engine_id],
                 tier="local",
-                available=local_ok,
+                available=ready,
                 error=(
                     None
-                    if local_ok
-                    else local_error
-                    or "Local FastEmbed is unavailable; reinstall Frisket, unset FRISKET_DISABLE_LOCAL_EMBED, or explicitly enable providerless Classify."
+                    if ready
+                    else "Install the local classifier runtime and model."
+                    if not runtime_present
+                    else f"Install the pinned {labels[engine_id]} model."
                 ),
-                models=[PROVIDERLESS_CLASSIFY_MODEL] if local_ok else None,
-            ),
-            _engine(
-                "llm",
-                "Model",
-                tier="hosted",
-                billable=True,
-                available=bool(llm_providers),
-                error=(
-                    None
-                    if llm_providers
-                    else "Configure a provider API key ("
-                    + ", ".join(PROVIDER_ENV_VAR.values())
-                    + ") to enable model classification."
-                ),
-            ),
-        ]
+                models=[spec.model_identity] if ready else None,
+            )
+            row.update(
+                {
+                    "description": descriptions[engine_id],
+                    "model_card_url": artifact.source_url,
+                    "setup_ref": spec.setup_ref,
+                    "classification_options": {
+                        "field_types": ["category"],
+                        "max_fields": 64,
+                        "include_confidence": False,
+                        "include_justification": False,
+                    },
+                    "downloadable_models": [
+                        {
+                            "ref": artifact.ref,
+                            "display_name": artifact.display_name,
+                            "revision": snapshot.revision,
+                            "size": artifact.approx_size_bytes,
+                            "license": artifact.license,
+                        }
+                    ],
+                }
+            )
+            local_classifiers.append(row)
+        return [local_semantic, *local_classifiers, llm]
     if action_kind == "enrich.geocode":
         from frisket.credentials import resolve_credential
 

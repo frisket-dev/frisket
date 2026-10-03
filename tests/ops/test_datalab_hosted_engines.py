@@ -1267,6 +1267,36 @@ def test_classify_catalog_reports_a_malformed_thread_bound_as_unavailable(
     assert "FRISKET_PROVIDERLESS_CLASSIFY_THREADS" in local["error"]
 
 
+def test_classify_catalog_projects_pinned_local_classifier_setup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
+    monkeypatch.delenv("FRISKET_ENABLE_PROVIDERLESS_CLASSIFY", raising=False)
+    monkeypatch.setattr(
+        "frisket.engine._workers.classifier_artifacts.classifier_runtime_present",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "frisket.engine._workers.classifier_artifacts.classifier_ready",
+        lambda engine_id: engine_id == "gliclass",
+    )
+
+    engines = {engine["id"]: engine for engine in _recipe_engines("map.classify", {})}
+
+    assert engines["gliclass"]["available"] is True
+    assert engines["gliclass"]["setup_ref"] == "engine-setup:gliclass.local@1"
+    assert engines["gliclass"]["classification_options"] == {
+        "field_types": ["category"],
+        "max_fields": 64,
+        "include_confidence": False,
+        "include_justification": False,
+    }
+    assert engines["gliclass"]["downloadable_models"][0]["size"] == 754_867_256
+    assert engines["jeff"]["available"] is False
+    assert engines["jeff"]["setup_ref"] == "engine-setup:jeff.local@1"
+    assert engines["jeff"]["error"] == "Install the pinned Jeff 0.8B model."
+
+
 def test_project_action_catalog_payload_threads_org_provider_keys(monkeypatch):
     """End-to-end through the payload builder (server/routes/actions.py's
     call shape) — not just the inner _recipe_engines helper."""

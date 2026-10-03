@@ -218,6 +218,116 @@ def test_viewer_can_load_an_incomplete_action_draft_without_mutation_authority(
     assert current["can_run"] is False
 
 
+@pytest.mark.parametrize(
+    ("engine_id", "setup_ref", "download_size"),
+    [
+        ("gliclass", "engine-setup:gliclass.local@1", 754_867_256),
+        ("jeff", "engine-setup:jeff.local@1", 1_726_558_966),
+    ],
+)
+def test_local_classifier_projects_one_managed_setup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    engine_id: str,
+    setup_ref: str,
+    download_size: int,
+) -> None:
+    monkeypatch.setattr(
+        "frisket.engine._workers.classifier_artifacts.classifier_runtime_present",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "frisket.engine._workers.classifier_artifacts.classifier_ready",
+        lambda _engine_id: False,
+    )
+    client, _workspace, project_id = _app(
+        tmp_path / engine_id,
+        capabilities_for=lambda _request, _pid: SelectorCapabilities(
+            may_author_actions=True,
+            may_run_actions=True,
+            manage_model_downloads=True,
+        ),
+    )
+
+    response = client.post(
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query(
+            {
+                "kind": "action",
+                "action_id": "map.classify",
+                "field": "engine",
+                "params": {"engine": engine_id},
+            }
+        ),
+    )
+
+    assert response.status_code == 200, response.text
+    current = next(row for row in _choices(response.json()) if row["is_current"])
+    assert current["status"] == "needs_setup"
+    assert current["can_author"] is True
+    assert current["can_run"] is False
+    assert current["setup"] == {
+        "kind": "engine_setup",
+        "setup_ref": setup_ref,
+        "scope": "workspace",
+        "can_mutate": True,
+        "can_start": True,
+        "blocked_by_operation": None,
+    }
+    assert {fact["label"]: fact["value"] for fact in current["facts"]}[
+        "Download size"
+    ] == f"{download_size:,} bytes"
+
+
+def test_local_classifier_rejects_an_incompatible_output_shape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "frisket.engine._workers.classifier_artifacts.classifier_runtime_present",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "frisket.engine._workers.classifier_artifacts.classifier_ready",
+        lambda _engine_id: True,
+    )
+    client, _workspace, project_id = _app(
+        tmp_path / "incompatible",
+        capabilities_for=lambda _request, _pid: SelectorCapabilities(
+            may_author_actions=True, may_run_actions=True
+        ),
+    )
+
+    response = client.post(
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query(
+            {
+                "kind": "action",
+                "action_id": "map.classify",
+                "field": "engine",
+                "params": {
+                    "engine": "llm",
+                    "fields": [{"name": "summary", "type": "text"}],
+                },
+            }
+        ),
+    )
+
+    assert response.status_code == 200, response.text
+    gliclass = next(
+        row
+        for row in _choices(response.json())
+        if row["authored_selection"].get("engine") == "gliclass"
+    )
+    assert gliclass["status"] == "unavailable"
+    assert gliclass["can_author"] is False
+    assert gliclass["setup"] is None
+    assert gliclass["blocker"] == {
+        "code": "classification_fields_unsupported",
+        "message": "This engine supports category fields only.",
+        "field": "fields",
+    }
+
+
 @pytest.mark.parametrize("override", ["target", "target_id", "execution_target"])
 def test_action_subject_rejects_authored_target_overrides(
     tmp_path: Path, override: str

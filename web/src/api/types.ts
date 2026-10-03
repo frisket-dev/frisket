@@ -1283,6 +1283,13 @@ export interface EngineLicense {
  *  infrastructure. */
 export type EngineTier = 'local' | 'sidecar' | 'hosted';
 
+export interface ClassificationOptionDeclaration {
+  field_types: Array<'category' | 'score' | 'integer' | 'number' | 'boolean' | 'text'>;
+  max_fields: number;
+  include_confidence: boolean;
+  include_justification: boolean;
+}
+
 export interface EngineOption {
   id: string; // spec.engine value (e.g. 'faster_whisper', 'parakeet', 'remote')
   label: string;
@@ -1302,6 +1309,8 @@ export interface EngineOption {
   language?: LanguageDeclaration;
   diarization?: DiarizationDeclaration;
   transcription_options?: TranscriptionOptionDeclaration;
+  /** Output shapes the Classify form may author for this engine. */
+  classification_options?: ClassificationOptionDeclaration;
   /** Per-target availability rows for a collapsed multi-target
    *  engine; absent for single-target engines. */
   targets?: EngineTargetAvailability[];
