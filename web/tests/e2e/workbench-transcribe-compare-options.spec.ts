@@ -38,6 +38,7 @@ async function patchTranscribeCatalog(page: Page) {
           label: 'Whisper (local)',
           tier: 'local',
           available: true,
+          target_id: 'local',
           transcription_options: {
             language: true, vad: true, model_size: true,
           },
@@ -53,16 +54,28 @@ async function patchTranscribeCatalog(page: Page) {
             ],
           },
           diarization: { supported: false, mode: 'none' },
+          targets: [{
+            target: 'local', target_id: 'local', available: true,
+            transcription_options: { language: true, vad: true, model_size: true },
+            diarization: { supported: false, mode: 'none' },
+            sizes: ['tiny', 'base', 'small', 'medium'],
+          }],
         },
         {
           id: 'parakeet-tdt',
           label: 'Parakeet (local)',
           tier: 'local',
           available: true,
+          target_id: 'local-onnx',
           transcription_options: {
             language: false, vad: true, model_size: false,
           },
           diarization: { supported: false, mode: 'none' },
+          targets: [{
+            target: 'local-onnx', target_id: 'local-onnx', available: true,
+            transcription_options: { language: false, vad: true, model_size: false },
+            diarization: { supported: false, mode: 'none' },
+          }],
         },
         {
           id: 'stubprovider/whisper-1',
@@ -70,6 +83,7 @@ async function patchTranscribeCatalog(page: Page) {
           tier: 'hosted',
           billable: true,
           available: true,
+          target_id: 'remote-api:stubprovider',
           transcription_options: {
             language: true, vad: false, model_size: false,
           },
@@ -83,16 +97,27 @@ async function patchTranscribeCatalog(page: Page) {
             ],
           },
           diarization: { supported: false, mode: 'none' },
+          targets: [{
+            target: 'remote-api:stubprovider', target_id: 'remote-api:stubprovider', available: true,
+            transcription_options: { language: true, vad: false, model_size: false },
+            diarization: { supported: false, mode: 'none' },
+          }],
         },
         {
           id: 'joint_diarizer_fixture',
           label: 'Synthetic joint diarizer',
           tier: 'sidecar',
           available: true,
+          target_id: 'models-gateway',
           transcription_options: {
             language: false, vad: false, model_size: false,
           },
           diarization: { supported: true, mode: 'intrinsic', speaker_hint: 'none' },
+          targets: [{
+            target: 'models-gateway', target_id: 'models-gateway', available: true,
+            transcription_options: { language: false, vad: false, model_size: false },
+            diarization: { supported: true, mode: 'intrinsic', speaker_hint: 'none' },
+          }],
         },
       ];
     }
@@ -282,7 +307,8 @@ test('faster_whisper exposes language + model size + VAD; parakeet-tdt exposes o
   await whisperChip.getByTestId('transcribe-compare-variant-gear').click();
   let popover = page.getByTestId('transcribe-compare-configure');
   await expect(popover.getByTestId('transcribe-compare-configure-language')).toBeVisible();
-  await expect(popover.getByTestId('transcribe-compare-model-pill-large-v3')).toBeVisible();
+  await expect(popover.getByTestId('transcribe-compare-model-pill-medium')).toBeVisible();
+  await expect(popover.getByTestId('transcribe-compare-model-pill-large-v3')).toHaveCount(0);
   await expect(popover.getByTestId('transcribe-compare-configure-vad')).toBeVisible();
   await expect(popover).toContainText('Voice Activity Detection');
   await expect(popover).toContainText('Only transcribe when speech is detected (reduces hallucinations)');
@@ -344,15 +370,15 @@ test('choosing a model size re-runs the variant with model_size on the scratch p
   await whisperChip.getByTestId('transcribe-compare-variant-gear').click();
   const popover = page.getByTestId('transcribe-compare-configure');
   const before = starts.length;
-  await popover.getByTestId('transcribe-compare-model-pill-large-v3').click();
+  await popover.getByTestId('transcribe-compare-model-pill-medium').click();
   expect(starts.length).toBe(before);
 
   await runComparison(page);
   await expect.poll(() => starts.length).toBeGreaterThan(before);
   const whisperCalls = starts.filter((call) => call.engine === 'faster_whisper');
-  expect(whisperCalls[whisperCalls.length - 1].model_size).toBe('large-v3');
+  expect(whisperCalls[whisperCalls.length - 1].model_size).toBe('medium');
 
-  await expect(whisperChip.locator('.ocr-compare-variant-summary')).toContainText('large-v3');
+  await expect(whisperChip.locator('.ocr-compare-variant-summary')).toContainText('medium');
 });
 
 test('an intrinsic engine shows always-on diarization and sends no unsupported Whisper defaults', async ({
@@ -413,12 +439,12 @@ test('Duplicate variant compares two model sizes of the same engine side by side
     page.locator('[data-testid="transcribe-compare-engine-chip"][data-engine-id="faster_whisper"]'),
   ).toHaveCount(2);
   const copyPopover = page.getByTestId('transcribe-compare-configure');
-  await copyPopover.getByTestId('transcribe-compare-model-pill-large-v3').click();
+  await copyPopover.getByTestId('transcribe-compare-model-pill-medium').click();
 
   const chips = page.locator(
     '[data-testid="transcribe-compare-engine-chip"][data-engine-id="faster_whisper"]',
   );
-  await expect(chips.nth(1).locator('.ocr-compare-variant-summary')).toContainText('large-v3');
+  await expect(chips.nth(1).locator('.ocr-compare-variant-summary')).toContainText('medium');
 });
 
 // The whole "stranded un-allowed remote engine" class of race is gone with the
