@@ -266,9 +266,12 @@ class _ColumnCreator(_CallOnce):
         require_import_sheet_write(self._project.db, sheet_id)
         from frisket.engine.store.output_claims import OutputColumnClaimStore
 
-        if OutputColumnClaimStore(self._project).active_for_output_name(
-            sheet_id=sheet_id, output_name=name
-        ) is not None:
+        if (
+            OutputColumnClaimStore(self._project).active_for_output_name(
+                sheet_id=sheet_id, output_name=name
+            )
+            is not None
+        ):
             _refuse(
                 "output_column_busy",
                 "The target output column is claimed by a running action.",

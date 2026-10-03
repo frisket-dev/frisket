@@ -326,7 +326,7 @@ def _go_stale(project: Project, seeded: dict[str, Any]) -> None:
 def _output_column_rows(project: Project, sheet_id: int) -> list[Any]:
     placeholders = ", ".join("?" for _ in _OUTPUT_COLUMNS)
     return project.db.execute(
-        "SELECT id, name, hidden, current_run_id FROM columns "
+        "SELECT id, name, hidden, active, current_run_id FROM columns "
         f"WHERE sheet_id=? AND name IN ({placeholders}) ORDER BY id",
         (sheet_id, *_OUTPUT_COLUMNS),
     ).fetchall()
@@ -352,18 +352,21 @@ def _check_rerun(
 ) -> None:
     del first
     rows = _output_column_rows(project, seeded["sheet_id"])
-    revived = {row["name"]: row for row in rows}
-    # the SAME column ids are revived (not duplicated)...
-    assert len(rows) == 3
-    assert {name: int(row["id"]) for name, row in revived.items()} == (
-        seeded["output_ids"]
-    )
-    # ...visible column targets come back visible; the named_result plumbing
-    # stays hidden across the undo/rerun cycle.
-    assert revived["python_result"]["hidden"] == 0
-    assert revived["word_count"]["hidden"] == 0
-    assert revived["__result_entities"]["hidden"] == 1
-    assert {row["current_run_id"] for row in revived.values()} == {None}
+    current = {row["name"]: row for row in rows if row["active"]}
+    historical = {row["name"]: row for row in rows if not row["active"]}
+    assert len(rows) == 6
+    assert {name: int(row["id"]) for name, row in historical.items()} == seeded[
+        "output_ids"
+    ]
+    assert set(current) == set(historical) == set(_OUTPUT_COLUMNS)
+    assert all(current[name]["id"] != row["id"] for name, row in historical.items())
+    assert {row["hidden"] for row in historical.values()} == {1}
+    assert {row["current_run_id"] for row in historical.values()} == {None}
+    # The new named_result plumbing remains hidden but owns its fresh identity.
+    assert current["python_result"]["hidden"] == 0
+    assert current["word_count"]["hidden"] == 0
+    assert current["__result_entities"]["hidden"] == 1
+    assert {row["current_run_id"] for row in current.values()} == {second.run_id}
 
 
 CASES = [

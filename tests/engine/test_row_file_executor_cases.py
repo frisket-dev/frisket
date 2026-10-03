@@ -81,10 +81,10 @@ def _missing_source(make, seeded):
     return body
 
 
-def _output_column(project, seeded, name):
+def _output_column(project, seeded, name, *, active=True):
     return project.db.execute(
-        "SELECT id, hidden, current_run_id FROM columns WHERE sheet_id=? AND name=?",
-        (seeded["sheet_id"], name),
+        "SELECT id, hidden, current_run_id FROM columns WHERE sheet_id=? AND name=? AND active=?",
+        (seeded["sheet_id"], name, int(active)),
     ).fetchone()
 
 
@@ -112,7 +112,7 @@ def _case(kind, seed, make, patch, output_key, output_name, row_count, capabilit
         project.db.commit()
 
     def undone(project, seeded, _first):
-        column = _output_column(project, seeded, output_name)
+        column = _output_column(project, seeded, output_name, active=False)
         assert column["hidden"] == 1
         assert column["current_run_id"] is None
         seeded["original_output_id"] = column["id"]
@@ -122,8 +122,12 @@ def _case(kind, seed, make, patch, output_key, output_name, row_count, capabilit
         assert second.run_id != first.run_id
         assert (
             _output_column(project, seeded, output_name)["id"]
-            == seeded["original_output_id"]
+            != seeded["original_output_id"]
         )
+        historical = project.get_column(seeded["original_output_id"])
+        assert historical["active"] == 0
+        assert historical["hidden"] == 1
+        assert historical["current_run_id"] is None
 
     return ExecutorCase(
         kind=kind,
