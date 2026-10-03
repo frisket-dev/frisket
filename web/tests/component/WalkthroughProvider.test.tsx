@@ -39,6 +39,7 @@ const OPERATOR_EDITION_MODULE = defineEditionModule({
       configurableNotificationDestinations: false,
       configurableNotificationEmail: false,
       identity: true,
+      skills: false,
       team: true,
     },
   },

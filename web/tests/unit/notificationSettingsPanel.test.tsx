@@ -125,6 +125,7 @@ describe('NotificationSettingsPanel configurable email', () => {
         configurableNotificationDestinations: true,
         configurableNotificationEmail: false,
         identity: true,
+        skills: true,
         team: true,
         },
       },

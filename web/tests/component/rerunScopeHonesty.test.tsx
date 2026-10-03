@@ -183,6 +183,7 @@ describe('Watches panel — re-run labels say what they buy (ruling 4)', () => {
           configurableNotificationDestinations: true,
           configurableNotificationEmail: true,
           identity: true,
+          skills: true,
           team: true,
         },
       },

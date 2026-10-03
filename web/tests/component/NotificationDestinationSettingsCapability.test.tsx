@@ -38,6 +38,7 @@ it('hides notification navigation and refuses its deep link when destinations ar
         configurableNotificationDestinations: false,
         configurableNotificationEmail: false,
         identity: true,
+        skills: false,
         team: true,
       },
     },

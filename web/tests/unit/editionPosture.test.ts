@@ -14,12 +14,14 @@ describe('edition descriptors', () => {
       configurableNotificationDestinations: true,
       configurableNotificationEmail: true,
       identity: false,
+      skills: true,
       team: false,
     });
     expect(TEAM_EDITION_DESCRIPTOR.capabilities).toEqual({
       configurableNotificationDestinations: true,
       configurableNotificationEmail: true,
       identity: true,
+      skills: true,
       team: true,
     });
   });
@@ -31,6 +33,7 @@ describe('edition descriptors', () => {
         configurableNotificationDestinations: false,
         configurableNotificationEmail: false,
         identity: true,
+        skills: false,
         team: true,
       },
     });
@@ -38,6 +41,7 @@ describe('edition descriptors', () => {
       configurableNotificationDestinations: false,
       configurableNotificationEmail: false,
       identity: true,
+      skills: false,
       team: true,
     });
     expect(Object.isFrozen(descriptor)).toBe(true);
