@@ -363,6 +363,34 @@ describe('classify source binding', () => {
     });
   });
 
+  it.each([
+    ['gliclass', 'GLiClass Base'],
+    ['jeff', 'Jeff 0.8B'],
+  ])('clears the hosted model when switching to %s', async (engineId, engineLabel) => {
+    const user = userEvent.setup();
+    (listProviders as unknown as Mock).mockResolvedValue({
+      schemaVersion: 'frisket.providers.v1', tier: 'local', providers: [{
+        id: 'openai', label: 'OpenAI', kind: 'platform_api', configured: true, source: 'env', hint: null,
+        models: [{ id: 'openai/gpt-5-mini', label: 'GPT-5 mini', price: null }],
+      }],
+    } satisfies LocalProviderCatalog);
+    const { onExecute } = mountClassify({ sheet: summarySheet() });
+
+    await chooseActionSelector('openai/gpt-5-mini');
+    await waitFor(() => expect(selectorTrigger()).toHaveTextContent('GPT-5 mini'));
+    await chooseActionSelector(engineLabel);
+    await waitFor(() => expect(selectorTrigger()).toHaveTextContent(engineLabel));
+    await user.type(screen.getByTestId('classify-labels'), 'news, opinion');
+    await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
+    await user.click(screen.getByTestId('generated-action-run'));
+
+    expect(onExecute).toHaveBeenCalledTimes(1);
+    expect(onExecute.mock.calls[0][0].params).toMatchObject({
+      engine: engineId,
+      model: null,
+    });
+  });
+
   it('inspects an unavailable llm model with its reason and keeps the local engine selected', async () => {
     (listProviders as unknown as Mock).mockResolvedValue({
       schemaVersion: 'frisket.providers.v1', tier: 'local', providers: [{
