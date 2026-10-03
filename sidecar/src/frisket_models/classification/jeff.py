@@ -39,12 +39,9 @@ class Jeff:
     ) -> dict[str, str | float]:
         validate_request(text, labels, descriptions, instruction, max_labels=MAX_LABELS)
         criteria = {}
-        for index, label in enumerate(labels):
-            value = label
+        for label in labels:
             description = descriptions.get(label, "").strip()
-            if description:
-                value += f": {description}"
-            criteria[f"option_{index:03d}"] = value
+            criteria[label] = description or None
         row = {
             "state": text,
             "question": {

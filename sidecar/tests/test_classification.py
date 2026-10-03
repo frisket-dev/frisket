@@ -221,15 +221,8 @@ def test_jeff_preserves_dotted_ids_duplicate_descriptions_and_order(
     assert batch_size == 1
     question = rows[0]["question"]
     assert question["instructions"] == "Choose exactly one"
-    assert list(question["criteria"]) == ["option_000", "option_001", "option_002"]
-    assert [
-        labels[index] in value
-        for index, value in enumerate(question["criteria"].values())
-    ] == [
-        True,
-        True,
-        True,
-    ]
+    assert list(question["criteria"]) == labels
+    assert list(question["criteria"].values()) == ["same", "same", "same"]
 
 
 def test_jeff_accepts_its_254_choice_options(monkeypatch, snapshot):
