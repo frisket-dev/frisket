@@ -205,6 +205,22 @@ describe('translate form', () => {
     expect(request.params).not.toHaveProperty('input_template');
   });
 
+  it('submits the displayed default LLM model without requiring reselection', async () => {
+    const user = userEvent.setup();
+    const { onExecute } = mountTranslate();
+    const form = screen.getByTestId('generated-action-form');
+
+    await waitFor(() => expect(selectorTrigger()).toHaveTextContent('Test model'));
+    await runEnabled();
+    await user.click(within(form).getByTestId('generated-action-run'));
+
+    expect(onExecute).toHaveBeenCalledTimes(1);
+    expect(onExecute.mock.calls[0][0].params).toMatchObject({
+      engine: 'llm',
+      model: 'test/model',
+    });
+  });
+
   it('drops the LLM cost/model surfaces when a hosted engine is selected', async () => {
     const user = userEvent.setup();
     const { onExecute, estimateAction } = mountTranslate({
