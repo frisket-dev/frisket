@@ -711,8 +711,9 @@ def test_returned_effect_replays_cross_key_but_changed_query_or_value_is_new(
         )
         ada_row_id = int(
             project.db.execute(
-                "SELECT row_id FROM cells WHERE column_id=? AND value=?",
-                (name_column_id, json.dumps("Ada")),
+                "SELECT row_id FROM current_cell_values "
+                "WHERE column_id=? AND value_kind='text' AND value=?",
+                (name_column_id, "Ada"),
             ).fetchone()["row_id"]
         )
         replace_test_source_cell(

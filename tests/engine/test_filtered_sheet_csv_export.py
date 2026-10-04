@@ -463,10 +463,19 @@ def test_explicit_value_page_uses_rowid_lookup_and_preserves_scope(
     source_query = next(
         query
         for query in traced
-        if "FROM rows r NOT INDEXED LEFT JOIN current_cells c" in query
+        if "FROM rows r NOT INDEXED LEFT JOIN current_cell_values c" in query
     )
     query_plan = project.db.execute("EXPLAIN QUERY PLAN " + source_query).fetchall()
     assert any("USING INTEGER PRIMARY KEY" in row["detail"] for row in query_plan)
+    assert any(
+        "SEARCH head USING INDEX idx_current_cells_column_row "
+        "(column_id=? AND row_id=?)" in row["detail"]
+        for row in query_plan
+    )
+    assert not any(
+        "MATERIALIZE current_cell_values" in row["detail"] for row in query_plan
+    )
+    assert not any("SCAN head" in row["detail"] for row in query_plan)
 
 
 def test_hosted_csv_export_limit_refuses_before_direct_or_action_delivery(
