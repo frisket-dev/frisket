@@ -10,8 +10,9 @@ from datetime import datetime
 from typing import Any
 
 from frisket.querysets import (
+    SheetRowScopePlan,
     SheetRowSetError,
-    sheet_row_scope_query as shared_sheet_row_scope_query,
+    sheet_row_scope_plan as shared_sheet_row_scope_plan,
 )
 from frisket.server.workspace import Workspace
 from frisket.engine.store import Project
@@ -86,29 +87,28 @@ class SheetGridService:
                 cell_projection=column_ids is not None,
             )
 
-        cols, where_sql, where_params, order_parts, order_params = (
-            _sheet_row_scope_query(
-                project,
-                sheet_id,
-                parent_row_id=parent_row_id,
-                filter_=filter_,
-                sort=sort,
-                row_ids=scoped_row_ids,
-            )
+        plan = _sheet_row_scope_plan(
+            project,
+            sheet_id,
+            parent_row_id=parent_row_id,
+            filter_=filter_,
+            sort=sort,
+            row_ids=scoped_row_ids,
         )
         cols = projected_columns
         total = project.db.execute(
-            f"SELECT COUNT(*) FROM rows r WHERE {where_sql}", where_params
+            f"SELECT COUNT(*) FROM {plan.filter_from_sql} WHERE {plan.where_sql}",
+            plan.filter_params,
         ).fetchone()[0]
         rows = project.db.execute(
             f"""
             SELECT r.id, r.parent_row_id
-            FROM rows r
-            WHERE {where_sql}
-            ORDER BY {", ".join(order_parts)}
+            FROM {plan.from_sql}
+            WHERE {plan.where_sql}
+            ORDER BY {", ".join(plan.order_parts)}
             LIMIT ? OFFSET ?
             """,
-            [*where_params, *order_params, limit, offset],
+            [*plan.select_params, limit, offset],
         ).fetchall()
         return _sheet_data_payload(
             project,
@@ -221,31 +221,34 @@ class SheetGridService:
                 page_size,
                 index=index,
             )
-        _cols, where_sql, where_params, order_parts, order_params = (
-            _sheet_row_scope_query(
-                project,
-                sheet_id,
-                parent_row_id=parent_row_id,
-                filter_=filter_,
-                sort=sort,
-                row_ids=_parse_row_ids_param(scope_row_ids),
-            )
+        plan = _sheet_row_scope_plan(
+            project,
+            sheet_id,
+            parent_row_id=parent_row_id,
+            filter_=filter_,
+            sort=sort,
+            row_ids=_parse_row_ids_param(scope_row_ids),
         )
         row = project.db.execute(
             f"""
             SELECT located.row_index
             FROM (
               SELECT r.id,
-                     ROW_NUMBER() OVER (ORDER BY {", ".join(order_parts)}) - 1
+                     ROW_NUMBER() OVER (ORDER BY {", ".join(plan.order_parts)}) - 1
                        AS row_index
-              FROM rows r
-              WHERE {where_sql}
+              FROM {plan.from_sql}
+              WHERE {plan.where_sql}
             ) located
             WHERE located.id=?
             """,
             # Placeholders are bound in SQL text order: the window ORDER BY is
             # inside SELECT text before WHERE, unlike the normal page query.
-            [*order_params, *where_params, row_id],
+            [
+                *plan.order_params,
+                *plan.join_params,
+                *plan.where_params,
+                row_id,
+            ],
         ).fetchone()
         if row is None:
             return _sheet_row_location_payload(sheet_id, row_id, page_size)
@@ -253,7 +256,7 @@ class SheetGridService:
         return _sheet_row_location_payload(sheet_id, row_id, page_size, index=index)
 
 
-def _sheet_row_scope_query(
+def _sheet_row_scope_plan(
     project: Project,
     sheet_id: int,
     *,
@@ -261,9 +264,9 @@ def _sheet_row_scope_query(
     filter_: str | None = None,
     sort: str | None = None,
     row_ids: list[int] | None = None,
-) -> tuple[list[Any], str, list[Any], list[str], list[Any]]:
+) -> SheetRowScopePlan:
     try:
-        return shared_sheet_row_scope_query(
+        return shared_sheet_row_scope_plan(
             project,
             sheet_id,
             parent_row_id=parent_row_id,
@@ -547,7 +550,7 @@ def _column_stats_payload(
     sort: str | None = None,
     scope_row_ids: list[int] | None = None,
 ) -> dict[str, Any]:
-    cols, where_sql, where_params, _order_parts, _order_params = _sheet_row_scope_query(
+    plan = _sheet_row_scope_plan(
         project,
         sheet_id,
         parent_row_id=parent_row_id,
@@ -555,11 +558,12 @@ def _column_stats_payload(
         sort=sort,
         row_ids=scope_row_ids,
     )
-    column = next((c for c in cols if int(c["id"]) == column_id), None)
+    column = next((c for c in plan.columns if int(c["id"]) == column_id), None)
     if column is None:
         raise SheetGridRouteError(404, "column not found")
     total = project.db.execute(
-        f"SELECT COUNT(*) FROM rows r WHERE {where_sql}", where_params
+        f"SELECT COUNT(*) FROM {plan.filter_from_sql} WHERE {plan.where_sql}",
+        plan.filter_params,
     ).fetchone()[0]
     base: dict[str, Any] = {
         "schema_version": "frisket.column_stats.v1",
@@ -595,12 +599,12 @@ def _column_stats_payload(
         rows = project.db.execute(
             f"""
             SELECT r.id
-            FROM rows r
-            WHERE {where_sql}
+            FROM {plan.filter_from_sql}
+            WHERE {plan.where_sql}
             ORDER BY r.id
             LIMIT ? OFFSET ?
             """,
-            [*where_params, COLUMN_STATS_CHUNK_SIZE, offset],
+            [*plan.filter_params, COLUMN_STATS_CHUNK_SIZE, offset],
         ).fetchall()
         row_ids = [int(r["id"]) for r in rows]
         if not row_ids:

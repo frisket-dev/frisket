@@ -743,7 +743,7 @@ def count_sheet_filter_values(
     )
     if column is None:
         raise SheetRowSetError("count_by column is not in sheet")
-    _, where_sql, where_params, _, _ = sheet_row_scope_query(
+    plan = sheet_row_scope_plan(
         project,
         sheet_id,
         filter_=filter_,
@@ -760,7 +760,7 @@ def count_sheet_filter_values(
     rows = project.db.execute(
         "WITH count_values AS (SELECT "
         f"{value_sql} AS value_json, {validity_sql} AS validity "
-        f"FROM rows r WHERE {where_sql}), "
+        f"FROM {plan.filter_from_sql} WHERE {plan.where_sql}), "
         "count_groups AS (SELECT CASE "
         "WHEN validity='invalid' THEN 'invalid' "
         "WHEN validity='valid' AND value_json IS NOT NULL THEN 'valid' "
@@ -773,7 +773,7 @@ def count_sheet_filter_values(
         "FROM count_groups GROUP BY kind, value_type, value "
         "ORDER BY count DESC, CASE kind "
         "WHEN 'valid' THEN 0 WHEN 'missing' THEN 1 ELSE 2 END, value LIMIT ?",
-        [*value_params, *validity_params, *where_params, limit + 1],
+        [*value_params, *validity_params, *plan.filter_params, limit + 1],
     ).fetchall()
     values = [
         (

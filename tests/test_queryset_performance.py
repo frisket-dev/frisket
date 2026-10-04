@@ -7,6 +7,15 @@ from pathlib import Path
 
 from frisket.engine.store import Project
 from frisket.querysets import resolve_sheet_filter_rows, sheet_row_scope_query
+from frisket.server.services.sheet_grid import SheetGridService
+
+
+class _OneProjectWorkspace:
+    def __init__(self, project: Project):
+        self.project = project
+
+    def get(self, _project_id: str) -> Project:
+        return self.project
 
 
 def _number_sheet(tmp_path: Path) -> tuple[Project, int, int, list[int]]:
@@ -118,10 +127,10 @@ def test_numeric_filter_and_sort_reduce_sqlite_vm_work(tmp_path: Path) -> None:
             return total, [int(row["id"]) for row in rows]
 
         legacy, legacy_steps = _vm_steps(project, legacy_query)
-        optimized, optimized_steps = _vm_steps(
+        grid, optimized_steps = _vm_steps(
             project,
-            lambda: resolve_sheet_filter_rows(
-                project,
+            lambda: SheetGridService(_OneProjectWorkspace(project)).sheet_data(
+                "project",
                 sheet_id,
                 filter_=filter_json,
                 sort=sort_json,
@@ -133,5 +142,5 @@ def test_numeric_filter_and_sort_reduce_sqlite_vm_work(tmp_path: Path) -> None:
 
     expected = (100, list(reversed(row_ids[-10:])))
     assert legacy == expected
-    assert (optimized.total, optimized.row_ids) == expected
+    assert (grid["total"], [row["id"] for row in grid["rows"]]) == expected
     assert optimized_steps < legacy_steps * 0.7
