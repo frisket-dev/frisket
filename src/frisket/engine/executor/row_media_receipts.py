@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import get_args, get_origin
 
 from frisket.actions.core import _value_annotation
@@ -14,7 +13,7 @@ from frisket.engine.executor.recordsets import (
 )
 from frisket.engine.store.artifact_timeline import canonical_json_hash
 from frisket.engine.store.receipts import ReceiptStore
-from frisket.engine.store.runs import FAILURE_OUTCOMES
+from frisket.engine.store.runs import FAILURE_OUTCOMES, RunResultStore
 
 
 def row_media_output(field):
@@ -51,15 +50,16 @@ def project_row_media_receipt(project, plan, facts, receipt):
             if output.ref.get("kind") == "map_result_column"
             and output.name == plan.output_names[field.key]
         )
-        rows = project.db.execute(
-            "SELECT row_id,value,outcome FROM results WHERE run_id=? AND column_id=? ORDER BY row_id",
-            (facts.run_id, column["column_id"]),
-        ).fetchall()
+        coordinates = [
+            (facts.run_id, row_id, int(column["column_id"])) for row_id in facts.row_ids
+        ]
+        resolved = RunResultStore(project).decoded_result_rows(coordinates)
+        rows = sorted(resolved.values(), key=lambda row: int(row["row_id"]))
         accepted = []
         for row in rows:
             if row["row_id"] not in facts.row_ids or row["outcome"] in FAILURE_OUTCOMES:
                 continue
-            values = json.loads(row["value"]) if row["value"] is not None else None
+            values = row["value"]
             if not isinstance(values, list):
                 raise ValueError("Media list output is not a committed list")
             value_hash = canonical_json_hash(values)

@@ -25,6 +25,7 @@ from frisket.engine.executor.recordsets import (
 )
 from frisket.engine.store.evidence import find_item_evidence_link
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.store.runs import RunResultStore
 
 
 class AdmittedListTableReader:
@@ -256,23 +257,17 @@ class AdmittedListTableReader:
             raise TableError(
                 "invalid_input_ref", "Source receipt rows do not belong to its sheet"
             )
+        coordinates = [(source.run_id, row_id, source.column_id) for row_id in row_ids]
+        rows = RunResultStore(project).decoded_result_rows(coordinates)
         values = {}
-        rows = project.db.execute(
-            "SELECT row_id, value, error FROM results WHERE run_id=? AND column_id=?",
-            (source.run_id, source.column_id),
-        ).fetchall()
         wanted = set(row_ids)
         errored = []
-        for row in rows:
-            row_id = int(row["row_id"])
-            if row_id not in wanted:
-                continue
+        for coordinate, row in rows.items():
+            row_id = coordinate[1]
             if row["error"] is not None:
                 errored.append(row_id)
             else:
-                values[row_id] = (
-                    json.loads(row["value"]) if row["value"] is not None else None
-                )
+                values[row_id] = row["value"]
         missing = sorted(wanted - set(values) - set(errored))
         if missing or errored:
             raise TableError(

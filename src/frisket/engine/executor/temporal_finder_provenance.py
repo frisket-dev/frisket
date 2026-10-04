@@ -16,6 +16,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from frisket.engine.store.artifact_timeline import canonical_json_hash
+from frisket.engine.store.runs import RunResultStore
 from frisket.features.temporal_values import (
     canonical_temporal_hash,
     parse_temporal_value,
@@ -212,17 +213,22 @@ def resolve_topic_analysis_sidecar(
     except (LookupError, TypeError, ValueError, ValidationError):
         return None
 
-    matches = []
-    for result in project.db.execute(
-        "SELECT c.id, c.name, r.value FROM columns c JOIN results r ON r.column_id=c.id "
+    result_rows = project.db.execute(
+        "SELECT c.id, c.name FROM columns c JOIN results r ON r.column_id=c.id "
         "WHERE c.sheet_id=? AND c.type='json' AND c.hidden=1 "
-        "AND r.run_id=? AND r.row_id=? AND r.error IS NULL AND r.value IS NOT NULL",
+        "AND r.run_id=? AND r.row_id=? AND r.error IS NULL",
         (sheet_id, run_id, row_id),
-    ).fetchall():
-        if result["name"] not in sidecar_names:
-            continue
+    ).fetchall()
+    candidates = [row for row in result_rows if row["name"] in sidecar_names]
+    coordinates = [(run_id, row_id, int(result["id"])) for result in candidates]
+    resolved = RunResultStore(project).decoded_result_rows(
+        coordinates, tolerate_decode_errors=True
+    )
+    matches = []
+    for result in candidates:
         try:
-            payload = _valid_payload(json.loads(result["value"]))
+            stored = resolved.get((run_id, row_id, int(result["id"])))
+            payload = _valid_payload(stored["value"]) if stored is not None else None
         except (TypeError, ValueError):
             continue
         if payload is None or payload["timeline"] != live_value["timeline"]:

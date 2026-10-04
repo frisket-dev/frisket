@@ -13,6 +13,7 @@ from frisket.authoring.action_metadata import (
 )
 from frisket.engine.receipt_index import work_log_receipt_summaries
 from frisket.engine.store import Project
+from frisket.engine.store.runs import RunResultStore
 from frisket.server.provenance_payloads import provenance_manifest_payload
 
 
@@ -87,17 +88,33 @@ def build_work_log_payload(
                 (run["id"],),
             )
         ]
-        examples = []
-        for row in project.db.execute(
-            "SELECT rows.position, c.name AS column_name, res.value, res.error "
+        example_rows = project.db.execute(
+            "SELECT rows.id AS row_id, rows.position, c.id AS column_id, "
+            "c.name AS column_name, res.error "
             "FROM results res "
             "JOIN rows ON rows.id=res.row_id "
             "JOIN columns c ON c.id=res.column_id "
             "WHERE res.run_id=? AND rows.hidden=0 AND c.hidden=0 "
             "ORDER BY rows.position, c.position, c.id LIMIT 8",
             (run["id"],),
-        ):
-            value = json_cell(row["value"])
+        ).fetchall()
+        coordinates = [
+            (int(run["id"]), int(row["row_id"]), int(row["column_id"]))
+            for row in example_rows
+            if row["error"] is None
+        ]
+        resolved = RunResultStore(project).decoded_result_rows(
+            coordinates, tolerate_decode_errors=True
+        )
+        examples = []
+        for row in example_rows:
+            coordinate = (
+                int(run["id"]),
+                int(row["row_id"]),
+                int(row["column_id"]),
+            )
+            result = resolved.get(coordinate) if row["error"] is None else None
+            value = result["value"] if result is not None else None
             examples.append(
                 {
                     "row": int(row["position"]) + 1,
