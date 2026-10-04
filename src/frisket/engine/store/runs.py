@@ -25,10 +25,12 @@ from frisket.engine.store.effect_checkpoints import (
     require_model_call_ids,
 )
 from frisket.engine.store.import_sessions import require_import_sheet_write
+from frisket.engine.store.value_codec import decode_stored_value, encode_stored_value
 from frisket.redaction import redact_text
 
 _RUN_SCOPE_INSERT_CHUNK_SIZE = 1000
 _ATTEMPT_SCOPE_QUERY_CHUNK_SIZE = 800
+_RESULT_COORDINATE_QUERY_CHUNK_SIZE = 300
 
 # Shared effect-checkpoint families owned by this store:
 # MapRunner row effects (group = run id, unit = row id; retire-on-consume)
@@ -614,6 +616,56 @@ class RunResultStore:
             (run_id, column_id),
         ).fetchall()
 
+    def decoded_result_rows(
+        self,
+        coordinates: Collection[tuple[int, int, int]],
+        *,
+        tolerate_decode_errors: bool = False,
+    ) -> dict[tuple[int, int, int], dict[str, Any]]:
+        """Read exact historical results in bounded coordinate batches.
+
+        Coordinates are ``(run_id, row_id, column_id)``. Every result metadata
+        field is retained under its SQLite column name; only ``value`` is
+        replaced by its decoded Python value. Missing coordinates are omitted.
+        """
+
+        requested = list(
+            dict.fromkeys(
+                (int(run_id), int(row_id), int(column_id))
+                for run_id, row_id, column_id in coordinates
+            )
+        )
+        decoded: dict[tuple[int, int, int], dict[str, Any]] = {}
+        for offset in range(0, len(requested), _RESULT_COORDINATE_QUERY_CHUNK_SIZE):
+            batch = requested[offset : offset + _RESULT_COORDINATE_QUERY_CHUNK_SIZE]
+            values = ",".join("(?,?,?)" for _ in batch)
+            params = [part for coordinate in batch for part in coordinate]
+            rows = self.db.execute(
+                f"WITH requested(run_id,row_id,column_id) AS (VALUES {values}) "
+                "SELECT result.* FROM requested "
+                "CROSS JOIN results result ON result.run_id=requested.run_id "
+                "AND result.row_id=requested.row_id "
+                "AND result.column_id=requested.column_id",
+                params,
+            ).fetchall()
+            for row in rows:
+                result = dict(row)
+                key = (
+                    int(result["run_id"]),
+                    int(result["row_id"]),
+                    int(result["column_id"]),
+                )
+                if not (
+                    tolerate_decode_errors and result["value_kind"] == "legacy_invalid"
+                ):
+                    result["value"] = decode_stored_value(
+                        result["value_kind"],
+                        result["value"],
+                        tolerate_errors=tolerate_decode_errors,
+                    )
+                decoded[key] = result
+        return decoded
+
     def clear_result_justification(
         self,
         run_id: int,
@@ -642,7 +694,7 @@ class RunResultStore:
     ) -> None:
         self._require_run_sheet_mutable(run_id)
         self.db.execute(
-            "UPDATE results SET value=NULL, error=?, justification=NULL, "
+            "UPDATE results SET value_kind=NULL, value=NULL, error=?, justification=NULL, "
             "outcome='model_error', publication_effect='publish_error' "
             "WHERE run_id=? AND row_id=? AND column_id=?",
             (_safe_result_error(error, "model_error"), run_id, row_id, column_id),
@@ -665,7 +717,7 @@ class RunResultStore:
         not re-run by backfill (the run-completion queries treat it as done)."""
         self._require_run_sheet_mutable(run_id)
         self.db.execute(
-            "UPDATE results SET value=NULL, error=?, justification=NULL, "
+            "UPDATE results SET value_kind=NULL, value=NULL, error=?, justification=NULL, "
             "outcome='withheld_unverified', publication_effect='publish_error' "
             "WHERE run_id=? AND row_id=? AND column_id=?",
             (_safe_result_error(reason, "withheld_result"), run_id, row_id, column_id),
@@ -1126,12 +1178,23 @@ class RunResultStore:
     ) -> tuple[set[int], dict[int, bool]]:
         rows_in_batch = {int(item["row_id"]) for item in batch}
         before_states = self.result_row_failure_states(run_id, rows_in_batch)
+        encoded_batch = []
+        for result in batch:
+            publication_effect = result.get("publication_effect")
+            if publication_effect == "publish_error" or (
+                result.get("value") is None and result.get("error") is not None
+            ):
+                value_kind, value = None, None
+            else:
+                value_kind, value = encode_stored_value(result.get("value"))
+            encoded_batch.append((result, value_kind, value))
         self.db.executemany(
-            "INSERT INTO results (run_id, row_id, column_id, value, tokens_in, "
+            "INSERT INTO results (run_id, row_id, column_id, value_kind, value, tokens_in, "
             "tokens_out, confidence, justification, error, error_code, outcome, "
             "publication_effect) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?) "
-            "ON CONFLICT(run_id, row_id, column_id) DO UPDATE SET value=excluded.value, "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(run_id, row_id, column_id) DO UPDATE SET "
+            "value_kind=excluded.value_kind,value=excluded.value, "
             "tokens_in=excluded.tokens_in, tokens_out=excluded.tokens_out, "
             "confidence=excluded.confidence, justification=excluded.justification, "
             "error=excluded.error, error_code=excluded.error_code, "
@@ -1142,7 +1205,8 @@ class RunResultStore:
                     run_id,
                     r["row_id"],
                     r["column_id"],
-                    json.dumps(r.get("value")) if r.get("value") is not None else None,
+                    value_kind,
+                    value,
                     r.get("tokens_in"),
                     r.get("tokens_out"),
                     r.get("confidence"),
@@ -1152,7 +1216,7 @@ class RunResultStore:
                     _result_outcome(r),
                     r.get("publication_effect"),
                 )
-                for r in batch
+                for r, value_kind, value in encoded_batch
             ],
         )
         return rows_in_batch, before_states
@@ -1434,9 +1498,9 @@ class RunResultStore:
                 continue
             inserted = self.db.execute(
                 "INSERT OR IGNORE INTO results "
-                "(run_id,row_id,column_id,value,tokens_in,tokens_out,confidence,"
+                "(run_id,row_id,column_id,value_kind,value,tokens_in,tokens_out,confidence,"
                 "justification,error,error_code,review_state,outcome) "
-                "SELECT ?,prior.row_id,prior.column_id,prior.value,NULL,NULL,"
+                "SELECT ?,prior.row_id,prior.column_id,prior.value_kind,prior.value,NULL,NULL,"
                 "prior.confidence,prior.justification,prior.error,prior.error_code,"
                 "prior.review_state,prior.outcome FROM results prior "
                 "WHERE prior.run_id=? AND prior.column_id=? "

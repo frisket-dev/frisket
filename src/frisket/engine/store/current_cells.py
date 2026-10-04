@@ -14,6 +14,7 @@ from collections.abc import Collection, Iterator
 
 from frisket.authoring import column_types
 from frisket.engine.store.search_index_work import enqueue_dirty_scope
+from frisket.engine.store.value_codec import decode_stored_value
 
 _SQLITE_BIND_LIMIT = 900
 _MAX_SEARCH_ROW_RANGES = 128
@@ -27,8 +28,20 @@ def decoded_cell_validity(column_type: str, value: object) -> str:
     return "valid" if column_types.validate_value(column_type, value) else "invalid"
 
 
-def cell_validity(column_type: str, encoded_value: str | None) -> str:
-    """Classify one stored JSON value against its column descriptor."""
+def cell_validity(
+    column_type: str, value_kind: str | None, stored_value: object
+) -> str:
+    """Classify one native stored value against its column descriptor."""
+
+    try:
+        value = decode_stored_value(value_kind, stored_value)
+    except (TypeError, ValueError, RecursionError):
+        return "invalid"
+    return decoded_cell_validity(column_type, value)
+
+
+def legacy_cell_validity(column_type: str, encoded_value: str | None) -> str:
+    """Historical JSON-layout validity used while older migrations advance."""
 
     if encoded_value is None:
         return "missing"
@@ -156,18 +169,53 @@ def _insert_candidates(
     result_from: str,
     edit_from: str,
 ) -> int:
+    typed_authorities = any(
+        str(row[1]) == "value_kind" for row in db.execute("PRAGMA table_info(cells)")
+    )
     has_validity = any(
         str(row[1]) == "validity"
         for row in db.execute("PRAGMA table_info(current_cells)")
     )
     if has_validity:
-        db.create_function(
-            "frisket_cell_validity", 2, cell_validity, deterministic=True
-        )
+        if typed_authorities:
+            db.create_function(
+                "frisket_cell_validity", 3, cell_validity, deterministic=True
+            )
+        else:
+            db.create_function(
+                "frisket_cell_validity", 2, legacy_cell_validity, deterministic=True
+            )
     validity_column = ",validity" if has_validity else ""
     validity_value = (
-        ",frisket_cell_validity(descriptor.type,value)" if has_validity else ""
+        (
+            ",frisket_cell_validity(descriptor.type,value_kind,value)"
+            if typed_authorities
+            else ",frisket_cell_validity(descriptor.type,value)"
+        )
+        if has_validity
+        else ""
     )
+    source_payload = (
+        "source.value_kind,source.value," if typed_authorities else "source.value,"
+    )
+    result_payload = (
+        "CASE result.publication_effect "
+        "WHEN 'publish_value' THEN result.value_kind "
+        "WHEN 'publish_null' THEN 'null' END,"
+        "CASE WHEN result.publication_effect='publish_value' "
+        "THEN result.value ELSE NULL END,"
+    )
+    if not typed_authorities:
+        result_payload = (
+            "CASE WHEN result.publication_effect='publish_value' "
+            "THEN result.value ELSE NULL END,",
+        )
+    result_payload_sql = "".join(result_payload)
+    edit_payload = (
+        "source.value_kind,source.value," if typed_authorities else "source.value,"
+    )
+    insert_payload_column = "" if typed_authorities else "value,"
+    select_payload_column = "" if typed_authorities else "value,"
     edit_precedence = live_edit_precedence_predicate(
         edit_alias="source", op_alias="source_op"
     )
@@ -177,7 +225,7 @@ def _insert_candidates(
     # while the ON clauses perform indexed lookups into the large tables.
     db.execute(
         "WITH " + ",".join(ctes) + ", candidates AS ("
-        "SELECT source.column_id,source.row_id,source.value,"
+        f"SELECT source.column_id,source.row_id,{source_payload}"
         "'source_cell' AS origin_kind,NULL AS origin_op_id,"
         "NULL AS origin_run_id,source.producer_id AS base_producer_id,"
         "0 AS layer_precedence,0 AS origin_precedence "
@@ -186,9 +234,7 @@ def _insert_candidates(
         "CROSS JOIN columns source_column ON source_column.id=source.column_id "
         "AND source_column.sheet_id=source_row.sheet_id "
         "UNION ALL "
-        "SELECT result.column_id,result.row_id,"
-        "CASE WHEN result.publication_effect='publish_value' "
-        "THEN result.value ELSE NULL END,"
+        f"SELECT result.column_id,result.row_id,{result_payload_sql}"
         "'run_result',run.op_id,result.run_id,NULL,1,result.run_id "
         + result_from
         + " CROSS JOIN results result ON result.run_id=head.run_id "
@@ -198,7 +244,7 @@ def _insert_candidates(
         "CROSS JOIN columns result_column ON result_column.id=result.column_id "
         "AND result_column.sheet_id=result_row.sheet_id "
         "UNION ALL "
-        "SELECT source.column_id,source.row_id,source.value,"
+        f"SELECT source.column_id,source.row_id,{edit_payload}"
         "'manual_edit',source.op_id,NULL,NULL,2,source.op_id "
         + edit_from
         + " CROSS JOIN ops source_op ON source_op.id=source.op_id "
@@ -215,9 +261,11 @@ def _insert_candidates(
         "ORDER BY layer_precedence DESC,origin_precedence DESC"
         ") AS rank FROM candidates) "
         "INSERT INTO current_cells "
-        "(column_id,row_id,value,origin_kind,origin_op_id,origin_run_id,"
+        f"(column_id,row_id,{insert_payload_column}"
+        "origin_kind,origin_op_id,origin_run_id,"
         "base_producer_id" + validity_column + ") "
-        "SELECT column_id,row_id,value,origin_kind,origin_op_id,origin_run_id,"
+        f"SELECT column_id,row_id,{select_payload_column}"
+        "origin_kind,origin_op_id,origin_run_id,"
         "base_producer_id" + validity_value + " "
         "FROM ranked CROSS JOIN columns descriptor "
         "ON descriptor.id=ranked.column_id "

@@ -21,6 +21,7 @@ from frisket.engine.store.current_cells import (
     refresh_current_cells,
 )
 from frisket.engine.store.schema import SCHEMA
+from frisket.engine.store.value_codec import migrate_legacy_json_value
 
 
 def _database() -> sqlite3.Connection:
@@ -81,21 +82,30 @@ def _result_head(
         (run_id, write_mode, state, f"claim-{run_id}"),
     )
     result_rows = [(row_id, value, effect, error), *(additional or [])]
-    db.executemany(
-        "INSERT INTO results "
-        "(run_id,row_id,column_id,value,error,outcome,publication_effect) "
-        "VALUES (?,?,10,?,?,?,?)",
-        [
+    encoded_result_rows = []
+    for result_row_id, result_value, result_effect, result_error in result_rows:
+        if result_effect == "publish_error":
+            value_kind, stored_value = None, None
+        elif result_effect == "publish_null":
+            value_kind, stored_value = "null", None
+        else:
+            value_kind, stored_value = migrate_legacy_json_value(result_value)
+        encoded_result_rows.append(
             (
                 run_id,
                 result_row_id,
-                result_value,
+                value_kind,
+                stored_value,
                 result_error,
                 "model_error" if result_error else "ok",
                 result_effect,
             )
-            for result_row_id, result_value, result_effect, result_error in result_rows
-        ],
+        )
+    db.executemany(
+        "INSERT INTO results "
+        "(run_id,row_id,column_id,value_kind,value,error,outcome,publication_effect) "
+        "VALUES (?,?,10,?,?,?,?,?)",
+        encoded_result_rows,
     )
     if write_mode == "replace_scope":
         db.execute(
@@ -138,18 +148,19 @@ def test_base_and_edit_sinks_are_transactional_and_preserve_source_ref_shape() -
     assert source["origin_run_id"] is None
     assert source["base_producer_id"] == producer_id
     explicit_null = db.execute(
-        "SELECT value,origin_kind FROM current_cells WHERE column_id=10 AND row_id=101"
+        "SELECT value,origin_kind FROM current_cell_values "
+        "WHERE column_id=10 AND row_id=101"
     ).fetchone()
-    assert tuple(explicit_null) == ("null", "source_cell")
+    assert tuple(explicit_null) == (None, "source_cell")
 
     _op(db, 2, kind="edit")
     insert_edits(db, op_id=2, edits=[EditCellWrite(100, 10, None)])
     edited = db.execute(
-        "SELECT * FROM current_cells WHERE column_id=10 AND row_id=100"
+        "SELECT * FROM current_cell_values WHERE column_id=10 AND row_id=100"
     ).fetchone()
     assert tuple(
         edited[key] for key in ("value", "origin_kind", "origin_op_id", "origin_run_id")
-    ) == ("null", "manual_edit", 2, None)
+    ) == (None, "manual_edit", 2, None)
 
     db.rollback()
     assert db.execute("SELECT COUNT(*) FROM cells").fetchone()[0] == 0
@@ -272,13 +283,13 @@ def test_projection_preserves_explicit_result_null_error_and_edit_clear_heads() 
     projected = {
         int(row["row_id"]): (row["value"], row["origin_kind"])
         for row in db.execute(
-            "SELECT row_id,value,origin_kind FROM current_cells ORDER BY row_id"
+            "SELECT row_id,value,origin_kind FROM current_cell_values ORDER BY row_id"
         )
     }
     assert projected == {
         100: (None, "run_result"),
         101: (None, "run_result"),
-        102: ("null", "manual_edit"),
+        102: (None, "manual_edit"),
     }
 
 
@@ -326,21 +337,21 @@ def test_replacement_boundary_and_reject_clear_use_the_existing_precedence() -> 
     assert [
         tuple(row)
         for row in db.execute(
-            "SELECT row_id,value,origin_kind FROM current_cells ORDER BY row_id"
+            "SELECT row_id,value,origin_kind FROM current_cell_values ORDER BY row_id"
         )
     ] == [
-        (100, '"replacement"', "run_result"),
-        (101, '"replacement two"', "run_result"),
+            (100, "replacement", "run_result"),
+            (101, "replacement two", "run_result"),
     ]
 
     _op(db, 5, kind="edit")
     insert_edits(db, op_id=5, edits=[EditCellWrite(100, 10, "after")])
     assert tuple(
         db.execute(
-            "SELECT value,origin_kind,origin_op_id FROM current_cells "
+            "SELECT value,origin_kind,origin_op_id FROM current_cell_values "
             "WHERE column_id=10 AND row_id=100"
         ).fetchone()
-    ) == ('"after"', "manual_edit", 5)
+    ) == ("after", "manual_edit", 5)
 
 
 def test_replace_remove_and_rebuild_share_the_same_projector() -> None:
@@ -363,8 +374,8 @@ def test_replace_remove_and_rebuild_share_the_same_projector() -> None:
         cells=[BaseCellWrite(100, 10, "second")],
     )
     assert db.execute(
-        "SELECT value,base_producer_id FROM current_cells WHERE row_id=100"
-    ).fetchone()[:] == ('"second"', second)
+        "SELECT value,base_producer_id FROM current_cell_values WHERE row_id=100"
+    ).fetchone()[:] == ("second", second)
     assert (
         remove_base_cells(db, producer_id=second, column_ids=[10], row_ids=[101]) == 1
     )
@@ -379,9 +390,9 @@ def test_replace_remove_and_rebuild_share_the_same_projector() -> None:
     assert rebuild_current_cells(db) == 1
     assert (
         db.execute(
-            "SELECT value FROM current_cells WHERE column_id=10 AND row_id=100"
+            "SELECT value FROM current_cell_values WHERE column_id=10 AND row_id=100"
         ).fetchone()[0]
-        == '"second"'
+        == "second"
     )
 
 
