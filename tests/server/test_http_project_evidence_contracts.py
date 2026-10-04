@@ -79,7 +79,9 @@ class _EvidenceService:
             ],
         }
 
-    def evidence_viewer(self, _pid: str, _link_id: str) -> dict:
+    def evidence_viewer(
+        self, _pid: str, _link_id: str, *, locate_current: bool = False
+    ) -> dict:
         return {
             "schema_version": "frisket.evidence_viewer.v1",
             "link": {
@@ -129,6 +131,17 @@ class _EvidenceService:
                         "external_ref": {"provider": "test"},
                     },
                     "metadata": {"page_images": {"1": {"raw": True}}},
+                    **(
+                        {
+                            "text_context_status": "stale",
+                            "recovery_status": "not_found",
+                            "recovery_notice": (
+                                "The saved quote was not found in the current source."
+                            ),
+                        }
+                        if locate_current
+                        else {}
+                    ),
                     "text_context": {
                         "text": "🚀 contract",
                         "offset_unit": "utf16_code_unit",

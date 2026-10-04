@@ -20,6 +20,7 @@ from frisket.engine.store.evidence import (
     list_column_evidence,
     resolve_evidence_viewer,
 )
+from frisket.engine.store.evidence_recovery import locate_current_evidence_text
 from frisket.engine.store.text_annotations import resolve_text_annotations
 from frisket.engine.store.media_clip import (
     ClipError,
@@ -158,10 +159,12 @@ class ProjectEvidenceService:
         self,
         project_id: str,
         evidence_link_id: str,
+        *,
+        locate_current: bool = False,
     ) -> Any:
         project = self._project_or_404(project_id)
         try:
-            return resolve_evidence_viewer(
+            viewer = resolve_evidence_viewer(
                 project,
                 evidence_link_id,
                 project_id=project_id,
@@ -177,6 +180,11 @@ class ProjectEvidenceService:
                 ),
                 bare_json=True,
             ) from exc
+        return (
+            locate_current_evidence_text(project.db, viewer)
+            if locate_current
+            else viewer
+        )
 
     async def evidence_span_clip(
         self,
