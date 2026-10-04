@@ -492,21 +492,21 @@ def test_empty_named_result_retains_parent_schema_and_replays_without_source_cel
         assert read["item_count"] == 0
         assert read["source_row_ids"] == env.seeded["source_row_ids"]
 
-        # Discard GC removes immutable source results through their owning
-        # generation; the already materialized child remains applied.
+        # Discarding the source op does not erase its immutable result history;
+        # the already materialized child remains applied and replayable.
         env.project.db.execute(
             "UPDATE ops SET status='discarded' WHERE id="
             "(SELECT op_id FROM runs WHERE id=?)",
             (env.seeded["run_id"],),
         )
         env.project.db.commit()
-        assert env.project.compact(vacuum=False)["results_pruned"] > 0
+        assert env.project.compact(vacuum=False)["results_pruned"] == 0
         assert (
             env.project.db.execute(
                 "SELECT COUNT(*) FROM results WHERE run_id=? AND column_id=?",
                 (env.seeded["run_id"], env.seeded["entities_column_id"]),
             ).fetchone()[0]
-            == 0
+            > 0
         )
         before = env.counts()
         replay = env.run(request)

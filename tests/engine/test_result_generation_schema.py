@@ -133,7 +133,7 @@ def test_generation_schema_uses_exact_composite_identity_and_monotone_run_ids(
     ) == (column_id, row_id, run_id)
 
 
-def test_compacted_run_id_is_not_reused_by_surviving_row_effect_checkpoint(
+def test_compaction_preserves_run_id_and_row_effect_checkpoint(
     tmp_path: Path,
 ) -> None:
     project, sheet_id, _column_id, row_id, _other_row_id, run_id = _seed_generation(
@@ -153,10 +153,7 @@ def test_compacted_run_id_is_not_reused_by_surviving_row_effect_checkpoint(
     project.db.commit()
 
     project.compact(vacuum=False)
-    assert (
-        project.db.execute("SELECT 1 FROM runs WHERE id=?", (run_id,)).fetchone()
-        is None
-    )
+    assert project.db.execute("SELECT 1 FROM runs WHERE id=?", (run_id,)).fetchone()
     assert (
         project.db.execute(
             "SELECT 1 FROM effect_checkpoints WHERE id='orphan-row-effect'"

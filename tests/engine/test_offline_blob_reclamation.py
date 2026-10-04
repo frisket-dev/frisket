@@ -130,6 +130,27 @@ def test_redo_and_transitive_ancestry_remain_physical_roots(project):
     project.redo()
 
 
+def test_discarded_edit_remains_a_physical_blob_root(project):
+    digest = project.add_blob(b"discarded edit history")
+    column, row = root(project, None)
+    edit_op = project.apply_edits(
+        [{"row_id": row, "column_id": column, "value": {"blob": digest}}]
+    )
+    assert project.undo() == edit_op
+    project.append_op("branch.after.undo")
+    assert (
+        project.db.execute("SELECT status FROM ops WHERE id=?", (edit_op,)).fetchone()[
+            0
+        ]
+        == "discarded"
+    )
+
+    reclaim_local_blobs(project, dry_run=False)
+
+    assert path_for(project, digest).exists()
+    assert project.db.execute("SELECT 1 FROM blobs WHERE hash=?", (digest,)).fetchone()
+
+
 def test_admitted_inventory_and_published_receipt_survive_physical_cleanup(project):
     admitted = project.add_blob(b"not published yet")
     published = project.add_blob(b"exported")

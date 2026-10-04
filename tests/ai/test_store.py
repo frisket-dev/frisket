@@ -548,8 +548,8 @@ class TestStoreRegressions:
 
 class TestCompactionGC:
     """The store must not be
-    append-forever. gc_blobs reclaims unreferenced blobs; compact prunes
-    discarded run branches + VACUUMs; neither touches live (reachable) data."""
+    append-forever. gc_blobs reclaims unreferenced blobs and compact VACUUMs
+    reusable pages without deleting authority history."""
 
     def _image_sheet(self, p: Project) -> tuple[int, int]:
         sheet = p.add_sheet("media")
@@ -603,7 +603,7 @@ class TestCompactionGC:
         # the live column points at this run → blob is reachable
         assert project.gc_blobs(dry_run=True)["blobs_removed"] == 0
 
-    def test_compact_prunes_discarded_runs_and_vacuums(self, project):
+    def test_compact_preserves_discarded_runs_and_vacuums(self, project):
         sheet, _ = make_sheet(project, 2)
         col = project.add_column(sheet, "score", ai_generated=True)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
@@ -624,26 +624,26 @@ class TestCompactionGC:
         )
 
         summary = project.compact()
-        assert summary["results_pruned"] >= 1
-        # the discarded run's results are gone, and the empty run row with them
+        assert summary["results_pruned"] == 0
+        # Discarded branches remain durable audit and provenance history.
         assert (
             project.db.execute(
                 "SELECT COUNT(*) FROM results WHERE run_id=?", (run,)
             ).fetchone()[0]
-            == 0
+            == 1
         )
         assert (
             project.db.execute(
                 "SELECT COUNT(*) FROM runs WHERE id=?", (run,)
             ).fetchone()[0]
-            == 0
+            == 1
         )
         # live source rows still resolve untouched
         assert len(project.get_values(sheet, project.columns(sheet)[0]["id"])) == 2
 
     def _discarded_run_with_checkpoints(self, project):
-        """A discarded, unreferenced run carrying one ``reserved`` and one
-        ``returned`` row-effect checkpoint — the shape compaction prunes."""
+        """A discarded run carrying one ``reserved`` and one ``returned``
+        row-effect checkpoint."""
         from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 
         sheet, _ = make_sheet(project, 2)
@@ -690,33 +690,26 @@ class TestCompactionGC:
     def test_compact_preserves_row_effect_checkpoints_that_carry_money(
         self, project, capsys
     ):
-        """Compaction is reachability-based; a paid effect's ambiguity is not.
+        """A discarded op does not erase its run or paid-effect facts.
 
-        The retired per-run checkpoint table carried a ``runs(id) ON DELETE
-        CASCADE`` and the fold reproduced it as an explicit prune — faithfully
-        preserving a behaviour that was wrong all along.  A ``reserved`` row
-        means the provider MAY have been charged and a ``returned`` row means
-        it WAS; neither fact stops being true because the operator discarded
-        the op and compacted the bundle.  The checkpoint schema carries no run
-        foreign key on purpose, so these rows outlive their run as orphaned
-        reconcilable records and only the OPERATOR (`frisket reconcile`) may
-        retire them.  Cutting the state-awareness deletes the only durable
-        record that money may have moved.
+        A ``reserved`` row means the provider MAY have been charged and a
+        ``returned`` row means it WAS. Neither fact, nor the run that explains
+        it, stops being true because the operator discarded the op and compacted
+        the bundle.
         """
         from frisket.cli.reconcile import _list
 
-        run, rids = self._discarded_run_with_checkpoints(project)
+        run, _rids = self._discarded_run_with_checkpoints(project)
 
         project.compact()
 
-        # The unreachable run itself is still reclaimed...
+        # The discarded run and its money-bearing checkpoints all survive.
         assert (
             project.db.execute(
                 "SELECT COUNT(*) FROM runs WHERE id=?", (run,)
             ).fetchone()[0]
-            == 0
+            == 1
         )
-        # ...but both money-bearing checkpoints survive it.
         surviving = {
             row["id"]: row["state"]
             for row in project.db.execute(
@@ -725,19 +718,16 @@ class TestCompactionGC:
         }
         assert surviving == {"cp-reserved": "reserved", "cp-returned": "returned"}
 
-        # And the operator can still see and decide them: each lists as an
-        # orphan naming the run that no longer exists.
+        # The unresolved reservation remains operator-visible, and it is no
+        # longer misclassified as an orphan because its referent was retained.
         assert _list(project) == 0
         listed = capsys.readouterr().out
-        assert "cp-reserved" in listed and "cp-returned" in listed
-        for line in listed.splitlines():
-            if "cp-reserved" in line or "cp-returned" in line:
-                assert "ORPHANED" in line
-                assert f"run {run}" in line
+        assert "cp-reserved" in listed
+        assert "ORPHANED" not in listed
+        assert f"run {run}" in listed
 
-    def test_compact_preserved_checkpoint_is_operator_decidable(self, project):
-        """The survivors are not inert debris: the operator lever that owns
-        them still works on a checkpoint whose run was compacted away."""
+    def test_compact_preserved_return_remains_resumable(self, project):
+        """Retaining the run keeps its returned response safely resumable."""
         from frisket.cli.reconcile import _discard
         from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 
@@ -747,10 +737,10 @@ class TestCompactionGC:
         store = EffectCheckpointStore(project.db)
         # accept-charged records the ambiguous reservation as a real charge
         assert store.operator_accept_charged("cp-reserved")["state"] == "consumed"
-        # and the orphaned returned response, which can never be consumed by
-        # any run, is discardable through the operator surface.
-        assert _discard(project, "cp-returned") == 0
-        assert store.get("cp-returned") is None
+        # A successful returned response can still be consumed without another
+        # paid call, so the operator path correctly refuses to discard it.
+        assert _discard(project, "cp-returned") == 1
+        assert store.get("cp-returned") is not None
 
     def test_cache_lru_prune(self, tmp_path):
         from frisket.ai.llm.cache import ResponseCache
