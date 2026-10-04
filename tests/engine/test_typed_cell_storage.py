@@ -5,6 +5,7 @@ import sqlite3
 
 import pytest
 
+from frisket.engine.store import Project
 from frisket.engine.store.bundle_open import _TYPED_VALUES_FROM_DIGEST
 from frisket.engine.store.cell_writes import (
     BaseCellWrite,
@@ -91,6 +92,26 @@ def test_legacy_surrogate_string_stays_bindable_and_decodable() -> None:
     db.execute("INSERT INTO migrated VALUES (?,?)", (value_kind, stored))
 
 
+def test_forward_write_preserves_lone_surrogate_string(tmp_path) -> None:
+    value = "prefix\ud800suffix"
+    project = Project.create(tmp_path / "surrogate.frisket")
+    sheet_id = project.add_sheet("Rows")
+    column_id = project.add_column(sheet_id, "text", type="text")
+
+    row_id = project.add_rows(
+        sheet_id, [{"text": value}], {"text": column_id}
+    )[0]
+
+    assert project.get_values(sheet_id, column_id) == {row_id: value}
+    stored = project.db.execute(
+        "SELECT value_kind,value,typeof(value) FROM cells "
+        "WHERE row_id=? AND column_id=?",
+        (row_id, column_id),
+    ).fetchone()
+    assert stored[:] == ("legacy_invalid", '"prefix\\ud800suffix"', "text")
+    project.close()
+
+
 def test_typed_migration_preserves_surrogate_in_every_authority(tmp_path) -> None:
     db = _database()
     db.execute("INSERT INTO rows (id,sheet_id,position) VALUES (102,1,3)")
@@ -170,6 +191,39 @@ def test_typed_migration_preserves_surrogate_in_every_authority(tmp_path) -> Non
         ).fetchone()[0]
         == SCHEMA_DIGEST
     )
+
+
+def test_project_open_reads_migrated_surrogate_as_original_string(tmp_path) -> None:
+    path = tmp_path / "migrated-surrogate.frisket"
+    project = Project.create(path)
+    sheet_id = project.add_sheet("Rows")
+    column_id = project.add_column(sheet_id, "text", type="text")
+    row_id = project.add_rows(
+        sheet_id, [{"text": "placeholder"}], {"text": column_id}
+    )[0]
+    project.close()
+
+    raw = '"\\ud800"'
+    with sqlite3.connect(path / "project.db") as legacy:
+        legacy.row_factory = sqlite3.Row
+        legacy.execute("PRAGMA foreign_keys=OFF")
+        _restore_legacy_authorities(legacy)
+        legacy.execute(
+            "UPDATE cells SET value=? WHERE row_id=? AND column_id=?",
+            (raw, row_id, column_id),
+        )
+        legacy.execute(
+            "UPDATE current_cells SET value=? WHERE row_id=? AND column_id=?",
+            (raw, row_id, column_id),
+        )
+        legacy.execute(
+            "UPDATE meta SET value=? WHERE key=?",
+            (_TYPED_VALUES_FROM_DIGEST, SCHEMA_DIGEST_META_KEY),
+        )
+
+    migrated = Project(path)
+    assert migrated.get_values(sheet_id, column_id) == {row_id: "\ud800"}
+    migrated.close()
 
 
 def test_current_cell_values_resolves_native_source_and_edit_payloads() -> None:

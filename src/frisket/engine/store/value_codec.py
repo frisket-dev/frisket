@@ -52,6 +52,14 @@ def encode_stored_value(value: Any) -> tuple[str, SQLiteValue]:
     if isinstance(value, bool):
         return "boolean", int(value)
     if isinstance(value, str):
+        try:
+            value.encode("utf-8")
+        except UnicodeEncodeError:
+            # sqlite3 cannot bind lone surrogates as TEXT. The existing
+            # legacy_invalid read path also carries bindable escaped JSON for
+            # historical strings with this representation and decodes them
+            # back to their original string value.
+            return "legacy_invalid", _encode_complex(value)
         return "text", value
     if isinstance(value, int):
         if _INTEGER_MIN <= value <= _INTEGER_MAX:
