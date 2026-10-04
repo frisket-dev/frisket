@@ -175,6 +175,7 @@ class SheetRowScopePlan:
     where_params: list[Any]
     order_parts: list[str]
     order_params: list[Any]
+    order_terms: tuple[SheetOrderTerm, ...] = ()
     filter_joins: tuple[str, ...] = ()
     filter_join_params: tuple[Any, ...] = ()
     joins: tuple[str, ...] = ()
@@ -622,6 +623,7 @@ def _sheet_row_scope_plan(
         where_params=where_params,
         order_parts=order_parts,
         order_params=order_params,
+        order_terms=tuple(terms),
         filter_joins=filter_joins,
         filter_join_params=filter_join_params,
         joins=tuple(joins),
