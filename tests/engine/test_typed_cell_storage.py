@@ -254,3 +254,35 @@ def test_decoded_result_rows_batches_coordinates_and_preserves_metadata() -> Non
     assert rows[(20, 101, 10)]["value"] is None
     assert rows[(20, 101, 10)]["value_kind"] == "null"
     assert rows[(20, 101, 10)]["publication_effect"] == "publish_null"
+
+
+def test_tolerant_historical_rows_decode_valid_legacy_json_and_keep_malformed_raw() -> (
+    None
+):
+    db = _database()
+    db.executemany(
+        "INSERT INTO rows (id,sheet_id,position) VALUES (?,1,?)",
+        [(102, 3), (103, 4)],
+    )
+    db.execute("INSERT INTO ops (id,kind,spec) VALUES (1,'map.test','{}')")
+    db.execute(
+        "INSERT INTO runs (id,op_id,sheet_id,action_kind) VALUES (20,1,1,'map.test')"
+    )
+    db.execute(
+        "INSERT INTO run_output_generations "
+        "(run_id,column_id,output_role,compatibility_key,write_mode,state,claim_token) "
+        "VALUES (20,10,'value','test','create','active','claim')"
+    )
+    db.executemany(
+        "INSERT INTO results "
+        "(run_id,row_id,column_id,value_kind,value,outcome,publication_effect) "
+        "VALUES (20,?,10,'legacy_invalid',?,'ok','publish_value')",
+        [(102, '"\\ud800"'), (103, '{"broken":')],
+    )
+
+    rows = RunResultStore(_Project(db)).decoded_result_rows(
+        [(20, 102, 10), (20, 103, 10)], tolerate_decode_errors=True
+    )
+
+    assert rows[(20, 102, 10)]["value"] == "\ud800"
+    assert rows[(20, 103, 10)]["value"] == '{"broken":'

@@ -655,9 +655,18 @@ class RunResultStore:
                     int(result["row_id"]),
                     int(result["column_id"]),
                 )
-                if not (
-                    tolerate_decode_errors and result["value_kind"] == "legacy_invalid"
-                ):
+                if tolerate_decode_errors and result["value_kind"] == "legacy_invalid":
+                    raw_value = result["value"]
+                    try:
+                        result["value"] = decode_stored_value(
+                            result["value_kind"], raw_value
+                        )
+                    except (TypeError, ValueError, OverflowError, RecursionError):
+                        # Historical displays preserve malformed payload bytes,
+                        # but a valid legacy JSON scalar still has its original
+                        # decoded meaning.
+                        result["value"] = raw_value
+                else:
                     result["value"] = decode_stored_value(
                         result["value_kind"],
                         result["value"],
