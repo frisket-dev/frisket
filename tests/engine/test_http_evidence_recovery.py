@@ -12,6 +12,7 @@ from frisket.engine.store.evidence import (
     record_text_surface,
 )
 from frisket.server.app import create_app
+from frisket.server.services import project_evidence as project_evidence_service
 
 
 def _hash(text: str) -> str:
@@ -30,7 +31,9 @@ def _counts(project) -> tuple[int, ...]:
     )
 
 
-def test_manual_text_recovery_is_a_read_only_viewer_preview(tmp_path: Path) -> None:
+def test_manual_text_recovery_is_a_read_only_viewer_preview(
+    tmp_path: Path, monkeypatch
+) -> None:
     client = TestClient(create_app(tmp_path / "workspace"))
     project_id = client.post("/api/projects", json={"name": "Recovery"}).json()["id"]
     project = client.app.state.workspace.get(project_id)
@@ -114,7 +117,20 @@ def test_manual_text_recovery_is_a_read_only_viewer_preview(tmp_path: Path) -> N
     counts_before = _counts(project)
 
     ordinary = client.get(endpoint)
-    located = client.get(endpoint, params={"locate_current": "true"})
+    resolve_viewer = project_evidence_service.resolve_evidence_viewer
+
+    def resolve_then_edit(snapshot, *args, **kwargs):
+        viewer = resolve_viewer(snapshot, *args, **kwargs)
+        project.apply_edits(
+            [{"row_id": row_id, "column_id": column_id, "value": "Grace only"}]
+        )
+        return viewer
+
+    with monkeypatch.context() as race:
+        race.setattr(
+            project_evidence_service, "resolve_evidence_viewer", resolve_then_edit
+        )
+        located = client.get(endpoint, params={"locate_current": "true"})
 
     assert ordinary.status_code == located.status_code == 200
     ordinary_payload = ordinary.json()
@@ -161,8 +177,8 @@ def test_manual_text_recovery_is_a_read_only_viewer_preview(tmp_path: Path) -> N
         == "active"
     )
 
-    project.apply_edits(
-        [{"row_id": row_id, "column_id": column_id, "value": "Grace only"}]
+    assert project.get_values(sheet_id, column_id, row_ids=[row_id])[row_id] == (
+        "Grace only"
     )
     missing = client.get(endpoint, params={"locate_current": "true"}).json()
     missing_text = next(

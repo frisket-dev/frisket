@@ -163,28 +163,29 @@ class ProjectEvidenceService:
         locate_current: bool = False,
     ) -> Any:
         project = self._project_or_404(project_id)
-        try:
-            viewer = resolve_evidence_viewer(
-                project,
-                evidence_link_id,
-                project_id=project_id,
+        with project.read_snapshot() as snapshot:
+            try:
+                viewer = resolve_evidence_viewer(
+                    snapshot,
+                    evidence_link_id,
+                    project_id=project_id,
+                )
+            except KeyError as exc:
+                raise ProjectEvidenceRouteError(
+                    404,
+                    _v1_action_error(
+                        code="evidence_link_not_found",
+                        message="No evidence link exists with that id in this project.",
+                        field="evidence_link_id",
+                        details={"evidence_link_id": evidence_link_id},
+                    ),
+                    bare_json=True,
+                ) from exc
+            return (
+                locate_current_evidence_text(snapshot.db, viewer)
+                if locate_current
+                else viewer
             )
-        except KeyError as exc:
-            raise ProjectEvidenceRouteError(
-                404,
-                _v1_action_error(
-                    code="evidence_link_not_found",
-                    message="No evidence link exists with that id in this project.",
-                    field="evidence_link_id",
-                    details={"evidence_link_id": evidence_link_id},
-                ),
-                bare_json=True,
-            ) from exc
-        return (
-            locate_current_evidence_text(project.db, viewer)
-            if locate_current
-            else viewer
-        )
 
     async def evidence_span_clip(
         self,
