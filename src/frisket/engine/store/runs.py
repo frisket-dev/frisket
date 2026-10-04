@@ -28,6 +28,7 @@ from frisket.engine.store.import_sessions import require_import_sheet_write
 from frisket.redaction import redact_text
 
 _RUN_SCOPE_INSERT_CHUNK_SIZE = 1000
+_ATTEMPT_SCOPE_QUERY_CHUNK_SIZE = 800
 
 # Shared effect-checkpoint families owned by this store:
 # MapRunner row effects (group = run id, unit = row id; retire-on-consume)
@@ -1217,16 +1218,31 @@ class RunResultStore:
         )
         if attempt_id is None:
             return None, {}
-        allocation_rows = self.db.execute(
-            "SELECT row_id, terminal_outcome FROM attempt_row_authorizations "
-            "WHERE attempt_id=?",
-            (attempt_id,),
-        ).fetchall()
-        if not allocation_rows:
-            return attempt_id, {}
-        allocated = {
-            int(row["row_id"]): row["terminal_outcome"] for row in allocation_rows
-        }
+        batch_row_ids = sorted({int(result["row_id"]) for result in batch})
+        allocated: dict[int, str | None] = {}
+        for start in range(0, len(batch_row_ids), _ATTEMPT_SCOPE_QUERY_CHUNK_SIZE):
+            row_id_chunk = batch_row_ids[
+                start : start + _ATTEMPT_SCOPE_QUERY_CHUNK_SIZE
+            ]
+            placeholders = ",".join("?" for _ in row_id_chunk)
+            allocation_rows = self.db.execute(
+                "SELECT row_id, terminal_outcome FROM attempt_row_authorizations "
+                f"WHERE attempt_id=? AND row_id IN ({placeholders})",
+                (attempt_id, *row_id_chunk),
+            ).fetchall()
+            allocated.update(
+                {int(row["row_id"]): row["terminal_outcome"] for row in allocation_rows}
+            )
+        if not allocated:
+            # An attempt with no retail allocations is a valid non-commercial
+            # writer. An attempt with allocations elsewhere must still refuse
+            # a batch outside its quoted row scope.
+            has_allocations = self.db.execute(
+                "SELECT 1 FROM attempt_row_authorizations WHERE attempt_id=? LIMIT 1",
+                (attempt_id,),
+            ).fetchone()
+            if has_allocations is None:
+                return attempt_id, {}
         classifications: dict[int, list[str]] = {}
         known_successes = set(TERMINAL_OUTCOMES)
         known_failures = set(FAILURE_OUTCOMES + TERMINAL_FAILURE_OUTCOMES)

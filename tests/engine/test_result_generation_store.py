@@ -28,6 +28,8 @@ class _ClaimedRun:
 
 def _seed_project(
     tmp_path: Path,
+    *,
+    row_count: int = 4,
 ) -> tuple[Project, int, int, list[int]]:
     project = Project.create(tmp_path / "result-generations.frisket", name="Heads")
     sheet_id = project.add_sheet("Rows")
@@ -38,10 +40,14 @@ def _seed_project(
     project.add_rows(
         sheet_id,
         [
-            {"source": "alpha"},
-            {"source": "beta"},
-            {"source": "gamma"},
-            {"source": "delta"},
+            {
+                "source": (
+                    ("alpha", "beta", "gamma", "delta")[index]
+                    if index < 4
+                    else f"source:{index}"
+                )
+            }
+            for index in range(row_count)
         ],
         {"source": source_column_id},
     )
@@ -1170,6 +1176,125 @@ def test_fresh_results_stream_then_staged_subset_seals_exact_heads(
     assert generations.has_mixed_origins(output_column_id)
     assert generations.is_generation_managed(output_column_id)
     assert generations.column_ids_for_op(second.op_id) == frozenset({output_column_id})
+
+
+def test_progressive_publication_batches_generation_and_head_queries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project, sheet_id, output_column_id, row_ids = _seed_project(
+        tmp_path, row_count=301
+    )
+    generations = ResultGenerationStore(project)
+    claimed = _start_claimed_run(
+        project,
+        sheet_id=sheet_id,
+        output_column_id=output_column_id,
+        row_ids=row_ids,
+        label="bulk progressive generation",
+    )
+    _declare(generations, claimed, output_column_id, write_mode="create")
+    binding_reads = 0
+    original_get_binding = ResultGenerationStore.get_binding
+
+    def observed_get_binding(store: ResultGenerationStore, run_id: int, column_id: int):
+        nonlocal binding_reads
+        binding_reads += 1
+        return original_get_binding(store, run_id, column_id)
+
+    monkeypatch.setattr(ResultGenerationStore, "get_binding", observed_get_binding)
+    head_writes: set[str] = set()
+
+    def observe_statement(statement: str) -> None:
+        normalized = statement.lower()
+        if "insert into cell_result_heads" in normalized:
+            head_writes.add(normalized)
+
+    project.db.set_trace_callback(observe_statement)
+    try:
+        _write(
+            project,
+            claimed,
+            [
+                {
+                    "row_id": row_id,
+                    "column_id": output_column_id,
+                    "value": f"bulk:{position}",
+                    "publication_effect": "publish_value",
+                }
+                for position, row_id in enumerate(row_ids)
+            ],
+        )
+    finally:
+        project.db.set_trace_callback(None)
+
+    assert binding_reads <= 1
+    assert len(head_writes) == 1
+    assert project.get_values(sheet_id, output_column_id) == {
+        row_id: f"bulk:{position}" for position, row_id in enumerate(row_ids)
+    }
+    _release(project, claimed)
+    project.close()
+
+
+def test_subset_replacement_seal_refreshes_only_its_301_exact_rows(
+    tmp_path: Path,
+) -> None:
+    project, sheet_id, output_column_id, row_ids = _seed_project(
+        tmp_path, row_count=302
+    )
+    generations, _first = _publish_initial_generation(
+        project, sheet_id, output_column_id, row_ids
+    )
+    targeted = row_ids[:301]
+    replacement = _start_claimed_run(
+        project,
+        sheet_id=sheet_id,
+        output_column_id=output_column_id,
+        row_ids=targeted,
+        label="301-row replacement",
+    )
+    try:
+        _declare(
+            generations,
+            replacement,
+            output_column_id,
+            write_mode="replace_scope",
+        )
+        _write(
+            project,
+            replacement,
+            [
+                {
+                    "row_id": row_id,
+                    "column_id": output_column_id,
+                    "value": f"replacement:{position}",
+                    "publication_effect": "publish_value",
+                }
+                for position, row_id in enumerate(targeted)
+            ],
+        )
+        project.db.execute("DELETE FROM search_dirty_scopes")
+        project.db.commit()
+
+        assert _seal(generations, replacement, output_column_id) == len(targeted)
+        scopes = project.db.execute(
+            "SELECT sheet_id,column_id,row_id_start,row_id_end "
+            "FROM search_dirty_scopes WHERE column_id=? ORDER BY id",
+            (output_column_id,),
+        ).fetchall()
+        assert [tuple(scope) for scope in scopes] == [
+            (sheet_id, output_column_id, targeted[0], targeted[-1])
+        ]
+        assert project.get_values(
+            sheet_id, output_column_id, [targeted[0], row_ids[-1]]
+        ) == {
+            targeted[0]: "replacement:0",
+            row_ids[-1]: "first:301",
+        }
+    finally:
+        _release(project, replacement)
+        project.close()
 
 
 def test_rebuild_uses_applied_ops_includes_hidden_rows_and_restores_prior_heads(

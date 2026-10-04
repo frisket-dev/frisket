@@ -8,6 +8,7 @@ query so incremental refresh and full repair cannot drift apart.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from collections.abc import Collection, Iterator
 
@@ -124,6 +125,12 @@ def _target_cte(name: str, values: list[int]) -> str:
     return f"{name}(id) AS (VALUES {','.join('(?)' for _ in values)})"
 
 
+def _temp_key_table(name: str) -> str:
+    if re.fullmatch(r"temp_result_keys_[0-9a-f]+", name) is None:
+        raise ValueError("invalid temporary result-key table name")
+    return name
+
+
 def _delete_region(
     db: sqlite3.Connection, *, column_ids: list[int], row_ids: list[int] | None
 ) -> None:
@@ -140,8 +147,14 @@ def _delete_region(
     )
 
 
-def _insert_region(
-    db: sqlite3.Connection, *, column_ids: list[int], row_ids: list[int] | None
+def _insert_candidates(
+    db: sqlite3.Connection,
+    *,
+    ctes: list[str],
+    params: list[int],
+    source_from: str,
+    result_from: str,
+    edit_from: str,
 ) -> int:
     has_validity = any(
         str(row[1]) == "validity"
@@ -155,46 +168,6 @@ def _insert_region(
     validity_value = (
         ",frisket_cell_validity(descriptor.type,value)" if has_validity else ""
     )
-    ctes = [_target_cte("target_columns", column_ids)]
-    params: list[int] = list(column_ids)
-    if row_ids is not None:
-        ctes.append(_target_cte("target_rows", row_ids))
-        params.extend(row_ids)
-        # CROSS JOIN fixes the small target sets as the outer loops. Without
-        # it SQLite can drive from the large value tables, turning a 100-cell
-        # refresh into a full-column scan despite the exact composite keys.
-        source_from = (
-            "FROM target_rows target_row "
-            "CROSS JOIN target_columns target_column "
-            "JOIN cells source ON source.row_id=target_row.id "
-            "AND source.column_id=target_column.id "
-        )
-        result_from = (
-            "FROM target_columns target_column "
-            "CROSS JOIN target_rows target_row "
-            "CROSS JOIN cell_result_heads head ON head.column_id=target_column.id "
-            "AND head.row_id=target_row.id "
-        )
-        edit_from = (
-            "FROM target_columns target_column "
-            "CROSS JOIN target_rows target_row "
-            "CROSS JOIN edits source ON source.column_id=target_column.id "
-            "AND source.row_id=target_row.id "
-        )
-    else:
-        source_from = (
-            "FROM target_columns target_column "
-            "JOIN cells source ON source.column_id=target_column.id "
-        )
-        result_from = (
-            "FROM target_columns target_column "
-            "JOIN cell_result_heads head ON head.column_id=target_column.id "
-        )
-        edit_from = (
-            "FROM target_columns target_column "
-            "JOIN edits source ON source.column_id=target_column.id "
-        )
-
     edit_precedence = live_edit_precedence_predicate(
         edit_alias="source", op_alias="source_op"
     )
@@ -248,6 +221,121 @@ def _insert_region(
         params,
     )
     return int(db.execute("SELECT changes()").fetchone()[0])
+
+
+def _insert_region(
+    db: sqlite3.Connection, *, column_ids: list[int], row_ids: list[int] | None
+) -> int:
+    ctes = [_target_cte("target_columns", column_ids)]
+    params: list[int] = list(column_ids)
+    if row_ids is not None:
+        ctes.append(_target_cte("target_rows", row_ids))
+        params.extend(row_ids)
+        # CROSS JOIN fixes the small target sets as the outer loops. Without
+        # it SQLite can drive from the large value tables, turning a 100-cell
+        # refresh into a full-column scan despite the exact composite keys.
+        source_from = (
+            "FROM target_rows target_row "
+            "CROSS JOIN target_columns target_column "
+            "JOIN cells source ON source.row_id=target_row.id "
+            "AND source.column_id=target_column.id "
+        )
+        result_from = (
+            "FROM target_columns target_column "
+            "CROSS JOIN target_rows target_row "
+            "CROSS JOIN cell_result_heads head ON head.column_id=target_column.id "
+            "AND head.row_id=target_row.id "
+        )
+        edit_from = (
+            "FROM target_columns target_column "
+            "CROSS JOIN target_rows target_row "
+            "CROSS JOIN edits source ON source.column_id=target_column.id "
+            "AND source.row_id=target_row.id "
+        )
+    else:
+        source_from = (
+            "FROM target_columns target_column "
+            "JOIN cells source ON source.column_id=target_column.id "
+        )
+        result_from = (
+            "FROM target_columns target_column "
+            "JOIN cell_result_heads head ON head.column_id=target_column.id "
+        )
+        edit_from = (
+            "FROM target_columns target_column "
+            "JOIN edits source ON source.column_id=target_column.id "
+        )
+
+    return _insert_candidates(
+        db,
+        ctes=ctes,
+        params=params,
+        source_from=source_from,
+        result_from=result_from,
+        edit_from=edit_from,
+    )
+
+
+def refresh_current_cells_from_key_table(db: sqlite3.Connection, key_table: str) -> int:
+    """Refresh exact keys from a caller-owned temporary SQL relation."""
+
+    _require_transaction(db)
+    table = _temp_key_table(key_table)
+    db.execute(
+        "DELETE FROM current_cells WHERE (column_id,row_id) IN ("
+        f"SELECT column_id,row_id FROM {table})"
+    )
+    total = _insert_candidates(
+        db,
+        ctes=[
+            f"target_cells(row_id,column_id) AS (SELECT row_id,column_id FROM {table})"
+        ],
+        params=[],
+        source_from=(
+            "FROM target_cells target "
+            "JOIN cells source ON source.row_id=target.row_id "
+            "AND source.column_id=target.column_id "
+        ),
+        result_from=(
+            "FROM target_cells target "
+            "JOIN cell_result_heads head ON head.row_id=target.row_id "
+            "AND head.column_id=target.column_id "
+        ),
+        edit_from=(
+            "FROM target_cells target "
+            "JOIN edits source ON source.row_id=target.row_id "
+            "AND source.column_id=target.column_id "
+        ),
+    )
+    columns = db.execute(
+        f"SELECT DISTINCT target.column_id,column_meta.sheet_id FROM {table} target "
+        "JOIN columns column_meta ON column_meta.id=target.column_id"
+    ).fetchall()
+    for column in columns:
+        column_id = int(column["column_id"])
+        ranges = db.execute(
+            "WITH ordered AS ("
+            "SELECT row_id,row_id-ROW_NUMBER() OVER (ORDER BY row_id) AS island "
+            f"FROM {table} WHERE column_id=?), grouped AS ("
+            "SELECT MIN(row_id) AS row_start,MAX(row_id) AS row_end "
+            "FROM ordered GROUP BY island ORDER BY row_start LIMIT ?) "
+            "SELECT row_start,row_end FROM grouped",
+            (column_id, _MAX_SEARCH_ROW_RANGES + 1),
+        ).fetchall()
+        if len(ranges) > _MAX_SEARCH_ROW_RANGES:
+            enqueue_dirty_scope(
+                db, sheet_id=int(column["sheet_id"]), column_id=column_id
+            )
+        else:
+            for row_range in ranges:
+                enqueue_dirty_scope(
+                    db,
+                    sheet_id=int(column["sheet_id"]),
+                    column_id=column_id,
+                    row_id_start=int(row_range["row_start"]),
+                    row_id_end=int(row_range["row_end"]),
+                )
+    return total
 
 
 def refresh_current_cells(

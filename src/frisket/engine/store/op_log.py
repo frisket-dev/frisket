@@ -233,7 +233,30 @@ def step_operation(
     projection_column_ids = operation_projection_column_ids(
         project, target_op_id, undo_info
     )
-    ResultGenerationStore(project).rebuild_heads(projection_column_ids, commit=False)
+    descriptor_replacement = any(
+        undo_info.get(field_name)
+        for field_name in (
+            "column_formats",
+            "column_formats_after",
+            "column_types",
+            "column_types_after",
+            "column_semantic_types",
+            "column_semantic_types_after",
+        )
+    )
+    generations = ResultGenerationStore(project)
+    with generations.affected_key_table(
+        target_op_id, projection_column_ids
+    ) as affected_key_table:
+        if descriptor_replacement or generations.key_table_covers_columns(
+            affected_key_table, projection_column_ids
+        ):
+            # Complete coverage keeps the proven bulk projector. Descriptor
+            # changes require it because validity and edit-boundary precedence
+            # can change at coordinates absent from the run.
+            generations.rebuild_heads(projection_column_ids, commit=False)
+        else:
+            generations.rebuild_heads_from_key_table(affected_key_table, commit=False)
     refresh_current_cell_pairs(
         project.db,
         [

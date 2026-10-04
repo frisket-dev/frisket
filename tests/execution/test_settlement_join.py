@@ -1228,6 +1228,42 @@ def test_cancelled_result_outcome_is_a_write_once_row_classification(
         )
 
 
+def test_result_authorization_reads_only_the_written_batch_rows(project, consented_run):
+    run_id = consented_run
+    attempt = _mint(project, run_id)
+    _claim_output_attempt(project, attempt)
+    statements: list[str] = []
+    project.db.set_trace_callback(statements.append)
+    try:
+        RunResultStore(project).write_results(
+            run_id,
+            [
+                {
+                    "row_id": 1,
+                    "column_id": 1,
+                    "outcome": "cancelled",
+                    "model_calls": [],
+                }
+            ],
+            **_writer_authority(
+                project,
+                run_id,
+                attempt_id=attempt.attempt_id,
+            ),
+        )
+    finally:
+        project.db.set_trace_callback(None)
+
+    authorization_reads = [
+        statement.lower()
+        for statement in statements
+        if "select row_id, terminal_outcome from attempt_row_authorizations"
+        in statement.lower()
+    ]
+    assert len(authorization_reads) == 1
+    assert "row_id in (1)" in authorization_reads[0]
+
+
 def test_terminalizer_excludes_cancelled_partial_fact_before_completed_row_settlement(
     project, consented_run
 ):
