@@ -74,22 +74,23 @@ def _seek(
 
 def _descriptor_sql(
     source: Any, title: Any | None, *, row_id_sql: str = "?", title_only: bool = False
-) -> tuple[str, list[Any]]:
+) -> tuple[str, list[Any] | dict[str, Any]]:
     # Values stay inside SQLite. Only capped labels and scalar metadata leave it.
     media = source["type"] in {"file", "image", "audio", "video"}
     source_id = int(source["id"])
     title_id = int(title["id"]) if title is not None else -1
     read_source = media or not title_only
-    params = ([source_id] if read_source else []) + [title_id]
     if row_id_sql == "?":
-        # Numbered parameters let every view lookup receive a literal row and
+        # Named parameters let every view lookup receive a literal row and
         # column coordinate while callers still bind the row only once.
-        row_parameter = f"?{len(params) + 1}"
-        source_parameter = "?1"
-        title_parameter = f"?{2 if read_source else 1}"
-        source_row = row_parameter
-        title_row = row_parameter
-        row_id_sql = row_parameter
+        source_parameter = ":source_column"
+        title_parameter = ":title_column"
+        source_row = ":row_id"
+        title_row = ":row_id"
+        row_id_sql = ":row_id"
+        params = {"title_column": title_id}
+        if read_source:
+            params["source_column"] = source_id
     else:
         source_parameter = "?"
         title_parameter = "?"
@@ -136,6 +137,12 @@ def _descriptor_sql(
         else "NULL"
     )
     sql = f"""
+        WITH raw AS MATERIALIZED (
+            SELECT r.id AS row_id,r.position,{source_value} AS sv,
+                {source_kind} AS sk,{title_value} AS tv,{title_kind} AS tk
+            FROM rows r
+            WHERE r.id={row_id_sql}
+        )
         SELECT *, CASE WHEN raw_title IS NOT NULL AND trim(CAST(raw_title AS TEXT))<>''
             AND substr(CAST(raw_title AS TEXT),1,1)<>'{{' THEN CAST(raw_title AS TEXT)
             ELSE label END AS display_title
@@ -145,12 +152,7 @@ def _descriptor_sql(
                 WHEN tk IN ('text','integer','real','bigint','json') THEN tv END AS raw_title,
                 CASE WHEN json_type(envelope,'$.mime')='text' THEN json_extract(envelope,'$.mime') END AS mime
             FROM (
-                SELECT *, {envelope} AS envelope FROM (
-                    SELECT r.id AS row_id,r.position,{source_value} AS sv,
-                        {source_kind} AS sk,{title_value} AS tv,{title_kind} AS tk
-                    FROM rows r
-                    WHERE r.id={row_id_sql}
-                )
+                SELECT *, {envelope} AS envelope FROM raw
             )
         )
     """
@@ -379,9 +381,14 @@ def _document_browse(
         rows.reverse()
     items = []
     for index, row in enumerate(rows):
+        detail_params: list[Any] | dict[str, Any]
+        if isinstance(descriptor_params, dict):
+            detail_params = {**descriptor_params, "row_id": int(row["id"])}
+        else:
+            detail_params = [*descriptor_params, int(row["id"])]
         detail = project.db.execute(
             f"SELECT substr(display_title,1,256) AS title,length(display_title)>256 AS title_truncated,substr(label,1,256) AS label,lower(substr(label,-10)) AS suffix,length(label)>256 AS label_truncated,substr(mime,1,128) AS mime,CASE WHEN sk='text' THEN length(sv) END AS character_count,CASE WHEN sk IN ('text','json') THEN sv IS NOT NULL AND sv<>'' ELSE 0 END AS source_present FROM ({descriptor})",
-            [*descriptor_params, int(row["id"])],
+            detail_params,
         ).fetchone()
         mime = (detail["mime"] or "").lower()
         label = detail["label"]

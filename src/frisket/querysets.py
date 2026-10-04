@@ -232,7 +232,7 @@ def sheet_row_scope_plan(
         sort=sort,
         reference_date=reference_date,
         row_ids=row_ids,
-        join_live_values=False,
+        join_live_values=True,
     )
 
 
@@ -286,7 +286,7 @@ def _sheet_row_scope_plan(
     sorts = _parse_sheet_sort(sort, columns_by_name)
     generation_store = ResultGenerationStore(project)
     managed_columns: dict[int, bool] = {}
-    live_aliases: dict[int, str] = {}
+    live_aliases: dict[int, tuple[str, int]] = {}
     joins: list[str] = []
     join_params: list[Any] = []
     today = reference_date or datetime.now(UTC).date()
@@ -305,18 +305,45 @@ def _sheet_row_scope_plan(
             )
         return managed_columns[column_id]
 
-    def scope_live_alias(row_alias: str, column: Any) -> str:
-        column_id = int(column["id"])
-        alias = live_aliases.get(column_id)
-        if alias is None:
-            alias = f"live_{len(live_aliases)}"
-            live_aliases[column_id] = alias
-            joins.append(
-                f"LEFT JOIN current_cell_values AS {alias} "
-                f"ON {alias}.column_id=? AND {alias}.row_id={row_alias}.id"
+    def add_live_projection(column_ids: Sequence[int], alias: str) -> None:
+        pending = [
+            column_id for column_id in column_ids if column_id not in live_aliases
+        ]
+        if not pending:
+            return
+        fields = ["cell.row_id"]
+        for position, column_id in enumerate(pending):
+            fields.extend(
+                (
+                    f"MAX(CASE WHEN cell.column_id={column_id} THEN cell.value END) AS v{position}",
+                    f"MAX(CASE WHEN cell.column_id={column_id} THEN cell.value_kind END) AS k{position}",
+                    f"MAX(CASE WHEN cell.column_id={column_id} THEN cell.validity END) AS q{position}",
+                )
             )
-            join_params.append(column_id)
-        return alias
+            live_aliases[column_id] = (alias, position)
+        ids = ",".join(str(column_id) for column_id in pending)
+        joins.append(
+            "LEFT JOIN (SELECT "
+            + ",".join(fields)
+            + " FROM current_cell_values cell WHERE cell.column_id IN ("
+            + ids
+            + ") GROUP BY cell.row_id) AS "
+            + alias
+            + f" ON {alias}.row_id=r.id"
+        )
+
+    filter_value_columns = sorted(
+        {
+            int(item[0]["id"])
+            for item in filters
+            if isinstance(item, tuple) and item[1] != "failed"
+        }
+    )
+    if join_live_values:
+        add_live_projection(filter_value_columns, "live_filter")
+
+    def scope_live_slot(column: Any) -> tuple[str, int]:
+        return live_aliases[int(column["id"])]
 
     def scope_live_value_sql(
         row_alias: str,
@@ -328,18 +355,19 @@ def _sheet_row_scope_plan(
             return sheet_live_value_sql(
                 row_alias, column, preserve_invalid=preserve_invalid
             )
-        alias = scope_live_alias(row_alias, column)
+        alias, position = scope_live_slot(column)
         value = (
-            f"{alias}.value"
+            f"{alias}.v{position}"
             if preserve_invalid
-            else f"CASE WHEN {alias}.validity='valid' THEN {alias}.value END"
+            else f"CASE WHEN {alias}.q{position}='valid' THEN {alias}.v{position} END"
         )
         return value, []
 
     def scope_live_value_kind_sql(row_alias: str, column: Any) -> tuple[str, list[Any]]:
         if not join_live_values:
             return sheet_live_value_kind_sql(row_alias, column)
-        return f"{scope_live_alias(row_alias, column)}.value_kind", []
+        alias, position = scope_live_slot(column)
+        return f"{alias}.k{position}", []
 
     where = ["r.sheet_id=?", "r.hidden=0"]
     where_params: list[Any] = [sheet_id]
@@ -631,6 +659,11 @@ def _sheet_row_scope_plan(
 
     filter_joins = tuple(joins)
     filter_join_params = tuple(join_params)
+    if join_live_values:
+        add_live_projection(
+            sorted(int(column["id"]) for column, _direction in sorts),
+            "live_sort",
+        )
     terms = _sheet_order_terms(
         sorts,
         live_value_sql=scope_live_value_sql,
