@@ -658,6 +658,7 @@ def test_malformed_and_non_entity_cells_contribute_nothing_and_never_500(tmp_pat
             {"entities": [{"type": "", "text": "empty type"}]},
             {"entities": [{"type": "person", "text": ""}]},
             {"entities": [{"type": 5, "text": 7}]},
+            {"entities": json.dumps(_entities(("person", "String Literal")))},
             {"entities": _entities(("person", "Real Person"))},
         ],
         columns,
@@ -674,7 +675,7 @@ def test_malformed_and_non_entity_cells_contribute_nothing_and_never_500(tmp_pat
     assert body["total_groups"] == 1
     assert body["items"][0]["label"] == "Real Person"
     assert body["items"][0]["row_count"] == 1
-    assert _rows_for(client, pid, sheet_id, {"type": "person"}) == {rows[9]}
+    assert _rows_for(client, pid, sheet_id, {"type": "person"}) == {rows[10]}
     assert (
         _rows_for(client, pid, sheet_id, {"type": "person", "text": "no type"}) == set()
     )

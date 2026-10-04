@@ -1032,7 +1032,10 @@ def _filter_value_sql(value_sql: str, value_kind_sql: str, column: Any) -> str:
     elif column_type == "json":
         kinds = "('null','text','integer','real','boolean','json','bigint')"
     else:
-        kinds = "('text')"
+        # Registered structured types (geo, timeline and plugins) commonly
+        # store objects or arrays. Keep their equality filters on the same
+        # scalar/JSON value surface as the generic JSON column type.
+        kinds = "('null','text','integer','real','boolean','json','bigint')"
     return f"CASE WHEN {value_kind_sql} IN {kinds} THEN CAST({value_sql} AS TEXT) END"
 
 

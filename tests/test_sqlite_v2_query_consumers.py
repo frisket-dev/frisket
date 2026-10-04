@@ -35,6 +35,38 @@ def test_list_filter_requires_a_top_level_json_array(tmp_path):
         project.close()
 
 
+def test_geo_object_equality_filters_preserve_json_comparison(tmp_path):
+    project = Project.create(tmp_path / "geo-equality.frisket")
+    try:
+        sheet = project.add_sheet("places")
+        location = project.add_column(sheet, "location", type="geo_point")
+        matching, other = project.add_rows(
+            sheet,
+            [
+                {"location": {"lat": 40.7128, "lon": -74.006}},
+                {"location": {"lat": 51.5074, "lon": -0.1278}},
+            ],
+            {"location": location},
+        )
+        expected = json.dumps({"lat": 40.7128, "lon": -74.006})
+
+        equal = resolve_sheet_filter_rows(
+            project,
+            sheet,
+            filter_=json.dumps({"location": {"eq": expected}}),
+        )
+        unequal = resolve_sheet_filter_rows(
+            project,
+            sheet,
+            filter_=json.dumps({"location": {"neq": expected}}),
+        )
+
+        assert equal.row_ids == [matching]
+        assert unequal.row_ids == [other]
+    finally:
+        project.close()
+
+
 def test_bigint_sort_keeps_historical_query_boundary_order(tmp_path):
     project = Project.create(tmp_path / "bigint-sort.frisket")
     try:
