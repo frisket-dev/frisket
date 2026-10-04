@@ -81,19 +81,26 @@ def _descriptor_sql(
     title_id = int(title["id"]) if title is not None else -1
     read_source = media or not title_only
     source_value = (
-        "CASE WHEN s.validity='valid' THEN s.value END" if read_source else "NULL"
+        "(SELECT CASE WHEN s.validity='valid' THEN s.value END "
+        "FROM current_cell_values s WHERE s.row_id=r.id AND s.column_id=?)"
+        if read_source
+        else "NULL"
     )
     source_kind = (
-        "CASE WHEN s.validity='valid' THEN s.value_kind END" if read_source else "NULL"
-    )
-    source_join = (
-        "LEFT JOIN current_cell_values s ON s.row_id=r.id AND s.column_id=?"
+        "(SELECT CASE WHEN s.validity='valid' THEN s.value_kind END "
+        "FROM current_cell_values s WHERE s.row_id=r.id AND s.column_id=?)"
         if read_source
-        else ""
+        else "NULL"
     )
     # Titles are display values, like /data's preserve-invalid projection.
-    title_value = "t.value"
-    title_kind = "t.value_kind"
+    title_value = (
+        "(SELECT t.value FROM current_cell_values t "
+        "WHERE t.row_id=r.id AND t.column_id=?)"
+    )
+    title_kind = (
+        "(SELECT t.value_kind FROM current_cell_values t "
+        "WHERE t.row_id=r.id AND t.column_id=?)"
+    )
     # Media envelopes are the only source values handed to JSON1.
     envelope = (
         "CASE WHEN sk='json' THEN CASE WHEN json_type(sv)='object' THEN sv END "
@@ -120,14 +127,13 @@ def _descriptor_sql(
                 SELECT *, {envelope} AS envelope FROM (
                     SELECT r.id AS row_id,r.position,{source_value} AS sv,
                         {source_kind} AS sk,{title_value} AS tv,{title_kind} AS tk
-                    FROM rows r {source_join}
-                    LEFT JOIN current_cell_values t ON t.row_id=r.id AND t.column_id=?
+                    FROM rows r
                     WHERE r.id={row_id_sql}
                 )
             )
         )
     """
-    return sql, ([source_id] if read_source else []) + [title_id]
+    return sql, ([source_id, source_id] if read_source else []) + [title_id, title_id]
 
 
 def _url_label(value: str) -> str:

@@ -444,19 +444,19 @@ def _base_ctes(
 ) -> tuple[list[str], list[Any]]:
     ordered = sorted(involved)
     source = ["scoped.row_id"]
-    joins: list[str] = []
+    source_params: list[Any] = []
     for index, column_id in enumerate(ordered):
         source.extend(
             (
-                f"c{index}.value AS v{index}",
-                f"c{index}.value_kind AS k{index}",
-                f"c{index}.validity AS q{index}",
+                "(SELECT cell.value FROM current_cell_values cell "
+                f"WHERE cell.row_id=scoped.row_id AND cell.column_id=?) AS v{index}",
+                "(SELECT cell.value_kind FROM current_cell_values cell "
+                f"WHERE cell.row_id=scoped.row_id AND cell.column_id=?) AS k{index}",
+                "(SELECT cell.validity FROM current_cell_values cell "
+                f"WHERE cell.row_id=scoped.row_id AND cell.column_id=?) AS q{index}",
             )
         )
-        joins.append(
-            f"LEFT JOIN current_cell_values c{index} "
-            f"ON c{index}.row_id=scoped.row_id AND c{index}.column_id=?"
-        )
+        source_params.extend((column_id, column_id, column_id))
     positions = {column_id: index for index, column_id in enumerate(ordered)}
     prepared = ["source.*"]
     for index, group in enumerate(request.groups):
@@ -486,13 +486,9 @@ def _base_ctes(
             )
     return [
         f"scoped AS (SELECT r.id AS row_id FROM {filter_from_sql} WHERE {where_sql})",
-        "source AS (SELECT "
-        + ", ".join(source)
-        + " FROM scoped "
-        + " ".join(joins)
-        + ")",
+        "source AS MATERIALIZED (SELECT " + ", ".join(source) + " FROM scoped)",
         "prepared AS MATERIALIZED (SELECT " + ", ".join(prepared) + " FROM source)",
-    ], [*where_params, *ordered]
+    ], [*where_params, *source_params]
 
 
 def _group_field_names(request: AnalyticsRequest) -> list[str]:

@@ -223,7 +223,7 @@ def sheet_row_scope_plan(
     reference_date: date | None = None,
     row_ids: Sequence[int] | None = None,
 ) -> SheetRowScopePlan:
-    """Compile a row scope whose live-value expressions share indexed joins."""
+    """Compile a row scope with exact-coordinate live-value lookups."""
     return _sheet_row_scope_plan(
         project,
         sheet_id,
@@ -232,7 +232,7 @@ def sheet_row_scope_plan(
         sort=sort,
         reference_date=reference_date,
         row_ids=row_ids,
-        join_live_values=True,
+        join_live_values=False,
     )
 
 
@@ -786,16 +786,25 @@ def count_sheet_filter_values(
         row_ids=row_ids,
         reference_date=reference_date,
     )
+    value_sql, value_params = sheet_live_value_sql("r", column, preserve_invalid=True)
+    kind_sql, kind_params = sheet_live_value_kind_sql("r", column)
+    validity_sql = (
+        "(SELECT live.validity FROM current_cell_values live "
+        "WHERE live.column_id=? AND live.row_id=r.id)"
+    )
     rows = project.db.execute(
         "WITH count_values AS (SELECT "
-        "live.value, live.value_kind, live.validity "
-        f"FROM {plan.filter_from_sql} LEFT JOIN current_cell_values live "
-        "ON live.column_id=? AND live.row_id=r.id "
+        f"{value_sql} AS value, {kind_sql} AS value_kind, "
+        f"{validity_sql} AS validity FROM {plan.filter_from_sql} "
         f"WHERE {plan.where_sql}), "
         "count_groups AS (SELECT CASE "
         "WHEN validity='invalid' THEN 'invalid' "
         "WHEN validity='valid' AND value_kind<>'null' AND value IS NOT NULL THEN 'valid' "
-        "ELSE 'missing' END AS kind, value_kind, value FROM count_values) "
+        "ELSE 'missing' END AS kind, "
+        "CASE WHEN validity='valid' AND value_kind<>'null' AND value IS NOT NULL "
+        "THEN value_kind END AS value_kind, "
+        "CASE WHEN validity='valid' AND value_kind<>'null' AND value IS NOT NULL "
+        "THEN value END AS value FROM count_values) "
         "SELECT kind, CASE WHEN kind='valid' THEN CASE "
         "WHEN value_kind IN ('integer','real') THEN 'number' "
         "ELSE value_kind END END AS value_type, "
@@ -805,8 +814,10 @@ def count_sheet_filter_values(
         "ORDER BY count DESC, CASE kind "
         "WHEN 'valid' THEN 0 WHEN 'missing' THEN 1 ELSE 2 END, value LIMIT ?",
         [
-            *plan.filter_join_params,
+            *value_params,
+            *kind_params,
             column["id"],
+            *plan.filter_join_params,
             *plan.where_params,
             limit + 1,
         ],
