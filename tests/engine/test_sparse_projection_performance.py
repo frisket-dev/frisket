@@ -42,14 +42,15 @@ def _production_shaped_database(row_count: int) -> sqlite3.Connection:
     rows = [(row_id, 1, row_id) for row_id in range(1, row_count + 1)]
     db.executemany("INSERT INTO rows (id,sheet_id,position) VALUES (?,?,?)", rows)
     db.executemany(
-        "INSERT INTO cells (row_id,column_id,value,producer_id) VALUES (?,10,?,1)",
-        ((row_id, str(-row_id)) for row_id in range(1, row_count + 1)),
+        "INSERT INTO cells (row_id,column_id,value_kind,value,producer_id) "
+        "VALUES (?,10,'integer',?,1)",
+        ((row_id, -row_id) for row_id in range(1, row_count + 1)),
     )
     db.executemany(
         "INSERT INTO results "
-        "(run_id,row_id,column_id,value,outcome,publication_effect) "
-        "VALUES (20,?,10,?,'ok','publish_value')",
-        ((row_id, str(row_id)) for row_id in range(1, row_count + 1)),
+        "(run_id,row_id,column_id,value_kind,value,outcome,publication_effect) "
+        "VALUES (20,?,10,'integer',?,'ok','publish_value')",
+        ((row_id, row_id) for row_id in range(1, row_count + 1)),
     )
     db.executemany(
         "INSERT INTO cell_result_heads (column_id,row_id,run_id) VALUES (10,?,20)",
@@ -57,9 +58,9 @@ def _production_shaped_database(row_count: int) -> sqlite3.Connection:
     )
     db.executemany(
         "INSERT INTO current_cells "
-        "(column_id,row_id,value,origin_kind,origin_op_id,origin_run_id,validity) "
-        "VALUES (10,?,?,'run_result',2,20,'valid')",
-        ((row_id, str(row_id)) for row_id in range(1, row_count + 1)),
+        "(column_id,row_id,origin_kind,origin_op_id,origin_run_id,validity) "
+        "VALUES (10,?,'run_result',2,20,'valid')",
+        ((row_id,) for row_id in range(1, row_count + 1)),
     )
     db.commit()
     db.execute("ANALYZE")
