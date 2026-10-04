@@ -268,7 +268,7 @@ def _evaluate(
     select_fields = ["a.*", *median_joins[0], "d.*"]
     from_sql = "aggregated a " + median_joins[1] + " CROSS JOIN denominators d"
     base_ctes = list(ctes)
-    finite_checks, finite_params = _finite_checks(request, columns)
+    finite_checks, finite_params = _finite_checks(request)
     ctes.append(
         "validation AS (SELECT COUNT(*) AS invalid_count FROM "
         + from_sql
@@ -333,7 +333,7 @@ def _evaluate(
         _result_group(row, request, columns, quality_columns)
         for row in rows[: request.limit]
     ]
-    _assert_finite_count(int(metadata["__invalid_count"]), request, columns)
+    _assert_finite_count(int(metadata["__invalid_count"]), request)
     denominators = _denominators(metadata, request)
     _attach_percentages(groups, denominators, request)
     result = {
@@ -514,7 +514,8 @@ def _valid_present(request: AnalyticsRequest, column_id: int) -> str:
 def _numeric_value(request: AnalyticsRequest, column_id: int) -> str:
     pos = _column_pos(request, column_id)
     return (
-        f"CASE WHEN {_valid_present(request, column_id)} "
+        f"CASE WHEN {_valid_present(request, column_id)} AND k{pos}='bigint' "
+        f"THEN CAST(v{pos} AS REAL) WHEN {_valid_present(request, column_id)} "
         f"AND k{pos} IN ('integer','real') THEN v{pos} END"
     )
 
@@ -529,8 +530,14 @@ def _value_expr(
         "number": "('integer','real')",
         "boolean": "('boolean')",
     }.get(column_type, "('text')")
+    bigint = (
+        f"WHEN {_valid_present(request, column_id)} AND k{pos}='bigint' "
+        f"THEN CAST(v{pos} AS REAL) "
+        if column_type == "number"
+        else ""
+    )
     return (
-        f"CASE WHEN {_valid_present(request, column_id)} "
+        f"CASE {bigint}WHEN {_valid_present(request, column_id)} "
         f"AND k{pos} IN {kinds} THEN v{pos} END"
     )
 
@@ -606,8 +613,6 @@ def _aggregate_fields(
                 f"OR (q{pos}='valid' AND (k{pos}='null' OR v{pos} IS NULL))), 0) "
                 f"AS q{pos}_missing",
                 f"COALESCE(SUM(q{pos}='invalid'), 0) AS q{pos}_invalid",
-                f"COALESCE(SUM(q{pos}='valid' AND k{pos}='bigint'), 0) "
-                f"AS q{pos}_bigint",
             )
         )
     return metric_fields, quality_fields, quality_columns
@@ -851,25 +856,14 @@ def _attach_percentages(
             group["percentages"] = percentages
 
 
-def _finite_checks(
-    request: AnalyticsRequest, columns: Mapping[int, Any]
-) -> tuple[list[str], list[float]]:
+def _finite_checks(request: AnalyticsRequest) -> tuple[list[str], list[float]]:
     checks: list[str] = []
     bounds: list[float] = []
     for index, metric in enumerate(request.metrics):
-        numeric_column = (
-            metric.column_id is not None
-            and str(columns[metric.column_id]["type"]) in _NUMERIC_TYPES
-        )
-        if metric.kind not in _NUMERIC_METRICS and not (
-            numeric_column and metric.kind in {"min", "max"}
-        ):
+        if metric.kind not in _NUMERIC_METRICS:
             continue
         value = _metric_ref(request, metric.id)
         pos = _column_pos(request, metric.column_id)
-        checks.append(f"a.q{pos}_bigint > 0")
-        if metric.kind in {"min", "max"}:
-            continue
         checks.append(
             f"(({value} IS NULL AND a.q{pos}_present > 0) OR "
             f"({value} IS NOT NULL AND NOT ({value} BETWEEN ? AND ?)))"
@@ -886,19 +880,8 @@ def _finite_checks(
     return checks, bounds
 
 
-def _assert_finite_count(
-    invalid: int, request: AnalyticsRequest, columns: Mapping[int, Any]
-) -> None:
+def _assert_finite_count(invalid: int, request: AnalyticsRequest) -> None:
     if not invalid:
         return
-    names = [
-        metric.id
-        for metric in request.metrics
-        if metric.kind in _NUMERIC_METRICS
-        or (
-            metric.kind in {"min", "max"}
-            and metric.column_id is not None
-            and str(columns[metric.column_id]["type"]) in _NUMERIC_TYPES
-        )
-    ]
+    names = [metric.id for metric in request.metrics if metric.kind in _NUMERIC_METRICS]
     raise NumericOverflowError("numeric_overflow: " + ", ".join(names))

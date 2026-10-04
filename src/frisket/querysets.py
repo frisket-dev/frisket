@@ -7,7 +7,6 @@ from calendar import monthrange
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
-from decimal import Decimal, InvalidOperation
 import json
 import math
 import re
@@ -30,7 +29,6 @@ SHEET_FILTER_ROWSET_EVALUATOR = {
 }
 
 _SQL_UTC_DATE = "frisket_utc_calendar_date"
-_SQL_NUMERIC_COLLATION = "frisket_numeric"
 
 # --------------------------------------------------------------------------
 # The one guarded ``json_each`` construction for entity-mention JSON.
@@ -141,17 +139,6 @@ def is_entity_mentions_column(column: Any) -> bool:
 
 class SheetRowSetError(ValueError):
     """Raised when a sheet rowset filter or sort cannot be evaluated."""
-
-
-def _numeric_collation(left: str, right: str) -> int:
-    """Compare native numeric and canonical-bigint sort keys without REAL casts."""
-
-    try:
-        left_number = Decimal(left.split(":", 1)[1])
-        right_number = Decimal(right.split(":", 1)[1])
-    except (IndexError, InvalidOperation):
-        return (left > right) - (left < right)
-    return (left_number > right_number) - (left_number < right_number)
 
 
 @dataclass(frozen=True)
@@ -309,7 +296,6 @@ def _sheet_row_scope_plan(
         normalize_utc_calendar_date,
         deterministic=True,
     )
-    project.db.create_collation(_SQL_NUMERIC_COLLATION, _numeric_collation)
 
     def is_generation_managed(column: Any) -> bool:
         column_id = int(column["id"])
@@ -691,24 +677,19 @@ def _sheet_order_terms(
     terms = []
     for column, direction in sorts:
         value, params = value_reader("r", column)
-        range_kind = range_facet_value_kind(str(column["type"]))
-        if range_kind in {"integer", "number"} and live_value_kind_sql is not None:
+        if live_value_kind_sql is not None:
             value_kind, kind_params = live_value_kind_sql("r", column)
-            numeric_kinds = (
-                "('integer','bigint')"
-                if range_kind == "integer"
-                else "('integer','real','bigint')"
-            )
+            # Historical JSON extraction evaluated integers outside SQLite's
+            # signed range as REAL. Keep that query-boundary behavior while
+            # retaining the exact canonical decimal in authority storage.
             scalar = (
-                f"CASE WHEN {value_kind} IN {numeric_kinds} THEN {value_kind} || ':' || "
-                f"CASE WHEN {value_kind}='real' THEN printf('%!.17g',{value}) "
-                f"ELSE CAST({value} AS TEXT) END END"
+                f"CASE WHEN {value_kind}='bigint' THEN CAST({value} AS REAL) "
+                f"ELSE {value} END"
             )
-            params = [*kind_params, *kind_params, *kind_params, *params, *params]
-            collation = f" COLLATE {_SQL_NUMERIC_COLLATION}"
+            params = [*kind_params, *params, *params]
         else:
             scalar = value
-            collation = _sort_collation_sql(column)
+        collation = _sort_collation_sql(column)
         terms.append(SheetOrderTerm(f"{scalar} IS NULL", tuple(params)))
         terms.append(
             SheetOrderTerm(scalar, tuple(params), direction == "desc", collation)
