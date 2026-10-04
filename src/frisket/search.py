@@ -130,7 +130,10 @@ def _read_sidecar(project: SearchProject) -> sqlite3.Connection:
     path = project.path / "project.search.db"
     try:
         db = sqlite3.connect(
-            f"{path.as_uri()}?mode=ro", uri=True, timeout=0, check_same_thread=False
+            f"{path.resolve().as_uri()}?mode=ro",
+            uri=True,
+            timeout=0,
+            check_same_thread=False,
         )
     except sqlite3.OperationalError as exc:
         raise SearchIndexNotReady() from exc

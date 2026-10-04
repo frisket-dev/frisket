@@ -68,7 +68,7 @@ def index_needs_work(project: Project) -> bool:
         return True
     db = None
     try:
-        db = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True, timeout=0)
+        db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=0)
         db.execute("BEGIN")
         return not index_is_complete(db, project)
     except sqlite3.DatabaseError:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 import sqlite3
 import threading
 
@@ -21,6 +22,7 @@ from frisket.search import (
     search_project,
     search_sheet,
 )
+from frisket.search_index import index_needs_work
 from frisket.semantic import (
     SEMANTIC_CELL_PREFIX_CHARS,
     SEMANTIC_COVERAGE,
@@ -29,6 +31,27 @@ from frisket.semantic import (
 
 
 NEEDLE = "nebulaquartz"
+
+
+def test_relative_project_path_indexes_and_searches(tmp_path, monkeypatch):
+    seeded = Project.create(tmp_path / "relative.frisket", name="relative")
+    sheet = seeded.add_sheet("Documents")
+    column = seeded.add_column(sheet, "body")
+    [row] = seeded.add_rows(sheet, [{"body": "relativepathneedle"}], {"body": column})
+    seeded.close()
+
+    monkeypatch.chdir(tmp_path)
+    project = Project(Path("relative.frisket"))
+    try:
+        drain_index(project)
+
+        assert not index_needs_work(project)
+        assert (
+            search_project(project, "relativepathneedle", rerank="off")[0]["row_id"]
+            == row
+        )
+    finally:
+        project.close()
 
 
 def _import_writer(project: Project) -> StreamingSheetWriter:
