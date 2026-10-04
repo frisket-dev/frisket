@@ -151,7 +151,7 @@ def reclaim_is_pending(path: Path) -> bool:
         return False
     db = None
     try:
-        db = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True, timeout=0)
+        db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=0)
         configure_search_connection(db)
         return (
             db.execute(

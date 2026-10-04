@@ -23,6 +23,7 @@ from frisket.search import (
     search_sheet,
 )
 from frisket.search_index import index_needs_work
+from frisket.search_storage import reclaim_is_pending
 from frisket.semantic import (
     SEMANTIC_CELL_PREFIX_CHARS,
     SEMANTIC_COVERAGE,
@@ -46,6 +47,7 @@ def test_relative_project_path_indexes_and_searches(tmp_path, monkeypatch):
         drain_index(project)
 
         assert not index_needs_work(project)
+        assert not reclaim_is_pending(project.path / "project.search.db")
         assert (
             search_project(project, "relativepathneedle", rerank="off")[0]["row_id"]
             == row
