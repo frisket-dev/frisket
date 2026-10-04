@@ -15,6 +15,11 @@ import sqlite3
 import uuid
 from typing import Any
 
+from frisket.engine.store.citation_text import (
+    capture_text_context,
+    read_text_ref,
+    text_ref_for_artifact,
+)
 from frisket.engine.store.deep_link import compose_deep_link
 from frisket.engine.store.media_blobs import MediaBlobStore
 from frisket.engine.store.project import Project
@@ -62,34 +67,60 @@ def record_source_artifact(
     """Create a source artifact and return its public row shape."""
 
     artifact_stable_id = stable_id or _stable_id("source_artifact")
-    owns_transaction = not project.db.in_transaction
-    cur = project.db.execute(
-        "INSERT INTO source_artifacts ("
-        "stable_id, artifact_kind, media_type, blob_hash, source_url, "
-        "canonical_url, title, filename, page_count, duration_ms, "
-        "source_sheet_id, source_row_id, source_column_id, external_ref_json, "
-        "metadata"
-        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (
-            artifact_stable_id,
-            artifact_kind,
-            media_type,
-            blob_hash,
-            source_url,
-            canonical_url,
-            title,
-            filename,
-            page_count,
-            duration_ms,
-            source_sheet_id,
-            source_row_id,
-            source_column_id,
-            _json_dumps(external_ref or {}),
-            _json_dumps(metadata or {}),
-        ),
+    artifact_metadata = dict(metadata or {})
+    captured_text = artifact_metadata.get("captured_text")
+    captured_source = artifact_metadata.get("captured_source")
+    captured_value_ref = (
+        captured_source.get("value_ref")
+        if isinstance(captured_source, dict)
+        and isinstance(captured_source.get("value_ref"), dict)
+        else None
     )
-    if owns_transaction:
-        project.db.commit()
+    if isinstance(captured_text, str):
+        artifact_metadata.pop("captured_text", None)
+    owns_transaction = not project.db.in_transaction
+    try:
+        cur = project.db.execute(
+            "INSERT INTO source_artifacts ("
+            "stable_id, artifact_kind, media_type, blob_hash, source_url, "
+            "canonical_url, title, filename, page_count, duration_ms, "
+            "source_sheet_id, source_row_id, source_column_id, external_ref_json, "
+            "metadata"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                artifact_stable_id,
+                artifact_kind,
+                media_type,
+                blob_hash,
+                source_url,
+                canonical_url,
+                title,
+                filename,
+                page_count,
+                duration_ms,
+                source_sheet_id,
+                source_row_id,
+                source_column_id,
+                _json_dumps(external_ref or {}),
+                _json_dumps(artifact_metadata),
+            ),
+        )
+        if isinstance(captured_text, str):
+            capture_text_context(
+                project.db,
+                source_artifact_id=int(cur.lastrowid),
+                text=captured_text,
+                value_ref=captured_value_ref,
+                sheet_id=source_sheet_id,
+                row_id=source_row_id,
+                column_id=source_column_id,
+            )
+        if owns_transaction:
+            project.db.commit()
+    except Exception:
+        if owns_transaction:
+            project.db.rollback()
+        raise
     return _artifact_row(project, int(cur.lastrowid))
 
 
@@ -828,7 +859,7 @@ def resolve_evidence_viewer(
 
     for artifact in artifacts.values():
         artifact["pages"] = _page_payloads(artifact, project_id=project_id)
-        artifact["text_context"] = _artifact_text_context(artifact)
+        artifact["text_context"] = _artifact_text_context(project, artifact)
 
     # Attach each cited span's run membership (run_index) and each
     # artifact's run-level clip affordances -- ONE clip per contiguous run
@@ -1099,11 +1130,14 @@ def _utf16_offset(text: str, codepoint_offset: int) -> int:
     return len(text[:codepoint_offset].encode("utf-16-le")) // 2
 
 
-def _artifact_text_context(artifact: dict[str, Any]) -> dict[str, Any] | None:
+def _artifact_text_context(
+    project: Project, artifact: dict[str, Any]
+) -> dict[str, Any] | None:
     """Project a cited artifact's frozen text and verified cited ranges."""
 
     metadata = artifact.get("metadata")
-    text = metadata.get("captured_text") if isinstance(metadata, dict) else None
+    ref = text_ref_for_artifact(project.db, int(artifact["id"]))
+    text = read_text_ref(project.db, ref) if ref is not None else None
     if not isinstance(text, str):
         return None
     expected_hash = _text_hash(text)
