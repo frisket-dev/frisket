@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterator
 from pathlib import Path
 
 from .disk_capacity import require_disk_headroom
@@ -10,7 +11,6 @@ from .schema import BundleSchemaMismatch, SCHEMA_DIGEST_META_KEY
 from .value_codec import migrate_legacy_json_value
 
 TYPED_VALUES_TO_DIGEST = "frisket.schema.v1:529f5f4e750711b310535f6ed083c331"
-TYPED_VALUE_COPY_BATCH_SIZE = 2_000
 
 
 def _fresh_schema_statement(prefix: str) -> str:
@@ -53,9 +53,10 @@ def _copy_typed_authority(
     )
     copied = 0
     cursor = db.execute(f"SELECT {','.join(columns)} FROM {table}")
-    while batch := cursor.fetchmany(TYPED_VALUE_COPY_BATCH_SIZE):
-        converted = []
-        for row in batch:
+
+    def converted_rows() -> Iterator[list[object]]:
+        nonlocal copied
+        for row in cursor:
             values = list(row)
             raw_value = values[value_index]
             if table == "results":
@@ -73,9 +74,10 @@ def _copy_typed_authority(
                 value_kind, stored_value = migrate_legacy_json_value(raw_value)
             values[value_index] = stored_value
             values.insert(value_index, value_kind)
-            converted.append(values)
-        db.executemany(insert_sql, converted)
-        copied += len(converted)
+            copied += 1
+            yield values
+
+    db.executemany(insert_sql, converted_rows())
     expected = int(db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
     actual = int(db.execute(f"SELECT COUNT(*) FROM {replacement}").fetchone()[0])
     if copied != expected or actual != expected:
