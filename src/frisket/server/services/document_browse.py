@@ -80,26 +80,47 @@ def _descriptor_sql(
     source_id = int(source["id"])
     title_id = int(title["id"]) if title is not None else -1
     read_source = media or not title_only
+    params = ([source_id] if read_source else []) + [title_id]
+    if row_id_sql == "?":
+        # Numbered parameters let every view lookup receive a literal row and
+        # column coordinate while callers still bind the row only once.
+        row_parameter = f"?{len(params) + 1}"
+        source_parameter = "?1"
+        title_parameter = f"?{2 if read_source else 1}"
+        source_row = row_parameter
+        title_row = row_parameter
+        row_id_sql = row_parameter
+    else:
+        source_parameter = "?"
+        title_parameter = "?"
+        source_row = "r.id"
+        title_row = "r.id"
+        params = ([source_id, source_id] if read_source else []) + [
+            title_id,
+            title_id,
+        ]
     source_value = (
         "(SELECT CASE WHEN s.validity='valid' THEN s.value END "
-        "FROM current_cell_values s WHERE s.row_id=r.id AND s.column_id=?)"
+        "FROM current_cell_values s "
+        f"WHERE s.row_id={source_row} AND s.column_id={source_parameter})"
         if read_source
         else "NULL"
     )
     source_kind = (
         "(SELECT CASE WHEN s.validity='valid' THEN s.value_kind END "
-        "FROM current_cell_values s WHERE s.row_id=r.id AND s.column_id=?)"
+        "FROM current_cell_values s "
+        f"WHERE s.row_id={source_row} AND s.column_id={source_parameter})"
         if read_source
         else "NULL"
     )
     # Titles are display values, like /data's preserve-invalid projection.
     title_value = (
         "(SELECT t.value FROM current_cell_values t "
-        "WHERE t.row_id=r.id AND t.column_id=?)"
+        f"WHERE t.row_id={title_row} AND t.column_id={title_parameter})"
     )
     title_kind = (
         "(SELECT t.value_kind FROM current_cell_values t "
-        "WHERE t.row_id=r.id AND t.column_id=?)"
+        f"WHERE t.row_id={title_row} AND t.column_id={title_parameter})"
     )
     # Media envelopes are the only source values handed to JSON1.
     envelope = (
@@ -133,7 +154,7 @@ def _descriptor_sql(
             )
         )
     """
-    return sql, ([source_id, source_id] if read_source else []) + [title_id, title_id]
+    return sql, params
 
 
 def _url_label(value: str) -> str:
