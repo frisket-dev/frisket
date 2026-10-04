@@ -13,6 +13,7 @@ from frisket.authoring.workbench import plugin_runtime, plugin_runtime_status
 from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.executor import opencorporates_read
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.store.value_codec import decode_stored_value
 from frisket.server.app import create_app
 from helpers import replace_test_source_cell
 
@@ -191,13 +192,14 @@ def test_actual_typed_child_requires_exact_quote_and_records_host_responses(
     assert run_action_spec(project, body, project_id=project_id) == result
     assert len(calls) == expected_calls
     values = {
-        row["name"]: row["value"]
+        row["name"]: decode_stored_value(row["value_kind"], row["value"])
         for row in project.db.execute(
-            "SELECT c.name, r.value FROM results r JOIN columns c ON c.id=r.column_id"
+            "SELECT c.name, r.value_kind, r.value "
+            "FROM results r JOIN columns c ON c.id=r.column_id"
         )
     }
-    assert json.loads(values["oc_company_number"]) == "00123"
-    assert json.loads(values["oc_match_state"]) == "matched"
+    assert values["oc_company_number"] == "00123"
+    assert values["oc_match_state"] == "matched"
 
 
 @pytest.mark.parametrize(
