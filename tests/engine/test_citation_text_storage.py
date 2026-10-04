@@ -160,7 +160,60 @@ def test_synthesized_context_is_saved_once_and_remains_viewable(tmp_path) -> Non
         text,
         text,
     ]
+    assert viewer["link"]["text_layer_hash_mismatch"] is False
     assert all(item["metadata"]["captured_text_frozen"] for item in artifacts)
+
+
+def test_rendered_json_cell_surface_is_not_compared_as_native_text(tmp_path) -> None:
+    project = Project.create(tmp_path / "rendered-json-citation.frisket")
+    sheet_id = project.add_sheet("Sources")
+    column_id = project.add_column(sheet_id, "segments", type="json")
+    row_id = project.add_rows(
+        sheet_id,
+        [{"segments": [{"text": "Ada"}]}],
+        {"segments": column_id},
+    )[0]
+    _values, refs = project.get_values_with_refs(sheet_id, column_id, row_ids=[row_id])
+    rendered = "1. Ada"
+    content_hash = _hash(rendered)
+    surface = record_text_surface(
+        project,
+        surface_kind="cell",
+        content_hash=content_hash,
+        offset_unit="unicode_codepoint",
+        text_sheet_id=sheet_id,
+        text_row_id=row_id,
+        text_column_id=column_id,
+        value_ref=refs[row_id],
+    )
+    artifact = record_source_artifact(
+        project,
+        artifact_kind="text",
+        media_type="text/plain",
+        source_sheet_id=sheet_id,
+        source_row_id=row_id,
+        source_column_id=column_id,
+        metadata={
+            "captured_text": rendered,
+            "captured_source": {"column_type": "json", "value_ref": refs[row_id]},
+        },
+    )
+    span = record_source_span(
+        project,
+        artifact_id=artifact["id"],
+        span_kind="text",
+        char_start=3,
+        char_end=6,
+        quote="Ada",
+        text_layer_hash=content_hash,
+        text_surface_id=surface["id"],
+    )
+    link = _link(project, [span])
+
+    viewer = resolve_evidence_viewer(project, link["id"])
+
+    assert viewer["link"]["text_layer_hash_mismatch"] is False
+    assert viewer["artifacts"][0]["text_context"]["text"] == rendered
 
 
 def test_viewer_batches_native_context_resolution_for_multiple_artifacts(

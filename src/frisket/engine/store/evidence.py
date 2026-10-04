@@ -1093,19 +1093,27 @@ def _text_layer_hash_mismatch(
     that forgot to call ``mark_evidence_stale_for_cell_refs`` (the documented
     gap -- ``store/staleness.py``: "fires from only 2 of many mutation
     sites") still surfaces a loud flag instead of silently serving drifted
-    grounding. A link with no hash-bearing spans, or whose subject cell can't
-    be resolved as plain text, has nothing to revalidate and reports False.
+    grounding. Only hashes attached to a declared cell text surface are
+    revalidated. Legacy text spans without a surface fall back to the link's
+    cell; hashes on rendered/blob spans belong to a different coordinate
+    system and are ignored here. A missing current cell is a mismatch because
+    the saved native text surface no longer exists. Other non-string values
+    may have an immutable rendered text surface (for example a numbered JSON
+    segment list), so they are not compared to a native-text digest.
     """
-    hash_bearing = [row for row in joined_spans if row["text_layer_hash"]]
-    if not hash_bearing:
-        return False
-    for row in hash_bearing:
+    for row in joined_spans:
+        if not row["text_layer_hash"]:
+            continue
         sheet_id, row_id, column_id = (
             link["sheet_id"],
             link["row_id"],
             link["column_id"],
         )
-        if row["text_surface_id"] is not None:
+        declared_cell_surface = False
+        if row["text_surface_id"] is None:
+            if row["span_kind"] != "text":
+                continue
+        else:
             surface = project.db.execute(
                 "SELECT surface_kind,text_sheet_id,text_row_id,text_column_id "
                 "FROM text_surfaces WHERE id=?",
@@ -1113,17 +1121,22 @@ def _text_layer_hash_mismatch(
             ).fetchone()
             if surface is None or surface["surface_kind"] != "cell":
                 continue
+            declared_cell_surface = True
             sheet_id, row_id, column_id = (
                 surface["text_sheet_id"],
                 surface["text_row_id"],
                 surface["text_column_id"],
             )
         if sheet_id is None or row_id is None or column_id is None:
+            if declared_cell_surface:
+                return True
             continue
         values = project.get_values(
             int(sheet_id), int(column_id), row_ids=[int(row_id)]
         )
         current = values.get(int(row_id))
+        if current is None:
+            return True
         if isinstance(current, str) and row["text_layer_hash"] != _text_hash(current):
             return True
     return False
