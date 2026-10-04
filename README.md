@@ -42,7 +42,11 @@ Your workspace and downloaded caches stay in the app profile.
 #### Single-user
 
 If you just want to run Frisket on your own computer, use **solo mode**.
-This requires Python 3.12.
+This requires Python 3.12 with SQLite 3.43 or newer and FTS5 support.
+Frisket Desktop and the Docker image include a suitable runtime. For a Python
+installation, check the linked SQLite version with
+`python -c "import sqlite3; print(sqlite3.sqlite_version)"`. If it is older,
+use a recent Python distribution, such as one installed by `uv python install 3.12`.
 
 ```
 pip install 'frisket-data[standard]'

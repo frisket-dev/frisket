@@ -198,11 +198,15 @@ and result writes retain their admitted run/claim authority. Streaming imports
 bind one staged producer at publication. `Project.add_rows` supplies one
 operation automatically for a standalone append.
 
-The storage owners maintain `current_cells` in the same transaction. Read via
+The storage owners encode values with `engine.store.value_codec` and maintain
+`current_cells` in the same transaction. That projection holds the winning
+authority and validity, without copying its payload. Read decoded values via
 `Project.get_values` / `get_values_with_refs`; use `apply_edits=False` only for
-the generated candidate beneath an edit. The projection is rebuildable; it is
-not a second writable authority. Historical source references stay unchanged,
-and missing historical producer links mean unknown—not inferred provenance.
+the generated candidate beneath an edit. SQL queries use `current_cell_values`
+and its native `value` plus `value_kind`; JSON functions apply only to complex
+JSON values. Historical result readers use `RunResultStore.decoded_result_rows`.
+Historical source references stay unchanged, and missing historical producer
+links mean unknown—not inferred provenance.
 
 Column IDs are permanent history identities; names are unique only among active
 columns on a sheet. Undoing creation deactivates the column and frees its name;

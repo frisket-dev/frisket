@@ -28,7 +28,7 @@ ENV FRISKET_CHECKLOG_DISABLE=1
 RUN npm run build
 
 # Stage 2: python app + media toolbelt
-FROM python:3.12-slim
+FROM python:3.12-slim-trixie
 ARG EXIFTOOL_VERSION=13.59
 ARG EXIFTOOL_SHA256=668ea3acececb7235fbd0f4900e72d5f12c9b07e5c778fd36cb1e9b5828fd65a
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -116,6 +116,9 @@ COPY sidecar/src/ sidecar/src/
 COPY sidecar/pyproject.toml sidecar/README.md sidecar/classify-constraints.txt sidecar/
 COPY README.md LICENSE ./
 RUN uv sync --frozen --no-dev $FRISKET_UV_EXTRAS
+# Search stores postings without a second copy of project text. Check the
+# actual interpreter's SQLite capabilities before publishing the image.
+RUN uv run --no-sync python -c "from frisket.search_storage import ensure_search_runtime; ensure_search_runtime()"
 COPY --from=web /build/dist /app/static
 
 # Published/product images carry their exact source identity without shipping
