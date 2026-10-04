@@ -91,6 +91,12 @@ def _source_artifact(
                 source_sheet_id=sheet_id if column_id is not None else None,
                 source_row_id=row_id if column_id is not None else None,
                 source_column_id=column_id,
+                captured_text_native=(
+                    column_id is not None
+                    and isinstance(value, str)
+                    and captured_text == value
+                    and not captured.get("composite")
+                ),
                 metadata={
                     "source_label": name,
                     "captured_text": captured_text,

@@ -16,9 +16,8 @@ import uuid
 from typing import Any
 
 from frisket.engine.store.citation_text import (
-    capture_text_context,
-    read_text_ref,
-    text_ref_for_artifact,
+    resolve_artifact_texts,
+    store_captured_text,
 )
 from frisket.engine.store.deep_link import compose_deep_link
 from frisket.engine.store.media_blobs import MediaBlobStore
@@ -63,23 +62,22 @@ def record_source_artifact(
     source_column_id: int | None = None,
     external_ref: dict[str, Any] | None = None,
     metadata: dict[str, Any] | None = None,
+    captured_text_native: bool = False,
 ) -> dict[str, Any]:
     """Create a source artifact and return its public row shape."""
 
     artifact_stable_id = stable_id or _stable_id("source_artifact")
     artifact_metadata = dict(metadata or {})
     captured_text = artifact_metadata.get("captured_text")
-    captured_source = artifact_metadata.get("captured_source")
-    captured_value_ref = (
-        captured_source.get("value_ref")
-        if isinstance(captured_source, dict)
-        and isinstance(captured_source.get("value_ref"), dict)
-        else None
-    )
-    if isinstance(captured_text, str):
-        artifact_metadata.pop("captured_text", None)
     owns_transaction = not project.db.in_transaction
     try:
+        if isinstance(captured_text, str):
+            artifact_metadata = store_captured_text(
+                project.db,
+                metadata=artifact_metadata,
+                text=captured_text,
+                native=captured_text_native,
+            )
         cur = project.db.execute(
             "INSERT INTO source_artifacts ("
             "stable_id, artifact_kind, media_type, blob_hash, source_url, "
@@ -105,16 +103,6 @@ def record_source_artifact(
                 _json_dumps(artifact_metadata),
             ),
         )
-        if isinstance(captured_text, str):
-            capture_text_context(
-                project.db,
-                source_artifact_id=int(cur.lastrowid),
-                text=captured_text,
-                value_ref=captured_value_ref,
-                sheet_id=source_sheet_id,
-                row_id=source_row_id,
-                column_id=source_column_id,
-            )
         if owns_transaction:
             project.db.commit()
     except Exception:
@@ -857,9 +845,21 @@ def resolve_evidence_viewer(
             )
         )
 
+    artifact_texts, stale_artifacts = resolve_artifact_texts(
+        project.db, list(artifacts.values())
+    )
     for artifact in artifacts.values():
         artifact["pages"] = _page_payloads(artifact, project_id=project_id)
-        artifact["text_context"] = _artifact_text_context(project, artifact)
+        artifact_id = int(artifact["id"])
+        text = artifact_texts.get(artifact_id)
+        artifact["text_context"] = _artifact_text_context(artifact, text)
+        artifact["text_context_status"] = (
+            "stale"
+            if artifact_id in stale_artifacts
+            else "available"
+            if isinstance(text, str)
+            else None
+        )
 
     # Attach each cited span's run membership (run_index) and each
     # artifact's run-level clip affordances -- ONE clip per contiguous run
@@ -911,6 +911,7 @@ def resolve_evidence_viewer(
             *(_list_value(producer.get("warnings"))),
         ]
     )
+    source_changed = bool(stale_artifacts)
     return {
         "schema_version": EVIDENCE_VIEWER_SCHEMA_VERSION,
         "link": {
@@ -927,11 +928,13 @@ def resolve_evidence_viewer(
             "receipt_id": link["receipt_id"],
             "item_index": item_index,
             "role": link["link_role"],
-            "status": link["status"],
+            "status": "stale" if source_changed else link["status"],
             "confidence": link["confidence"],
             "pinned": bool(link["pinned"]),
             "producer": producer,
-            "stale_reason": link["stale_reason"],
+            "stale_reason": (
+                "source_changed" if source_changed else link["stale_reason"]
+            ),
             "stale_at": link["stale_at"],
             "created_at": link["created_at"],
             # A hash-mismatch flag, NOT a silent hide and NOT a delete. Every
@@ -1131,13 +1134,11 @@ def _utf16_offset(text: str, codepoint_offset: int) -> int:
 
 
 def _artifact_text_context(
-    project: Project, artifact: dict[str, Any]
+    artifact: dict[str, Any], text: str | None
 ) -> dict[str, Any] | None:
-    """Project a cited artifact's frozen text and verified cited ranges."""
+    """Project an available artifact passage and its verified cited ranges."""
 
     metadata = artifact.get("metadata")
-    ref = text_ref_for_artifact(project.db, int(artifact["id"]))
-    text = read_text_ref(project.db, ref) if ref is not None else None
     if not isinstance(text, str):
         return None
     expected_hash = _text_hash(text)

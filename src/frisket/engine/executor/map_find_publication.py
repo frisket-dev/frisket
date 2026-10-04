@@ -182,6 +182,7 @@ def _materialize_text_spans(
             source_sheet_id=source.sheet_id,
             source_row_id=source.row_id,
             source_column_id=source.column_id,
+            captured_text_native=True,
             metadata={
                 "source_column": source.column_id,
                 "captured_text": text,

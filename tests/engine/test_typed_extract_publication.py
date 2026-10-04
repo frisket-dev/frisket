@@ -162,7 +162,7 @@ def test_typed_extract_list_citations_and_confidence_policy(source, members):
         assert any(error.code == "evidence_required" for error in receipt.errors)
 
 
-def test_text_citation_freezes_source_and_projects_all_utf16_ranges(source):
+def test_text_citation_projects_utf16_ranges_then_marks_changed_source_stale(source):
     project, sheet, column, row = source
     text = "🚀 Ada\t Lovelace. Ada  Lovelace."
     project.apply_edits([{"row_id": row, "column_id": column, "value": text}])
@@ -214,7 +214,12 @@ def test_text_citation_freezes_source_and_projects_all_utf16_ranges(source):
         [{"row_id": row, "column_id": column, "value": "changed later"}]
     )
     edited = resolve_evidence_viewer(project, evidence["links"][0]["stable_id"])
-    assert edited["artifacts"][0]["text_context"]["text"] == text
+    assert edited["artifacts"][0]["text_context"] is None
+    assert edited["artifacts"][0]["text_context_status"] == "stale"
+    assert [span["quote"] for span in edited["artifacts"][0]["spans"]] == [
+        "Ada\t Lovelace.",
+        "Ada  Lovelace.",
+    ]
     assert edited["link"]["text_layer_hash_mismatch"] is True
 
 

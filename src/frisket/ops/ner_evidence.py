@@ -343,6 +343,7 @@ def _write_entity_spans(
                 if surface_spec is not None
                 else first_input_column_id
             ),
+            captured_text_native=captured_text is not None,
             metadata={
                 "engine": engine,
                 "op": "map.ner",
