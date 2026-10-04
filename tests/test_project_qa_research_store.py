@@ -15,6 +15,7 @@ from frisket.engine.store.project_qa_research import (
     ProjectQAResearchUnknownCost,
 )
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
+from tests.engine.test_bundle_schema_fence import _restore_legacy_authorities
 
 
 OLD_SCHEMA_DIGEST = "frisket.schema.v1:caa3ac7c8aaa66153dd8e2cad5950942"
@@ -225,6 +226,8 @@ def test_research_schema_migration_preserves_existing_project_data(tmp_path) -> 
     project.close()
 
     with sqlite3.connect(path / "project.db") as db:
+        db.execute("PRAGMA foreign_keys=OFF")
+        _restore_legacy_authorities(db)
         db.execute("DROP TABLE import_sessions")
         db.execute("DROP TABLE project_qa_research_operations")
         db.execute("DROP TABLE project_qa_research_runs")

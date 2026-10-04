@@ -340,8 +340,8 @@ def test_replacement_boundary_and_reject_clear_use_the_existing_precedence() -> 
             "SELECT row_id,value,origin_kind FROM current_cell_values ORDER BY row_id"
         )
     ] == [
-            (100, "replacement", "run_result"),
-            (101, "replacement two", "run_result"),
+        (100, "replacement", "run_result"),
+        (101, "replacement two", "run_result"),
     ]
 
     _op(db, 5, kind="edit")

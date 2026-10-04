@@ -208,8 +208,7 @@ def test_validity_migration_rebuilds_without_rewriting_values(tmp_path) -> None:
         row_ids[1]: "unknown",
     }
     assert migrated.db.execute(
-        "SELECT value,validity FROM current_cell_values "
-        "WHERE row_id=? AND column_id=?",
+        "SELECT value,validity FROM current_cell_values WHERE row_id=? AND column_id=?",
         (row_ids[1], column_id),
     ).fetchone()[:] == ("unknown", "invalid")
     migrated.close()

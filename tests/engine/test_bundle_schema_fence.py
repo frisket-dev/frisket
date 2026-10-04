@@ -132,11 +132,13 @@ def _without_typed_values(schema: str) -> str:
             "CREATE TABLE IF NOT EXISTS search_dirty_scopes", typed_view
         )
         schema = schema[:typed_view] + schema[search_work:]
-    return schema.replace(
-        "BEFORE UPDATE OF value_kind, value,", "BEFORE UPDATE OF value,"
-    ).replace("    OR NEW.value_kind IS NOT OLD.value_kind\n", "").replace(
-        "        NEW.value_kind IS NOT OLD.value_kind\n        OR NEW.value IS NOT OLD.value",
-        "        NEW.value IS NOT OLD.value",
+    return (
+        schema.replace("BEFORE UPDATE OF value_kind, value,", "BEFORE UPDATE OF value,")
+        .replace("    OR NEW.value_kind IS NOT OLD.value_kind\n", "")
+        .replace(
+            "        NEW.value_kind IS NOT OLD.value_kind\n        OR NEW.value IS NOT OLD.value",
+            "        NEW.value IS NOT OLD.value",
+        )
     )
 
 

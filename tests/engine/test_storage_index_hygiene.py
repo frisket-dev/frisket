@@ -10,6 +10,7 @@ from frisket.engine.store import bundle_open
 from frisket.engine.store.bundle_io import export_database
 from frisket.engine.store.project import Project
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
+from tests.engine.test_bundle_schema_fence import _restore_legacy_authorities
 
 
 _PRIOR_DIGEST = "frisket.schema.v1:f2d652e33a1633c4367813af3c2d3746"
@@ -128,6 +129,8 @@ def test_known_bundle_upgrade_preserves_ledgers_reopen_and_export(tmp_path) -> N
     project.close()
 
     db = sqlite3.connect(path / "project.db")
+    db.execute("PRAGMA foreign_keys=OFF")
+    _restore_legacy_authorities(db)
     _restore_redundant_indexes(db)
     before_indexes = _index_names(db)
     db.execute(

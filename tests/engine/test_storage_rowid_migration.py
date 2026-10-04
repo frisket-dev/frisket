@@ -160,22 +160,22 @@ def test_rowid_layout_migration_copies_values_provenance_constraints_and_plans(
         (row_id, column_id, *migrate_legacy_json_value(value), producer_id)
         for row_id, column_id, value, producer_id in before_cells
     ]
-    assert _rows(
-        migrated.db,
-        "cells",
-        "row_id,column_id,value_kind,value,producer_id",
-        "row_id,column_id",
-    ) == expected_cells
     assert (
         _rows(
             migrated.db,
-            "current_cells",
-            "column_id,row_id,origin_kind,origin_op_id,origin_run_id,"
-            "base_producer_id,validity",
-            "column_id,row_id",
+            "cells",
+            "row_id,column_id,value_kind,value,producer_id",
+            "row_id,column_id",
         )
-        == [row[:2] + row[3:] for row in before_current]
+        == expected_cells
     )
+    assert _rows(
+        migrated.db,
+        "current_cells",
+        "column_id,row_id,origin_kind,origin_op_id,origin_run_id,"
+        "base_producer_id,validity",
+        "column_id,row_id",
+    ) == [row[:2] + row[3:] for row in before_current]
     assert migrated.get_values(sheet_id, title_id) == {
         row_ids[0]: "edited",
         row_ids[1]: "second",

@@ -23,15 +23,19 @@ _PRIOR_DIGEST = "frisket.schema.v1:f078f2bc57411d372468936618f2f884"
 
 
 def _prior_bundle(tmp_path):
-    schema = _without_typed_values(SCHEMA).replace(
-        "  active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1) AND (active=1 OR hidden=1)),\n",
-        "",
-    ).replace(
-        "  created_at TEXT NOT NULL DEFAULT (datetime('now'))\n);\n"
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_columns_active_name\n"
-        "  ON columns(sheet_id,name) WHERE active=1;",
-        "  created_at TEXT NOT NULL DEFAULT (datetime('now')),\n"
-        "  UNIQUE(sheet_id, name)\n);",
+    schema = (
+        _without_typed_values(SCHEMA)
+        .replace(
+            "  active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1) AND (active=1 OR hidden=1)),\n",
+            "",
+        )
+        .replace(
+            "  created_at TEXT NOT NULL DEFAULT (datetime('now'))\n);\n"
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_columns_active_name\n"
+            "  ON columns(sheet_id,name) WHERE active=1;",
+            "  created_at TEXT NOT NULL DEFAULT (datetime('now')),\n"
+            "  UNIQUE(sheet_id, name)\n);",
+        )
     )
     path = tmp_path / "prior.frisket"
     path.mkdir()
