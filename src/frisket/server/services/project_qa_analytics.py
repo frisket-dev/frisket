@@ -23,7 +23,7 @@ from frisket.querysets import (
     BUILTIN_FILTER_OPERATORS,
     SheetRowSetError,
     anchor_relative_date_filters,
-    sheet_row_scope_query,
+    sheet_row_scope_plan,
 )
 
 
@@ -225,7 +225,7 @@ def _evaluate(
     _validate_builtin_filter(request.filter)
     filter_json = canonical_json(request.filter)
     try:
-        _cols, where_sql, where_params, _order, _order_params = sheet_row_scope_query(
+        row_scope = sheet_row_scope_plan(
             snapshot,
             request.sheet_id,
             filter_=filter_json,
@@ -236,7 +236,12 @@ def _evaluate(
 
     involved = _involved_columns(request)
     ctes, source_params = _base_ctes(
-        where_sql, where_params, involved, columns, request
+        row_scope.filter_from_sql,
+        row_scope.where_sql,
+        row_scope.filter_params,
+        involved,
+        columns,
+        request,
     )
     metric_sql, quality_sql, quality_columns = _aggregate_fields(request, columns)
     group_fields = _group_field_names(request)
@@ -430,6 +435,7 @@ def _involved_columns(request: AnalyticsRequest) -> set[int]:
 
 
 def _base_ctes(
+    filter_from_sql: str,
     where_sql: str,
     where_params: Sequence[Any],
     involved: set[int],
@@ -468,7 +474,7 @@ def _base_ctes(
                 f"CASE WHEN {valid} THEN substr({date_value}, 1, {width}) END AS g{index}_value"
             )
     return [
-        f"scoped AS (SELECT r.id AS row_id FROM rows r WHERE {where_sql})",
+        f"scoped AS (SELECT r.id AS row_id FROM {filter_from_sql} WHERE {where_sql})",
         "source AS (SELECT "
         + ", ".join(source)
         + " FROM scoped "

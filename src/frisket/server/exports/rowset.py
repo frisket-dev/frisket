@@ -13,7 +13,7 @@ from typing import Any, Iterator, NamedTuple
 from frisket.querysets import (
     SheetRowSetError,
     resolve_sheet_filter_rows,
-    sheet_row_scope_query,
+    sheet_row_scope_plan,
 )
 from frisket.engine.store import Project
 from frisket.features.watchlists.specs import (
@@ -100,12 +100,12 @@ def resolve_rowset(
     if query_spec is None:
         if scope_row_ids is not None:
             try:
-                _, where_sql, where_params, _order_parts, _order_params = (
-                    sheet_row_scope_query(project, sheet_id, row_ids=scope_row_ids)
-                )
+                plan = sheet_row_scope_plan(project, sheet_id, row_ids=scope_row_ids)
                 total = int(
                     project.db.execute(
-                        f"SELECT COUNT(*) FROM rows r WHERE {where_sql}", where_params
+                        f"SELECT COUNT(*) FROM {plan.filter_from_sql} "
+                        f"WHERE {plan.where_sql}",
+                        plan.filter_params,
                     ).fetchone()[0]
                     or 0
                 )
@@ -149,7 +149,7 @@ def resolve_rowset(
     filter_json = canonical_json(query.get("filter", {}))
     sort_json = canonical_json(query["sort"]) if "sort" in query else None
     try:
-        _, where_sql, where_params, _order_parts, _order_params = sheet_row_scope_query(
+        plan = sheet_row_scope_plan(
             project,
             sheet_id,
             filter_=filter_json,
@@ -158,7 +158,8 @@ def resolve_rowset(
         )
         total = int(
             project.db.execute(
-                f"SELECT COUNT(*) FROM rows r WHERE {where_sql}", where_params
+                f"SELECT COUNT(*) FROM {plan.filter_from_sql} WHERE {plan.where_sql}",
+                plan.filter_params,
             ).fetchone()[0]
             or 0
         )
@@ -250,19 +251,17 @@ def iter_row_id_batches(
         filter_json = canonical_json(query.get("filter", {}))
         sort_json = canonical_json(query["sort"]) if "sort" in query else None
         try:
-            _, where_sql, where_params, order_parts, order_params = (
-                sheet_row_scope_query(
-                    project, sheet_id, filter_=filter_json, sort=sort_json
-                )
+            plan = sheet_row_scope_plan(
+                project, sheet_id, filter_=filter_json, sort=sort_json
             )
         except SheetRowSetError:
             # Validation already occurred during planning; retain this guard
             # for callers constructing plans manually.
             raise
         cursor = project.db.execute(
-            f"SELECT r.id AS row_id FROM rows r WHERE {where_sql} "
-            f"ORDER BY {', '.join(order_parts)}",
-            [*where_params, *order_params],
+            f"SELECT r.id AS row_id FROM {plan.from_sql} WHERE {plan.where_sql} "
+            f"ORDER BY {', '.join(plan.order_parts)}",
+            plan.select_params,
         )
         try:
             while batch := cursor.fetchmany(batch_size):
