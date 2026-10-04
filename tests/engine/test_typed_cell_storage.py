@@ -25,6 +25,8 @@ from frisket.engine.store.value_codec import (
     encode_stored_value,
     migrate_legacy_json_value,
 )
+from frisket.search import drain_index, search_project
+from frisket.search_index import index_needs_work
 from tests.engine.test_bundle_schema_fence import _restore_legacy_authorities
 
 
@@ -95,21 +97,36 @@ def test_legacy_surrogate_string_stays_bindable_and_decodable() -> None:
 def test_forward_write_preserves_lone_surrogate_string(tmp_path) -> None:
     value = "prefix\ud800suffix"
     project = Project.create(tmp_path / "surrogate.frisket")
-    sheet_id = project.add_sheet("Rows")
-    column_id = project.add_column(sheet_id, "text", type="text")
+    try:
+        sheet_id = project.add_sheet("Rows")
+        column_id = project.add_column(sheet_id, "text", type="text")
 
-    row_id = project.add_rows(
-        sheet_id, [{"text": value}], {"text": column_id}
-    )[0]
+        bad_row, ordinary_row = project.add_rows(
+            sheet_id,
+            [{"text": value}, {"text": "ordinaryneedle"}],
+            {"text": column_id},
+        )
 
-    assert project.get_values(sheet_id, column_id) == {row_id: value}
-    stored = project.db.execute(
-        "SELECT value_kind,value,typeof(value) FROM cells "
-        "WHERE row_id=? AND column_id=?",
-        (row_id, column_id),
-    ).fetchone()
-    assert stored[:] == ("legacy_invalid", '"prefix\\ud800suffix"', "text")
-    project.close()
+        assert project.get_values(sheet_id, column_id) == {
+            bad_row: value,
+            ordinary_row: "ordinaryneedle",
+        }
+        stored = project.db.execute(
+            "SELECT value_kind,value,typeof(value) FROM cells "
+            "WHERE row_id=? AND column_id=?",
+            (bad_row, column_id),
+        ).fetchone()
+        assert stored[:] == ("legacy_invalid", '"prefix\\ud800suffix"', "text")
+
+        drain_index(project)
+        assert not index_needs_work(project)
+        assert search_project(project, "prefix", rerank="off") == []
+        assert [
+            hit["row_id"]
+            for hit in search_project(project, "ordinaryneedle", rerank="off")
+        ] == [ordinary_row]
+    finally:
+        project.close()
 
 
 def test_typed_migration_preserves_surrogate_in_every_authority(tmp_path) -> None:
