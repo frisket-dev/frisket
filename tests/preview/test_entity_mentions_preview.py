@@ -664,7 +664,8 @@ def test_malformed_and_non_entity_cells_contribute_nothing_and_never_500(tmp_pat
     )
     # invalid JSON text can only be written past json.dumps
     project.db.execute(
-        "UPDATE cells SET value=? WHERE row_id=? AND column_id=?",
+        "UPDATE cells SET value_kind='legacy_invalid', value=? "
+        "WHERE row_id=? AND column_id=?",
         ("{not json at all", rows[4], columns["entities"]),
     )
     project.db.commit()

@@ -5,6 +5,7 @@ from pathlib import Path
 from frisket.engine.runner.review import review_bundle_count
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.value_codec import encode_stored_value
 
 
 def test_review_summary_keeps_exact_bundle_and_visibility_semantics(
@@ -33,10 +34,11 @@ def test_review_summary_keeps_exact_bundle_and_visibility_semantics(
             total_rows=len(row_ids),
         )
         project.db.executemany(
-            "INSERT INTO results (run_id,row_id,column_id,value,outcome) "
-            "VALUES (?,?,?,?,?)",
+            "INSERT INTO results "
+            "(run_id,row_id,column_id,value_kind,value,outcome) "
+            "VALUES (?,?,?,?,?,?)",
             [
-                (run_id, row_id, column_id, '"value"', "ok")
+                (run_id, row_id, column_id, *encode_stored_value("value"), "ok")
                 for row_id in row_ids
                 for column_id in (answer_id, category_id, support_id)
             ],
@@ -79,9 +81,16 @@ def test_review_summary_keeps_exact_bundle_and_visibility_semantics(
             total_rows=1,
         )
         project.db.execute(
-            "INSERT INTO results (run_id,row_id,column_id,value,outcome) "
-            "VALUES (?,?,?,?,?)",
-            (hidden_run_id, hidden_row_id, hidden_output_id, '"value"', "ok"),
+            "INSERT INTO results "
+            "(run_id,row_id,column_id,value_kind,value,outcome) "
+            "VALUES (?,?,?,?,?,?)",
+            (
+                hidden_run_id,
+                hidden_row_id,
+                hidden_output_id,
+                *encode_stored_value("value"),
+                "ok",
+            ),
         )
         project.db.execute(
             "UPDATE columns SET current_run_id=? WHERE id=?",

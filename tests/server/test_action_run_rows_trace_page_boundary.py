@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 import frisket.server.run_payloads as run_payloads
 from frisket.server.app import create_app
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.value_codec import encode_stored_value
 from frisket.operability.trace import trace_path
 
 
@@ -46,12 +47,14 @@ def _seed_run_with_trace_only_error(client: TestClient) -> tuple[str, int, list[
         (op_id, sheet_id, json.dumps({"row_ids": row_ids})),
     )
     run_id = int(cursor.lastrowid)
+    ok_kind, ok_value = encode_stored_value("ok")
     project.db.executemany(
-        "INSERT INTO results (run_id, row_id, column_id, value, tokens_in, "
-        "tokens_out, error) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO results "
+        "(run_id,row_id,column_id,value_kind,value,tokens_in,tokens_out,error) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         [
-            (run_id, row_ids[0], output_col, json.dumps("ok"), 3, 1, None),
-            (run_id, row_ids[2], output_col, json.dumps("ok"), 5, 1, None),
+            (run_id, row_ids[0], output_col, ok_kind, ok_value, 3, 1, None),
+            (run_id, row_ids[2], output_col, ok_kind, ok_value, 5, 1, None),
         ],
     )
     sidecar = trace_path(project.path, run_id)
@@ -117,15 +120,28 @@ def _seed_run_with_trace_edge_cases(client: TestClient) -> tuple[str, int, list[
     # classification. This fixture writes results directly via SQL rather than through
     # RunResultStore.write_results, so it must set outcome itself the same
     # way that producer derives it (error -> model_error, value -> ok).
+    ok_kind, ok_value = encode_stored_value("ok")
     project.db.executemany(
-        "INSERT INTO results (run_id, row_id, column_id, value, tokens_in, "
-        "tokens_out, error, outcome) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO results "
+        "(run_id,row_id,column_id,value_kind,value,tokens_in,tokens_out,error,outcome) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
-            (run_id, row_ids[0], output_col, json.dumps("ok"), 3, 1, None, "ok"),
+            (
+                run_id,
+                row_ids[0],
+                output_col,
+                ok_kind,
+                ok_value,
+                3,
+                1,
+                None,
+                "ok",
+            ),
             (
                 run_id,
                 row_ids[2],
                 output_col,
+                None,
                 None,
                 4,
                 0,

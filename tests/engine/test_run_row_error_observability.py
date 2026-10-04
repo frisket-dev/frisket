@@ -349,13 +349,14 @@ class TestRowErrorSummaryShape:
         ]
         project.db.executemany(
             "INSERT INTO results "
-            "(run_id,row_id,column_id,value,error,error_code,outcome) "
-            "VALUES (?,?,?,?,?,?,?)",
+            "(run_id,row_id,column_id,value_kind,value,error,error_code,outcome) "
+            "VALUES (?,?,?,?,?,?,?,?)",
             [
                 (
                     legacy_run_id,
                     row_id,
                     result["column_id"],
+                    None,
                     None,
                     "legacy display-state error",
                     "synthetic_error",

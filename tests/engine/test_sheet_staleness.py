@@ -17,6 +17,7 @@ from typing import Any
 from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.store import Project
 from frisket.engine.store.staleness import compute_sync_states
+from frisket.engine.store.value_codec import encode_stored_value
 from helpers import initialize_test_source_cells
 
 
@@ -257,10 +258,12 @@ def test_review_flip_on_ancestor_marks_descendant_stale(tmp_path: Path) -> None:
         project.db.execute(
             "UPDATE columns SET current_run_id=? WHERE id=?", (run_id, ai_col)
         )
+        value_kind, stored_value = encode_stored_value("ok")
         project.db.execute(
-            "INSERT INTO results (run_id, row_id, column_id, value, review_state) "
-            "VALUES (?, ?, ?, '\"ok\"', 'unreviewed')",
-            (run_id, row_ids[0], ai_col),
+            "INSERT INTO results "
+            "(run_id,row_id,column_id,value_kind,value,review_state) "
+            "VALUES (?, ?, ?, ?, ?, 'unreviewed')",
+            (run_id, row_ids[0], ai_col, value_kind, stored_value),
         )
         project.db.commit()
         # Refresh the child's watermark past this seed so it starts synced.

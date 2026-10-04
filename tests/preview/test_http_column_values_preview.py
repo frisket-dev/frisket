@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 
 from frisket.engine.store.current_cells import rebuild_current_cells
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.value_codec import encode_stored_value
 
 from helpers import make_client as _client
 
@@ -328,7 +329,8 @@ def test_json_list_facet_invalid_stored_json_fails_closed(tmp_path):
     # derived projection after planting the legacy payload.
     with project.db:
         project.db.execute(
-            "UPDATE cells SET value=? WHERE row_id=? AND column_id=?",
+            "UPDATE cells SET value_kind='legacy_invalid', value=? "
+            "WHERE row_id=? AND column_id=?",
             ("{not json", invalid, tags),
         )
         rebuild_current_cells(project.db)
@@ -390,7 +392,8 @@ def test_json_list_facet_rejects_whole_non_strict_or_too_deep_arrays(tmp_path):
     deeply_nested = "[" * 1_100 + '"NYPD"' + "]" * 1_100
     with project.db:
         project.db.executemany(
-            "UPDATE cells SET value=? WHERE row_id=? AND column_id=?",
+            "UPDATE cells SET value_kind='legacy_invalid', value=? "
+            "WHERE row_id=? AND column_id=?",
             [
                 ('["NYPD", NaN]', non_strict, tags),
                 (deeply_nested, too_deep, tags),
@@ -441,9 +444,16 @@ def test_preview_tolerant_live_resolution_preserves_edit_head_source_precedence(
     )
     project.db.execute(
         "INSERT INTO results "
-        "(run_id,row_id,column_id,value,outcome,publication_effect) "
-        "VALUES (?,?,?,?,?,?)",
-        (run_id, head_row, tags, json.dumps(["run-head"]), "ok", "publish_value"),
+        "(run_id,row_id,column_id,value_kind,value,outcome,publication_effect) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (
+            run_id,
+            head_row,
+            tags,
+            *encode_stored_value(["run-head"]),
+            "ok",
+            "publish_value",
+        ),
     )
     project.db.execute(
         "UPDATE run_output_generations SET state='sealed', "
@@ -469,11 +479,13 @@ def test_preview_tolerant_live_resolution_preserves_edit_head_source_precedence(
     )
     with project.db:
         project.db.executemany(
-            "UPDATE cells SET value=? WHERE row_id=? AND column_id=?",
+            "UPDATE cells SET value_kind='legacy_invalid', value=? "
+            "WHERE row_id=? AND column_id=?",
             [("{not json", head_row, tags), ("{not json", edit_row, tags)],
         )
         project.db.execute(
-            "UPDATE edits SET value=? WHERE row_id=? AND column_id=?",
+            "UPDATE edits SET value_kind='legacy_invalid', value=? "
+            "WHERE row_id=? AND column_id=?",
             ("{not json", malformed_edit_row, tags),
         )
         rebuild_current_cells(project.db)

@@ -14,6 +14,7 @@ import pytest
 
 from frisket.ai.llm import LLMRequest, LLMResponse, request_key
 from frisket.engine.jobs import Worker
+from frisket.engine.store.value_codec import encode_stored_value
 from http_test_helpers import post_v1_action_with_exact_confirmation
 from typed_model_fixtures import model_plan, model_request
 
@@ -124,10 +125,12 @@ def seed_run(
     )
     run_id = cur.lastrowid
     if with_tokens:
+        value_kind, stored_value = encode_stored_value("x")
         p.db.execute(
-            "INSERT INTO results (run_id, row_id, column_id, value, tokens_in, "
-            "tokens_out) VALUES (?, 1, 1, '\"x\"', 100, 50)",
-            (run_id,),
+            "INSERT INTO results "
+            "(run_id,row_id,column_id,value_kind,value,tokens_in,tokens_out) "
+            "VALUES (?, 1, 1, ?, ?, 100, 50)",
+            (run_id, value_kind, stored_value),
         )
     p.db.commit()
     return run_id

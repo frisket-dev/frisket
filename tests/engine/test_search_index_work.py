@@ -5,6 +5,7 @@ import sqlite3
 import pytest
 
 from frisket.engine.store.project import Project
+from frisket.engine.store.value_codec import encode_stored_value
 from frisket.engine.store.search_index_work import (
     SearchDirtyScope,
     ack_dirty_scope,
@@ -86,9 +87,10 @@ def test_current_cell_refresh_enqueues_bounded_region(tmp_path) -> None:
     project.db.commit()
 
     with project.db:
+        value_kind, stored_value = encode_stored_value("hello")
         project.db.execute(
-            "INSERT INTO cells(row_id,column_id,value) VALUES (?,?,?)",
-            (row_id, column_id, '"hello"'),
+            "INSERT INTO cells(row_id,column_id,value_kind,value) VALUES (?,?,?,?)",
+            (row_id, column_id, value_kind, stored_value),
         )
         from frisket.engine.store.current_cells import refresh_current_cells
 
