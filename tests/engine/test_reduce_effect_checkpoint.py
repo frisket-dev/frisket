@@ -240,8 +240,7 @@ def test_returned_reduce_checkpoint_accounts_spend_before_result_commit(
     ).fetchall()
     assert {row["value_kind"] for row in result_rows} == {"text"}
     values = {
-        decode_stored_value(row["value_kind"], row["value"])
-        for row in result_rows
+        decode_stored_value(row["value_kind"], row["value"]) for row in result_rows
     }
     assert values == {
         "Accountability stories share contracting risk.",

@@ -98,9 +98,12 @@ def test_replay_mode_cache_hit_completes_keyless_no_missing_provider_key(tmp_pat
         assert rows[hit_row_id]["error"] is None
         assert rows[hit_row_id]["outcome"] == "ok"
         assert rows[hit_row_id]["value_kind"] == "integer"
-        assert decode_stored_value(
-            rows[hit_row_id]["value_kind"], rows[hit_row_id]["value"]
-        ) == 7
+        assert (
+            decode_stored_value(
+                rows[hit_row_id]["value_kind"], rows[hit_row_id]["value"]
+            )
+            == 7
+        )
 
         # The genuine miss surfaces the SAME typed, actionable copy the
         # eager pre-flight would have raised — as a per-row failure, not a

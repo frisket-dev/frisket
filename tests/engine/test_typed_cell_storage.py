@@ -102,16 +102,14 @@ def test_typed_migration_preserves_surrogate_in_every_authority(tmp_path) -> Non
         [(1, "source.write"), (2, "map.test"), (3, "edit")],
     )
     db.execute(
-        "INSERT INTO base_cell_producers (id,stage_id,op_id) "
-        "VALUES (1,'op:1',1)"
+        "INSERT INTO base_cell_producers (id,stage_id,op_id) VALUES (1,'op:1',1)"
     )
     db.execute(
         "INSERT INTO cells (row_id,column_id,value,producer_id) VALUES (100,10,?,1)",
         (raw,),
     )
     db.execute(
-        "INSERT INTO runs (id,op_id,sheet_id,action_kind) "
-        "VALUES (20,2,1,'map.test')"
+        "INSERT INTO runs (id,op_id,sheet_id,action_kind) VALUES (20,2,1,'map.test')"
     )
     db.execute(
         "INSERT INTO run_output_generations "
@@ -154,9 +152,10 @@ def test_typed_migration_preserves_surrogate_in_every_authority(tmp_path) -> Non
     )
 
     for table in ("cells", "results", "edits"):
-        assert db.execute(
-            f"SELECT value_kind,value FROM {table}"
-        ).fetchone()[:] == ("legacy_invalid", raw)
+        assert db.execute(f"SELECT value_kind,value FROM {table}").fetchone()[:] == (
+            "legacy_invalid",
+            raw,
+        )
     migrated = db.execute(
         "SELECT row_id,value_kind,value FROM current_cell_values ORDER BY row_id"
     ).fetchall()
@@ -165,9 +164,12 @@ def test_typed_migration_preserves_surrogate_in_every_authority(tmp_path) -> Non
         (101, "legacy_invalid", raw),
         (102, "legacy_invalid", raw),
     ]
-    assert db.execute(
-        "SELECT value FROM meta WHERE key=?", (SCHEMA_DIGEST_META_KEY,)
-    ).fetchone()[0] == SCHEMA_DIGEST
+    assert (
+        db.execute(
+            "SELECT value FROM meta WHERE key=?", (SCHEMA_DIGEST_META_KEY,)
+        ).fetchone()[0]
+        == SCHEMA_DIGEST
+    )
 
 
 def test_current_cell_values_resolves_native_source_and_edit_payloads() -> None:

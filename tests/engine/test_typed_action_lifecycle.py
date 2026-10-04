@@ -277,17 +277,19 @@ def test_typed_action_persists_independent_outcomes_and_partial_failure(
     }
     stable_second = rows[(row_ids[1], columns["stable"])]
     assert stable_second["value_kind"] == "text"
-    assert decode_stored_value(
-        stable_second["value_kind"], stable_second["value"]
-    ) == "TWO"
+    assert (
+        decode_stored_value(stable_second["value_kind"], stable_second["value"])
+        == "TWO"
+    )
     assert stable_second["confidence"] == 0.95
     assert stable_second["error"] is None
 
     fallible_first = rows[(row_ids[0], columns["fallible"])]
     assert fallible_first["value_kind"] == "text"
-    assert decode_stored_value(
-        fallible_first["value_kind"], fallible_first["value"]
-    ) == "eno"
+    assert (
+        decode_stored_value(fallible_first["value_kind"], fallible_first["value"])
+        == "eno"
+    )
     assert fallible_first["confidence"] == 0.25
 
     fallible_second = rows[(row_ids[1], columns["fallible"])]
@@ -300,9 +302,10 @@ def test_typed_action_persists_independent_outcomes_and_partial_failure(
 
     literal_error = rows[(row_ids[1], columns["error"])]
     assert literal_error["value_kind"] == "text"
-    assert decode_stored_value(
-        literal_error["value_kind"], literal_error["value"]
-    ) == "literal two"
+    assert (
+        decode_stored_value(literal_error["value_kind"], literal_error["value"])
+        == "literal two"
+    )
     assert literal_error["error"] is None
 
 
