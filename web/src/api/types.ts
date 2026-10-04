@@ -4847,7 +4847,10 @@ export interface FrisketApi {
     columnId: string,
     opts?: { rowIds?: readonly string[] },
   ): Promise<ColumnEvidenceBatchPayload>;
-  getEvidenceViewer(evidenceLinkId: string | number): Promise<EvidenceViewerPayload>;
+  getEvidenceViewer(
+    evidenceLinkId: string | number,
+    options?: { locateCurrent?: boolean },
+  ): Promise<EvidenceViewerPayload>;
   /** Project-level data-flow manifest: which providers/models/actions/runs touched data. */
   getProvenanceManifest(runsOffset?: number, runsLimit?: number, receiptsOffset?: number, receiptsLimit?: number): Promise<ProvenanceManifest>;
   /** Canonical v1 receipt lookup shared by provenance, runs, results, and exports. */
