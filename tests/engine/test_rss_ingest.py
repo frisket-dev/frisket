@@ -68,15 +68,24 @@ def _src(project: Project, sid: int) -> dict:
 
 def _rows(project: Project, sheet_id: int) -> list[dict]:
     cols = {c["id"]: c["name"] for c in project.columns(sheet_id, include_hidden=True)}
-    out = []
-    for r in project.db.execute(
-        "SELECT id FROM rows WHERE sheet_id=? ORDER BY position", (sheet_id,)
-    ):
-        cells = project.db.execute(
-            "SELECT column_id, value FROM cells WHERE row_id=?", (r["id"],)
-        ).fetchall()
-        out.append({cols[c["column_id"]]: json.loads(c["value"]) for c in cells})
-    return out
+    row_ids = [
+        int(row["id"])
+        for row in project.db.execute(
+            "SELECT id FROM rows WHERE sheet_id=? ORDER BY position", (sheet_id,)
+        )
+    ]
+    values = {
+        column_id: project.get_values(sheet_id, column_id, row_ids)
+        for column_id in cols
+    }
+    return [
+        {
+            cols[column_id]: column_values[row_id]
+            for column_id, column_values in values.items()
+            if row_id in column_values
+        }
+        for row_id in row_ids
+    ]
 
 
 # --------------------------------------------------------------------------
