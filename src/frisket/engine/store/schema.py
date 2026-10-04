@@ -1023,44 +1023,46 @@ CREATE INDEX IF NOT EXISTS idx_current_cells_row
 -- indexer a narrow column scan that avoids loading value/provenance payload.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_current_cells_column_row
   ON current_cells(column_id,row_id);
-CREATE INDEX IF NOT EXISTS idx_current_cells_column_origin_row
-  ON current_cells(column_id,origin_kind,row_id);
 
--- Stable native-value relation for every current-cell reader. Each branch is
--- constrained by origin before performing one exact authority-key lookup.
+-- Stable native-value relation for every current-cell reader. Start from one
+-- exact current-head lookup so correlated row reads remain index-bounded, then
+-- probe each fixed authority by its complete key. CASE, rather than COALESCE,
+-- preserves explicit null payloads.
 CREATE VIEW IF NOT EXISTS current_cell_values AS
-SELECT head.column_id,head.row_id,source.value_kind,source.value,
-       head.origin_kind,head.origin_op_id,head.origin_run_id,
-       head.base_producer_id,head.validity
-FROM current_cells AS head INDEXED BY idx_current_cells_column_origin_row
-CROSS JOIN cells AS source
-  ON source.row_id=head.row_id AND source.column_id=head.column_id
- AND source.producer_id IS head.base_producer_id
-WHERE head.origin_kind='source_cell'
-UNION ALL
 SELECT head.column_id,head.row_id,
-       CASE result.publication_effect
-         WHEN 'publish_value' THEN result.value_kind
-         WHEN 'publish_null' THEN 'null'
+       CASE head.origin_kind
+         WHEN 'source_cell' THEN source.value_kind
+         WHEN 'run_result' THEN CASE result.publication_effect
+           WHEN 'publish_value' THEN result.value_kind
+           WHEN 'publish_null' THEN 'null'
+         END
+         WHEN 'manual_edit' THEN edit.value_kind
        END AS value_kind,
-       CASE WHEN result.publication_effect='publish_value'
-         THEN result.value END AS value,
+       CASE head.origin_kind
+         WHEN 'source_cell' THEN source.value
+         WHEN 'run_result' THEN CASE
+           WHEN result.publication_effect='publish_value' THEN result.value
+         END
+         WHEN 'manual_edit' THEN edit.value
+       END AS value,
        head.origin_kind,head.origin_op_id,head.origin_run_id,
        head.base_producer_id,head.validity
-FROM current_cells AS head INDEXED BY idx_current_cells_column_origin_row
-CROSS JOIN results AS result
-  ON result.run_id=head.origin_run_id AND result.row_id=head.row_id
+FROM current_cells AS head INDEXED BY idx_current_cells_column_row
+LEFT JOIN cells AS source
+  ON head.origin_kind='source_cell'
+ AND source.row_id=head.row_id AND source.column_id=head.column_id
+ AND source.producer_id IS head.base_producer_id
+LEFT JOIN results AS result
+  ON head.origin_kind='run_result'
+ AND result.run_id=head.origin_run_id AND result.row_id=head.row_id
  AND result.column_id=head.column_id
-WHERE head.origin_kind='run_result'
-UNION ALL
-SELECT head.column_id,head.row_id,edit.value_kind,edit.value,
-       head.origin_kind,head.origin_op_id,head.origin_run_id,
-       head.base_producer_id,head.validity
-FROM current_cells AS head INDEXED BY idx_current_cells_column_origin_row
-CROSS JOIN edits AS edit
-  ON edit.op_id=head.origin_op_id AND edit.row_id=head.row_id
+LEFT JOIN edits AS edit
+  ON head.origin_kind='manual_edit'
+ AND edit.op_id=head.origin_op_id AND edit.row_id=head.row_id
  AND edit.column_id=head.column_id
-WHERE head.origin_kind='manual_edit';
+WHERE source.row_id IS NOT NULL
+   OR result.run_id IS NOT NULL
+   OR edit.op_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS search_dirty_scopes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   sheet_id INTEGER,

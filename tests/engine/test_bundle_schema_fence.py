@@ -126,14 +126,12 @@ def _without_typed_values(schema: str) -> str:
         ("current_cells", _LEGACY_CURRENT_CELLS),
     ):
         schema = _replace_create_table(schema, table, ddl)
-    typed_index = schema.find(
-        "CREATE INDEX IF NOT EXISTS idx_current_cells_column_origin_row"
-    )
-    if typed_index >= 0:
+    typed_view = schema.find("CREATE VIEW IF NOT EXISTS current_cell_values")
+    if typed_view >= 0:
         search_work = schema.index(
-            "CREATE TABLE IF NOT EXISTS search_dirty_scopes", typed_index
+            "CREATE TABLE IF NOT EXISTS search_dirty_scopes", typed_view
         )
-        schema = schema[:typed_index] + schema[search_work:]
+        schema = schema[:typed_view] + schema[search_work:]
     return schema.replace(
         "BEFORE UPDATE OF value_kind, value,", "BEFORE UPDATE OF value,"
     ).replace("    OR NEW.value_kind IS NOT OLD.value_kind\n", "").replace(
@@ -311,7 +309,6 @@ def _restore_legacy_authorities(db: sqlite3.Connection) -> None:
         )
 
     db.execute("DROP VIEW current_cell_values")
-    db.execute("DROP TABLE citation_text_contexts")
     db.execute("DROP TABLE citation_texts")
     db.execute("DROP TABLE current_cells")
     for table in ("cells", "results", "edits"):

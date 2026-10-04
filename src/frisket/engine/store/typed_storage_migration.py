@@ -9,7 +9,7 @@ from .disk_capacity import require_disk_headroom
 from .schema import BundleSchemaMismatch, SCHEMA_DIGEST_META_KEY
 from .value_codec import migrate_legacy_json_value
 
-TYPED_VALUES_TO_DIGEST = "frisket.schema.v1:5e4662708f4f1b9a97a929268d0ab7c5"
+TYPED_VALUES_TO_DIGEST = "frisket.schema.v1:ee2a5eb7c201829acb1c0ff01e371558"
 TYPED_VALUE_COPY_BATCH_SIZE = 2_000
 
 
@@ -158,10 +158,6 @@ def migrate_typed_values(
             db.execute(
                 "CREATE UNIQUE INDEX idx_current_cells_column_row "
                 "ON current_cells(column_id,row_id)"
-            )
-            db.execute(
-                "CREATE INDEX idx_current_cells_column_origin_row "
-                "ON current_cells(column_id,origin_kind,row_id)"
             )
             from .current_cells import rebuild_current_cells
 

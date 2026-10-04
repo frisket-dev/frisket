@@ -546,9 +546,7 @@ def _migrate_search_work(db: sqlite3.Connection) -> None:
             # The stable native-value view was added later with the typed
             # authority migration. Historical search upgrades still run over
             # JSON authorities, so install only their original worklist DDL.
-            typed_marker = (
-                "CREATE INDEX IF NOT EXISTS idx_current_cells_column_origin_row"
-            )
+            typed_marker = "CREATE VIEW IF NOT EXISTS current_cell_values"
             search_table = "CREATE TABLE IF NOT EXISTS search_dirty_scopes"
             if typed_marker in tail:
                 tail = (
