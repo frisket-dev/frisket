@@ -103,13 +103,11 @@ def test_numeric_filter_and_sort_reduce_sqlite_vm_work(tmp_path: Path) -> None:
         filter_json = json.dumps({"score": {"gte": 2900}})
         sort_json = json.dumps([{"column": "score", "dir": "desc"}])
 
-        _, where_sql, where_params, order_parts, order_params = (
-            sheet_row_scope_query(
-                project,
-                sheet_id,
-                filter_=filter_json,
-                sort=sort_json,
-            )
+        _, where_sql, where_params, order_parts, order_params = sheet_row_scope_query(
+            project,
+            sheet_id,
+            filter_=filter_json,
+            sort=sort_json,
         )
         order_sql = ", ".join(order_parts)
 
