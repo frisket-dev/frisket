@@ -13,6 +13,8 @@ from frisket.engine.store.bundle_open import (
     _SEARCH_WORK_TO_DIGEST,
 )
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
+from frisket.engine.store.value_codec import migrate_legacy_json_value
+from tests.engine.test_bundle_schema_fence import _restore_legacy_authorities
 
 
 _PRIOR_DIGEST = "frisket.schema.v1:348c367f3a24a414ba6f1e612e40ea15"
@@ -122,6 +124,8 @@ def _prior_bundle(tmp_path):
     project.apply_edits(
         [{"row_id": row_ids[0], "column_id": title_id, "value": "edited"}]
     )
+    project.db.execute("PRAGMA foreign_keys=OFF")
+    _restore_legacy_authorities(project.db)
     # Exercise SQL NULL values as well as JSON `null` values. These rows are
     # copied directly by the physical migration; it must not recalculate them.
     project.db.execute(
@@ -152,10 +156,25 @@ def test_rowid_layout_migration_copies_values_provenance_constraints_and_plans(
 
     migrated = Project(path)
     assert migrated.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
-    assert _rows(migrated.db, "cells", _CELLS, "row_id,column_id") == before_cells
+    expected_cells = [
+        (row_id, column_id, *migrate_legacy_json_value(value), producer_id)
+        for row_id, column_id, value, producer_id in before_cells
+    ]
+    assert _rows(
+        migrated.db,
+        "cells",
+        "row_id,column_id,value_kind,value,producer_id",
+        "row_id,column_id",
+    ) == expected_cells
     assert (
-        _rows(migrated.db, "current_cells", _CURRENT, "column_id,row_id")
-        == before_current
+        _rows(
+            migrated.db,
+            "current_cells",
+            "column_id,row_id,origin_kind,origin_op_id,origin_run_id,"
+            "base_producer_id,validity",
+            "column_id,row_id",
+        )
+        == [row[:2] + row[3:] for row in before_current]
     )
     assert migrated.get_values(sheet_id, title_id) == {
         row_ids[0]: "edited",
@@ -170,16 +189,17 @@ def test_rowid_layout_migration_copies_values_provenance_constraints_and_plans(
     ] == ["row_id", "column_id"]
     with pytest.raises(sqlite3.IntegrityError):
         migrated.db.execute(
-            "INSERT INTO cells(row_id,column_id,value) VALUES (?,?,?)",
-            (row_ids[0], title_id, '"duplicate"'),
+            "INSERT INTO cells(row_id,column_id,value_kind,value) "
+            "VALUES (?,?,'text',?)",
+            (row_ids[0], title_id, "duplicate"),
         )
     migrated.db.rollback()
     with pytest.raises(sqlite3.IntegrityError):
         migrated.db.execute(
             "INSERT INTO current_cells("
-            "column_id,row_id,value,origin_kind,validity"
-            ") VALUES (?,?,?,'source_cell','valid')",
-            (title_id, row_ids[0], '"duplicate"'),
+            "column_id,row_id,origin_kind,validity"
+            ") VALUES (?,?,'source_cell','valid')",
+            (title_id, row_ids[0]),
         )
     migrated.db.rollback()
     plan = "\n".join(
@@ -195,7 +215,7 @@ def test_rowid_layout_migration_copies_values_provenance_constraints_and_plans(
     row_plan = "\n".join(
         row[3]
         for row in migrated.db.execute(
-            "EXPLAIN QUERY PLAN SELECT column_id,value FROM current_cells "
+            "EXPLAIN QUERY PLAN SELECT column_id,origin_kind FROM current_cells "
             "WHERE row_id=? ORDER BY column_id",
             (row_ids[0],),
         )

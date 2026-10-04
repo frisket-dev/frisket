@@ -6,6 +6,7 @@ import pytest
 
 from frisket.engine.store import Project
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
+from tests.engine.test_bundle_schema_fence import _restore_legacy_authorities
 
 
 _PRIOR_DIGEST = "frisket.schema.v1:43e64204b7c8109bc79bfaa1dfdf8b0e"
@@ -16,6 +17,8 @@ def _prior_bundle(tmp_path, *, column_count: int = 1):
     path = tmp_path / "prior.frisket"
     project = Project.create(path, name="Historical")
     db = project.db
+    db.execute("PRAGMA foreign_keys=OFF")
+    _restore_legacy_authorities(db)
     db.execute("INSERT INTO sheets (id,name) VALUES (1,'Sheet')")
     db.execute("INSERT INTO rows (id,sheet_id,position) VALUES (100,1,1)")
     db.execute("INSERT INTO rows (id,sheet_id,position) VALUES (101,1,2)")
@@ -112,12 +115,13 @@ def test_migration_backfills_current_precedence_without_inventing_base_origins(
         is None
     )
     rows = project.db.execute(
-        "SELECT row_id,value,origin_kind,origin_op_id,origin_run_id,base_producer_id "
-        "FROM current_cells WHERE column_id=10 ORDER BY row_id"
+        "SELECT row_id,value,value_kind,origin_kind,origin_op_id,origin_run_id,"
+        "base_producer_id FROM current_cell_values "
+        "WHERE column_id=10 ORDER BY row_id"
     ).fetchall()
     assert [tuple(row) for row in rows] == [
-        (100, '"edited"', "manual_edit", 1, None, None),
-        (101, None, "run_result", 2, 20, None),
+        (100, "edited", "text", "manual_edit", 1, None, None),
+        (101, None, "null", "run_result", 2, 20, None),
     ]
     assert project.db.execute("PRAGMA foreign_key_check").fetchall() == []
     repair = project.db.execute(
@@ -137,9 +141,10 @@ def test_migration_backfill_batches_past_sqlites_bind_limit(tmp_path) -> None:
     project = Project(path)
     assert project.db.execute("SELECT COUNT(*) FROM current_cells").fetchone()[0] == 906
     assert project.db.execute(
-        "SELECT value,origin_kind FROM current_cells WHERE row_id=100 AND column_id=?",
+        "SELECT value,origin_kind FROM current_cell_values "
+        "WHERE row_id=100 AND column_id=?",
         (10 + 904,),
-    ).fetchone()[:] == ('"base-904"', "source_cell")
+    ).fetchone()[:] == ("base-904", "source_cell")
     project.close()
 
 
@@ -183,6 +188,8 @@ def test_validity_migration_rebuilds_without_rewriting_values(tmp_path) -> None:
     project.close()
 
     with sqlite3.connect(path / "project.db") as downgrade:
+        downgrade.execute("PRAGMA foreign_keys=OFF")
+        _restore_legacy_authorities(downgrade)
         _drop_later_schema(downgrade)
         downgrade.execute("ALTER TABLE current_cells DROP COLUMN validity")
         downgrade.execute(
@@ -201,7 +208,8 @@ def test_validity_migration_rebuilds_without_rewriting_values(tmp_path) -> None:
         row_ids[1]: "unknown",
     }
     assert migrated.db.execute(
-        "SELECT value,validity FROM current_cells WHERE row_id=? AND column_id=?",
+        "SELECT value,validity FROM current_cell_values "
+        "WHERE row_id=? AND column_id=?",
         (row_ids[1], column_id),
-    ).fetchone()[:] == ('"unknown"', "invalid")
+    ).fetchone()[:] == ("unknown", "invalid")
     migrated.close()
