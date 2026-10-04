@@ -11,6 +11,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import MediaBlobStore
 from frisket.engine.store.result_generations import GenerationSealedError
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.value_codec import decode_stored_value
 from helpers import run_writer_authority_fixture, write_claimed_test_results
 
 
@@ -213,9 +214,12 @@ class TestRunsAndPointers:
         assert set(project.get_values(sheet, out_col).values()) == {"v2"}
         # history intact: run1 values still stored
         old = project.db.execute(
-            "SELECT value FROM results WHERE run_id=?", (run1,)
+            "SELECT value_kind, value FROM results WHERE run_id=?", (run1,)
         ).fetchall()
-        assert all(json.loads(r["value"]) == "v1" for r in old)
+        assert all(r["value_kind"] == "text" for r in old)
+        assert all(
+            decode_stored_value(r["value_kind"], r["value"]) == "v1" for r in old
+        )
 
 
 class TestEditsOverlay:

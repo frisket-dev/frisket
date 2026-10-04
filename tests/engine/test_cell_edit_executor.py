@@ -8,6 +8,7 @@ import pytest
 
 from executor_harness import CatalogEntry, ExecutorCase, Gate, UndoRerun
 from frisket.engine.store import Project
+from frisket.engine.store.value_codec import decode_stored_value
 
 
 def _cell_edit_action(
@@ -110,7 +111,8 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert overlay is not None
     assert overlay["row_id"] == seeded["row_id"]
     assert overlay["column_id"] == seeded["name_column_id"]
-    assert json.loads(overlay["value"]) == "Alicia"
+    assert overlay["value_kind"] == "text"
+    assert decode_stored_value(overlay["value_kind"], overlay["value"]) == "Alicia"
 
     receipt_row = project.db.execute(
         "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)

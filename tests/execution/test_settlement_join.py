@@ -34,6 +34,7 @@ from frisket.engine.store.execution_routes import RouteStore, instance_principal
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.value_codec import decode_stored_value
 from frisket.execution.attempt import StaleAttemptWriter, attempt_receipt, claim
 from frisket.execution.attempt_authority import AttemptAuthority
 from frisket.execution.commercial import (
@@ -706,11 +707,15 @@ def test_rejected_cross_attempt_call_id_cannot_leak_result_through_outer_commit(
     store.finish_run(run_id, "completed")
 
     result = project.db.execute(
-        "SELECT value FROM results WHERE run_id=? AND row_id=1 AND column_id=1",
+        "SELECT value_kind, value FROM results "
+        "WHERE run_id=? AND row_id=1 AND column_id=1",
         (run_id,),
     ).fetchone()
     assert result is not None
-    assert json.loads(result["value"]) == "attempt A result"
+    assert result["value_kind"] == "text"
+    assert decode_stored_value(result["value_kind"], result["value"]) == (
+        "attempt A result"
+    )
     recorded = project.db.execute(
         "SELECT attempt_id FROM model_calls WHERE id=?", (call_id,)
     ).fetchone()
@@ -801,11 +806,15 @@ def test_rejected_result_batch_rolls_back_to_commit_false_caller_savepoint(
     assert run["params"] == caller_params
     assert run["status"] == "completed"
     result = project.db.execute(
-        "SELECT value FROM results WHERE run_id=? AND row_id=1 AND column_id=1",
+        "SELECT value_kind, value FROM results "
+        "WHERE run_id=? AND row_id=1 AND column_id=1",
         (run_id,),
     ).fetchone()
     assert result is not None
-    assert json.loads(result["value"]) == "attempt A result"
+    assert result["value_kind"] == "text"
+    assert decode_stored_value(result["value_kind"], result["value"]) == (
+        "attempt A result"
+    )
     recorded = project.db.execute(
         "SELECT attempt_id FROM model_calls WHERE id=?", (call_id,)
     ).fetchone()

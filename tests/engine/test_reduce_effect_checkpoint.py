@@ -27,6 +27,7 @@ from frisket.engine.executor.group_summary_action import prepare_group_summary_a
 from frisket.engine.store import Project
 from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.value_codec import decode_stored_value
 from frisket.execution.attempt import (
     StaleAttemptWriter,
     abandon_stale_dispatching_attempts,
@@ -234,15 +235,17 @@ def test_returned_reduce_checkpoint_accounts_spend_before_result_commit(
         "SELECT id FROM sheets WHERE name='Beat Summaries' AND hidden=0"
     ).fetchone()
     assert summary_sheet is not None
+    result_rows = project.db.execute(
+        "SELECT value_kind, value FROM results WHERE run_id=?", (run_id,)
+    ).fetchall()
+    assert {row["value_kind"] for row in result_rows} == {"text"}
     values = {
-        row["value"]
-        for row in project.db.execute(
-            "SELECT value FROM results WHERE run_id=?", (run_id,)
-        ).fetchall()
+        decode_stored_value(row["value_kind"], row["value"])
+        for row in result_rows
     }
     assert values == {
-        '"Accountability stories share contracting risk."',
-        '"Infrastructure stories share service disruption risk."',
+        "Accountability stories share contracting risk.",
+        "Infrastructure stories share service disruption risk.",
     }
     # No double count: the run's cost stays exactly the two accrued invoices,
     # the facts still belong to the original authorizing attempt, and the
