@@ -89,6 +89,14 @@ def migrate_legacy_json_value(encoded: str | None) -> tuple[str, SQLiteValue]:
         return "legacy_invalid", encoded
     if isinstance(decoded, (list, dict)):
         return "json", encoded
+    if isinstance(decoded, str):
+        try:
+            decoded.encode("utf-8")
+        except UnicodeEncodeError:
+            # sqlite3 binds Python strings as UTF-8. Preserve the escaped JSON
+            # bytes when a historical scalar contains a lone surrogate rather
+            # than failing the whole project migration.
+            return "legacy_invalid", encoded
     return encode_stored_value(decoded)
 
 

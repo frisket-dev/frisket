@@ -5,6 +5,7 @@ import sqlite3
 
 import pytest
 
+from frisket.engine.store.bundle_open import _TYPED_VALUES_FROM_DIGEST
 from frisket.engine.store.cell_writes import (
     BaseCellWrite,
     EditCellWrite,
@@ -13,12 +14,17 @@ from frisket.engine.store.cell_writes import (
     insert_edits,
 )
 from frisket.engine.store.runs import RunResultStore
-from frisket.engine.store.schema import SCHEMA, SCHEMA_DIGEST
-from frisket.engine.store.typed_storage_migration import TYPED_VALUES_TO_DIGEST
+from frisket.engine.store.schema import SCHEMA, SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
+from frisket.engine.store.typed_storage_migration import (
+    TYPED_VALUES_TO_DIGEST,
+    migrate_typed_values,
+)
 from frisket.engine.store.value_codec import (
     decode_stored_value,
     encode_stored_value,
+    migrate_legacy_json_value,
 )
+from tests.engine.test_bundle_schema_fence import _restore_legacy_authorities
 
 
 def _database() -> sqlite3.Connection:
@@ -73,6 +79,95 @@ def test_value_codec_preserves_legacy_invalid_bytes_and_failure_contract() -> No
     with pytest.raises(ValueError):
         decode_stored_value("legacy_invalid", raw)
     assert decode_stored_value("legacy_invalid", raw, tolerate_errors=True) is None
+
+
+def test_legacy_surrogate_string_stays_bindable_and_decodable() -> None:
+    raw = '"\\ud800"'
+    value_kind, stored = migrate_legacy_json_value(raw)
+    assert (value_kind, stored) == ("legacy_invalid", raw)
+    assert decode_stored_value(value_kind, stored) == "\ud800"
+    db = sqlite3.connect(":memory:")
+    db.execute("CREATE TABLE migrated(value_kind TEXT NOT NULL,value)")
+    db.execute("INSERT INTO migrated VALUES (?,?)", (value_kind, stored))
+
+
+def test_typed_migration_preserves_surrogate_in_every_authority(tmp_path) -> None:
+    db = _database()
+    db.execute("INSERT INTO rows (id,sheet_id,position) VALUES (102,1,3)")
+    db.execute("PRAGMA foreign_keys=OFF")
+    _restore_legacy_authorities(db)
+    raw = '"\\ud800"'
+    db.executemany(
+        "INSERT INTO ops (id,kind,spec) VALUES (?,?, '{}')",
+        [(1, "source.write"), (2, "map.test"), (3, "edit")],
+    )
+    db.execute(
+        "INSERT INTO base_cell_producers (id,stage_id,op_id) "
+        "VALUES (1,'op:1',1)"
+    )
+    db.execute(
+        "INSERT INTO cells (row_id,column_id,value,producer_id) VALUES (100,10,?,1)",
+        (raw,),
+    )
+    db.execute(
+        "INSERT INTO runs (id,op_id,sheet_id,action_kind) "
+        "VALUES (20,2,1,'map.test')"
+    )
+    db.execute(
+        "INSERT INTO run_output_generations "
+        "(run_id,column_id,output_role,compatibility_key,write_mode,state,claim_token) "
+        "VALUES (20,10,'value','text','create','active','claim')"
+    )
+    db.execute(
+        "INSERT INTO results "
+        "(run_id,row_id,column_id,value,outcome,publication_effect) "
+        "VALUES (20,101,10,?,'ok','publish_value')",
+        (raw,),
+    )
+    db.execute(
+        "INSERT INTO cell_result_heads (column_id,row_id,run_id) VALUES (10,101,20)"
+    )
+    db.execute(
+        "INSERT INTO edits (op_id,row_id,column_id,value) VALUES (3,102,10,?)",
+        (raw,),
+    )
+    db.executemany(
+        "INSERT INTO current_cells "
+        "(column_id,row_id,value,origin_kind,origin_op_id,origin_run_id,"
+        "base_producer_id,validity) VALUES (10,?,?,?,?,?,?, 'valid')",
+        [
+            (100, raw, "source_cell", None, None, 1),
+            (101, raw, "run_result", 2, 20, None),
+            (102, raw, "manual_edit", 3, None, None),
+        ],
+    )
+    db.execute(
+        "INSERT INTO meta (key,value) VALUES (?,?)",
+        (SCHEMA_DIGEST_META_KEY, _TYPED_VALUES_FROM_DIGEST),
+    )
+    db.commit()
+
+    migrate_typed_values(
+        db,
+        bundle_path=tmp_path / "project.db",
+        from_digest=_TYPED_VALUES_FROM_DIGEST,
+    )
+
+    for table in ("cells", "results", "edits"):
+        assert db.execute(
+            f"SELECT value_kind,value FROM {table}"
+        ).fetchone()[:] == ("legacy_invalid", raw)
+    migrated = db.execute(
+        "SELECT row_id,value_kind,value FROM current_cell_values ORDER BY row_id"
+    ).fetchall()
+    assert [tuple(row) for row in migrated] == [
+        (100, "legacy_invalid", raw),
+        (101, "legacy_invalid", raw),
+        (102, "legacy_invalid", raw),
+    ]
+    assert db.execute(
+        "SELECT value FROM meta WHERE key=?", (SCHEMA_DIGEST_META_KEY,)
+    ).fetchone()[0] == SCHEMA_DIGEST
 
 
 def test_current_cell_values_resolves_native_source_and_edit_payloads() -> None:
