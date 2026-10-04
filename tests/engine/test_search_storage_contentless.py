@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+import zlib
 
 import pytest
 
@@ -44,6 +45,35 @@ CREATE TABLE search_cells (
 );
 CREATE INDEX search_cells_sheet_column
   ON search_cells(sheet_id,column_id,row_id);
+CREATE TABLE cell_vec (key TEXT PRIMARY KEY, vec BLOB NOT NULL);
+"""
+
+COMPRESSED_EXTERNAL_SCHEMA = """
+CREATE TABLE fts_state (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE search_cells (
+  id INTEGER PRIMARY KEY,
+  sheet_id INTEGER NOT NULL,
+  column_id INTEGER NOT NULL,
+  row_id INTEGER NOT NULL,
+  source_hash TEXT NOT NULL,
+  UNIQUE(column_id,row_id)
+);
+CREATE INDEX search_cells_sheet_column
+  ON search_cells(sheet_id,column_id,row_id);
+CREATE TABLE search_content (
+  id INTEGER PRIMARY KEY,
+  compressed_content BLOB NOT NULL,
+  column_name TEXT NOT NULL,
+  FOREIGN KEY(id) REFERENCES search_cells(id) ON DELETE CASCADE
+);
+CREATE VIEW search_content_view AS
+SELECT c.id,frisket_zlib_decode(c.compressed_content) AS content,
+       s.sheet_id,s.row_id,s.column_id,c.column_name
+FROM search_content c JOIN search_cells s ON s.id=c.id;
+CREATE VIRTUAL TABLE cell_fts USING fts5(
+  content,sheet_id UNINDEXED,row_id UNINDEXED,column_id UNINDEXED,
+  column_name UNINDEXED,content='search_content_view',content_rowid='id'
+);
 CREATE TABLE cell_vec (key TEXT PRIMARY KEY, vec BLOB NOT NULL);
 """
 
@@ -130,6 +160,67 @@ def _query_signature(db: sqlite3.Connection, query: str) -> list[tuple]:
             (query,),
         )
     ]
+
+
+def test_current_compressed_sidecar_resets_without_loading_legacy_view(tmp_path):
+    project = Project.create(tmp_path / "compressed-v4.frisket", name="migration")
+    try:
+        sheet = project.add_sheet("Documents")
+        column = project.add_column(sheet, "body")
+        [row] = project.add_rows(
+            sheet, [{"body": "compressedneedle"}], {"body": column}
+        )
+        path = project.path / "project.search.db"
+        db = sqlite3.connect(path)
+        try:
+            db.executescript(COMPRESSED_EXTERNAL_SCHEMA)
+            db.execute(
+                "INSERT INTO search_cells VALUES (1,?,?,?,?)",
+                (
+                    sheet,
+                    column,
+                    row,
+                    hashlib.sha256(b"compressedneedle").hexdigest(),
+                ),
+            )
+            db.execute(
+                "INSERT INTO search_content VALUES (1,?,?)",
+                (zlib.compress(b"compressedneedle"), "body"),
+            )
+            db.execute(
+                "INSERT INTO cell_fts"
+                "(rowid,content,sheet_id,row_id,column_id,column_name) "
+                "VALUES (1,?,?,?,?,?)",
+                ("compressedneedle", sheet, row, column, "body"),
+            )
+            db.executemany(
+                "INSERT INTO fts_state VALUES (?,?)",
+                (
+                    ("index_content_version", "4"),
+                    ("complete_revision", str(latest_revision(project.db))),
+                ),
+            )
+            db.commit()
+        finally:
+            db.close()
+
+        drain_index(project)
+
+        assert search_project(project, "compressedneedle", rerank="off")[0][
+            "row_id"
+        ] == row
+        rebuilt = sqlite3.connect(path)
+        try:
+            assert (
+                rebuilt.execute(
+                    "SELECT 1 FROM sqlite_master WHERE name='search_content'"
+                ).fetchone()
+                is None
+            )
+        finally:
+            rebuilt.close()
+    finally:
+        project.close()
 
 
 def test_legacy_sidecar_migrates_to_contentless_and_reclaims_file(tmp_path):
