@@ -29,7 +29,6 @@ SHEET_FILTER_ROWSET_EVALUATOR = {
 }
 
 _SQL_UTC_DATE = "frisket_utc_calendar_date"
-_SQL_SIGNED_INT64 = "frisket_signed_int64"
 
 # --------------------------------------------------------------------------
 # The one guarded ``json_each`` construction for entity-mention JSON.
@@ -86,8 +85,10 @@ ENTITY_MENTION_ITEM_PREDICATE = " AND ".join(
 )
 
 
-def guarded_entity_array_sql(value_sql: str) -> str:
+def guarded_entity_array_sql(value_sql: str, value_kind_sql: str | None = None) -> str:
     """``value_sql`` narrowed to a JSON array expression, or ``'[]'``."""
+    if value_kind_sql is not None:
+        return f"CASE WHEN {value_kind_sql}='json' THEN {value_sql} ELSE '[]' END"
     return (
         f"CASE WHEN json_valid({value_sql}) "
         f"THEN (CASE WHEN json_type({value_sql}) = 'array' "
@@ -96,15 +97,21 @@ def guarded_entity_array_sql(value_sql: str) -> str:
     )
 
 
-def guarded_entity_array_params(value_params: Sequence[Any]) -> list[Any]:
-    """``value_sql`` is emitted three times by the guard, so its bound
-    parameters must be repeated three times in that order."""
+def guarded_entity_array_params(
+    value_params: Sequence[Any], value_kind_params: Sequence[Any] | None = None
+) -> list[Any]:
+    """Return parameters in the guarded-array expression's lexical order."""
+    if value_kind_params is not None:
+        return [*value_kind_params, *value_params]
     return [*value_params, *value_params, *value_params]
 
 
-def entity_mention_source_sql(value_sql: str) -> str:
+def entity_mention_source_sql(value_sql: str, value_kind_sql: str | None = None) -> str:
     """The FROM-clause fragment that walks one cell's entity array."""
-    return f"json_each({guarded_entity_array_sql(value_sql)}) {ENTITY_MENTION_ALIAS}"
+    return (
+        f"json_each({guarded_entity_array_sql(value_sql, value_kind_sql)}) "
+        f"{ENTITY_MENTION_ALIAS}"
+    )
 
 
 def column_semantic_type(column: Any) -> str | None:
@@ -285,12 +292,6 @@ def _sheet_row_scope_plan(
         normalize_utc_calendar_date,
         deterministic=True,
     )
-    project.db.create_function(
-        _SQL_SIGNED_INT64,
-        1,
-        _signed_int64_json_value,
-        deterministic=True,
-    )
 
     def is_generation_managed(column: Any) -> bool:
         column_id = int(column["id"])
@@ -299,6 +300,19 @@ def _sheet_row_scope_plan(
                 column_id
             )
         return managed_columns[column_id]
+
+    def scope_live_alias(row_alias: str, column: Any) -> str:
+        column_id = int(column["id"])
+        alias = live_aliases.get(column_id)
+        if alias is None:
+            alias = f"live_{len(live_aliases)}"
+            live_aliases[column_id] = alias
+            joins.append(
+                f"LEFT JOIN current_cell_values AS {alias} "
+                f"ON {alias}.column_id=? AND {alias}.row_id={row_alias}.id"
+            )
+            join_params.append(column_id)
+        return alias
 
     def scope_live_value_sql(
         row_alias: str,
@@ -310,23 +324,18 @@ def _sheet_row_scope_plan(
             return sheet_live_value_sql(
                 row_alias, column, preserve_invalid=preserve_invalid
             )
-        column_id = int(column["id"])
-        alias = live_aliases.get(column_id)
-        if alias is None:
-            alias = f"live_{len(live_aliases)}"
-            live_aliases[column_id] = alias
-            joins.append(
-                f"LEFT JOIN current_cells AS {alias} "
-                "INDEXED BY idx_current_cells_column_row "
-                f"ON {alias}.column_id=? AND {alias}.row_id={row_alias}.id"
-            )
-            join_params.append(column_id)
+        alias = scope_live_alias(row_alias, column)
         value = (
             f"{alias}.value"
             if preserve_invalid
             else f"CASE WHEN {alias}.validity='valid' THEN {alias}.value END"
         )
         return value, []
+
+    def scope_live_value_kind_sql(row_alias: str, column: Any) -> tuple[str, list[Any]]:
+        if not join_live_values:
+            return sheet_live_value_kind_sql(row_alias, column)
+        return f"{scope_live_alias(row_alias, column)}.value_kind", []
 
     where = ["r.sheet_id=?", "r.hidden=0"]
     where_params: list[Any] = [sheet_id]
@@ -390,6 +399,7 @@ def _sheet_row_scope_plan(
         value_sql, value_params = scope_live_value_sql(
             "r", column, preserve_invalid=operator == "date_invalid"
         )
+        value_kind_sql, value_kind_params = scope_live_value_kind_sql("r", column)
         if operator == "entity_eq":
             # Rows carrying at least one matching entity in a marked
             # entity_mentions JSON column. The guarded json_each above means a
@@ -408,10 +418,12 @@ def _sheet_row_scope_plan(
                 predicates.append(f"{_ENTITY_EQ_SELECTOR_SQL[selector_kind]} = ?")
                 selector_params.append(selector_value)
             where.append(
-                f"EXISTS (SELECT 1 FROM {entity_mention_source_sql(value_sql)} "
+                f"EXISTS (SELECT 1 FROM {entity_mention_source_sql(value_sql, value_kind_sql)} "
                 f"WHERE {' AND '.join(predicates)})"
             )
-            where_params.extend(guarded_entity_array_params(value_params))
+            where_params.extend(
+                guarded_entity_array_params(value_params, value_kind_params)
+            )
             where_params.extend(selector_params)
             continue
         if operator == "list_contains_any":
@@ -458,28 +470,33 @@ def _sheet_row_scope_plan(
                         )
                         selector_params.append(scalar)
             where.append(
-                f"EXISTS (SELECT 1 FROM {entity_mention_source_sql(value_sql)} "
+                f"EXISTS (SELECT 1 FROM {entity_mention_source_sql(value_sql, value_kind_sql)} "
                 f"WHERE {' OR '.join(selector_predicates)})"
             )
-            where_params.extend(guarded_entity_array_params(value_params))
+            where_params.extend(
+                guarded_entity_array_params(value_params, value_kind_params)
+            )
             where_params.extend(selector_params)
             continue
         if operator == "bbox":
             # geo_point JSON is {lat,lon}; extract each axis and range-test.
             min_lon, min_lat, max_lon, max_lat = value
-            lon_sql = f"CAST(json_extract({value_sql}, '$.lon') AS REAL)"
-            lat_sql = f"CAST(json_extract({value_sql}, '$.lat') AS REAL)"
+            json_value_sql = (
+                f"CASE WHEN {value_kind_sql}='json' THEN {value_sql} ELSE '{{}}' END"
+            )
+            lon_sql = f"CAST(json_extract({json_value_sql}, '$.lon') AS REAL)"
+            lat_sql = f"CAST(json_extract({json_value_sql}, '$.lat') AS REAL)"
             where.append(
                 f"({lon_sql} >= ? AND {lon_sql} <= ? "
                 f"AND {lat_sql} >= ? AND {lat_sql} <= ?)"
             )
-            where_params.extend(value_params)
+            where_params.extend([*value_kind_params, *value_params])
             where_params.append(min_lon)
-            where_params.extend(value_params)
+            where_params.extend([*value_kind_params, *value_params])
             where_params.append(max_lon)
-            where_params.extend(value_params)
+            where_params.extend([*value_kind_params, *value_params])
             where_params.append(min_lat)
-            where_params.extend(value_params)
+            where_params.extend([*value_kind_params, *value_params])
             where_params.append(max_lat)
             continue
         use_boolean_literal = column["type"] == "boolean" and operator in {
@@ -494,25 +511,22 @@ def _sheet_row_scope_plan(
             "between",
         }
         filter_value = (
-            value_sql
+            f"CASE WHEN {value_kind_sql}='boolean' THEN {value_sql} END"
             if use_boolean_literal
             else (
                 (
-                    f"{_SQL_SIGNED_INT64}({value_sql})"
+                    f"CASE WHEN {value_kind_sql}='integer' THEN {value_sql} END"
                     if range_value_kind == "integer"
                     else (
-                        "CASE WHEN "
-                        f"json_type({value_sql}, '$') IN ('integer', 'real') "
-                        f"THEN CAST(json_extract({value_sql}, '$') AS REAL) END"
+                        f"CASE WHEN {value_kind_sql} IN ('integer','real') "
+                        f"THEN {value_sql} END"
                     )
                 )
                 if is_numeric_range
-                else _filter_value_sql(value_sql, column)
+                else _filter_value_sql(value_sql, value_kind_sql, column)
             )
         )
-        filter_value_params = value_params * (
-            2 if is_numeric_range and range_value_kind == "number" else 1
-        )
+        filter_value_params = [*value_kind_params, *value_params]
         compare_value = (
             _validate_boolean_filter_literal(str(column["name"]), value)
             if use_boolean_literal and operator != "in"
@@ -563,36 +577,36 @@ def _sheet_row_scope_plan(
             amount, unit = value
             start = _relative_date_start(today, amount, unit)
             where.append(f"({date_value} >= ? AND {date_value} <= ?)")
-            where_params.extend(value_params)
+            where_params.extend([*value_kind_params, *value_params])
             where_params.append(start.isoformat())
-            where_params.extend(value_params)
+            where_params.extend([*value_kind_params, *value_params])
             where_params.append(today.isoformat())
             continue
         elif operator == "date_this_year":
             where.append(f"substr({date_value}, 1, 4) = ?")
-            where_params.extend(value_params)
+            where_params.extend([*value_kind_params, *value_params])
             where_params.append(f"{today.year:04d}")
             continue
         elif operator == "date_ytd":
             where.append(f"({date_value} >= ? AND {date_value} <= ?)")
-            where_params.extend(value_params)
+            where_params.extend([*value_kind_params, *value_params])
             where_params.append(date(today.year, 1, 1).isoformat())
-            where_params.extend(value_params)
+            where_params.extend([*value_kind_params, *value_params])
             where_params.append(today.isoformat())
             continue
         elif operator == "date_year":
             where.append(f"CAST(strftime('%Y', {date_value}) AS INTEGER) = ?")
-            where_params.extend(value_params)
+            where_params.extend([*value_kind_params, *value_params])
             where_params.append(value)
             continue
         elif operator == "date_month":
             where.append(f"CAST(strftime('%m', {date_value}) AS INTEGER) = ?")
-            where_params.extend(value_params)
+            where_params.extend(filter_value_params)
             where_params.append(value)
             continue
         elif operator == "date_weekday":
             where.append(f"CAST(strftime('%w', {date_value}) AS INTEGER) = ?")
-            where_params.extend(value_params)
+            where_params.extend(filter_value_params)
             where_params.append(value)
             continue
         elif operator == "date_invalid":
@@ -600,9 +614,9 @@ def _sheet_row_scope_plan(
                 f"({filter_value} IS NOT NULL AND trim({filter_value}) != '' "
                 f"AND {date_value} IS NULL)"
             )
-            where_params.extend(value_params)
-            where_params.extend(value_params)
-            where_params.extend(value_params)
+            where_params.extend(filter_value_params)
+            where_params.extend(filter_value_params)
+            where_params.extend(filter_value_params)
             continue
         else:
             raise AssertionError(f"unhandled filter operator: {operator}")
@@ -654,7 +668,7 @@ def _sheet_order_terms(
     terms = []
     for column, direction in sorts:
         value, params = value_reader("r", column)
-        scalar = f"json_extract({value}, '$')"
+        scalar = value
         terms.append(SheetOrderTerm(f"{scalar} IS NULL", tuple(params)))
         terms.append(
             SheetOrderTerm(
@@ -753,29 +767,30 @@ def count_sheet_filter_values(
         row_ids=row_ids,
         reference_date=reference_date,
     )
-    value_sql, value_params = sheet_live_value_sql("r", column, preserve_invalid=True)
-    validity_sql = (
-        "(SELECT live.validity FROM current_cells live "
-        "WHERE live.column_id=? AND live.row_id=r.id)"
-    )
-    validity_params = [column["id"]]
     rows = project.db.execute(
         "WITH count_values AS (SELECT "
-        f"{value_sql} AS value_json, {validity_sql} AS validity "
-        f"FROM {plan.filter_from_sql} WHERE {plan.where_sql}), "
+        "live.value, live.value_kind, live.validity "
+        f"FROM {plan.filter_from_sql} LEFT JOIN current_cell_values live "
+        "ON live.column_id=? AND live.row_id=r.id "
+        f"WHERE {plan.where_sql}), "
         "count_groups AS (SELECT CASE "
         "WHEN validity='invalid' THEN 'invalid' "
-        "WHEN validity='valid' AND value_json IS NOT NULL THEN 'valid' "
-        "ELSE 'missing' END AS kind, value_json FROM count_values) "
+        "WHEN validity='valid' AND value_kind<>'null' AND value IS NOT NULL THEN 'valid' "
+        "ELSE 'missing' END AS kind, value_kind, value FROM count_values) "
         "SELECT kind, CASE WHEN kind='valid' THEN CASE "
-        "WHEN json_type(value_json, '$') IN ('integer', 'real') THEN 'number' "
-        "ELSE json_type(value_json, '$') END END AS value_type, "
-        "CASE WHEN kind='valid' THEN json_extract(value_json, '$') END AS value, "
+        "WHEN value_kind IN ('integer','real') THEN 'number' "
+        "ELSE value_kind END END AS value_type, "
+        "CASE WHEN kind='valid' THEN value END AS value, "
         "COUNT(*) AS count "
         "FROM count_groups GROUP BY kind, value_type, value "
         "ORDER BY count DESC, CASE kind "
         "WHEN 'valid' THEN 0 WHEN 'missing' THEN 1 ELSE 2 END, value LIMIT ?",
-        [*value_params, *validity_params, *plan.filter_params, limit + 1],
+        [
+            *plan.filter_join_params,
+            column["id"],
+            *plan.where_params,
+            limit + 1,
+        ],
     ).fetchall()
     values = [
         (
@@ -789,12 +804,12 @@ def count_sheet_filter_values(
 
 
 def _decode_grouped_json_value(value_type: str | None, value: Any) -> Any:
-    if value_type == "true":
-        return True
-    if value_type == "false":
-        return False
-    if value_type in {"array", "object"}:
+    if value_type == "boolean":
+        return bool(value)
+    if value_type == "json":
         return json.loads(value)
+    if value_type == "bigint":
+        return int(value)
     return value
 
 
@@ -824,7 +839,16 @@ def sheet_live_value_sql(
     )
     return (
         f"(SELECT {value} "
-        "FROM current_cells live "
+        "FROM current_cell_values live "
+        f"WHERE live.column_id=? AND live.row_id={row_alias}.id)",
+        [column["id"]],
+    )
+
+
+def sheet_live_value_kind_sql(row_alias: str, column: Any) -> tuple[str, list[Any]]:
+    """Return the semantic kind paired with :func:`sheet_live_value_sql`."""
+    return (
+        "(SELECT live.value_kind FROM current_cell_values live "
         f"WHERE live.column_id=? AND live.row_id={row_alias}.id)",
         [column["id"]],
     )
@@ -883,7 +907,7 @@ def _group_locator_where(
         row_alias, column, preserve_invalid=True
     )
     validity_sql = (
-        "(SELECT live.validity FROM current_cells live "
+        "(SELECT live.validity FROM current_cell_values live "
         f"WHERE live.column_id=? AND live.row_id={row_alias}.id)"
     )
     validity_params = [column["id"]]
@@ -894,25 +918,55 @@ def _group_locator_where(
         )
     if predicate.kind == "value":
         value = json.loads(str(predicate.value_json))
+        kind_sql, kind_params = sheet_live_value_kind_sql(row_alias, column)
+        if column["type"] == "boolean":
+            accepted_kind = f"{kind_sql}='boolean'"
+            comparison = int(bool(value))
+        elif column["type"] == "integer" and type(value) is int:
+            if _SQLITE_INTEGER_MIN <= value <= _SQLITE_INTEGER_MAX:
+                accepted_kind = f"{kind_sql}='integer'"
+                comparison = value
+            else:
+                accepted_kind = f"{kind_sql}='bigint'"
+                comparison = str(value)
+        elif column["type"] == "number" and type(value) in {int, float}:
+            if type(value) is int and not (
+                _SQLITE_INTEGER_MIN <= value <= _SQLITE_INTEGER_MAX
+            ):
+                accepted_kind = f"{kind_sql}='bigint'"
+                comparison = str(value)
+            else:
+                accepted_kind = f"{kind_sql} IN ('integer','real')"
+                comparison = value
+        else:
+            accepted_kind = f"{kind_sql}='text'"
+            comparison = value
         return (
-            f"{validity_sql}='valid' AND json_extract({value_sql}, '$')=?",
-            [*validity_params, *value_params, value],
+            f"{validity_sql}='valid' AND {accepted_kind} AND {value_sql}=?",
+            [*validity_params, *kind_params, *value_params, comparison],
         )
-    scalar = f"json_extract({value_sql}, '$')"
+    kind_sql, kind_params = sheet_live_value_kind_sql(row_alias, column)
+    scalar = value_sql
     if predicate.kind == "invalid":
         if column["type"] != "date":
             return f"{validity_sql}='invalid'", validity_params
         return (
             f"({validity_sql}='invalid' OR ({validity_sql}='valid' "
-            f"AND frisket_utc_calendar_date({scalar}) IS NULL))",
-            [*validity_params, *validity_params, *value_params],
+            f"AND ({kind_sql}<>'text' OR frisket_utc_calendar_date({scalar}) IS NULL)))",
+            [
+                *validity_params,
+                *validity_params,
+                *kind_params,
+                *value_params,
+            ],
         )
     if predicate.kind == "date_bucket":
         width = {"year": 4, "month": 7, "day": 10}[str(predicate.bucket)]
         return (
             f"{validity_sql}='valid' AND "
+            f"{kind_sql}='text' AND "
             f"substr(frisket_utc_calendar_date({scalar}), 1, {width})=?",
-            [*validity_params, *value_params, predicate.value],
+            [*validity_params, *kind_params, *value_params, predicate.value],
         )
     raise AssertionError(predicate.kind)
 
@@ -931,22 +985,33 @@ def _sort_collation_sql(column: Any) -> str:
     )
 
 
-def _filter_value_sql(value_sql: str, column: Any) -> str:
-    return f"CAST(json_extract({value_sql}, '$') AS TEXT)"
+def _filter_value_sql(value_sql: str, value_kind_sql: str, column: Any) -> str:
+    column_type = str(column["type"])
+    if column_type == "integer":
+        kinds = "('integer','bigint')"
+    elif column_type == "number":
+        kinds = "('integer','real')"
+    elif column_type == "date":
+        kinds = "('text','legacy_invalid')"
+    elif column_type == "json":
+        kinds = "('null','text','integer','real','boolean','json','bigint')"
+    else:
+        kinds = "('text')"
+    return f"CASE WHEN {value_kind_sql} IN {kinds} THEN CAST({value_sql} AS TEXT) END"
 
 
 _BOOLEAN_TRUE_LITERALS = frozenset({"true", "1", "yes", "y", "on"})
 _BOOLEAN_FALSE_LITERALS = frozenset({"false", "0", "no", "n", "off"})
 
 
-def _validate_boolean_filter_literal(column_name: str, value: Any) -> str:
+def _validate_boolean_filter_literal(column_name: str, value: Any) -> int:
     if not isinstance(value, str):
         raise SheetRowSetError(f"boolean filter for {column_name} must be a string")
     normalized = value.strip().lower()
     if normalized in _BOOLEAN_TRUE_LITERALS:
-        return json.dumps(True)
+        return 1
     if normalized in _BOOLEAN_FALSE_LITERALS:
-        return json.dumps(False)
+        return 0
     raise SheetRowSetError(f"invalid boolean filter for {column_name}")
 
 
@@ -980,19 +1045,6 @@ def _validate_numeric_filter_bound(column_name: str, value: Any) -> float:
 _CANONICAL_INTEGER = re.compile(r"-?(?:0|[1-9]\d*)\Z")
 _SQLITE_INTEGER_MIN = -(2**63)
 _SQLITE_INTEGER_MAX = 2**63 - 1
-
-
-def _signed_int64_json_value(value: Any) -> int | None:
-    """SQLite UDF: exact native JSON signed-int64 value, else NULL."""
-    if not isinstance(value, str):
-        return None
-    try:
-        parsed = json.loads(value)
-    except (json.JSONDecodeError, TypeError):
-        return None
-    if type(parsed) is int and _SQLITE_INTEGER_MIN <= parsed <= _SQLITE_INTEGER_MAX:
-        return parsed
-    return None
 
 
 def _validate_integer_filter_bound(column_name: str, value: Any) -> int:

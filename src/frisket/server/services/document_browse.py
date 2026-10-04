@@ -83,21 +83,25 @@ def _descriptor_sql(
     source_value = (
         "CASE WHEN s.validity='valid' THEN s.value END" if read_source else "NULL"
     )
+    source_kind = (
+        "CASE WHEN s.validity='valid' THEN s.value_kind END" if read_source else "NULL"
+    )
     source_join = (
-        "LEFT JOIN current_cells s ON s.row_id=r.id AND s.column_id=?"
+        "LEFT JOIN current_cell_values s ON s.row_id=r.id AND s.column_id=?"
         if read_source
         else ""
     )
-    # Titles are display values, like /data's preserve_invalid projection.
-    title_value = "CASE WHEN json_valid(t.value) THEN t.value END"
-    # Blob envelopes may be stored as JSON objects or JSON-encoded strings.
+    # Titles are display values, like /data's preserve-invalid projection.
+    title_value = "t.value"
+    title_kind = "t.value_kind"
+    # Media envelopes are the only source values handed to JSON1.
     envelope = (
-        "CASE WHEN json_type(sv)='object' THEN sv WHEN json_valid(json_extract(sv,'$')) THEN json_extract(sv,'$') END"
+        "CASE WHEN sk='json' THEN CASE WHEN json_type(sv)='object' THEN sv END END"
         if media
         else "NULL"
     )
     label = (
-        "COALESCE(CASE WHEN json_type(envelope,'$.filename')='text' THEN NULLIF(json_extract(envelope,'$.filename'),'') END,CASE WHEN json_type(envelope,'$.blob')='text' THEN substr(json_extract(envelope,'$.blob'),1,12) END,CASE WHEN json_type(sv)='text' THEN frisket_document_url_label(json_extract(sv,'$')) END)"
+        "COALESCE(CASE WHEN json_type(envelope,'$.filename')='text' THEN NULLIF(json_extract(envelope,'$.filename'),'') END,CASE WHEN json_type(envelope,'$.blob')='text' THEN substr(json_extract(envelope,'$.blob'),1,12) END,CASE WHEN sk='text' THEN frisket_document_url_label(sv) END)"
         if media
         else "NULL"
     )
@@ -107,14 +111,15 @@ def _descriptor_sql(
             ELSE label END AS display_title
         FROM (
             SELECT *, {label} AS label,
-                CASE WHEN json_type(tv)='true' THEN 'true' WHEN json_type(tv)='false' THEN 'false'
-                ELSE json_extract(tv,'$') END AS raw_title,
+                CASE WHEN tk='boolean' THEN CASE WHEN tv THEN 'true' ELSE 'false' END
+                WHEN tk IN ('text','integer','real','bigint','json','legacy_invalid') THEN tv END AS raw_title,
                 CASE WHEN json_type(envelope,'$.mime')='text' THEN json_extract(envelope,'$.mime') END AS mime
             FROM (
                 SELECT *, {envelope} AS envelope FROM (
-                    SELECT r.id AS row_id,r.position,{source_value} AS sv,{title_value} AS tv
+                    SELECT r.id AS row_id,r.position,{source_value} AS sv,
+                        {source_kind} AS sk,{title_value} AS tv,{title_kind} AS tk
                     FROM rows r {source_join}
-                    LEFT JOIN current_cells t ON t.row_id=r.id AND t.column_id=?
+                    LEFT JOIN current_cell_values t ON t.row_id=r.id AND t.column_id=?
                     WHERE r.id={row_id_sql}
                 )
             )
@@ -346,7 +351,7 @@ def _document_browse(
     items = []
     for index, row in enumerate(rows):
         detail = project.db.execute(
-            f"SELECT substr(display_title,1,256) AS title,length(display_title)>256 AS title_truncated,substr(label,1,256) AS label,lower(substr(label,-10)) AS suffix,length(label)>256 AS label_truncated,substr(mime,1,128) AS mime,length(json_extract(sv,'$')) AS character_count,json_extract(sv,'$') IS NOT NULL AND json_extract(sv,'$')<>'' AS source_present FROM ({descriptor})",
+            f"SELECT substr(display_title,1,256) AS title,length(display_title)>256 AS title_truncated,substr(label,1,256) AS label,lower(substr(label,-10)) AS suffix,length(label)>256 AS label_truncated,substr(mime,1,128) AS mime,CASE WHEN sk='text' THEN length(sv) END AS character_count,CASE WHEN sk IN ('text','json') THEN sv IS NOT NULL AND sv<>'' ELSE 0 END AS source_present FROM ({descriptor})",
             [*descriptor_params, int(row["id"])],
         ).fetchone()
         mime = (detail["mime"] or "").lower()

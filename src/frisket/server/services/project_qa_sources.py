@@ -14,9 +14,14 @@ from frisket.engine.store import Project
 MAX_SOURCE_CHARS = 8_000
 MAX_SCAN_CHARS = 1_048_576
 SCAN_SECONDS = 2.0
-_TEXT = "CASE WHEN c.validity='valid' THEN CAST(json_extract(c.value,'$') AS TEXT) END"
+_TEXT = (
+    "CASE WHEN c.validity='valid' AND "
+    "c.value_kind IN ('text','json','bigint') THEN c.value "
+    "WHEN c.validity='valid' AND "
+    "c.value_kind IN ('integer','real','boolean') THEN CAST(c.value AS TEXT) END"
+)
 _FROM = (
-    " FROM current_cells c JOIN rows r ON r.id=c.row_id "
+    " FROM current_cell_values c JOIN rows r ON r.id=c.row_id "
     "JOIN columns col ON col.id=c.column_id JOIN sheets s ON s.id=r.sheet_id "
     "WHERE r.sheet_id=? AND r.id=? AND c.column_id=? "
     "AND col.sheet_id=r.sheet_id AND r.hidden=0 AND col.hidden=0 AND s.hidden=0"
@@ -217,8 +222,8 @@ def resolve_prepared_source(
         if source_meta["version"] != expected_version:
             raise ValueError("source_changed: reopen this source before reading it")
         blob_row = db.execute(
-            "SELECT CASE WHEN c.validity='valid' THEN json_extract(c.value,'$.blob') END AS blob"
-            + _FROM,
+            "SELECT CASE WHEN c.validity='valid' AND c.value_kind='json' "
+            "THEN json_extract(c.value,'$.blob') END AS blob" + _FROM,
             cell,
         ).fetchone()
         blob_hash = blob_row["blob"] if blob_row is not None else None

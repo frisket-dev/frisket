@@ -446,25 +446,36 @@ def _base_ctes(
     source = ["scoped.row_id"]
     joins: list[str] = []
     for index, column_id in enumerate(ordered):
-        source.extend((f"c{index}.value AS v{index}", f"c{index}.validity AS q{index}"))
+        source.extend(
+            (
+                f"c{index}.value AS v{index}",
+                f"c{index}.value_kind AS k{index}",
+                f"c{index}.validity AS q{index}",
+            )
+        )
         joins.append(
-            f"LEFT JOIN current_cells c{index} ON c{index}.row_id=scoped.row_id AND c{index}.column_id=?"
+            f"LEFT JOIN current_cell_values c{index} "
+            f"ON c{index}.row_id=scoped.row_id AND c{index}.column_id=?"
         )
     positions = {column_id: index for index, column_id in enumerate(ordered)}
     prepared = ["source.*"]
     for index, group in enumerate(request.groups):
         pos = positions[group.column_id]
-        scalar = f"json_extract(v{pos}, '$')"
+        scalar = f"v{pos}"
         date_value = f"frisket_utc_calendar_date({scalar})"
         is_date = str(columns[group.column_id]["type"]) == "date"
         invalid = f"q{pos}='invalid'" + (
-            f" OR (q{pos}='valid' AND {date_value} IS NULL)" if is_date else ""
+            f" OR (q{pos}='valid' AND (k{pos}<>'text' OR {date_value} IS NULL))"
+            if is_date
+            else ""
         )
         prepared.append(
-            f"CASE WHEN {invalid} THEN 'invalid' WHEN q{pos}='valid' AND v{pos} IS NOT NULL THEN 'valid' ELSE 'missing' END AS g{index}_kind"
+            f"CASE WHEN {invalid} THEN 'invalid' "
+            f"WHEN q{pos}='valid' AND k{pos}<>'null' AND v{pos} IS NOT NULL "
+            f"THEN 'valid' ELSE 'missing' END AS g{index}_kind"
         )
-        valid = f"q{pos}='valid'" + (
-            f" AND {date_value} IS NOT NULL" if is_date else ""
+        valid = f"q{pos}='valid' AND k{pos}<>'null' AND v{pos} IS NOT NULL" + (
+            f" AND k{pos}='text' AND {date_value} IS NOT NULL" if is_date else ""
         )
         if group.bucket is None:
             prepared.append(f"CASE WHEN {valid} THEN {scalar} END AS g{index}_value")
@@ -497,17 +508,31 @@ def _column_pos(request: AnalyticsRequest, column_id: int) -> int:
 
 def _valid_present(request: AnalyticsRequest, column_id: int) -> str:
     pos = _column_pos(request, column_id)
-    return f"q{pos}='valid' AND v{pos} IS NOT NULL"
+    return f"q{pos}='valid' AND k{pos}<>'null' AND v{pos} IS NOT NULL"
 
 
 def _numeric_value(request: AnalyticsRequest, column_id: int) -> str:
     pos = _column_pos(request, column_id)
-    return f"CASE WHEN {_valid_present(request, column_id)} THEN json_extract(v{pos}, '$') END"
+    return (
+        f"CASE WHEN {_valid_present(request, column_id)} "
+        f"AND k{pos} IN ('integer','real') THEN v{pos} END"
+    )
 
 
-def _value_expr(request: AnalyticsRequest, column_id: int) -> str:
+def _value_expr(
+    request: AnalyticsRequest, column_id: int, columns: Mapping[int, Any]
+) -> str:
     pos = _column_pos(request, column_id)
-    return f"CASE WHEN {_valid_present(request, column_id)} THEN json_extract(v{pos}, '$') END"
+    column_type = str(columns[column_id]["type"])
+    kinds = {
+        "integer": "('integer')",
+        "number": "('integer','real')",
+        "boolean": "('boolean')",
+    }.get(column_type, "('text')")
+    return (
+        f"CASE WHEN {_valid_present(request, column_id)} "
+        f"AND k{pos} IN {kinds} THEN v{pos} END"
+    )
 
 
 def _metric_ref(request: AnalyticsRequest, metric_id: str) -> str:
@@ -534,15 +559,18 @@ def _aggregate_fields(
         elif metric.kind == "missing_count":
             pos = _column_pos(request, metric.column_id)
             metric_fields.append(
-                f"COALESCE(SUM(q{pos}='missing' OR q{pos} IS NULL), 0) AS {alias}"
+                f"COALESCE(SUM(q{pos}='missing' OR q{pos} IS NULL "
+                f"OR (q{pos}='valid' AND (k{pos}='null' OR v{pos} IS NULL))), 0) "
+                f"AS {alias}"
             )
         elif metric.kind == "distinct_count":
             pos = _column_pos(request, metric.column_id)
-            value_type = f"json_type(v{pos}, '$')"
-            value = f"json_extract(v{pos}, '$')"
             distinct_key = (
-                f"CASE WHEN {value_type} IN ('integer', 'real') THEN {value} "
-                f"ELSE {value_type} || ':' || json_quote({value}) END"
+                f"CASE WHEN k{pos}='integer' THEN 'number:' || CAST(v{pos} AS TEXT) "
+                f"WHEN k{pos}='real' AND v{pos}=CAST(v{pos} AS INTEGER) "
+                f"THEN 'number:' || CAST(CAST(v{pos} AS INTEGER) AS TEXT) "
+                f"WHEN k{pos}='real' THEN 'number:' || printf('%!.17g',v{pos}) "
+                f"ELSE k{pos} || ':' || CAST(v{pos} AS TEXT) END"
             )
             metric_fields.append(
                 f"COUNT(DISTINCT CASE WHEN {_valid_present(request, metric.column_id)} "
@@ -561,7 +589,7 @@ def _aggregate_fields(
             continue
         elif metric.kind in {"min", "max"}:
             metric_fields.append(
-                f"{metric.kind.upper()}({_value_expr(request, metric.column_id)}) AS {alias}"
+                f"{metric.kind.upper()}({_value_expr(request, metric.column_id, columns)}) AS {alias}"
             )
         else:  # pragma: no cover - Literal/model validation closes this.
             raise AssertionError(metric.kind)
@@ -574,7 +602,9 @@ def _aggregate_fields(
         quality_fields.extend(
             (
                 f"COALESCE(SUM({_valid_present(request, column_id)}), 0) AS q{pos}_present",
-                f"COALESCE(SUM(q{pos}='missing' OR q{pos} IS NULL), 0) AS q{pos}_missing",
+                f"COALESCE(SUM(q{pos}='missing' OR q{pos} IS NULL "
+                f"OR (q{pos}='valid' AND (k{pos}='null' OR v{pos} IS NULL))), 0) "
+                f"AS q{pos}_missing",
                 f"COALESCE(SUM(q{pos}='invalid'), 0) AS q{pos}_invalid",
             )
         )
@@ -726,6 +756,11 @@ def _result_group(
                 value = row[f"g{index}_value"]
                 if str(columns[spec.column_id]["type"]) == "boolean":
                     value = bool(value)
+                elif str(columns[spec.column_id]["type"]) in {
+                    "integer",
+                    "number",
+                } and isinstance(value, str):
+                    value = int(value)
                 value_json = json.dumps(
                     value, ensure_ascii=False, separators=(",", ":")
                 )
