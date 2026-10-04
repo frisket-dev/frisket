@@ -219,7 +219,7 @@ def refresh_pending_review_summary(project: Any) -> int:
     row = project.db.execute(
         f"""
         SELECT COUNT(*) AS count FROM (
-            SELECT res.run_id, res.row_id, c.sheet_id
+            SELECT res.run_id, res.row_id
             FROM results res
             JOIN columns c ON c.id = res.column_id
             {_ACTIVE_REVIEW_HEAD_JOIN}
@@ -230,7 +230,11 @@ def refresh_pending_review_summary(project: Any) -> int:
               AND {visible_result_where("rr", "c")}
               AND {_ACTIVE_REVIEW_RESULT_WHERE}
               AND {primary_where("c", run_alias="runs")}
-            GROUP BY res.run_id, res.row_id, c.sheet_id
+            -- rows.id is globally unique, and the join above proves that its
+            -- sheet is c.sheet_id. Keeping sheet_id in this key is redundant
+            -- and makes SQLite sort all qualifying results instead of
+            -- streaming the (run_id,row_id) prefix of the results primary key.
+            GROUP BY res.run_id, res.row_id
         ) pending_bundles
         """,
         primary_params(),
