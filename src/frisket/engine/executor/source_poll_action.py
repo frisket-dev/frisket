@@ -872,6 +872,8 @@ def _source_poll_column_type(name: str, records: list[dict[str, Any]]) -> str:
         value = record.get(name)
         if isinstance(value, (dict, list)):
             return "json"
+        if isinstance(value, bool):
+            return "boolean"
         if isinstance(value, int) and not isinstance(value, bool):
             return "integer"
     return "text"

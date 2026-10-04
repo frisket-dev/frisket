@@ -131,6 +131,44 @@ def _table_count(project: Project, table: str) -> int:
     return int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
 
 
+def test_source_poll_materializes_boolean_columns_as_valid_booleans(
+    tmp_path: Path,
+) -> None:
+    from frisket.engine.executor import run_action_spec
+
+    poller = FakePoller()
+    poller.items = [
+        SourcePollItem(dedupe_key="one", row={"available": True}),
+        SourcePollItem(dedupe_key="two", row={"available": False}),
+    ]
+    register_source_poller(poller)
+    project = Project.create(tmp_path / "boolean-source.frisket", name="Boolean")
+    try:
+        result = run_action_spec(
+            project,
+            _source_poll_action(source=_source()),
+            project_id=PROJECT_ID,
+        )
+        assert result.status == "completed", result.errors
+        sheet_id = next(
+            output.sheet_id for output in result.outputs if output.kind == "sheet"
+        )
+        assert sheet_id is not None
+        available = next(
+            column
+            for column in project.columns(sheet_id)
+            if column["name"] == "available"
+        )
+        assert available["type"] == "boolean"
+        row_ids = project.visible_row_ids(sheet_id)
+        assert list(
+            project.get_values(sheet_id, int(available["id"]), row_ids=row_ids).values()
+        ) == [True, False]
+    finally:
+        project.close()
+        unregister_source_poller("fake")
+
+
 class _RenamedPollParams(ActionParams):
     target: str
 
