@@ -132,21 +132,20 @@ def _column_page(
     return ids, {int(row[0]) for row in live}
 
 
-def _current_value_relation(source) -> str:
-    view = source.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='view' AND name='current_cell_values'"
-    ).fetchone()
-    return "current_cell_values" if view is not None else "current_cells"
-
-
-def _cell_size(source, relation: str, column: int, row: int) -> int:
-    # ``relation`` is selected from the two constants above, never caller input.
+def _cell_size(source, column: int, row: int) -> int:
     found = source.execute(
-        f"SELECT length(CAST(value AS BLOB)) FROM {relation} "
+        "SELECT value_kind,value FROM current_cell_values "
         "WHERE column_id=? AND row_id=?",
         (column, row),
     ).fetchone()
-    return int(found[0] or 0) if found is not None else 0
+    if found is None or found["value_kind"] == "null":
+        return 0
+    if found["value_kind"] == "boolean":
+        return len(str(bool(found["value"])))
+    # JSON text can contain escapes and is therefore a conservative preflight
+    # bound for its decoded searchable representation. Other kinds match the
+    # text produced by ProjectReadSnapshot.get_values exactly.
+    return len(str(found["value"]).encode("utf-8"))
 
 
 def _read_cell(snapshot, sheet_id: int, column: int, row: int):
@@ -233,7 +232,6 @@ def index_batch(
         # Acquire the source snapshot AFTER the sidecar writer lock. A second
         # indexer may replay a page, but cannot publish an older snapshot over it.
         snapshot = project.read_snapshot()
-        value_relation = _current_value_relation(snapshot.db)
         revision = latest_revision(snapshot.db)
         # Every scope consumes at least one unit. The extra record proves
         # whether the completed prefix really exhausted the worklist.
@@ -266,7 +264,7 @@ def index_batch(
                 for row_id in ids:
                     _raise_if_cancelled(cancel_event)
                     size = (
-                        _cell_size(snapshot.db, value_relation, column, row_id)
+                        _cell_size(snapshot.db, column, row_id)
                         if row_id in live_ids
                         else 0
                     )

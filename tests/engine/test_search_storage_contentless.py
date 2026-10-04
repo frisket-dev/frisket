@@ -206,9 +206,10 @@ def test_current_compressed_sidecar_resets_without_loading_legacy_view(tmp_path)
 
         drain_index(project)
 
-        assert search_project(project, "compressedneedle", rerank="off")[0][
-            "row_id"
-        ] == row
+        assert (
+            search_project(project, "compressedneedle", rerank="off")[0]["row_id"]
+            == row
+        )
         rebuilt = sqlite3.connect(path)
         try:
             assert (
