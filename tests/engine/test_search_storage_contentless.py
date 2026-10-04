@@ -1,10 +1,9 @@
-"""Compressed external-content FTS storage and in-place migration."""
+"""Contentless FTS storage and authoritative snippet hydration."""
 
 from __future__ import annotations
 
 import hashlib
 import sqlite3
-import zlib
 
 import pytest
 
@@ -20,9 +19,12 @@ from frisket.search import (
     search_project,
 )
 from frisket.search_storage import (
+    SearchStorageUnsupported,
     RECLAIM_PENDING_KEY,
+    ensure_search_runtime,
     reclaim_is_pending,
     reclaim_search_storage,
+    reset_keyword_storage,
 )
 
 
@@ -44,6 +46,31 @@ CREATE INDEX search_cells_sheet_column
   ON search_cells(sheet_id,column_id,row_id);
 CREATE TABLE cell_vec (key TEXT PRIMARY KEY, vec BLOB NOT NULL);
 """
+
+
+def test_search_runtime_refuses_sqlite_before_contentless_delete(monkeypatch):
+    monkeypatch.setattr(sqlite3, "sqlite_version_info", (3, 42, 0))
+    monkeypatch.setattr(sqlite3, "sqlite_version", "3.42.0")
+
+    with pytest.raises(SearchStorageUnsupported, match=r"3\.43.*3\.42\.0"):
+        ensure_search_runtime()
+
+
+def test_unsupported_runtime_refuses_before_dropping_legacy_index(monkeypatch):
+    db = sqlite3.connect(":memory:")
+    try:
+        db.executescript(LEGACY_SCHEMA)
+        monkeypatch.setattr(sqlite3, "sqlite_version_info", (3, 42, 0))
+        monkeypatch.setattr(sqlite3, "sqlite_version", "3.42.0")
+
+        with pytest.raises(SearchStorageUnsupported):
+            reset_keyword_storage(db, content_version="next", reclaim=True)
+
+        assert db.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='cell_fts'"
+        ).fetchone()
+    finally:
+        db.close()
 
 
 def _legacy_sidecar(
@@ -95,16 +122,17 @@ def _legacy_sidecar(
 
 def _query_signature(db: sqlite3.Connection, query: str) -> list[tuple]:
     return [
-        (int(row[0]), float(row[1]), str(row[2]))
+        (int(row[0]), float(row[1]))
         for row in db.execute(
-            "SELECT row_id,rank,snippet(cell_fts,0,'<b>','</b>','…',12) "
-            "FROM cell_fts WHERE cell_fts MATCH ? ORDER BY rank,rowid LIMIT 50",
+            "SELECT sc.row_id,rank FROM cell_fts "
+            "JOIN search_cells sc ON sc.id=cell_fts.rowid "
+            "WHERE cell_fts MATCH ? ORDER BY rank,cell_fts.rowid LIMIT 50",
             (query,),
         )
     ]
 
 
-def test_legacy_sidecar_migrates_in_place_and_reclaims_file(tmp_path):
+def test_legacy_sidecar_migrates_to_contentless_and_reclaims_file(tmp_path):
     project = Project.create(tmp_path / "migration.frisket", name="migration")
     try:
         sheet = project.add_sheet("Documents")
@@ -150,11 +178,19 @@ def test_legacy_sidecar_migrates_in_place_and_reclaims_file(tmp_path):
                 ).fetchone()
                 is None
             )
-            compressed, content = db.execute(
-                "SELECT c.compressed_content,v.content FROM search_content c "
-                "JOIN search_content_view v ON v.id=c.id ORDER BY c.id LIMIT 1"
-            ).fetchone()
-            assert zlib.decompress(compressed).decode() == content == values[0]
+            schema = db.execute(
+                "SELECT sql FROM sqlite_master WHERE name='cell_fts'"
+            ).fetchone()[0]
+            assert "contentless_delete=1" in schema.replace(" ", "")
+            assert (
+                db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE name='search_content'"
+                ).fetchone()
+                is None
+            )
+            assert (
+                db.execute("SELECT content FROM cell_fts LIMIT 1").fetchone()[0] is None
+            )
         finally:
             db.close()
 
@@ -197,7 +233,7 @@ def test_cancelled_schema_migration_rolls_back_keyword_reset(tmp_path, monkeypat
             schema = raw.execute(
                 "SELECT sql FROM sqlite_master WHERE name='cell_fts'"
             ).fetchone()[0]
-            assert "search_content_view" not in schema
+            assert "contentless_delete" not in schema
             assert raw.execute("SELECT vec FROM cell_vec WHERE key='kept'").fetchone()[
                 0
             ] == bytes.fromhex("01020304")

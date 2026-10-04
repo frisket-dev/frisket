@@ -185,14 +185,13 @@ def test_complete_fts_finds_late_multi_megabyte_cell_in_project_sheet_and_scope(
 
 
 def test_same_op_truncated_sidecar_rebuilds_for_content_version(tmp_path):
-    project, sheet, column, late_row = _project_with_large_match(tmp_path)
+    project, _sheet, _column, late_row = _project_with_large_match(tmp_path)
     db = _sidecar(project)
     try:
         db.execute("DELETE FROM cell_fts")
         db.execute(
-            "INSERT INTO cell_fts "
-            "(content, sheet_id, row_id, column_id, column_name) VALUES (?,?,?,?,?)",
-            ("ordinary filler " * 100, sheet, late_row, column, "body"),
+            "INSERT INTO cell_fts(content) VALUES (?)",
+            ("ordinary filler " * 100,),
         )
         db.execute(
             "INSERT INTO fts_state (key, value) VALUES ('indexed_at_op', ?)",
@@ -327,10 +326,14 @@ def test_rebuild_streams_snapshot_rows_without_materializing_columns(
     column = project.add_column(sheet, "body")
     project.add_rows(sheet, [{"body": "streamneedle"}], {"body": column})
 
-    def whole_column_read(*_args, **_kwargs):
-        pytest.fail("rebuild materialized a complete column")
+    original_get_values = ProjectReadSnapshot.get_values
 
-    monkeypatch.setattr(ProjectReadSnapshot, "get_values", whole_column_read)
+    def bounded_read(snapshot, *args, **kwargs):
+        if kwargs.get("row_ids") is None:
+            pytest.fail("rebuild materialized a complete column")
+        return original_get_values(snapshot, *args, **kwargs)
+
+    monkeypatch.setattr(ProjectReadSnapshot, "get_values", bounded_read)
     assert rebuild_index(project) == 1
     assert search_project(project, "streamneedle", rerank="off")
     project.close()

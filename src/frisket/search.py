@@ -20,7 +20,6 @@ first-stage order instead of reordering on noise — RERANK_MIN_SPREAD below."""
 
 from __future__ import annotations
 
-import json
 import os
 import sqlite3
 import threading
@@ -30,6 +29,7 @@ from typing import Any
 
 from frisket.engine.store import Project
 from frisket.engine.store.project import ProjectReadSnapshot
+from frisket.search_hydration import hydrate_candidates, native_snippets
 from frisket.search_storage import configure_search_connection, ensure_search_schema
 from frisket.search_index import (
     SearchIndexNotReady,
@@ -37,7 +37,6 @@ from frisket.search_index import (
     index_batch,  # noqa: F401 -- public background maintenance entry point
     index_is_complete,
     index_needs_work,  # noqa: F401 -- public scheduling hint
-    source_hash,
 )
 
 # ~80MB onnx cross-encoder, downloads on first use into the SAME fastembed
@@ -46,11 +45,17 @@ from frisket.search_index import (
 RERANK_MODEL = "Xenova/ms-marco-MiniLM-L-6-v2"
 RERANK_POOL = 50  # second stage runs over the top-50 first-stage candidates
 RERANK_MIN_SPREAD = 1.0  # logits; flatter than this = uninformative, keep stage-1
-FTS_INDEX_CONTENT_VERSION = "4"
+FTS_INDEX_CONTENT_VERSION = "5"
 _rerank_model: Any = None  # lazy fastembed TextCrossEncoder singleton
 
 Scorer = Callable[[str, list[str]], list[float]]
 SearchProject = Project | ProjectReadSnapshot
+
+
+def _snapshot_for(project: SearchProject) -> tuple[ProjectReadSnapshot, bool]:
+    if isinstance(project, ProjectReadSnapshot):
+        return project, False
+    return project.read_snapshot(), True
 
 
 def local_reranker() -> Scorer | None:
@@ -207,25 +212,74 @@ def fresh_sidecar(
         raise
 
 
-def column_ai_flags(project: Project) -> dict[int, bool]:
+def column_ai_flags(project: SearchProject) -> dict[int, bool]:
     """Current AI-generated flag by column id for search result display."""
     return {
-        int(c["id"]): bool(c["ai_generated"])
+        int(column["id"]): bool(column["ai_generated"])
         for sheet in project.sheets()
-        for c in project.columns(sheet["id"])
+        for column in project.columns(sheet["id"])
     }
 
 
 _SEARCH_SQL = (
     "SELECT cell_fts.rowid AS index_id, sc.sheet_id, sc.row_id, sc.column_id, "
-    "content.column_name, "
-    "snippet(cell_fts, 0, '<b>', '</b>', '…', 12) AS snip, "
-    "snippet(cell_fts, 0, '', '', '…', 64) AS rerank_text "
+    "sc.column_name,sc.source_hash "
     "FROM cell_fts "
     "JOIN search_cells AS sc ON sc.id=cell_fts.rowid "
-    "JOIN search_content AS content ON content.id=cell_fts.rowid "
     "WHERE cell_fts MATCH ? ORDER BY rank LIMIT ?"
 )
+
+
+def _ranked_candidates(
+    db: sqlite3.Connection, query: str, limit: int
+) -> tuple[list[sqlite3.Row], str]:
+    try:
+        return db.execute(_SEARCH_SQL, (query, limit)).fetchall(), query
+    except sqlite3.OperationalError:
+        quoted = f'"{query}"'
+        return db.execute(_SEARCH_SQL, (quoted, limit)).fetchall(), quoted
+
+
+def _snippet_hits(
+    db: sqlite3.Connection,
+    snapshot: ProjectReadSnapshot,
+    rows: list[sqlite3.Row],
+    query: str,
+    *,
+    pool: int,
+    rerank: bool,
+    start_marker: str = "<b>",
+    end_marker: str = "</b>",
+) -> tuple[list[dict[str, Any]], list[str]]:
+    hydrated = hydrate_candidates(snapshot, rows)[:pool]
+    snippets = native_snippets(
+        db,
+        query,
+        hydrated,
+        start_marker=start_marker,
+        end_marker=end_marker,
+        include_rerank=rerank,
+    )
+    hits: list[dict[str, Any]] = []
+    texts: list[str] = []
+    for candidate in hydrated:
+        rendered = snippets.get(int(candidate["index_id"]))
+        if rendered is None:
+            continue
+        snip, rerank_text = rendered
+        hits.append(
+            {
+                "sheet_id": int(candidate["sheet_id"]),
+                "row_id": int(candidate["row_id"]),
+                "column_id": int(candidate["column_id"]),
+                "column_name": candidate["column_name"],
+                "snip": snip,
+                "ai_generated": bool(candidate["ai_generated"]),
+            }
+        )
+        if rerank:
+            texts.append(rerank_text or "")
+    return hits, texts
 
 
 def search_project_page(
@@ -244,43 +298,15 @@ def search_project_page(
         pool = max(limit, RERANK_POOL) if rerank != "off" else limit
         # A bounded overfetch tolerates recently changed candidates. Incomplete
         # coverage is explicit; never scan the whole ranked result set to fill a page.
-        try:
-            rows = db.execute(_SEARCH_SQL, (query, min(1000, pool * 4))).fetchall()
-        except sqlite3.OperationalError:
-            rows = db.execute(
-                _SEARCH_SQL, (f'"{query}"', min(1000, pool * 4))
-            ).fetchall()
-        hits = []
-        texts = []
-        for indexed in rows:
-            identity = db.execute(
-                "SELECT source_hash FROM search_cells WHERE id=?",
-                (indexed["index_id"],),
-            ).fetchone()
-            live = snapshot.db.execute(
-                "SELECT cc.value,c.name,c.ai_generated FROM current_cells cc "
-                "JOIN columns c ON c.id=cc.column_id JOIN rows r ON r.id=cc.row_id "
-                "JOIN sheets s ON s.id=c.sheet_id "
-                "WHERE cc.column_id=? AND cc.row_id=? AND c.sheet_id=? "
-                "AND r.sheet_id=s.id AND r.hidden=0 AND c.hidden=0 AND s.hidden=0 "
-                "AND cc.validity='valid' AND c.type IN ('text','category','json','link')",
-                (indexed["column_id"], indexed["row_id"], indexed["sheet_id"]),
-            ).fetchone()
-            if (
-                identity is None
-                or live is None
-                or live["value"] is None
-                or live["name"] != indexed["column_name"]
-                or source_hash(str(json.loads(live["value"]))) != identity[0]
-            ):
-                continue
-            hit = dict(indexed)
-            hit.pop("index_id")
-            texts.append(hit.pop("rerank_text"))
-            hit["ai_generated"] = bool(live["ai_generated"])
-            hits.append(hit)
-            if len(hits) >= pool:
-                break
+        rows, effective_query = _ranked_candidates(db, query, min(1000, pool * 4))
+        hits, texts = _snippet_hits(
+            db,
+            snapshot,
+            rows,
+            effective_query,
+            pool=pool,
+            rerank=rerank != "off",
+        )
         if rerank != "off":
             hits = rerank_hits(query, hits, texts)
         return {"hits": hits[:limit], "complete": complete}
@@ -290,33 +316,35 @@ def search_project_page(
 
 
 def search_project(
-    project: Project, query: str, limit: int = 50, rerank: str = "auto"
+    project: SearchProject, query: str, limit: int = 50, rerank: str = "auto"
 ) -> list[dict[str, Any]]:
     """FTS keyword search, cross-encoder second stage on top (``rerank``:
     "auto"/"on" = rerank when a backend resolves, silently fall back when not;
     "off" = first-stage order, no model touched)."""
-    db = fresh_sidecar(project)
-    # widen the first stage to the rerank pool; the unreranked path slices
-    # back to ``limit`` in FTS order, identical to the pre-rerank contract
-    pool = limit if rerank == "off" else max(limit, RERANK_POOL)
+    snapshot, owns_snapshot = _snapshot_for(project)
+    db = None
     try:
-        rows = db.execute(_SEARCH_SQL, (query, pool)).fetchall()
-    except sqlite3.OperationalError:
-        # bad FTS syntax from user input — quote it and retry
-        rows = db.execute(_SEARCH_SQL, (f'"{query}"', pool)).fetchall()
-    out = [dict(r) for r in rows]
-    db.close()
-    # A match-centred FTS excerpt is bounded to the FTS5 maximum (64 tokens),
-    # avoiding a full-cell Python copy while still letting a late match compete.
-    texts = [h.pop("rerank_text") for h in out]
-    for h in out:
-        h.pop("index_id")
-    ai_by_column = column_ai_flags(project)
-    for h in out:
-        h["ai_generated"] = ai_by_column.get(int(h["column_id"]), False)
-    if rerank != "off":
-        out = rerank_hits(query, out, texts)
-    return out[:limit]
+        db = fresh_sidecar(snapshot)
+        # Widen the first stage to the rerank pool; the unreranked path slices
+        # back to ``limit`` in FTS order, identical to the prior contract.
+        pool = limit if rerank == "off" else max(limit, RERANK_POOL)
+        rows, effective_query = _ranked_candidates(db, query, pool)
+        out, texts = _snippet_hits(
+            db,
+            snapshot,
+            rows,
+            effective_query,
+            pool=pool,
+            rerank=rerank != "off",
+        )
+        if rerank != "off":
+            out = rerank_hits(query, out, texts)
+        return out[:limit]
+    finally:
+        if db is not None:
+            db.close()
+        if owns_snapshot:
+            snapshot.close()
 
 
 _SHEET_SEARCH_SQL = (
@@ -327,21 +355,30 @@ _SHEET_SEARCH_SQL = (
 
 
 def search_sheet(
-    project: Project, sheet_id: int, query: str, limit: int = 50
+    project: SearchProject, sheet_id: int, query: str, limit: int = 50
 ) -> list[int]:
     """Sheet-scoped FTS/BM25 keyword ranking -> ordered, de-duplicated row_ids (Stage 7
     Lane H, the keyword half of hybrid search). Requires the matching complete
     project ``cell_fts`` index and retains bad-syntax quote-retry. A row matching in
     multiple cells appears ONCE, at its best (first) rank. NEVER returns another sheet's
     rows (the ``AND sheet_id=?`` scope)."""
-    db = fresh_sidecar(project)
-    # over-fetch (a row can match in several cells) then de-dup down to ``limit``
-    pool = max(int(limit) * 4, 200)
+    snapshot, owns_snapshot = _snapshot_for(project)
     try:
-        rows = db.execute(_SHEET_SEARCH_SQL, (query, sheet_id, pool)).fetchall()
-    except sqlite3.OperationalError:
-        rows = db.execute(_SHEET_SEARCH_SQL, (f'"{query}"', sheet_id, pool)).fetchall()
-    db.close()
+        db = fresh_sidecar(snapshot)
+        try:
+            # A row can match in several cells, so over-fetch before de-duplication.
+            pool = max(int(limit) * 4, 200)
+            try:
+                rows = db.execute(_SHEET_SEARCH_SQL, (query, sheet_id, pool)).fetchall()
+            except sqlite3.OperationalError:
+                rows = db.execute(
+                    _SHEET_SEARCH_SQL, (f'"{query}"', sheet_id, pool)
+                ).fetchall()
+        finally:
+            db.close()
+    finally:
+        if owns_snapshot:
+            snapshot.close()
     out: list[int] = []
     seen: set[int] = set()
     for r in rows:
@@ -356,7 +393,7 @@ def search_sheet(
 
 
 def search_cells_scoped(
-    project: Project,
+    project: SearchProject,
     sheet_id: int,
     query: str,
     row_ids: list[int] | None,
@@ -370,7 +407,14 @@ def search_cells_scoped(
     _raise_if_cancelled(cancel_event)
     if row_ids is not None and not row_ids and not cells:
         return []
-    db = fresh_sidecar(project, cancel_event=cancel_event)
+    snapshot, owns_snapshot = _snapshot_for(project)
+    db = None
+    try:
+        db = fresh_sidecar(snapshot, cancel_event=cancel_event)
+    except BaseException:
+        if owns_snapshot:
+            snapshot.close()
+        raise
     indexed_at_op = fts_indexed_at_op(db)
     indexed_revision = int(
         db.execute(
@@ -393,11 +437,10 @@ def search_cells_scoped(
         authorized.append("(" + " OR ".join(exact) + ")")
     scope = "" if not authorized else " AND (" + " OR ".join(authorized) + ")"
     sql = (
-        "SELECT sc.sheet_id,sc.row_id,sc.column_id,content.column_name,"
-        "snippet(cell_fts, 0, ?, ?, '…', 12) AS snip "
+        "SELECT cell_fts.rowid AS index_id,sc.sheet_id,sc.row_id,sc.column_id,"
+        "sc.column_name,sc.source_hash "
         "FROM cell_fts "
         "JOIN search_cells AS sc ON sc.id=cell_fts.rowid "
-        "JOIN search_content AS content ON content.id=cell_fts.rowid "
         "WHERE cell_fts MATCH ? AND sc.sheet_id=?" + scope + " ORDER BY rank LIMIT ?"
     )
     progress = _cancel_progress(cancel_event)
@@ -405,23 +448,35 @@ def search_cells_scoped(
         db.set_progress_handler(progress, 1_000)
     try:
         try:
-            rows = db.execute(
-                sql, [anchor_start, anchor_end, *params, limit]
-            ).fetchall()
+            rows = db.execute(sql, [*params, limit]).fetchall()
+            effective_query = query
         except sqlite3.OperationalError:
             _raise_if_cancelled(cancel_event)
+            effective_query = f'"{query}"'
             rows = db.execute(
                 sql,
-                [anchor_start, anchor_end, f'"{query}"', *params[1:], limit],
+                [effective_query, *params[1:], limit],
             ).fetchall()
+        hydrated_hits, _texts = _snippet_hits(
+            db,
+            snapshot,
+            rows,
+            effective_query,
+            pool=limit,
+            rerank=False,
+            start_marker=anchor_start,
+            end_marker=anchor_end,
+        )
     except sqlite3.OperationalError:
         _raise_if_cancelled(cancel_event)
         raise
     finally:
         db.close()
+        if owns_snapshot:
+            snapshot.close()
     hits = []
-    for row in rows:
-        hit = dict(row)
+    for hit in hydrated_hits:
+        hit.pop("ai_generated", None)
         snippet = str(hit["snip"])
         _, found, remainder = snippet.partition(anchor_start)
         anchor, closed, _ = remainder.partition(anchor_end)

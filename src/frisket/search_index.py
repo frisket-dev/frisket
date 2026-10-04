@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import hashlib
 import json
 import sqlite3
 import threading
@@ -16,8 +15,8 @@ from frisket.engine.store.search_index_work import (
     latest_revision,
     read_dirty_scopes,
 )
+from frisket.search_hydration import searchable_text, source_hash
 from frisket.search_storage import (
-    encode_search_content,
     keyword_schema_is_current,
     keyword_storage_has_rows,
     reset_keyword_storage,
@@ -39,10 +38,6 @@ class IndexProgress:
     pending: bool
     complete: bool
     processed_bytes: int = 0
-
-
-def source_hash(value: str) -> str:
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def _state(db: sqlite3.Connection, key: str) -> str | None:
@@ -137,22 +132,25 @@ def _column_page(
     return ids, {int(row[0]) for row in live}
 
 
-def _cell_size(source, column: int, row: int) -> int:
-    return int(
-        source.execute(
-            "SELECT length(CAST(value AS BLOB)) FROM current_cells WHERE column_id=? AND row_id=?",
-            (column, row),
-        ).fetchone()[0]
-        or 0
-    )
+def _current_value_relation(source) -> str:
+    view = source.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='view' AND name='current_cell_values'"
+    ).fetchone()
+    return "current_cell_values" if view is not None else "current_cells"
 
 
-def _read_cell(source, column: int, row: int):
-    return source.execute(
-        "SELECT cc.value,cc.validity,r.hidden FROM current_cells cc "
-        "JOIN rows r ON r.id=cc.row_id WHERE cc.column_id=? AND cc.row_id=?",
+def _cell_size(source, relation: str, column: int, row: int) -> int:
+    # ``relation`` is selected from the two constants above, never caller input.
+    found = source.execute(
+        f"SELECT length(CAST(value AS BLOB)) FROM {relation} "
+        "WHERE column_id=? AND row_id=?",
         (column, row),
     ).fetchone()
+    return int(found[0] or 0) if found is not None else 0
+
+
+def _read_cell(snapshot, sheet_id: int, column: int, row: int):
+    return snapshot.get_values(sheet_id, column, row_ids=[row]).get(row)
 
 
 def _column_descriptor(source, column: int):
@@ -164,47 +162,34 @@ def _column_descriptor(source, column: int):
     ).fetchone()
 
 
-def _replace_cell(index, column: int, row_id: int, cell, descriptor) -> None:
+def _replace_cell(index, column: int, row_id: int, value, descriptor) -> None:
     old = index.execute(
         "SELECT id FROM search_cells WHERE column_id=? AND row_id=?",
         (column, row_id),
     ).fetchone()
     if old is not None:
-        # External-content FTS must see the old value while deleting its tokens.
+        # contentless-delete removes postings without retaining or replaying text.
         index.execute("DELETE FROM cell_fts WHERE rowid=?", (old[0],))
-        index.execute("DELETE FROM search_content WHERE id=?", (old[0],))
         index.execute("DELETE FROM search_cells WHERE id=?", (old[0],))
-    if (
-        cell is None
-        or cell["validity"] != "valid"
-        or cell["value"] is None
-        or cell["hidden"]
-        or descriptor is None
-    ):
+    if descriptor is None:
         return
-    value = json.loads(cell["value"])
-    if value is None or not str(value).strip():
+    text = searchable_text(value)
+    if text is None:
         return
     identity = index.execute(
-        "INSERT INTO search_cells(sheet_id,column_id,row_id,source_hash) "
-        "VALUES (?,?,?,?)",
-        (descriptor["sheet_id"], column, row_id, source_hash(str(value))),
+        "INSERT INTO search_cells"
+        "(sheet_id,column_id,row_id,column_name,source_hash) VALUES (?,?,?,?,?)",
+        (
+            descriptor["sheet_id"],
+            column,
+            row_id,
+            descriptor["name"],
+            source_hash(text),
+        ),
     ).lastrowid
     index.execute(
-        "INSERT INTO search_content(id,compressed_content,column_name) VALUES (?,?,?)",
-        (identity, encode_search_content(str(value)), descriptor["name"]),
-    )
-    index.execute(
-        "INSERT INTO cell_fts(rowid,content,sheet_id,row_id,column_id,column_name) "
-        "VALUES (?,?,?,?,?,?)",
-        (
-            identity,
-            str(value),
-            descriptor["sheet_id"],
-            row_id,
-            column,
-            descriptor["name"],
-        ),
+        "INSERT INTO cell_fts(rowid,content) VALUES (?,?)",
+        (identity, text),
     )
 
 
@@ -248,6 +233,7 @@ def index_batch(
         # Acquire the source snapshot AFTER the sidecar writer lock. A second
         # indexer may replay a page, but cannot publish an older snapshot over it.
         snapshot = project.read_snapshot()
+        value_relation = _current_value_relation(snapshot.db)
         revision = latest_revision(snapshot.db)
         # Every scope consumes at least one unit. The extra record proves
         # whether the completed prefix really exhausted the worklist.
@@ -280,7 +266,7 @@ def index_batch(
                 for row_id in ids:
                     _raise_if_cancelled(cancel_event)
                     size = (
-                        _cell_size(snapshot.db, column, row_id)
+                        _cell_size(snapshot.db, value_relation, column, row_id)
                         if row_id in live_ids
                         else 0
                     )
@@ -289,13 +275,15 @@ def index_batch(
                     if processed_bytes and processed_bytes + size > max_bytes:
                         byte_limit_reached = True
                         break
-                    cell = (
-                        _read_cell(snapshot.db, column, row_id)
+                    value = (
+                        _read_cell(
+                            snapshot, int(descriptor["sheet_id"]), column, row_id
+                        )
                         if row_id in live_ids
                         else None
                     )
-                    _replace_cell(index, column, row_id, cell, descriptor)
-                    del cell
+                    _replace_cell(index, column, row_id, value, descriptor)
+                    del value
                     processed += 1
                     processed_bytes += size
                     row = row_id

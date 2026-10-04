@@ -35,13 +35,14 @@ from typing import Any, Literal
 
 from frisket.search import (
     RERANK_POOL,
-    column_ai_flags,
     fresh_sidecar,
     rerank_hits,
     search_cells_scoped,
     search_project,
 )
 from frisket.engine.store import Project
+from frisket.engine.store.project import ProjectReadSnapshot
+from frisket.search_hydration import hydrate_candidates
 
 EmbeddingResult = list[list[float]] | dict[str, Any]
 Embedder = Callable[[list[str]], EmbeddingResult]
@@ -346,20 +347,30 @@ def _cosine(a: list[float], b: list[float]) -> float:
 
 def _corpus(project: Project) -> list[dict[str, Any]]:
     """Prefix-limited semantic corpus over the complete-cell FTS sidecar."""
-    db = fresh_sidecar(project)
-    rows = db.execute(
-        "SELECT substr(content, 1, ?) AS content, sheet_id, row_id, column_id, "
-        "column_name FROM cell_fts",
-        (SEMANTIC_CELL_PREFIX_CHARS,),
-    ).fetchall()
-    db.close()
-    ai_by_column = column_ai_flags(project)
-    out = []
-    for r in rows:
-        hit = dict(r)
-        hit["ai_generated"] = ai_by_column.get(int(hit["column_id"]), False)
-        out.append(hit)
-    return out
+    snapshot = project.read_snapshot()
+    try:
+        db = fresh_sidecar(snapshot)
+        try:
+            rows = db.execute(
+                "SELECT id AS index_id,sheet_id,row_id,column_id,column_name,"
+                "source_hash FROM search_cells ORDER BY id"
+            ).fetchall()
+            hydrated = hydrate_candidates(snapshot, rows)
+        finally:
+            db.close()
+    finally:
+        snapshot.close()
+    return [
+        {
+            "content": str(row["content"])[:SEMANTIC_CELL_PREFIX_CHARS],
+            "sheet_id": int(row["sheet_id"]),
+            "row_id": int(row["row_id"]),
+            "column_id": int(row["column_id"]),
+            "column_name": row["column_name"],
+            "ai_generated": bool(row["ai_generated"]),
+        }
+        for row in hydrated
+    ]
 
 
 def _vec_key(model_id: str, content: str) -> str:
@@ -678,15 +689,21 @@ def semantic_passage_search(
     if not 1 <= limit <= 100 or remaining_embeddings < 0:
         raise ValueError("invalid semantic passage bounds")
 
-    db = fresh_sidecar(project, cancel_event=cancel_event)
+    snapshot = project.read_snapshot()
+    db = None
+    try:
+        db = fresh_sidecar(snapshot, cancel_event=cancel_event)
+    except BaseException:
+        snapshot.close()
+        raise
     if cancel_event is not None:
         db.set_progress_handler(lambda: int(cancel_event.is_set()), 1_000)
     try:
-        scoped = _passage_scope(project, sheet_id, row_ids, effective_cells)
+        scoped = _passage_scope(snapshot, sheet_id, row_ids, effective_cells)
         if isinstance(scoped, str):
             return fallback(scoped)
         scope, params = scoped
-        passages = _collect_passages(db, scope, params)
+        passages = _collect_passages(db, snapshot, scope, params)
         if passages is None:
             return fallback("passage_limit")
     except sqlite3.OperationalError:
@@ -695,6 +712,7 @@ def semantic_passage_search(
         raise
     finally:
         db.close()
+        snapshot.close()
     if stopped():
         return fallback("cancelled")
     if not passages:
@@ -765,7 +783,7 @@ def semantic_passage_search(
 
 
 def _passage_scope(
-    project: Project,
+    project: Project | ProjectReadSnapshot,
     sheet_id: int,
     row_ids: set[int] | None,
     effective_cells: set[tuple[int, int]],
@@ -804,33 +822,39 @@ def _passage_scope(
 
 
 def _collect_passages(
-    db: sqlite3.Connection, scope: str, params: list[Any]
+    db: sqlite3.Connection,
+    snapshot: ProjectReadSnapshot,
+    scope: str,
+    params: list[Any],
 ) -> list[dict[str, Any]] | None:
-    """Split a bounded FTS scope into coordinate-bearing passages."""
-    count = db.execute(
-        f"SELECT COALESCE(SUM((length(CAST(content AS BLOB))+?-1)/?),0) FROM cell_fts WHERE {scope}",
-        [PASSAGE_UTF8_BYTES, PASSAGE_UTF8_BYTES, *params],
-    ).fetchone()[0]
-    if int(count) > MAX_ASK_PASSAGES:
-        return None
-    rows = db.execute(
-        f"SELECT content,sheet_id,row_id,column_id,column_name FROM cell_fts WHERE {scope}",
-        params,
-    ).fetchall()
+    """Hydrate and split a bounded identity scope into coordinate passages."""
     passages: list[dict[str, Any]] = []
-    for row in rows:
-        text = str(row["content"])
-        for start, end in _passage_ranges(text):
-            passages.append(
-                {
-                    **dict(row),
-                    "text": text[start:end],
-                    "char_start": start,
-                    "char_end": end,
-                }
-            )
-            if len(passages) > MAX_ASK_PASSAGES:
-                return None
+    after = 0
+    while True:
+        rows = db.execute(
+            "SELECT id AS index_id,sheet_id,row_id,column_id,column_name,source_hash "
+            f"FROM search_cells WHERE id>? AND ({scope}) ORDER BY id LIMIT 256",
+            [after, *params],
+        ).fetchall()
+        if not rows:
+            break
+        after = int(rows[-1]["index_id"])
+        for row in hydrate_candidates(snapshot, rows):
+            text = str(row["content"])
+            for start, end in _passage_ranges(text):
+                passages.append(
+                    {
+                        "sheet_id": int(row["sheet_id"]),
+                        "row_id": int(row["row_id"]),
+                        "column_id": int(row["column_id"]),
+                        "column_name": row["column_name"],
+                        "text": text[start:end],
+                        "char_start": start,
+                        "char_end": end,
+                    }
+                )
+                if len(passages) > MAX_ASK_PASSAGES:
+                    return None
     return passages
 
 
