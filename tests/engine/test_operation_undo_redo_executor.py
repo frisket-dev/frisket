@@ -589,6 +589,64 @@ def test_undo_and_receipt_roll_back_without_manifest_refresh(
         project.close()
 
 
+def test_typed_plain_edit_undo_redo_skip_recount_but_replay_heals(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from frisket.engine.executor import actions as executor_actions
+
+    project = Project.create(tmp_path / "typed-plain-edit.frisket")
+    try:
+        sheet_id = project.add_sheet("Rows")
+        column_id = project.add_column(sheet_id, "value")
+        row_id = project.add_rows(
+            sheet_id, [{"value": "before"}], {"value": column_id}
+        )[0]
+        edit_op_id = project.apply_edits(
+            [{"row_id": row_id, "column_id": column_id, "value": "after"}]
+        )
+        refresh_calls = 0
+
+        def count_refresh(_project: Project) -> int:
+            nonlocal refresh_calls
+            refresh_calls += 1
+            return 0
+
+        monkeypatch.setattr(Project, "refresh_pending_review_summary", count_refresh)
+        undo_action = operation_action(
+            "operation.undo",
+            key="typed-plain-edit-undo@sha256:v1",
+            expected_op_id=edit_op_id,
+        )
+
+        undone = executor_actions.run_action_spec(
+            project, undo_action, project_id="typed-plain-edit"
+        )
+        assert undone.status == "completed", undone.errors
+        assert project.get_values(sheet_id, column_id) == {row_id: "before"}
+        assert refresh_calls == 0
+
+        replay = executor_actions.run_action_spec(
+            project, undo_action, project_id="typed-plain-edit"
+        )
+        assert replay.receipt_id == undone.receipt_id
+        assert refresh_calls == 1
+
+        redone = executor_actions.run_action_spec(
+            project,
+            operation_action(
+                "operation.redo",
+                key="typed-plain-edit-redo@sha256:v1",
+                expected_op_id=edit_op_id,
+            ),
+            project_id="typed-plain-edit",
+        )
+        assert redone.status == "completed", redone.errors
+        assert project.get_values(sheet_id, column_id) == {row_id: "after"}
+        assert refresh_calls == 1
+    finally:
+        project.close()
+
+
 def test_completed_undo_survives_refresh_failure_and_replay_heals_manifest(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
