@@ -169,7 +169,7 @@ SheetFilter = tuple[Any, str, Any] | RuntimeSheetFilter | GroupLocatorPredicate
 
 
 @dataclass(frozen=True)
-class _SheetRowScopePlan:
+class SheetRowScopePlan:
     columns: list[Any]
     where_sql: str
     where_params: list[Any]
@@ -179,6 +179,49 @@ class _SheetRowScopePlan:
     filter_join_params: tuple[Any, ...] = ()
     joins: tuple[str, ...] = ()
     join_params: tuple[Any, ...] = ()
+
+    @property
+    def filter_from_sql(self) -> str:
+        """FROM fragment containing only joins referenced by WHERE."""
+        return " ".join(("rows r", *self.filter_joins))
+
+    @property
+    def from_sql(self) -> str:
+        """FROM fragment containing joins referenced by WHERE or ORDER BY."""
+        return " ".join(("rows r", *self.joins))
+
+    @property
+    def filter_params(self) -> list[Any]:
+        """Parameters in lexical order for filter_from_sql then WHERE."""
+        return [*self.filter_join_params, *self.where_params]
+
+    @property
+    def select_params(self) -> list[Any]:
+        """Parameters for the normal FROM, WHERE, ORDER BY clause order."""
+        return [*self.join_params, *self.where_params, *self.order_params]
+
+
+def sheet_row_scope_plan(
+    project: Project,
+    sheet_id: int,
+    *,
+    parent_row_id: int | None = None,
+    filter_: str | None = None,
+    sort: str | None = None,
+    reference_date: date | None = None,
+    row_ids: Sequence[int] | None = None,
+) -> SheetRowScopePlan:
+    """Compile a row scope whose live-value expressions share indexed joins."""
+    return _sheet_row_scope_plan(
+        project,
+        sheet_id,
+        parent_row_id=parent_row_id,
+        filter_=filter_,
+        sort=sort,
+        reference_date=reference_date,
+        row_ids=row_ids,
+        join_live_values=True,
+    )
 
 
 def sheet_row_scope_query(
@@ -221,7 +264,7 @@ def _sheet_row_scope_plan(
     reference_date: date | None = None,
     row_ids: Sequence[int] | None = None,
     join_live_values: bool = False,
-) -> _SheetRowScopePlan:
+) -> SheetRowScopePlan:
     """Build one shared row-scope plan, optionally joining live values once."""
 
     cols = project.columns(sheet_id)
@@ -573,7 +616,7 @@ def _sheet_row_scope_plan(
     order_parts = [term.order_sql() for term in terms]
     order_params = [value for term in terms for value in term.params]
 
-    return _SheetRowScopePlan(
+    return SheetRowScopePlan(
         columns=cols,
         where_sql=" AND ".join(where),
         where_params=where_params,
@@ -635,7 +678,7 @@ def resolve_sheet_filter_rows(
     reference_date: date | None = None,
     row_ids: Sequence[int] | None = None,
 ) -> SheetFilterRowSet:
-    plan = _sheet_row_scope_plan(
+    plan = sheet_row_scope_plan(
         project,
         sheet_id,
         parent_row_id=parent_row_id,
@@ -643,7 +686,6 @@ def resolve_sheet_filter_rows(
         sort=sort,
         reference_date=reference_date,
         row_ids=row_ids,
-        join_live_values=True,
     )
     try:
         bounded_limit = max(0, int(limit))
@@ -651,28 +693,24 @@ def resolve_sheet_filter_rows(
     except (TypeError, ValueError):
         raise SheetRowSetError("limit and offset must be integers") from None
     order_clause = ", ".join(plan.order_parts) or "r.position ASC"
-    filter_joins = " ".join(plan.filter_joins)
-    joins = " ".join(plan.joins)
     # Count ignores ordering, so only WHERE parameters are needed here.
     total = int(
         project.db.execute(
-            f"SELECT COUNT(*) FROM rows r {filter_joins} WHERE {plan.where_sql}",
-            [*plan.filter_join_params, *plan.where_params],
+            f"SELECT COUNT(*) FROM {plan.filter_from_sql} WHERE {plan.where_sql}",
+            plan.filter_params,
         ).fetchone()[0]
         or 0
     )
     rows = project.db.execute(
         f"""
         SELECT r.id AS row_id
-        FROM rows r {joins}
+        FROM {plan.from_sql}
         WHERE {plan.where_sql}
         ORDER BY {order_clause}
         LIMIT ? OFFSET ?
         """,
         [
-            *plan.join_params,
-            *plan.where_params,
-            *plan.order_params,
+            *plan.select_params,
             bounded_limit,
             bounded_offset,
         ],
