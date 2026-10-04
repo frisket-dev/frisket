@@ -102,21 +102,23 @@ def test_current_cell_values_resolves_native_source_and_edit_payloads() -> None:
     assert "value" not in projection_columns
 
 
-def test_current_cell_values_correlated_lookup_uses_exact_head_key() -> None:
+def test_current_cell_values_join_flattens_to_exact_head_key() -> None:
     db = _database()
     plan = "\n".join(
         str(row[3])
         for row in db.execute(
             "EXPLAIN QUERY PLAN "
-            "SELECT r.id,(SELECT value FROM current_cell_values AS live "
-            "WHERE live.column_id=10 AND live.row_id=r.id) "
-            "FROM rows AS r WHERE r.sheet_id=1 ORDER BY r.position"
+            "SELECT r.id,live.value FROM rows AS r "
+            "LEFT JOIN current_cell_values AS live "
+            "ON live.column_id=10 AND live.row_id=r.id "
+            "WHERE r.sheet_id=1 ORDER BY r.position"
         )
     )
     assert (
         "SEARCH head USING INDEX idx_current_cells_column_row "
         "(column_id=? AND row_id=?)" in plan
     )
+    assert "MATERIALIZE current_cell_values" not in plan
     assert "SCAN head" not in plan
 
 

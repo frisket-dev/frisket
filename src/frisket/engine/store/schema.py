@@ -1024,45 +1024,61 @@ CREATE INDEX IF NOT EXISTS idx_current_cells_row
 CREATE UNIQUE INDEX IF NOT EXISTS idx_current_cells_column_row
   ON current_cells(column_id,row_id);
 
--- Stable native-value relation for every current-cell reader. Start from one
--- exact current-head lookup so correlated row reads remain index-bounded, then
--- probe each fixed authority by its complete key. CASE, rather than COALESCE,
--- preserves explicit null payloads.
+-- Stable native-value relation for every current-cell reader. Keeping only the
+-- head table in FROM lets SQLite flatten this view into an outer sheet query;
+-- each CASE-selected scalar probe then uses one complete authority key. CASE,
+-- rather than COALESCE, preserves explicit null payloads.
 CREATE VIEW IF NOT EXISTS current_cell_values AS
 SELECT head.column_id,head.row_id,
        CASE head.origin_kind
-         WHEN 'source_cell' THEN source.value_kind
-         WHEN 'run_result' THEN CASE result.publication_effect
-           WHEN 'publish_value' THEN result.value_kind
-           WHEN 'publish_null' THEN 'null'
-         END
-         WHEN 'manual_edit' THEN edit.value_kind
+         WHEN 'source_cell' THEN (
+           SELECT source.value_kind FROM cells AS source
+           WHERE source.row_id=head.row_id
+             AND source.column_id=head.column_id
+             AND source.producer_id IS head.base_producer_id
+         )
+         WHEN 'run_result' THEN (
+           SELECT CASE result.publication_effect
+             WHEN 'publish_value' THEN result.value_kind
+             WHEN 'publish_null' THEN 'null'
+           END
+           FROM results AS result
+           WHERE result.run_id=head.origin_run_id
+             AND result.row_id=head.row_id
+             AND result.column_id=head.column_id
+         )
+         WHEN 'manual_edit' THEN (
+           SELECT edit.value_kind FROM edits AS edit
+           WHERE edit.op_id=head.origin_op_id
+             AND edit.row_id=head.row_id
+             AND edit.column_id=head.column_id
+         )
        END AS value_kind,
        CASE head.origin_kind
-         WHEN 'source_cell' THEN source.value
-         WHEN 'run_result' THEN CASE
-           WHEN result.publication_effect='publish_value' THEN result.value
-         END
-         WHEN 'manual_edit' THEN edit.value
+         WHEN 'source_cell' THEN (
+           SELECT source.value FROM cells AS source
+           WHERE source.row_id=head.row_id
+             AND source.column_id=head.column_id
+             AND source.producer_id IS head.base_producer_id
+         )
+         WHEN 'run_result' THEN (
+           SELECT CASE WHEN result.publication_effect='publish_value'
+             THEN result.value END
+           FROM results AS result
+           WHERE result.run_id=head.origin_run_id
+             AND result.row_id=head.row_id
+             AND result.column_id=head.column_id
+         )
+         WHEN 'manual_edit' THEN (
+           SELECT edit.value FROM edits AS edit
+           WHERE edit.op_id=head.origin_op_id
+             AND edit.row_id=head.row_id
+             AND edit.column_id=head.column_id
+         )
        END AS value,
        head.origin_kind,head.origin_op_id,head.origin_run_id,
        head.base_producer_id,head.validity
-FROM current_cells AS head INDEXED BY idx_current_cells_column_row
-LEFT JOIN cells AS source
-  ON head.origin_kind='source_cell'
- AND source.row_id=head.row_id AND source.column_id=head.column_id
- AND source.producer_id IS head.base_producer_id
-LEFT JOIN results AS result
-  ON head.origin_kind='run_result'
- AND result.run_id=head.origin_run_id AND result.row_id=head.row_id
- AND result.column_id=head.column_id
-LEFT JOIN edits AS edit
-  ON head.origin_kind='manual_edit'
- AND edit.op_id=head.origin_op_id AND edit.row_id=head.row_id
- AND edit.column_id=head.column_id
-WHERE source.row_id IS NOT NULL
-   OR result.run_id IS NOT NULL
-   OR edit.op_id IS NOT NULL;
+FROM current_cells AS head INDEXED BY idx_current_cells_column_row;
 CREATE TABLE IF NOT EXISTS search_dirty_scopes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   sheet_id INTEGER,

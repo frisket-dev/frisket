@@ -9,7 +9,7 @@ from .disk_capacity import require_disk_headroom
 from .schema import BundleSchemaMismatch, SCHEMA_DIGEST_META_KEY
 from .value_codec import migrate_legacy_json_value
 
-TYPED_VALUES_TO_DIGEST = "frisket.schema.v1:ee2a5eb7c201829acb1c0ff01e371558"
+TYPED_VALUES_TO_DIGEST = "frisket.schema.v1:529f5f4e750711b310535f6ed083c331"
 TYPED_VALUE_COPY_BATCH_SIZE = 2_000
 
 
