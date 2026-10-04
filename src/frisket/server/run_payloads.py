@@ -454,8 +454,7 @@ def _review_decisions_by_row(
 
 
 def _bool_result(value: Any) -> bool | None:
-    loaded = _json_loads(value)
-    return loaded if isinstance(loaded, bool) else None
+    return value if isinstance(value, bool) else None
 
 
 def _judge_scores(
