@@ -286,7 +286,7 @@ def _sheet_row_scope_plan(
     sorts = _parse_sheet_sort(sort, columns_by_name)
     generation_store = ResultGenerationStore(project)
     managed_columns: dict[int, bool] = {}
-    live_aliases: dict[int, tuple[str, int]] = {}
+    live_aliases: dict[int, str] = {}
     joins: list[str] = []
     join_params: list[Any] = []
     today = reference_date or datetime.now(UTC).date()
@@ -305,45 +305,18 @@ def _sheet_row_scope_plan(
             )
         return managed_columns[column_id]
 
-    def add_live_projection(column_ids: Sequence[int], alias: str) -> None:
-        pending = [
-            column_id for column_id in column_ids if column_id not in live_aliases
-        ]
-        if not pending:
-            return
-        fields = ["cell.row_id"]
-        for position, column_id in enumerate(pending):
-            fields.extend(
-                (
-                    f"MAX(CASE WHEN cell.column_id={column_id} THEN cell.value END) AS v{position}",
-                    f"MAX(CASE WHEN cell.column_id={column_id} THEN cell.value_kind END) AS k{position}",
-                    f"MAX(CASE WHEN cell.column_id={column_id} THEN cell.validity END) AS q{position}",
-                )
+    def scope_live_alias(row_alias: str, column: Any) -> str:
+        column_id = int(column["id"])
+        alias = live_aliases.get(column_id)
+        if alias is None:
+            alias = f"live_{len(live_aliases)}"
+            live_aliases[column_id] = alias
+            joins.append(
+                f"LEFT JOIN current_cell_values AS {alias} "
+                f"ON {alias}.column_id=? AND {alias}.row_id={row_alias}.id"
             )
-            live_aliases[column_id] = (alias, position)
-        ids = ",".join(str(column_id) for column_id in pending)
-        joins.append(
-            "LEFT JOIN (SELECT "
-            + ",".join(fields)
-            + " FROM current_cell_values cell WHERE cell.column_id IN ("
-            + ids
-            + ") GROUP BY cell.row_id) AS "
-            + alias
-            + f" ON {alias}.row_id=r.id"
-        )
-
-    filter_value_columns = sorted(
-        {
-            int(item[0]["id"])
-            for item in filters
-            if isinstance(item, tuple) and item[1] != "failed"
-        }
-    )
-    if join_live_values:
-        add_live_projection(filter_value_columns, "live_filter")
-
-    def scope_live_slot(column: Any) -> tuple[str, int]:
-        return live_aliases[int(column["id"])]
+            join_params.append(column_id)
+        return alias
 
     def scope_live_value_sql(
         row_alias: str,
@@ -355,19 +328,18 @@ def _sheet_row_scope_plan(
             return sheet_live_value_sql(
                 row_alias, column, preserve_invalid=preserve_invalid
             )
-        alias, position = scope_live_slot(column)
+        alias = scope_live_alias(row_alias, column)
         value = (
-            f"{alias}.v{position}"
+            f"{alias}.value"
             if preserve_invalid
-            else f"CASE WHEN {alias}.q{position}='valid' THEN {alias}.v{position} END"
+            else f"CASE WHEN {alias}.validity='valid' THEN {alias}.value END"
         )
         return value, []
 
     def scope_live_value_kind_sql(row_alias: str, column: Any) -> tuple[str, list[Any]]:
         if not join_live_values:
             return sheet_live_value_kind_sql(row_alias, column)
-        alias, position = scope_live_slot(column)
-        return f"{alias}.k{position}", []
+        return f"{scope_live_alias(row_alias, column)}.value_kind", []
 
     where = ["r.sheet_id=?", "r.hidden=0"]
     where_params: list[Any] = [sheet_id]
@@ -659,11 +631,6 @@ def _sheet_row_scope_plan(
 
     filter_joins = tuple(joins)
     filter_join_params = tuple(join_params)
-    if join_live_values:
-        add_live_projection(
-            sorted(int(column["id"]) for column, _direction in sorts),
-            "live_sort",
-        )
     terms = _sheet_order_terms(
         sorts,
         live_value_sql=scope_live_value_sql,
@@ -710,7 +677,11 @@ def _sheet_order_terms(
     terms = []
     for column, direction in sorts:
         value, params = value_reader("r", column)
-        if live_value_kind_sql is not None:
+        if column["type"] == "number":
+            # NUMERIC keeps native integers/reals and matches historical JSON1
+            # evaluation of canonical out-of-range integer text as REAL.
+            scalar = f"CAST({value} AS NUMERIC)"
+        elif live_value_kind_sql is not None and column["type"] == "json":
             value_kind, kind_params = live_value_kind_sql("r", column)
             # Historical JSON extraction evaluated integers outside SQLite's
             # signed range as REAL. Keep that query-boundary behavior while
@@ -819,16 +790,11 @@ def count_sheet_filter_values(
         row_ids=row_ids,
         reference_date=reference_date,
     )
-    value_sql, value_params = sheet_live_value_sql("r", column, preserve_invalid=True)
-    kind_sql, kind_params = sheet_live_value_kind_sql("r", column)
-    validity_sql = (
-        "(SELECT live.validity FROM current_cell_values live "
-        "WHERE live.column_id=? AND live.row_id=r.id)"
-    )
     rows = project.db.execute(
         "WITH count_values AS (SELECT "
-        f"{value_sql} AS value, {kind_sql} AS value_kind, "
-        f"{validity_sql} AS validity FROM {plan.filter_from_sql} "
+        "live.value, live.value_kind, live.validity "
+        f"FROM {plan.filter_from_sql} LEFT JOIN current_cell_values live "
+        "ON live.column_id=? AND live.row_id=r.id "
         f"WHERE {plan.where_sql}), "
         "count_groups AS (SELECT CASE "
         "WHEN validity='invalid' THEN 'invalid' "
@@ -847,10 +813,8 @@ def count_sheet_filter_values(
         "ORDER BY count DESC, CASE kind "
         "WHEN 'valid' THEN 0 WHEN 'missing' THEN 1 ELSE 2 END, value LIMIT ?",
         [
-            *value_params,
-            *kind_params,
-            column["id"],
             *plan.filter_join_params,
+            column["id"],
             *plan.where_params,
             limit + 1,
         ],
@@ -1050,12 +1014,21 @@ def _sort_collation_sql(column: Any) -> str:
 
 def _filter_value_sql(value_sql: str, value_kind_sql: str, column: Any) -> str:
     column_type = str(column["type"])
+    if column_type in {
+        "text",
+        "category",
+        "link",
+        "date",
+        "image",
+        "audio",
+        "video",
+        "file",
+    }:
+        return f"CAST({value_sql} AS TEXT)"
     if column_type == "integer":
         kinds = "('integer','bigint')"
     elif column_type == "number":
         kinds = "('integer','real')"
-    elif column_type == "date":
-        kinds = "('text','legacy_invalid')"
     elif column_type == "json":
         kinds = "('null','text','integer','real','boolean','json','bigint')"
     else:

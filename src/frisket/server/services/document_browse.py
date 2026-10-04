@@ -74,55 +74,26 @@ def _seek(
 
 def _descriptor_sql(
     source: Any, title: Any | None, *, row_id_sql: str = "?", title_only: bool = False
-) -> tuple[str, list[Any] | dict[str, Any]]:
+) -> tuple[str, list[Any]]:
     # Values stay inside SQLite. Only capped labels and scalar metadata leave it.
     media = source["type"] in {"file", "image", "audio", "video"}
     source_id = int(source["id"])
     title_id = int(title["id"]) if title is not None else -1
     read_source = media or not title_only
-    if row_id_sql == "?":
-        # Named parameters let every view lookup receive a literal row and
-        # column coordinate while callers still bind the row only once.
-        source_parameter = ":source_column"
-        title_parameter = ":title_column"
-        source_row = ":row_id"
-        title_row = ":row_id"
-        row_id_sql = ":row_id"
-        params = {"title_column": title_id}
-        if read_source:
-            params["source_column"] = source_id
-    else:
-        source_parameter = "?"
-        title_parameter = "?"
-        source_row = "r.id"
-        title_row = "r.id"
-        params = ([source_id, source_id] if read_source else []) + [
-            title_id,
-            title_id,
-        ]
     source_value = (
-        "(SELECT CASE WHEN s.validity='valid' THEN s.value END "
-        "FROM current_cell_values s "
-        f"WHERE s.row_id={source_row} AND s.column_id={source_parameter})"
-        if read_source
-        else "NULL"
+        "CASE WHEN s.validity='valid' THEN s.value END" if read_source else "NULL"
     )
     source_kind = (
-        "(SELECT CASE WHEN s.validity='valid' THEN s.value_kind END "
-        "FROM current_cell_values s "
-        f"WHERE s.row_id={source_row} AND s.column_id={source_parameter})"
+        "CASE WHEN s.validity='valid' THEN s.value_kind END" if read_source else "NULL"
+    )
+    source_join = (
+        "LEFT JOIN current_cell_values s ON s.row_id=r.id AND s.column_id=?"
         if read_source
-        else "NULL"
+        else ""
     )
     # Titles are display values, like /data's preserve-invalid projection.
-    title_value = (
-        "(SELECT t.value FROM current_cell_values t "
-        f"WHERE t.row_id={title_row} AND t.column_id={title_parameter})"
-    )
-    title_kind = (
-        "(SELECT t.value_kind FROM current_cell_values t "
-        f"WHERE t.row_id={title_row} AND t.column_id={title_parameter})"
-    )
+    title_value = "t.value"
+    title_kind = "t.value_kind"
     # Media envelopes are the only source values handed to JSON1.
     envelope = (
         "CASE WHEN sk='json' THEN CASE WHEN json_type(sv)='object' THEN sv END "
@@ -137,12 +108,6 @@ def _descriptor_sql(
         else "NULL"
     )
     sql = f"""
-        WITH raw AS MATERIALIZED (
-            SELECT r.id AS row_id,r.position,{source_value} AS sv,
-                {source_kind} AS sk,{title_value} AS tv,{title_kind} AS tk
-            FROM rows r
-            WHERE r.id={row_id_sql}
-        )
         SELECT *, CASE WHEN raw_title IS NOT NULL AND trim(CAST(raw_title AS TEXT))<>''
             AND substr(CAST(raw_title AS TEXT),1,1)<>'{{' THEN CAST(raw_title AS TEXT)
             ELSE label END AS display_title
@@ -152,11 +117,17 @@ def _descriptor_sql(
                 WHEN tk IN ('text','integer','real','bigint','json') THEN tv END AS raw_title,
                 CASE WHEN json_type(envelope,'$.mime')='text' THEN json_extract(envelope,'$.mime') END AS mime
             FROM (
-                SELECT *, {envelope} AS envelope FROM raw
+                SELECT *, {envelope} AS envelope FROM (
+                    SELECT r.id AS row_id,r.position,{source_value} AS sv,
+                        {source_kind} AS sk,{title_value} AS tv,{title_kind} AS tk
+                    FROM rows r {source_join}
+                    LEFT JOIN current_cell_values t ON t.row_id=r.id AND t.column_id=?
+                    WHERE r.id={row_id_sql}
+                )
             )
         )
     """
-    return sql, params
+    return sql, ([source_id] if read_source else []) + [title_id]
 
 
 def _url_label(value: str) -> str:
@@ -269,15 +240,23 @@ def _document_browse(
     membership_params = list(scope_plan.filter_join_params)
     ordered_source = scope_plan.from_sql
     ordered_params = list(scope_plan.join_params)
+    ranked_anchor = (
+        q is None
+        and decoded is None
+        and anchor_row_id is not None
+        and (filter is not None or sort is not None)
+    )
     # Only explicit title search needs pre-search ranks for the existing Row N
-    # fallback. Materialize identities/ranks in SQLite, never source bodies.
-    if q:
+    # fallback. An initial filtered/sorted anchor also uses the ranked identity
+    # set so its ordinal and page need only one evaluation of the row scope.
+    if q or ranked_anchor:
         normal_order = ",".join(term.order_sql() for term in terms)
         ctes.append(
             f"ranked AS MATERIALIZED (SELECT r.id,row_number() OVER (ORDER BY {normal_order}) AS ordinal FROM {ordered_source} WHERE {where})"
         )
         # Window ORDER BY is lexically before FROM, unlike an ordinary SELECT.
         cte_params.extend([*order_params, *ordered_params, *where_params])
+    if q:
         membership_source = "rows r JOIN ranked z ON z.id=r.id"
         membership_params = []
         ordered_source += " JOIN ranked z ON z.id=r.id"
@@ -311,7 +290,7 @@ def _document_browse(
     seek, seek_params = "1=1", []
     ordinal = decoded["ordinal"] if decoded else 1
     has_prior = decoded is not None
-    if anchor is not None:
+    if anchor is not None and not ranked_anchor:
         if (
             project.db.execute(
                 prefix + f"SELECT 1 FROM {membership_source} WHERE r.id=? AND {where}",
@@ -361,19 +340,33 @@ def _document_browse(
                     ).fetchone()[0]
                 )
                 has_prior = ordinal > 1
-    order = ",".join(term.order_sql(reverse=back) for term in terms)
-    rows = project.db.execute(
-        prefix
-        + f"SELECT r.id{',z.ordinal' if q else ''} FROM {ordered_source} WHERE {where} AND {seek} ORDER BY {order} LIMIT ?",
-        [
-            *cte_params,
-            *ordered_params,
-            *where_params,
-            *seek_params,
-            *order_params,
-            limit + 1,
-        ],
-    ).fetchall()
+    if ranked_anchor:
+        rows = project.db.execute(
+            prefix + "SELECT r.id,z.ordinal FROM ranked z JOIN rows r ON r.id=z.id "
+            "WHERE z.ordinal >= (SELECT ordinal FROM ranked WHERE id=?) "
+            "ORDER BY z.ordinal LIMIT ?",
+            [*cte_params, anchor, limit + 1],
+        ).fetchall()
+        if not rows or int(rows[0]["id"]) != anchor:
+            raise ValueError(
+                "document cursor anchor is no longer in scope; restart browsing"
+            )
+        ordinal = int(rows[0]["ordinal"])
+        has_prior = ordinal > 1
+    else:
+        order = ",".join(term.order_sql(reverse=back) for term in terms)
+        rows = project.db.execute(
+            prefix
+            + f"SELECT r.id{',z.ordinal' if q else ''} FROM {ordered_source} WHERE {where} AND {seek} ORDER BY {order} LIMIT ?",
+            [
+                *cte_params,
+                *ordered_params,
+                *where_params,
+                *seek_params,
+                *order_params,
+                limit + 1,
+            ],
+        ).fetchall()
     more = len(rows) > limit
     rows = rows[:limit]
     start = max(1, ordinal - len(rows)) if back else ordinal + (1 if decoded else 0)
@@ -411,7 +404,7 @@ def _document_browse(
                     )
                 ):
                     kind = "text"
-        rank = int(row["ordinal"]) if q else start + index
+        rank = int(row["ordinal"]) if q or ranked_anchor else start + index
         items.append(
             dict(
                 row_id=int(row["id"]),
