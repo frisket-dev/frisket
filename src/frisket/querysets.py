@@ -7,6 +7,7 @@ from calendar import monthrange
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal, InvalidOperation
 import json
 import math
 import re
@@ -29,6 +30,7 @@ SHEET_FILTER_ROWSET_EVALUATOR = {
 }
 
 _SQL_UTC_DATE = "frisket_utc_calendar_date"
+_SQL_NUMERIC_COLLATION = "frisket_numeric"
 
 # --------------------------------------------------------------------------
 # The one guarded ``json_each`` construction for entity-mention JSON.
@@ -88,7 +90,11 @@ ENTITY_MENTION_ITEM_PREDICATE = " AND ".join(
 def guarded_entity_array_sql(value_sql: str, value_kind_sql: str | None = None) -> str:
     """``value_sql`` narrowed to a JSON array expression, or ``'[]'``."""
     if value_kind_sql is not None:
-        return f"CASE WHEN {value_kind_sql}='json' THEN {value_sql} ELSE '[]' END"
+        return (
+            f"CASE WHEN {value_kind_sql}='json' THEN "
+            f"(CASE WHEN json_type({value_sql})='array' "
+            f"THEN {value_sql} ELSE '[]' END) ELSE '[]' END"
+        )
     return (
         f"CASE WHEN json_valid({value_sql}) "
         f"THEN (CASE WHEN json_type({value_sql}) = 'array' "
@@ -102,7 +108,7 @@ def guarded_entity_array_params(
 ) -> list[Any]:
     """Return parameters in the guarded-array expression's lexical order."""
     if value_kind_params is not None:
-        return [*value_kind_params, *value_params]
+        return [*value_kind_params, *value_params, *value_params]
     return [*value_params, *value_params, *value_params]
 
 
@@ -135,6 +141,17 @@ def is_entity_mentions_column(column: Any) -> bool:
 
 class SheetRowSetError(ValueError):
     """Raised when a sheet rowset filter or sort cannot be evaluated."""
+
+
+def _numeric_collation(left: str, right: str) -> int:
+    """Compare native numeric and canonical-bigint sort keys without REAL casts."""
+
+    try:
+        left_number = Decimal(left.split(":", 1)[1])
+        right_number = Decimal(right.split(":", 1)[1])
+    except (IndexError, InvalidOperation):
+        return (left > right) - (left < right)
+    return (left_number > right_number) - (left_number < right_number)
 
 
 @dataclass(frozen=True)
@@ -292,6 +309,7 @@ def _sheet_row_scope_plan(
         normalize_utc_calendar_date,
         deterministic=True,
     )
+    project.db.create_collation(_SQL_NUMERIC_COLLATION, _numeric_collation)
 
     def is_generation_managed(column: Any) -> bool:
         column_id = int(column["id"])
@@ -627,7 +645,11 @@ def _sheet_row_scope_plan(
 
     filter_joins = tuple(joins)
     filter_join_params = tuple(join_params)
-    terms = _sheet_order_terms(sorts, live_value_sql=scope_live_value_sql)
+    terms = _sheet_order_terms(
+        sorts,
+        live_value_sql=scope_live_value_sql,
+        live_value_kind_sql=scope_live_value_kind_sql,
+    )
     order_parts = [term.order_sql() for term in terms]
     order_params = [value for term in terms for value in term.params]
 
@@ -663,17 +685,33 @@ def _sheet_order_terms(
     sorts: list[tuple[Any, str]],
     *,
     live_value_sql: Callable[..., tuple[str, list[Any]]] | None = None,
+    live_value_kind_sql: Callable[..., tuple[str, list[Any]]] | None = None,
 ) -> list[SheetOrderTerm]:
     value_reader = live_value_sql or sheet_live_value_sql
     terms = []
     for column, direction in sorts:
         value, params = value_reader("r", column)
-        scalar = value
+        range_kind = range_facet_value_kind(str(column["type"]))
+        if range_kind in {"integer", "number"} and live_value_kind_sql is not None:
+            value_kind, kind_params = live_value_kind_sql("r", column)
+            numeric_kinds = (
+                "('integer','bigint')"
+                if range_kind == "integer"
+                else "('integer','real','bigint')"
+            )
+            scalar = (
+                f"CASE WHEN {value_kind} IN {numeric_kinds} THEN {value_kind} || ':' || "
+                f"CASE WHEN {value_kind}='real' THEN printf('%!.17g',{value}) "
+                f"ELSE CAST({value} AS TEXT) END END"
+            )
+            params = [*kind_params, *kind_params, *kind_params, *params, *params]
+            collation = f" COLLATE {_SQL_NUMERIC_COLLATION}"
+        else:
+            scalar = value
+            collation = _sort_collation_sql(column)
         terms.append(SheetOrderTerm(f"{scalar} IS NULL", tuple(params)))
         terms.append(
-            SheetOrderTerm(
-                scalar, tuple(params), direction == "desc", _sort_collation_sql(column)
-            )
+            SheetOrderTerm(scalar, tuple(params), direction == "desc", collation)
         )
     return [*terms, SheetOrderTerm("r.position"), SheetOrderTerm("r.id")]
 

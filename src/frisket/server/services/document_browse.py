@@ -96,7 +96,9 @@ def _descriptor_sql(
     title_kind = "t.value_kind"
     # Media envelopes are the only source values handed to JSON1.
     envelope = (
-        "CASE WHEN sk='json' THEN CASE WHEN json_type(sv)='object' THEN sv END END"
+        "CASE WHEN sk='json' THEN CASE WHEN json_type(sv)='object' THEN sv END "
+        "WHEN sk='text' THEN CASE WHEN json_valid(sv) THEN "
+        "CASE WHEN json_type(sv)='object' THEN sv END END END"
         if media
         else "NULL"
     )
@@ -112,7 +114,7 @@ def _descriptor_sql(
         FROM (
             SELECT *, {label} AS label,
                 CASE WHEN tk='boolean' THEN CASE WHEN tv THEN 'true' ELSE 'false' END
-                WHEN tk IN ('text','integer','real','bigint','json','legacy_invalid') THEN tv END AS raw_title,
+                WHEN tk IN ('text','integer','real','bigint','json') THEN tv END AS raw_title,
                 CASE WHEN json_type(envelope,'$.mime')='text' THEN json_extract(envelope,'$.mime') END AS mime
             FROM (
                 SELECT *, {envelope} AS envelope FROM (
