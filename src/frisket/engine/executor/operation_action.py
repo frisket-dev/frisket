@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from dataclasses import dataclass
 from typing import Any, Literal, Mapping
 
 from frisket.actions.core import _ProjectAction
@@ -57,6 +58,13 @@ class _Refusal(Exception):
         super().__init__(error.message)
 
 
+@dataclass
+class _OperationInvocationState:
+    """Post-commit facts from this invocation; receipt replay leaves defaults."""
+
+    pending_review_count_unchanged: bool = False
+
+
 def _refuse(
     code: str,
     message: str,
@@ -90,6 +98,7 @@ class _OperationStep:
         self.result: OperationTransition | None = None
         self.target: Any = None
         self.undo_info: dict[str, Any] | None = None
+        self.pending_review_count_unchanged = False
 
     def _step(self, *, expected_op_id: int | None) -> OperationTransition:
         if self._called:
@@ -176,6 +185,7 @@ class _OperationStep:
         )
         self.target = transition.target
         self.undo_info = transition.undo_info
+        self.pending_review_count_unchanged = transition.pending_review_count_unchanged
         self.result = result
         return result
 
@@ -316,6 +326,7 @@ def _perform(
     receipt_id: str,
     params_hash: str,
     resolved: Any,
+    invocation: _OperationInvocationState,
 ) -> ActionResult:
     del cur, resolved
     capability = _CAPABILITY_IMPL[terminal.single_capability()](project, action)
@@ -329,6 +340,9 @@ def _perform(
         )
     if capability.result is None or returned != capability.result:
         raise TypeError("operation handler must return its capability result")
+    invocation.pending_review_count_unchanged = (
+        capability.pending_review_count_unchanged
+    )
     result, receipt = _result_and_receipt(
         capability,
         action=action,
@@ -376,6 +390,7 @@ def run_typed_operation_action(
         params=bound.params.model_dump(mode="json"),
     )
     params_hash = typed_request_hash(bound)
+    invocation = _OperationInvocationState()
     spec = _ActionCoreSpec(
         kind=envelope.kind,
         params_model=terminal.params_model,
@@ -383,7 +398,15 @@ def run_typed_operation_action(
         params_hash_fn=lambda _action: params_hash,
         result_from_existing_fn=_child_sheet_deterministic_result_from_existing(),
         plain_perform_in_txn_fn=lambda project_, cur, action, params, **kwargs: (
-            _perform(project_, cur, action, params, terminal=terminal, **kwargs)
+            _perform(
+                project_,
+                cur,
+                action,
+                params,
+                terminal=terminal,
+                invocation=invocation,
+                **kwargs,
+            )
         ),
         plain_exception_error_fn=lambda action: ActionError(
             code="project_write_failed",
@@ -398,7 +421,7 @@ def run_typed_operation_action(
         spec=spec,
         ctx=ExecutorContext(project_id=project_id, deps=ExecutorDeps()),
     )
-    if result.status == "completed":
+    if result.status == "completed" and not invocation.pending_review_count_unchanged:
         try:
             project.refresh_pending_review_summary()
         except Exception:

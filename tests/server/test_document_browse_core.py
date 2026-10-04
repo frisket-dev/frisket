@@ -158,6 +158,33 @@ def test_row_fallback_search_uses_pre_search_rank(docs):
     assert found["next_cursor"] is None
 
 
+def test_filtered_sorted_search_preserves_cursor_order(docs):
+    filter_ = {"title": {"contains": "b"}}
+    sort = [{"column": "title", "dir": "desc"}]
+    first = page(docs, filter=filter_, sort=sort, q="b", limit=1)
+    following = page(
+        docs,
+        filter=filter_,
+        sort=sort,
+        q="b",
+        limit=1,
+        cursor=first["next_cursor"],
+    )
+    previous = page(
+        docs,
+        filter=filter_,
+        sort=sort,
+        q="b",
+        limit=1,
+        cursor=following["previous_cursor"],
+    )
+    assert [item["title"] for item in first["items"] + following["items"]] == [
+        "b",
+        "B",
+    ]
+    assert previous["items"] == first["items"]
+
+
 def test_annotated_title_query_never_reads_source_value(docs):
     project, _, _, title, rows = docs
     # The title-only projection must not reference source validity/value at all.
@@ -217,6 +244,48 @@ def test_deep_default_page_seeks_without_counting_or_body_transfer(docs):
         for statement in statements
     )
     assert instructions < 15000
+
+
+def test_filtered_sorted_anchor_reuses_joined_scope_plan(docs):
+    project, sheet, source, title, _ = docs
+    group = project.add_column(sheet, "group")
+    rows = project.add_rows(
+        sheet,
+        [
+            {
+                "file": {
+                    "blob": "abc",
+                    "filename": f"file-{index}.pdf",
+                    "mime": "application/pdf",
+                },
+                "title": f"Document {index}",
+                "group": "keep" if index % 50 == 0 else "drop",
+            }
+            for index in range(5000)
+        ],
+        {"file": source, "title": title, "group": group},
+    )
+    instructions = 0
+
+    def progress():
+        nonlocal instructions
+        instructions += 100
+        return 0
+
+    project.db.set_progress_handler(progress, 100)
+    try:
+        result = page(
+            docs,
+            filter={"group": {"eq": "keep"}},
+            sort=[{"column": "title", "dir": "desc"}],
+            anchor_row_id=rows[2500],
+            limit=2,
+        )
+    finally:
+        project.db.set_progress_handler(None, 0)
+    assert result["items"][0]["row_id"] == rows[2500]
+    assert all(item["title"].startswith("Document ") for item in result["items"])
+    assert instructions < 250000
 
 
 def test_page_snapshot_survives_concurrent_edit(docs, monkeypatch):

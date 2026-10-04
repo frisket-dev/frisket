@@ -18,7 +18,6 @@ from filelock import FileLock
 from frisket.review_predicate import (
     primary_params,
     primary_where,
-    visible_result_where,
 )
 
 from .runs import REVIEWABLE_OUTCOMES_SQL
@@ -27,19 +26,6 @@ from .schema import FORMAT_VERSION
 _log = logging.getLogger(__name__)
 
 PROJECT_SCHEMA_VERSION = "frisket.project.v1"
-
-_ACTIVE_REVIEW_HEAD_JOIN = (
-    "LEFT JOIN cell_result_heads active_head "
-    "ON active_head.column_id=res.column_id "
-    "AND active_head.row_id=res.row_id AND active_head.run_id=res.run_id"
-)
-_ACTIVE_REVIEW_RESULT_WHERE = (
-    "(active_head.run_id IS NOT NULL OR ("
-    "c.current_run_id=res.run_id AND NOT EXISTS ("
-    "SELECT 1 FROM run_output_generations generation "
-    "WHERE generation.column_id=c.id)))"
-)
-
 
 RETENTION_POLICY_META_KEY = "retention_policy"
 
@@ -218,20 +204,48 @@ def refresh_pending_review_summary(project: Any) -> int:
     review_state and run pointers), and a typed review.decision mutation."""
     row = project.db.execute(
         f"""
-        SELECT COUNT(*) AS count FROM (
-            SELECT res.run_id, res.row_id, c.sheet_id
+        WITH review_columns AS MATERIALIZED (
+            SELECT c.id, c.sheet_id, c.current_run_id,
+                   {primary_where("c")} AS is_primary,
+                   NOT EXISTS (
+                       SELECT 1 FROM run_output_generations generation
+                       WHERE generation.column_id=c.id
+                   ) AS is_legacy
+            FROM columns c
+        ), pending_bundles AS (
+            SELECT res.run_id, res.row_id
             FROM results res
-            JOIN columns c ON c.id = res.column_id
-            {_ACTIVE_REVIEW_HEAD_JOIN}
+            JOIN review_columns review_column
+              ON review_column.id = res.column_id
+            LEFT JOIN cell_result_heads active_head
+              ON active_head.column_id=res.column_id
+             AND active_head.row_id=res.row_id
+             AND active_head.run_id=res.run_id
             JOIN runs ON runs.id = res.run_id
-            JOIN rows rr ON rr.id = res.row_id AND rr.sheet_id = c.sheet_id
+            JOIN rows rr
+              ON rr.id = res.row_id
+             AND rr.sheet_id = review_column.sheet_id
+            JOIN sheets review_sheet
+              ON review_sheet.id = review_column.sheet_id
             WHERE res.review_state = 'unreviewed'
               AND res.outcome IN ({REVIEWABLE_OUTCOMES_SQL})
-              AND {visible_result_where("rr", "c")}
-              AND {_ACTIVE_REVIEW_RESULT_WHERE}
-              AND {primary_where("c", run_alias="runs")}
-            GROUP BY res.run_id, res.row_id, c.sheet_id
-        ) pending_bundles
+              AND rr.hidden = 0
+              AND review_sheet.hidden = 0
+              AND (
+                  active_head.run_id IS NOT NULL
+                  OR (
+                      review_column.current_run_id=res.run_id
+                      AND review_column.is_legacy
+                  )
+              )
+              AND (runs.action_kind='map.find' OR review_column.is_primary)
+            -- rows.id is globally unique, and the join above proves that its
+            -- sheet is review_column.sheet_id. Keeping sheet_id in this key
+            -- is redundant and makes SQLite sort all qualifying results
+            -- instead of streaming the (run_id,row_id) results-key prefix.
+            GROUP BY res.run_id, res.row_id
+        )
+        SELECT COUNT(*) AS count FROM pending_bundles
         """,
         primary_params(),
     ).fetchone()

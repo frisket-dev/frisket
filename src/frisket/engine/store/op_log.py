@@ -114,6 +114,7 @@ class OperationTransition:
     cursor_after: int
     status_before: Literal["applied", "undone"]
     status_after: Literal["applied", "undone"]
+    pending_review_count_unchanged: bool
 
 
 class OperationUnavailable(Exception):
@@ -140,6 +141,26 @@ class ClaimedOperation(Exception):
     def __init__(self, op_id: int, claim: Mapping[str, Any]):
         self.op_id = op_id
         self.claim = claim
+
+
+def _plain_edit_preserves_pending_review_count(
+    project: Any, target: sqlite3.Row, undo_info: Mapping[str, Any]
+) -> bool:
+    """Prove that a transition only toggles ordinary cell edit overlays."""
+
+    if str(target["kind"]) != "edit":
+        return False
+    # Evidence staleness follows a value edit but does not participate in the
+    # review summary. Any other transition metadata is an unknown until its
+    # effect on review state, visibility, or result identity is proven.
+    if set(undo_info) - {"evidence_links_staled"}:
+        return False
+    facts = project.db.execute(
+        "SELECT EXISTS(SELECT 1 FROM edits WHERE op_id=?) AS has_edits,"
+        "EXISTS(SELECT 1 FROM runs WHERE op_id=?) AS has_runs",
+        (int(target["id"]), int(target["id"])),
+    ).fetchone()
+    return bool(facts["has_edits"]) and not bool(facts["has_runs"])
 
 
 def step_operation(
@@ -233,7 +254,30 @@ def step_operation(
     projection_column_ids = operation_projection_column_ids(
         project, target_op_id, undo_info
     )
-    ResultGenerationStore(project).rebuild_heads(projection_column_ids, commit=False)
+    descriptor_replacement = any(
+        undo_info.get(field_name)
+        for field_name in (
+            "column_formats",
+            "column_formats_after",
+            "column_types",
+            "column_types_after",
+            "column_semantic_types",
+            "column_semantic_types_after",
+        )
+    )
+    generations = ResultGenerationStore(project)
+    with generations.affected_key_table(
+        target_op_id, projection_column_ids
+    ) as affected_key_table:
+        if descriptor_replacement or generations.key_table_covers_columns(
+            affected_key_table, projection_column_ids
+        ):
+            # Complete coverage keeps the proven bulk projector. Descriptor
+            # changes require it because validity and edit-boundary precedence
+            # can change at coordinates absent from the run.
+            generations.rebuild_heads(projection_column_ids, commit=False)
+        else:
+            generations.rebuild_heads_from_key_table(affected_key_table, commit=False)
     refresh_current_cell_pairs(
         project.db,
         [
@@ -255,6 +299,9 @@ def step_operation(
         cursor_after=cursor_after,
         status_before=status_before,  # type: ignore[arg-type]
         status_after=status_after,
+        pending_review_count_unchanged=_plain_edit_preserves_pending_review_count(
+            project, target, undo_info
+        ),
     )
 
 
@@ -286,7 +333,8 @@ def undo(project: Any) -> int | None:
     except BaseException:
         project.db.rollback()
         raise
-    project.refresh_pending_review_summary()
+    if not transition.pending_review_count_unchanged:
+        project.refresh_pending_review_summary()
     return int(transition.target["id"])
 
 
@@ -312,7 +360,8 @@ def redo(project: Any) -> int | None:
     except BaseException:
         project.db.rollback()
         raise
-    project.refresh_pending_review_summary()
+    if not transition.pending_review_count_unchanged:
+        project.refresh_pending_review_summary()
     return int(transition.target["id"])
 
 

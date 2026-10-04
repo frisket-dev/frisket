@@ -9,7 +9,7 @@ import json
 from typing import Any
 from urllib.parse import urlsplit
 
-from frisket.querysets import SheetOrderTerm, sheet_order_terms, sheet_row_scope_query
+from frisket.querysets import SheetOrderTerm, sheet_row_scope_plan
 from frisket.engine.store.text_annotations import annotated_text_column_ids
 
 
@@ -192,7 +192,7 @@ def _document_browse(
     today = decoded["date"] if decoded else datetime.now(UTC).date().isoformat()
     filter_raw = json.dumps(filter) if filter is not None else None
     sort_raw = json.dumps(sort) if sort is not None else None
-    columns, where, where_params, _, _ = sheet_row_scope_query(
+    scope_plan = sheet_row_scope_plan(
         project,
         sheet_id,
         parent_row_id=parent_row_id,
@@ -201,6 +201,9 @@ def _document_browse(
         row_ids=scope_row_ids,
         reference_date=date.fromisoformat(today),
     )
+    columns = scope_plan.columns
+    where = scope_plan.where_sql
+    where_params = scope_plan.where_params
     by_id = {int(column["id"]): column for column in columns}
     if (
         source_column_id not in by_id
@@ -222,20 +225,26 @@ def _document_browse(
         raise ValueError("column is not a document source")
     title = by_id.get(title_column_id)
     descriptor, descriptor_params = _descriptor_sql(source, title)
-    terms = sheet_order_terms(columns, sort_raw)
+    terms = list(scope_plan.order_terms)
     order_params = [value for term in terms for value in term.params]
     ctes: list[str] = []
     cte_params: list[Any] = []
-    row_source = "rows r"
+    membership_source = scope_plan.filter_from_sql
+    membership_params = list(scope_plan.filter_join_params)
+    ordered_source = scope_plan.from_sql
+    ordered_params = list(scope_plan.join_params)
     # Only explicit title search needs pre-search ranks for the existing Row N
     # fallback. Materialize identities/ranks in SQLite, never source bodies.
     if q:
         normal_order = ",".join(term.order_sql() for term in terms)
         ctes.append(
-            f"ranked AS MATERIALIZED (SELECT r.id,row_number() OVER (ORDER BY {normal_order}) AS ordinal FROM rows r WHERE {where})"
+            f"ranked AS MATERIALIZED (SELECT r.id,row_number() OVER (ORDER BY {normal_order}) AS ordinal FROM {ordered_source} WHERE {where})"
         )
-        cte_params.extend([*order_params, *where_params])
-        row_source += " JOIN ranked z ON z.id=r.id"
+        # Window ORDER BY is lexically before FROM, unlike an ordinary SELECT.
+        cte_params.extend([*order_params, *ordered_params, *where_params])
+        membership_source = "rows r JOIN ranked z ON z.id=r.id"
+        membership_params = []
+        ordered_source += " JOIN ranked z ON z.id=r.id"
         title_query, title_params = _descriptor_sql(
             source, title, row_id_sql="outer_row.id", title_only=True
         )
@@ -269,8 +278,8 @@ def _document_browse(
     if anchor is not None:
         if (
             project.db.execute(
-                prefix + f"SELECT 1 FROM {row_source} WHERE r.id=? AND {where}",
-                [*cte_params, anchor, *where_params],
+                prefix + f"SELECT 1 FROM {membership_source} WHERE r.id=? AND {where}",
+                [*cte_params, *membership_params, anchor, *where_params],
             ).fetchone()
             is None
         ):
@@ -279,11 +288,11 @@ def _document_browse(
             )
         keys = ",".join(f"{term.sql} AS k{i}" for i, term in enumerate(terms))
         ctes.append(
-            f"a AS MATERIALIZED (SELECT r.id AS row_id,{keys} FROM rows r WHERE r.id=?)"
+            f"a AS MATERIALIZED (SELECT r.id AS row_id,{keys} FROM {scope_plan.from_sql} WHERE r.id=?)"
         )
-        cte_params.extend([*order_params, anchor])
+        cte_params.extend([*order_params, *scope_plan.join_params, anchor])
         prefix = "WITH " + ",".join(ctes) + " "
-        row_source = "a CROSS JOIN " + row_source
+        ordered_source = "a CROSS JOIN " + ordered_source
         seek, seek_params = _seek(terms, back=back, inclusive=decoded is None)
         if decoded is None:
             before, before_params = _seek(terms, back=True)
@@ -291,8 +300,13 @@ def _document_browse(
                 has_prior = (
                     project.db.execute(
                         prefix
-                        + f"SELECT 1 FROM {row_source} WHERE {where} AND {before} LIMIT 1",
-                        [*cte_params, *where_params, *before_params],
+                        + f"SELECT 1 FROM {ordered_source} WHERE {where} AND {before} LIMIT 1",
+                        [
+                            *cte_params,
+                            *ordered_params,
+                            *where_params,
+                            *before_params,
+                        ],
                     ).fetchone()
                     is not None
                 )
@@ -301,16 +315,28 @@ def _document_browse(
                     1
                     + project.db.execute(
                         prefix
-                        + f"SELECT COUNT(*) FROM {row_source} WHERE {where} AND {before}",
-                        [*cte_params, *where_params, *before_params],
+                        + f"SELECT COUNT(*) FROM {ordered_source} WHERE {where} AND {before}",
+                        [
+                            *cte_params,
+                            *ordered_params,
+                            *where_params,
+                            *before_params,
+                        ],
                     ).fetchone()[0]
                 )
                 has_prior = ordinal > 1
     order = ",".join(term.order_sql(reverse=back) for term in terms)
     rows = project.db.execute(
         prefix
-        + f"SELECT r.id{',z.ordinal' if q else ''} FROM {row_source} WHERE {where} AND {seek} ORDER BY {order} LIMIT ?",
-        [*cte_params, *where_params, *seek_params, *order_params, limit + 1],
+        + f"SELECT r.id{',z.ordinal' if q else ''} FROM {ordered_source} WHERE {where} AND {seek} ORDER BY {order} LIMIT ?",
+        [
+            *cte_params,
+            *ordered_params,
+            *where_params,
+            *seek_params,
+            *order_params,
+            limit + 1,
+        ],
     ).fetchall()
     more = len(rows) > limit
     rows = rows[:limit]

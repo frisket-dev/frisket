@@ -8,6 +8,7 @@ query so incremental refresh and full repair cannot drift apart.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from collections.abc import Collection, Iterator
 
@@ -124,6 +125,12 @@ def _target_cte(name: str, values: list[int]) -> str:
     return f"{name}(id) AS (VALUES {','.join('(?)' for _ in values)})"
 
 
+def _temp_key_table(name: str) -> str:
+    if re.fullmatch(r"temp_result_keys_[0-9a-f]+", name) is None:
+        raise ValueError("invalid temporary result-key table name")
+    return name
+
+
 def _delete_region(
     db: sqlite3.Connection, *, column_ids: list[int], row_ids: list[int] | None
 ) -> None:
@@ -140,8 +147,14 @@ def _delete_region(
     )
 
 
-def _insert_region(
-    db: sqlite3.Connection, *, column_ids: list[int], row_ids: list[int] | None
+def _insert_candidates(
+    db: sqlite3.Connection,
+    *,
+    ctes: list[str],
+    params: list[int],
+    source_from: str,
+    result_from: str,
+    edit_from: str,
 ) -> int:
     has_validity = any(
         str(row[1]) == "validity"
@@ -155,6 +168,68 @@ def _insert_region(
     validity_value = (
         ",frisket_cell_validity(descriptor.type,value)" if has_validity else ""
     )
+    edit_precedence = live_edit_precedence_predicate(
+        edit_alias="source", op_alias="source_op"
+    )
+    descriptor_precedence = _descriptor_boundary_predicate(edit_alias="source")
+    # SQLite's ``CROSS JOIN ... ON`` is an intentional join-order fence, not
+    # a Cartesian product: it keeps the bounded target relation outermost
+    # while the ON clauses perform indexed lookups into the large tables.
+    db.execute(
+        "WITH " + ",".join(ctes) + ", candidates AS ("
+        "SELECT source.column_id,source.row_id,source.value,"
+        "'source_cell' AS origin_kind,NULL AS origin_op_id,"
+        "NULL AS origin_run_id,source.producer_id AS base_producer_id,"
+        "0 AS layer_precedence,0 AS origin_precedence "
+        + source_from
+        + " CROSS JOIN rows source_row ON source_row.id=source.row_id "
+        "CROSS JOIN columns source_column ON source_column.id=source.column_id "
+        "AND source_column.sheet_id=source_row.sheet_id "
+        "UNION ALL "
+        "SELECT result.column_id,result.row_id,"
+        "CASE WHEN result.publication_effect='publish_value' "
+        "THEN result.value ELSE NULL END,"
+        "'run_result',run.op_id,result.run_id,NULL,1,result.run_id "
+        + result_from
+        + " CROSS JOIN results result ON result.run_id=head.run_id "
+        "AND result.row_id=head.row_id AND result.column_id=head.column_id "
+        "CROSS JOIN runs run ON run.id=result.run_id "
+        "CROSS JOIN rows result_row ON result_row.id=result.row_id "
+        "CROSS JOIN columns result_column ON result_column.id=result.column_id "
+        "AND result_column.sheet_id=result_row.sheet_id "
+        "UNION ALL "
+        "SELECT source.column_id,source.row_id,source.value,"
+        "'manual_edit',source.op_id,NULL,NULL,2,source.op_id "
+        + edit_from
+        + " CROSS JOIN ops source_op ON source_op.id=source.op_id "
+        "CROSS JOIN rows edit_row ON edit_row.id=source.row_id "
+        "CROSS JOIN columns edit_column ON edit_column.id=source.column_id "
+        "AND edit_column.sheet_id=edit_row.sheet_id "
+        "WHERE source_op.status='applied' AND "
+        + descriptor_precedence
+        + " AND "
+        + edit_precedence
+        + "), ranked AS ("
+        "SELECT *,ROW_NUMBER() OVER ("
+        "PARTITION BY column_id,row_id "
+        "ORDER BY layer_precedence DESC,origin_precedence DESC"
+        ") AS rank FROM candidates) "
+        "INSERT INTO current_cells "
+        "(column_id,row_id,value,origin_kind,origin_op_id,origin_run_id,"
+        "base_producer_id" + validity_column + ") "
+        "SELECT column_id,row_id,value,origin_kind,origin_op_id,origin_run_id,"
+        "base_producer_id" + validity_value + " "
+        "FROM ranked CROSS JOIN columns descriptor "
+        "ON descriptor.id=ranked.column_id "
+        "WHERE rank=1",
+        params,
+    )
+    return int(db.execute("SELECT changes()").fetchone()[0])
+
+
+def _insert_region(
+    db: sqlite3.Connection, *, column_ids: list[int], row_ids: list[int] | None
+) -> int:
     ctes = [_target_cte("target_columns", column_ids)]
     params: list[int] = list(column_ids)
     if row_ids is not None:
@@ -195,59 +270,76 @@ def _insert_region(
             "JOIN edits source ON source.column_id=target_column.id "
         )
 
-    edit_precedence = live_edit_precedence_predicate(
-        edit_alias="source", op_alias="source_op"
+    return _insert_candidates(
+        db,
+        ctes=ctes,
+        params=params,
+        source_from=source_from,
+        result_from=result_from,
+        edit_from=edit_from,
     )
-    descriptor_precedence = _descriptor_boundary_predicate(edit_alias="source")
+
+
+def refresh_current_cells_from_key_table(db: sqlite3.Connection, key_table: str) -> int:
+    """Refresh exact keys from a caller-owned temporary SQL relation."""
+
+    _require_transaction(db)
+    table = _temp_key_table(key_table)
     db.execute(
-        "WITH " + ",".join(ctes) + ", candidates AS ("
-        "SELECT source.column_id,source.row_id,source.value,"
-        "'source_cell' AS origin_kind,NULL AS origin_op_id,"
-        "NULL AS origin_run_id,source.producer_id AS base_producer_id,"
-        "0 AS layer_precedence,0 AS origin_precedence "
-        + source_from
-        + " JOIN rows source_row ON source_row.id=source.row_id "
-        "JOIN columns source_column ON source_column.id=source.column_id "
-        "AND source_column.sheet_id=source_row.sheet_id "
-        "UNION ALL "
-        "SELECT result.column_id,result.row_id,"
-        "CASE WHEN result.publication_effect='publish_value' "
-        "THEN result.value ELSE NULL END,"
-        "'run_result',run.op_id,result.run_id,NULL,1,result.run_id "
-        + result_from
-        + " JOIN results result ON result.run_id=head.run_id "
-        "AND result.row_id=head.row_id AND result.column_id=head.column_id "
-        "JOIN runs run ON run.id=result.run_id "
-        "JOIN rows result_row ON result_row.id=result.row_id "
-        "JOIN columns result_column ON result_column.id=result.column_id "
-        "AND result_column.sheet_id=result_row.sheet_id "
-        "UNION ALL "
-        "SELECT source.column_id,source.row_id,source.value,"
-        "'manual_edit',source.op_id,NULL,NULL,2,source.op_id "
-        + edit_from
-        + " JOIN ops source_op ON source_op.id=source.op_id "
-        "JOIN rows edit_row ON edit_row.id=source.row_id "
-        "JOIN columns edit_column ON edit_column.id=source.column_id "
-        "AND edit_column.sheet_id=edit_row.sheet_id "
-        "WHERE source_op.status='applied' AND "
-        + descriptor_precedence
-        + " AND "
-        + edit_precedence
-        + "), ranked AS ("
-        "SELECT *,ROW_NUMBER() OVER ("
-        "PARTITION BY column_id,row_id "
-        "ORDER BY layer_precedence DESC,origin_precedence DESC"
-        ") AS rank FROM candidates) "
-        "INSERT INTO current_cells "
-        "(column_id,row_id,value,origin_kind,origin_op_id,origin_run_id,"
-        "base_producer_id" + validity_column + ") "
-        "SELECT column_id,row_id,value,origin_kind,origin_op_id,origin_run_id,"
-        "base_producer_id" + validity_value + " "
-        "FROM ranked JOIN columns descriptor ON descriptor.id=ranked.column_id "
-        "WHERE rank=1",
-        params,
+        "DELETE FROM current_cells WHERE (column_id,row_id) IN ("
+        f"SELECT column_id,row_id FROM {table})"
     )
-    return int(db.execute("SELECT changes()").fetchone()[0])
+    total = _insert_candidates(
+        db,
+        ctes=[
+            f"target_cells(row_id,column_id) AS (SELECT row_id,column_id FROM {table})"
+        ],
+        params=[],
+        source_from=(
+            "FROM target_cells target "
+            "CROSS JOIN cells source ON source.row_id=target.row_id "
+            "AND source.column_id=target.column_id "
+        ),
+        result_from=(
+            "FROM target_cells target "
+            "CROSS JOIN cell_result_heads head ON head.row_id=target.row_id "
+            "AND head.column_id=target.column_id "
+        ),
+        edit_from=(
+            "FROM target_cells target "
+            "CROSS JOIN edits source ON source.row_id=target.row_id "
+            "AND source.column_id=target.column_id "
+        ),
+    )
+    columns = db.execute(
+        f"SELECT DISTINCT target.column_id,column_meta.sheet_id FROM {table} target "
+        "JOIN columns column_meta ON column_meta.id=target.column_id"
+    ).fetchall()
+    for column in columns:
+        column_id = int(column["column_id"])
+        ranges = db.execute(
+            "WITH ordered AS ("
+            "SELECT row_id,row_id-ROW_NUMBER() OVER (ORDER BY row_id) AS island "
+            f"FROM {table} WHERE column_id=?), grouped AS ("
+            "SELECT MIN(row_id) AS row_start,MAX(row_id) AS row_end "
+            "FROM ordered GROUP BY island ORDER BY row_start LIMIT ?) "
+            "SELECT row_start,row_end FROM grouped",
+            (column_id, _MAX_SEARCH_ROW_RANGES + 1),
+        ).fetchall()
+        if len(ranges) > _MAX_SEARCH_ROW_RANGES:
+            enqueue_dirty_scope(
+                db, sheet_id=int(column["sheet_id"]), column_id=column_id
+            )
+        else:
+            for row_range in ranges:
+                enqueue_dirty_scope(
+                    db,
+                    sheet_id=int(column["sheet_id"]),
+                    column_id=column_id,
+                    row_id_start=int(row_range["row_start"]),
+                    row_id_end=int(row_range["row_end"]),
+                )
+    return total
 
 
 def refresh_current_cells(

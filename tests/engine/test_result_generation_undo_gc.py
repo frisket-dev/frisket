@@ -104,6 +104,97 @@ def test_undo_redo_refuses_active_claim_then_rebuilds_every_managed_head(
         project.close()
 
 
+def test_partial_generation_undo_redo_refreshes_only_its_result_coordinates(
+    tmp_path: Path,
+) -> None:
+    project, sheet_id, column_id, row_ids = _seed_project(tmp_path)
+    generations, first = _publish_initial_generation(
+        project, sheet_id, column_id, row_ids
+    )
+    second = _start_claimed_run(
+        project,
+        sheet_id=sheet_id,
+        output_column_id=column_id,
+        row_ids=[row_ids[0]],
+        label="one-row replacement",
+    )
+    try:
+        _declare(generations, second, column_id, write_mode="replace_scope")
+        _write(
+            project,
+            second,
+            [
+                {
+                    "row_id": row_ids[0],
+                    "column_id": column_id,
+                    "value": "second:value",
+                    "publication_effect": "publish_value",
+                }
+            ],
+        )
+        _seal(generations, second, column_id)
+        _release(project, second)
+        project.apply_edits(
+            [
+                {
+                    "row_id": row_ids[2],
+                    "column_id": column_id,
+                    "value": "untouched manual overlay",
+                }
+            ]
+        )
+        manual_op_id = project.op_cursor
+
+        project.db.execute("CREATE TEMP TABLE projection_audit(kind,row_id,column_id)")
+        for table in ("cell_result_heads", "current_cells"):
+            for event, ref in (("DELETE", "OLD"), ("INSERT", "NEW")):
+                project.db.execute(
+                    f"CREATE TEMP TRIGGER audit_{table}_{event.lower()} "
+                    f"AFTER {event} ON {table} BEGIN "
+                    "INSERT INTO projection_audit VALUES "
+                    f"('{table}:{event.lower()}',{ref}.row_id,{ref}.column_id); END"
+                )
+        project.db.commit()
+
+        assert project.undo() == manual_op_id
+        project.db.execute("DELETE FROM projection_audit")
+        project.db.commit()
+        assert project.undo() == second.op_id
+        restored = generations.read_cell_heads(column_id)
+        assert {head.run_id for head in restored.values()} == {first.run_id}
+        assert project.get_values(sheet_id, column_id)[row_ids[0]] == "first:0"
+        result_writes = project.db.execute(
+            "SELECT kind,row_id,column_id FROM projection_audit "
+            "WHERE kind LIKE 'cell_result_heads:%'"
+        ).fetchall()
+        current_writes = project.db.execute(
+            "SELECT kind,row_id,column_id FROM projection_audit "
+            "WHERE kind LIKE 'current_cells:%'"
+        ).fetchall()
+        assert {
+            (int(row["row_id"]), int(row["column_id"])) for row in result_writes
+        } == {(row_ids[0], column_id)}
+        assert {
+            (int(row["row_id"]), int(row["column_id"])) for row in current_writes
+        } == {(row_ids[0], column_id)}
+
+        project.db.execute("DELETE FROM projection_audit")
+        project.db.commit()
+        assert project.redo() == second.op_id
+        assert (
+            generations.read_cell_heads(column_id)[row_ids[0]].run_id == second.run_id
+        )
+        assert project.get_values(sheet_id, column_id)[row_ids[0]] == "second:value"
+        assert {
+            (int(row["row_id"]), int(row["column_id"]))
+            for row in project.db.execute(
+                "SELECT row_id,column_id FROM projection_audit"
+            )
+        } == {(row_ids[0], column_id)}
+    finally:
+        project.close()
+
+
 def test_undo_rolls_back_op_flip_when_head_rebuild_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -117,6 +208,9 @@ def test_undo_rolls_back_op_flip_when_head_rebuild_fails(
         def fail_rebuild(*_args, **_kwargs):
             raise RuntimeError("head rebuild failed")
 
+        monkeypatch.setattr(
+            ResultGenerationStore, "rebuild_heads_from_key_table", fail_rebuild
+        )
         monkeypatch.setattr(ResultGenerationStore, "rebuild_heads", fail_rebuild)
         with pytest.raises(RuntimeError, match="head rebuild failed"):
             project.undo()

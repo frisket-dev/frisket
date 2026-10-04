@@ -13,6 +13,7 @@ from typing import Any
 from frisket.engine.store.current_cells import (
     refresh_current_cell_pairs,
     refresh_current_cells,
+    refresh_current_cells_from_key_table,
 )
 
 PUBLICATION_EFFECTS = frozenset({"publish_value", "publish_null", "publish_error"})
@@ -92,9 +93,11 @@ def decode_published_result_value(
     return json.loads(encoded_value)
 
 
-def _chunks(values: list[int]) -> Iterator[list[int]]:
-    for start in range(0, len(values), _SQLITE_ID_CHUNK_SIZE):
-        yield values[start : start + _SQLITE_ID_CHUNK_SIZE]
+def _chunks(
+    values: list[int], size: int = _SQLITE_ID_CHUNK_SIZE
+) -> Iterator[list[int]]:
+    for start in range(0, len(values), size):
+        yield values[start : start + size]
 
 
 def _generation_publication_predicate(*, generation_alias: str, op_alias: str) -> str:
@@ -301,26 +304,26 @@ class ResultGenerationStore:
                 if item.get("publication_effect") is not None
             }
         )
+        if not column_ids:
+            return
+        bindings = {
+            binding.column_id: binding for binding in self.bindings_for_run(int(run_id))
+        }
+        operation = self._run_operation(int(run_id))
         for column_id in column_ids:
-            row = self.db.execute(
-                "SELECT generation.state, op.status AS op_status "
-                "FROM run_output_generations generation "
-                "JOIN runs run ON run.id=generation.run_id "
-                "JOIN ops op ON op.id=run.op_id "
-                "WHERE generation.run_id=? AND generation.column_id=?",
-                (int(run_id), column_id),
-            ).fetchone()
-            if row is None:
+            binding = bindings.get(column_id)
+            if binding is None:
                 raise GenerationStateError(
                     f"run {run_id} output column {column_id} is undeclared"
                 )
-            if str(row["state"]) == "sealed":
+            if binding.state == "sealed":
                 raise GenerationSealedError(
                     f"run {run_id} output column {column_id} is sealed"
                 )
-            if str(row["op_status"]) != "applied":
+            op_status = None if operation is None else operation["status"]
+            if op_status != "applied":
                 raise GenerationStateError(
-                    f"run {run_id} cannot publish while its op is {row['op_status']!r}"
+                    f"run {run_id} cannot publish while its op is {op_status!r}"
                 )
 
     def _require_active_claim(
@@ -658,19 +661,52 @@ class ResultGenerationStore:
                 )
             return created
 
-    def _upsert_head_uncommitted(
-        self, *, run_id: int, row_id: int, column_id: int
+    def _upsert_heads_uncommitted(
+        self, *, run_id: int, keys: Collection[tuple[int, int]]
     ) -> int:
-        cursor = self.db.execute(
+        """Move exact result heads in bounded set-based statements."""
+
+        ordered_keys = sorted(
+            {(int(row_id), int(column_id)) for row_id, column_id in keys}
+        )
+        projected = 0
+        pair_chunk_size = (_SQLITE_ID_CHUNK_SIZE - 1) // 2
+        for start in range(0, len(ordered_keys), pair_chunk_size):
+            chunk = ordered_keys[start : start + pair_chunk_size]
+            target_values = ",".join("(?,?)" for _ in chunk)
+            params: list[int] = []
+            for row_id, column_id in chunk:
+                params.extend((row_id, column_id))
+            self.db.execute(
+                f"WITH target(row_id,column_id) AS (VALUES {target_values}) "
+                "INSERT INTO cell_result_heads (column_id,row_id,run_id) "
+                "SELECT result.column_id,result.row_id,result.run_id "
+                "FROM target JOIN results result "
+                "ON result.row_id=target.row_id "
+                "AND result.column_id=target.column_id "
+                "WHERE result.run_id=? AND result.publication_effect IS NOT NULL "
+                "ON CONFLICT(column_id,row_id) DO UPDATE SET run_id=excluded.run_id "
+                "WHERE excluded.run_id > cell_result_heads.run_id",
+                (*params, int(run_id)),
+            )
+            projected += int(self.db.execute("SELECT changes()").fetchone()[0])
+        return projected
+
+    def _upsert_heads_from_key_table_uncommitted(
+        self, *, run_id: int, key_table: str
+    ) -> int:
+        self.db.execute(
             "INSERT INTO cell_result_heads (column_id,row_id,run_id) "
-            "SELECT column_id,row_id,run_id FROM results "
-            "WHERE run_id=? AND row_id=? AND column_id=? "
-            "AND publication_effect IS NOT NULL "
+            "SELECT result.column_id,result.row_id,result.run_id "
+            f"FROM {key_table} target JOIN results result "
+            "ON result.row_id=target.row_id "
+            "AND result.column_id=target.column_id "
+            "WHERE result.run_id=? AND result.publication_effect IS NOT NULL "
             "ON CONFLICT(column_id,row_id) DO UPDATE SET run_id=excluded.run_id "
             "WHERE excluded.run_id > cell_result_heads.run_id",
-            (int(run_id), int(row_id), int(column_id)),
+            (int(run_id),),
         )
-        return int(cursor.rowcount)
+        return int(self.db.execute("SELECT changes()").fetchone()[0])
 
     def _project_written_results_uncommitted(
         self,
@@ -689,8 +725,11 @@ class ResultGenerationStore:
         if not keys:
             return 0
         active_keys: list[tuple[int, int]] = []
+        bindings = {
+            binding.column_id: binding for binding in self.bindings_for_run(int(run_id))
+        }
         for row_id, column_id in sorted(keys):
-            binding = self.get_binding(int(run_id), column_id)
+            binding = bindings.get(column_id)
             if binding is None:
                 # The schema trigger should have refused the result insert;
                 # keep a precise store error if a custom SQLite build did not.
@@ -710,27 +749,9 @@ class ResultGenerationStore:
         # RunResultStore already fenced every batch column under this claim;
         # this method is inside that same savepoint and only projects the exact
         # rows whose effect was just written.
-        projected = sum(
-            self._upsert_head_uncommitted(
-                run_id=int(run_id), row_id=row_id, column_id=column_id
-            )
-            for row_id, column_id in active_keys
-        )
+        projected = self._upsert_heads_uncommitted(run_id=int(run_id), keys=active_keys)
         refresh_current_cell_pairs(self.db, active_keys)
         return projected
-
-    def _upsert_generation_heads_uncommitted(
-        self, *, run_id: int, column_id: int
-    ) -> int:
-        cursor = self.db.execute(
-            "INSERT INTO cell_result_heads (column_id,row_id,run_id) "
-            "SELECT column_id,row_id,run_id FROM results "
-            "WHERE run_id=? AND column_id=? AND publication_effect IS NOT NULL "
-            "ON CONFLICT(column_id,row_id) DO UPDATE SET run_id=excluded.run_id "
-            "WHERE excluded.run_id > cell_result_heads.run_id",
-            (int(run_id), int(column_id)),
-        )
-        return int(cursor.rowcount)
 
     def _has_complete_publication_effects(
         self, run_id: int, column_ids: Collection[int]
@@ -985,20 +1006,26 @@ class ResultGenerationStore:
                     "DELETE FROM cell_result_heads WHERE column_id=?",
                     (int(column_id),),
                 )
-            projected = sum(
-                self._upsert_generation_heads_uncommitted(
-                    run_id=int(run_id), column_id=binding.column_id
+            open_column_ids = [binding.column_id for binding in open_bindings]
+            with self.run_effect_key_table(
+                int(run_id), open_column_ids
+            ) as publication_key_table:
+                projected = self._upsert_heads_from_key_table_uncommitted(
+                    run_id=int(run_id), key_table=publication_key_table
                 )
-                for binding in open_bindings
-            )
-            refresh_current_cells(
-                self.db,
-                column_ids={
-                    *changed_descriptors,
-                    *(binding.column_id for binding in open_bindings),
-                },
-            )
-            return projected
+                if changed_descriptors or self.key_table_covers_columns(
+                    publication_key_table, open_column_ids
+                ):
+                    # Descriptor changes can alter every cell's validity and
+                    # edit boundary. Complete coverage keeps the proven bulk
+                    # projector instead of paying exact-key setup per row.
+                    refresh_current_cells(
+                        self.db,
+                        column_ids={*changed_descriptors, *open_column_ids},
+                    )
+                else:
+                    refresh_current_cells_from_key_table(self.db, publication_key_table)
+                return projected
 
     def read_cell_heads(
         self, column_id: int, row_ids: Collection[int] | None = None
@@ -1096,6 +1123,163 @@ class ResultGenerationStore:
         self, column_id: int, row_ids: Collection[int] | None = None
     ) -> bool:
         return len(self.origin_run_ids(column_id, row_ids, limit=2)) > 1
+
+    @contextmanager
+    def _empty_key_table(self) -> Iterator[str]:
+        table = f"temp_result_keys_{uuid.uuid4().hex}"
+        self.db.execute(
+            f"CREATE TEMP TABLE {table} ("
+            "row_id INTEGER NOT NULL,column_id INTEGER NOT NULL,"
+            "PRIMARY KEY(row_id,column_id)) WITHOUT ROWID"
+        )
+        try:
+            yield table
+        finally:
+            self.db.execute(f"DROP TABLE IF EXISTS {table}")
+
+    @contextmanager
+    def run_effect_key_table(
+        self, run_id: int, column_ids: Collection[int]
+    ) -> Iterator[str]:
+        """Materialize one run's published result coordinates in SQL."""
+
+        ordered_column_ids = sorted({int(column_id) for column_id in column_ids})
+        with self._empty_key_table() as table:
+            if ordered_column_ids:
+                for column_batch in _chunks(
+                    ordered_column_ids, _SQLITE_ID_CHUNK_SIZE - 1
+                ):
+                    placeholders = ",".join("?" for _ in column_batch)
+                    self.db.execute(
+                        f"INSERT OR IGNORE INTO {table} (row_id,column_id) "
+                        "SELECT row_id,column_id FROM results WHERE run_id=? "
+                        f"AND column_id IN ({placeholders}) "
+                        "AND publication_effect IS NOT NULL",
+                        (int(run_id), *column_batch),
+                    )
+            yield table
+
+    @contextmanager
+    def affected_key_table(
+        self, op_id: int, column_ids: Collection[int]
+    ) -> Iterator[str]:
+        """Materialize one operation's managed result coordinates in SQL."""
+
+        ordered_column_ids = sorted({int(column_id) for column_id in column_ids})
+        with self._empty_key_table() as table:
+            if ordered_column_ids:
+                for column_batch in _chunks(
+                    ordered_column_ids, _SQLITE_ID_CHUNK_SIZE - 1
+                ):
+                    placeholders = ",".join("?" for _ in column_batch)
+                    self.db.execute(
+                        f"INSERT OR IGNORE INTO {table} (row_id,column_id) "
+                        "SELECT result.row_id,result.column_id FROM runs affected_run "
+                        "JOIN run_output_generations generation "
+                        "ON generation.run_id=affected_run.id "
+                        "JOIN results result ON result.run_id=generation.run_id "
+                        "AND result.column_id=generation.column_id "
+                        f"WHERE affected_run.op_id=? "
+                        f"AND result.column_id IN ({placeholders})",
+                        (int(op_id), *column_batch),
+                    )
+            yield table
+
+    def key_table_covers_columns(
+        self, key_table: str, column_ids: Collection[int]
+    ) -> bool:
+        """Return whether exact affected keys cover every row in every column."""
+
+        ordered_column_ids = sorted({int(column_id) for column_id in column_ids})
+        if not ordered_column_ids:
+            return True
+        affected_counts = {
+            int(row["column_id"]): int(row["affected_count"])
+            for row in self.db.execute(
+                f"SELECT column_id,COUNT(*) AS affected_count FROM {key_table} "
+                "GROUP BY column_id"
+            )
+        }
+        column_counts: list[sqlite3.Row] = []
+        for column_batch in _chunks(ordered_column_ids):
+            placeholders = ",".join("?" for _ in column_batch)
+            column_counts.extend(
+                self.db.execute(
+                    "SELECT column_meta.id,COUNT(sheet_row.id) AS row_count "
+                    "FROM columns column_meta LEFT JOIN rows sheet_row "
+                    "ON sheet_row.sheet_id=column_meta.sheet_id "
+                    f"WHERE column_meta.id IN ({placeholders}) "
+                    "GROUP BY column_meta.id",
+                    column_batch,
+                ).fetchall()
+            )
+        return len(column_counts) == len(ordered_column_ids) and all(
+            (affected_count := affected_counts.get(int(row["id"]), 0)) > 0
+            and affected_count == int(row["row_count"])
+            for row in column_counts
+        )
+
+    def rebuild_heads_from_key_table(
+        self, key_table: str, *, commit: bool = True
+    ) -> int:
+        """Rebuild exact result coordinates from applied immutable history."""
+
+        with self._write_scope(commit=commit):
+            self.db.execute(
+                f"CREATE INDEX IF NOT EXISTS {key_table}_by_column "
+                f"ON {key_table}(column_id,row_id)"
+            )
+            self.db.execute(
+                "DELETE FROM cell_result_heads WHERE (column_id,row_id) IN ("
+                f"SELECT column_id,row_id FROM {key_table})"
+            )
+            self.db.execute(
+                "WITH ranked AS ("
+                "SELECT result.column_id,result.row_id,result.run_id,"
+                "ROW_NUMBER() OVER ("
+                "PARTITION BY result.column_id,result.row_id "
+                "ORDER BY result.run_id DESC"
+                ") AS precedence "
+                f"FROM {key_table} target "
+                "JOIN results result ON result.row_id=target.row_id "
+                "AND result.column_id=target.column_id "
+                "JOIN run_output_generations generation "
+                "ON generation.run_id=result.run_id "
+                "AND generation.column_id=result.column_id "
+                "JOIN runs run ON run.id=generation.run_id "
+                "JOIN ops op ON op.id=run.op_id "
+                "WHERE result.publication_effect IS NOT NULL AND "
+                + _generation_publication_predicate(
+                    generation_alias="generation", op_alias="op"
+                )
+                + ") "
+                "INSERT INTO cell_result_heads (column_id,row_id,run_id) "
+                "SELECT column_id,row_id,run_id FROM ranked WHERE precedence=1"
+            )
+            columns = self.db.execute(
+                f"SELECT DISTINCT column_id FROM {key_table}"
+            ).fetchall()
+            for row in columns:
+                column_id = int(row["column_id"])
+                boundary_op_id = self.latest_descriptor_replacement_op_id(column_id)
+                if boundary_op_id is None:
+                    continue
+                self.db.execute(
+                    "DELETE FROM cell_result_heads AS head WHERE head.column_id=? "
+                    "AND (head.column_id,head.row_id) IN ("
+                    f"SELECT column_id,row_id FROM {key_table}) "
+                    "AND head.run_id IN ("
+                    "SELECT run.id FROM runs run WHERE run.op_id<?)",
+                    (column_id, int(boundary_op_id)),
+                )
+            refresh_current_cells_from_key_table(self.db, key_table)
+            return int(
+                self.db.execute(
+                    f"SELECT COUNT(*) FROM {key_table} target "
+                    "JOIN cell_result_heads head ON head.column_id=target.column_id "
+                    "AND head.row_id=target.row_id"
+                ).fetchone()[0]
+            )
 
     def rebuild_heads(
         self,

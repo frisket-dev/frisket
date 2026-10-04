@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from calendar import monthrange
 from copy import deepcopy
 from dataclasses import dataclass
@@ -168,6 +168,63 @@ class GroupLocatorPredicate:
 SheetFilter = tuple[Any, str, Any] | RuntimeSheetFilter | GroupLocatorPredicate
 
 
+@dataclass(frozen=True)
+class SheetRowScopePlan:
+    columns: list[Any]
+    where_sql: str
+    where_params: list[Any]
+    order_parts: list[str]
+    order_params: list[Any]
+    order_terms: tuple[SheetOrderTerm, ...] = ()
+    filter_joins: tuple[str, ...] = ()
+    filter_join_params: tuple[Any, ...] = ()
+    joins: tuple[str, ...] = ()
+    join_params: tuple[Any, ...] = ()
+
+    @property
+    def filter_from_sql(self) -> str:
+        """FROM fragment containing only joins referenced by WHERE."""
+        return " ".join(("rows r", *self.filter_joins))
+
+    @property
+    def from_sql(self) -> str:
+        """FROM fragment containing joins referenced by WHERE or ORDER BY."""
+        return " ".join(("rows r", *self.joins))
+
+    @property
+    def filter_params(self) -> list[Any]:
+        """Parameters in lexical order for filter_from_sql then WHERE."""
+        return [*self.filter_join_params, *self.where_params]
+
+    @property
+    def select_params(self) -> list[Any]:
+        """Parameters for the normal FROM, WHERE, ORDER BY clause order."""
+        return [*self.join_params, *self.where_params, *self.order_params]
+
+
+def sheet_row_scope_plan(
+    project: Project,
+    sheet_id: int,
+    *,
+    parent_row_id: int | None = None,
+    filter_: str | None = None,
+    sort: str | None = None,
+    reference_date: date | None = None,
+    row_ids: Sequence[int] | None = None,
+) -> SheetRowScopePlan:
+    """Compile a row scope whose live-value expressions share indexed joins."""
+    return _sheet_row_scope_plan(
+        project,
+        sheet_id,
+        parent_row_id=parent_row_id,
+        filter_=filter_,
+        sort=sort,
+        reference_date=reference_date,
+        row_ids=row_ids,
+        join_live_values=True,
+    )
+
+
 def sheet_row_scope_query(
     project: Project,
     sheet_id: int,
@@ -180,6 +237,37 @@ def sheet_row_scope_query(
 ) -> tuple[list[Any], str, list[Any], list[str], list[Any]]:
     """Return columns, WHERE SQL/params, and ORDER BY SQL/params for a sheet."""
 
+    plan = _sheet_row_scope_plan(
+        project,
+        sheet_id,
+        parent_row_id=parent_row_id,
+        filter_=filter_,
+        sort=sort,
+        reference_date=reference_date,
+        row_ids=row_ids,
+    )
+    return (
+        plan.columns,
+        plan.where_sql,
+        plan.where_params,
+        plan.order_parts,
+        plan.order_params,
+    )
+
+
+def _sheet_row_scope_plan(
+    project: Project,
+    sheet_id: int,
+    *,
+    parent_row_id: int | None = None,
+    filter_: str | None = None,
+    sort: str | None = None,
+    reference_date: date | None = None,
+    row_ids: Sequence[int] | None = None,
+    join_live_values: bool = False,
+) -> SheetRowScopePlan:
+    """Build one shared row-scope plan, optionally joining live values once."""
+
     cols = project.columns(sheet_id)
     columns_by_name = {c["name"]: c for c in cols}
     columns_by_id = {int(c["id"]): c for c in cols}
@@ -187,6 +275,9 @@ def sheet_row_scope_query(
     sorts = _parse_sheet_sort(sort, columns_by_name)
     generation_store = ResultGenerationStore(project)
     managed_columns: dict[int, bool] = {}
+    live_aliases: dict[int, str] = {}
+    joins: list[str] = []
+    join_params: list[Any] = []
     today = reference_date or datetime.now(UTC).date()
     project.db.create_function(
         _SQL_UTC_DATE,
@@ -208,6 +299,34 @@ def sheet_row_scope_query(
                 column_id
             )
         return managed_columns[column_id]
+
+    def scope_live_value_sql(
+        row_alias: str,
+        column: Any,
+        *,
+        preserve_invalid: bool = False,
+    ) -> tuple[str, list[Any]]:
+        if not join_live_values:
+            return sheet_live_value_sql(
+                row_alias, column, preserve_invalid=preserve_invalid
+            )
+        column_id = int(column["id"])
+        alias = live_aliases.get(column_id)
+        if alias is None:
+            alias = f"live_{len(live_aliases)}"
+            live_aliases[column_id] = alias
+            joins.append(
+                f"LEFT JOIN current_cells AS {alias} "
+                "INDEXED BY idx_current_cells_column_row "
+                f"ON {alias}.column_id=? AND {alias}.row_id={row_alias}.id"
+            )
+            join_params.append(column_id)
+        value = (
+            f"{alias}.value"
+            if preserve_invalid
+            else f"CASE WHEN {alias}.validity='valid' THEN {alias}.value END"
+        )
+        return value, []
 
     where = ["r.sheet_id=?", "r.hidden=0"]
     where_params: list[Any] = [sheet_id]
@@ -268,7 +387,7 @@ def sheet_row_scope_query(
                 continue
             where.append("0=1")
             continue
-        value_sql, value_params = sheet_live_value_sql(
+        value_sql, value_params = scope_live_value_sql(
             "r", column, preserve_invalid=operator == "date_invalid"
         )
         if operator == "entity_eq":
@@ -492,11 +611,24 @@ def sheet_row_scope_query(
         else:
             where_params.append(compare_value)
 
-    terms = _sheet_order_terms(sorts)
+    filter_joins = tuple(joins)
+    filter_join_params = tuple(join_params)
+    terms = _sheet_order_terms(sorts, live_value_sql=scope_live_value_sql)
     order_parts = [term.order_sql() for term in terms]
     order_params = [value for term in terms for value in term.params]
 
-    return cols, " AND ".join(where), where_params, order_parts, order_params
+    return SheetRowScopePlan(
+        columns=cols,
+        where_sql=" AND ".join(where),
+        where_params=where_params,
+        order_parts=order_parts,
+        order_params=order_params,
+        order_terms=tuple(terms),
+        filter_joins=filter_joins,
+        filter_join_params=filter_join_params,
+        joins=tuple(joins),
+        join_params=tuple(join_params),
+    )
 
 
 @dataclass(frozen=True)
@@ -513,10 +645,15 @@ class SheetOrderTerm:
         return f"{self.sql}{self.collation} {direction}"
 
 
-def _sheet_order_terms(sorts: list[tuple[Any, str]]) -> list[SheetOrderTerm]:
+def _sheet_order_terms(
+    sorts: list[tuple[Any, str]],
+    *,
+    live_value_sql: Callable[..., tuple[str, list[Any]]] | None = None,
+) -> list[SheetOrderTerm]:
+    value_reader = live_value_sql or sheet_live_value_sql
     terms = []
     for column, direction in sorts:
-        value, params = sheet_live_value_sql("r", column)
+        value, params = value_reader("r", column)
         scalar = f"json_extract({value}, '$')"
         terms.append(SheetOrderTerm(f"{scalar} IS NULL", tuple(params)))
         terms.append(
@@ -543,7 +680,7 @@ def resolve_sheet_filter_rows(
     reference_date: date | None = None,
     row_ids: Sequence[int] | None = None,
 ) -> SheetFilterRowSet:
-    _, where_sql, where_params, order_parts, order_params = sheet_row_scope_query(
+    plan = sheet_row_scope_plan(
         project,
         sheet_id,
         parent_row_id=parent_row_id,
@@ -557,23 +694,28 @@ def resolve_sheet_filter_rows(
         bounded_offset = max(0, int(offset))
     except (TypeError, ValueError):
         raise SheetRowSetError("limit and offset must be integers") from None
-    order_clause = ", ".join(order_parts) or "r.position ASC"
+    order_clause = ", ".join(plan.order_parts) or "r.position ASC"
     # Count ignores ordering, so only WHERE parameters are needed here.
     total = int(
         project.db.execute(
-            f"SELECT COUNT(*) FROM rows r WHERE {where_sql}", where_params
+            f"SELECT COUNT(*) FROM {plan.filter_from_sql} WHERE {plan.where_sql}",
+            plan.filter_params,
         ).fetchone()[0]
         or 0
     )
     rows = project.db.execute(
         f"""
         SELECT r.id AS row_id
-        FROM rows r
-        WHERE {where_sql}
+        FROM {plan.from_sql}
+        WHERE {plan.where_sql}
         ORDER BY {order_clause}
         LIMIT ? OFFSET ?
         """,
-        [*where_params, *order_params, bounded_limit, bounded_offset],
+        [
+            *plan.select_params,
+            bounded_limit,
+            bounded_offset,
+        ],
     ).fetchall()
     return SheetFilterRowSet(
         sheet_id=sheet_id,
@@ -603,7 +745,7 @@ def count_sheet_filter_values(
     )
     if column is None:
         raise SheetRowSetError("count_by column is not in sheet")
-    _, where_sql, where_params, _, _ = sheet_row_scope_query(
+    plan = sheet_row_scope_plan(
         project,
         sheet_id,
         filter_=filter_,
@@ -620,7 +762,7 @@ def count_sheet_filter_values(
     rows = project.db.execute(
         "WITH count_values AS (SELECT "
         f"{value_sql} AS value_json, {validity_sql} AS validity "
-        f"FROM rows r WHERE {where_sql}), "
+        f"FROM {plan.filter_from_sql} WHERE {plan.where_sql}), "
         "count_groups AS (SELECT CASE "
         "WHEN validity='invalid' THEN 'invalid' "
         "WHEN validity='valid' AND value_json IS NOT NULL THEN 'valid' "
@@ -633,7 +775,7 @@ def count_sheet_filter_values(
         "FROM count_groups GROUP BY kind, value_type, value "
         "ORDER BY count DESC, CASE kind "
         "WHEN 'valid' THEN 0 WHEN 'missing' THEN 1 ELSE 2 END, value LIMIT ?",
-        [*value_params, *validity_params, *where_params, limit + 1],
+        [*value_params, *validity_params, *plan.filter_params, limit + 1],
     ).fetchall()
     values = [
         (
