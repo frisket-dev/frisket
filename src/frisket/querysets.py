@@ -514,23 +514,27 @@ def _sheet_row_scope_plan(
             "lte",
             "between",
         }
-        filter_value = (
-            f"CASE WHEN {value_kind_sql}='boolean' THEN {value_sql} END"
-            if use_boolean_literal
-            else (
-                (
-                    f"CASE WHEN {value_kind_sql}='integer' THEN {value_sql} END"
-                    if range_value_kind == "integer"
-                    else (
-                        f"CASE WHEN {value_kind_sql} IN ('integer','real') "
-                        f"THEN {value_sql} END"
-                    )
+        if use_boolean_literal:
+            filter_value = f"CASE WHEN {value_kind_sql}='boolean' THEN {value_sql} END"
+            filter_value_params = [*value_kind_params, *value_params]
+        elif is_numeric_range:
+            filter_value = (
+                f"CASE WHEN {value_kind_sql}='integer' THEN {value_sql} END"
+                if range_value_kind == "integer"
+                else (
+                    f"CASE WHEN {value_kind_sql} IN ('integer','real') "
+                    f"THEN {value_sql} END"
                 )
-                if is_numeric_range
-                else _filter_value_sql(value_sql, value_kind_sql, column)
             )
-        )
-        filter_value_params = [*value_kind_params, *value_params]
+            filter_value_params = [*value_kind_params, *value_params]
+        else:
+            filter_value, filter_value_params = _filter_value_sql(
+                value_sql,
+                value_kind_sql,
+                column,
+                value_params=value_params,
+                value_kind_params=value_kind_params,
+            )
         compare_value = (
             _validate_boolean_filter_literal(str(column["name"]), value)
             if use_boolean_literal and operator != "in"
@@ -1012,7 +1016,14 @@ def _sort_collation_sql(column: Any) -> str:
     )
 
 
-def _filter_value_sql(value_sql: str, value_kind_sql: str, column: Any) -> str:
+def _filter_value_sql(
+    value_sql: str,
+    value_kind_sql: str,
+    column: Any,
+    *,
+    value_params: Sequence[Any],
+    value_kind_params: Sequence[Any],
+) -> tuple[str, list[Any]]:
     column_type = str(column["type"])
     if column_type in {
         "text",
@@ -1024,19 +1035,33 @@ def _filter_value_sql(value_sql: str, value_kind_sql: str, column: Any) -> str:
         "video",
         "file",
     }:
-        return f"CAST({value_sql} AS TEXT)"
+        return f"CAST({value_sql} AS TEXT)", list(value_params)
     if column_type == "integer":
         kinds = "('integer','bigint')"
     elif column_type == "number":
         kinds = "('integer','real')"
-    elif column_type == "json":
-        kinds = "('null','text','integer','real','boolean','json','bigint')"
     else:
-        # Registered structured types (geo, timeline and plugins) commonly
-        # store objects or arrays. Keep their equality filters on the same
-        # scalar/JSON value surface as the generic JSON column type.
-        kinds = "('null','text','integer','real','boolean','json','bigint')"
-    return f"CASE WHEN {value_kind_sql} IN {kinds} THEN CAST({value_sql} AS TEXT) END"
+        # Reconstruct the legacy JSON payload before extracting its root. This
+        # retains compact object/array comparisons for JSON, geo, timeline and
+        # plugin types while native scalar kinds keep their former rendering.
+        json_source = (
+            f"CASE WHEN {value_kind_sql} IN ('json','bigint') THEN {value_sql} "
+            f"WHEN {value_kind_sql} IN ('null','text','integer','real','boolean') "
+            f"THEN json_quote({value_sql}) END"
+        )
+        return (
+            f"CAST(json_extract({json_source}, '$') AS TEXT)",
+            [
+                *value_kind_params,
+                *value_params,
+                *value_kind_params,
+                *value_params,
+            ],
+        )
+    return (
+        f"CASE WHEN {value_kind_sql} IN {kinds} THEN CAST({value_sql} AS TEXT) END",
+        [*value_kind_params, *value_params],
+    )
 
 
 _BOOLEAN_TRUE_LITERALS = frozenset({"true", "1", "yes", "y", "on"})

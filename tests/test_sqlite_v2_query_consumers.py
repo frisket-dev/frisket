@@ -35,34 +35,40 @@ def test_list_filter_requires_a_top_level_json_array(tmp_path):
         project.close()
 
 
-def test_geo_object_equality_filters_preserve_json_comparison(tmp_path):
+def test_json_backed_equality_filters_preserve_compact_comparison(tmp_path):
     project = Project.create(tmp_path / "geo-equality.frisket")
     try:
         sheet = project.add_sheet("places")
         location = project.add_column(sheet, "location", type="geo_point")
+        payload = project.add_column(sheet, "payload", type="json")
+        first = {"lat": 40.7128, "lon": -74.006}
+        second = {"lat": 51.5074, "lon": -0.1278}
         matching, other = project.add_rows(
             sheet,
             [
-                {"location": {"lat": 40.7128, "lon": -74.006}},
-                {"location": {"lat": 51.5074, "lon": -0.1278}},
+                {"location": first, "payload": first},
+                {"location": second, "payload": second},
             ],
-            {"location": location},
+            {"location": location, "payload": payload},
         )
-        expected = json.dumps({"lat": 40.7128, "lon": -74.006})
+        # The pre-typed query path compared json_extract(value, '$'), whose
+        # object rendering is compact even when the stored JSON contains spaces.
+        expected = json.dumps(first, separators=(",", ":"))
 
-        equal = resolve_sheet_filter_rows(
-            project,
-            sheet,
-            filter_=json.dumps({"location": {"eq": expected}}),
-        )
-        unequal = resolve_sheet_filter_rows(
-            project,
-            sheet,
-            filter_=json.dumps({"location": {"neq": expected}}),
-        )
+        for column_name in ("location", "payload"):
+            equal = resolve_sheet_filter_rows(
+                project,
+                sheet,
+                filter_=json.dumps({column_name: {"eq": expected}}),
+            )
+            unequal = resolve_sheet_filter_rows(
+                project,
+                sheet,
+                filter_=json.dumps({column_name: {"neq": expected}}),
+            )
 
-        assert equal.row_ids == [matching]
-        assert unequal.row_ids == [other]
+            assert equal.row_ids == [matching]
+            assert unequal.row_ids == [other]
     finally:
         project.close()
 
