@@ -12,9 +12,9 @@ from frisket.engine.store.cell_writes import (
     initialize_base_cells,
     insert_edits,
 )
-from frisket.engine.store.bundle_open import _TYPED_VALUES_TO_DIGEST
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.schema import SCHEMA, SCHEMA_DIGEST
+from frisket.engine.store.typed_storage_migration import TYPED_VALUES_TO_DIGEST
 from frisket.engine.store.value_codec import (
     decode_stored_value,
     encode_stored_value,
@@ -36,7 +36,7 @@ def _database() -> sqlite3.Connection:
 
 
 def test_typed_migration_endpoint_matches_fresh_schema() -> None:
-    assert _TYPED_VALUES_TO_DIGEST == SCHEMA_DIGEST
+    assert TYPED_VALUES_TO_DIGEST == SCHEMA_DIGEST
 
 
 @pytest.mark.parametrize(
