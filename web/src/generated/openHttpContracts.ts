@@ -4602,12 +4602,15 @@ type HttpEvidenceViewerResponse_EvidenceViewerArtifact = ({
   "metadata": (HttpEvidenceViewerResponse_JsonValue);
   "page_count": (((number)) | ((null)));
   "pages": (Array<(HttpEvidenceViewerResponse_EvidenceViewerPage)>);
+  "recovery_notice"?: (((string)) | ((null)));
+  "recovery_status"?: ((("located" | "not_found" | "unsupported") & (string)) | ((null)));
   "runs": (Array<(HttpEvidenceViewerResponse_EvidenceTemporalRun)>);
   "source_cell": (((HttpEvidenceViewerResponse_EvidenceSourceCell)) | ((null)));
   "source_url": (((string)) | ((null)));
   "spans": (Array<(HttpEvidenceViewerResponse_EvidenceViewerSpan)>);
   "stable_id": (string);
   "text_context"?: (((HttpEvidenceViewerResponse_EvidenceTextContext)) | ((null)));
+  "text_context_status"?: ((("available" | "stale") & (string)) | ((null)));
   "title": (((string)) | ((null)));
 });
 
@@ -5030,6 +5033,10 @@ export type HttpInline_00e48418ac223a62 = ({
   "pid": (string);
   "thread_id": (string);
   "turn_id": (string);
+});
+
+export type HttpInline_0418581d483574b3 = ({
+  "locate_current"?: (boolean);
 });
 
 type HttpInline_08600a3f31630079_ActionError = ({
@@ -11454,7 +11461,7 @@ export type HttpContractOperationMap = {
   };
   readonly "tenant.evidence_viewer.get": {
     readonly pathParams: HttpInline_841c7d86b3cf748c;
-    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_0418581d483574b3;
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpEvidenceViewerResponse;
