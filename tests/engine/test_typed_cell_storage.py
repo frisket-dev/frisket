@@ -215,9 +215,9 @@ def test_project_open_reads_migrated_surrogate_as_original_string(tmp_path) -> N
     project = Project.create(path)
     sheet_id = project.add_sheet("Rows")
     column_id = project.add_column(sheet_id, "text", type="text")
-    row_id = project.add_rows(
-        sheet_id, [{"text": "placeholder"}], {"text": column_id}
-    )[0]
+    row_id = project.add_rows(sheet_id, [{"text": "placeholder"}], {"text": column_id})[
+        0
+    ]
     project.close()
 
     raw = '"\\ud800"'
