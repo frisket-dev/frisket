@@ -75,6 +75,9 @@ function createRowCacheSlot(): RowCacheSlot {
     },
     beginEpoch(key: string) {
       if (snapshot.key !== key) return -1;
+      for (const [page, value] of pages) {
+        if (value === 'loading') pages.delete(page);
+      }
       metadataReadyEpoch = -1;
       activeEpoch += 1;
       return activeEpoch;

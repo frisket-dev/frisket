@@ -172,4 +172,34 @@ describe('useRowCache request epochs', () => {
     await waitFor(() => expect(getSheetRows).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(result.current.getRow(500)?.id).toBe('500'));
   });
+
+  it('retries a page whose loading sentinel belonged to an invalidated epoch', async () => {
+    const staleRows = deferred<{ rows: Row[] }>();
+    const getSheetRows = vi.fn()
+      .mockResolvedValueOnce({ rows: [row(500, 500)] })
+      .mockImplementationOnce(() => staleRows.promise)
+      .mockResolvedValueOnce({ rows: [row(500, 500)] })
+      .mockResolvedValueOnce({ rows: [row(1_000, 1_000)] });
+    const api = gridApi({ getSheetRows });
+    const store = createRowCacheStore();
+    const { result } = renderHook(() => useRowCache('7', 1_500, 1, store, null, api));
+    await waitFor(() => expect(api.getSheetData).toHaveBeenCalledTimes(1));
+
+    act(() => result.current.onVisibleRowsChanged(500, 500));
+    await waitFor(() => expect(getSheetRows).toHaveBeenCalledTimes(1));
+    act(() => result.current.onVisibleRowsChanged(1_000, 1_000));
+    await waitFor(() => expect(getSheetRows).toHaveBeenCalledTimes(2));
+    act(() => {
+      result.current.onVisibleRowsChanged(0, 0);
+      result.current.refresh();
+    });
+    await waitFor(() => expect(api.getSheetData).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(getSheetRows).toHaveBeenCalledTimes(3));
+
+    await act(async () => staleRows.resolve({ rows: [row(1_000, 1_000)] }));
+    expect(result.current.getRow(1_000)).toBeUndefined();
+    act(() => result.current.onVisibleRowsChanged(1_000, 1_000));
+    await waitFor(() => expect(getSheetRows).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(result.current.getRow(1_000)?.id).toBe('1000'));
+  });
 });
