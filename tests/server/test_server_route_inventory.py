@@ -155,6 +155,7 @@ def test_route_inventory_captures_query_aliases_and_defaults(tmp_path):
         "row_ids": ("row_ids", None),
         "scope_row_ids": ("scope_row_ids", None),
         "column_ids": ("column_ids", None),
+        "include_scope_metadata": ("include_scope_metadata", True),
     }
     assert _query_defaults(_route(app, "/api/projects/{pid}/exports/sheets")) == {
         "sheet_ids": ("sheet_id", "<required>"),

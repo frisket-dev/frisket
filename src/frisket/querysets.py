@@ -773,7 +773,25 @@ def execute_sheet_row_page(
         ).fetchone()[0]
         or 0
     )
-    rows = project.db.execute(
+    rows = execute_sheet_row_page_without_total(
+        project,
+        plan,
+        limit=limit,
+        offset=offset,
+    )
+    return rows, total
+
+
+def execute_sheet_row_page_without_total(
+    project: Project,
+    plan: SheetRowScopePlan,
+    *,
+    limit: int,
+    offset: int,
+) -> list[Any]:
+    """Return one ordered row page without evaluating its scope cardinality."""
+    order_clause = ", ".join(plan.order_parts) or "r.position ASC"
+    return project.db.execute(
         f"""
         SELECT r.id, r.parent_row_id
         FROM {plan.from_sql}
@@ -783,7 +801,6 @@ def execute_sheet_row_page(
         """,
         [*plan.select_params, limit, offset],
     ).fetchall()
-    return rows, total
 
 
 def resolve_sheet_filter_rows(

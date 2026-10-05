@@ -8,6 +8,7 @@ from pathlib import Path
 from frisket.engine.store import Project
 from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
 from frisket.engine.store.result_generations import ResultGenerationStore
+from frisket.engine.store.runs import RunResultStore
 from frisket.querysets import resolve_sheet_filter_rows
 from frisket.server.services.project_qa_analytics import evaluate_analytics
 from test_result_generation_store import (
@@ -143,6 +144,146 @@ def test_inline_scalars_follow_public_precedence_and_transactions(
             project.db.rollback()
         if not released:
             _release(project, run)
+        project.close()
+
+
+def test_generation_undo_redo_restores_and_clears_inline_scalars(
+    tmp_path: Path,
+) -> None:
+    project, sheet_id, column_id, row_ids = _seed_project(tmp_path)
+    project.set_column_type(column_id, "category")
+    generations = ResultGenerationStore(project)
+    initial = _start_claimed_run(
+        project,
+        sheet_id=sheet_id,
+        output_column_id=column_id,
+        row_ids=row_ids,
+        label="initial scalar generation",
+    )
+    replacement = None
+    initial_released = False
+    replacement_released = False
+    oversized_text = "é" * 65
+    try:
+        _declare(generations, initial, column_id, write_mode="create")
+        _write(
+            project,
+            initial,
+            [
+                {
+                    "row_id": row_ids[0],
+                    "column_id": column_id,
+                    "value": "alpha",
+                    "publication_effect": "publish_value",
+                },
+                {
+                    "row_id": row_ids[1],
+                    "column_id": column_id,
+                    "value": "beta",
+                    "publication_effect": "publish_value",
+                },
+                {
+                    "row_id": row_ids[2],
+                    "column_id": column_id,
+                    "value": None,
+                    "publication_effect": "publish_null",
+                },
+                {
+                    "row_id": row_ids[3],
+                    "column_id": column_id,
+                    "error": "initial failure",
+                    "error_code": "fixture_failure",
+                    "publication_effect": "publish_error",
+                },
+            ],
+        )
+        _seal(generations, initial, column_id)
+        RunResultStore(project).point_column_at_run(
+            initial.op_id, column_id, initial.run_id
+        )
+        _release(project, initial)
+        initial_released = True
+
+        replacement = _start_claimed_run(
+            project,
+            sheet_id=sheet_id,
+            output_column_id=column_id,
+            row_ids=row_ids,
+            label="replacement scalar generation",
+        )
+        _declare(generations, replacement, column_id, write_mode="replace_scope")
+        _write(
+            project,
+            replacement,
+            [
+                {
+                    "row_id": row_ids[0],
+                    "column_id": column_id,
+                    "value": oversized_text,
+                    "publication_effect": "publish_value",
+                },
+                {
+                    "row_id": row_ids[1],
+                    "column_id": column_id,
+                    "value": "gamma",
+                    "publication_effect": "publish_value",
+                },
+                {
+                    "row_id": row_ids[2],
+                    "column_id": column_id,
+                    "value": None,
+                    "publication_effect": "publish_null",
+                },
+                {
+                    "row_id": row_ids[3],
+                    "column_id": column_id,
+                    "error": "replacement failure",
+                    "error_code": "fixture_failure",
+                    "publication_effect": "publish_error",
+                },
+            ],
+        )
+        _seal(generations, replacement, column_id)
+        RunResultStore(project).point_column_at_run(
+            replacement.op_id, column_id, replacement.run_id
+        )
+        _release(project, replacement)
+        replacement_released = True
+
+        def assert_replacement() -> None:
+            assert project.get_values(sheet_id, column_id, row_ids) == {
+                row_ids[0]: oversized_text,
+                row_ids[1]: "gamma",
+                row_ids[2]: None,
+                row_ids[3]: None,
+            }
+            assert [
+                _inline_value(project, row_id, column_id) for row_id in row_ids
+            ] == [(None, None), ("text", "gamma"), ("null", None), (None, None)]
+
+        assert_replacement()
+        assert project.undo() == replacement.op_id
+        assert project.get_values(sheet_id, column_id, row_ids) == {
+            row_ids[0]: "alpha",
+            row_ids[1]: "beta",
+            row_ids[2]: None,
+            row_ids[3]: None,
+        }
+        assert [_inline_value(project, row_id, column_id) for row_id in row_ids] == [
+            ("text", "alpha"),
+            ("text", "beta"),
+            ("null", None),
+            (None, None),
+        ]
+        assert project.redo() == replacement.op_id
+        assert_replacement()
+    finally:
+        if project.db.in_transaction:
+            project.db.rollback()
+        if replacement is not None and not replacement_released:
+            _release(project, replacement)
+        if not initial_released:
+            _release(project, initial)
         project.close()
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 
 import frisket.search as search_mod
+import pytest
 from frisket.engine.store import Project
 from frisket.search import (
     drain_index,
@@ -86,29 +87,54 @@ def test_malformed_unicode_cell_is_repaired_and_fully_searchable(tmp_path):
         project.close()
 
 
-def test_temp_fts_indexes_only_the_bounded_result_pool(tmp_path, monkeypatch):
+@pytest.mark.parametrize(("rerank", "expected_pool"), [("off", 3), ("auto", 50)])
+def test_temp_fts_indexes_only_the_bounded_result_pool(
+    tmp_path, monkeypatch, rerank, expected_pool
+):
     project = Project.create(tmp_path / "bounded.frisket", name="bounded")
     try:
         sheet = project.add_sheet("Documents")
         column = project.add_column(sheet, "body")
         project.add_rows(
             sheet,
-            [{"body": f"commonneedle document {index}"} for index in range(40)],
+            [{"body": f"commonneedle document {index}"} for index in range(60)],
             {"body": column},
         )
         drain_index(project)
 
-        observed: list[int] = []
+        ranked_limits: list[int] = []
+        hydrated: list[int] = []
+        snippet_pools: list[int] = []
+        ranked_candidates = search_mod._ranked_candidates
+        hydrate_candidates = search_mod.hydrate_candidates
         native_snippets = search_mod.native_snippets
 
+        def record_ranked(db, query, limit):
+            ranked_limits.append(limit)
+            return ranked_candidates(db, query, limit)
+
+        def record_hydrated(snapshot, candidates):
+            candidates = list(candidates)
+            hydrated.append(len(candidates))
+            return hydrate_candidates(snapshot, candidates)
+
         def record_pool(db, query, candidates, **kwargs):
-            observed.append(len(candidates))
+            snippet_pools.append(len(candidates))
             return native_snippets(db, query, candidates, **kwargs)
 
+        monkeypatch.setattr(search_mod, "_ranked_candidates", record_ranked)
+        monkeypatch.setattr(search_mod, "hydrate_candidates", record_hydrated)
         monkeypatch.setattr(search_mod, "native_snippets", record_pool)
-        page = search_project_page(project, "commonneedle", limit=3, rerank="off")
+        monkeypatch.setattr(
+            search_mod,
+            "local_reranker",
+            lambda: lambda _query, documents: list(range(len(documents))),
+        )
+        page = search_project_page(project, "commonneedle", limit=3, rerank=rerank)
 
         assert len(page["hits"]) == 3
-        assert observed == [3]
+        assert ranked_limits == [expected_pool]
+        assert hydrated == [expected_pool]
+        assert snippet_pools == [expected_pool]
     finally:
         project.close()

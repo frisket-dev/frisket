@@ -44,6 +44,7 @@ def register_sheet_grid_routes(
         row_ids: str = Query(default=None),  # type: ignore[assignment]
         scope_row_ids: str = Query(default=None),  # type: ignore[assignment]
         column_ids: str = Query(default=None),  # type: ignore[assignment]
+        include_scope_metadata: bool = True,
     ) -> SheetData:
         reject_unknown_query_parameters(request, SheetDataQuery)
         return SheetData.model_validate(
@@ -58,6 +59,7 @@ def register_sheet_grid_routes(
                 row_ids=row_ids,
                 scope_row_ids=scope_row_ids,
                 column_ids=column_ids,
+                include_scope_metadata=include_scope_metadata,
             )
         )
 

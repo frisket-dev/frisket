@@ -5505,6 +5505,18 @@ type HttpInline_08f832331573f245_JsonValue = JsonValue;
 
 export type HttpInline_08f832331573f245 = (((HttpInline_08f832331573f245_ActionError)) | ((HttpInline_08f832331573f245_HttpError)));
 
+export type HttpInline_0b832ccbfe473119 = ({
+  "column_ids"?: (string);
+  "filter"?: (string);
+  "include_scope_metadata"?: (boolean);
+  "limit"?: (number);
+  "offset"?: (number);
+  "parent_row_id"?: (number);
+  "row_ids"?: (string);
+  "scope_row_ids"?: (string);
+  "sort"?: (string);
+});
+
 export type HttpInline_0c9cd7bcf35ce8b1 = ({
   "limit"?: (number);
   "status"?: (string);
@@ -6232,17 +6244,6 @@ export type HttpInline_8b265931c6336b68 = ({
 
 export type HttpInline_8dd8e83611062581 = ({
   "user_ref": (string);
-});
-
-export type HttpInline_903a523d1148350b = ({
-  "column_ids"?: (string);
-  "filter"?: (string);
-  "limit"?: (number);
-  "offset"?: (number);
-  "parent_row_id"?: (number);
-  "row_ids"?: (string);
-  "scope_row_ids"?: (string);
-  "sort"?: (string);
 });
 
 type HttpInline_95dd5aaa354f43b3_ActionError = ({
@@ -9410,7 +9411,7 @@ type HttpSheetData_SheetDataValueRef = ({
 export type HttpSheetData = ({
   "columns": (Array<(HttpSheetData_SheetDataColumn)>);
   "rows": (Array<(HttpSheetData_SheetDataRow)>);
-  "total": (number);
+  "total"?: (((number)) | ((null)));
 });
 
 export type HttpSheetDeleteResponse = ({
@@ -13428,7 +13429,7 @@ export type HttpContractOperationMap = {
   };
   readonly "tenant.sheet_data.get": {
     readonly pathParams: HttpInline_fa1495952891aea0;
-    readonly query: HttpInline_903a523d1148350b;
+    readonly query: HttpInline_0b832ccbfe473119;
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpSheetData;

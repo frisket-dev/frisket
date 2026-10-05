@@ -40,6 +40,9 @@ class IndexProgress:
     processed_bytes: int = 0
 
 
+_SQLITE_ROW_ID_CHUNK = 900
+
+
 def _state(db: sqlite3.Connection, key: str) -> str | None:
     row = db.execute("SELECT value FROM fts_state WHERE key=?", (key,)).fetchone()
     return None if row is None else str(row[0])
@@ -124,32 +127,50 @@ def _column_page(
         else []
     )
     old = index.execute(
-        "SELECT row_id FROM search_cells "
+        "SELECT id,row_id,sheet_id,column_name,source_hash FROM search_cells "
         "WHERE column_id=? AND row_id>? AND row_id<=? ORDER BY row_id LIMIT ?",
         params,
     ).fetchall()
-    ids = sorted({int(row[0]) for row in live} | {int(row[0]) for row in old})[:limit]
-    return ids, {int(row[0]) for row in live}
+    ids = sorted({int(row[0]) for row in live} | {int(row["row_id"]) for row in old})[
+        :limit
+    ]
+    return (
+        ids,
+        {int(row[0]) for row in live},
+        {int(row["row_id"]): row for row in old},
+    )
 
 
-def _cell_size(source, column: int, row: int) -> int:
-    found = source.execute(
-        "SELECT value_kind,value FROM current_cell_values "
-        "WHERE column_id=? AND row_id=?",
-        (column, row),
-    ).fetchone()
-    if found is None or found["value_kind"] == "null":
-        return 0
-    if found["value_kind"] == "boolean":
-        return len(str(bool(found["value"])))
-    # JSON text can contain escapes and is therefore a conservative preflight
-    # bound for its decoded searchable representation. Other kinds match the
-    # text produced by ProjectReadSnapshot.get_values exactly.
-    return len(str(found["value"]).encode("utf-8"))
-
-
-def _read_cell(snapshot, sheet_id: int, column: int, row: int):
-    return snapshot.get_values(sheet_id, column, row_ids=[row]).get(row)
+def _cell_sizes(source, column: int, rows: list[int]) -> dict[int, int]:
+    sizes: dict[int, int] = {}
+    for start in range(0, len(rows), _SQLITE_ROW_ID_CHUNK):
+        chunk = rows[start : start + _SQLITE_ROW_ID_CHUNK]
+        placeholders = ",".join("?" for _ in chunk)
+        found = source.execute(
+            "SELECT row_id,value_kind,"
+            "COALESCE(length(CAST(value AS BLOB)),0) AS stored_bytes,"
+            "CASE WHEN value_kind='boolean' THEN value END AS boolean_value,"
+            "CASE WHEN value_kind='real' THEN value END AS real_value "
+            "FROM current_cell_values WHERE column_id=? "
+            f"AND row_id IN ({placeholders})",
+            (column, *chunk),
+        ).fetchall()
+        for cell in found:
+            kind = cell["value_kind"]
+            if kind == "null":
+                size = 0
+            elif kind == "boolean":
+                # SQLite stores booleans as 0/1, while searchable_text receives
+                # native False/True.
+                size = len(str(bool(cell["boolean_value"])))
+            elif kind == "real":
+                size = len(str(cell["real_value"]).encode("utf-8"))
+            else:
+                # Stored text length is its UTF-8 byte length. JSON/link text
+                # remains a conservative bound when decoding removes escapes.
+                size = int(cell["stored_bytes"])
+            sizes[int(cell["row_id"])] = size
+    return sizes
 
 
 def _column_descriptor(source, column: int):
@@ -161,18 +182,22 @@ def _column_descriptor(source, column: int):
     ).fetchone()
 
 
-def _replace_cell(index, column: int, row_id: int, value, descriptor) -> None:
-    old = index.execute(
-        "SELECT id FROM search_cells WHERE column_id=? AND row_id=?",
-        (column, row_id),
-    ).fetchone()
+def _replace_cell(index, column: int, row_id: int, value, descriptor, old) -> None:
+    text = searchable_text(value) if descriptor is not None else None
+    digest = source_hash(text) if text is not None else None
+    if (
+        old is not None
+        and descriptor is not None
+        and digest is not None
+        and int(old["sheet_id"]) == int(descriptor["sheet_id"])
+        and old["column_name"] == descriptor["name"]
+        and old["source_hash"] == digest
+    ):
+        return
     if old is not None:
         # contentless-delete removes postings without retaining or replaying text.
-        index.execute("DELETE FROM cell_fts WHERE rowid=?", (old[0],))
-        index.execute("DELETE FROM search_cells WHERE id=?", (old[0],))
-    if descriptor is None:
-        return
-    text = searchable_text(value)
+        index.execute("DELETE FROM cell_fts WHERE rowid=?", (old["id"],))
+        index.execute("DELETE FROM search_cells WHERE id=?", (old["id"],))
     if text is None:
         return
     identity = index.execute(
@@ -183,7 +208,7 @@ def _replace_cell(index, column: int, row_id: int, value, descriptor) -> None:
             column,
             row_id,
             descriptor["name"],
-            source_hash(text),
+            digest,
         ),
     ).lastrowid
     index.execute(
@@ -252,7 +277,7 @@ def index_batch(
                 _raise_if_cancelled(cancel_event)
                 descriptor = _column_descriptor(snapshot.db, column)
                 remaining = batch_size - processed
-                ids, live_ids = _column_page(
+                ids, live_ids, old_by_row = _column_page(
                     snapshot.db,
                     index,
                     scope,
@@ -261,33 +286,44 @@ def index_batch(
                     remaining,
                     searchable=descriptor is not None,
                 )
+                live_page = [row_id for row_id in ids if row_id in live_ids]
+                sizes = _cell_sizes(snapshot.db, column, live_page)
+                admitted = []
                 for row_id in ids:
                     _raise_if_cancelled(cancel_event)
-                    size = (
-                        _cell_size(snapshot.db, column, row_id)
-                        if row_id in live_ids
-                        else 0
-                    )
+                    size = sizes.get(row_id, 0)
                     # One oversized cell can always make progress. Never load
                     # a second cell that would exceed the quantum byte budget.
                     if processed_bytes and processed_bytes + size > max_bytes:
                         byte_limit_reached = True
                         break
-                    value = (
-                        _read_cell(
-                            snapshot, int(descriptor["sheet_id"]), column, row_id
-                        )
-                        if row_id in live_ids
-                        else None
-                    )
-                    _replace_cell(index, column, row_id, value, descriptor)
-                    del value
-                    processed += 1
+                    admitted.append((row_id, size))
                     processed_bytes += size
+                admitted_live = [
+                    row_id for row_id, _size in admitted if row_id in live_ids
+                ]
+                values = (
+                    snapshot.get_values(
+                        int(descriptor["sheet_id"]), column, row_ids=admitted_live
+                    )
+                    if admitted_live
+                    else {}
+                )
+                for row_id, _size in admitted:
+                    _raise_if_cancelled(cancel_event)
+                    _replace_cell(
+                        index,
+                        column,
+                        row_id,
+                        values.get(row_id) if row_id in live_ids else None,
+                        descriptor,
+                        old_by_row.get(row_id),
+                    )
+                    processed += 1
                     row = row_id
-                    if processed_bytes >= max_bytes:
-                        byte_limit_reached = True
-                        break
+                del values
+                if processed_bytes >= max_bytes:
+                    byte_limit_reached = True
                 if byte_limit_reached:
                     break
                 if len(ids) < remaining:

@@ -960,6 +960,45 @@ describe('sheet and grid HTTP contracts', () => {
     );
   });
 
+  it('requests and maps grid-only rows without weakening the full-page contract', async () => {
+    const requests: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      requests.push(String(input));
+      return jsonResponse({
+        columns: [sheetColumnWire],
+        rows: [{
+          id: 11,
+          cells: { 9: 'One' },
+          meta: { 9: {
+            current_value_ref: {
+              kind: 'manual_edit', row_id: 11, column_id: 9, run_id: null, op_id: 2,
+            },
+          } },
+          parent_row_id: null,
+          child_count: 0,
+        }],
+      });
+    }));
+    const api = createSheetGridDomainApi(contractError, {
+      columnRunInfo: () => undefined,
+      v1ActionSession: createV1ActionSession('project-a'),
+    }, 'project-a');
+
+    await expect(api.getSheetRows('7', 500, 500)).resolves.toMatchObject({
+      rows: [{ id: '11', index: 500, cells: { 9: 'One' } }],
+    });
+    expect(requests).toEqual([
+      '/api/projects/project-a/sheets/7/data?offset=500&limit=500&include_scope_metadata=false',
+    ]);
+
+    await expect(getSheetDataContract(
+      'project-a',
+      7,
+      { offset: 500, limit: 500 },
+      contractError,
+    )).rejects.toThrow('Full sheet-data response omitted its exact total');
+  });
+
   it('maps managed mixed-origin columns without promoting the latest family to value authority', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
       total: 2,

@@ -301,7 +301,8 @@ def search_project_page(
         pool = max(limit, RERANK_POOL) if rerank != "off" else limit
         # A bounded overfetch tolerates recently changed candidates. Incomplete
         # coverage is explicit; never scan the whole ranked result set to fill a page.
-        rows, effective_query = _ranked_candidates(db, query, min(1000, pool * 4))
+        candidate_limit = pool if complete else min(1000, pool * 4)
+        rows, effective_query = _ranked_candidates(db, query, candidate_limit)
         hits, texts = _snippet_hits(
             db,
             snapshot,

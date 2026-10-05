@@ -342,7 +342,9 @@ describe('applyRoute fixed six-class matrix', () => {
     const rowCache = createRowCacheStore();
     const oldSlot = rowCache.getSlot('s1');
     const rows = [{ id: 'r1' }] as Row[];
-    oldSlot.setPage('s1:0', 0, rows, 1);
+    oldSlot.activate('s1:0');
+    const epoch = oldSlot.beginEpoch('s1:0');
+    oldSlot.setPage('s1:0', epoch, 0, rows, 1);
 
     harness.route.navigate({ ...base, sheetId: 's2' });
 

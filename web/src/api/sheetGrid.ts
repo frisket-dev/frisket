@@ -3,6 +3,7 @@ import type { GeneratedActionParams } from '../generated/actionTypes';
 import {
   getColumnStatsContract,
   getSheetDataContract,
+  getSheetRowsContract,
   deleteSheetContract,
   listSheetsContract,
   locateSheetRowContract,
@@ -26,6 +27,7 @@ import type {
   SheetRefreshResult,
   SheetRowLocation,
   JsonValue,
+  Row,
 } from './types';
 import type { V1ActionSession } from './v1ActionSession';
 
@@ -75,6 +77,12 @@ export interface SheetGridDomainApi {
     limit: number,
     options?: SheetDataOptions | null,
   ): Promise<SheetDataPage>;
+  getSheetRows(
+    sheetId: string,
+    offset: number,
+    limit: number,
+    options?: SheetDataOptions | null,
+  ): Promise<{ rows: Row[] }>;
   getColumnStats(
     sheetId: string,
     columnId: string,
@@ -231,24 +239,14 @@ export function createSheetGridDomainApi(
     };
   }
 
-  async function getSheetDataForProject(
+  function enrichRows(
     project: ProjectIdentity,
     sheetId: string,
     offset: number,
-    limit: number,
-    options: SheetDataOptions | null | undefined,
-  ): Promise<SheetDataPage> {
-    const data = await getSheetDataContract(
-      project.pathId,
-      Number(sheetId),
-      sheetDataQuery(offset, limit, options),
-      errorFactory,
-    );
-    const columns = data.columns.map((column) =>
-      enrichAiColumn(project, sheetId, column),
-    );
-    const columnById = new Map(columns.map((column) => [column.id, column]));
-    const rows = data.rows.map((row, index) => ({
+    data: { columns: ColumnDef[]; rows: Row[] },
+  ): Row[] {
+    const columnById = new Map(data.columns.map((column) => [column.id, column]));
+    return data.rows.map((row, index) => ({
       ...row,
       index: offset + index,
       provenance: Object.fromEntries(
@@ -265,7 +263,42 @@ export function createSheetGridDomainApi(
         }),
       ),
     }));
+  }
+
+  async function getSheetDataForProject(
+    project: ProjectIdentity,
+    sheetId: string,
+    offset: number,
+    limit: number,
+    options: SheetDataOptions | null | undefined,
+  ): Promise<SheetDataPage> {
+    const data = await getSheetDataContract(
+      project.pathId,
+      Number(sheetId),
+      sheetDataQuery(offset, limit, options),
+      errorFactory,
+    );
+    const columns = data.columns.map((column) =>
+      enrichAiColumn(project, sheetId, column),
+    );
+    const rows = enrichRows(project, sheetId, offset, { ...data, columns });
     return { rows, total: data.total, columns };
+  }
+
+  async function getSheetRowsForProject(
+    project: ProjectIdentity,
+    sheetId: string,
+    offset: number,
+    limit: number,
+    options: SheetDataOptions | null | undefined,
+  ): Promise<{ rows: Row[] }> {
+    const data = await getSheetRowsContract(
+      project.pathId,
+      Number(sheetId),
+      sheetDataQuery(offset, limit, options),
+      errorFactory,
+    );
+    return { rows: enrichRows(project, sheetId, offset, data) };
   }
 
   async function listSheetsForProject(project: ProjectIdentity): Promise<SheetMeta[]> {
@@ -372,6 +405,11 @@ export function createSheetGridDomainApi(
     getSheetData(sheetId, offset, limit, options = {}) {
       const project = captureProjectIdentity();
       return getSheetDataForProject(project, sheetId, offset, limit, options);
+    },
+
+    getSheetRows(sheetId, offset, limit, options = {}) {
+      const project = captureProjectIdentity();
+      return getSheetRowsForProject(project, sheetId, offset, limit, options);
     },
 
     getColumnStats(sheetId, columnId, options = {}) {

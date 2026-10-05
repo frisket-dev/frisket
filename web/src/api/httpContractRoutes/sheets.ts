@@ -157,11 +157,12 @@ function mapCellValueRef(
   };
 }
 
-function mapSheetData(wire: SheetDataWire): SheetDataPage {
+type SheetRowsContractPage = Pick<SheetDataPage, 'columns' | 'rows'>;
+
+function mapSheetRows(wire: SheetDataWire): SheetRowsContractPage {
   const columns = wire.columns.map(mapSheetColumn);
   const columnById = new Map(wire.columns.map((column) => [String(column.id), column]));
   return {
-    total: wire.total,
     columns,
     rows: wire.rows.map((row, index) => {
       const cells: Record<string, CellValue> = {};
@@ -224,6 +225,13 @@ function mapSheetData(wire: SheetDataWire): SheetDataPage {
       };
     }),
   };
+}
+
+function mapSheetData(wire: SheetDataWire): SheetDataPage {
+  if (wire.total == null) {
+    throw new Error('Full sheet-data response omitted its exact total');
+  }
+  return { ...mapSheetRows(wire), total: wire.total };
 }
 
 function mapColumnStats(wire: ColumnStatsWire): ColumnStats {
@@ -343,6 +351,22 @@ export function getSheetDataContract(
     headers: options.headers,
     errorFactory,
   }, mapSheetData);
+}
+
+export function getSheetRowsContract(
+  projectId: string,
+  sheetId: number,
+  query: SheetDataContractQuery,
+  errorFactory: ContractErrorFactory,
+  options: SheetGridContractOptions = {},
+): Promise<SheetRowsContractPage> {
+  return httpContract('tenant.sheet_data.get', {
+    pathParams: { pid: projectId, sheet_id: sheetId },
+    query: { ...query, include_scope_metadata: false },
+    signal: options.signal,
+    headers: options.headers,
+    errorFactory,
+  }, mapSheetRows);
 }
 
 export function getColumnStatsContract(

@@ -498,6 +498,9 @@ def _base_ctes(
             prepared.append(
                 f"CASE WHEN {valid} THEN substr({date_value}, 1, {width}) END AS g{index}_value"
             )
+    materialize_prepared = not request.groups or any(
+        metric.percent_of_total or metric.kind == "median" for metric in request.metrics
+    )
     return [
         f"scoped AS (SELECT r.id AS row_id FROM {filter_from_sql} WHERE {where_sql})",
         "source AS "
@@ -507,7 +510,11 @@ def _base_ctes(
         + " FROM scoped "
         + " ".join(joins)
         + ")",
-        "prepared AS MATERIALIZED (SELECT " + ", ".join(prepared) + " FROM source)",
+        "prepared AS "
+        + ("MATERIALIZED " if materialize_prepared else "")
+        + "(SELECT "
+        + ", ".join(prepared)
+        + " FROM source)",
     ], [*where_params, *ordered]
 
 

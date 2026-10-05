@@ -180,6 +180,7 @@ import type {
   SearchOptions,
   SpendReport,
 } from './types';
+import type { ProjectApiPort } from './ports';
 import type {
   ActionCatalogPayload,
   ActionJob,
@@ -278,6 +279,7 @@ import type {
   TimelineProjectionArtifact,
   SheetDataOptions,
   SheetDataPage,
+  Row,
   SheetRowLocation,
   SheetMeta,
   SourceInput,
@@ -1399,6 +1401,15 @@ class RealApi implements FrisketApi {
     return this.sheetGrid.getSheetData(sheetId, offset, limit, options);
   }
 
+  async getSheetRows(
+    sheetId: string,
+    offset: number,
+    limit: number,
+    options: SheetDataOptions | null = {},
+  ): Promise<{ rows: Row[] }> {
+    return this.sheetGrid.getSheetRows(sheetId, offset, limit, options);
+  }
+
   async getColumnStats(
     sheetId: string,
     columnId: string,
@@ -1911,4 +1922,4 @@ class RealApi implements FrisketApi {
 }
 
 const realApi = new RealApi();
-export const createProjectApi = (projectId: string): FrisketApi => new RealApi(projectId);
+export const createProjectApi = (projectId: string): ProjectApiPort => new RealApi(projectId);
