@@ -63,8 +63,7 @@ def test_rows_only_page_omits_scope_count_and_header_readers(
     normalized = [" ".join(statement.upper().split()) for statement in statements]
     assert not any("COUNT(*) OVER()" in statement for statement in normalized)
     assert not any(
-        statement.startswith("SELECT COUNT(*) FROM ROWS R")
-        for statement in normalized
+        statement.startswith("SELECT COUNT(*) FROM ROWS R") for statement in normalized
     )
 
 
@@ -90,6 +89,5 @@ def test_rows_only_numeric_sorted_page_skips_window_count(tmp_path) -> None:
     normalized = [" ".join(statement.upper().split()) for statement in statements]
     assert not any("COUNT(*) OVER()" in statement for statement in normalized)
     assert not any(
-        statement.startswith("SELECT COUNT(*) FROM ROWS R")
-        for statement in normalized
+        statement.startswith("SELECT COUNT(*) FROM ROWS R") for statement in normalized
     )
