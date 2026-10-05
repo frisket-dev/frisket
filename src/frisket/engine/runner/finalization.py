@@ -17,6 +17,7 @@ from frisket.engine.runner.column_retirement import (
 from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.result_generations import ResultGenerationStore
+from frisket.engine.store.review_stats import ensure_run_review_stats
 from frisket.engine.store.runs import EXPECTED_ROW_ERROR, RunResultStore
 from frisket.execution.attempt import set_attempt_state
 
@@ -179,6 +180,9 @@ def _finalize_run_in_transaction(
             terminal_attempt_state,
             commit=False,
         )
+
+    # Capture final output descriptors once, after publication and visibility.
+    ensure_run_review_stats(project.db, run_id)
 
 
 def finalize_pre_dispatch_run(
