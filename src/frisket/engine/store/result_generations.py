@@ -1402,12 +1402,8 @@ class ResultGenerationStore:
                 filter_sql = f" AND result.column_id IN ({placeholders})"
 
             self.db.execute(
-                "WITH ranked AS ("
-                "SELECT result.column_id,result.row_id,result.run_id,"
-                "ROW_NUMBER() OVER ("
-                "PARTITION BY result.column_id,result.row_id "
-                "ORDER BY result.run_id DESC"
-                ") AS precedence "
+                "WITH winners AS ("
+                "SELECT result.column_id,result.row_id,MAX(result.run_id) AS run_id "
                 "FROM results result "
                 "JOIN run_output_generations generation "
                 "ON generation.run_id=result.run_id "
@@ -1420,9 +1416,10 @@ class ResultGenerationStore:
                     generation_alias="generation", op_alias="op"
                 )
                 + filter_sql
+                + " GROUP BY result.column_id,result.row_id"
                 + ") "
                 "INSERT INTO cell_result_heads (column_id,row_id,run_id) "
-                "SELECT column_id,row_id,run_id FROM ranked WHERE precedence=1",
+                "SELECT column_id,row_id,run_id FROM winners",
                 params,
             )
             boundary_columns = affected_column_ids
