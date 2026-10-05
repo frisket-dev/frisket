@@ -267,15 +267,8 @@ def _evaluate(
 
     select_fields = ["a.*", *median_joins[0], "d.*"]
     from_sql = "aggregated a " + median_joins[1] + " CROSS JOIN denominators d"
-    base_ctes = list(ctes)
     finite_checks, finite_params = _finite_checks(request)
-    ctes.append(
-        "validation AS (SELECT COUNT(*) AS invalid_count FROM "
-        + from_sql
-        + (" WHERE " + " OR ".join(finite_checks) if finite_checks else " WHERE 0")
-        + ")"
-    )
-    having_sql, having_params = _having_sql(request)
+    user_having_sql, having_params = _having_sql(request)
     primary_metric = (
         request.sort[0].metric_id
         if request.sort and request.sort[0].kind == "metric"
@@ -284,14 +277,30 @@ def _evaluate(
     excluded_sql = ""
     if primary_metric is not None:
         excluded_sql = f"({_metric_ref(request, primary_metric)} IS NULL)"
-        having_sql = _and_sql(having_sql, f"NOT {excluded_sql}")
+    invalid_condition = " OR ".join(finite_checks) or "0"
+    excluded_condition = (
+        f"({user_having_sql or '1=1'}) AND ({excluded_sql})" if excluded_sql else "0"
+    )
+    ctes.append(
+        "validation AS (SELECT "
+        f"COALESCE(SUM(CASE WHEN {invalid_condition} THEN 1 ELSE 0 END),0) "
+        "AS invalid_count, "
+        f"COALESCE(SUM(CASE WHEN {excluded_condition} THEN 1 ELSE 0 END),0) "
+        "AS excluded_null_groups FROM " + from_sql + ")"
+    )
+    having_sql = (
+        _and_sql(user_having_sql, f"NOT {excluded_sql}")
+        if excluded_sql
+        else user_having_sql
+    )
     order_sql = _order_sql(request, group_fields)
     query = (
         "WITH "
         + ", ".join(ctes)
         + " SELECT "
         + ", ".join(select_fields)
-        + ", v.invalid_count AS __invalid_count FROM "
+        + ", v.invalid_count AS __invalid_count, "
+        "v.excluded_null_groups AS __excluded_null_groups FROM "
         + from_sql
         + " CROSS JOIN validation v"
         + (" WHERE " + having_sql if having_sql else "")
@@ -302,6 +311,7 @@ def _evaluate(
     params = [
         *source_params,
         *finite_params,
+        *(having_params if excluded_sql else []),
         *having_params,
         request.limit + 1,
         request.offset,
@@ -313,22 +323,18 @@ def _evaluate(
         else snapshot.db.execute(
             "WITH "
             + ", ".join(ctes)
-            + " SELECT d.*, v.invalid_count AS __invalid_count "
+            + " SELECT d.*, v.invalid_count AS __invalid_count, "
+            "v.excluded_null_groups AS __excluded_null_groups "
             "FROM denominators d CROSS JOIN validation v",
-            [*source_params, *finite_params],
+            [
+                *source_params,
+                *finite_params,
+                *(having_params if excluded_sql else []),
+            ],
         ).fetchone()
     )
     if metadata is None:
         raise AssertionError("analytics query did not return metadata")
-    excluded_null_groups = _excluded_null_groups(
-        snapshot.db,
-        base_ctes,
-        source_params,
-        from_sql,
-        excluded_sql,
-        request,
-        having_params,
-    )
     groups = [
         _result_group(row, request, columns, quality_columns)
         for row in rows[: request.limit]
@@ -343,7 +349,7 @@ def _evaluate(
         "groups": groups,
         "row_count": int(metadata["full_row_count"]),
         "has_more": len(rows) > request.limit,
-        "excluded_null_groups": excluded_null_groups,
+        "excluded_null_groups": int(metadata["__excluded_null_groups"]),
         "denominators": denominators,
         "source_op_cursor": snapshot.op_cursor,
     }
@@ -716,32 +722,6 @@ def _order_sql(request: AnalyticsRequest, group_fields: list[str]) -> str:
             )
         )
     return ", ".join(parts) or "row_count DESC"
-
-
-def _excluded_null_groups(
-    db: sqlite3.Connection,
-    ctes: list[str],
-    source_params: Sequence[Any],
-    from_sql: str,
-    excluded_sql: str,
-    request: AnalyticsRequest,
-    having_params: Sequence[Any],
-) -> int:
-    if not excluded_sql:
-        return 0
-    # HAVING predicates still apply; only the primary-ranking null exclusion is counted.
-    having, _ = _having_sql(request)
-    where = having or "1=1"
-    return int(
-        db.execute(
-            "WITH "
-            + ", ".join(ctes)
-            + " SELECT COUNT(*) FROM "
-            + from_sql
-            + f" WHERE ({where}) AND ({excluded_sql})",
-            [*source_params, *having_params],
-        ).fetchone()[0]
-    )
 
 
 def _result_group(
