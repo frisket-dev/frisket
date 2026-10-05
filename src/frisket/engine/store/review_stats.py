@@ -23,7 +23,7 @@ def _require_alias(alias: str) -> str:
 def current_review_run_predicate(
     run_alias: str = "runs", *, terminal_only: bool = True
 ) -> str:
-    """SQL predicate for a run with at least one still-current visible output.
+    """SQL predicate for a run with a still-current output on a visible sheet.
 
     Managed outputs are current only through exact result heads. The legacy
     column pointer fallback explicitly excludes every managed column, so a
@@ -40,12 +40,11 @@ def current_review_run_predicate(
         "JOIN columns review_column ON review_column.id=review_head.column_id "
         "JOIN sheets review_sheet ON review_sheet.id=review_column.sheet_id "
         f"WHERE review_head.run_id={run}.id AND review_column.active=1 "
-        "AND review_column.hidden=0 AND review_sheet.hidden=0) OR "
+        "AND review_sheet.hidden=0) OR "
         "EXISTS (SELECT 1 FROM columns review_column "
         "JOIN sheets review_sheet ON review_sheet.id=review_column.sheet_id "
         f"WHERE review_column.current_run_id={run}.id "
-        "AND review_column.active=1 AND review_column.hidden=0 "
-        "AND review_sheet.hidden=0 AND NOT EXISTS ("
+        "AND review_column.active=1 AND review_sheet.hidden=0 AND NOT EXISTS ("
         "SELECT 1 FROM run_output_generations review_generation "
         "WHERE review_generation.column_id=review_column.id)))"
     )

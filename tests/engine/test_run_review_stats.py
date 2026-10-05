@@ -224,6 +224,11 @@ def test_primary_membership_and_totals_survive_rename_and_partial_replacement(
             columns=[first],
             row_ids=row_ids,
         )
+        # Named-result columns can be hidden implementation details while
+        # their outputs remain current and reviewable.
+        project.db.execute(
+            "UPDATE columns SET hidden=1 WHERE id IN (?,?)", (second, support)
+        )
         predicate = current_review_run_predicate("candidate")
         still_current = project.db.execute(
             f"SELECT 1 FROM runs candidate WHERE candidate.id=? AND {predicate}",
