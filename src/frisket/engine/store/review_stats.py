@@ -183,21 +183,28 @@ def rebuild_run_review_stats(db: sqlite3.Connection, run_id: int) -> None:
 def ensure_run_review_stats(db: sqlite3.Connection, run_id: int) -> None:
     """Heal a missing/dirty terminal summary; live runs remain writer-owned."""
 
-    row = db.execute(
-        "SELECT status,review_stats_ready FROM runs WHERE id=?", (int(run_id),)
-    ).fetchone()
-    if row is None:
-        return
-    if row["status"] != "running" and not bool(row["review_stats_ready"]):
-        started_transaction = not db.in_transaction
-        try:
+    started_transaction = not db.in_transaction
+    try:
+        if started_transaction:
+            # Serialize the readiness check with rebuilds on other connections.
+            # The check must happen after acquiring the lock: a waiter may find
+            # that the preceding writer already completed the rebuild.
+            db.execute("BEGIN IMMEDIATE")
+        row = db.execute(
+            "SELECT status,review_stats_ready FROM runs WHERE id=?", (int(run_id),)
+        ).fetchone()
+        if (
+            row is not None
+            and row["status"] != "running"
+            and not bool(row["review_stats_ready"])
+        ):
             rebuild_run_review_stats(db, int(run_id))
-            if started_transaction:
-                db.commit()
-        except BaseException:
-            if started_transaction:
-                db.rollback()
-            raise
+        if started_transaction:
+            db.commit()
+    except BaseException:
+        if started_transaction:
+            db.rollback()
+        raise
 
 
 def adjust_review_stats_for_result_transition(

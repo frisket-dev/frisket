@@ -743,33 +743,41 @@ class RunResultStore:
         *,
         commit: bool = True,
     ) -> int:
-        self._require_run_sheet_mutable(run_id)
-        before = self.db.execute(
-            "SELECT review_state,review_decision FROM results "
-            "WHERE run_id=? AND row_id=? AND column_id=?",
-            (run_id, row_id, column_id),
-        ).fetchone()
-        cur = self.db.execute(
-            "UPDATE results SET review_state=? "
-            "WHERE run_id=? AND row_id=? AND column_id=?",
-            (review_state, run_id, row_id, column_id),
-        )
-        if before is not None and cur.rowcount == 1:
-            from .review_stats import adjust_review_stats_for_result_transition
-
-            adjust_review_stats_for_result_transition(
-                self.db,
-                run_id=run_id,
-                row_id=row_id,
-                column_id=column_id,
-                before_state=before["review_state"],
-                before_decision=before["review_decision"],
-                after_state=review_state,
-                after_decision=before["review_decision"],
+        started_transaction = not self.db.in_transaction
+        try:
+            if started_transaction:
+                self.db.execute("BEGIN IMMEDIATE")
+            self._require_run_sheet_mutable(run_id)
+            before = self.db.execute(
+                "SELECT review_state,review_decision FROM results "
+                "WHERE run_id=? AND row_id=? AND column_id=?",
+                (run_id, row_id, column_id),
+            ).fetchone()
+            cur = self.db.execute(
+                "UPDATE results SET review_state=? "
+                "WHERE run_id=? AND row_id=? AND column_id=?",
+                (review_state, run_id, row_id, column_id),
             )
-        if commit:
-            self.db.commit()
-        return int(cur.rowcount)
+            if before is not None and cur.rowcount == 1:
+                from .review_stats import adjust_review_stats_for_result_transition
+
+                adjust_review_stats_for_result_transition(
+                    self.db,
+                    run_id=run_id,
+                    row_id=row_id,
+                    column_id=column_id,
+                    before_state=before["review_state"],
+                    before_decision=before["review_decision"],
+                    after_state=review_state,
+                    after_decision=before["review_decision"],
+                )
+            if commit:
+                self.db.commit()
+            return int(cur.rowcount)
+        except BaseException:
+            if started_transaction:
+                self.db.rollback()
+            raise
 
     def set_result_review_metadata(
         self,
@@ -781,33 +789,41 @@ class RunResultStore:
         *,
         commit: bool = True,
     ) -> int:
-        self._require_run_sheet_mutable(run_id)
-        before = self.db.execute(
-            "SELECT review_state,review_decision FROM results "
-            "WHERE run_id=? AND row_id=? AND column_id=?",
-            (run_id, row_id, column_id),
-        ).fetchone()
-        cur = self.db.execute(
-            "UPDATE results SET review_decision=?, review_note=? "
-            "WHERE run_id=? AND row_id=? AND column_id=?",
-            (decision, note, run_id, row_id, column_id),
-        )
-        if before is not None and cur.rowcount == 1:
-            from .review_stats import adjust_review_stats_for_result_transition
-
-            adjust_review_stats_for_result_transition(
-                self.db,
-                run_id=run_id,
-                row_id=row_id,
-                column_id=column_id,
-                before_state=before["review_state"],
-                before_decision=before["review_decision"],
-                after_state=before["review_state"],
-                after_decision=decision,
+        started_transaction = not self.db.in_transaction
+        try:
+            if started_transaction:
+                self.db.execute("BEGIN IMMEDIATE")
+            self._require_run_sheet_mutable(run_id)
+            before = self.db.execute(
+                "SELECT review_state,review_decision FROM results "
+                "WHERE run_id=? AND row_id=? AND column_id=?",
+                (run_id, row_id, column_id),
+            ).fetchone()
+            cur = self.db.execute(
+                "UPDATE results SET review_decision=?, review_note=? "
+                "WHERE run_id=? AND row_id=? AND column_id=?",
+                (decision, note, run_id, row_id, column_id),
             )
-        if commit:
-            self.db.commit()
-        return int(cur.rowcount)
+            if before is not None and cur.rowcount == 1:
+                from .review_stats import adjust_review_stats_for_result_transition
+
+                adjust_review_stats_for_result_transition(
+                    self.db,
+                    run_id=run_id,
+                    row_id=row_id,
+                    column_id=column_id,
+                    before_state=before["review_state"],
+                    before_decision=before["review_decision"],
+                    after_state=before["review_state"],
+                    after_decision=decision,
+                )
+            if commit:
+                self.db.commit()
+            return int(cur.rowcount)
+        except BaseException:
+            if started_transaction:
+                self.db.rollback()
+            raise
 
     def mark_run_results_verified(self, run_id: int, *, commit: bool = True) -> int:
         """Auto-verify every still-unreviewed result in a run (mechanical ops).

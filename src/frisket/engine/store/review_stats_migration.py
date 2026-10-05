@@ -140,7 +140,7 @@ def migrate_review_stats(db: sqlite3.Connection) -> None:
                 "SELECT bundle_count FROM totals WHERE totals.run_id=runs.id),0),"
                 "review_resolved_bundle_count=COALESCE(("
                 "SELECT resolved_bundle_count FROM totals WHERE totals.run_id=runs.id),0),"
-                "review_stats_ready=1",
+                "review_stats_ready=CASE WHEN status='running' THEN 0 ELSE 1 END",
                 REVIEWABLE_OUTCOMES,
             )
             db.execute(
