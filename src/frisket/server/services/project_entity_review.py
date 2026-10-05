@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from frisket.contracts.http.history_review import ReviewBatchRequest
 from frisket.engine.runner.entities import list_entities
 from frisket.engine.runner.review import (
     queue_count,
@@ -11,6 +12,10 @@ from frisket.engine.runner.review import (
     review_queue,
     review_runs_page,
     set_review_run_status,
+)
+from frisket.engine.runner.review_sampling import (
+    exact_review_bundle_page,
+    sample_review_bundle_page,
 )
 from frisket.server.route_errors import RouteError
 from frisket.server.review_payloads import public_review_action_payloads
@@ -54,7 +59,6 @@ class ProjectEntityReviewService:
         include_reviewed: bool,
         field_id: int | None,
         order: str,
-        seed: int,
         cursor: int | None,
     ) -> dict[str, Any]:
         project = self._project(project_id)
@@ -67,13 +71,35 @@ class ProjectEntityReviewService:
             include_reviewed=include_reviewed,
             field_id=field_id,
             order=order,
-            seed=seed,
             cursor=cursor,
         )
         return {
             **page,
             "bundles": public_review_action_payloads(page["bundles"]),
         }
+
+    def review_batch(
+        self, project_id: str, request: ReviewBatchRequest
+    ) -> dict[str, Any]:
+        project = self._project(project_id)
+        if request.kind == "sample":
+            page = sample_review_bundle_page(
+                project,
+                run_id=request.run_id,
+                field_id=request.field_id,
+                include_reviewed=request.include_reviewed,
+                limit=request.limit,
+                exclude_row_ids=request.exclude_row_ids,
+            )
+        else:
+            page = exact_review_bundle_page(
+                project,
+                run_id=request.run_id,
+                field_id=request.field_id,
+                include_reviewed=request.include_reviewed,
+                row_ids=request.row_ids,
+            )
+        return {**page, "bundles": public_review_action_payloads(page["bundles"])}
 
     def review_count(
         self, project_id: str, *, run_id: int | None = None

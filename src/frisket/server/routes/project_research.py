@@ -7,6 +7,7 @@ from typing import Annotated, Any, Literal
 from fastapi import FastAPI, HTTPException, Path, Query
 
 from frisket.contracts.http.history_review import (
+    ReviewBatchRequest,
     ReviewBundlesPage,
     ReviewCount,
     ReviewRunsPage,
@@ -147,8 +148,7 @@ def register_project_entity_review_routes(
         run_id: int | None = Query(default=None, ge=1),
         include_reviewed: bool = False,
         field_id: int | None = Query(default=None, ge=1),
-        order: Literal["confidence", "shuffle", "row"] = "confidence",
-        seed: int = Query(default=0, ge=0, le=2_147_483_647),
+        order: Literal["confidence", "row"] = "confidence",
         cursor: int | None = Query(default=None, ge=0),
     ) -> ReviewBundlesPage:
         if cursor is not None and order != "row":
@@ -167,10 +167,17 @@ def register_project_entity_review_routes(
                 include_reviewed=include_reviewed,
                 field_id=field_id,
                 order=order,
-                seed=seed,
                 cursor=cursor,
             )
         )
+
+    @app.post(
+        "/api/projects/{pid}/review/bundles",
+        response_model=ReviewBundlesPage,
+        responses=http_error_responses(401, 403, 404, 422, 500),
+    )
+    def review_batch_ep(pid: str, request: ReviewBatchRequest) -> ReviewBundlesPage:
+        return ReviewBundlesPage.model_validate(service.review_batch(pid, request))
 
     @app.get(
         "/api/projects/{pid}/review/runs",

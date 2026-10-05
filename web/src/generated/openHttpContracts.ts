@@ -1390,6 +1390,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "tenant.review_batch_ep.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/review/bundles",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "tenant.review_bundles_ep.get",
       "method": "GET",
       "path": "/api/projects/{pid}/review/bundles",
@@ -5268,6 +5277,17 @@ export type HttpInline_3e1cc7c95e01e7fa = ({
   "state"?: (string);
 });
 
+export type HttpInline_3eeec944bc84ce8c = ({
+  "cursor"?: (((number)) | ((null)));
+  "field_id"?: (((number)) | ((null)));
+  "include_reviewed"?: (boolean);
+  "limit"?: (number);
+  "offset"?: (number);
+  "order"?: ("confidence" | "row") & (string);
+  "run_id"?: (((number)) | ((null)));
+  "sheet_id"?: (((number)) | ((null)));
+});
+
 export type HttpInline_4790cdea41e01e69 = ({
   "pid": (string);
   "view_id": (number);
@@ -5644,18 +5664,6 @@ type HttpInline_64f1fc6f91179544_AskThread = ({
 
 export type HttpInline_64f1fc6f91179544 = (Array<(HttpInline_64f1fc6f91179544_AskThread)>);
 
-export type HttpInline_6636b7b9681b6a0a = ({
-  "cursor"?: (((number)) | ((null)));
-  "field_id"?: (((number)) | ((null)));
-  "include_reviewed"?: (boolean);
-  "limit"?: (number);
-  "offset"?: (number);
-  "order"?: ("confidence" | "shuffle" | "row") & (string);
-  "run_id"?: (((number)) | ((null)));
-  "seed"?: (number);
-  "sheet_id"?: (((number)) | ((null)));
-});
-
 export type HttpInline_751e88b11b84ef2b = ({
   "pid": (string);
   "thread_id": (string);
@@ -5902,6 +5910,25 @@ export type HttpInline_96a5d2705cf3cbbb = ({
   "run_id": (number);
   "watch_id": (number);
 });
+
+type HttpInline_9886baa4a5a5ff4c_ReviewRowsRequest = ({
+  "field_id"?: (((number)) | ((null)));
+  "include_reviewed"?: (boolean);
+  "kind": ("rows") & (string);
+  "row_ids": (Array<(number)>);
+  "run_id": (number);
+});
+
+type HttpInline_9886baa4a5a5ff4c_ReviewSampleRequest = ({
+  "exclude_row_ids"?: (Array<(number)>);
+  "field_id"?: (((number)) | ((null)));
+  "include_reviewed"?: (boolean);
+  "kind": ("sample") & (string);
+  "limit"?: (number);
+  "run_id": (number);
+});
+
+export type HttpInline_9886baa4a5a5ff4c = (((HttpInline_9886baa4a5a5ff4c_ReviewSampleRequest)) | ((HttpInline_9886baa4a5a5ff4c_ReviewRowsRequest)));
 
 type HttpInline_98e76b87a87e7e90_ActionError = ({
   "action_kind"?: (((string)) | ((null)));
@@ -12652,9 +12679,22 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.review_batch_ep.post": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpInline_9886baa4a5a5ff4c;
+    readonly responses: {
+      readonly "200": HttpReviewBundlesPage;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
   readonly "tenant.review_bundles_ep.get": {
     readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_6636b7b9681b6a0a;
+    readonly query: HttpInline_3eeec944bc84ce8c;
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpReviewBundlesPage;

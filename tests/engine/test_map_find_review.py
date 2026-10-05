@@ -196,6 +196,8 @@ def test_find_occurrences_publish_reviewable_grounded_result_heads(
         page = review_bundle_page(project, run_id=run_id, include_reviewed=True)
         assert page["total"] == 2
         assert [bundle["row_id"] for bundle in page["bundles"]] == row_ids
+        assert {bundle["sheet_id"] for bundle in page["bundles"]} == {findings_sheet_id}
+        assert {bundle["sheet_name"] for bundle in page["bundles"]} == {"Findings"}
         for bundle, row_id in zip(page["bundles"], row_ids, strict=True):
             assert [
                 (field["column_name"], field["value"]) for field in bundle["fields"]

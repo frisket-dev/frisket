@@ -126,7 +126,6 @@ class _ReviewService:
         include_reviewed: bool,
         field_id: int | None,
         order: str,
-        seed: int,
         cursor: int | None,
     ) -> dict[str, Any]:
         item = {

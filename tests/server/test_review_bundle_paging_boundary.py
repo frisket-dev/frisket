@@ -335,36 +335,6 @@ def test_review_run_picker_excludes_current_running_runs(tmp_path: Path) -> None
     assert queue_count(project) == len(row_ids) * 2 + 1
 
 
-def test_review_bundle_field_and_seeded_shuffle_are_server_side_and_stable(
-    tmp_path: Path,
-) -> None:
-    client, project_id, _row_ids = _seed_review_history(tmp_path)
-    project = client.app.state.workspace.get(project_id)
-    run_id = int(project.db.execute("SELECT id FROM runs").fetchone()[0])
-    risk_id = int(
-        project.db.execute("SELECT id FROM columns WHERE name='risk'").fetchone()[0]
-    )
-
-    def shuffled(seed: int) -> list[int]:
-        response = client.get(
-            f"/api/projects/{project_id}/review/bundles",
-            params={
-                "run_id": run_id,
-                "field_id": risk_id,
-                "order": "shuffle",
-                "seed": seed,
-                "limit": 25,
-            },
-        )
-        assert response.status_code == 200, response.text
-        assert response.json()["total"] == 64
-        return [item["row_id"] for item in response.json()["bundles"]]
-
-    first = shuffled(11)
-    assert first == shuffled(11)
-    assert first != shuffled(12)
-
-
 def test_review_bundle_row_cursor_pages_without_offset_rescans(tmp_path: Path) -> None:
     client, project_id, row_ids = _seed_review_history(tmp_path)
     project = client.app.state.workspace.get(project_id)
@@ -409,3 +379,71 @@ def test_review_bundle_row_cursor_pages_without_offset_rescans(tmp_path: Path) -
     assert [item["row_id"] for item in tail_body["bundles"]] == row_ids[50:]
     assert tail_body["has_more"] is False
     assert tail_body["next_cursor"] is None
+
+
+def test_random_review_batches_and_exact_history(tmp_path: Path) -> None:
+    client, project_id, row_ids = _seed_review_history(tmp_path)
+    project = client.app.state.workspace.get(project_id)
+    run_id = int(project.db.execute("SELECT id FROM runs").fetchone()[0])
+    url = f"/api/projects/{project_id}/review/bundles"
+    request = {
+        "kind": "sample",
+        "run_id": run_id,
+        "include_reviewed": True,
+        "limit": 25,
+    }
+    first = client.post(url, json=request)
+    assert first.status_code == 200, first.text
+    body = first.json()
+    shown = [item["row_id"] for item in body["bundles"]]
+    assert len(shown) == len(set(shown)) == 25
+    assert body["total"] == len(row_ids)
+    assert body["has_more"] is True
+    second = client.post(url, json={**request, "exclude_row_ids": shown})
+    assert second.status_code == 200, second.text
+    next_ids = [item["row_id"] for item in second.json()["bundles"]]
+    assert len(next_ids) == 25
+    assert not set(shown) & set(next_ids)
+    tail = client.post(url, json={**request, "exclude_row_ids": shown + next_ids})
+    assert tail.status_code == 200, tail.text
+    assert len(tail.json()["bundles"]) == 14
+    assert tail.json()["has_more"] is False
+    risk = int(
+        project.db.execute("SELECT id FROM columns WHERE name='risk'").fetchone()[0]
+    )
+    store = RunResultStore(project)
+    store.set_result_review_state(run_id, shown[0], risk, "verified")
+    store.set_result_review_metadata(run_id, shown[0], risk, "accept", "Checked")
+    exact = client.post(
+        url,
+        json={
+            "kind": "rows",
+            "run_id": run_id,
+            "include_reviewed": True,
+            "row_ids": shown[::-1],
+        },
+    )
+    assert exact.status_code == 200, exact.text
+    assert [item["row_id"] for item in exact.json()["bundles"]] == shown[::-1]
+    field = next(
+        item
+        for item in exact.json()["bundles"][-1]["fields"]
+        if item["column_id"] == risk
+    )
+    assert field["review_decision"] == "accept"
+    _assert_no_recipe_keys(exact.json())
+
+
+def test_review_batch_request_validation(tmp_path: Path) -> None:
+    client, project_id, _ = _seed_review_history(tmp_path)
+    url = f"/api/projects/{project_id}/review/bundles"
+    for body in (
+        {"kind": "sample", "run_id": 0},
+        {"kind": "sample", "run_id": 1, "limit": 101},
+        {"kind": "sample", "run_id": 1, "exclude_row_ids": [-1]},
+        {"kind": "rows", "run_id": 1, "row_ids": []},
+        {"kind": "rows", "run_id": 1, "row_ids": list(range(1, 102))},
+        {"kind": "rows", "run_id": 1, "row_ids": [1], "exclude_row_ids": []},
+    ):
+        response = client.post(url, json=body)
+        assert response.status_code == 422, response.text

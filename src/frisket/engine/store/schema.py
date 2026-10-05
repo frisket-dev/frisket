@@ -355,6 +355,12 @@ CREATE TABLE IF NOT EXISTS results (
 CREATE INDEX IF NOT EXISTS idx_results_rowcol ON results(column_id, row_id);
 CREATE INDEX IF NOT EXISTS idx_results_run_col_row ON results(run_id, column_id, row_id);
 CREATE INDEX IF NOT EXISTS idx_results_column_run ON results(column_id, run_id);
+-- Confidence review reads one ordered candidate stream per frozen output field.
+-- Keeping row_id last makes ties deterministic without sorting the whole run.
+-- REVIEW_CONFIDENCE_INDEX_BEGIN
+CREATE INDEX IF NOT EXISTS idx_results_run_col_confidence_row
+  ON results(run_id, column_id, confidence, row_id);
+-- REVIEW_CONFIDENCE_INDEX_END
 -- One compact row per output field freezes whether that output was primary or
 -- support for this run. Later column renames cannot reclassify history. Counts
 -- cover stable run results rather than current publication heads; the run

@@ -137,6 +137,10 @@ describe('ReviewRunControls', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Review order' }));
     expect(screen.getByTestId('review-order')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Random' })).toHaveAttribute(
+      'title',
+      expect.stringContaining('Back keeps rows already shown'),
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Lowest confidence' }));
     expect(changedOrder).toHaveBeenCalledWith('confidence');
     fireEvent.click(screen.getByRole('button', { name: 'Results' }));

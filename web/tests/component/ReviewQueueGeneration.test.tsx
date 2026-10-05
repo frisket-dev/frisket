@@ -61,7 +61,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const options = { order: 'shuffle' as const, seed: 4 };
+const options = { order: 'shuffle' as const };
 function mount(onClose = vi.fn(), reviewOptions = options) {
   return render(<WorkspaceStoresContext.Provider value={stores}>
     <ReviewSession runId="9" options={reviewOptions} onChanged={vi.fn()} onClose={onClose}
@@ -274,9 +274,14 @@ it('accepts the final row without navigating beyond it', async () => {
 
 it('waits for a complete bulk save before advancing across the page boundary', async () => {
   const first = page('first');
-  Object.assign(first, { total: 2, limit: 1, hasMore: true, nextOffset: 1 });
+  Object.assign(first, { total: 2, limit: 1, hasMore: true });
   const next = page('next');
-  Object.assign(next, { offset: 1, total: 2, limit: 1 });
+  Object.assign(next, {
+    total: 2, limit: 1,
+    bundles: [{ ...next.bundles[0], rowId: '4', id: 'bundle-next', fields: next.bundles[0].fields.map((field) => ({
+      ...field, id: `9:4:${field.columnId}`, rowId: '4',
+    })) }],
+  });
   const load = vi.spyOn(stores.projectApi, 'getReviewBundles').mockResolvedValueOnce(first).mockResolvedValueOnce(next);
   let finish!: () => void;
   vi.spyOn(stores.projectApi, 'reviewItem').mockReturnValue(new Promise<void>((resolve) => { finish = resolve; }));
@@ -287,10 +292,80 @@ it('waits for a complete bulk save before advancing across the page boundary', a
   expect(load).toHaveBeenCalledOnce();
   finish();
   await waitFor(() => expect(screen.getByTestId('review-page-status')).toHaveTextContent('2 / 2'));
-  expect(load).toHaveBeenLastCalledWith(1, 25, '9', true, options);
+  expect(load).toHaveBeenLastCalledWith(0, 25, '9', true, {
+    fieldId: undefined, order: 'shuffle', excludeRowIds: ['3'],
+  });
 });
 
-it('uses row cursors for stable next and previous pages without sending a shuffle seed', async () => {
+it('keeps random history stable, excludes shown rows, and refreshes decisions on Back and Forward', async () => {
+  const first = page('first');
+  Object.assign(first, { total: 2, limit: 1, hasMore: true });
+  const second = page('second');
+  Object.assign(second, {
+    total: 2, limit: 1,
+    bundles: [{ ...second.bundles[0], rowId: '4', id: 'bundle-second', fields: second.bundles[0].fields.map((field) => ({
+      ...field, id: `9:4:${field.columnId}`, rowId: '4',
+    })) }],
+  });
+  const refreshedFirst = structuredClone(first);
+  refreshedFirst.hasMore = false;
+  refreshedFirst.bundles[0].fields[0].reviewDecision = 'accept';
+  refreshedFirst.bundles[0].fields[0].reviewState = 'verified';
+  const refreshedSecond = structuredClone(second);
+  refreshedSecond.hasMore = false;
+  const load = vi.spyOn(stores.projectApi, 'getReviewBundles')
+    .mockResolvedValueOnce(first)
+    .mockResolvedValueOnce(second)
+    .mockResolvedValueOnce(refreshedFirst)
+    .mockResolvedValueOnce(refreshedSecond);
+  mount();
+
+  await waitFor(() => expect(screen.getByTestId('review-page-status')).toHaveTextContent('1 / 2'));
+  fireEvent.click(screen.getAllByRole('button', { name: 'Next row', exact: true })[0]);
+  await waitFor(() => expect(screen.getByTestId('review-page-status')).toHaveTextContent('2 / 2'));
+  fireEvent.click(screen.getByRole('button', { name: 'Previous row' }));
+  await waitFor(() => expect(screen.getByTestId('review-page-status')).toHaveTextContent('1 / 2'));
+  expect(screen.getByRole('button', { name: 'Accept first' })).toHaveAttribute('aria-pressed', 'true');
+  fireEvent.click(screen.getAllByRole('button', { name: 'Next row', exact: true })[0]);
+  await waitFor(() => expect(screen.getByTestId('review-page-status')).toHaveTextContent('2 / 2'));
+
+  expect(load.mock.calls).toEqual([
+    [0, 25, '9', true, { fieldId: undefined, order: 'shuffle', excludeRowIds: [] }],
+    [0, 25, '9', true, { fieldId: undefined, order: 'shuffle', excludeRowIds: ['3'] }],
+    [0, 25, '9', true, { fieldId: undefined, order: 'shuffle', rowIds: ['3'] }],
+    [0, 25, '9', true, { fieldId: undefined, order: 'shuffle', rowIds: ['4'] }],
+  ]);
+});
+
+it('retries a failed random frontier request instead of reloading the displayed page', async () => {
+  const first = page('first');
+  Object.assign(first, { total: 2, limit: 1, hasMore: true });
+  const second = page('second');
+  Object.assign(second, {
+    total: 2, limit: 1,
+    bundles: [{ ...second.bundles[0], rowId: '4', id: 'bundle-second', fields: second.bundles[0].fields.map((field) => ({
+      ...field, id: `9:4:${field.columnId}`, rowId: '4',
+    })) }],
+  });
+  const load = vi.spyOn(stores.projectApi, 'getReviewBundles')
+    .mockResolvedValueOnce(first)
+    .mockRejectedValueOnce(new Error('offline'))
+    .mockResolvedValueOnce(second);
+  mount();
+
+  await waitFor(() => expect(screen.getByTestId('review-page-status')).toHaveTextContent('1 / 2'));
+  fireEvent.click(screen.getAllByRole('button', { name: 'Next row', exact: true })[0]);
+  fireEvent.click(await screen.findByRole('button', { name: 'Retry' }));
+  await waitFor(() => expect(screen.getByTestId('review-page-status')).toHaveTextContent('2 / 2'));
+
+  expect(load.mock.calls).toEqual([
+    [0, 25, '9', true, { fieldId: undefined, order: 'shuffle', excludeRowIds: [] }],
+    [0, 25, '9', true, { fieldId: undefined, order: 'shuffle', excludeRowIds: ['3'] }],
+    [0, 25, '9', true, { fieldId: undefined, order: 'shuffle', excludeRowIds: ['3'] }],
+  ]);
+});
+
+it('uses row cursors for stable next and previous pages', async () => {
   const first = page('first');
   Object.assign(first, { total: 2, limit: 1, hasMore: true, nextOffset: null, nextCursor: 3 });
   const next = page('next');
@@ -304,7 +379,7 @@ it('uses row cursors for stable next and previous pages without sending a shuffl
     .mockResolvedValueOnce(first)
     .mockResolvedValueOnce(next)
     .mockResolvedValueOnce(first);
-  mount(vi.fn(), { order: 'row', seed: 99 });
+  mount(vi.fn(), { order: 'row' });
 
   await waitFor(() => expect(screen.getByTestId('review-page-status')).toHaveTextContent('1 / 2'));
   fireEvent.click(screen.getAllByRole('button', { name: 'Next row', exact: true })[0]);
@@ -325,4 +400,30 @@ it('lets the reviewer close while the initial page is loading', async () => {
   mount(close);
   fireEvent.click(screen.getByRole('button', { name: 'Close' }));
   await waitFor(() => expect(close).toHaveBeenCalledOnce());
+});
+
+it('resamples an empty history page after a run becomes available again', async () => {
+  const first = { ...page('first'), total: 2, hasMore: true };
+  const empty = { ...first, total: 0, hasMore: false, bundles: [] };
+  const next = page('next');
+  next.total = 2;
+  next.bundles[0].rowId = '4';
+  const load = vi.spyOn(stores.projectApi, 'getReviewBundles')
+    .mockResolvedValueOnce(first)
+    .mockResolvedValueOnce(empty)
+    .mockResolvedValueOnce(first)
+    .mockResolvedValueOnce(next);
+  mount();
+
+  await screen.findByTestId('review-card');
+  fireEvent.click(screen.getAllByRole('button', { name: 'Next row', exact: true })[0]);
+  await screen.findByTestId('review-empty');
+  expect(screen.getByTestId('review-page-status')).toHaveTextContent('0 / 0');
+  fireEvent.click(screen.getByRole('button', { name: 'Previous row' }));
+  await screen.findByTestId('review-card');
+  fireEvent.click(screen.getAllByRole('button', { name: 'Next row', exact: true })[0]);
+  await waitFor(() => expect(screen.getByTestId('review-page-status')).toHaveTextContent('2 / 2'));
+  expect(load).toHaveBeenLastCalledWith(0, 25, '9', true, {
+    fieldId: undefined, order: 'shuffle', excludeRowIds: ['3'],
+  });
 });

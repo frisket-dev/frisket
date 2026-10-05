@@ -17,6 +17,24 @@ interface RowPageTarget {
   start: number;
 }
 
+interface RandomPageTarget {
+  rowIds: string[];
+  index: number;
+  start: number;
+  frontierHasMore: boolean;
+}
+
+type RandomPageRequest =
+  | { kind: 'sample'; excludeRowIds: string[]; index: number; start: number }
+  | { kind: 'rows'; target: RandomPageTarget };
+
+interface PageLoadRequest {
+  offset: number;
+  last: boolean;
+  rowTarget?: RowPageTarget;
+  randomRequest?: RandomPageRequest;
+}
+
 const FIRST_ROW_PAGE: RowPageTarget = { index: 0, start: 0 };
 
 /** Corrections are text edits. Structured and typed values keep their shape. */
@@ -52,9 +70,15 @@ export function useReviewSession({ runId, options, readOnly = false, onDecisionS
   const [loading, setLoading] = useState(true);
   const [problem, setProblem] = useState<string | null>(null);
   const request = useRef(0);
+  const failedPageLoad = useRef<PageLoadRequest | null>(null);
+  const [canRetryPageLoad, setCanRetryPageLoad] = useState(false);
   const rowPages = useRef<RowPageTarget[]>([FIRST_ROW_PAGE]);
   const currentRowPage = useRef<RowPageTarget>(FIRST_ROW_PAGE);
   const [rowPage, setRowPage] = useState<RowPageTarget>(FIRST_ROW_PAGE);
+  const randomPages = useRef<RandomPageTarget[]>([]);
+  const currentRandomPage = useRef<RandomPageTarget | null>(null);
+  const [randomPage, setRandomPage] = useState<RandomPageTarget | null>(null);
+  const [randomPageCount, setRandomPageCount] = useState(0);
   const bundle = page?.bundles[cursor];
   const field = bundle?.fields.find((item) => item.id === selectedId) ?? bundle?.fields[0];
 
@@ -68,13 +92,28 @@ export function useReviewSession({ runId, options, readOnly = false, onDecisionS
     setNote(value);
   }, []);
 
-  const loadPage = useCallback((offset: number, last = false, rowTarget?: RowPageTarget) => {
+  const loadPage = useCallback((
+    offset: number,
+    last = false,
+    rowTarget?: RowPageTarget,
+    randomRequest?: RandomPageRequest,
+  ) => {
+    const attemptedLoad = { offset, last, rowTarget, randomRequest };
     const generation = ++request.current;
     const rowOrdered = options.order === 'row';
+    const randomOrdered = options.order === 'shuffle';
     const requestOptions: ReviewBundleOptions = rowOrdered
       ? { fieldId: options.fieldId, order: 'row', cursor: rowTarget?.cursor }
-      : options;
-    return api.getReviewBundles(rowOrdered ? 0 : offset, 25, runId, true, requestOptions).then((response) => {
+      : randomOrdered
+        ? {
+            fieldId: options.fieldId,
+            order: 'shuffle',
+            ...(randomRequest?.kind === 'rows'
+              ? { rowIds: randomRequest.target.rowIds }
+              : { excludeRowIds: randomRequest?.excludeRowIds ?? [] }),
+          }
+        : options;
+    return api.getReviewBundles(rowOrdered || randomOrdered ? 0 : offset, 25, runId, true, requestOptions).then((response) => {
       if (generation !== request.current) return;
       const loaded = options.fieldId ? { ...response, bundles: response.bundles.map((row) => ({
         ...row, fields: row.fields.filter((item) => item.columnId === options.fieldId),
@@ -83,11 +122,33 @@ export function useReviewSession({ runId, options, readOnly = false, onDecisionS
         currentRowPage.current = rowTarget;
         setRowPage(rowTarget);
       }
+      if (randomOrdered && randomRequest) {
+        const target = randomRequest.kind === 'rows'
+          ? randomRequest.target
+          : {
+              rowIds: loaded.bundles.map((item) => item.rowId),
+              index: randomRequest.index,
+              start: randomRequest.start,
+              frontierHasMore: response.hasMore,
+            };
+        if (randomRequest.kind === 'sample') {
+          randomPages.current = [...randomPages.current.slice(0, target.index), target];
+          setRandomPageCount(randomPages.current.length);
+        }
+        currentRandomPage.current = target;
+        setRandomPage(target);
+      }
       setPage(loaded);
       selectRow(loaded, last ? Math.max(0, loaded.bundles.length - 1) : 0);
+      failedPageLoad.current = null;
+      setCanRetryPageLoad(false);
       setProblem(null);
     }).catch(() => {
-      if (generation === request.current) setProblem('Could not load review results. Please try again.');
+      if (generation === request.current) {
+        failedPageLoad.current = attemptedLoad;
+        setCanRetryPageLoad(true);
+        setProblem('Could not load review results. Please try again.');
+      }
     }).finally(() => {
       if (generation === request.current) setLoading(false);
     });
@@ -96,9 +157,14 @@ export function useReviewSession({ runId, options, readOnly = false, onDecisionS
   useEffect(() => {
     rowPages.current = [FIRST_ROW_PAGE];
     currentRowPage.current = FIRST_ROW_PAGE;
-    void loadPage(0, false, FIRST_ROW_PAGE);
+    randomPages.current = [];
+    currentRandomPage.current = null;
+    failedPageLoad.current = null;
+    void loadPage(0, false, FIRST_ROW_PAGE, options.order === 'shuffle'
+      ? { kind: 'sample', excludeRowIds: [], index: 0, start: 0 }
+      : undefined);
     return () => { request.current += 1; };
-  }, [loadPage]);
+  }, [loadPage, options.order]);
 
   const changeNote = (value: string) => {
     noteDraft.current.value = value;
@@ -137,7 +203,24 @@ export function useReviewSession({ runId, options, readOnly = false, onDecisionS
     if (!page) return;
     const next = cursor + delta;
     if (next >= 0 && next < page.bundles.length) selectRow(page, next);
-    else if (delta === 1 && options.order === 'row' && page.nextCursor !== null) {
+    else if (delta === 1 && options.order === 'shuffle' && randomPage) {
+      const stored = randomPages.current[randomPage.index + 1];
+      setLoading(true);
+      if (stored?.rowIds.length) void loadPage(0, false, undefined, { kind: 'rows', target: stored });
+      else if (randomPage.frontierHasMore) {
+        const excludeRowIds = [...new Set(randomPages.current.flatMap((target) => target.rowIds))];
+        void loadPage(0, false, undefined, {
+          kind: 'sample',
+          excludeRowIds,
+          index: randomPage.index + 1,
+          start: randomPage.start + page.bundles.length,
+        });
+      } else setLoading(false);
+    } else if (delta === -1 && options.order === 'shuffle' && randomPage?.index) {
+      const target = randomPages.current[randomPage.index - 1];
+      setLoading(true);
+      void loadPage(0, true, undefined, { kind: 'rows', target });
+    } else if (delta === 1 && options.order === 'row' && page.nextCursor !== null) {
       const target = {
         cursor: page.nextCursor,
         index: rowPage.index + 1,
@@ -217,17 +300,37 @@ export function useReviewSession({ runId, options, readOnly = false, onDecisionS
 
   return {
     bundle, field, page, cursor, note, changeNote, saveNote, savingNote, busy: busy || loading, loading,
-    problem, retry: () => {
+    problem, canRetryPageLoad, retry: () => {
       setLoading(true);
-      void loadPage(page?.offset ?? 0, false, options.order === 'row' ? currentRowPage.current : undefined);
+      const failed = failedPageLoad.current;
+      if (failed) {
+        void loadPage(failed.offset, failed.last, failed.rowTarget, failed.randomRequest);
+        return;
+      }
+      const target = currentRandomPage.current;
+      void loadPage(
+        page?.offset ?? 0,
+        false,
+        options.order === 'row' ? currentRowPage.current : undefined,
+        options.order === 'shuffle'
+          ? target
+            ? { kind: 'rows', target }
+            : { kind: 'sample', excludeRowIds: [], index: 0, start: 0 }
+          : undefined,
+      );
     }, readOnly, leave,
     moveRow, moveField, selectField, startEdit, editingId, editValue, setEditValue,
     cancelEdit: () => setEditingId(null), resolve, toggle, acceptRemaining, reset,
     projectId: chromePreferences.projectId,
-    position: page ? (options.order === 'row' ? rowPage.start : page.offset) + cursor + 1 : 0,
-    canPrevious: !!page && (cursor > 0 || (options.order === 'row' ? rowPage.index > 0 : page.offset > 0)),
+    position: page?.bundles.length ? (options.order === 'row' ? rowPage.start
+      : options.order === 'shuffle' ? randomPage?.start ?? 0 : page.offset) + cursor + 1 : 0,
+    canPrevious: !!page && (cursor > 0 || (options.order === 'row' ? rowPage.index > 0
+      : options.order === 'shuffle' ? !!randomPage?.index : page.offset > 0)),
     canNext: !!page && (cursor < page.bundles.length - 1
-      || (options.order === 'row' ? page.nextCursor !== null : page.hasMore)),
+      || (options.order === 'row' ? page.nextCursor !== null
+        : options.order === 'shuffle'
+          ? !!randomPage && (randomPage.index < randomPageCount - 1 || randomPage.frontierHasMore)
+          : page.hasMore)),
   };
 }
 export type ReviewSessionController = ReturnType<typeof useReviewSession>;
