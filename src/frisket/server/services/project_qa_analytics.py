@@ -492,7 +492,9 @@ def _base_ctes(
             )
     return [
         f"scoped AS (SELECT r.id AS row_id FROM {filter_from_sql} WHERE {where_sql})",
-        "source AS (SELECT "
+        "source AS "
+        + ("MATERIALIZED " if request.groups else "")
+        + "(SELECT "
         + ", ".join(source)
         + " FROM scoped "
         + " ".join(joins)

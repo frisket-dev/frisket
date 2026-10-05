@@ -163,6 +163,43 @@ def test_scalar_quality_is_reported_once_per_referenced_column(tmp_path):
     project.close()
 
 
+def test_grouped_analytics_materializes_its_value_source(tmp_path):
+    project, sheet, columns, _rows = _seed(tmp_path)
+
+    def query_plan(*, grouped: bool) -> list[str]:
+        request = AnalyticsRequest.model_validate(
+            {
+                "sheet_id": sheet,
+                "groups": ([{"column_id": columns["supplier"]}] if grouped else []),
+                "metrics": [{"id": "rows", "kind": "count"}],
+            }
+        )
+        statements: list[str] = []
+        with project.read_snapshot() as snapshot:
+            snapshot.db.set_trace_callback(statements.append)
+            try:
+                project_qa_analytics._evaluate(
+                    snapshot,
+                    request,
+                    {"kind": "sheet", "sheet_id": sheet},
+                )
+            finally:
+                snapshot.db.set_trace_callback(None)
+            query = next(
+                statement
+                for statement in statements
+                if statement.lstrip().startswith("WITH scoped AS")
+            )
+            return [
+                str(row["detail"])
+                for row in snapshot.db.execute("EXPLAIN QUERY PLAN " + query)
+            ]
+
+    assert "MATERIALIZE source" in query_plan(grouped=True)
+    assert "MATERIALIZE source" not in query_plan(grouped=False)
+    project.close()
+
+
 def test_having_is_numeric_and_denominator_precedes_group_filtering(tmp_path):
     project, sheet, columns, _rows = _seed(tmp_path)
     with pytest.raises(ValueError, match="numeric"):
