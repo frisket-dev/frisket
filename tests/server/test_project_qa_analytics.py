@@ -220,6 +220,34 @@ def test_having_is_numeric_and_denominator_precedes_group_filtering(tmp_path):
         "mixed_sign": False,
     }
 
+    non_percentage = evaluate_analytics(
+        project,
+        {
+            "sheet_id": sheet,
+            "groups": [{"column_id": columns["supplier"]}],
+            "metrics": [{"id": "rows", "kind": "count"}],
+            "having": [{"metric_id": "rows", "operator": "gt", "value": 2}],
+        },
+        {"kind": "sheet", "sheet_id": sheet},
+    )
+    assert [group["group"][0]["value"] for group in non_percentage["groups"]] == ["A"]
+    assert non_percentage["row_count"] == 6
+    assert non_percentage["denominators"] == {}
+
+    empty = evaluate_analytics(
+        project,
+        {
+            "sheet_id": sheet,
+            "filter": {"status": {"eq": "not-present"}},
+            "groups": [{"column_id": columns["supplier"]}],
+            "metrics": [{"id": "rows", "kind": "count"}],
+        },
+        {"kind": "sheet", "sheet_id": sheet},
+    )
+    assert empty["groups"] == []
+    assert empty["row_count"] == 0
+    assert empty["denominators"] == {}
+
     off_end = evaluate_analytics(
         project,
         {
