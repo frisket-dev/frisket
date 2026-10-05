@@ -873,7 +873,7 @@ def _sheet_data_payload(
                 # Values are manual/source facts or exact generation heads;
                 # the retired scalar is never reader authority.
                 "current_run_id": None,
-                "latest_run_id": latest_run_id(c) if include_column_metadata else None,
+                "latest_run_id": latest_run_id(c) if include_scope_metadata else None,
                 "generation_managed": is_generation_managed(int(c["id"])),
                 "mixed_origins": has_mixed_origins(int(c["id"])),
                 "transcript_status": transcript_statuses.get(c["id"]),
