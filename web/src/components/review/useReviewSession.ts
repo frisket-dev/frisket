@@ -28,6 +28,13 @@ type RandomPageRequest =
   | { kind: 'sample'; excludeRowIds: string[]; index: number; start: number }
   | { kind: 'rows'; target: RandomPageTarget };
 
+interface PageLoadRequest {
+  offset: number;
+  last: boolean;
+  rowTarget?: RowPageTarget;
+  randomRequest?: RandomPageRequest;
+}
+
 const FIRST_ROW_PAGE: RowPageTarget = { index: 0, start: 0 };
 
 /** Corrections are text edits. Structured and typed values keep their shape. */
@@ -63,6 +70,8 @@ export function useReviewSession({ runId, options, readOnly = false, onDecisionS
   const [loading, setLoading] = useState(true);
   const [problem, setProblem] = useState<string | null>(null);
   const request = useRef(0);
+  const failedPageLoad = useRef<PageLoadRequest | null>(null);
+  const [canRetryPageLoad, setCanRetryPageLoad] = useState(false);
   const rowPages = useRef<RowPageTarget[]>([FIRST_ROW_PAGE]);
   const currentRowPage = useRef<RowPageTarget>(FIRST_ROW_PAGE);
   const [rowPage, setRowPage] = useState<RowPageTarget>(FIRST_ROW_PAGE);
@@ -89,6 +98,7 @@ export function useReviewSession({ runId, options, readOnly = false, onDecisionS
     rowTarget?: RowPageTarget,
     randomRequest?: RandomPageRequest,
   ) => {
+    const attemptedLoad = { offset, last, rowTarget, randomRequest };
     const generation = ++request.current;
     const rowOrdered = options.order === 'row';
     const randomOrdered = options.order === 'shuffle';
@@ -130,9 +140,15 @@ export function useReviewSession({ runId, options, readOnly = false, onDecisionS
       }
       setPage(loaded);
       selectRow(loaded, last ? Math.max(0, loaded.bundles.length - 1) : 0);
+      failedPageLoad.current = null;
+      setCanRetryPageLoad(false);
       setProblem(null);
     }).catch(() => {
-      if (generation === request.current) setProblem('Could not load review results. Please try again.');
+      if (generation === request.current) {
+        failedPageLoad.current = attemptedLoad;
+        setCanRetryPageLoad(true);
+        setProblem('Could not load review results. Please try again.');
+      }
     }).finally(() => {
       if (generation === request.current) setLoading(false);
     });
@@ -143,6 +159,7 @@ export function useReviewSession({ runId, options, readOnly = false, onDecisionS
     currentRowPage.current = FIRST_ROW_PAGE;
     randomPages.current = [];
     currentRandomPage.current = null;
+    failedPageLoad.current = null;
     void loadPage(0, false, FIRST_ROW_PAGE, options.order === 'shuffle'
       ? { kind: 'sample', excludeRowIds: [], index: 0, start: 0 }
       : undefined);
@@ -283,8 +300,13 @@ export function useReviewSession({ runId, options, readOnly = false, onDecisionS
 
   return {
     bundle, field, page, cursor, note, changeNote, saveNote, savingNote, busy: busy || loading, loading,
-    problem, retry: () => {
+    problem, canRetryPageLoad, retry: () => {
       setLoading(true);
+      const failed = failedPageLoad.current;
+      if (failed) {
+        void loadPage(failed.offset, failed.last, failed.rowTarget, failed.randomRequest);
+        return;
+      }
       const target = currentRandomPage.current;
       void loadPage(
         page?.offset ?? 0,

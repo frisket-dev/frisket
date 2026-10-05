@@ -337,6 +337,34 @@ it('keeps random history stable, excludes shown rows, and refreshes decisions on
   ]);
 });
 
+it('retries a failed random frontier request instead of reloading the displayed page', async () => {
+  const first = page('first');
+  Object.assign(first, { total: 2, limit: 1, hasMore: true });
+  const second = page('second');
+  Object.assign(second, {
+    total: 2, limit: 1,
+    bundles: [{ ...second.bundles[0], rowId: '4', id: 'bundle-second', fields: second.bundles[0].fields.map((field) => ({
+      ...field, id: `9:4:${field.columnId}`, rowId: '4',
+    })) }],
+  });
+  const load = vi.spyOn(stores.projectApi, 'getReviewBundles')
+    .mockResolvedValueOnce(first)
+    .mockRejectedValueOnce(new Error('offline'))
+    .mockResolvedValueOnce(second);
+  mount();
+
+  await waitFor(() => expect(screen.getByTestId('review-page-status')).toHaveTextContent('1 / 2'));
+  fireEvent.click(screen.getAllByRole('button', { name: 'Next row', exact: true })[0]);
+  fireEvent.click(await screen.findByRole('button', { name: 'Retry' }));
+  await waitFor(() => expect(screen.getByTestId('review-page-status')).toHaveTextContent('2 / 2'));
+
+  expect(load.mock.calls).toEqual([
+    [0, 25, '9', true, { fieldId: undefined, order: 'shuffle', excludeRowIds: [] }],
+    [0, 25, '9', true, { fieldId: undefined, order: 'shuffle', excludeRowIds: ['3'] }],
+    [0, 25, '9', true, { fieldId: undefined, order: 'shuffle', excludeRowIds: ['3'] }],
+  ]);
+});
+
 it('uses row cursors for stable next and previous pages', async () => {
   const first = page('first');
   Object.assign(first, { total: 2, limit: 1, hasMore: true, nextOffset: null, nextCursor: 3 });

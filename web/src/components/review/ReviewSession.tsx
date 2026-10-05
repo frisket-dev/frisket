@@ -134,7 +134,7 @@ export function ReviewSession({ onClose, renderToolbar, ...options }: ReviewSess
   return <>
     {renderToolbar ? renderToolbar(navigation, c.leave, c.busy && !c.loading) : navigation}
     {c.problem && <div className={styles.notice} role="alert">{c.problem}
-      {c.loading === false && !c.page && <button className="btn" onClick={c.retry}>Retry</button>}
+      {c.loading === false && c.canRetryPageLoad && <button className="btn" onClick={c.retry}>Retry</button>}
       {c.note && <button className="btn" onClick={() => { void c.saveNote(); }}>Save note</button>}
     </div>}
     {c.readOnly && <p className={styles.notice}>Review complete. Reopen it to make more decisions.</p>}
