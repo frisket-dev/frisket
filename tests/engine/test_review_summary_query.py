@@ -47,25 +47,27 @@ def test_review_summary_keeps_exact_bundle_and_visibility_semantics(
             "UPDATE columns SET current_run_id=? WHERE id IN (?,?,?)",
             (run_id, answer_id, category_id, support_id),
         )
-        project.db.commit()
+        RunResultStore(project).finish_run(run_id)
 
         # Two primary fields and an unreviewed support field still make one
         # bundle per run/row.
         assert project.refresh_pending_review_summary() == 2
         assert review_bundle_count(project) == 2
 
-        project.db.execute(
-            "UPDATE results SET review_state='verified' "
-            "WHERE run_id=? AND row_id=? AND column_id IN (?,?)",
-            (run_id, row_ids[0], answer_id, category_id),
-        )
+        store = RunResultStore(project)
+        for column_id in (answer_id, category_id):
+            store.set_result_review_state(
+                run_id, row_ids[0], column_id, "verified", commit=False
+            )
         project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (row_ids[1],))
         project.db.commit()
 
-        # The support field cannot keep row one pending, and hidden row two
-        # cannot contribute a bundle.
-        assert project.refresh_pending_review_summary() == 0
-        assert review_bundle_count(project) == 0
+        # The support field cannot keep row one pending. Every global review
+        # read is a stable whole-run assessment, so hiding row two does not
+        # rewrite the original task.
+        assert project.refresh_pending_review_summary() == 1
+        assert review_bundle_count(project, run_id=run_id) == 1
+        assert review_bundle_count(project) == 1
 
         hidden_sheet_id = project.add_sheet("Hidden")
         hidden_output_id = project.add_column(
@@ -96,12 +98,13 @@ def test_review_summary_keeps_exact_bundle_and_visibility_semantics(
             "UPDATE columns SET current_run_id=? WHERE id=?",
             (hidden_run_id, hidden_output_id),
         )
+        RunResultStore(project).finish_run(hidden_run_id)
         project.db.execute("UPDATE sheets SET hidden=1 WHERE id=?", (hidden_sheet_id,))
         project.db.commit()
 
         # Row ids are globally unique across sheets, and a hidden sheet never
         # adds a bundle even when its current result remains unreviewed.
-        assert project.refresh_pending_review_summary() == 0
-        assert review_bundle_count(project) == 0
+        assert project.refresh_pending_review_summary() == 1
+        assert review_bundle_count(project) == 1
     finally:
         project.close()

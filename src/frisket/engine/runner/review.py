@@ -8,14 +8,13 @@ from __future__ import annotations
 from hashlib import blake2b
 from typing import Any
 
-from frisket.review_predicate import (
-    is_support_column,
-    primary_params as _primary_params,
-    primary_where as _primary_where,
-    visible_result_where as _visible_result_where,
-)
+from frisket.review_predicate import is_exact_review_correction
 from frisket.server.paging import offset_page_payload
 from frisket.engine.store import Project
+from frisket.engine.store.review_stats import (
+    current_review_run_predicate,
+    ensure_run_review_stats,
+)
 from frisket.engine.store.runs import REVIEWABLE_OUTCOMES_SQL, RunResultStore
 
 
@@ -30,10 +29,6 @@ _ACTIVE_RESULT_WHERE = (
     "SELECT 1 FROM run_output_generations generation "
     "WHERE generation.column_id=c.id)))"
 )
-_ELIGIBLE_PRIMARY_WHERE = (
-    f"res.outcome IN ({REVIEWABLE_OUTCOMES_SQL}) "
-    f"AND {_visible_result_where('rr', 'c')} AND {_ACTIVE_RESULT_WHERE}"
-)
 
 
 def _loads(value: str | None) -> Any:
@@ -47,28 +42,33 @@ def _loads(value: str | None) -> Any:
         return value
 
 
-def _is_exact_review_correction(
-    cell: dict[str, Any],
-    ref: dict[str, Any] | None,
-    op: dict[str, Any] | None,
-) -> bool:
-    if (
-        not isinstance(ref, dict)
-        or ref.get("kind") != "manual_edit"
-        or not isinstance(op, dict)
-        or op.get("status") != "applied"
-        or op.get("kind") != "review.decision"
-    ):
-        return False
-    spec = _loads(op.get("spec"))
-    params = spec.get("params") if isinstance(spec, dict) else None
+def _ensure_current_review_stats(
+    project: Project, *, sheet_id: int | None = None
+) -> None:
+    filters = ["runs.review_stats_ready=0", current_review_run_predicate("runs")]
+    params: tuple[Any, ...] = ()
+    if sheet_id is not None:
+        filters.append("runs.sheet_id=?")
+        params = (sheet_id,)
+    rows = project.db.execute(
+        f"SELECT runs.id FROM runs WHERE {' AND '.join(filters)}", params
+    ).fetchall()
+    for row in rows:
+        ensure_run_review_stats(project.db, int(row["id"]))
+
+
+def _current_review_runs_cte(
+    *, sheet_id: int | None = None
+) -> tuple[str, tuple[Any, ...]]:
+    filters = [current_review_run_predicate("runs")]
+    params: tuple[Any, ...] = ()
+    if sheet_id is not None:
+        filters.append("runs.sheet_id=?")
+        params = (sheet_id,)
     return (
-        isinstance(params, dict)
-        and spec.get("action_id") == "review.decision"
-        and params.get("run_id") == cell["run_id"]
-        and params.get("row_id") == cell["row_id"]
-        and params.get("column_id") == cell["column_id"]
-        and params.get("decision") in {"edit", "reject_clear"}
+        "WITH current_review_runs AS MATERIALIZED ("
+        "SELECT runs.id FROM runs WHERE " + " AND ".join(filters) + ")",
+        params,
     )
 
 
@@ -163,33 +163,50 @@ def review_queue(
     run_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Unreviewed primary results from current runs, least-confident first."""
-    where = ""
-    params: list[Any] = []
-    if sheet_id is not None:
-        where = "AND c.sheet_id = ?"
-        params.append(sheet_id)
     if run_id is not None:
-        where += " AND res.run_id = ?"
-        params.append(run_id)
-    primary_where = _primary_where("c", run_alias="runs")
-    primary_params = _primary_params()
+        ensure_run_review_stats(project.db, run_id)
+        cte = ""
+        current_join = ""
+        where = (
+            "AND res.run_id=? AND runs.status<>'running' "
+            "AND EXISTS (SELECT 1 FROM ops review_op "
+            "WHERE review_op.id=runs.op_id AND review_op.status='applied')"
+        )
+        params: tuple[Any, ...] = (run_id,)
+        if sheet_id is not None:
+            where += " AND runs.sheet_id=?"
+            params += (sheet_id,)
+    else:
+        _ensure_current_review_stats(project, sheet_id=sheet_id)
+        cte, params = _current_review_runs_cte(sheet_id=sheet_id)
+        current_join = (
+            "JOIN current_review_runs current_run ON current_run.id=res.run_id"
+        )
+        where = ""
     rows = project.db.execute(
         f"""
+        {cte}
         SELECT res.run_id, res.row_id, res.column_id,
                res.confidence, res.justification, res.error,
                res.review_decision, res.review_note,
-               c.name AS column_name, c.sheet_id, runs.action_kind, runs.model
+               review_field.column_name, c.sheet_id, runs.action_kind, runs.model
         FROM results res
+        {current_join}
+        JOIN run_review_fields review_field
+          ON review_field.run_id=res.run_id
+         AND review_field.column_id=res.column_id
+         AND review_field.is_primary=1
         JOIN columns c ON c.id = res.column_id
-        {_ACTIVE_HEAD_JOIN}
         JOIN runs ON runs.id = res.run_id
         JOIN rows rr ON rr.id = res.row_id AND rr.sheet_id = c.sheet_id
-        WHERE res.review_state = 'unreviewed' AND {_ELIGIBLE_PRIMARY_WHERE} {where}
-          AND {primary_where}
-        ORDER BY res.confidence ASC NULLS LAST, res.row_id
+        WHERE res.review_state='unreviewed' AND res.review_decision IS NULL
+          AND res.outcome IN ({REVIEWABLE_OUTCOMES_SQL})
+          {where}
+        ORDER BY res.confidence ASC NULLS LAST,
+                 res.row_id, res.run_id, res.column_id
         LIMIT ?
         """,
-        (*params, *primary_params, limit),
+        (*params, limit),
     ).fetchall()
 
     coordinates = [
@@ -237,25 +254,43 @@ def review_bundles(
     field_id: int | None = None,
     order: str = "confidence",
     seed: int = 0,
+    cursor: int | None = None,
 ) -> list[dict[str, Any]]:
     """Group unreviewed primary results by run/row and attach support fields.
 
     The review state stays per result cell; bundles are only the queue shape.
     """
-    where = ""
-    params: list[Any] = []
-    if sheet_id is not None:
-        where = "AND c.sheet_id = ?"
-        params.append(sheet_id)
     if run_id is not None:
-        where += " AND res.run_id = ?"
-        params.append(run_id)
+        ensure_run_review_stats(project.db, run_id)
+        cte = ""
+        current_join = ""
+        where = (
+            "AND res.run_id=? AND runs.status<>'running' "
+            "AND EXISTS (SELECT 1 FROM ops review_op "
+            "WHERE review_op.id=runs.op_id AND review_op.status='applied')"
+        )
+        params: list[Any] = [run_id]
+        if sheet_id is not None:
+            where += " AND runs.sheet_id=?"
+            params.append(sheet_id)
+        group_by = "res.row_id"
+    else:
+        _ensure_current_review_stats(project, sheet_id=sheet_id)
+        cte, cte_params = _current_review_runs_cte(sheet_id=sheet_id)
+        params = list(cte_params)
+        current_join = (
+            "JOIN current_review_runs current_run ON current_run.id=res.run_id"
+        )
+        where = ""
+        group_by = "res.run_id, res.row_id"
     if field_id is not None:
         where += " AND res.column_id = ?"
         params.append(field_id)
-    review_where = "1 = 1" if include_reviewed else "res.review_state = 'unreviewed'"
-    primary_where = _primary_where("c", run_alias="runs")
-    primary_params = _primary_params()
+    review_where = (
+        "1 = 1"
+        if include_reviewed
+        else "res.review_state = 'unreviewed' AND res.review_decision IS NULL"
+    )
     if order == "shuffle":
         # A seeded hash gives each row a stable shuffled rank across pages and
         # refreshes without materializing the run's row IDs in Python.
@@ -267,29 +302,41 @@ def review_bundles(
         )
         order_by = "shuffle_key, res.row_id, res.run_id, c.sheet_id"
         order_params: tuple[Any, ...] = (seed,)
+    elif order == "row":
+        if run_id is None:
+            raise ValueError("row-order review pages require run_id")
+        shuffle_select = ""
+        order_by = "res.row_id"
+        order_params = ()
+        if cursor is not None:
+            where += " AND res.row_id > ?"
+            params.append(cursor)
     else:
         shuffle_select = ""
         order_by = "confidence ASC NULLS LAST, res.row_id, res.run_id, c.sheet_id"
         order_params = ()
-    keys = project.db.execute(
-        f"""
+    keys_sql = f"""
+        {cte}
         SELECT res.run_id, res.row_id, c.sheet_id, s.name AS sheet_name,
                runs.action_kind, runs.model, MIN(res.confidence) AS confidence
                {shuffle_select}
         FROM results res
+        {current_join}
+        JOIN run_review_fields review_field
+          ON review_field.run_id=res.run_id
+         AND review_field.column_id=res.column_id
+         AND review_field.is_primary=1
         JOIN columns c ON c.id = res.column_id
-        {_ACTIVE_HEAD_JOIN}
         JOIN sheets s ON s.id = c.sheet_id
         JOIN runs ON runs.id = res.run_id
         JOIN rows rr ON rr.id = res.row_id AND rr.sheet_id = c.sheet_id
-        WHERE {review_where} AND {_ELIGIBLE_PRIMARY_WHERE} {where}
-          AND {primary_where}
-        GROUP BY res.run_id, res.row_id, c.sheet_id, runs.action_kind, runs.model
+        WHERE {review_where} AND res.outcome IN ({REVIEWABLE_OUTCOMES_SQL}) {where}
+        GROUP BY {group_by}
         ORDER BY {order_by}
         LIMIT ? OFFSET ?
-        """,
-        (*order_params, *params, *primary_params, limit, offset),
-    ).fetchall()
+        """
+    key_params = (*order_params, *params, limit, offset)
+    keys = project.db.execute(keys_sql, key_params).fetchall()
 
     source_contexts = _source_contexts(
         project,
@@ -301,24 +348,32 @@ def review_bundles(
     cells_by_bundle: dict[tuple[int, int, int], list[dict[str, Any]]] = {}
     rows_by_current: dict[tuple[int, int], list[int]] = {}
     for key in keys:
-        cells = [
-            dict(cell)
-            for cell in project.db.execute(
-                f"""
+        cells_sql = f"""
                 SELECT res.run_id, res.row_id, res.column_id,
                        res.confidence, res.justification, res.error,
                        res.review_state, res.review_decision, res.review_note,
-                       c.name AS column_name, c.type AS column_type,
+                       review_field.column_name,
+                       review_field.column_type,
                        c.semantic_type, c.format,
-                       c.sheet_id
+                       c.sheet_id,
+                       CASE WHEN review_field.is_primary=1
+                                  AND res.outcome IN ({REVIEWABLE_OUTCOMES_SQL})
+                            THEN 1 ELSE 0 END AS is_primary,
+                       CASE WHEN {_ACTIVE_RESULT_WHERE} THEN 1 ELSE 0 END AS can_edit
                 FROM results res
                 JOIN columns c ON c.id = res.column_id
+                JOIN run_review_fields review_field
+                  ON review_field.run_id=res.run_id
+                 AND review_field.column_id=res.column_id
                 {_ACTIVE_HEAD_JOIN}
                 JOIN rows rr ON rr.id = res.row_id AND rr.sheet_id = c.sheet_id
                 WHERE res.run_id=? AND res.row_id=? AND c.sheet_id=?
-                  AND rr.hidden=0 AND {_ACTIVE_RESULT_WHERE}
-                ORDER BY c.position, c.id
-                """,
+                ORDER BY review_field.column_position, res.column_id
+                """
+        cells = [
+            dict(cell)
+            for cell in project.db.execute(
+                cells_sql,
                 (key["run_id"], key["row_id"], key["sheet_id"]),
             ).fetchall()
         ]
@@ -370,10 +425,20 @@ def review_bundles(
                 int(cell["row_id"])
             )
             op_id = ref.get("op_id") if isinstance(ref, dict) else None
-            cell["changed"] = _is_exact_review_correction(
-                cell,
-                ref,
-                ops_by_id.get(int(op_id)) if op_id is not None else None,
+            cell["changed"] = is_exact_review_correction(
+                run_id=int(cell["run_id"]),
+                row_id=int(cell["row_id"]),
+                column_id=int(cell["column_id"]),
+                ref=ref,
+                op=ops_by_id.get(int(op_id)) if op_id is not None else None,
+            )
+            cell["can_edit"] = bool(cell["can_edit"]) and (
+                bool(cell["changed"])
+                or (
+                    isinstance(ref, dict)
+                    and ref.get("kind") == "run_result"
+                    and ref.get("run_id") == cell["run_id"]
+                )
             )
             if not cell["changed"]:
                 result_coordinates.append(
@@ -407,13 +472,7 @@ def review_bundles(
                 coordinate = (int(cell["run_id"]), row_id, column_id)
                 result = resolved.get(coordinate)
                 value = result["value"] if result is not None else None
-            role = (
-                "evidence"
-                if is_support_column(
-                    cell["column_name"], action_kind=str(key["action_kind"])
-                )
-                else "field"
-            )
+            role = "field" if bool(cell["is_primary"]) else "evidence"
             item = {
                 "run_id": cell["run_id"],
                 "row_id": cell["row_id"],
@@ -432,8 +491,10 @@ def review_bundles(
                 "review_note": cell["review_note"],
                 "role": role,
                 "changed": bool(cell["changed"]),
+                "can_edit": role == "field" and bool(cell["can_edit"]),
                 "chore": role == "field"
                 and cell["review_state"] == "unreviewed"
+                and cell["review_decision"] is None
                 and cell["error"] is None,
             }
             items.append(item)
@@ -482,37 +543,80 @@ def review_bundle_count(
     field_id: int | None = None,
 ) -> int:
     """Count pending row/run review bundles without loading their payloads."""
-    where = ""
-    params: list[Any] = []
-    if sheet_id is not None:
-        where = "AND c.sheet_id = ?"
-        params.append(sheet_id)
     if run_id is not None:
-        where += " AND res.run_id = ?"
-        params.append(run_id)
-    if field_id is not None:
-        where += " AND res.column_id = ?"
-        params.append(field_id)
-    review_where = "1 = 1" if include_reviewed else "res.review_state = 'unreviewed'"
-    primary_where = _primary_where("c", run_alias="runs")
-    primary_params = _primary_params()
-    row = project.db.execute(
-        f"""
-        SELECT COUNT(*) AS count
-        FROM (
-            SELECT res.run_id, res.row_id, c.sheet_id
-            FROM results res
-            JOIN columns c ON c.id = res.column_id
-            {_ACTIVE_HEAD_JOIN}
-            JOIN runs ON runs.id = res.run_id
-            JOIN rows rr ON rr.id = res.row_id AND rr.sheet_id = c.sheet_id
-            WHERE {review_where} AND {_ELIGIBLE_PRIMARY_WHERE} {where}
-              AND {primary_where}
-            GROUP BY res.run_id, res.row_id, c.sheet_id, runs.action_kind, runs.model
-        ) pending_bundles
-        """,
-        (*params, *primary_params),
-    ).fetchone()
+        ensure_run_review_stats(project.db, run_id)
+        eligible_run = project.db.execute(
+            "SELECT 1 FROM runs WHERE id=? AND status<>'running' "
+            "AND EXISTS (SELECT 1 FROM ops review_op "
+            "WHERE review_op.id=runs.op_id AND review_op.status='applied')",
+            (run_id,),
+        ).fetchone()
+        if eligible_run is None:
+            return 0
+        if sheet_id is not None:
+            run_sheet = project.db.execute(
+                "SELECT sheet_id FROM runs WHERE id=?", (run_id,)
+            ).fetchone()
+            if run_sheet is None or int(run_sheet["sheet_id"]) != sheet_id:
+                return 0
+        if field_id is None:
+            row = project.db.execute(
+                "SELECT review_bundle_count,review_resolved_bundle_count "
+                "FROM runs WHERE id=?",
+                (run_id,),
+            ).fetchone()
+            if row is None:
+                return 0
+            total = int(row["review_bundle_count"] or 0)
+            if include_reviewed:
+                return total
+            return max(0, total - int(row["review_resolved_bundle_count"] or 0))
+        field = project.db.execute(
+            "SELECT eligible_count,resolved_count FROM run_review_fields "
+            "WHERE run_id=? AND column_id=? AND is_primary=1",
+            (run_id, field_id),
+        ).fetchone()
+        if field is None:
+            return 0
+        eligible = int(field["eligible_count"] or 0)
+        if include_reviewed:
+            return eligible
+        return max(0, eligible - int(field["resolved_count"] or 0))
+    _ensure_current_review_stats(project, sheet_id=sheet_id)
+    cte, params = _current_review_runs_cte(sheet_id=sheet_id)
+    if field_id is None:
+        count_expression = (
+            "runs.review_bundle_count"
+            if include_reviewed
+            else "runs.review_bundle_count-runs.review_resolved_bundle_count"
+        )
+        row = project.db.execute(
+            f"""
+            {cte}
+            SELECT COALESCE(SUM({count_expression}),0) AS count
+            FROM current_review_runs current_run
+            JOIN runs ON runs.id=current_run.id
+            """,
+            params,
+        ).fetchone()
+    else:
+        count_expression = (
+            "review_field.eligible_count"
+            if include_reviewed
+            else "review_field.eligible_count-review_field.resolved_count"
+        )
+        row = project.db.execute(
+            f"""
+            {cte}
+            SELECT COALESCE(SUM({count_expression}),0) AS count
+            FROM current_review_runs current_run
+            JOIN run_review_fields review_field
+              ON review_field.run_id=current_run.id
+             AND review_field.column_id=?
+             AND review_field.is_primary=1
+            """,
+            (*params, field_id),
+        ).fetchone()
     return int(row["count"] if row is not None else 0)
 
 
@@ -527,8 +631,14 @@ def review_bundle_page(
     field_id: int | None = None,
     order: str = "confidence",
     seed: int = 0,
+    cursor: int | None = None,
 ) -> dict[str, Any]:
     """Bounded public page of pending review bundles."""
+    if order == "row" and offset != 0:
+        raise ValueError("row-order review pages require offset=0")
+    if order == "row" and run_id is None:
+        raise ValueError("row-order review pages require run_id")
+    fetch_limit = limit + 1 if order == "row" else limit
     total = review_bundle_count(
         project,
         sheet_id=sheet_id,
@@ -539,36 +649,41 @@ def review_bundle_page(
     bundles = review_bundles(
         project,
         sheet_id=sheet_id,
-        limit=limit,
+        limit=fetch_limit,
         offset=offset,
         run_id=run_id,
         include_reviewed=include_reviewed,
         field_id=field_id,
         order=order,
         seed=seed,
+        cursor=cursor,
     )
-    return offset_page_payload(
-        "frisket.review_bundles_page.v1",
-        items=bundles,
-        item_key="bundles",
-        offset=offset,
-        limit=limit,
-        total=total,
-    )
-
-
-def _eligible_run_where(
-    *, sheet_id: int | None = None, run_id: int | None = None
-) -> tuple[str, tuple[Any, ...]]:
-    where = ""
-    params: list[Any] = []
-    if sheet_id is not None:
-        where += " AND c.sheet_id = ?"
-        params.append(sheet_id)
-    if run_id is not None:
-        where += " AND res.run_id = ?"
-        params.append(run_id)
-    return where, tuple(params)
+    if order == "row":
+        has_more = len(bundles) > limit
+        bundles = bundles[:limit]
+        return {
+            "schema_version": "frisket.review_bundles_page.v1",
+            "offset": 0,
+            "limit": limit,
+            "total": total,
+            "has_more": has_more,
+            "next_offset": None,
+            "next_cursor": (
+                int(bundles[-1]["row_id"]) if has_more and bundles else None
+            ),
+            "bundles": bundles,
+        }
+    return {
+        **offset_page_payload(
+            "frisket.review_bundles_page.v1",
+            items=bundles,
+            item_key="bundles",
+            offset=offset,
+            limit=limit,
+            total=total,
+        ),
+        "next_cursor": None,
+    }
 
 
 def review_runs_page(
@@ -579,21 +694,33 @@ def review_runs_page(
     offset: int = 0,
     limit: int = 25,
 ) -> dict[str, Any]:
-    """List runs with active, visible primary results and decision counts."""
-    where, params = _eligible_run_where(sheet_id=sheet_id, run_id=run_id)
-    primary_where = _primary_where("c", run_alias="runs")
-    primary_params = _primary_params()
-    eligible_from = f"""
-        FROM results res
-        JOIN columns c ON c.id = res.column_id
-        {_ACTIVE_HEAD_JOIN}
-        JOIN rows rr ON rr.id = res.row_id AND rr.sheet_id = c.sheet_id
-        WHERE res.run_id = runs.id
-          AND {_ELIGIBLE_PRIMARY_WHERE} AND {primary_where} {where}
-    """
+    """List current review runs, or resolve one explicit historical run."""
+    if run_id is not None:
+        ensure_run_review_stats(project.db, run_id)
+        filters = [
+            "runs.status<>'running'",
+            "EXISTS (SELECT 1 FROM ops review_op WHERE review_op.id=runs.op_id "
+            "AND review_op.status='applied')",
+        ]
+    else:
+        _ensure_current_review_stats(project, sheet_id=sheet_id)
+        filters = [current_review_run_predicate("runs", terminal_only=True)]
+    params: list[Any] = []
+    if sheet_id is not None:
+        filters.append("runs.sheet_id=?")
+        params.append(sheet_id)
+    if run_id is not None:
+        filters.append("runs.id=?")
+        params.append(run_id)
+    filters.append(
+        "EXISTS (SELECT 1 FROM run_review_fields review_field "
+        "WHERE review_field.run_id=runs.id AND review_field.is_primary=1 "
+        "AND review_field.eligible_count>0)"
+    )
+    where = " AND ".join(f"({item})" for item in filters)
     total_row = project.db.execute(
-        f"SELECT COUNT(*) AS count FROM runs WHERE EXISTS (SELECT 1 {eligible_from})",
-        (*primary_params, *params),
+        f"SELECT COUNT(*) AS count FROM runs WHERE {where}",
+        params,
     ).fetchone()
     total = int(total_row["count"] if total_row is not None else 0)
     run_rows = project.db.execute(
@@ -603,42 +730,31 @@ def review_runs_page(
                runs.review_completed_at
         FROM runs
         JOIN sheets ON sheets.id = runs.sheet_id
-        WHERE EXISTS (SELECT 1 {eligible_from})
+        WHERE {where}
         ORDER BY runs.started_at DESC, runs.id DESC
         LIMIT ? OFFSET ?
         """,
-        (*primary_params, *params, limit, offset),
+        (*params, limit, offset),
     ).fetchall()
     selected_ids = [int(row["run_id"]) for row in run_rows]
     fields_by_run: dict[int, list[dict[str, Any]]] = {item: [] for item in selected_ids}
     if selected_ids:
+        for selected_id in selected_ids:
+            ensure_run_review_stats(project.db, selected_id)
         placeholders = ",".join("?" for _ in selected_ids)
         field_rows = project.db.execute(
             f"""
-            SELECT res.run_id, c.id AS column_id, c.name AS column_name,
-                   c.type AS column_type,
-                   COUNT(*) AS eligible_count,
-                   SUM(CASE WHEN res.review_decision IS NOT NULL THEN 1 ELSE 0 END)
-                       AS reviewed_count,
-                   SUM(CASE WHEN res.review_decision = 'accept' THEN 1 ELSE 0 END)
-                       AS accepted_count,
-                   SUM(CASE WHEN res.review_decision IN ('edit','reject','reject_clear')
-                            THEN 1 ELSE 0 END) AS incorrect_count,
-                   SUM(CASE WHEN res.review_decision IS NULL AND res.review_state = 'unreviewed'
-                            THEN 1 ELSE 0 END) AS unreviewed_count,
-                   SUM(CASE WHEN res.confidence IS NOT NULL THEN 1 ELSE 0 END)
-                       AS confidence_count
-            FROM results res
-            JOIN columns c ON c.id = res.column_id
-            {_ACTIVE_HEAD_JOIN}
-            JOIN runs ON runs.id = res.run_id
-            JOIN rows rr ON rr.id = res.row_id AND rr.sheet_id = c.sheet_id
-            WHERE res.run_id IN ({placeholders})
-              AND {_ELIGIBLE_PRIMARY_WHERE} AND {primary_where}
-            GROUP BY res.run_id, c.id, c.name, c.type, c.position
-            ORDER BY res.run_id DESC, c.position, c.id
+            SELECT run_id, column_id, column_name, column_type,
+                   eligible_count, reviewed_count, accepted_count,
+                   incorrect_count,
+                   eligible_count - resolved_count AS unreviewed_count,
+                   confidence_count
+            FROM run_review_fields
+            WHERE run_id IN ({placeholders}) AND is_primary=1
+              AND eligible_count>0
+            ORDER BY run_id DESC, column_position, column_id
             """,
-            (*selected_ids, *primary_params),
+            selected_ids,
         ).fetchall()
         for row in field_rows:
             fields_by_run[int(row["run_id"])].append(
@@ -688,26 +804,28 @@ _COUNT_NAMES = (
 def set_review_run_status(
     project: Project, *, run_id: int, status: str
 ) -> dict[str, Any] | None:
-    """Set workflow status only when the run still has reviewable active output."""
-    primary_where = _primary_where("c", run_alias="runs")
+    """Set workflow status for a run with a frozen reviewable field inventory."""
+    ensure_run_review_stats(project.db, run_id)
     db = project.db
     db.execute("BEGIN IMMEDIATE")
     try:
         cursor = db.execute(
-            f"""
+            """
             UPDATE runs
             SET review_completed_at = CASE WHEN ? = 'complete' THEN datetime('now') END
-            WHERE id = ? AND EXISTS (
+            WHERE id = ? AND status<>'running'
+              AND EXISTS (SELECT 1 FROM ops review_op
+                          WHERE review_op.id=runs.op_id
+                            AND review_op.status='applied')
+              AND EXISTS (
                 SELECT 1
-                FROM results res
-                JOIN columns c ON c.id = res.column_id
-                {_ACTIVE_HEAD_JOIN}
-                JOIN rows rr ON rr.id = res.row_id AND rr.sheet_id = c.sheet_id
-                WHERE res.run_id = runs.id
-                  AND {_ELIGIBLE_PRIMARY_WHERE} AND {primary_where}
+                FROM run_review_fields review_field
+                WHERE review_field.run_id = runs.id
+                  AND review_field.is_primary=1
+                  AND review_field.eligible_count>0
             )
             """,
-            (status, run_id, *_primary_params()),
+            (status, run_id),
         )
         if cursor.rowcount != 1:
             db.rollback()
@@ -729,18 +847,27 @@ def set_review_run_status(
 
 
 def queue_count(project: Project, *, run_id: int | None = None) -> int:
-    primary_where = _primary_where("c", run_alias="runs")
-    run_where = "AND res.run_id=?" if run_id is not None else ""
-    params = (*_primary_params(), *((run_id,) if run_id is not None else ()))
-    return project.db.execute(
-        f"""
-        SELECT COUNT(*) FROM results res
-        JOIN columns c ON c.id = res.column_id
-        {_ACTIVE_HEAD_JOIN}
-        JOIN runs ON runs.id = res.run_id
-        JOIN rows rr ON rr.id = res.row_id AND rr.sheet_id = c.sheet_id
-        WHERE res.review_state = 'unreviewed' AND {_ELIGIBLE_PRIMARY_WHERE}
-          AND {primary_where} {run_where}
-        """,
-        params,
-    ).fetchone()[0]
+    if run_id is not None:
+        ensure_run_review_stats(project.db, run_id)
+        row = project.db.execute(
+            "SELECT COALESCE(SUM(eligible_count-resolved_count),0) AS count "
+            "FROM run_review_fields review_field JOIN runs ON runs.id=review_field.run_id "
+            "WHERE review_field.run_id=? AND review_field.is_primary=1 "
+            "AND runs.status<>'running' AND EXISTS ("
+            "SELECT 1 FROM ops review_op WHERE review_op.id=runs.op_id "
+            "AND review_op.status='applied')",
+            (run_id,),
+        ).fetchone()
+    else:
+        _ensure_current_review_stats(project)
+        row = project.db.execute(
+            f"""
+            SELECT COALESCE(SUM(review_field.eligible_count-review_field.resolved_count),0)
+                   AS count
+            FROM run_review_fields review_field
+            JOIN runs ON runs.id=review_field.run_id
+            WHERE review_field.is_primary=1
+              AND {current_review_run_predicate("runs", terminal_only=True)}
+            """
+        ).fetchone()
+    return int(row["count"] if row is not None else 0)

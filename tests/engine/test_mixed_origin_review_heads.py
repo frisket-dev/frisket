@@ -12,6 +12,7 @@ from frisket.engine.runner.review import (
     review_bundles,
     review_queue,
 )
+from frisket.engine.store.runs import RunResultStore
 from test_mixed_origin_readers import (  # noqa: F401
     _MixedReaderFixture,
     mixed_reader,
@@ -41,42 +42,62 @@ def _review_state(fixture: _MixedReaderFixture, *, run_id: int, row_id: int) -> 
     return str(row["review_state"])
 
 
+def _finish_fixture_runs(fixture: _MixedReaderFixture) -> None:
+    store = RunResultStore(fixture.project)
+    store.finish_run(fixture.first_run_id, "completed")
+    store.finish_run(fixture.second_run_id, "completed")
+
+
 def test_review_queue_bundles_counts_and_summary_follow_exact_mixed_heads(
     request: pytest.FixtureRequest,
 ) -> None:
     fixture: _MixedReaderFixture = request.getfixturevalue("mixed_reader")
     project = fixture.project
+    _finish_fixture_runs(fixture)
 
     queue = review_queue(project, sheet_id=fixture.sheet_id)
     assert [(item["run_id"], item["row_id"], item["value"]) for item in queue] == [
         (fixture.first_run_id, fixture.row_ids[3], "first-untargeted"),
         (fixture.second_run_id, fixture.row_ids[0], "second-value"),
+        (fixture.first_run_id, fixture.row_ids[0], "first-value"),
+        (fixture.first_run_id, fixture.row_ids[1], "first-null-old"),
         (fixture.second_run_id, fixture.row_ids[1], None),
+        (fixture.first_run_id, fixture.row_ids[2], "first-error-old"),
     ]
-    assert queue_count(project) == 3
-    assert review_bundle_count(project, sheet_id=fixture.sheet_id) == 3
+    # Every global read uses the same stable inventories for finished runs
+    # that still own any current output.
+    assert queue_count(project) == 6
+    assert queue_count(project, run_id=fixture.first_run_id) == 4
+    assert queue_count(project, run_id=fixture.second_run_id) == 2
+    assert review_bundle_count(project, sheet_id=fixture.sheet_id) == 6
+    assert review_bundle_count(project, run_id=fixture.first_run_id) == 4
+    assert review_bundle_count(project, run_id=fixture.second_run_id) == 2
 
     bundles = review_bundles(project, sheet_id=fixture.sheet_id)
     assert [(bundle["run_id"], bundle["row_id"]) for bundle in bundles] == [
         (fixture.first_run_id, fixture.row_ids[3]),
         (fixture.second_run_id, fixture.row_ids[0]),
+        (fixture.first_run_id, fixture.row_ids[0]),
+        (fixture.first_run_id, fixture.row_ids[1]),
         (fixture.second_run_id, fixture.row_ids[1]),
+        (fixture.first_run_id, fixture.row_ids[2]),
     ]
     retained = bundles[0]
     assert retained["fields"][0]["value"] == "first-untargeted"
     assert retained["fields"][0]["run_id"] == fixture.first_run_id
 
     page = review_bundle_page(project, sheet_id=fixture.sheet_id, offset=0, limit=2)
-    assert page["total"] == 3
+    assert page["total"] == 6
     assert len(page["bundles"]) == 2
-    assert project.refresh_pending_review_summary() == 3
+    assert project.refresh_pending_review_summary() == 6
 
 
-def test_review_decision_requires_the_active_exact_head(
+def test_review_decision_grades_stable_outputs_but_skips_nonreviewable_results(
     request: pytest.FixtureRequest,
 ) -> None:
     fixture: _MixedReaderFixture = request.getfixturevalue("mixed_reader")
     project = fixture.project
+    _finish_fixture_runs(fixture)
     column_id = fixture.output_column_id
 
     retained_row = fixture.row_ids[3]
@@ -95,7 +116,8 @@ def test_review_decision_requires_the_active_exact_head(
         _review_state(fixture, run_id=fixture.first_run_id, row_id=retained_row)
         == "verified"
     )
-    assert review_bundle_count(project) == 2
+    assert review_bundle_count(project) == 5
+    assert project.refresh_pending_review_summary() == 5
 
     stale_direct = run_action_spec(
         project,
@@ -107,12 +129,13 @@ def test_review_decision_requires_the_active_exact_head(
         ),
         project_id="mixed-review",
     )
-    assert stale_direct.status == "failed"
-    assert stale_direct.errors[0].code == "review_target_not_found"
+    assert stale_direct.status == "completed", stale_direct.errors
     assert (
         _review_state(fixture, run_id=fixture.first_run_id, row_id=fixture.row_ids[0])
-        == "unreviewed"
+        == "verified"
     )
+    assert project.refresh_pending_review_summary() == 4
+    assert review_bundle_count(project) == 4
 
     error_row = fixture.row_ids[2]
     error_review = run_action_spec(
@@ -125,10 +148,11 @@ def test_review_decision_requires_the_active_exact_head(
         ),
         project_id="mixed-review",
     )
-    assert error_review.status == "completed", error_review.errors
+    assert error_review.status == "failed"
+    assert error_review.errors[0].code == "review_target_not_found"
     assert (
         _review_state(fixture, run_id=fixture.second_run_id, row_id=error_row)
-        == "verified"
+        == "unreviewed"
     )
 
     null_row = fixture.row_ids[1]
@@ -147,8 +171,8 @@ def test_review_decision_requires_the_active_exact_head(
         _review_state(fixture, run_id=fixture.second_run_id, row_id=null_row)
         == "verified"
     )
-    assert review_bundle_count(project) == 1
-    assert project.refresh_pending_review_summary() == 1
+    assert review_bundle_count(project) == 3
+    assert project.refresh_pending_review_summary() == 3
 
     stale = run_action_spec(
         project,
@@ -160,9 +184,8 @@ def test_review_decision_requires_the_active_exact_head(
         ),
         project_id="mixed-review",
     )
-    assert stale.status == "failed"
-    assert stale.errors[0].code == "review_target_not_found"
+    assert stale.status == "completed", stale.errors
     assert (
         _review_state(fixture, run_id=fixture.first_run_id, row_id=fixture.row_ids[0])
-        == "unreviewed"
+        == "verified"
     )

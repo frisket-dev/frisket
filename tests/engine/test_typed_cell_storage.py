@@ -15,7 +15,8 @@ from frisket.engine.store.cell_writes import (
     insert_edits,
 )
 from frisket.engine.store.runs import RunResultStore
-from frisket.engine.store.schema import SCHEMA, SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
+from frisket.engine.store.review_stats_migration import REVIEW_STATS_FROM_DIGEST
+from frisket.engine.store.schema import SCHEMA, SCHEMA_DIGEST_META_KEY
 from frisket.engine.store.typed_storage_migration import (
     TYPED_VALUES_TO_DIGEST,
     migrate_typed_values,
@@ -46,8 +47,8 @@ def _database() -> sqlite3.Connection:
     return db
 
 
-def test_typed_migration_endpoint_matches_fresh_schema() -> None:
-    assert TYPED_VALUES_TO_DIGEST == SCHEMA_DIGEST
+def test_typed_migration_endpoint_feeds_review_stats_migration() -> None:
+    assert TYPED_VALUES_TO_DIGEST == REVIEW_STATS_FROM_DIGEST
 
 
 @pytest.mark.parametrize(
@@ -267,7 +268,7 @@ def test_typed_migration_repairs_surrogate_in_every_authority(tmp_path) -> None:
         db.execute(
             "SELECT value FROM meta WHERE key=?", (SCHEMA_DIGEST_META_KEY,)
         ).fetchone()[0]
-        == SCHEMA_DIGEST
+        == TYPED_VALUES_TO_DIGEST
     )
 
 

@@ -14,6 +14,7 @@ from typing import Literal
 
 from frisket.contracts.action import ActionError, Receipt
 from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.review_stats import ensure_run_review_stats
 from frisket.engine.store.receipts import (
     FINISHED_RECEIPT_STATUSES,
     ReceiptStatus,
@@ -1025,6 +1026,10 @@ def terminalize_project_run(
                 "project-run terminal receipt postcondition failed: "
                 f"receipt {receipt_id} did not land consistently"
             )
+        # The receipt-owned terminal path writes run status directly. Publish
+        # its review totals in the same transaction, after all result writes.
+        ensure_run_review_stats(db, run_id)
+
         disposition: TerminalizationDisposition = (
             "receipt_missing" if receipt_disposition == "missing" else "terminalized"
         )

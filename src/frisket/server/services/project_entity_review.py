@@ -55,6 +55,7 @@ class ProjectEntityReviewService:
         field_id: int | None,
         order: str,
         seed: int,
+        cursor: int | None,
     ) -> dict[str, Any]:
         project = self._project(project_id)
         page = review_bundle_page(
@@ -67,6 +68,7 @@ class ProjectEntityReviewService:
             field_id=field_id,
             order=order,
             seed=seed,
+            cursor=cursor,
         )
         return {
             **page,

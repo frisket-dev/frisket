@@ -24,6 +24,7 @@
 .verdict button:hover:not(:disabled) { background: var(--bg-hover); }
 .verdict button:disabled, .textButton:disabled { opacity: .45; cursor: default; }
 .justification { grid-column: 1 / -1; font-size: 12px; line-height: 1.6; color: var(--text-mid); margin: 0; }
+.editUnavailable { grid-column: 1 / -1; margin: 0; color: var(--text-mid); font-size: 11px; line-height: 1.5; }
 .editor { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap; }
 .editor textarea { flex-basis: 100%; width: 100%; font-size: 13px; }
 .footer { flex: 0 0 auto; padding: 14px 20px 10px; border-top: 1px solid var(--border); font-size: 12px; }

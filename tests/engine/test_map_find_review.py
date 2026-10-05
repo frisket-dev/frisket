@@ -313,11 +313,16 @@ def test_find_occurrences_publish_reviewable_grounded_result_heads(
             ],
         )
         assert second_sheet_id != findings_sheet_id
-        assert review_bundle_page(project, run_id=run_id)["total"] == 0
-        assert queue_count(project, run_id=run_id) == 0
+        # Publishing another findings sheet removes the first run from the
+        # current-run picker, while an already selected run keeps its stable
+        # review task and may still be graded.
+        assert review_bundle_page(project, run_id=run_id)["total"] == 2
+        assert queue_count(project, run_id=run_id) == 3
         [current_run] = review_runs_page(project)["runs"]
         assert current_run["run_id"] == second.run_id
-        stale = run_action_spec(
+        [historical_run] = review_runs_page(project, run_id=run_id)["runs"]
+        assert historical_run["run_id"] == run_id
+        regraded = run_action_spec(
             project,
             _decision(
                 run_id=run_id,
@@ -328,7 +333,9 @@ def test_find_occurrences_publish_reviewable_grounded_result_heads(
             ),
             project_id="project-find-review",
         )
-        assert stale.status == "failed"
-        assert stale.errors[0].code == "review_target_not_found"
+        assert regraded.status == "completed", regraded.errors
+        # Regrading an already resolved field changes the decision, not the
+        # number of pending fields.
+        assert queue_count(project, run_id=run_id) == 3
     finally:
         project.close()

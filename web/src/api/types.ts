@@ -3748,6 +3748,9 @@ export interface ReviewBundleField {
   reviewState: ReviewState;
   role: 'field' | 'evidence';
   chore: boolean;
+  /** False when the cell was replaced or edited after this run, so editing
+   * this output could mutate the wrong current cell. */
+  canEdit?: boolean;
   changed?: boolean;
 }
 
@@ -3784,6 +3787,8 @@ export interface ReviewBundle {
 
 export interface ReviewBundlePage extends PageMeta {
   schemaVersion: 'frisket.review_bundles_page.v1';
+  /** Last row id for the next keyset page when order is `row`. */
+  nextCursor: number | null;
   bundles: ReviewBundle[];
 }
 
@@ -3807,7 +3812,7 @@ export interface ReviewRunField extends ReviewRunCounts {
 }
 
 export type ReviewRunStatus = 'open' | 'complete';
-export type ReviewBundleOrder = 'shuffle' | 'confidence';
+export type ReviewBundleOrder = 'shuffle' | 'confidence' | 'row';
 
 /** Request-only review queue controls; the server intentionally does not echo
  * these transient ordering choices in a bundle page. */
@@ -3815,6 +3820,8 @@ export interface ReviewBundleOptions {
   fieldId?: string;
   order?: ReviewBundleOrder;
   seed?: number;
+  /** Exclusive row-id cursor used only with stable run order. */
+  cursor?: number;
 }
 
 export interface ReviewRunsOptions {

@@ -5462,17 +5462,6 @@ type HttpInline_56badbd0ec8f0959_JsonValue = JsonValue;
 
 export type HttpInline_56badbd0ec8f0959 = (((HttpInline_56badbd0ec8f0959_HttpError)) | ((HttpInline_56badbd0ec8f0959_ActionResult)));
 
-export type HttpInline_5733f055d03df038 = ({
-  "field_id"?: (((number)) | ((null)));
-  "include_reviewed"?: (boolean);
-  "limit"?: (number);
-  "offset"?: (number);
-  "order"?: ("confidence" | "shuffle") & (string);
-  "run_id"?: (((number)) | ((null)));
-  "seed"?: (number);
-  "sheet_id"?: (((number)) | ((null)));
-});
-
 type HttpInline_58109fdeddf40756_ActionError = ({
   "action_kind"?: (((string)) | ((null)));
   "code": (string);
@@ -5654,6 +5643,18 @@ type HttpInline_64f1fc6f91179544_AskThread = ({
 });
 
 export type HttpInline_64f1fc6f91179544 = (Array<(HttpInline_64f1fc6f91179544_AskThread)>);
+
+export type HttpInline_6636b7b9681b6a0a = ({
+  "cursor"?: (((number)) | ((null)));
+  "field_id"?: (((number)) | ((null)));
+  "include_reviewed"?: (boolean);
+  "limit"?: (number);
+  "offset"?: (number);
+  "order"?: ("confidence" | "shuffle" | "row") & (string);
+  "run_id"?: (((number)) | ((null)));
+  "seed"?: (number);
+  "sheet_id"?: (((number)) | ((null)));
+});
 
 export type HttpInline_751e88b11b84ef2b = ({
   "pid": (string);
@@ -8226,6 +8227,7 @@ type HttpReviewBundlesPage_ReviewBundle = ({
 });
 
 type HttpReviewBundlesPage_ReviewBundleItem = ({
+  "can_edit": (boolean);
   "changed"?: (boolean);
   "chore": (boolean);
   "column_id": (number);
@@ -8259,6 +8261,7 @@ export type HttpReviewBundlesPage = ({
   "bundles": (Array<(HttpReviewBundlesPage_ReviewBundle)>);
   "has_more": (boolean);
   "limit": (number);
+  "next_cursor": (((number)) | ((null)));
   "next_offset": (((number)) | ((null)));
   "offset": (number);
   "schema_version": ("frisket.review_bundles_page.v1") & (string);
@@ -12651,7 +12654,7 @@ export type HttpContractOperationMap = {
   };
   readonly "tenant.review_bundles_ep.get": {
     readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_5733f055d03df038;
+    readonly query: HttpInline_6636b7b9681b6a0a;
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpReviewBundlesPage;

@@ -39,41 +39,72 @@ from frisket.engine.store.cells import (
     replay_generated_value_hash,
     replay_origin_run_id,
 )
-from frisket.engine.store.runs import RunResultStore
-from frisket.review_predicate import is_support_column, visible_result_where
+from frisket.engine.store.runs import REVIEWABLE_OUTCOMES_SQL, RunResultStore
+from frisket.engine.store.review_stats import ensure_run_review_stats
+from frisket.review_predicate import is_exact_review_correction
 
 
-def _visible_current_review_target(
+def _is_current_review_value(
+    project: Any, target: dict[str, Any], ref: dict[str, Any] | None
+) -> bool:
+    if not bool(target["can_edit"]) or not isinstance(ref, dict):
+        return False
+    if ref.get("kind") == "run_result":
+        return ref.get("run_id") == target["run_id"]
+    if ref.get("kind") != "manual_edit" or ref.get("op_id") is None:
+        return False
+    op = project.db.execute(
+        "SELECT status,kind,spec FROM ops WHERE id=?", (int(ref["op_id"]),)
+    ).fetchone()
+    return is_exact_review_correction(
+        run_id=int(target["run_id"]),
+        row_id=int(target["row_id"]),
+        column_id=int(target["column_id"]),
+        ref=ref,
+        op=dict(op) if op is not None else None,
+    )
+
+
+def _review_target(
     project: Any, *, run_id: int, row_id: int, column_id: int, action_kind: str
 ) -> dict[str, Any]:
+    ensure_run_review_stats(project.db, run_id)
     row = project.db.execute(
         f"""
         SELECT res.run_id, res.row_id, res.column_id,
                res.confidence, res.justification, res.error, res.review_state,
                res.review_decision, res.review_note, runs.review_completed_at,
-               c.sheet_id, c.name AS column_name
+               c.sheet_id, c.name AS column_name,
+               CASE WHEN active_head.run_id IS NOT NULL OR (
+                    c.current_run_id=res.run_id AND NOT EXISTS (
+                      SELECT 1 FROM run_output_generations generation
+                      WHERE generation.column_id=c.id
+                    )
+               ) THEN 1 ELSE 0 END AS can_edit
         FROM results res
         JOIN runs ON runs.id=res.run_id
         JOIN columns c ON c.id=res.column_id
+        JOIN run_review_fields review_field
+          ON review_field.run_id=res.run_id
+         AND review_field.column_id=res.column_id
+         AND review_field.is_primary=1
         LEFT JOIN cell_result_heads active_head
           ON active_head.column_id=res.column_id
           AND active_head.row_id=res.row_id AND active_head.run_id=res.run_id
         JOIN rows ON rows.id=res.row_id AND rows.sheet_id=c.sheet_id
         WHERE res.run_id=? AND res.row_id=? AND res.column_id=?
-          AND {visible_result_where("rows", "c")}
-          AND (active_head.run_id IS NOT NULL OR (
-            c.current_run_id=res.run_id AND NOT EXISTS (
-              SELECT 1 FROM run_output_generations generation
-              WHERE generation.column_id=c.id
-            )
-          ))
+          AND res.outcome IN ({REVIEWABLE_OUTCOMES_SQL})
+          AND runs.status<>'running'
+          AND EXISTS (SELECT 1 FROM ops review_op
+                      WHERE review_op.id=runs.op_id
+                        AND review_op.status='applied')
         """,
         (run_id, row_id, column_id),
     ).fetchone()
     if row is None:
         _refuse(
             "review_target_not_found",
-            "review.decision target result cell was not found on a visible row",
+            "review.decision target result cell was not found in this run's review",
             action_kind=action_kind,
             field="params",
             details={"run_id": run_id, "row_id": row_id, "column_id": column_id},
@@ -92,11 +123,16 @@ def _visible_current_review_target(
     return target
 
 
-def _visible_current_review_row_targets(
+def _review_row_targets(
     project: Any, *, run_id: int, row_id: int, action_kind: str
 ) -> list[dict[str, Any]]:
+    ensure_run_review_stats(project.db, run_id)
     run = project.db.execute(
-        "SELECT review_completed_at FROM runs WHERE id=?", (run_id,)
+        "SELECT runs.review_completed_at FROM runs "
+        "WHERE runs.id=? AND runs.status<>'running' "
+        "AND EXISTS (SELECT 1 FROM ops review_op "
+        "WHERE review_op.id=runs.op_id AND review_op.status='applied')",
+        (run_id,),
     ).fetchone()
     if run is None:
         _refuse(
@@ -121,29 +157,18 @@ def _visible_current_review_row_targets(
         FROM results res
         JOIN runs ON runs.id=res.run_id
         JOIN columns c ON c.id=res.column_id
-        LEFT JOIN cell_result_heads active_head
-          ON active_head.column_id=res.column_id
-          AND active_head.row_id=res.row_id AND active_head.run_id=res.run_id
+        JOIN run_review_fields review_field
+          ON review_field.run_id=res.run_id
+         AND review_field.column_id=res.column_id
+         AND review_field.is_primary=1
         JOIN rows ON rows.id=res.row_id AND rows.sheet_id=c.sheet_id
         WHERE res.run_id=? AND res.row_id=?
-          AND {visible_result_where("rows", "c")}
-          AND (active_head.run_id IS NOT NULL OR (
-            c.current_run_id=res.run_id AND NOT EXISTS (
-              SELECT 1 FROM run_output_generations generation
-              WHERE generation.column_id=c.id
-            )
-          ))
+          AND res.outcome IN ({REVIEWABLE_OUTCOMES_SQL})
         ORDER BY c.position, c.id
         """,
         (run_id, row_id),
     ).fetchall()
-    targets = [
-        dict(row)
-        for row in rows
-        if not is_support_column(
-            row["column_name"], action_kind=str(row["action_kind"])
-        )
-    ]
+    targets = [dict(row) for row in rows]
     if not targets:
         _refuse(
             "review_target_not_found",
@@ -261,13 +286,35 @@ class _ReviewDecider(_CallOnce):
                 action_kind=self._action.kind,
                 field="params.value",
             )
-        target = _visible_current_review_target(
+        target = _review_target(
             self._project,
             run_id=run_id,
             row_id=row_id,
             column_id=column_id,
             action_kind=self._action.kind,
         )
+        current_ref: dict[str, Any] | None = None
+        if decision in {"edit", "reject_clear"}:
+            _values, refs = self._project.get_values_with_refs(
+                int(target["sheet_id"]), column_id, row_ids=[row_id]
+            )
+            ref = refs.get(row_id)
+            current_ref = dict(ref) if isinstance(ref, dict) else None
+        if decision in {"edit", "reject_clear"} and not _is_current_review_value(
+            self._project, target, current_ref
+        ):
+            _refuse(
+                "review_target_not_found",
+                "This historical result can be graded, but it can no longer correct the current cell.",
+                action_kind=self._action.kind,
+                field="params",
+                details={
+                    "run_id": run_id,
+                    "row_id": row_id,
+                    "column_id": column_id,
+                    "reason": "result_not_current",
+                },
+            )
         _claimed_column(self._project, column_id, action_kind=self._action.kind)
         state_before = str(target["review_state"])
         state_after = (
@@ -281,13 +328,6 @@ class _ReviewDecider(_CallOnce):
         note_after = (
             target["review_note"] if decision == "clear" or not note_supplied else note
         )
-        current_ref: dict[str, Any] | None = None
-        if decision in {"edit", "reject_clear"}:
-            _values, refs = self._project.get_values_with_refs(
-                int(target["sheet_id"]), column_id, row_ids=[row_id]
-            )
-            ref = refs.get(row_id)
-            current_ref = dict(ref) if isinstance(ref, dict) else None
         undo_info = {
             "review_states": {f"{run_id}:{row_id}:{column_id}": state_before},
             "review_states_after": {f"{run_id}:{row_id}:{column_id}": state_after},
@@ -380,7 +420,7 @@ class _ReviewDecider(_CallOnce):
 class _ReviewNoter(_CallOnce):
     def note(self, *, run_id: int, row_id: int, note: str | None) -> ReviewNote:
         self._begin()
-        targets = _visible_current_review_row_targets(
+        targets = _review_row_targets(
             self._project,
             run_id=run_id,
             row_id=row_id,

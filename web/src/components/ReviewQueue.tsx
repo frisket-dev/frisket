@@ -21,7 +21,7 @@ export function ReviewQueue({ onClose, onChanged, runId }: ReviewQueueProps) {
   const selectedRun = runs.runs.find((run) => run.runId === runs.selectedRunId);
   const selectedField = selectedRun?.fields.find((field) => field.columnId === fieldId);
   const hasConfidence = (selectedField ?? selectedRun?.total)?.confidenceCount;
-  const effectiveOrder = hasConfidence ? order : 'shuffle';
+  const effectiveOrder = order === 'confidence' && !hasConfidence ? 'shuffle' : order;
   const options = useMemo(() => ({
     fieldId: fieldId ?? undefined, order: effectiveOrder, seed,
   }), [effectiveOrder, fieldId, seed]);

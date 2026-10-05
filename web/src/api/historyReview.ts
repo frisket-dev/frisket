@@ -218,7 +218,8 @@ export function createHistoryReviewApi(
             include_reviewed: includeReviewed || undefined,
             field_id: bundleOptions.fieldId === undefined ? undefined : Number(bundleOptions.fieldId),
             order: bundleOptions.order,
-            seed: bundleOptions.seed,
+            seed: bundleOptions.order === 'row' ? undefined : bundleOptions.seed,
+            cursor: bundleOptions.cursor,
           },
           signal: options.signal,
           headers: options.headers,
@@ -479,6 +480,7 @@ function mapReviewBundleField(
     reviewState: wire.review_state ?? 'unreviewed',
     role: wire.role,
     chore: wire.chore,
+    canEdit: wire.can_edit ?? true,
     changed: wire.changed,
   };
 }
@@ -493,6 +495,7 @@ function mapReviewBundles(wire: ReviewBundlesWire): ReviewBundlePage {
       total: wire.total,
       hasMore: wire.has_more,
       nextOffset: wire.next_offset,
+      nextCursor: wire.next_cursor ?? null,
     };
   }
   const bundles = wire.bundles.map((bundle) => {
@@ -540,6 +543,7 @@ function mapReviewBundles(wire: ReviewBundlesWire): ReviewBundlePage {
     total: wire.total,
     hasMore: wire.has_more,
     nextOffset: wire.next_offset,
+    nextCursor: wire.next_cursor ?? null,
   };
 }
 

@@ -31,6 +31,24 @@ _REVIEW_METADATA_DDL = (
 )
 
 
+def _without_review_stats(schema: str) -> str:
+    """Restore the exact typed schema before compact review summaries."""
+
+    for begin, end in (
+        (
+            "-- RUN_REVIEW_CURRENT_COLUMN_INDEX_BEGIN",
+            "-- RUN_REVIEW_CURRENT_COLUMN_INDEX_END",
+        ),
+        ("-- RUN_REVIEW_RUN_COLUMNS_BEGIN", "-- RUN_REVIEW_RUN_COLUMNS_END"),
+        ("-- RUN_REVIEW_FIELDS_BEGIN", "-- RUN_REVIEW_FIELDS_END"),
+        ("-- RUN_REVIEW_HEAD_INDEX_BEGIN", "-- RUN_REVIEW_HEAD_INDEX_END"),
+    ):
+        before, marked = schema.split(begin, 1)
+        _removed, after = marked.split(end, 1)
+        schema = before + after
+    return schema
+
+
 def _replace_create_table(schema: str, table: str, replacement: str) -> str:
     prefix = f"CREATE TABLE IF NOT EXISTS {table}"
     start = schema.index(prefix)
@@ -116,6 +134,7 @@ _LEGACY_CURRENT_CELLS = """CREATE TABLE IF NOT EXISTS current_cells (
 def _without_typed_values(schema: str) -> str:
     """Restore the exact logical JSON authority layout before typed storage."""
 
+    schema = _without_review_stats(schema)
     citation = schema.find("CREATE TABLE IF NOT EXISTS citation_texts")
     if citation >= 0:
         schema = schema[:citation]
@@ -283,6 +302,13 @@ def _legacy_json(value_kind: str | None, value: object) -> str | None:
 
 def _restore_legacy_authorities(db: sqlite3.Connection) -> None:
     """Downgrade fresh typed fixtures before exercising historical upgrades."""
+
+    db.execute("DROP TABLE run_review_fields")
+    db.execute("DROP INDEX idx_cell_result_heads_run")
+    db.execute("DROP INDEX idx_columns_current_run")
+    db.execute("ALTER TABLE runs DROP COLUMN review_resolved_bundle_count")
+    db.execute("ALTER TABLE runs DROP COLUMN review_bundle_count")
+    db.execute("ALTER TABLE runs DROP COLUMN review_stats_ready")
 
     current_rows = [
         (

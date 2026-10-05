@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from fastapi import FastAPI, Path, Query
+from fastapi import FastAPI, HTTPException, Path, Query
 
 from frisket.contracts.http.history_review import (
     ReviewBundlesPage,
@@ -147,9 +147,16 @@ def register_project_entity_review_routes(
         run_id: int | None = Query(default=None, ge=1),
         include_reviewed: bool = False,
         field_id: int | None = Query(default=None, ge=1),
-        order: Literal["confidence", "shuffle"] = "confidence",
+        order: Literal["confidence", "shuffle", "row"] = "confidence",
         seed: int = Query(default=0, ge=0, le=2_147_483_647),
+        cursor: int | None = Query(default=None, ge=0),
     ) -> ReviewBundlesPage:
+        if cursor is not None and order != "row":
+            raise HTTPException(status_code=422, detail="cursor requires order=row")
+        if order == "row" and run_id is None:
+            raise HTTPException(status_code=422, detail="order=row requires run_id")
+        if order == "row" and offset != 0:
+            raise HTTPException(status_code=422, detail="order=row requires offset=0")
         return ReviewBundlesPage.model_validate(
             service.review_bundles(
                 pid,
@@ -161,6 +168,7 @@ def register_project_entity_review_routes(
                 field_id=field_id,
                 order=order,
                 seed=seed,
+                cursor=cursor,
             )
         )
 

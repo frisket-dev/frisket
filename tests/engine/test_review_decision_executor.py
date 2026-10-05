@@ -16,7 +16,7 @@ from executor_harness import (
 )
 from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
-from frisket.engine.runner.review import review_bundle_page
+from frisket.engine.runner.review import review_bundle_page, review_runs_page
 from frisket.engine.store.evidence import (
     list_cell_evidence,
     record_evidence_link,
@@ -454,6 +454,144 @@ def test_completed_review_requires_reopening_before_another_decision(
         assert _review_metadata(project, seeded, row_id) == ("accept", None)
 
 
+def test_superseded_result_can_be_graded_but_cannot_overwrite_current_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with case_env(CASES[0], tmp_path, monkeypatch) as env:
+        project, seeded = env.project, env.seeded
+        row_id = seeded["row_ids"][0]
+        run_id = seeded["run_id"]
+        column_id = seeded["risk_column_id"]
+        project.db.execute(
+            "DELETE FROM cell_result_heads WHERE run_id=? AND row_id=? AND column_id=?",
+            (run_id, row_id, column_id),
+        )
+        project.db.commit()
+
+        page = review_bundle_page(project, run_id=run_id, include_reviewed=True)
+        historical = next(item for item in page["bundles"] if item["row_id"] == row_id)
+        assert historical["fields"][0]["can_edit"] is False
+
+        accepted = env.run(
+            _review_action(
+                run_id=run_id,
+                row_id=row_id,
+                column_id=column_id,
+                decision="accept",
+                key="grade-superseded-result@sha256:v1",
+            )
+        )
+        assert accepted.status == "completed", accepted.errors
+        assert _review_metadata(project, seeded, row_id) == ("accept", None)
+
+        refused = env.run(
+            _review_action(
+                run_id=run_id,
+                row_id=row_id,
+                column_id=column_id,
+                decision="edit",
+                value="must-not-land",
+                key="edit-superseded-result@sha256:v1",
+            )
+        )
+        assert refused.status == "failed"
+        assert any(error.code == "review_target_not_found" for error in refused.errors)
+        assert _review_metadata(project, seeded, row_id) == ("accept", None)
+
+
+def test_resumed_running_run_is_not_reviewable_until_it_stops(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from frisket.engine.store.runs import RunResultStore
+
+    with case_env(CASES[0], tmp_path, monkeypatch) as env:
+        project, seeded = env.project, env.seeded
+        project.db.execute(
+            "UPDATE runs SET status='running',finished_at=NULL WHERE id=?",
+            (seeded["run_id"],),
+        )
+        project.db.commit()
+
+        assert review_bundle_page(project, run_id=seeded["run_id"])["total"] == 0
+        refused = env.run(
+            {
+                **_make_action(seeded),
+                "idempotency_key": "review-running-refused@sha256:v1",
+            }
+        )
+        assert refused.status == "failed"
+        assert [error.code for error in refused.errors] == ["review_target_not_found"]
+
+        RunResultStore(project).finish_run(seeded["run_id"], "completed")
+        assert review_bundle_page(project, run_id=seeded["run_id"])["total"] == 2
+        accepted = env.run(
+            {
+                **_make_action(seeded),
+                "idempotency_key": "review-stopped-accepted@sha256:v1",
+            }
+        )
+        assert accepted.status == "completed", accepted.errors
+
+
+def test_nonreviewable_primary_output_is_evidence_not_an_actionable_field(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    del monkeypatch
+    from frisket.engine.executor import run_action_spec
+    from frisket.engine.store.runs import RunResultStore
+    from helpers import write_claimed_test_results
+
+    project = Project.create(tmp_path / "review-error-sibling.frisket")
+    try:
+        sheet_id = project.add_sheet("Rows")
+        answer_id = project.add_column(sheet_id, "answer", ai_generated=True)
+        error_id = project.add_column(sheet_id, "other", ai_generated=True)
+        row_id = project.add_rows(sheet_id, [{}], {})[0]
+        op_id = project.append_op("map", {"fixture": "mixed review outcomes"})
+        run_id = RunResultStore(project).start_run(
+            op_id,
+            sheet_id,
+            "map.extract",
+            row_ids=[row_id],
+            total_rows=1,
+        )
+        write_claimed_test_results(
+            project,
+            run_id,
+            [
+                {"row_id": row_id, "column_id": answer_id, "value": "ok"},
+                {
+                    "row_id": row_id,
+                    "column_id": error_id,
+                    "error": "bad sibling",
+                    "outcome": "model_error",
+                },
+            ],
+        )
+        RunResultStore(project).finish_run(run_id, "completed")
+        page = review_bundle_page(project, run_id=run_id, include_reviewed=True)
+        [bundle] = page["bundles"]
+        assert [item["column_id"] for item in bundle["fields"]] == [answer_id]
+        assert [item["column_id"] for item in bundle["evidence"]] == [error_id]
+        [review_run] = review_runs_page(project, run_id=run_id)["runs"]
+        assert [field["column_id"] for field in review_run["fields"]] == [answer_id]
+
+        accepted = run_action_spec(
+            project,
+            _review_action(
+                run_id=run_id,
+                row_id=row_id,
+                column_id=answer_id,
+                decision="accept",
+                key="review-valid-sibling-only@sha256:v1",
+            ),
+            project_id="review-error-sibling",
+        )
+        assert accepted.status == "completed", accepted.errors
+    finally:
+        project.close()
+
+
 def test_clear_decision_preserves_review_note_and_visible_edit_overlay(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -501,6 +639,7 @@ def test_clear_decision_preserves_review_note_and_visible_edit_overlay(
         corrected = next(item for item in page["bundles"] if item["row_id"] == row_id)
         assert corrected["fields"][0]["value"] == "manual-medium"
         assert corrected["fields"][0]["changed"] is True
+        assert corrected["fields"][0]["can_edit"] is True
         assert queue_count(project, run_id=seeded["run_id"]) == 2
         [run] = review_runs_page(project, run_id=seeded["run_id"])["runs"]
         assert run["total"]["reviewed_count"] == 0
@@ -564,6 +703,21 @@ def test_clear_reject_clear_keeps_the_null_overlay(
         )["fields"][0]
         assert unrelated_field["value"] == "high"
         assert unrelated_field["changed"] is False
+        assert unrelated_field["can_edit"] is False
+
+        refused = env.run(
+            _review_action(
+                run_id=seeded["run_id"],
+                row_id=row_id,
+                column_id=seeded["risk_column_id"],
+                decision="edit",
+                value="must not replace later edit",
+                key="review-after-unrelated-edit@sha256:v1",
+            )
+        )
+        assert refused.status == "failed"
+        assert any(error.code == "review_target_not_found" for error in refused.errors)
+        assert _live_risk(project, seeded, row_id) == "later manual edit"
 
 
 def test_decision_omitted_note_preserves_row_note_and_explicit_null_clears_it(

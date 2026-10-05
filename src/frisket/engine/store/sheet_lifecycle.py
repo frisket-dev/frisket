@@ -161,6 +161,8 @@ def delete_sheet(project: Any, sheet_id: int) -> dict[str, Any]:
             "UPDATE meta SET value=? WHERE key='op_cursor'", (str(cursor),)
         )
 
+    project.refresh_pending_review_summary()
+
     # Physical sheet deletion drops cells/results/evidence roots. Reclaim any
     # media bytes that are no longer referenced elsewhere in the project.
     project.gc_blobs()

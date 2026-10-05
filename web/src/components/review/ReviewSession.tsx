@@ -17,7 +17,7 @@ export interface ReviewSessionProps extends ReviewSessionOptions {
 
 function RowNavigation({ controller: c }: { controller: ReviewSessionController }) {
   return <nav className={styles.navigation} aria-label="Review rows">
-    <span data-testid="review-page-status">{c.page?.total ? c.page.offset + c.cursor + 1 : 0} / {c.page?.total ?? 0}</span>
+    <span data-testid="review-page-status">{c.page?.total ? c.position : 0} / {c.page?.total ?? 0}</span>
     <button className="icon-btn" aria-label="Previous row" disabled={c.busy || !c.canPrevious} onClick={() => c.moveRow(-1)}><ChevronLeft size={15} /></button>
     <button className="icon-btn" aria-label="Next row" disabled={c.busy || !c.canNext} onClick={() => c.moveRow(1)}><ChevronRight size={15} /></button>
   </nav>;
@@ -34,6 +34,8 @@ function FieldDecision({ field, controller: c, onSelectItem, selectableItemIndic
     if (selected) sectionRef.current?.scrollIntoView?.({ block: 'nearest' });
   }, [selected]);
   const editable = isPlainTextReviewField(field);
+  const editUnavailable = field.canEdit === false;
+  const editUnavailableMessage = 'This output was replaced or edited after the run. Editing it would not safely update the latest cell.';
   return <section ref={sectionRef} className={styles.field} data-selected={selected} data-review-state={field.reviewState}
     data-testid={`review-field-${field.columnName}`} data-review-changed={field.changed ? 'true' : 'false'} data-review-decision={field.reviewDecision}>
     <button type="button" className={styles.fieldSelect} aria-pressed={selected}
@@ -50,8 +52,9 @@ function FieldDecision({ field, controller: c, onSelectItem, selectableItemIndic
       <button type="button" aria-label={`Reject ${field.columnName}`} title="Reject (→ or D)"
         aria-pressed={field.reviewState === 'rejected'} disabled={c.busy || c.readOnly}
         className={styles.reject} onClick={() => c.toggle(field, 'reject')}><X size={16} /></button>
-      <button type="button" aria-label={`Edit ${field.columnName}`} title="Edit (E) — counts as incorrect"
-        aria-pressed={editing || field.reviewDecision === 'edit'} disabled={c.busy || c.readOnly || !editable}
+      <button type="button" aria-label={`Edit ${field.columnName}`}
+        aria-pressed={editing || field.reviewDecision === 'edit'} disabled={c.busy || c.readOnly || !editable || editUnavailable}
+        title={editUnavailable ? editUnavailableMessage : 'Edit (E) — counts as incorrect'}
         className={styles.edit} onClick={() => c.startEdit(field)}><Pencil size={14} /></button>
     </div>
     <div className={styles.value} onClick={(event) => {
@@ -60,6 +63,7 @@ function FieldDecision({ field, controller: c, onSelectItem, selectableItemIndic
     }}>
       <ReviewValue field={field} onSelectItem={c.busy ? undefined : onSelectItem} selectableItemIndices={selectableItemIndices} />
     </div>
+    {editUnavailable && <p className={styles.editUnavailable}>{editUnavailableMessage} Accept, reject, clear, and notes are still available.</p>}
     {editing && <div className={styles.editor}>
       <textarea ref={(node) => { if (node && document.activeElement !== node) { node.focus(); resizeTextareaToContent(node); } }}
         className="form-input form-textarea form-textarea-autogrow" rows={2}
