@@ -7,7 +7,11 @@ import json
 from pathlib import Path
 
 from frisket.engine.store import Project
-from frisket.querysets import resolve_sheet_filter_rows, sheet_row_scope_query
+from frisket.querysets import (
+    resolve_sheet_filter_rows,
+    sheet_row_scope_plan,
+    sheet_row_scope_query,
+)
 from frisket.server.services.sheet_grid import SheetGridService
 
 
@@ -33,6 +37,7 @@ def _number_sheet(tmp_path: Path) -> tuple[Project, int, int, list[int]]:
             {"score": "3000"},
             {"score": None},
             {"score": True},
+            {},
         ],
         {"score": column_id},
     )
@@ -88,7 +93,93 @@ def test_numeric_filter_and_sort_preserve_typed_value_semantics(tmp_path: Path) 
         row_ids[4],
         row_ids[5],
         row_ids[6],
+        row_ids[7],
     ]
+
+
+def test_numeric_filtered_pages_keep_exact_totals_at_page_boundaries(
+    tmp_path: Path,
+) -> None:
+    project, sheet_id, _column_id, _row_ids = _number_sheet(tmp_path)
+    service = SheetGridService(_OneProjectWorkspace(project))
+    filter_json = json.dumps({"score": {"gte": 2000}})
+    sort_json = json.dumps([{"column": "score", "dir": "desc"}])
+    try:
+        for limit, offset, total in ((0, 0, 3), (2, 99, 3)):
+            resolved = resolve_sheet_filter_rows(
+                project,
+                sheet_id,
+                filter_=filter_json,
+                sort=sort_json,
+                limit=limit,
+                offset=offset,
+            )
+            grid = service.sheet_data(
+                "project",
+                sheet_id,
+                filter_=filter_json,
+                sort=sort_json,
+                limit=limit,
+                offset=offset,
+            )
+            assert (resolved.row_ids, resolved.total) == ([], total)
+            assert (grid["rows"], grid["total"]) == ([], total)
+
+        empty_filter = json.dumps({"score": {"gte": 9999}})
+        resolved = resolve_sheet_filter_rows(
+            project, sheet_id, filter_=empty_filter, sort=sort_json, limit=2
+        )
+        grid = service.sheet_data(
+            "project", sheet_id, filter_=empty_filter, sort=sort_json, limit=2
+        )
+        assert (resolved.row_ids, resolved.total) == ([], 0)
+        assert (grid["rows"], grid["total"]) == ([], 0)
+    finally:
+        project.close()
+
+
+def test_full_range_default_order_keeps_bounded_page_query(tmp_path: Path) -> None:
+    project = Project.create(tmp_path / "query-full-range-work.frisket")
+    try:
+        sheet_id = project.add_sheet("Scores")
+        column_id = project.add_column(sheet_id, "score", type="number")
+        row_ids = project.add_rows(
+            sheet_id,
+            [{"score": value} for value in range(3_000)],
+            {"score": column_id},
+        )
+        filter_json = json.dumps({"score": {"gte": 0}})
+        plan = sheet_row_scope_plan(project, sheet_id, filter_=filter_json)
+
+        def count_and_page():
+            total = int(
+                project.db.execute(
+                    f"SELECT COUNT(*) FROM {plan.filter_from_sql} "
+                    f"WHERE {plan.where_sql}",
+                    plan.filter_params,
+                ).fetchone()[0]
+            )
+            rows = project.db.execute(
+                f"SELECT r.id FROM {plan.from_sql} WHERE {plan.where_sql} "
+                f"ORDER BY {', '.join(plan.order_parts)} LIMIT 10 OFFSET 0",
+                plan.select_params,
+            ).fetchall()
+            return total, [int(row["id"]) for row in rows]
+
+        old_page, old_steps = _vm_steps(project, count_and_page)
+        resolved, resolved_steps = _vm_steps(
+            project,
+            lambda: resolve_sheet_filter_rows(
+                project, sheet_id, filter_=filter_json, limit=10
+            ),
+        )
+    finally:
+        project.close()
+
+    expected = (3_000, row_ids[:10])
+    assert old_page == expected
+    assert (resolved.total, resolved.row_ids) == expected
+    assert resolved_steps <= old_steps * 1.05
 
 
 def test_numeric_filter_and_sort_reduce_sqlite_vm_work(tmp_path: Path) -> None:
@@ -111,22 +202,58 @@ def test_numeric_filter_and_sort_reduce_sqlite_vm_work(tmp_path: Path) -> None:
             sort=sort_json,
         )
         order_sql = ", ".join(order_parts)
+        plan = sheet_row_scope_plan(
+            project,
+            sheet_id,
+            filter_=filter_json,
+            sort=sort_json,
+        )
 
-        def legacy_query() -> tuple[int, list[int]]:
-            total = int(
+        legacy_count, legacy_count_steps = _vm_steps(
+            project,
+            lambda: int(
                 project.db.execute(
                     f"SELECT COUNT(*) FROM rows r WHERE {where_sql}", where_params
                 ).fetchone()[0]
-            )
-            rows = project.db.execute(
+            ),
+        )
+        optimized_count, optimized_count_steps = _vm_steps(
+            project,
+            lambda: int(
+                project.db.execute(
+                    f"SELECT COUNT(*) FROM {plan.filter_from_sql} "
+                    f"WHERE {plan.where_sql}",
+                    plan.filter_params,
+                ).fetchone()[0]
+            ),
+        )
+        legacy_rows, legacy_page_steps = _vm_steps(
+            project,
+            lambda: project.db.execute(
                 "SELECT r.id FROM rows r "
                 f"WHERE {where_sql} ORDER BY {order_sql} LIMIT ? OFFSET ?",
                 [*where_params, *order_params, 10, 0],
-            ).fetchall()
-            return total, [int(row["id"]) for row in rows]
-
-        legacy, legacy_steps = _vm_steps(project, legacy_query)
-        grid, optimized_steps = _vm_steps(
+            ).fetchall(),
+        )
+        optimized_rows, optimized_page_steps = _vm_steps(
+            project,
+            lambda: project.db.execute(
+                f"SELECT r.id FROM {plan.from_sql} WHERE {plan.where_sql} "
+                f"ORDER BY {', '.join(plan.order_parts)} LIMIT ? OFFSET ?",
+                [*plan.select_params, 10, 0],
+            ).fetchall(),
+        )
+        resolved, resolved_steps = _vm_steps(
+            project,
+            lambda: resolve_sheet_filter_rows(
+                project,
+                sheet_id,
+                filter_=filter_json,
+                sort=sort_json,
+                limit=10,
+            ),
+        )
+        grid, grid_steps = _vm_steps(
             project,
             lambda: SheetGridService(_OneProjectWorkspace(project)).sheet_data(
                 "project",
@@ -140,13 +267,14 @@ def test_numeric_filter_and_sort_reduce_sqlite_vm_work(tmp_path: Path) -> None:
         project.close()
 
     expected = (100, list(reversed(row_ids[-10:])))
-    assert legacy == expected
+    assert (legacy_count, [int(row["id"]) for row in legacy_rows]) == expected
+    assert (optimized_count, [int(row["id"]) for row in optimized_rows]) == expected
+    assert (resolved.total, resolved.row_ids) == expected
     assert (grid["total"], [row["id"] for row in grid["rows"]]) == expected
-    # The typed store resolves each returned value from its authority table,
-    # so fixed payload projection is a larger share of this small page. The
-    # joined grid plan must still do materially less VM work than repeating
-    # correlated scope expressions.
-    assert optimized_steps < legacy_steps * 0.9
+    assert optimized_count_steps < legacy_count_steps * 0.7
+    assert optimized_page_steps < legacy_page_steps * 0.7
+    assert resolved_steps < (optimized_count_steps + optimized_page_steps) * 0.7
+    assert grid_steps < (legacy_count_steps + legacy_page_steps) * 0.9
 
 
 def test_correlated_scope_query_binds_date_filter_parameters(tmp_path: Path) -> None:

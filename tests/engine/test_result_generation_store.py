@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import frisket.engine.store.result_generations as result_generations_module
 from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.result_generations import (
@@ -1235,6 +1236,221 @@ def test_progressive_publication_batches_generation_and_head_queries(
     }
     _release(project, claimed)
     project.close()
+
+
+def test_active_create_seal_keeps_progressive_projection_and_coalesces_search(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project, sheet_id, output_column_id, row_ids = _seed_project(tmp_path)
+    generations = ResultGenerationStore(project)
+    claimed = _start_claimed_run(
+        project,
+        sheet_id=sheet_id,
+        output_column_id=output_column_id,
+        row_ids=row_ids,
+        label="partial progressive generation",
+    )
+    try:
+        _declare(generations, claimed, output_column_id, write_mode="create")
+        _write(
+            project,
+            claimed,
+            [
+                {
+                    "row_id": row_ids[0],
+                    "column_id": output_column_id,
+                    "value": "generated",
+                    "publication_effect": "publish_value",
+                },
+                {
+                    "row_id": row_ids[1],
+                    "column_id": output_column_id,
+                    "value": None,
+                    "publication_effect": "publish_null",
+                },
+                {
+                    "row_id": row_ids[2],
+                    "column_id": output_column_id,
+                    "error": "expected fixture error",
+                    "publication_effect": "publish_error",
+                },
+            ],
+        )
+        project.apply_edits(
+            [
+                {
+                    "row_id": row_ids[0],
+                    "column_id": output_column_id,
+                    "value": "manual",
+                }
+            ]
+        )
+
+        def unexpected_projection(*_args: object, **_kwargs: object) -> int:
+            raise AssertionError("already projected create reached seal projection")
+
+        monkeypatch.setattr(
+            ResultGenerationStore,
+            "_upsert_heads_from_key_table_uncommitted",
+            unexpected_projection,
+        )
+        monkeypatch.setattr(
+            result_generations_module,
+            "refresh_current_cells",
+            unexpected_projection,
+        )
+        monkeypatch.setattr(
+            result_generations_module,
+            "refresh_current_cells_from_key_table",
+            unexpected_projection,
+        )
+
+        assert (
+            _seal(
+                generations,
+                claimed,
+                output_column_id,
+                disposition="partial",
+            )
+            == 0
+        )
+        binding = generations.get_binding(claimed.run_id, output_column_id)
+        assert binding is not None
+        assert (binding.state, binding.terminal_disposition) == ("sealed", "partial")
+        assert project.get_values(sheet_id, output_column_id) == {
+            row_ids[0]: "manual",
+            row_ids[1]: None,
+            row_ids[2]: None,
+            row_ids[3]: None,
+        }
+        heads = generations.read_cell_heads(output_column_id)
+        assert [heads[row_id].publication_effect for row_id in row_ids[:3]] == [
+            "publish_value",
+            "publish_null",
+            "publish_error",
+        ]
+        scopes = project.db.execute(
+            "SELECT sheet_id,column_id,row_id_start,row_id_end "
+            "FROM search_dirty_scopes WHERE column_id=? ORDER BY id",
+            (output_column_id,),
+        ).fetchall()
+        assert [tuple(scope) for scope in scopes] == [
+            (sheet_id, output_column_id, None, None)
+        ]
+    finally:
+        _release(project, claimed)
+        project.close()
+
+
+def test_seal_partitions_projected_create_from_staged_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project, sheet_id, active_column_id, row_ids = _seed_project(tmp_path)
+    staged_column_id = project.add_column(
+        sheet_id, "generated_staged", type="text", ai_generated=True
+    )
+    op_id = project.append_op(
+        "map.regex_extract", {"pattern": "(.*)"}, label="mixed publication"
+    )
+    run_id = RunResultStore(project).start_run(
+        op_id,
+        sheet_id,
+        "map.regex_extract",
+        row_ids=row_ids[:1],
+        total_rows=1,
+    )
+    authority = run_writer_authority_fixture(
+        project,
+        run_id,
+        output_column_ids={active_column_id, staged_column_id},
+    )
+    claimed = _ClaimedRun(op_id=op_id, run_id=run_id, authority=authority)
+    token = authority.claim_token
+    assert token is not None
+    generations = ResultGenerationStore(project)
+    try:
+        generations.declare(
+            run_id,
+            active_column_id,
+            output_role="active",
+            compatibility_key="sha256:mixed-publication-v1",
+            write_mode="create",
+            claim_token=token,
+        )
+        generations.declare(
+            run_id,
+            staged_column_id,
+            output_role="staged",
+            compatibility_key="sha256:mixed-publication-v1",
+            write_mode="create",
+            claim_token=token,
+            defer_publication=True,
+        )
+        _write(
+            project,
+            claimed,
+            [
+                {
+                    "row_id": row_ids[0],
+                    "column_id": active_column_id,
+                    "value": "already visible",
+                    "publication_effect": "publish_value",
+                },
+                {
+                    "row_id": row_ids[0],
+                    "column_id": staged_column_id,
+                    "value": "visible at seal",
+                    "publication_effect": "publish_value",
+                },
+            ],
+        )
+        assert generations.read_cell_heads(active_column_id)[row_ids[0]].value == (
+            "already visible"
+        )
+        assert generations.read_cell_heads(staged_column_id) == {}
+
+        projected_tables: list[set[tuple[int, int]]] = []
+        original_upsert = ResultGenerationStore._upsert_heads_from_key_table_uncommitted
+
+        def observe_projection(
+            store: ResultGenerationStore, *, run_id: int, key_table: str
+        ) -> int:
+            projected_tables.append(
+                {
+                    (int(row["row_id"]), int(row["column_id"]))
+                    for row in store.db.execute(
+                        f"SELECT row_id,column_id FROM {key_table}"
+                    )
+                }
+            )
+            return original_upsert(store, run_id=run_id, key_table=key_table)
+
+        monkeypatch.setattr(
+            ResultGenerationStore,
+            "_upsert_heads_from_key_table_uncommitted",
+            observe_projection,
+        )
+        assert (
+            generations.seal(
+                run_id,
+                [active_column_id, staged_column_id],
+                claim_token=token,
+                terminal_disposition="completed",
+            )
+            == 1
+        )
+        assert projected_tables == [{(row_ids[0], staged_column_id)}]
+        assert generations.read_cell_heads(active_column_id)[row_ids[0]].value == (
+            "already visible"
+        )
+        assert generations.read_cell_heads(staged_column_id)[row_ids[0]].value == (
+            "visible at seal"
+        )
+    finally:
+        assert OutputColumnClaimStore(project).release(claim_token=token) == 2
+        project.close()
 
 
 def test_subset_replacement_seal_refreshes_only_its_301_exact_rows(
