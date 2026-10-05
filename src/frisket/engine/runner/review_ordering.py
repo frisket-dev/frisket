@@ -55,9 +55,7 @@ def select_confidence_bundle_keys(
     if limit <= 0:
         return []
     run = project.db.execute(
-        "SELECT runs.id,runs.sheet_id,sheets.name AS sheet_name,"
-        "runs.action_kind,runs.model FROM runs "
-        "JOIN sheets ON sheets.id=runs.sheet_id "
+        "SELECT runs.id,runs.sheet_id,runs.action_kind,runs.model FROM runs "
         "WHERE runs.id=? AND runs.status<>'running' "
         "AND EXISTS (SELECT 1 FROM ops review_op "
         "WHERE review_op.id=runs.op_id AND review_op.status='applied')",
@@ -66,20 +64,24 @@ def select_confidence_bundle_keys(
     if run is None or (sheet_id is not None and int(run["sheet_id"]) != sheet_id):
         return []
 
-    field_where = "run_id=? AND is_primary=1 AND eligible_count>0"
+    field_where = (
+        "review_field.run_id=? AND review_field.is_primary=1 "
+        "AND review_field.eligible_count>0"
+    )
     field_params: list[Any] = [run_id]
     if field_id is not None:
-        field_where += " AND column_id=?"
+        field_where += " AND review_field.column_id=?"
         field_params.append(field_id)
-    column_ids = [
-        int(row["column_id"])
-        for row in project.db.execute(
-            f"SELECT column_id FROM run_review_fields WHERE {field_where} "
-            "ORDER BY column_position,column_id",
-            field_params,
-        )
-    ]
-    if not column_ids:
+    fields = project.db.execute(
+        "SELECT review_field.column_id,columns.sheet_id,"
+        "sheets.name AS sheet_name FROM run_review_fields review_field "
+        "JOIN columns ON columns.id=review_field.column_id "
+        "JOIN sheets ON sheets.id=columns.sheet_id "
+        f"WHERE {field_where} "
+        "ORDER BY review_field.column_position,review_field.column_id",
+        field_params,
+    ).fetchall()
+    if not fields:
         return []
 
     review_where = (
@@ -100,9 +102,10 @@ def select_confidence_bundle_keys(
 
     cursors: list[sqlite3.Cursor] = []
     heap: list[tuple[bool, float, int, int, int, float | None]] = []
-    for stream_index, column_id in enumerate(column_ids):
+    for stream_index, field in enumerate(fields):
+        column_id = int(field["column_id"])
         cursor = project.db.execute(
-            candidate_sql, (run_id, column_id, int(run["sheet_id"]))
+            candidate_sql, (run_id, column_id, int(field["sheet_id"]))
         )
         cursors.append(cursor)
         row = cursor.fetchone()
@@ -128,14 +131,14 @@ def select_confidence_bundle_keys(
 
     target = offset + limit
     seen: set[int] = set()
-    ranked: list[tuple[int, float | None]] = []
+    ranked: list[tuple[int, float | None, int]] = []
     while heap and len(ranked) < target:
         _null_rank, _value_rank, row_id, _column_id, stream_index, confidence = (
             heapq.heappop(heap)
         )
         if row_id not in seen:
             seen.add(row_id)
-            ranked.append((row_id, confidence))
+            ranked.append((row_id, confidence, stream_index))
 
         next_row = cursors[stream_index].fetchone()
         if next_row is not None:
@@ -145,7 +148,7 @@ def select_confidence_bundle_keys(
                 else None
             )
             next_row_id = int(next_row["row_id"])
-            column_id = column_ids[stream_index]
+            column_id = int(fields[stream_index]["column_id"])
             null_rank, value_rank, _, column_rank = _heap_key(
                 next_confidence, next_row_id, column_id
             )
@@ -161,18 +164,21 @@ def select_confidence_bundle_keys(
                 ),
             )
 
-    return [
-        ReviewBundleKey(
-            run_id=run_id,
-            row_id=row_id,
-            sheet_id=int(run["sheet_id"]),
-            sheet_name=str(run["sheet_name"]),
-            action_kind=str(run["action_kind"]),
-            model=str(run["model"]) if run["model"] is not None else None,
-            confidence=confidence,
+    keys: list[ReviewBundleKey] = []
+    for row_id, confidence, stream_index in ranked[offset:target]:
+        field = fields[stream_index]
+        keys.append(
+            ReviewBundleKey(
+                run_id=run_id,
+                row_id=row_id,
+                sheet_id=int(field["sheet_id"]),
+                sheet_name=str(field["sheet_name"]),
+                action_kind=str(run["action_kind"]),
+                model=str(run["model"]) if run["model"] is not None else None,
+                confidence=confidence,
+            )
         )
-        for row_id, confidence in ranked[offset:target]
-    ]
+    return keys
 
 
 __all__ = ["ReviewBundleKey", "select_confidence_bundle_keys"]

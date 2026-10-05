@@ -28,7 +28,7 @@ def migrate_review_confidence(db: sqlite3.Connection) -> None:
         row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
         if row is not None and row[0] == REVIEW_CONFIDENCE_FROM_DIGEST:
             db.execute(
-                "CREATE INDEX idx_results_run_col_confidence_row "
+                "CREATE INDEX IF NOT EXISTS idx_results_run_col_confidence_row "
                 "ON results(run_id,column_id,confidence,row_id)"
             )
             db.execute(
