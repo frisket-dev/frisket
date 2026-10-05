@@ -19,7 +19,10 @@ function entry(kind: string) {
   return value;
 }
 const derive = entry('derive.table_from_list');
-const extract = entry('map.extract');
+const extract = structuredClone(entry('map.extract'));
+extract.ui_hints.engines = extract.ui_hints.engines?.map((engine) => ({
+  ...engine, available: engine.id === 'llm',
+}));
 const sheet = sheetMeta([
   columnDef({ id: '1', name: 'headline', type: 'text' }),
   columnDef({ id: '2', name: 'notes', type: 'text' }),
@@ -40,8 +43,10 @@ function mount() {
   render(<DeriveActionForm projectId="derive-composite-test" catalogEntry={derive} extractEntry={extract}
     actionTemplate={generatedActionTemplateFromCatalogEntry(derive)!} sheet={sheet}
     initialSourceColumn="entities" running={false} onClose={vi.fn()}
-    resolveParams={async (request) => ({ diagnostics: {}, logical_outputs:
-      request.action_id === 'map.extract' ? [{ key: 'items', column_type: 'json' }] : [] })}
+    resolveParams={async (request) => request.action_id === 'map.extract' && !request.params.model
+      ? { diagnostics: { __all__: { ok: false, message: 'the llm engine requires a model' } }, logical_outputs: [] }
+      : { diagnostics: {}, logical_outputs:
+        request.action_id === 'map.extract' ? [{ key: 'items', column_type: 'json' }] : [] }}
     onExecute={onExecute} onCompositeRun={onCompositeRun} />);
   return { onCompositeRun, onExecute };
 }
@@ -50,11 +55,15 @@ it('projects direct and template sources through the typed extraction boundary',
   const { onCompositeRun } = mount();
   fireEvent.click(screen.getByTestId('derive-source-mode-ai'));
   await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
+  expect(screen.getAllByTestId('field-engine')).toHaveLength(1);
+  expect(screen.queryByTestId('field-model')).not.toBeInTheDocument();
   fireEvent.click(screen.getByTestId('generated-action-run'));
   expect(onCompositeRun).toHaveBeenCalledWith(expect.objectContaining({
     intent: 'derive_from_extraction',
     extraction: expect.objectContaining({
-      action_id: 'map.extract', params: expect.objectContaining({ source: ['entities'] }),
+      action_id: 'map.extract', params: expect.objectContaining({
+        source: ['entities'], engine: 'llm', model: 'test/model',
+      }),
     }),
   }));
   fireEvent.click(screen.getByTestId('text-source-mode-template'));

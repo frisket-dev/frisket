@@ -46,6 +46,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from frisket.contracts.actions.schemas._engines import (
     CENSUS_ENGINE_TABLE,
+    CLASSIFY_ENGINE_TABLE,
     GEOCODE_ENGINE_TABLE,
     OCR_ENGINE_TABLE,
     TO_MARKDOWN_ENGINE_TABLE,
@@ -63,6 +64,7 @@ from frisket.execution.provider import (
 )
 from frisket.execution.targets import (
     CAPABILITY_CENSUS,
+    CAPABILITY_CLASSIFY,
     CAPABILITY_GEOCODE,
     CAPABILITY_OCR,
     CAPABILITY_TO_MARKDOWN,
@@ -461,6 +463,7 @@ def _census_inability(
 #: capability -> its ability checker. The table IS the generalization: adding
 #: a capability adds a row, never a branch inside a caller.
 _CAPABILITY_INABILITY = {
+    CAPABILITY_CLASSIFY: _to_markdown_inability,
     CAPABILITY_TRANSCRIBE: _transcription_inability,
     CAPABILITY_OCR: _ocr_inability,
     CAPABILITY_TRANSLATE: _translate_inability,
@@ -472,6 +475,7 @@ _CAPABILITY_INABILITY = {
 #: capability -> the word a refusal uses for it. Display only; the identity is
 #: the capability token.
 _CAPABILITY_WORD = {
+    CAPABILITY_CLASSIFY: "classification",
     CAPABILITY_TRANSCRIBE: "transcription",
     CAPABILITY_OCR: "OCR",
     CAPABILITY_TRANSLATE: "translation",
@@ -493,6 +497,7 @@ def capability_engine_table(capability: str) -> tuple[EngineDeclaration, ...]:
     that, and a fence that stops seeing its double proves nothing).
     """
     tables: dict[str, tuple[EngineDeclaration, ...]] = {
+        CAPABILITY_CLASSIFY: CLASSIFY_ENGINE_TABLE,
         CAPABILITY_TRANSCRIBE: TRANSCRIBE_ENGINE_TABLE,
         CAPABILITY_OCR: OCR_ENGINE_TABLE,
         CAPABILITY_TRANSLATE: TRANSLATE_ENGINE_TABLE,

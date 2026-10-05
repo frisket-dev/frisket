@@ -71,6 +71,8 @@ def _new_classifier_session(
 def classifier_provenance_model(engine_id: str) -> str:
     """Return the exact runtime identity recorded for a direct classifier."""
 
+    if engine_id in {"clef", "clef-flash"}:
+        return f"Cloudflare/{engine_id}"
     if engine_id == "local_semantic":
         return f"fastembed/{LOCAL_SEMANTIC_MODEL}"
     try:

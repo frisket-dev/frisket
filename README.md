@@ -172,6 +172,45 @@ frisket ./my-workspace
 
 ## Extras
 
+### Clef classification and extraction
+
+The Classify and Extract actions include **Clef Flash** for an operator-managed model server
+and **Clef (Cloudflare)** for Cloudflare Workers AI. Both accept up to 64 output
+fields: categories with 2–254 labels, booleans, or integer scores from 0 to 10.
+They can include confidence values; justifications and free-text outputs are
+not supported. Choose the engine directly; no separate model is needed.
+One engine answers every field in the request. Clef always selects an answer,
+even when the input is inconclusive; it does not return “not found.” Confidence
+is the probability of the selected answer.
+
+Clef Flash also limits the whole request to 512 options (a boolean counts as
+2, a score as 11, and a category as its number of labels). Input text and the
+rendered question schema each have a 65,536-character limit; each question's
+instructions and each label description have a 4,096-character limit. Dataset
+context and extraction instructions count toward these limits. Text, questions,
+and model formatting must together fit its 16,384-token context, so requests
+within the character limits can still be too large. Shorten the text or
+instructions, or reduce fields and labels if Flash rejects a request. These
+worker limits do not apply to hosted Clef.
+
+For Extract, use text source columns and set **Citations** to **Off**. Clef does
+not support citations, image input, free text, arbitrary numbers, lists, or JSON
+objects. Switching engines keeps existing fields and citation settings visible;
+incompatible settings must be corrected before running. Choose a generative model
+for those settings. Extract's instructions, dataset context, required fields and
+output column names also apply to Clef.
+
+For Clef Flash, install the model server's `classify-clef` extra and configure
+`FRISKET_MODELS_URL` and `FRISKET_MODELS_TOKEN` as above. It becomes available
+when the authenticated server advertises `clef-flash` on `/classify` in its
+capabilities. The managed Docling installation does not install Clef Flash.
+
+For hosted Clef, set `CLOUDFLARE_ACCOUNT_ID` to your 32-character hexadecimal
+Cloudflare account ID and `CLOUDFLARE_API_TOKEN` to your Workers AI API token
+before starting Frisket. The token can also be saved as `CLOUDFLARE_API_TOKEN`
+in the project's **Settings → Secrets**. Hosted classification sends the selected
+text to Cloudflare and uses Frisket's external-action cost and consent flow.
+
 ### Local models
 
 > Fair warning: some of these aren't yet available without some additional setup.

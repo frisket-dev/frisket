@@ -40,6 +40,77 @@ not a new gateway route. Inference reads cached snapshots with networking
 disabled. Upstream Jeff attribution is in
 `src/frisket_models/classification/LICENSE.jeff`.
 
+## Self-hosted Clef-flash classification
+
+Clef-flash is a separate, operator-managed **9B decision model**. It serves
+text classification through `POST /classify`; it is not part of the CPU
+classifier installer or the hosted Modal bundle. The model's joint schema
+head returns probabilities in one forward pass, without chat generation.
+The adapter is based on Cloudflare's
+[published inference implementation](https://huggingface.co/Cloudflare/clef-flash/blob/17f0b0ad64efb65d273590632833508766b2aae6/joint_schema_model.py),
+pinned to revision `17f0b0ad64efb65d273590632833508766b2aae6`.
+
+Provision a dedicated GPU server environment. The first classification request
+downloads pinned model data into the Hugging Face cache and loads the model;
+later requests reuse it. The download is substantial (a 9B BF16 backbone plus decision
+head); the upstream release was tested on an H200. Frisket has not verified
+real Clef GPU inference or a minimum VRAM requirement. The tests use a stub
+inference boundary; do not treat them as a hardware or accuracy benchmark.
+
+```sh
+cd sidecar
+uv sync --extra classify-clef
+export FRISKET_MODELS_TOKEN=your-shared-secret
+export FRISKET_MODELS_CONCURRENCY=1
+uv run --no-sync uvicorn frisket_models.app:create_app --factory --host 0.0.0.0 --port 8000
+```
+
+Set `HF_HOME` to a persistent cache volume. To provision offline instead, run
+`hf download Cloudflare/clef-flash --revision 17f0b0ad64efb65d273590632833508766b2aae6 --exclude '*.py'`
+and set `FRISKET_MODELS_CLEF_SNAPSHOT` to its printed snapshot directory;
+the directory basename must match the pinned revision. This override skips
+the first-use download. The default device is `cuda`; `FRISKET_MODELS_CLEF_DEVICE=cpu`
+is accepted for operator experiments but is not an evaluated CPU profile.
+The bundled helper loads local safetensors with `local_files_only=True` and
+`trust_remote_code=False`. The downloader allows only JSON, safetensors, and
+the chat template, and no Python code from the model snapshot is imported.
+Upstream attribution and the Apache-2.0 license are in
+`src/frisket_models/classification/LICENSE.clef`.
+
+The authenticated request body is:
+
+```json
+{
+  "engine": "clef-flash",
+  "text": "Our checkout is failing and orders are blocked.",
+  "questions": {
+    "department": {
+      "type": "choice",
+      "instructions": "Which team should handle this?",
+      "criteria": {"billing": "Payments or invoices", "technical": "Bugs or outages"}
+    },
+    "outage": {"type": "noul", "instructions": "Is a service down?"},
+    "urgency": {"type": "score", "criteria": ["Can wait", "This week", "Today"]}
+  }
+}
+```
+
+The response preserves SystemOne's `model`, `answers`, and `usage` fields.
+Choice answers carry `choice`, `confidence`, and named `probabilities`; noul
+answers carry `noul` (the probability of true); score answers carry the
+expected zero-based option index as `score`, `confidence`, `legend`, and
+`probabilities`. `usage.input_tokens` is the encoded text plus schema token
+count, and `usage.output_tokens` is zero. Native score indices can be fractional.
+
+Limits are 1 MiB raw JSON, 65,536 text characters, 64 questions, 254 options
+per choice/score question, 512 total options, 65,536 schema characters, and
+16,384 encoded tokens. Text is never silently truncated. Invalid or oversized
+schemas return 422; oversized request bytes return 413; unavailable engines
+return 503; concurrency saturation returns 429 with `Retry-After` before
+model loading. Images and videos are not accepted on this route. Capabilities
+remain lazy and report Clef unavailable when dependencies are missing; a
+failed download or load is retained as unavailable until server restart.
+
 Design:
 
 - **Stateless.** The app POSTs blob *bytes* (multipart) — this service may be
@@ -66,6 +137,7 @@ Design:
 | `POST /to-markdown` | multipart `files` (document blobs) + form `engine=docling`\|`chandra` | `{documents: [{markdown, ocr_used}]}` per part |
 | `POST /v1/transcribe` | versioned multipart `files`, `engine`, JSON `options` | strict `{contract_version, results}` envelope for resident or isolated engines |
 | `POST /ner` | JSON `{texts, labels, threshold?}` | `{results: [[{text, label, start, end, score}]]}` per text |
+| `POST /classify` | JSON `{engine: "clef-flash", text, questions}` | `{model, answers, usage}` — typed SystemOne decisions |
 | `POST /rerank` | JSON `{query, documents, top_k?}` | `{results: [{index, score}]}` best first |
 | `POST /v1/embeddings` | JSON `{model?, input}` — the ONLY OpenAI-shaped route | `{object, model, data: [{index, embedding}], usage}` |
 
@@ -75,7 +147,8 @@ The clients in the main repo are the contract: `src/frisket/sdk/ops/ocr.py`
 these exact shapes
 (`files` parts, `engine` form field, `Authorization: Bearer`, retry on 429);
 `src/frisket/ai/llm/adapters.py` `embed()` defines the embeddings dialect. All
-POST bodies take arrays — batching everywhere.
+Blob routes take arrays; classification evaluates one text and its questions
+per request.
 
 `pp-ocrv6` is the fast, task-specific text OCR pipeline: it returns recognized
 lines, confidence scores, and polygons and has no generative prompt. It uses

@@ -1674,7 +1674,14 @@ class RunResultStore:
     # All three bind every fact they mint to the admitted route before it
     # reaches this writer.
     _ROUTED_FACT_CAPABILITIES = frozenset(
-        {"transcribe", "ocr", "document.convert", "geocode", "census_demographics"}
+        {
+            "transcribe",
+            "ocr",
+            "document.convert",
+            "geocode",
+            "census_demographics",
+            "classify",
+        }
     )
 
     def _run_has_persisted_route(self, run_id: int) -> bool:

@@ -28,11 +28,12 @@ from frisket.actions.types import (
 )
 from frisket.ai.message_content import render_input_block
 from frisket.contracts.classification import (
+    CLEF_ENGINE_IDS,
     GLICLASS_ENGINE_ID,
     JEFF_ENGINE_ID,
-    LOCAL_CLASSIFIERS,
-    LOCAL_CLASSIFIER_ENGINE_IDS,
+    validate_classification,
 )
+from frisket.contracts.clef import clef_questions, validate_clef_request
 from frisket.output_names import validate_runner_output_family
 
 
@@ -40,6 +41,8 @@ CLASSIFY_ENGINES = (
     "local_semantic",
     GLICLASS_ENGINE_ID,
     JEFF_ENGINE_ID,
+    "clef-flash",
+    "clef",
     "llm",
 )
 
@@ -61,7 +64,7 @@ class ClassifyParams(ActionParams):
     engine: EngineRef[Classifier] = Field(
         default=EngineRef[Classifier]("local_semantic"),
         title="Engine",
-        description="Local semantic, GLiClass, Jeff, or Model (hosted LLM).",
+        description="Local classifiers, Clef-flash (model server), Clef (Cloudflare), or Model.",
     )
     model: ModelRef | None = Field(
         default=None,
@@ -100,32 +103,19 @@ class ClassifyParams(ActionParams):
             return self
         if self.model is not None:
             raise ValueError(f"the {self.engine.root} engine does not use a model")
-        if self.engine.root == "local_semantic" and (
-            len(self.fields) != 1 or self.fields[0].type != "category"
-        ):
-            raise ValueError("local_semantic requires exactly one category field")
-        if self.engine.root == "local_semantic" and (
-            self.include_justification or self.include_confidence
-        ):
-            raise ValueError("local_semantic emits only the winning label")
-        if self.engine.root in LOCAL_CLASSIFIER_ENGINE_IDS:
-            if any(field.type != "category" for field in self.fields):
-                raise ValueError(f"{self.engine.root} supports only category fields")
-            if any(len(field.labels) < 2 for field in self.fields):
-                raise ValueError(
-                    f"{self.engine.root} requires at least two labels per field"
-                )
-            label_limit = LOCAL_CLASSIFIERS[self.engine.root].label_limit
-            if label_limit is not None and any(
-                len(field.labels) > label_limit for field in self.fields
-            ):
-                raise ValueError(
-                    f"{self.engine.root} supports at most {label_limit} labels per field"
-                )
-            if self.include_justification or self.include_confidence:
-                raise ValueError(
-                    f"{self.engine.root} does not declare companion outputs"
-                )
+        validate_classification(
+            self.engine.root,
+            [field.model_dump() for field in self.fields],
+            include_confidence=self.include_confidence,
+            include_justification=self.include_justification,
+        )
+        if self.engine.root in CLEF_ENGINE_IDS:
+            validate_clef_request(
+                self.engine.root,
+                clef_questions(
+                    [field.model_dump() for field in self.fields], self.context
+                ),
+            )
         return self
 
 
@@ -241,11 +231,9 @@ def classify_prompt(params: ClassifyParams, row: Row) -> ModelPrompt[DynamicOutp
 
 
 def _source_text(row_values: dict[str, Any]) -> str:
-    return "\n".join(
-        str(value)
-        for value in row_values.values()
-        if value is not None and not isinstance(value, dict)
-    )
+    from frisket.contracts.clef import classification_text
+
+    return classification_text(row_values)
 
 
 async def classify_row(

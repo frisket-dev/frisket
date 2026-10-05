@@ -12,6 +12,7 @@ from frisket.ops import ytdlp
 from frisket.actions.system import root_action_catalog_payload
 from frisket.contracts.actions.schemas._engines import (
     CENSUS_ENGINE_TABLE,
+    CLASSIFY_ENGINE_TABLE,
     GEOCODE_ENGINE_TABLE,
     OCR_ENGINE_TABLE,
     TO_MARKDOWN_ENGINE_TABLE,
@@ -19,7 +20,9 @@ from frisket.contracts.actions.schemas._engines import (
     EngineDeclaration,
 )
 from frisket.credentials import missing_required_credentials
+from frisket.contracts.classification import CLEF_ENGINE_IDS, classification_options
 from frisket.ai.external_pricing import (
+    CLOUDFLARE_CLEF_INPUT_TOKEN,
     DATALAB_CONVERT_PAGE,
     DATALAB_OCR_PAGE,
     GEOCODE_EXTERNAL_GEOCODER,
@@ -495,6 +498,7 @@ def _project_execution_composition_engines(
             continue
 
         engine = dict(original)
+        use_clef_declaration = capability == "classify" and engine_id in CLEF_ENGINE_IDS
         existing_targets = [
             dict(row) for row in (engine.get("targets") or []) if isinstance(row, dict)
         ]
@@ -543,6 +547,7 @@ def _project_execution_composition_engines(
                 offering is not None
                 or use_gateway_declaration
                 or use_managed_local_declaration
+                or use_clef_declaration
                 or capability == "transcribe"
             ):
                 available, error = projected_liveness(target.id)
@@ -584,6 +589,7 @@ def _project_execution_composition_engines(
                 or preferred_offer is not None
                 or use_gateway_declaration
                 or use_managed_local_declaration
+                or use_clef_declaration
             ):
                 available, error = projected_liveness(preferred_target.id)
                 engine_update = {"available": available}
@@ -787,7 +793,7 @@ def _recipe_engines(
     has_local_model_endpoint: bool = False,
     effective_router: Any = None,
 ) -> list[dict[str, Any]]:
-    if action_kind == "map.classify":
+    if action_kind in {"map.classify", "map.extract"}:
         from frisket.contracts.classification import (
             GLICLASS_ENGINE_ID,
             JEFF_ENGINE_ID,
@@ -798,49 +804,22 @@ def _recipe_engines(
             classifier_ready,
             classifier_runtime_present,
         )
+        from frisket.execution.definitions import (
+            CLOUDFLARE_CLEF_TARGET_ID,
+            StaticExecutionTargetProvider,
+        )
         from frisket.semantic import (
             PROVIDERLESS_CLASSIFY_MODEL,
             local_embedder,
         )
         from frisket.server.provider_config import ENV_VAR as PROVIDER_ENV_VAR
 
-        local_error = None
-        try:
-            local_ok = (
-                local_embedder(
-                    PROVIDERLESS_CLASSIFY_MODEL,
-                    capability="providerless_classify",
-                )
-                is not None
-            )
-        except ValueError as exc:
-            local_ok = False
-            local_error = str(exc)
         llm_providers = _configured_llm_providers(
             project,
             org_provider_keys,
             has_local_model_endpoint=has_local_model_endpoint,
             effective_router=effective_router,
         )
-        local_semantic = _engine(
-            "local_semantic",
-            "Local semantic",
-            tier="local",
-            available=local_ok,
-            error=(
-                None
-                if local_ok
-                else local_error
-                or "Local FastEmbed is unavailable; reinstall Frisket, unset FRISKET_DISABLE_LOCAL_EMBED, or explicitly enable providerless Classify."
-            ),
-            models=[PROVIDERLESS_CLASSIFY_MODEL] if local_ok else None,
-        )
-        local_semantic["classification_options"] = {
-            "field_types": ["category"],
-            "max_fields": 1,
-            "include_confidence": False,
-            "include_justification": False,
-        }
         llm = _engine(
             "llm",
             "Model",
@@ -852,23 +831,45 @@ def _recipe_engines(
                 if llm_providers
                 else "Configure a provider API key ("
                 + ", ".join(PROVIDER_ENV_VAR.values())
-                + ") to enable model classification."
+                + ") to enable model extraction or classification."
             ),
         )
-        llm["classification_options"] = {
-            "field_types": [
-                "category",
-                "score",
-                "integer",
-                "number",
-                "boolean",
-                "text",
-            ],
-            "max_fields": 64,
-            "include_confidence": True,
-            "include_justification": True,
-        }
-        runtime_present = classifier_runtime_present()
+        # Extraction shares only the direct decision engines and LLM option.
+        # Do not initialize or probe unrelated local classification runtimes.
+        local_semantic = None
+        if action_kind == "map.classify":
+            llm["classification_options"] = classification_options("llm")
+            local_error = None
+            try:
+                local_ok = (
+                    local_embedder(
+                        PROVIDERLESS_CLASSIFY_MODEL,
+                        capability="providerless_classify",
+                    )
+                    is not None
+                )
+            except ValueError as exc:
+                local_ok = False
+                local_error = str(exc)
+            local_semantic = _engine(
+                "local_semantic",
+                "Local semantic",
+                tier="local",
+                available=local_ok,
+                error=(
+                    None
+                    if local_ok
+                    else local_error
+                    or "Local FastEmbed is unavailable; reinstall Frisket, unset FRISKET_DISABLE_LOCAL_EMBED, or explicitly enable providerless Classify."
+                ),
+                models=[PROVIDERLESS_CLASSIFY_MODEL] if local_ok else None,
+            )
+            local_semantic["classification_options"] = classification_options(
+                "local_semantic"
+            )
+        runtime_present = (
+            classifier_runtime_present() if action_kind == "map.classify" else False
+        )
         labels = {
             GLICLASS_ENGINE_ID: "GLiClass Base",
             JEFF_ENGINE_ID: "Jeff 0.8B",
@@ -878,7 +879,11 @@ def _recipe_engines(
             JEFF_ENGINE_ID: "Higher-quality local classification.",
         }
         local_classifiers: list[dict[str, Any]] = []
-        for engine_id in (GLICLASS_ENGINE_ID, JEFF_ENGINE_ID):
+        for engine_id in (
+            (GLICLASS_ENGINE_ID, JEFF_ENGINE_ID)
+            if action_kind == "map.classify"
+            else ()
+        ):
             spec = LOCAL_CLASSIFIERS[engine_id]
             ready = classifier_ready(engine_id)
             artifact = classifier_artifact(engine_id)
@@ -904,12 +909,7 @@ def _recipe_engines(
                     "description": descriptions[engine_id],
                     "model_card_url": artifact.source_url,
                     "setup_ref": spec.setup_ref,
-                    "classification_options": {
-                        "field_types": ["category"],
-                        "max_fields": 64,
-                        "include_confidence": False,
-                        "include_justification": False,
-                    },
+                    "classification_options": classification_options(engine_id),
                     "downloadable_models": [
                         {
                             "ref": artifact.ref,
@@ -922,7 +922,46 @@ def _recipe_engines(
                 }
             )
             local_classifiers.append(row)
-        return [local_semantic, *local_classifiers, llm]
+        clef_flash_ok, clef_flash_error, _ = _sidecar_engine(
+            sidecar_capabilities, route="/classify", name="clef-flash"
+        )
+        classify_declarations = _table_decls(CLASSIFY_ENGINE_TABLE)
+        clef_flash = _declared_engine(
+            classify_declarations["clef-flash"],
+            available=clef_flash_ok,
+            error=clef_flash_error,
+        )
+        provider = StaticExecutionTargetProvider(secrets=project)
+        try:
+            clef_ok = provider.connection(CLOUDFLARE_CLEF_TARGET_ID) is not None
+            clef_error = (
+                None if clef_ok else provider.liveness_remedy(CLOUDFLARE_CLEF_TARGET_ID)
+            )
+        except ValueError as exc:
+            clef_ok, clef_error = False, str(exc)
+        clef = _declared_engine(
+            classify_declarations["clef"],
+            available=clef_ok,
+            error=clef_error,
+            pricing=external_pricing_entry(CLOUDFLARE_CLEF_INPUT_TOKEN),
+        )
+        for row in (clef_flash, clef):
+            row["classification_options"] = classification_options(row["id"])
+        clef_flash["description"] = (
+            "Use Clef Flash on your model server. "
+            "Text only; supports categories, booleans, and integer scores from 0 to 10. "
+            "Citations are not supported. "
+            + clef_flash["classification_options"]["behavior_note"]
+        )
+        clef["description"] = (
+            "Use Clef with Cloudflare Workers AI. "
+            "Text only; supports categories, booleans, and integer scores from 0 to 10. "
+            "Citations are not supported. "
+            + clef["classification_options"]["behavior_note"]
+        )
+        if local_semantic is not None:
+            return [local_semantic, *local_classifiers, clef_flash, clef, llm]
+        return [clef_flash, clef, llm]
     if action_kind == "enrich.geocode":
         from frisket.credentials import resolve_credential
 
@@ -1694,7 +1733,15 @@ def project_action_catalog_launcher_hints(
         and (action_kinds is None or spec.action_kind in action_kinds)
     ]
     providers.extend(
-        (registered.action_id, registered.action_id.rsplit(".", 1)[-1], True, [], None)
+        (
+            registered.action_id,
+            registered.action_id.rsplit(".", 1)[-1],
+            True,
+            [],
+            ROUTED_CAPABILITIES.get(
+                routed_capability(registered.definition.run.direct)
+            ),
+        )
         for registered in ACTION_REGISTRY.actions
         if isinstance(registered.definition.run, ModelRows)
     )

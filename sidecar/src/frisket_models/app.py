@@ -23,9 +23,10 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from frisket_models import __version__
+from frisket_models.classification.clef import ClassifyBody, MAX_REQUEST_BYTES
 from frisket_models.engines import (
     WHISPER_DESCRIPTOR,
     Registry,
@@ -350,6 +351,41 @@ def create_app(
                 adapter, body.texts, body.labels, body.threshold
             )
         return {"results": results}
+
+    @api.post("/classify")
+    async def classify(request: Request) -> dict:
+        """Bound raw JSON before parsing and admit before loading a 9B model."""
+        with _slot(limiter):
+            raw = bytearray()
+            async for chunk in request.stream():
+                if len(raw) + len(chunk) > MAX_REQUEST_BYTES:
+                    raise HTTPException(
+                        status_code=413, detail="classification body too large"
+                    )
+                raw.extend(chunk)
+            try:
+                body = ClassifyBody.model_validate_json(raw)
+            except ValidationError:
+                # Validation errors normally echo the submitted input. Keep
+                # private document text and criteria out of the error response.
+                raise HTTPException(
+                    status_code=422, detail="invalid classification request"
+                ) from None
+            adapter = await _engine("/classify", body.engine)
+            questions = {
+                key: question.model_dump(exclude_none=True)
+                for key, question in body.questions.items()
+            }
+            try:
+                return await run_in_threadpool(adapter, body.text, questions)
+            except ValueError:
+                raise HTTPException(
+                    status_code=422, detail="classification input exceeds model limits"
+                ) from None
+            except Exception:
+                raise HTTPException(
+                    status_code=500, detail="classification engine failed"
+                ) from None
 
     @api.post("/rerank")
     async def rerank(body: RerankBody) -> dict:

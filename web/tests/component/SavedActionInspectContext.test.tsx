@@ -97,6 +97,11 @@ const HIDDEN_ENTRIES = [
 const servedCatalog = servedActionCatalog();
 const CATALOG = { ...servedCatalog, actions: servedCatalog.actions.map((entry) => (
   entry.kind === DERIVE_TABLE_ENTRY.kind ? DERIVE_TABLE_ENTRY
+    : entry.kind === 'map.extract' ? {
+      ...entry, ui_hints: { ...entry.ui_hints, engines: entry.ui_hints.engines?.map((engine) => ({
+        ...engine, available: engine.id === 'llm',
+      })) },
+    }
     : HIDDEN_ENTRIES.find((hidden) => hidden.kind === entry.kind) ?? entry
 )) };
 const TEMPLATES = actionTemplatesFromCatalog(CATALOG);
