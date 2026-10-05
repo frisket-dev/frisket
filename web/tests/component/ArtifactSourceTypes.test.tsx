@@ -13,6 +13,18 @@ function mediaArtifact(mediaType: string) {
 }
 
 describe('ArtifactSource media coverage', () => {
+  it('does not enlarge small citation boxes to one percent of the image', () => {
+    const artifact = mediaArtifact('image/png');
+    artifact.spans = [evidenceSpan({ span_kind: 'region', selector: {
+      bbox: [{ space: 'page_normalized', x0: .1, y0: .2, x1: .102, y1: .204 }],
+    } })];
+    render(<ArtifactSource artifact={artifact} />);
+    const highlight = screen.getByTestId('evidence-region-highlight');
+    expect(parseFloat(highlight.style.width)).toBeCloseTo(.2);
+    expect(parseFloat(highlight.style.height)).toBeCloseTo(.4);
+    expect(highlight.tagName).toBe('SPAN');
+  });
+
   it('renders a standalone image with its recorded regions', () => {
     const artifact = mediaArtifact('image/png');
     artifact.spans = [evidenceSpan({ stable_id: 'face', span_kind: 'region', selector: {

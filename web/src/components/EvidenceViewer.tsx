@@ -13,6 +13,8 @@ import { readEvidenceTextResource } from '../api/raw/blobText';
 import { PanelLoading } from './PanelPrimitives';
 import { SavedTextContext } from './EvidenceTextContext';
 import { textSegments, type TextSegment } from './evidenceTextSegments';
+import { PageRegion } from './PageRegion';
+import { normalizeRegion } from './regionGeometry';
 
 export interface EvidenceViewerProps {
   evidenceLinkId: string | number;
@@ -636,12 +638,12 @@ function RegionOverlay({ region, emphasized, coordinateSpace = 'page_normalized'
   const normalized = normalizedBBox(region.bbox, coordinateSpace);
   if (!normalized) return null;
   return (
-    <span
+    <PageRegion
+      box={normalized}
       className={`evidence-region${emphasized ? ' evidence-region-emphasized' : ''}`}
       data-testid="evidence-region-highlight"
       data-emphasized={emphasized ? 'true' : undefined}
       title={region.snippet ?? region.stable_id}
-      style={normalizedRegionStyle(normalized)}
     />
   );
 }
@@ -1281,23 +1283,9 @@ function normalizedBBox(boxes: unknown, coordinateSpace: 'page_normalized' | 'fr
     const x1 = finiteNumber(box.x1);
     const y1 = finiteNumber(box.y1);
     if (x0 === null || y0 === null || x1 === null || y1 === null) continue;
-    return {
-      x0: clamp01(Math.min(x0, x1)),
-      y0: clamp01(Math.min(y0, y1)),
-      x1: clamp01(Math.max(x0, x1)),
-      y1: clamp01(Math.max(y0, y1)),
-    };
+    return normalizeRegion({ x: x0, y: y0 }, { x: x1, y: y1 });
   }
   return null;
-}
-
-function normalizedRegionStyle(box: { x0: number; y0: number; x1: number; y1: number }): CSSProperties {
-  return {
-    left: `${box.x0 * 100}%`,
-    top: `${box.y0 * 100}%`,
-    width: `${Math.max(0.01, box.x1 - box.x0) * 100}%`,
-    height: `${Math.max(0.01, box.y1 - box.y0) * 100}%`,
-  };
 }
 
 function finiteNumber(value: unknown): number | null {
@@ -1320,10 +1308,6 @@ function isDisplayableJsonValue(value: unknown): boolean {
 
 function selectorNumber(span: EvidenceSpan | undefined, field: string): number | null {
   return finiteNumber(span === undefined ? undefined : jsonRecord(span.selector)?.[field]);
-}
-
-function clamp01(value: number): number {
-  return Math.min(1, Math.max(0, value));
 }
 
 function selectorLabel(span: EvidenceSpan): string {

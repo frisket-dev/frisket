@@ -1,4 +1,5 @@
 import type { ExtractionDocument, ExtractionRequest, ExtractionPreviewDocument } from '../../api/documentExtraction';
+import { normalizeRegion } from '../../components/regionGeometry';
 
 export function previewOutcome(result: ExtractionPreviewDocument['result']): { warning: boolean; text: string } {
   const warnedCell = result.records.flatMap((record) => Object.values(record.cells)).find((cell) => cell.status === 'not_found' || Boolean(cell.diagnostic));
@@ -59,9 +60,8 @@ export function textInRegion(document: PositionedDocument | null, region: PageRe
 }
 
 export function normalizeBox(a: { x: number; y: number }, b: { x: number; y: number }, band = false): Box {
-  const clamp = (n: number) => Math.max(0, Math.min(1, n));
-  return { x0: band ? 0 : clamp(Math.min(a.x, b.x)), y0: clamp(Math.min(a.y, b.y)),
-    x1: band ? 1 : clamp(Math.max(a.x, b.x)), y1: clamp(Math.max(a.y, b.y)) };
+  const box = normalizeRegion(a, b);
+  return band ? { ...box, x0: 0, x1: 1 } : box;
 }
 
 export function changeRegion(template: ExtractionTemplate, target: AnnotationTarget, region: PageRegion): ExtractionTemplate {

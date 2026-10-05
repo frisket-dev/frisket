@@ -1,0 +1,8 @@
+:where(.region) { position: absolute; padding: 0; min-width: 0; min-height: 0; border: 0; background: transparent; box-sizing: border-box; font: inherit; color: inherit; cursor: inherit; }
+.readonly { pointer-events: none; }
+.editable { touch-action: none; user-select: none; }
+.handle { position: absolute; width: 7px; height: 7px; background: white; border: 1px solid currentColor; }
+.nw { top: -4px; left: -4px; cursor: nwse-resize; }
+.ne { top: -4px; right: -4px; cursor: nesw-resize; }
+.sw { bottom: -4px; left: -4px; cursor: nesw-resize; }
+.se { bottom: -4px; right: -4px; cursor: nwse-resize; }
