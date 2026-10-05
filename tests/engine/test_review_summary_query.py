@@ -66,6 +66,8 @@ def test_review_summary_keeps_exact_bundle_and_visibility_semantics(
         # a stable whole-run assessment, so hiding row two does not rewrite
         # the original task even though the active-cell queue omits that row.
         assert project.refresh_pending_review_summary() == 1
+        assert review_bundle_count(project, run_id=run_id) == 1
+        # The legacy no-run page continues to expose only visible active rows.
         assert review_bundle_count(project) == 0
 
         hidden_sheet_id = project.add_sheet("Hidden")

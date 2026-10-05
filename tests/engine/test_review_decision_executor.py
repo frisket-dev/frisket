@@ -454,6 +454,51 @@ def test_completed_review_requires_reopening_before_another_decision(
         assert _review_metadata(project, seeded, row_id) == ("accept", None)
 
 
+def test_superseded_result_can_be_graded_but_cannot_overwrite_current_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with case_env(CASES[0], tmp_path, monkeypatch) as env:
+        project, seeded = env.project, env.seeded
+        row_id = seeded["row_ids"][0]
+        run_id = seeded["run_id"]
+        column_id = seeded["risk_column_id"]
+        project.db.execute(
+            "DELETE FROM cell_result_heads WHERE run_id=? AND row_id=? AND column_id=?",
+            (run_id, row_id, column_id),
+        )
+        project.db.commit()
+
+        page = review_bundle_page(project, run_id=run_id, include_reviewed=True)
+        historical = next(item for item in page["bundles"] if item["row_id"] == row_id)
+        assert historical["fields"][0]["can_edit"] is False
+
+        accepted = env.run(
+            _review_action(
+                run_id=run_id,
+                row_id=row_id,
+                column_id=column_id,
+                decision="accept",
+                key="grade-superseded-result@sha256:v1",
+            )
+        )
+        assert accepted.status == "completed", accepted.errors
+        assert _review_metadata(project, seeded, row_id) == ("accept", None)
+
+        refused = env.run(
+            _review_action(
+                run_id=run_id,
+                row_id=row_id,
+                column_id=column_id,
+                decision="edit",
+                value="must-not-land",
+                key="edit-superseded-result@sha256:v1",
+            )
+        )
+        assert refused.status == "failed"
+        assert any(error.code == "review_target_not_found" for error in refused.errors)
+        assert _review_metadata(project, seeded, row_id) == ("accept", None)
+
+
 def test_clear_decision_preserves_review_note_and_visible_edit_overlay(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -501,6 +546,7 @@ def test_clear_decision_preserves_review_note_and_visible_edit_overlay(
         corrected = next(item for item in page["bundles"] if item["row_id"] == row_id)
         assert corrected["fields"][0]["value"] == "manual-medium"
         assert corrected["fields"][0]["changed"] is True
+        assert corrected["fields"][0]["can_edit"] is True
         assert queue_count(project, run_id=seeded["run_id"]) == 2
         [run] = review_runs_page(project, run_id=seeded["run_id"])["runs"]
         assert run["total"]["reviewed_count"] == 0
@@ -564,6 +610,21 @@ def test_clear_reject_clear_keeps_the_null_overlay(
         )["fields"][0]
         assert unrelated_field["value"] == "high"
         assert unrelated_field["changed"] is False
+        assert unrelated_field["can_edit"] is False
+
+        refused = env.run(
+            _review_action(
+                run_id=seeded["run_id"],
+                row_id=row_id,
+                column_id=seeded["risk_column_id"],
+                decision="edit",
+                value="must not replace later edit",
+                key="review-after-unrelated-edit@sha256:v1",
+            )
+        )
+        assert refused.status == "failed"
+        assert any(error.code == "review_target_not_found" for error in refused.errors)
+        assert _live_risk(project, seeded, row_id) == "later manual edit"
 
 
 def test_decision_omitted_note_preserves_row_note_and_explicit_null_clears_it(

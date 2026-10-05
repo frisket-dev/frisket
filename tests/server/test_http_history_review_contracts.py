@@ -127,6 +127,7 @@ class _ReviewService:
         field_id: int | None,
         order: str,
         seed: int,
+        cursor: int | None,
     ) -> dict[str, Any]:
         item = {
             "run_id": 9,
@@ -144,6 +145,7 @@ class _ReviewService:
             "review_note": None,
             "role": "field",
             "chore": True,
+            "can_edit": True,
         }
         evidence = {
             **item,
@@ -160,6 +162,7 @@ class _ReviewService:
             "total": 1,
             "has_more": False,
             "next_offset": None,
+            "next_cursor": None,
             "bundles": [
                 {
                     "id": "9:3",
@@ -304,6 +307,17 @@ def test_history_review_contracts_retain_query_bounds_error_envelopes_and_openap
     )
     assert (
         client.get("/api/projects/p/review/bundles", params={"limit": 101}).status_code
+        == 422
+    )
+    assert (
+        client.get("/api/projects/p/review/bundles", params={"cursor": 3}).status_code
+        == 422
+    )
+    assert (
+        client.get(
+            "/api/projects/p/review/bundles",
+            params={"order": "row", "offset": 1},
+        ).status_code
         == 422
     )
     missing_column = client.get("/api/projects/p/columns/404/runs")

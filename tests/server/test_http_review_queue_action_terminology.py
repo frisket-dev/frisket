@@ -167,6 +167,7 @@ def test_http_review_queue_and_bundles_use_action_metadata(tmp_path) -> None:
             "role": "field",
             "chore": True,
             "changed": False,
+            "can_edit": True,
         }
     ]
     assert {item["column_name"] for item in bundle["evidence"]} == {

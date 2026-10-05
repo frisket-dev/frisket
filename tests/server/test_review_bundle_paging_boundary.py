@@ -6,7 +6,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from frisket.server.app import create_app
-from frisket.engine.runner.review import review_bundle_page
+from frisket.engine.runner.review import queue_count, review_bundle_page
 from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
 
@@ -91,6 +91,7 @@ def _seed_review_history(tmp_path: Path) -> tuple[TestClient, str, list[int]]:
     RunResultStore(project).point_column_at_run(op_id, risk_col, run_id)
     RunResultStore(project).point_column_at_run(op_id, tone_col, run_id)
     RunResultStore(project).point_column_at_run(op_id, justification_col, run_id)
+    RunResultStore(project).finish_run(run_id, "completed")
     return client, project_id, row_ids
 
 
@@ -186,6 +187,39 @@ def test_review_bundle_page_batches_source_reads_for_all_rows(
     ]
 
 
+def test_selected_run_keeps_frozen_hidden_and_renamed_outputs(tmp_path: Path) -> None:
+    client, project_id, row_ids = _seed_review_history(tmp_path)
+    project = client.app.state.workspace.get(project_id)
+    run_id = int(project.db.execute("SELECT id FROM runs").fetchone()[0])
+    initial = review_bundle_page(project, run_id=run_id, limit=100)
+    assert initial["total"] == len(row_ids)
+    risk_id = next(
+        int(row["id"])
+        for row in project.db.execute("SELECT id,name FROM columns")
+        if row["name"] == "risk"
+    )
+    support_id = next(
+        int(row["id"])
+        for row in project.db.execute("SELECT id,name FROM columns")
+        if row["name"] == "risk_justification"
+    )
+
+    project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (row_ids[0],))
+    project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (risk_id,))
+    project.db.execute(
+        "UPDATE columns SET name='renamed_primary' WHERE id=?", (support_id,)
+    )
+    project.db.commit()
+
+    stable = review_bundle_page(project, run_id=run_id, limit=100)
+    assert stable["total"] == len(row_ids)
+    first = next(item for item in stable["bundles"] if item["row_id"] == row_ids[0])
+    assert {item["column_name"] for item in first["fields"]} == {"risk", "tone"}
+    assert {item["column_name"] for item in first["evidence"]} == {
+        "renamed_primary"
+    }
+
+
 def test_review_bundle_page_params_are_validated(tmp_path: Path) -> None:
     client, project_id, _row_ids = _seed_review_history(tmp_path)
     for params in (
@@ -210,24 +244,24 @@ def test_review_runs_report_decisions_and_persist_workflow_status(
         row["name"]: int(row["id"])
         for row in project.db.execute("SELECT id, name FROM columns").fetchall()
     }
-    project.db.execute(
-        "UPDATE results SET review_state='verified', review_decision='accept' "
-        "WHERE run_id=? AND row_id=? AND column_id=?",
-        (run_id, row_ids[0], columns["risk"]),
+    store = RunResultStore(project)
+    store.set_result_review_state(
+        run_id, row_ids[0], columns["risk"], "verified"
     )
-    project.db.execute(
-        "UPDATE results SET review_state='verified', review_decision='edit' "
-        "WHERE run_id=? AND row_id=? AND column_id=?",
-        (run_id, row_ids[0], columns["tone"]),
+    store.set_result_review_metadata(
+        run_id, row_ids[0], columns["risk"], "accept", None
+    )
+    store.set_result_review_state(
+        run_id, row_ids[0], columns["tone"], "verified"
+    )
+    store.set_result_review_metadata(
+        run_id, row_ids[0], columns["tone"], "edit", None
     )
     # Old reviewed rows have no durable accept-vs-edit fact. They stay in the
     # eligible total, but not in known decisions or pending work.
-    project.db.execute(
-        "UPDATE results SET review_state='verified', review_decision=NULL "
-        "WHERE run_id=? AND row_id=? AND column_id=?",
-        (run_id, row_ids[1], columns["risk"]),
+    store.set_result_review_state(
+        run_id, row_ids[1], columns["risk"], "verified"
     )
-    project.db.commit()
 
     response = client.get(
         f"/api/projects/{project_id}/review/runs",
@@ -274,6 +308,43 @@ def test_review_runs_report_decisions_and_persist_workflow_status(
     assert reopened.json()["review_completed_at"] is None
 
 
+def test_review_run_picker_excludes_current_running_runs(tmp_path: Path) -> None:
+    client, project_id, row_ids = _seed_review_history(tmp_path)
+    project = client.app.state.workspace.get(project_id)
+    sheet_id = int(project.db.execute("SELECT id FROM sheets").fetchone()[0])
+    risk_id = int(
+        project.db.execute("SELECT id FROM columns WHERE name='risk'").fetchone()[0]
+    )
+    op_id = project.append_op("map", {"action_kind": "map.classify"})
+    running_id = RunResultStore(project).start_run(
+        op_id,
+        sheet_id,
+        "map.classify",
+        params={"input_columns": ["story"]},
+        total_rows=1,
+        row_ids=[row_ids[0]],
+    )
+    write_claimed_test_results(
+        project,
+        running_id,
+        [{"row_id": row_ids[0], "column_id": risk_id, "value": "new"}],
+    )
+    RunResultStore(project).point_column_at_run(op_id, risk_id, running_id)
+
+    while_running = client.get(f"/api/projects/{project_id}/review/runs")
+    assert while_running.status_code == 200, while_running.text
+    assert running_id not in {
+        int(item["run_id"]) for item in while_running.json()["runs"]
+    }
+    assert queue_count(project) == len(row_ids) * 2
+
+    RunResultStore(project).finish_run(running_id, "completed")
+    finished = client.get(f"/api/projects/{project_id}/review/runs")
+    assert finished.status_code == 200, finished.text
+    assert running_id in {int(item["run_id"]) for item in finished.json()["runs"]}
+    assert queue_count(project) == len(row_ids) * 2 + 1
+
+
 def test_review_bundle_field_and_seeded_shuffle_are_server_side_and_stable(
     tmp_path: Path,
 ) -> None:
@@ -302,3 +373,49 @@ def test_review_bundle_field_and_seeded_shuffle_are_server_side_and_stable(
     first = shuffled(11)
     assert first == shuffled(11)
     assert first != shuffled(12)
+
+
+def test_review_bundle_row_cursor_pages_without_offset_rescans(tmp_path: Path) -> None:
+    client, project_id, row_ids = _seed_review_history(tmp_path)
+    project = client.app.state.workspace.get(project_id)
+    run_id = int(project.db.execute("SELECT id FROM runs").fetchone()[0])
+
+    first = client.get(
+        f"/api/projects/{project_id}/review/bundles",
+        params={"run_id": run_id, "order": "row", "limit": 25},
+    )
+    assert first.status_code == 200, first.text
+    first_body = first.json()
+    assert [item["row_id"] for item in first_body["bundles"]] == row_ids[:25]
+    assert first_body["has_more"] is True
+    assert first_body["next_offset"] is None
+    assert first_body["next_cursor"] == row_ids[24]
+
+    second = client.get(
+        f"/api/projects/{project_id}/review/bundles",
+        params={
+            "run_id": run_id,
+            "order": "row",
+            "cursor": first_body["next_cursor"],
+            "limit": 25,
+        },
+    )
+    assert second.status_code == 200, second.text
+    second_body = second.json()
+    assert [item["row_id"] for item in second_body["bundles"]] == row_ids[25:50]
+    assert second_body["next_cursor"] == row_ids[49]
+
+    tail = client.get(
+        f"/api/projects/{project_id}/review/bundles",
+        params={
+            "run_id": run_id,
+            "order": "row",
+            "cursor": second_body["next_cursor"],
+            "limit": 25,
+        },
+    )
+    assert tail.status_code == 200, tail.text
+    tail_body = tail.json()
+    assert [item["row_id"] for item in tail_body["bundles"]] == row_ids[50:]
+    assert tail_body["has_more"] is False
+    assert tail_body["next_cursor"] is None

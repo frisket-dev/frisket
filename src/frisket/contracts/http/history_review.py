@@ -184,6 +184,7 @@ class ReviewBundleItem(WireModel):
     role: Literal["field", "evidence"]
     chore: bool
     changed: bool = False
+    can_edit: bool
 
 
 class ReviewBundleSource(WireModel):
@@ -220,6 +221,7 @@ class ReviewBundlesPage(WireModel):
     total: int = Field(ge=0)
     has_more: bool
     next_offset: int | None
+    next_cursor: int | None = Field(ge=1)
     bundles: list[ReviewBundle]
 
 
