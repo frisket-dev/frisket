@@ -35,6 +35,14 @@ DEFAULT_REQUEST_TIMEOUT_SECONDS = 3600.0
 DEFAULT_CONNECT_TIMEOUT_SECONDS = 10.0
 
 
+class SidecarHTTPError(RuntimeError):
+    """HTTP failure with machine-readable status and no private response body."""
+
+    def __init__(self, op: str, status_code: int) -> None:
+        self.status_code = status_code
+        super().__init__(f"sidecar {op} failed ({status_code})")
+
+
 def sidecar_base_url() -> str | None:
     """Where the frisket-models sidecar lives, if configured. STATUS/DOCTOR
     surface only (operability/diagnostics.py, server/app.py's status probe):
@@ -325,7 +333,5 @@ async def sidecar_post(
         ):
             return body
     if resp.status_code != 200:
-        raise RuntimeError(
-            f"sidecar {op} failed ({resp.status_code}): {resp.text[:300]}"
-        )
+        raise SidecarHTTPError(op, resp.status_code)
     return resp.json()

@@ -319,9 +319,12 @@ class _TypedMapRowsProgram(Recipe):
             )
         )
         self.capture_source_cells |= self._uses_ner or self._uses_extract
-        if isinstance(self._terminal, ModelRows):
+        if isinstance(self._terminal, (ModelRows, _DirectModelRows)):
             prompt_inputs = [getattr(params, self._terminal.source_param)]
-            if self._terminal.evaluation is not None:
+            if (
+                isinstance(self._terminal, ModelRows)
+                and self._terminal.evaluation is not None
+            ):
                 # Evaluators intentionally send both the source material and
                 # the separately declared answer under review.
                 prompt_inputs.append(
@@ -561,12 +564,21 @@ class _TypedMapRowsProgram(Recipe):
             for capability in getattr(self._terminal, "capabilities", ()):
                 if capability is Classifier:
                     from frisket.engine.executor.classify_read import AdmittedClassifier
+                    from frisket.engine.executor.clef_read import AdmittedClefClassifier
+                    from frisket.contracts.classification import CLEF_ENGINE_IDS
+                    from frisket.contracts.clef import classification_context
 
-                    reader = AdmittedClassifier(
-                        engine=_capability_engine(
-                            self._terminal, self._params, capability
-                        ),
-                        context=getattr(self._params, "context", ""),
+                    engine = _capability_engine(
+                        self._terminal, self._params, capability
+                    )
+                    factory = (
+                        AdmittedClefClassifier
+                        if engine in CLEF_ENGINE_IDS
+                        else AdmittedClassifier
+                    )
+                    reader = factory(
+                        engine=engine,
+                        context=classification_context(self._params.model_dump()),
                         cancelled=ctx.extras.get("cancelled"),
                     )
                 elif capability is NerExtractor:
@@ -917,6 +929,7 @@ class _TypedMapRowsProgram(Recipe):
                     DocumentConverter,
                     Transcriber,
                     OcrReader,
+                    Classifier,
                     NerExtractor,
                     Translator,
                     Researcher,
@@ -934,7 +947,6 @@ class _TypedMapRowsProgram(Recipe):
                     VisualCutsReader,
                     TopicSectionsReader,
                     PdfTablesReader,
-                    Classifier,
                     *self._file_capabilities,
                 )
                 else binding.bind_row(ctx)
@@ -1587,6 +1599,13 @@ def build_typed_map_rows_plan(
         references = validate_typed_project_references(
             project, request.scope.sheet_id, bound.params
         )
+        if isinstance(bound.action.definition.run, _DirectModelRows):
+            _validate_classifier_source_types(
+                bound.action.definition.run,
+                bound.params,
+                references.source_column_types,
+                source_param=bound.action.definition.run.source_param,
+            )
         if _model_backed_terminal(bound.action.definition.run):
             validate_model_rows_input_provenance(
                 project,
@@ -1873,11 +1892,47 @@ def typed_program_from_runner_spec(
     return plan.program
 
 
+def _validate_classifier_source_types(
+    terminal: MapRows[Any, Any],
+    params: BaseModel,
+    source_column_types: Mapping[str, str],
+    *,
+    source_param: str,
+) -> None:
+    # Decision engines consume rendered text, not image bytes. Check the actual
+    # referenced columns (including template references) before admission/cost.
+    from frisket.contracts.classification import CLEF_ENGINE_IDS
+
+    engine = _capability_engine(terminal, params, Classifier)
+    if engine not in CLEF_ENGINE_IDS:
+        return
+    references = discover_references(getattr(params, source_param))
+    images = [
+        ref.column
+        for ref in references
+        if source_column_types.get(ref.column) == "image"
+    ]
+    if images:
+        raise TypedMapRowsPlanError(
+            "invalid_input_ref",
+            "Clef accepts text, not images. Run OCR first or choose a compatible model.",
+            field=f"params.{source_param}",
+            details={"columns": images},
+        )
+
+
 def validate_model_rows_source_types(
     terminal: ModelRows[Any, Any],
     params: BaseModel,
     source_column_types: Mapping[str, str],
 ) -> None:
+    if terminal.direct is not None and not terminal.uses_model(params):
+        _validate_classifier_source_types(
+            terminal.direct,
+            params,
+            source_column_types,
+            source_param=terminal.source_param,
+        )
     references = discover_references(getattr(params, terminal.source_param))
     incompatible = [
         {

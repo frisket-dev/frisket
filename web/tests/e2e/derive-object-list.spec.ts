@@ -45,20 +45,20 @@ const REPLAY_MODEL_CHOICES: SelectorGroupFixture[] = [{
     choiceId: MODEL,
     label: 'Gemini 3.5 Flash-Lite',
     summary: MODEL,
-    authoredSelection: { kind: 'model', model: MODEL },
+    authoredSelection: { kind: 'engine_model', engine: 'llm', model: MODEL },
   }],
 }];
 
 async function exposeReplayModel(page: Page, projectId: string): Promise<void> {
   await stubActionSelectorChoices(page, projectId, ({ actionId, field, params }) => {
     expect(actionId).toBe('map.extract');
-    expect(field).toBe('model');
+    expect(field).toBe('engine');
     const response = actionSelectorResponse({
       projectId,
       actionId,
       field,
       groups: REPLAY_MODEL_CHOICES,
-      currentChoiceId: params.model === MODEL ? MODEL : null,
+      currentChoiceId: params.engine === 'llm' && params.model === MODEL ? MODEL : null,
     });
     response.default_choice_id = MODEL;
     response.groups[0].choices[0].is_default = true;

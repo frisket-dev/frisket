@@ -159,6 +159,7 @@ ZERO_TARIFF_TRANSPORTS = frozenset(
         # like the /ocr and /v1/transcribe wires beside it. Zero-tariff is a fact
         # about who owns the compute, not about which capability is asking.
         "sidecar.convert",
+        "sidecar.classify",
     }
 )
 _TRANSPORT_PROVIDER_KIND = {
@@ -166,6 +167,8 @@ _TRANSPORT_PROVIDER_KIND = {
     "frisket.transcription.v1": "local_http",
     "sidecar.ocr": "local_http",
     "sidecar.convert": "local_http",
+    "sidecar.classify": "local_http",
+    "cloudflare.clef": "platform_api",
     "remote": "platform_api",
     "datalab.convert": "platform_api",
     # Third-party wires. Registered with the rest of the capability set and

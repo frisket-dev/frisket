@@ -41,7 +41,7 @@ export function ExtractFieldsEditor({ fields, onChange, optional = false }: {
     }))} />;
 }
 
-export function ExtractParamsBody({ params, setParams, errors, Field }:
+export function ExtractParamsBody({ params, setParams, errors, Field, engine }:
   GeneratedActionParamsBodyProps<'map.extract'>) {
   const groundingEnabled = params.grounding === undefined || Boolean(params.grounding?.enabled);
   const citationRequired = Boolean(
@@ -67,11 +67,12 @@ export function ExtractParamsBody({ params, setParams, errors, Field }:
   };
   return <>
     <Field name="source" />
+    <Field name="engine" />
+    {engine?.description && <p className="form-hint">{engine.description}</p>}
     <ExtractFieldsEditor fields={params.fields ?? []}
       onChange={(fields) => setParams({ ...params, fields })} />
     {errors.fields?.message && <p className="form-error" role="alert">{errors.fields.message}</p>}
     <Field name="instruction" />
-    <Field name="model" />
     <Field name="include_confidence" />
     <label className="field-group">
       <span className="form-label">Citations</span>

@@ -21,6 +21,7 @@ from frisket.execution.provider import (
 from frisket.execution.resolver import Refusal, ResolutionRequest, resolve
 from frisket.execution.targets import (
     CAPABILITY_CENSUS,
+    CAPABILITY_CLASSIFY,
     CAPABILITY_GEOCODE,
     CAPABILITY_OCR,
     CAPABILITY_TO_MARKDOWN,
@@ -127,12 +128,19 @@ def _actual_programs():
 
     programs = {}
     for registered in ACTION_REGISTRY.actions:
-        if routed_capability(registered.definition.run) is None:
+        if (
+            registered.action_id != "map.classify"
+            and routed_capability(registered.definition.run) is None
+        ):
             continue
         examples = registered.catalog_entry()["examples"]
         assert examples, f"bind a real Params example for {registered.action_id}"
+        params = examples[0]["params"]
+        if registered.action_id == "map.classify":
+            # The default LLM arm is deliberately not a classifier route.
+            params = {**params, "engine": "local_semantic"}
         programs[registered.action_id] = _typed_plan(
-            registered.action_id, params=examples[0]["params"]
+            registered.action_id, params=params
         ).program
     return programs
 
@@ -146,6 +154,7 @@ def test_exactly_the_landed_lanes_route_among_phase_4_capabilities():
         if recipe.execution_capability is not None
     }
     assert declared == {
+        "map.classify": CAPABILITY_CLASSIFY,
         "media.ocr": CAPABILITY_OCR,
         "media.transcribe": CAPABILITY_TRANSCRIBE,
         "media.to_markdown": CAPABILITY_TO_MARKDOWN,
@@ -157,6 +166,7 @@ def test_exactly_the_landed_lanes_route_among_phase_4_capabilities():
     assert consuming == [
         "enrich.census_demographics",
         "enrich.geocode",
+        "map.classify",
         "media.ocr",
         "media.to_markdown",
         "media.transcribe",
@@ -178,6 +188,7 @@ def test_the_capability_token_is_the_one_the_fact_column_already_carries():
 
     #: Capability -> every producer that must stamp it.
     producers = {
+        CAPABILITY_CLASSIFY: {"engine/executor/clef_read.py"},
         CAPABILITY_TRANSLATE: {
             "ops/integrations/translation_engine.py",
             "ops/integrations/translate_common.py",

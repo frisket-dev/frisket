@@ -21,6 +21,20 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Clef is a GPU-oriented decision model, separate from the managed CPU
+# classifiers. Its audited joint head is vendored; weights download on first
+# use and inference is local-only. Kept out of the hosted `all` extra.
+classify-clef = [
+    "torch>=2.11.0",
+    # The release's AutoProcessor includes Qwen image/video processors even
+    # for text-only input. Their import needs torchvision.
+    "torchvision>=0.26.0",
+    "transformers>=5.10.2",
+    "accelerate>=1.0",
+    "safetensors>=0.7.0",
+    "pillow>=10",
+    "huggingface-hub>=1.0",
+]
 # One extra per engine so a partial install still serves what it has
 # (/capabilities reflects only what imports cleanly).
 #

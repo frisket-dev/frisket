@@ -13,6 +13,12 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Callable
 
+from frisket_models.classification.clef import (
+    MODEL_ID as CLEF_MODEL_ID,
+    MODEL_REVISION as CLEF_MODEL_REVISION,
+    load_clef_flash,
+)
+
 from frisket_models.transcription.contract import (
     TranscribeOptions,
     TranscribeResult,
@@ -131,6 +137,7 @@ class Engine:
 
 
 EXTRAS = {
+    "clef-flash": "classify-clef",
     "surya2": "ocr",
     "paddleocr-vl": "ocr-paddle",
     PP_OCRV6_ENGINE: "ocr-paddle",
@@ -693,6 +700,22 @@ def default_registry() -> Registry:
     )
     return Registry(
         [
+            Engine(
+                "clef-flash",
+                "/classify",
+                [
+                    "torch",
+                    "torchvision",
+                    "transformers",
+                    "accelerate",
+                    "safetensors",
+                    "PIL",
+                    "huggingface_hub",
+                ],
+                load_clef_flash,
+                models=[CLEF_MODEL_ID],
+                revision=CLEF_MODEL_REVISION,
+            ),
             Engine(
                 DOTS_MOCR_ENGINE,
                 "/ocr",

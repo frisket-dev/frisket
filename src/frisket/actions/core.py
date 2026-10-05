@@ -2150,6 +2150,7 @@ def _model_prompt_result_model(annotation: Any) -> type[BaseModel]:
 
 
 ROUTED_CAPABILITIES = {
+    Classifier: "classify",
     Translator: "translate",
     Geocoder: "geocode",
     CensusDemographics: "census_demographics",

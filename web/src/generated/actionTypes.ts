@@ -824,6 +824,8 @@ export type ColumnsFromJsonParams = ({
 
 type ExtractParams_ColumnRef_Any_ = (string);
 
+type ExtractParams_EngineRef_Classifier_ = (string);
+
 type ExtractParams_ExtractEvidencePolicy = ({
   "citation_required"?: (boolean);
 });
@@ -859,8 +861,9 @@ type ExtractParams_RichTemplate = ({
 
 export type ExtractParams = ({
   "source": (((Array<(ExtractParams_RichColumn)>)) | ((ExtractParams_RichTemplate)));
-  "model": (ExtractParams_ModelRef);
+  "model"?: (((ExtractParams_ModelRef)) | ((null)));
   "context"?: (string);
+  "engine"?: (ExtractParams_EngineRef_Classifier_);
   "instruction"?: (string);
   "fields": (Array<(ExtractParams_ExtractField)>);
   "include_confidence"?: (boolean);

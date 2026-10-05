@@ -6,6 +6,7 @@ import frisket.sdk.ops.transcribe_engines as transcribe_engines
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, NoReturn
@@ -27,6 +28,7 @@ from frisket.execution.promise_compiler import OperatorBorneZeroCost
 from frisket.execution.provider import ConnectionConfig
 from frisket.execution.targets import (
     CAPABILITY_CENSUS,
+    CAPABILITY_CLASSIFY,
     CAPABILITY_GEOCODE,
     CAPABILITY_OCR,
     CAPABILITY_TO_MARKDOWN,
@@ -42,6 +44,8 @@ from frisket.engine.executor.geocode_capability import AdmittedGeocoder
 from frisket.ops.ocr_engines import OcrEngines
 from tests.document_conversion_helpers import bound_document_converter
 from frisket.engine.executor.translate_read import AdmittedTranslator
+from frisket.engine.executor.clef_read import AdmittedClefClassifier
+from frisket.actions.classify import ClassifyParams
 
 
 FUNDER = CredentialOwner.organization(31)
@@ -288,6 +292,43 @@ async def _census_probe(
     )
 
 
+async def _classify_probe(monkeypatch, _tmp_path, context, effects) -> None:
+    async def post(*_args, **_kwargs):
+        _effect_reached(effects, "cloudflare-clef")
+
+    extras = _routed_extras(
+        engine="clef", capability=CAPABILITY_CLASSIFY, transport="cloudflare.clef"
+    )
+    attempt = extras[ATTEMPT_EXTRA]
+    extras[ATTEMPT_EXTRA] = replace(
+        attempt,
+        admission=replace(
+            attempt.admission,
+            binding=SimpleNamespace(
+                connection=ConnectionConfig(
+                    base_url="https://example.test/clef",
+                    token="org-secret",
+                    extra={"credential_source": "org_byok"},
+                )
+            ),
+        ),
+    )
+    ctx = OpContext(
+        http=SimpleNamespace(post=post), credential_use_context=context, extras=extras
+    )
+    fields = ClassifyParams(
+        source=["body"],
+        engine="clef",
+        fields=[{"name": "relevant", "type": "boolean"}],
+    ).fields
+    owner = AdmittedClefClassifier(engine="clef")
+    row = Row({"body": "Hello"})
+    try:
+        await owner.bind_row(row, row_id=1, ctx=ctx).classify(row, "Hello", fields)
+    finally:
+        await owner.aclose()
+
+
 _Probe = Callable[
     [pytest.MonkeyPatch, Path, CredentialUseContext, list[str]],
     Awaitable[None],
@@ -299,6 +340,7 @@ _FENCE_PROBES: dict[str, _Probe] = {
     CAPABILITY_TO_MARKDOWN: _to_markdown_probe,
     CAPABILITY_GEOCODE: _geocode_probe,
     CAPABILITY_CENSUS: _census_probe,
+    CAPABILITY_CLASSIFY: _classify_probe,
 }
 
 

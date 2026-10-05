@@ -323,6 +323,61 @@ describe('classify source binding', () => {
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
   });
 
+  it.each(['clef', 'clef-flash'])(
+    'limits %s fields to categories, booleans, and scores with confidence only',
+    async (engineId) => {
+      const user = userEvent.setup();
+      mountClassify({
+        sheet: summarySheet(),
+        initialDraft: {
+          action_id: 'map.classify', scope: { kind: 'sheet_rows', sheet_id: 7 },
+          params: {
+            source: ['summary'], engine: engineId,
+            fields: [{ name: 'topic', type: 'category', labels: ['news', 'opinion'] }],
+          },
+          output_names: { topic: 'topic' },
+        },
+      });
+
+      expect(screen.getByLabelText('Include Confidence')).toBeVisible();
+      expect(screen.queryByLabelText('Include Justification')).not.toBeInTheDocument();
+      await user.click(screen.getByTestId('output-field-type'));
+      const types = within(screen.getByRole('listbox'));
+      expect(types.getAllByRole('option').map((option) => option.textContent)).toEqual([
+        'category', 'boolean', 'score',
+      ]);
+      await user.click(types.getByRole('option', { name: 'boolean' }));
+      await user.click(screen.getByRole('button', { name: 'Add column' }));
+      expect(screen.getAllByTestId('output-field-row')).toHaveLength(2);
+      expect(screen.queryByTestId('model-select')).not.toBeInTheDocument();
+    },
+  );
+
+  it('shows the server diagnostic for a restored Clef justification setting', async () => {
+    mountTypedForm({
+      entry: servedTypedEntry('map.classify'),
+      sheet: summarySheet(),
+      initialDraft: {
+        action_id: 'map.classify', scope: { kind: 'sheet_rows', sheet_id: 7 },
+        params: {
+          source: ['summary'], engine: 'clef', include_justification: true,
+          fields: [{ name: 'topic', type: 'category', labels: ['news', 'opinion'] }],
+        },
+        output_names: { topic: 'topic' },
+      },
+      resolveParams: async () => ({
+        diagnostics: { include_justification: {
+          ok: false, code: 'unsupported_option', message: 'Clef does not support justifications.',
+        } },
+        logical_outputs: [],
+      }),
+      estimateAction: estimateClassify,
+    });
+    expect(screen.queryByLabelText('Include Justification')).not.toBeInTheDocument();
+    expect(await screen.findByText('Clef does not support justifications.')).toBeVisible();
+    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
+  });
+
   it('resolves a hosted model leaf to engine=llm plus the selected model', async () => {
     const user = userEvent.setup();
     const providerCatalog: LocalProviderCatalog = {
@@ -366,6 +421,8 @@ describe('classify source binding', () => {
   it.each([
     ['gliclass', 'GLiClass Base'],
     ['jeff', 'Jeff 0.8B'],
+    ['clef-flash', 'Clef Flash'],
+    ['clef', 'Clef (Cloudflare)'],
   ])('clears the hosted model when switching to %s', async (engineId, engineLabel) => {
     const user = userEvent.setup();
     (listProviders as unknown as Mock).mockResolvedValue({

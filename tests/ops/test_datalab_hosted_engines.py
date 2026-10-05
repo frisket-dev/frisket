@@ -1285,12 +1285,11 @@ def test_classify_catalog_projects_pinned_local_classifier_setup(
 
     assert engines["gliclass"]["available"] is True
     assert engines["gliclass"]["setup_ref"] == "engine-setup:gliclass.local@1"
-    assert engines["gliclass"]["classification_options"] == {
-        "field_types": ["category"],
-        "max_fields": 64,
-        "include_confidence": False,
-        "include_justification": False,
-    }
+    from frisket.contracts.classification import classification_options
+
+    assert engines["gliclass"]["classification_options"] == classification_options(
+        "gliclass"
+    )
     assert engines["gliclass"]["downloadable_models"][0]["size"] == 754_867_256
     assert engines["jeff"]["available"] is False
     assert engines["jeff"]["setup_ref"] == "engine-setup:jeff.local@1"

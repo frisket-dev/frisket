@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 from importlib.util import find_spec
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -75,12 +76,14 @@ from frisket.ai.models.gateway_config import (
 from frisket.execution.provider import ConnectionConfig
 from frisket.execution.targets import (
     CAPABILITY_CENSUS as CAPABILITY_CENSUS,
+    CAPABILITY_CLASSIFY as CAPABILITY_CLASSIFY,
     CAPABILITY_GEOCODE as CAPABILITY_GEOCODE,
     CAPABILITY_OCR as CAPABILITY_OCR,
     CAPABILITY_TO_MARKDOWN as CAPABILITY_TO_MARKDOWN,
     CAPABILITY_TRANSCRIBE as CAPABILITY_TRANSCRIBE,
     CAPABILITY_TRANSLATE as CAPABILITY_TRANSLATE,
     DATALAB_TARGET_ID as DATALAB_TARGET_ID,
+    CLOUDFLARE_CLEF_TARGET_ID as CLOUDFLARE_CLEF_TARGET_ID,
     DEEPL_TARGET_ID as DEEPL_TARGET_ID,
     GOOGLE_TRANSLATE_TARGET_ID as GOOGLE_TRANSLATE_TARGET_ID,
     LOCAL_MODELS_TARGET_ID as LOCAL_MODELS_TARGET_ID,
@@ -89,6 +92,7 @@ from frisket.execution.targets import (
     REMOTE_API_TARGET_ID_PREFIX as REMOTE_API_TARGET_ID_PREFIX,
     US_CENSUS_TARGET_ID as US_CENSUS_TARGET_ID,
     CensusOptionSupport,
+    ClassifyOptionSupport,
     ExecutionTarget,
     GeocodeOptionSupport,
     OcrOptionSupport,
@@ -115,6 +119,8 @@ DEEPL_API_KEY_ENV = "DEEPL_API_KEY"
 GOOGLE_TRANSLATE_API_KEY_ENV = "GOOGLE_TRANSLATE_API_KEY"
 OPENCAGE_API_KEY_ENV = "OPENCAGE_API_KEY"
 CENSUS_API_KEY_ENV = "CENSUS_API_KEY"
+CLOUDFLARE_ACCOUNT_ID_ENV = "CLOUDFLARE_ACCOUNT_ID"
+CLOUDFLARE_API_TOKEN_ENV = "CLOUDFLARE_API_TOKEN"
 
 LOCAL_TARGET_ID = "local"
 LOCAL_ONNX_TARGET_ID = "local-onnx"
@@ -324,6 +330,15 @@ def _remote_wildcard_support(provider: str) -> TargetEngineSupport:
     )
 
 
+def _classify_support(engine: str, transport: str) -> TargetEngineSupport:
+    return TargetEngineSupport(
+        engine=engine,
+        transport=transport,  # type: ignore[arg-type]
+        capability=CAPABILITY_CLASSIFY,
+        options=ClassifyOptionSupport(),
+    )
+
+
 def _translate_support(
     engine: str,
     transport: str,
@@ -430,6 +445,10 @@ def build_static_targets(
                 *_local_ocr_engines(),
                 *_local_translate_engines(),
                 *_local_to_markdown_engines(),
+                *(
+                    _classify_support(engine, "local")
+                    for engine in ("local_semantic", "gliclass", "jeff")
+                ),
             ),
         ),
         ExecutionTarget(
@@ -474,9 +493,16 @@ def build_static_targets(
                 _engine_support("vibevoice-asr"),
                 *_gateway_ocr_engines(),
                 *_gateway_to_markdown_engines(),
+                _classify_support("clef-flash", "sidecar.classify"),
             ),
         ),
         *(managed_local_models if not prefer_managed_local_models else ()),
+        ExecutionTarget(
+            id=CLOUDFLARE_CLEF_TARGET_ID,
+            operator="cloudflare",
+            egress_class="third_party_api",
+            engines=(_classify_support("clef", "cloudflare.clef"),),
+        ),
         ExecutionTarget(
             id=DATALAB_TARGET_ID,
             operator="datalab",
@@ -645,6 +671,8 @@ class StaticExecutionTargetProvider:
             return self._managed_local_models_connection()
         if target_id == DATALAB_TARGET_ID:
             return self._datalab_connection()
+        if target_id == CLOUDFLARE_CLEF_TARGET_ID:
+            return self._cloudflare_clef_connection()
         if target_id == NOMINATIM_TARGET_ID:
             return ConnectionConfig(extra={"provider": "nominatim"})
         if target_id == US_CENSUS_TARGET_ID:
@@ -680,6 +708,11 @@ class StaticExecutionTargetProvider:
             )
         if target_id == LOCAL_MODELS_TARGET_ID:
             return "Install the local Docling engine before retrying."
+        if target_id == CLOUDFLARE_CLEF_TARGET_ID:
+            return (
+                f"Set {CLOUDFLARE_ACCOUNT_ID_ENV} and {CLOUDFLARE_API_TOKEN_ENV} "
+                "to enable Cloudflare Clef classification."
+            )
         if target_id == DATALAB_TARGET_ID:
             return (
                 f"Set {DATALAB_API_KEY_ENV} (or add it under Settings > "
@@ -765,6 +798,28 @@ class StaticExecutionTargetProvider:
                 MODELS_GATEWAY_TIMEOUT_ENV, DEFAULT_MODELS_GATEWAY_TIMEOUT_SECONDS
             ),
             connect_timeout_seconds=MODELS_GATEWAY_CONNECT_TIMEOUT_SECONDS,
+        )
+
+    def _cloudflare_clef_connection(self) -> ConnectionConfig | None:
+        from frisket.credentials import resolve_credential_with_source
+
+        account = self._get(CLOUDFLARE_ACCOUNT_ID_ENV)
+        if account is None:
+            return None
+        if re.fullmatch(r"[a-fA-F0-9]{32}", account) is None:
+            raise ValueError(f"{CLOUDFLARE_ACCOUNT_ID_ENV} must be a 32-digit hex ID")
+        credential = resolve_credential_with_source(
+            self._secrets, CLOUDFLARE_API_TOKEN_ENV, env=self._env_override
+        )
+        if credential is None:
+            return None
+        return ConnectionConfig(
+            base_url=(
+                "https://api.cloudflare.com/client/v4/accounts/"
+                f"{account}/ai/run/@cf/cloudflare/clef"
+            ),
+            token=credential.value,
+            extra={"provider": "cloudflare", "credential_source": credential.source},
         )
 
     def _datalab_connection(self) -> ConnectionConfig | None:
