@@ -18,6 +18,7 @@ export {
   getColumnStatsContract,
   deleteSheetContract,
   getSheetDataContract,
+  getSheetRowsContract,
   listSheetsContract,
   locateSheetRowContract,
   updateSheetContract,

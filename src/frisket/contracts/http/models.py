@@ -110,6 +110,7 @@ class SheetDataQuery(NonNullQueryWireModel):
     row_ids: str | None = None
     scope_row_ids: str | None = None
     column_ids: str | None = None
+    include_scope_metadata: bool = True
 
 
 class DocumentBrowseQuery(NonNullQueryWireModel):
@@ -324,7 +325,9 @@ class SheetDataRow(WireModel):
 class SheetData(WireModel):
     columns: list[SheetDataColumn]
     rows: list[SheetDataRow]
-    total: int = Field(ge=0)
+    # Grid sibling pages may omit scope-wide facts once an exact anchor page
+    # has established them for the current client refresh epoch.
+    total: int | None = Field(default=None, ge=0)
 
 
 class DocumentDescriptor(WireModel):

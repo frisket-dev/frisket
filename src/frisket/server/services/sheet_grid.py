@@ -13,6 +13,7 @@ from frisket.querysets import (
     SheetRowScopePlan,
     SheetRowSetError,
     execute_sheet_row_page,
+    execute_sheet_row_page_without_total,
     sheet_row_scope_plan as shared_sheet_row_scope_plan,
 )
 from frisket.server.workspace import Workspace
@@ -65,6 +66,7 @@ class SheetGridService:
         row_ids: str | None = None,
         scope_row_ids: str | None = None,
         column_ids: str | None = None,
+        include_scope_metadata: bool = True,
     ) -> dict:
         project = self._workspace.get(project_id)
         visible_columns = _visible_sheet_columns(project, sheet_id)
@@ -84,8 +86,9 @@ class SheetGridService:
                 sheet_id,
                 cols,
                 window_ids,
-                total=len(ordered_ids),
+                total=len(ordered_ids) if include_scope_metadata else None,
                 cell_projection=column_ids is not None,
+                include_scope_metadata=include_scope_metadata,
             )
 
         plan = _sheet_row_scope_plan(
@@ -97,7 +100,15 @@ class SheetGridService:
             row_ids=scoped_row_ids,
         )
         cols = projected_columns
-        rows, total = execute_sheet_row_page(project, plan, limit=limit, offset=offset)
+        if include_scope_metadata:
+            rows, total = execute_sheet_row_page(
+                project, plan, limit=limit, offset=offset
+            )
+        else:
+            rows = execute_sheet_row_page_without_total(
+                project, plan, limit=limit, offset=offset
+            )
+            total = None
         return _sheet_data_payload(
             project,
             sheet_id,
@@ -105,6 +116,7 @@ class SheetGridService:
             [r["id"] for r in rows],
             total=total,
             cell_projection=column_ids is not None,
+            include_scope_metadata=include_scope_metadata,
         )
 
     def document_page(
@@ -709,8 +721,9 @@ def _sheet_data_payload(
     cols: list[Any],
     row_ids: list[int],
     *,
-    total: int,
+    total: int | None,
     cell_projection: bool = False,
+    include_scope_metadata: bool = True,
 ) -> dict:
     child_count: dict[int, int] = {}
     parent_of: dict[int, Any] = {}
@@ -819,9 +832,10 @@ def _sheet_data_payload(
                     }
     # Full-column pending count feeds the header chip. Mixed columns are
     # intentionally gated until replay acceptance carries an exact head ref.
+    include_column_metadata = include_scope_metadata and not cell_projection
     replay_pending_counts = (
         {}
-        if cell_projection
+        if not include_column_metadata
         else {
             c["id"]: project.pending_replay_count(sheet_id, c["id"])
             for c in cols
@@ -831,7 +845,9 @@ def _sheet_data_payload(
         }
     )
     transcript_statuses = (
-        {} if cell_projection else compute_transcript_statuses(project, sheet_id, cols)
+        compute_transcript_statuses(project, sheet_id, cols)
+        if include_column_metadata
+        else {}
     )
     from frisket.authoring.workbench.plugin_runtime_capabilities import (
         enabled_workbench_plugin_ids,
@@ -857,7 +873,7 @@ def _sheet_data_payload(
                 # Values are manual/source facts or exact generation heads;
                 # the retired scalar is never reader authority.
                 "current_run_id": None,
-                "latest_run_id": latest_run_id(c),
+                "latest_run_id": latest_run_id(c) if include_column_metadata else None,
                 "generation_managed": is_generation_managed(int(c["id"])),
                 "mixed_origins": has_mixed_origins(int(c["id"])),
                 "transcript_status": transcript_statuses.get(c["id"]),
@@ -877,5 +893,5 @@ def _sheet_data_payload(
             }
             for rid in row_ids
         ],
-        "total": total,
+        **({"total": total} if total is not None else {}),
     }

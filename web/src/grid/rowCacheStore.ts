@@ -27,29 +27,80 @@ export interface RowCacheSnapshot {
 }
 
 export interface RowCacheSlot {
+  activate(key: string): void;
+  beginEpoch(key: string): number;
+  beginRequest(key: string, epoch: number, page: number): boolean;
   deletePage(page: number): void;
+  failPage(key: string, epoch: number, page: number): void;
+  finishRequest(key: string, epoch: number, page: number): void;
+  getEpoch(): number;
   getPage(page: number): CachedPage | undefined;
   getPageNumbers(): IterableIterator<number>;
   getSnapshot(): RowCacheSnapshot;
   hasPage(page: number): boolean;
-  reset(): void;
+  isMetadataReady(key: string, epoch: number): boolean;
   setLoading(page: number): void;
-  setPage(key: string, page: number, rows: Row[], totalRows: number): void;
+  setPage(
+    key: string,
+    epoch: number,
+    page: number,
+    rows: Row[],
+    totalRows?: number,
+  ): boolean;
   subscribe(listener: () => void): () => void;
 }
 
 function createRowCacheSlot(): RowCacheSlot {
   let pages = new Map<number, CachedPage>();
   let snapshot: RowCacheSnapshot = { key: '', version: 0, totalRows: null };
+  let activeEpoch = 0;
+  let metadataReadyEpoch = -1;
+  const requests = new Set<string>();
   const listeners = new Set<() => void>();
+
+  const requestId = (key: string, epoch: number, page: number) =>
+    `${key}\u0000${epoch}\u0000${page}`;
 
   const emit = () => {
     for (const listener of listeners) listener();
   };
 
   return {
+    activate(key: string) {
+      if (snapshot.key === key) return;
+      pages = new Map();
+      activeEpoch = 0;
+      metadataReadyEpoch = -1;
+      snapshot = { key, version: snapshot.version + 1, totalRows: null };
+      emit();
+    },
+    beginEpoch(key: string) {
+      if (snapshot.key !== key) return -1;
+      metadataReadyEpoch = -1;
+      activeEpoch += 1;
+      return activeEpoch;
+    },
+    beginRequest(key: string, epoch: number, page: number) {
+      if (snapshot.key !== key || activeEpoch !== epoch) return false;
+      const id = requestId(key, epoch, page);
+      if (requests.has(id)) return false;
+      requests.add(id);
+      return true;
+    },
     deletePage(page: number) {
       pages.delete(page);
+    },
+    failPage(key: string, epoch: number, page: number) {
+      if (snapshot.key !== key || activeEpoch !== epoch) return;
+      if (pages.get(page) === 'loading') pages.delete(page);
+      snapshot = { ...snapshot, version: snapshot.version + 1 };
+      emit();
+    },
+    finishRequest(key: string, epoch: number, page: number) {
+      requests.delete(requestId(key, epoch, page));
+    },
+    getEpoch() {
+      return activeEpoch;
     },
     getPage(page: number) {
       return pages.get(page);
@@ -63,16 +114,25 @@ function createRowCacheSlot(): RowCacheSlot {
     hasPage(page: number) {
       return pages.has(page);
     },
-    reset() {
-      pages = new Map();
+    isMetadataReady(key: string, epoch: number) {
+      return snapshot.key === key
+        && activeEpoch === epoch
+        && metadataReadyEpoch === epoch;
     },
     setLoading(page: number) {
       pages.set(page, 'loading');
     },
-    setPage(key: string, page: number, rows: Row[], totalRows: number) {
+    setPage(key, epoch, page, rows, totalRows) {
+      if (snapshot.key !== key || activeEpoch !== epoch) return false;
       pages.set(page, rows);
-      snapshot = { key, version: snapshot.version + 1, totalRows };
+      if (totalRows !== undefined) metadataReadyEpoch = epoch;
+      snapshot = {
+        key,
+        version: snapshot.version + 1,
+        totalRows: totalRows ?? snapshot.totalRows,
+      };
       emit();
+      return true;
     },
     subscribe(listener: () => void) {
       listeners.add(listener);

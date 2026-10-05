@@ -278,6 +278,7 @@ import type {
   TimelineProjectionArtifact,
   SheetDataOptions,
   SheetDataPage,
+  Row,
   SheetRowLocation,
   SheetMeta,
   SourceInput,
@@ -1397,6 +1398,15 @@ class RealApi implements FrisketApi {
     options: SheetDataOptions | null = {},
   ): Promise<SheetDataPage> {
     return this.sheetGrid.getSheetData(sheetId, offset, limit, options);
+  }
+
+  async getSheetRows(
+    sheetId: string,
+    offset: number,
+    limit: number,
+    options: SheetDataOptions | null = {},
+  ): Promise<{ rows: Row[] }> {
+    return this.sheetGrid.getSheetRows(sheetId, offset, limit, options);
   }
 
   async getColumnStats(

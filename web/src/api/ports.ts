@@ -1,7 +1,13 @@
-import type { FrisketApi } from './types';
+import type { FrisketApi, Row, SheetDataOptions } from './types';
 
 export interface GridApiPort {
   getSheetData: FrisketApi['getSheetData'];
+  getSheetRows?(
+    sheetId: string,
+    offset: number,
+    limit: number,
+    options?: SheetDataOptions | null,
+  ): Promise<{ rows: Row[] }>;
   getColumnStats: FrisketApi['getColumnStats'];
   locateSheetRow: FrisketApi['locateSheetRow'];
   addRow: FrisketApi['addRow'];
