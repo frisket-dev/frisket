@@ -834,11 +834,11 @@ def _recipe_engines(
                 + ") to enable model extraction or classification."
             ),
         )
-        llm["classification_options"] = classification_options("llm")
         # Extraction shares only the direct decision engines and LLM option.
         # Do not initialize or probe unrelated local classification runtimes.
         local_semantic = None
         if action_kind == "map.classify":
+            llm["classification_options"] = classification_options("llm")
             local_error = None
             try:
                 local_ok = (

@@ -170,6 +170,9 @@ export interface GeneratedActionFormProps {
   initialSourceColumn?: string;
   initialPrompt?: string;
   initialDraft?: GeneratedActionDraft;
+  /** Fresh prefilled forms may apply served selector defaults; restored saved
+   * actions preserve omitted optional selections. */
+  initializeSelectorDefaults?: boolean;
   /** Keep the accepted drawer mounted through catalog refresh without letting
    * its stale snapshot authorize new work. */
   catalogAccepted?: boolean;
@@ -392,6 +395,7 @@ function GeneratedActionFormContents({
   initialSourceColumn,
   initialPrompt,
   initialDraft,
+  initializeSelectorDefaults = initialDraft === undefined,
   catalogAccepted = true,
   running,
   runningLabel = 'Running…',
@@ -746,7 +750,7 @@ function GeneratedActionFormContents({
     // Saved optional defaults are display/readiness metadata, not authored
     // request values. Required leaves still need the served default; a fresh
     // combined selector must also keep its displayed engine/model pair atomic.
-    const completesFreshCombinedChoice = initialDraft === undefined
+    const completesFreshCombinedChoice = initializeSelectorDefaults
       && choice.authored_selection.kind === 'engine_model';
     if (!updates
       || (!entries.some(([name]) => required.has(name)) && !completesFreshCombinedChoice)) return;

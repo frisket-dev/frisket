@@ -43,8 +43,10 @@ function mount() {
   render(<DeriveActionForm projectId="derive-composite-test" catalogEntry={derive} extractEntry={extract}
     actionTemplate={generatedActionTemplateFromCatalogEntry(derive)!} sheet={sheet}
     initialSourceColumn="entities" running={false} onClose={vi.fn()}
-    resolveParams={async (request) => ({ diagnostics: {}, logical_outputs:
-      request.action_id === 'map.extract' ? [{ key: 'items', column_type: 'json' }] : [] })}
+    resolveParams={async (request) => request.action_id === 'map.extract' && !request.params.model
+      ? { diagnostics: { __all__: { ok: false, message: 'the llm engine requires a model' } }, logical_outputs: [] }
+      : { diagnostics: {}, logical_outputs:
+        request.action_id === 'map.extract' ? [{ key: 'items', column_type: 'json' }] : [] }}
     onExecute={onExecute} onCompositeRun={onCompositeRun} />);
   return { onCompositeRun, onExecute };
 }
@@ -59,7 +61,9 @@ it('projects direct and template sources through the typed extraction boundary',
   expect(onCompositeRun).toHaveBeenCalledWith(expect.objectContaining({
     intent: 'derive_from_extraction',
     extraction: expect.objectContaining({
-      action_id: 'map.extract', params: expect.objectContaining({ source: ['entities'] }),
+      action_id: 'map.extract', params: expect.objectContaining({
+        source: ['entities'], engine: 'llm', model: 'test/model',
+      }),
     }),
   }));
   fireEvent.click(screen.getByTestId('text-source-mode-template'));

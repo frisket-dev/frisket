@@ -235,6 +235,52 @@ async def test_error_body_never_leaks_provider_secrets(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "response_body",
+    [
+        {"detail": "classification input exceeds model limits"},
+        {
+            "detail": "invalid classification request",
+            "input": "private document sidecar-secret",
+        },
+    ],
+)
+async def test_flash_422_is_actionable_input_error_without_response_echo(
+    monkeypatch, response_body
+):
+    requests = []
+
+    def refuse(request):
+        requests.append(request)
+        return httpx.Response(422, json=response_body)
+
+    with pytest.raises(RowError, match="Shorten the input") as caught:
+        await invoke(monkeypatch, refuse, engine="clef-flash", text="x" * 25000)
+    assert len(requests) == 1
+    assert caught.value.code == "classify_input_invalid"
+    assert "model context limit" in caught.value.message
+    assert "configuration" not in caught.value.message
+    assert "sidecar-secret" not in caught.value.message
+    assert "private document" not in caught.value.message
+
+
+@pytest.mark.asyncio
+async def test_flash_server_failure_still_reports_configuration_without_response_echo(
+    monkeypatch,
+):
+    with pytest.raises(RowError) as caught:
+        await invoke(
+            monkeypatch,
+            lambda request: httpx.Response(500, text="private document sidecar-secret"),
+            engine="clef-flash",
+        )
+    assert caught.value.code == "classify_request_failed"
+    assert "model server configuration" in caught.value.message
+    assert "sidecar-secret" not in caught.value.message
+    assert "private document" not in caught.value.message
+
+
+@pytest.mark.asyncio
 async def test_wrong_credential_posture_refuses_before_http(monkeypatch):
     resolution = resolved("clef")
     resolution = replace(

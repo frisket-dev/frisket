@@ -21,7 +21,7 @@ from frisket.execution.credential_use import (
 )
 from frisket.execution.resolver import preview_resolution_in_scope
 from frisket.execution.runtime_binding import bind_fact_to_route
-from frisket.ops._sidecar import _cancellable_wait, sidecar_post
+from frisket.ops._sidecar import SidecarHTTPError, _cancellable_wait, sidecar_post
 from frisket.ops.base import RecipeInvocationHalt
 
 
@@ -192,6 +192,18 @@ class _BoundClefClassifier:
             values = clef_values(body.get("answers"), field_specs)
         except RowError:
             raise
+        except SidecarHTTPError as error:
+            if error.status_code == 422:
+                raise RowError(
+                    "classify_input_invalid",
+                    "Clef Flash rejected the input or question schema, which may "
+                    "exceed its combined model context limit. Shorten the input, "
+                    "context, or instructions, or reduce the fields and labels.",
+                ) from None
+            raise RowError(
+                "classify_request_failed",
+                "Could not complete the Clef Flash request; check the model server configuration",
+            ) from None
         except (ValueError, TypeError, KeyError):
             raise RowError(
                 "classify_output_invalid", "Clef returned an invalid decision response"

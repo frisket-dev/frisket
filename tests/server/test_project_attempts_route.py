@@ -52,30 +52,23 @@ def _seed_attempt_on_project(project, *, sheet_name: str = "S") -> tuple[int, st
         project,
         typed_action_for_request(
             {
-                "action_id": "map.classify",
+                "action_id": "map.regex_extract",
                 "idempotency_key": f"attempt-fixture-{sheet_id}",
                 "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
                 "params": {
-                    "source": ["story"],
-                    "engine": "local_semantic",
-                    "fields": [
-                        {
-                            "name": "topic",
-                            "type": "category",
-                            "labels": ["person", "other"],
-                        }
-                    ],
+                    "input_columns": ["story"],
+                    "pattern": r"\w+",
                 },
             }
         ),
     )
     op_id = project.db.execute(
-        "INSERT INTO ops (kind, spec) VALUES (?,?)", ("classify", "{}")
+        "INSERT INTO ops (kind, spec) VALUES (?,?)", ("regex_extract", "{}")
     ).lastrowid
     run_id = int(
         project.db.execute(
             "INSERT INTO runs (op_id, sheet_id, action_kind, params) VALUES (?,?,?,?)",
-            (op_id, sheet_id, "map.classify", "{}"),
+            (op_id, sheet_id, "map.regex_extract", "{}"),
         ).lastrowid
     )
     project.db.commit()

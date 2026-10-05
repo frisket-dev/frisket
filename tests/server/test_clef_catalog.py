@@ -58,6 +58,11 @@ def test_clef_catalog_projects_supported_fields_without_a_model_selector(
     assert engines["clef-flash"]["billable"] is False
     assert "FRISKET_MODELS_TOKEN" in engines["clef-flash"]["error"]
     assert "CLOUDFLARE_ACCOUNT_ID" in engines["clef"]["error"]
+    if action_kind == "map.classify":
+        assert engines["llm"]["classification_options"] == classification_options("llm")
+    else:
+        # Extract's generative fields include date/list/json and no justification.
+        assert "classification_options" not in engines["llm"]
 
 
 def test_extract_catalog_does_not_probe_unrelated_classifiers(

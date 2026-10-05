@@ -183,6 +183,16 @@ One engine answers every field in the request. Clef always selects an answer,
 even when the input is inconclusive; it does not return “not found.” Confidence
 is the probability of the selected answer.
 
+Clef Flash also limits the whole request to 512 options (a boolean counts as
+2, a score as 11, and a category as its number of labels). Input text and the
+rendered question schema each have a 65,536-character limit; each question's
+instructions and each label description have a 4,096-character limit. Dataset
+context and extraction instructions count toward these limits. Text, questions,
+and model formatting must together fit its 16,384-token context, so requests
+within the character limits can still be too large. Shorten the text or
+instructions, or reduce fields and labels if Flash rejects a request. These
+worker limits do not apply to hosted Clef.
+
 For Extract, use text source columns and set **Citations** to **Off**. Clef does
 not support citations, image input, free text, arbitrary numbers, lists, or JSON
 objects. Switching engines keeps existing fields and citation settings visible;

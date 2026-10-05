@@ -55,7 +55,7 @@ function DeriveFromSheetForm({ extractEntry, onCompositeRun, ...props }:
       <input id="derive-target-sheet" className="form-input" value={sheetName}
         onChange={(event) => setSheetName(event.target.value)} />
       <GeneratedActionForm {...props} catalogEntry={extractEntry} actionTemplate={extractTemplate}
-        initialDraft={initialExtract} title="Generate a table" onExecute={(request, intent, done) => {
+        initialDraft={initialExtract} initializeSelectorDefaults title="Generate a table" onExecute={(request, intent, done) => {
           if (intent === 'preview') { props.onExecute(request, intent, done); return; }
           const fields = request.params.fields as unknown as OutputField[];
           const lists = fields.filter((field) => field.type === 'list');
