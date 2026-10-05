@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ExtractPageOverlay } from '../../src/workbench/extract/ExtractPageOverlay';
 import { ExtractFields } from '../../src/workbench/extract/ExtractFields';
 import { ExtractPreview } from '../../src/workbench/extract/ExtractPreview';
-import { changeRegion, normalizeBox, previewOutcome, removeAnnotation, spanOnPage, textInRegion, type ExtractionTemplate } from '../../src/workbench/extract/types';
+import { assignUnclaimedFields, changeRegion, normalizeBox, previewOutcome, regionInsideSpan, removeAnnotation, spanOnPage, templateIssue, textInRegion, type ExtractionTemplate } from '../../src/workbench/extract/types';
 vi.mock('../../src/media/pdfjsSetup', () => ({ pdfjsLib: { getDocument: vi.fn(), TextLayer: class {} } }));
 import { DocumentReader } from '../../src/workbench/DocumentReader';
 import { pdfjsLib } from '../../src/media/pdfjsSetup';
@@ -18,6 +18,19 @@ const template: ExtractionTemplate = {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('visual extraction geometry', () => {
+  it('does not steal assigned fields, and requires both boxes inside the first record', () => {
+    const section = { id: 'new', name: 'New records', first: { start: { page: 1, y: .05 }, end: { page: 1, y: .2 } },
+      rest: { start: { page: 1, y: .2 }, end: { page: 1, y: .9 } } };
+    const assigned = { ...template.fields[0], section_id: 'old' };
+    const outside = { ...template.fields[0], id: 'outside', value: { page: 2, box: template.fields[0].value.box } };
+    const result = assignUnclaimedFields([assigned, outside, template.fields[0]], section);
+    expect(result.map((field) => field.section_id)).toEqual(['old', null, 'new']);
+    expect(regionInsideSpan(outside.value, section.first)).toBe(false);
+    expect(templateIssue({ ...template, sections: [section] }, section.id)).toContain('add a key/value pair inside record 1');
+    const valid = { ...template, sections: [section], fields: [result[2]] };
+    expect(templateIssue(valid, section.id)).toBeNull();
+    expect(templateIssue({ ...valid, sections: [{ ...section, first: { ...section.first, end: { page: 1, y: .11 } } }] }, section.id)).toContain('Enlarge the band or move the boxes');
+  });
   it('normalizes/clamps backward gestures and full-width bands', () => {
     expect(normalizeBox({ x: 1.2, y: .8 }, { x: -.1, y: .2 })).toEqual({ x0: 0, y0: .2, x1: 1, y1: .8 });
     expect(normalizeBox({ x: .4, y: .2 }, { x: .5, y: .6 }, true)).toEqual({ x0: 0, x1: 1, y0: .2, y1: .6 });
@@ -116,6 +129,7 @@ describe('annotation interactions', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Preview sample: 3 documents.');
     expect(previewOutcome(documents[1].result)).toEqual({ warning: true, text: 'Missing label' });
     expect(previewOutcome(documents[0].result)).toEqual({ warning: false, text: '1 records' });
+    expect(previewOutcome(documents[2].result)).toEqual({ warning: false, text: 'No repeated records found' });
     rerender(<ExtractPreview template={template} preview={{ documents, truncated: true }} onSelect={onSelect} />);
     expect(screen.getByRole('status')).toHaveTextContent('Not all selected documents or rows are shown.');
     const warned = { ...documents[0], result: { ...documents[0].result, records: [{ cells: {

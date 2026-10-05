@@ -44,6 +44,7 @@
 .warning { color: #986317; font-size: 12px; }
 .success { color: #1f7a5a; }
 .error { background: #fbeae7; color: #8a2f25; padding: 8px 14px; }
+.validation { padding: 7px 14px; font-size: 12px; color: var(--text-mid); background: var(--bg-panel); border-bottom: 1px solid var(--border); }
 .empty { font-style: italic; color: var(--text-mid, #756c66); font-size: 12px; }
 .previewToggle { display: flex; align-items: center; gap: 12px; text-align: left; padding: 9px 14px; background: var(--bg, #fff); color: inherit; border: 0; border-top: 1px solid var(--border, #e7e1db); cursor: pointer; font-size: 12px; }
 .previewToggle span:last-child { margin-left: auto; }

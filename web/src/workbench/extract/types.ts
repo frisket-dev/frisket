@@ -23,6 +23,30 @@ export function templateDefaults(template: WireTemplate): ExtractionTemplate {
     sections: (template.sections ?? []).map((section) => ({ ...section, name: section.name ?? 'Repeated section' })),
     fields: template.fields.map((field) => ({ ...field, section_id: field.section_id ?? null })) };
 }
+
+export function regionInsideSpan(region: PageRegion, span: PageSpan): boolean {
+  return (region.page > span.start.page || region.page === span.start.page && region.box.y0 >= span.start.y)
+    && (region.page < span.end.page || region.page === span.end.page && region.box.y1 <= span.end.y);
+}
+
+export function assignUnclaimedFields(fields: ExtractionField[], section: RepeatedSection): ExtractionField[] {
+  return fields.map((field) => !field.section_id && regionInsideSpan(field.key, section.first) && regionInsideSpan(field.value, section.first)
+    ? { ...field, section_id: section.id } : field);
+}
+
+export function templateIssue(template: ExtractionTemplate, repeatGroupId: string | null): string | null {
+  if (!template.fields.length) return 'Add at least one key/value pair.';
+  if (template.fields.some((field) => !field.name.trim())) return 'Give every field a column name.';
+  if (new Set(template.fields.map((field) => field.name)).size !== template.fields.length) return 'Column names must be unique.';
+  for (const section of template.sections) {
+    const fields = template.fields.filter((field) => field.section_id === section.id);
+    if (!fields.length) return `${section.name}: add a key/value pair inside record 1, or delete this section.`;
+    const outside = fields.find((field) => !regionInsideSpan(field.key, section.first) || !regionInsideSpan(field.value, section.first));
+    if (outside) return `${section.name}: both boxes for ${outside.name} must fit inside record 1. Enlarge the band or move the boxes.`;
+  }
+  if (template.sections.length && !template.sections.some((section) => section.id === repeatGroupId)) return 'Choose which repeated section creates the result rows.';
+  return null;
+}
 export type ExtractTool = 'select' | 'key' | 'repeat' | 'ignore';
 export type AnnotationTarget = { kind: 'key' | 'value'; id: string } | { kind: 'first' | 'rest'; id: string } | { kind: 'ignore'; id: string };
 

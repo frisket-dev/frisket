@@ -5,12 +5,13 @@ import type { DocumentListPage, Row, SheetMeta } from '../../api/types';
 import { documentExtractionApi, type ExtractionDocument, type ExtractionPreview, type ExtractionPreviewDocument, type ExtractedCell } from '../../api/documentExtraction';
 import type { DocumentViewState } from '../../workspace/useWorkspaceChromeState';
 import { DocumentReader } from '../DocumentReader';
+import { documentMediaKind } from '../documentMedia';
 import { useDocumentView } from '../useDocumentView';
 import { LIST_ITEM_HEIGHT } from '../useWindowedRowList';
 import { ExtractPageOverlay } from './ExtractPageOverlay';
 import { ExtractFields } from './ExtractFields';
 import { ExtractPreview } from './ExtractPreview';
-import { changeRegion, previewOutcome, removeAnnotation, spanFromRegion, templateDefaults, textInRegion, type AnnotationTarget, type ExtractionTemplate, type ExtractTool, type PageRegion } from './types';
+import { assignUnclaimedFields, changeRegion, previewOutcome, regionInsideSpan, removeAnnotation, spanFromRegion, templateDefaults, templateIssue, textInRegion, type AnnotationTarget, type ExtractionTemplate, type ExtractTool, type PageRegion } from './types';
 import styles from './ExtractView.module.css';
 
 export interface ExtractRunRequest { source: string; template: ExtractionTemplate; repeat_group_id: string | null; sheet_name: string; row_ids?: number[] }
@@ -49,7 +50,7 @@ export function ExtractView(props: ExtractViewProps) {
 
 function ExtractWorkspace({ toolbarTargetId, onExtract, ...props }: ExtractViewProps) {
   const { projectId, sheet, state, onChangeState } = props;
-  const { activeRowId, sourceColumn, activeMedia: documentMedia, activeMediaKind, activeItem, sources, search, setSearch,
+  const { activeRowId, sourceColumn, activeMedia: documentMedia, activeItem, sources, search, setSearch,
     list, items, listBodyRef, onListScroll, onListKeyDown, windowRows, startIndex, loadMore, selectDocument, recordPageCount,
   } = useDocumentView({ ...props, annotatedTextColumnIds: NO_TEXT_SOURCES, sourceColumnTypes: EXTRACTION_SOURCE_TYPES });
   const [toolbarTarget, setToolbarTarget] = useState<HTMLElement | null>(null);
@@ -86,10 +87,13 @@ function ExtractWorkspace({ toolbarTargetId, onExtract, ...props }: ExtractViewP
   const geometryKey = `${sourceColumn?.id ?? ''}:${currentRowId ?? ''}`;
   const currentGeometry = geometry.key === geometryKey ? geometry.value : null;
   const geometryError = geometry.key === geometryKey ? geometry.error : null;
-  const pageImages = useMemo(() => currentGeometry?.mime.includes('pdf') ? currentGeometry.document.pages.map((page) => ({
+  const activeMedia = jumpRow ? { url: `/api/projects/${encodeURIComponent(projectId)}/blobs/${encodeURIComponent(jumpRow.blob_id)}`, label: jumpRow.filename,
+    filename: jumpRow.filename, mime: currentGeometry?.mime, blobHash: jumpRow.blob_id } : documentMedia;
+  const activeKind = documentMediaKind(activeMedia, sourceColumn?.type ?? 'file');
+  const pageImages = useMemo(() => currentGeometry && activeKind === 'pdf' ? currentGeometry.document.pages.map((page) => ({
     page: page.page, width: page.width, height: page.height,
     url: `/api/projects/${encodeURIComponent(projectId)}/blobs/${encodeURIComponent(currentGeometry.blob_id)}/pages/${page.page}/image`,
-  })) : undefined, [currentGeometry, projectId]);
+  })) : undefined, [currentGeometry, activeKind, projectId]);
   const referenceDocument = currentGeometry?.blob_id === template.reference_blob_id ? currentGeometry : reference;
   const isReference = !template.reference_blob_id || currentGeometry?.blob_id === template.reference_blob_id;
   const templateKey = JSON.stringify({ template, repeatGroupId, templateName });
@@ -156,6 +160,7 @@ function ExtractWorkspace({ toolbarTargetId, onExtract, ...props }: ExtractViewP
   const select = (target: AnnotationTarget) => {
     setSelected(target);
     setTool('select');
+    setFocusRegions([]);
     if (!isReference && reference) setJumpRow({ row_id: reference.row_id, blob_id: reference.blob_id, filename: reference.filename,
       result: { records: [], diagnostics: [], outcome: 'extracted' } });
     const field = template.fields.find((item) => item.id === target.id);
@@ -176,8 +181,8 @@ function ExtractWorkspace({ toolbarTargetId, onExtract, ...props }: ExtractViewP
         setError('Draw the remaining records after the first record.'); return;
       }
       const id = crypto.randomUUID();
-      update({ ...base, sections: [...base.sections, { id, name: `Repeated section ${base.sections.length + 1}`, first: spanFromRegion(pending), rest: spanFromRegion(region) }],
-        fields: base.fields.map((field) => field.key.page === pending.page && field.key.box.y0 >= pending.box.y0 && field.key.box.y1 <= pending.box.y1 ? { ...field, section_id: id } : field) });
+      const section = { id, name: `Repeated section ${base.sections.length + 1}`, first: spanFromRegion(pending), rest: spanFromRegion(region) };
+      update({ ...base, sections: [...base.sections, section], fields: assignUnclaimedFields(base.fields, section) });
       setRepeatGroupId(id);
       setTool('key');
     } else if (tool === 'key') {
@@ -187,18 +192,17 @@ function ExtractWorkspace({ toolbarTargetId, onExtract, ...props }: ExtractViewP
       const nameBase = text.trim().replace(/[:\s]+$/, '') || `Field ${base.fields.length + 1}`;
       let name = nameBase;
       for (let suffix = 2; base.fields.some((field) => field.name === name); suffix++) name = `${nameBase} ${suffix}`;
-      const section = base.sections.find((item) => item.first.start.page <= pending.page && item.first.end.page >= pending.page
-        && (pending.page !== item.first.start.page || pending.box.y0 >= item.first.start.y)
-        && (pending.page !== item.first.end.page || pending.box.y1 <= item.first.end.y));
+      const section = base.sections.find((item) => item.id === repeatGroupId && regionInsideSpan(pending, item.first))
+        ?? base.sections.find((item) => regionInsideSpan(pending, item.first));
+      if (section && !regionInsideSpan(region, section.first)) { setError(`Both key and value must fit inside ${section.name}'s first record. Draw the value inside the band, or enlarge the band.`); return; }
       update({ ...base, fields: [...base.fields, { id, name, key: pending, value: region, section_id: section?.id ?? null }] });
       setSelected({ kind: 'value', id });
     }
     setPending(null);
   };
   const request = () => ({ sheet_id: Number(sheet.id), source: sourceColumn?.name ?? '', template, repeat_group_id: repeatGroupId });
-  const valid = template.fields.length > 0 && template.fields.every((field) => field.name.trim())
-    && new Set(template.fields.map((field) => field.name)).size === template.fields.length
-    && (template.sections.length === 0 || template.sections.some((section) => section.id === repeatGroupId));
+  const validationIssue = templateIssue(template, repeatGroupId);
+  const valid = validationIssue === null;
   const previewTemplate = { ...template, fields: template.fields.filter((field) => !field.section_id || field.section_id === repeatGroupId) };
   const runPreview = async () => {
     if (!valid || !sourceColumn) return;
@@ -251,9 +255,6 @@ function ExtractWorkspace({ toolbarTargetId, onExtract, ...props }: ExtractViewP
       }}>{busy === 'run' ? 'Starting extraction…' : `Extract ${props.scopeLabel ?? 'all'} → new sheet`}</button>
     </div><small>Run</small></div>
   </div>;
-  const activeMedia = jumpRow ? { url: `/api/projects/${encodeURIComponent(projectId)}/blobs/${encodeURIComponent(jumpRow.blob_id)}`, label: jumpRow.filename,
-    filename: jumpRow.filename, mime: currentGeometry?.mime, blobHash: jumpRow.blob_id } : documentMedia;
-  const activeKind = jumpRow ? currentGeometry?.mime?.includes('pdf') || jumpRow.filename.toLowerCase().endsWith('.pdf') ? 'pdf' : 'image' : activeMediaKind;
   return <section className={styles.workspace} data-testid="extract-view" aria-label="Extract structured data"
     onKeyDown={(event) => {
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey
@@ -282,6 +283,7 @@ function ExtractWorkspace({ toolbarTargetId, onExtract, ...props }: ExtractViewP
       }}>{sources.filter((entry) => entry.column.type === 'file' || entry.column.type === 'image').map(({ column }) => <option key={column.id} value={column.id}>{column.name}</option>)}</select></label>}
     </div>
     {(error || geometryError) && <div className={styles.error} role="alert">{error || geometryError}</div>}
+    {validationIssue && <div className={styles.validation} role="status">{validationIssue}</div>}
     <div className={styles.body}>
       <aside className={styles.rail} aria-label="Documents">
         <input className="form-input" type="search" placeholder="Search documents…" aria-label="Search documents" value={search} onChange={(event) => setSearch(event.target.value)} />
@@ -295,7 +297,7 @@ function ExtractWorkspace({ toolbarTargetId, onExtract, ...props }: ExtractViewP
               return <button key={item.rowId} type="button" role="option" aria-selected={currentRowId === item.rowId}
                 className={`document-list-item${currentRowId === item.rowId ? ' active' : ''}`} style={{ position: 'absolute', top: `${(startIndex + offset) * LIST_ITEM_HEIGHT}px`, height: LIST_ITEM_HEIGHT }}
                 onClick={() => { setJumpRow(null); selectDocument(item.rowId); setReaderPage(1); setFocusRegions([]); setPending(null); }}>
-                <span className="document-list-item-title">{outcome && <span className={outcome.warning ? styles.warning : styles.success}>● </span>}{item.title}</span>
+                <span className="document-list-item-title">{outcome && <span className={outcome.warning ? styles.warning : result?.outcome === 'zero_records' ? styles.empty : styles.success}>{result?.outcome === 'zero_records' ? '○ ' : '● '}</span>}{item.title}</span>
                 <span className="document-list-item-secondary muted">{outcome?.text ?? item.sourceLabel ?? 'Document'}</span>
               </button>;
             })}
@@ -319,7 +321,7 @@ function ExtractWorkspace({ toolbarTargetId, onExtract, ...props }: ExtractViewP
           onPageCount={recordPageCount} rowKey={currentRowId ?? ''} onOpenDetail={() => undefined} canOpenDetail={false}
           optionsOpen={false} onToggleOptions={() => undefined} optionsPopover={null} selectionCount={0} initialPage={readerPage}
           pageImages={pageImages}
-          renderPageOverlay={(page) => currentGeometry && (activeKind === 'pdf' || activeKind === 'image') ? <ExtractPageOverlay page={page} template={template}
+          renderPageOverlay={(page) => currentGeometry && (activeKind === 'pdf' ? pageImages !== undefined : activeKind === 'image') ? <ExtractPageOverlay page={page} template={template}
             tool={tool} selected={selected} muted={!isReference} focusRegions={focusRegions} pending={pending}
             onSelect={select} onDraw={draw} onChange={(target, region) => update(changeRegion(template, target, region))} onDelete={remove} /> : null} />
         <button type="button" className={styles.previewToggle} aria-expanded={previewOpen} onClick={() => setPreviewOpen((open) => !open)}>
