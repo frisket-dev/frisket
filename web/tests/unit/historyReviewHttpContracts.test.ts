@@ -373,11 +373,11 @@ describe('history and review generated HTTP reads', () => {
     ]);
   });
 
-  it('keeps bundle sorting request-only and exposes a bounded, pinned run page', async () => {
+  it('posts random samples and exact session pages while keeping the public bundle method stable', async () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       requests.push({ input, init });
-      return jsonResponse(requests.length === 1 ? reviewBundlesFixture : reviewRunsFixture);
+      return jsonResponse(String(input).includes('/review/runs') ? reviewRunsFixture : reviewBundlesFixture);
     }));
     const api = createHistoryReviewApi(
       (status, payload) => new MappedContractError(status, payload),
@@ -385,17 +385,40 @@ describe('history and review generated HTTP reads', () => {
     );
 
     await api.getReviewBundles(0, 25, '9', false, undefined, {
-      fieldId: '5', order: 'shuffle', seed: 17,
+      fieldId: '5', order: 'shuffle', excludeRowIds: ['7', '8'],
+    });
+    await api.getReviewBundles(0, 25, '9', true, undefined, {
+      fieldId: '5', order: 'shuffle', rowIds: ['8', '7'],
     });
     await api.getReviewRuns(50, 50, { sheetId: '3', runId: '9' });
 
     expect(requests.map((request) => String(request.input))).toEqual([
-      '/api/projects/review-controls/review/bundles?offset=0&limit=25&run_id=9&field_id=5&order=shuffle&seed=17',
+      '/api/projects/review-controls/review/bundles',
+      '/api/projects/review-controls/review/bundles',
       '/api/projects/review-controls/review/runs?offset=50&limit=50&sheet_id=3&run_id=9',
+    ]);
+    expect(requests.slice(0, 2).map((request) => ({
+      method: request.init?.method,
+      body: JSON.parse(String(request.init?.body)),
+    }))).toEqual([
+      {
+        method: 'POST',
+        body: {
+          kind: 'sample', run_id: 9, field_id: 5, include_reviewed: false,
+          limit: 25, exclude_row_ids: [7, 8],
+        },
+      },
+      {
+        method: 'POST',
+        body: {
+          kind: 'rows', run_id: 9, field_id: 5, include_reviewed: true,
+          row_ids: [8, 7],
+        },
+      },
     ]);
   });
 
-  it('sends stable row cursors without a shuffle seed and maps the next cursor', async () => {
+  it('sends stable row cursors and maps the next cursor', async () => {
     const requests: string[] = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       requests.push(String(input));
@@ -418,10 +441,10 @@ describe('history and review generated HTTP reads', () => {
     );
 
     await transport.getReviewBundles(0, 25, '9', true, undefined, {
-      order: 'row', cursor: 6, seed: 99,
+      order: 'row', cursor: 6,
     });
     const page = await domain.getReviewBundles(0, 25, '9', true, {
-      order: 'row', cursor: 6, seed: 99,
+      order: 'row', cursor: 6,
     });
 
     expect(requests).toEqual([

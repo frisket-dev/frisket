@@ -88,7 +88,7 @@ export interface ReviewRunControlsProps {
 }
 
 /** Controlled run, output-field and ordering controls for ReviewQueue. The
- * caller owns data loading, queue reset, errors and random seed continuity. */
+ * caller owns data loading, queue reset, errors and random session history. */
 export function ReviewRunControls({
   runs,
   selectedRunId,
@@ -238,6 +238,7 @@ export function ReviewRunControls({
                 aria-pressed={order === 'shuffle'}
                 onClick={() => onOrderChange('shuffle')}
                 disabled={disabled}
+                title="Fresh random batches for this review session. Back keeps rows already shown."
               >
                 Random
               </button>

@@ -17,14 +17,13 @@ export function ReviewQueue({ onClose, onChanged, runId }: ReviewQueueProps) {
   const runs = useReviewRuns(runId);
   const [fieldId, setFieldId] = useState<string | null>(null);
   const [order, setOrder] = useState<ReviewBundleOrder>('shuffle');
-  const [seed] = useState(() => Math.floor(Math.random() * 2147483647));
   const selectedRun = runs.runs.find((run) => run.runId === runs.selectedRunId);
   const selectedField = selectedRun?.fields.find((field) => field.columnId === fieldId);
   const hasConfidence = (selectedField ?? selectedRun?.total)?.confidenceCount;
   const effectiveOrder = order === 'confidence' && !hasConfidence ? 'shuffle' : order;
   const options = useMemo(() => ({
-    fieldId: fieldId ?? undefined, order: effectiveOrder, seed,
-  }), [effectiveOrder, fieldId, seed]);
+    fieldId: fieldId ?? undefined, order: effectiveOrder,
+  }), [effectiveOrder, fieldId]);
   useEscapeDismiss(onClose, { typingGuard: true, enabled: !selectedRun });
 
   const toolbar = (navigation: ReactNode, leave: (action: () => void) => void, busy: boolean) => (

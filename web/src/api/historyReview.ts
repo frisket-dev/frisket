@@ -207,6 +207,32 @@ export function createHistoryReviewApi(
       options = {},
       bundleOptions = {},
     ) {
+      if (bundleOptions.order === 'shuffle') {
+        const shared = {
+          run_id: Number(runId),
+          field_id: bundleOptions.fieldId === undefined ? undefined : Number(bundleOptions.fieldId),
+          include_reviewed: includeReviewed,
+        };
+        const body = bundleOptions.rowIds !== undefined
+          ? { ...shared, kind: 'rows' as const, row_ids: bundleOptions.rowIds.map(Number) }
+          : {
+              ...shared,
+              kind: 'sample' as const,
+              limit,
+              exclude_row_ids: (bundleOptions.excludeRowIds ?? []).map(Number),
+            };
+        return httpContract(
+          'tenant.review_batch_ep.post',
+          {
+            pathParams: { pid: projectId },
+            query: {},
+            body,
+            signal: options.signal,
+            headers: options.headers,
+            errorFactory,
+          },
+        );
+      }
       return httpContract(
         'tenant.review_bundles_ep.get',
         {
@@ -218,7 +244,6 @@ export function createHistoryReviewApi(
             include_reviewed: includeReviewed || undefined,
             field_id: bundleOptions.fieldId === undefined ? undefined : Number(bundleOptions.fieldId),
             order: bundleOptions.order,
-            seed: bundleOptions.order === 'row' ? undefined : bundleOptions.seed,
             cursor: bundleOptions.cursor,
           },
           signal: options.signal,

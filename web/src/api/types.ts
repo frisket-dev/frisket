@@ -3819,7 +3819,10 @@ export type ReviewBundleOrder = 'shuffle' | 'confidence' | 'row';
 export interface ReviewBundleOptions {
   fieldId?: string;
   order?: ReviewBundleOrder;
-  seed?: number;
+  /** Exact ordered random-session page to refresh. */
+  rowIds?: string[];
+  /** Rows already shown in this random session. */
+  excludeRowIds?: string[];
   /** Exclusive row-id cursor used only with stable run order. */
   cursor?: number;
 }
