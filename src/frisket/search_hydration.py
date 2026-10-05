@@ -21,10 +21,6 @@ def searchable_text(value: Any) -> str | None:
     if value is None:
         return None
     text = str(value)
-    try:
-        text.encode("utf-8")
-    except UnicodeEncodeError:
-        return None
     return text if text.strip() else None
 
 

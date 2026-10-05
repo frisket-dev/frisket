@@ -14,6 +14,8 @@ import re
 import sqlite3
 from typing import Any
 
+from .value_codec import repair_unicode_text
+
 
 CAPTURED_TEXT_HASH_KEY = "captured_text_hash"
 CAPTURED_TEXT_FROZEN_KEY = "captured_text_frozen"
@@ -90,6 +92,7 @@ def store_captured_text(
 
     if not isinstance(text, str):
         raise TypeError("captured citation text must be a string")
+    text = repair_unicode_text(text)
     stored = dict(metadata)
     stored.pop("captured_text", None)
     content_hash = _text_hash(text)

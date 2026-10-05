@@ -61,6 +61,31 @@ def test_contentless_search_uses_native_snippets_and_removes_old_tokens(tmp_path
         project.close()
 
 
+def test_malformed_unicode_cell_is_repaired_and_fully_searchable(tmp_path):
+    project = Project.create(tmp_path / "unicode.frisket", name="unicode")
+    try:
+        sheet = project.add_sheet("Documents")
+        column = project.add_column(sheet, "body")
+        [row] = project.add_rows(
+            sheet,
+            [{"body": "beforeneedle \ud800 afterneedle 🚀"}],
+            {"body": column},
+        )
+
+        assert project.get_values(sheet, column)[row] == (
+            "beforeneedle \ufffd afterneedle 🚀"
+        )
+        drain_index(project)
+
+        assert search_project(project, "beforeneedle", rerank="off")[0]["row_id"] == row
+        [hit] = search_project(project, "afterneedle", rerank="off")
+        assert hit["row_id"] == row
+        assert "\ufffd" in hit["snip"]
+        assert "🚀" in hit["snip"]
+    finally:
+        project.close()
+
+
 def test_temp_fts_indexes_only_the_bounded_result_pool(tmp_path, monkeypatch):
     project = Project.create(tmp_path / "bounded.frisket", name="bounded")
     try:

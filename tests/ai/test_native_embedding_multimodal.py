@@ -92,6 +92,25 @@ def test_build_source_payloads_image_column_uses_blob_hash_not_repr(tmp_path):
     assert out2[0]["source_hash"] != entry["source_hash"]
 
 
+def test_embedding_payload_repairs_malformed_unicode_and_hashes_it(tmp_path):
+    project = Project.create(tmp_path / "unicode.frisket", name="unicode")
+    sheet = project.add_sheet("s")
+    column = project.add_column(sheet, "body", type="text")
+    [row] = project.add_rows(
+        sheet,
+        [{"body": "before \ud800 after 🚀"}],
+        {"body": column},
+    )
+    index = {"sheet_id": sheet, "source_policy_hash": "sha256:policy"}
+
+    [entry] = build_source_payloads(project, index, ["body"], [row])
+
+    assert entry["payload"] == "before \ufffd after 🚀"
+    assert entry["source_hash"] == source_hash(
+        "sha256:policy", [["body", "before \ufffd after 🚀"]]
+    )
+
+
 def test_gateway_image_modality_routes_to_sidecar_typed_unavailable(tmp_path):
     # media embeddings are served by the frisket-models sidecar, not in-process; the
     # gateway fails LOUD (never fakes) until that sidecar route + client land.

@@ -164,6 +164,52 @@ def test_synthesized_context_is_saved_once_and_remains_viewable(tmp_path) -> Non
     assert all(item["metadata"]["captured_text_frozen"] for item in artifacts)
 
 
+def test_snapshot_repairs_malformed_unicode_before_hashing_and_keeps_anchors(
+    tmp_path,
+) -> None:
+    project = Project.create(tmp_path / "unicode-citation.frisket")
+    raw_text = "before \ud800 after 🚀"
+    text = "before \ufffd after 🚀"
+    content_hash = _hash(text)
+    surface = record_text_surface(
+        project,
+        surface_kind="composite",
+        content_hash=content_hash,
+        offset_unit="unicode_codepoint",
+        surface_ref={"identity": {"kind": "test-unicode"}},
+    )
+    artifact = record_source_artifact(
+        project,
+        artifact_kind="text",
+        media_type="text/plain",
+        metadata={"captured_text": raw_text},
+    )
+    spans = [
+        record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="text",
+            char_start=start,
+            char_end=end,
+            quote=text[start:end],
+            text_layer_hash=content_hash,
+            text_surface_id=surface["id"],
+        )
+        for start, end in ((0, 6), (9, 14))
+    ]
+
+    viewer = resolve_evidence_viewer(project, _link(project, spans)["id"])
+    context = viewer["artifacts"][0]["text_context"]
+
+    assert artifact["metadata"]["captured_text_hash"] == content_hash
+    assert read_text_snapshot(project.db, content_hash) == text
+    assert context["text"] == text
+    assert context["ranges"] == [
+        {"span_id": spans[0]["stable_id"], "start": 0, "end": 6},
+        {"span_id": spans[1]["stable_id"], "start": 9, "end": 14},
+    ]
+
+
 def test_rendered_json_cell_surface_is_not_compared_as_native_text(tmp_path) -> None:
     project = Project.create(tmp_path / "rendered-json-citation.frisket")
     sheet_id = project.add_sheet("Sources")

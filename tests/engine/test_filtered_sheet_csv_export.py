@@ -828,6 +828,29 @@ def test_csv_byte_iterator_splits_a_single_large_record_without_losing_bytes(
     assert max(map(len, chunks)) <= 64 * 1024
 
 
+def test_csv_repairs_malformed_unicode_and_preserves_valid_emoji(
+    tmp_path: Path,
+) -> None:
+    from frisket.server.exports.plan import build_sheet_export_plan
+    from frisket.server.exports.sheet_csv import iter_export_csv_bytes
+
+    client = _client(tmp_path)
+    pid = client.post("/api/projects", json={"name": "Unicode CSV"}).json()["id"]
+    project = client.app.state.workspace.get(pid)
+    sheet_id = project.add_sheet("records")
+    column = project.add_column(sheet_id, "body")
+    project.add_rows(
+        sheet_id,
+        [{"body": "before \ud800 after 🚀"}],
+        {"body": column},
+    )
+    plan = build_sheet_export_plan(project, sheet_id, streaming_rowset=True)
+
+    exported = b"".join(iter_export_csv_bytes(project, plan, bom=False)).decode("utf-8")
+
+    assert "before \ufffd after 🚀" in exported
+
+
 def test_empty_output_row_ids_remain_serialized_outside_large_csv_exports() -> None:
     """Large CSV compaction must not alter the v1 ActionOutput wire contract."""
     ordinary = ActionOutput(kind="edit", ref={}).model_dump(mode="json")
