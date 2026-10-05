@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { listProviders } from '../../src/api/open';
+import { selectorChoicesApi } from '../../src/api/selectorChoices';
 import { sheetMeta } from '../support/actionFormFixtures';
 import { columnDef } from '../support/domainFixtures';
 import { installPopoverPolyfill } from '../support/domPolyfills';
@@ -53,7 +54,7 @@ const resolveExtract: TypedResolveParams = async ({ params }) => {
   };
 };
 
-function mountExtract(type: 'boolean' | 'text') {
+function mountExtract(type: 'boolean' | 'text', resolveParams: TypedResolveParams = resolveExtract) {
   return mountTypedForm({
     entry: servedTypedEntry('map.extract'),
     sheet: sheetMeta([columnDef({ id: '1', name: 'body', type: 'text' })], { id: '7', rowCount: 1 }),
@@ -66,12 +67,37 @@ function mountExtract(type: 'boolean' | 'text') {
       },
       output_names: { finding: 'Finding' },
     },
-    resolveParams: resolveExtract,
+    resolveParams,
     estimateAction: async () => ({ cost: 0, rows: 1, billed_cost: 0 }),
   });
 }
 
 describe('Extract decision engines', () => {
+  it('uses one combined picker in model mode and queries only the engine field', async () => {
+    mountExtract('text');
+    await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
+
+    expect(screen.getAllByTestId('field-engine')).toHaveLength(1);
+    expect(screen.queryByTestId('field-model')).not.toBeInTheDocument();
+    expect(selectorTrigger()).toHaveTextContent('GPT-5 mini');
+    const queries = vi.mocked(selectorChoicesApi.getSelectorChoices).mock.calls;
+    expect(queries.length).toBeGreaterThan(0);
+    for (const [, query] of queries) {
+      expect(query.subject).toMatchObject({ kind: 'action', action_id: 'map.extract', field: 'engine' });
+    }
+  });
+
+  it('shows backend model diagnostics without a separate model control', async () => {
+    const message = 'The selected model does not support structured extraction.';
+    mountExtract('text', async () => ({
+      diagnostics: { model: { ok: false, message } }, logical_outputs: [],
+    }));
+
+    expect(await screen.findByText(message)).toBeVisible();
+    expect(screen.queryByTestId('field-model')).not.toBeInTheDocument();
+    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
+  });
+
   it.each([
     ['clef', 'Clef (Cloudflare)'], ['clef-flash', 'Clef Flash'],
   ])('selects %s through the combined picker and requires explicit citation changes', async (engine, label) => {
@@ -80,8 +106,8 @@ describe('Extract decision engines', () => {
     await chooseActionSelector(label);
     await waitFor(() => expect(selectorTrigger()).toHaveTextContent(label));
 
-    expect(screen.queryByTestId('engine-select')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('model-select')).not.toBeInTheDocument();
+    expect(screen.getAllByTestId('field-engine')).toHaveLength(1);
+    expect(screen.queryByTestId('field-model')).not.toBeInTheDocument();
     expect(screen.getByText(/Always selects an answer, even when the input is inconclusive/)).toBeVisible();
     expect(screen.getByText(/Does not return/)).toHaveTextContent('not found');
     expect(screen.getByTestId('field-citation_mode')).toHaveValue('cite');
@@ -90,6 +116,8 @@ describe('Extract decision engines', () => {
 
     fireEvent.change(screen.getByTestId('field-citation_mode'), { target: { value: 'none' } });
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
+    expect(screen.getAllByTestId('field-engine')).toHaveLength(1);
+    expect(screen.queryByTestId('field-model')).not.toBeInTheDocument();
     await user.click(screen.getByTestId('generated-action-run'));
     expect(form.lastRequest()).toMatchObject({
       params: {
@@ -114,6 +142,8 @@ describe('Extract decision engines', () => {
 
     await chooseActionSelector('openai/gpt-5-mini');
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
+    expect(screen.getAllByTestId('field-engine')).toHaveLength(1);
+    expect(screen.queryByTestId('field-model')).not.toBeInTheDocument();
     expect(form.resolveParams.mock.lastCall?.[0].params).toMatchObject({
       engine: 'llm', model: 'openai/gpt-5-mini', grounding: { enabled: true },
       fields: [{ name: 'finding', type: 'text', required: true }],

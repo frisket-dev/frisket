@@ -19,7 +19,10 @@ function entry(kind: string) {
   return value;
 }
 const derive = entry('derive.table_from_list');
-const extract = entry('map.extract');
+const extract = structuredClone(entry('map.extract'));
+extract.ui_hints.engines = extract.ui_hints.engines?.map((engine) => ({
+  ...engine, available: engine.id === 'llm',
+}));
 const sheet = sheetMeta([
   columnDef({ id: '1', name: 'headline', type: 'text' }),
   columnDef({ id: '2', name: 'notes', type: 'text' }),
@@ -50,6 +53,8 @@ it('projects direct and template sources through the typed extraction boundary',
   const { onCompositeRun } = mount();
   fireEvent.click(screen.getByTestId('derive-source-mode-ai'));
   await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
+  expect(screen.getAllByTestId('field-engine')).toHaveLength(1);
+  expect(screen.queryByTestId('field-model')).not.toBeInTheDocument();
   fireEvent.click(screen.getByTestId('generated-action-run'));
   expect(onCompositeRun).toHaveBeenCalledWith(expect.objectContaining({
     intent: 'derive_from_extraction',
