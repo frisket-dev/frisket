@@ -5721,9 +5721,8 @@ li.panel-empty { list-style: none; }
   background: #fff;
 }
 .evidence-region {
-  position: absolute;
-  pointer-events: none;
-  border: 2px solid #e23d32;
+  outline: 2px solid #e23d32;
+  outline-offset: -2px;
   border-radius: 3px;
   background: rgba(226, 61, 50, 0.16);
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.92);
