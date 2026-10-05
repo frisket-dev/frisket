@@ -585,26 +585,26 @@ def _sheet_row_scope_plan(
             amount, unit = value
             start = _relative_date_start(today, amount, unit)
             where.append(f"({date_value} >= ? AND {date_value} <= ?)")
-            where_params.extend([*value_kind_params, *value_params])
+            where_params.extend(filter_value_params)
             where_params.append(start.isoformat())
-            where_params.extend([*value_kind_params, *value_params])
+            where_params.extend(filter_value_params)
             where_params.append(today.isoformat())
             continue
         elif operator == "date_this_year":
             where.append(f"substr({date_value}, 1, 4) = ?")
-            where_params.extend([*value_kind_params, *value_params])
+            where_params.extend(filter_value_params)
             where_params.append(f"{today.year:04d}")
             continue
         elif operator == "date_ytd":
             where.append(f"({date_value} >= ? AND {date_value} <= ?)")
-            where_params.extend([*value_kind_params, *value_params])
+            where_params.extend(filter_value_params)
             where_params.append(date(today.year, 1, 1).isoformat())
-            where_params.extend([*value_kind_params, *value_params])
+            where_params.extend(filter_value_params)
             where_params.append(today.isoformat())
             continue
         elif operator == "date_year":
             where.append(f"CAST(strftime('%Y', {date_value}) AS INTEGER) = ?")
-            where_params.extend([*value_kind_params, *value_params])
+            where_params.extend(filter_value_params)
             where_params.append(value)
             continue
         elif operator == "date_month":

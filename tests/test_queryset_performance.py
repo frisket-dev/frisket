@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 import json
 from pathlib import Path
 
@@ -146,3 +147,35 @@ def test_numeric_filter_and_sort_reduce_sqlite_vm_work(tmp_path: Path) -> None:
     # joined grid plan must still do materially less VM work than repeating
     # correlated scope expressions.
     assert optimized_steps < legacy_steps * 0.9
+
+
+def test_correlated_scope_query_binds_date_filter_parameters(tmp_path: Path) -> None:
+    project = Project.create(tmp_path / "query-date-bindings.frisket")
+    try:
+        sheet_id = project.add_sheet("Events")
+        column_id = project.add_column(sheet_id, "published", type="date")
+        row_ids = project.add_rows(
+            sheet_id,
+            [
+                {"published": "2026-01-03"},
+                {"published": "2026-01-04"},
+                {"published": "2026-01-11"},
+            ],
+            {"published": column_id},
+        )
+        _, where_sql, where_params, _order_parts, _order_params = sheet_row_scope_query(
+            project,
+            sheet_id,
+            filter_=json.dumps(
+                {"published": {"date_relative": {"amount": 7, "unit": "days"}}}
+            ),
+            reference_date=date(2026, 1, 10),
+        )
+
+        matched = project.db.execute(
+            f"SELECT r.id FROM rows r WHERE {where_sql}", where_params
+        ).fetchall()
+
+        assert [int(row["id"]) for row in matched] == [row_ids[1]]
+    finally:
+        project.close()
