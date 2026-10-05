@@ -17,6 +17,7 @@ from frisket.engine.jobs.watches import (
 )
 from frisket.engine.store import Project
 from frisket.search import search_project
+from frisket.search_index import IndexProgress
 from frisket.search_storage import RECLAIM_PENDING_KEY
 from frisket.server.workspace import Workspace
 from frisket.server.services.project_search import ProjectSearchService
@@ -69,6 +70,47 @@ def test_worker_bounds_claims_and_recovers_deleted_sidecar(tmp_path, monkeypatch
                 break
         with closing(Project(tmp_path / "docs.frisket")) as project:
             assert len(search_project(project, "needle", rerank="off")) == 9
+
+
+def test_worker_claim_yields_after_one_oversized_batch(monkeypatch):
+    calls = []
+
+    def oversized(_project, **kwargs):
+        calls.append(kwargs)
+        return IndexProgress(
+            processed=1,
+            pending=True,
+            complete=False,
+            processed_bytes=search_index.INDEX_BYTES_PER_CLAIM + 1,
+        )
+
+    monkeypatch.setattr(search_index, "index_batch", oversized)
+
+    assert search_index.process_index_batches(object()) == (1, False)
+    assert len(calls) == 1
+    assert calls[0]["max_bytes"] == search_index.INDEX_BATCH_MAX_BYTES
+
+
+def test_worker_claim_keeps_existing_small_batch_quantum(monkeypatch):
+    calls = 0
+
+    def small(_project, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return IndexProgress(
+            processed=2,
+            pending=True,
+            complete=False,
+            processed_bytes=1024,
+        )
+
+    monkeypatch.setattr(search_index, "index_batch", small)
+
+    assert search_index.process_index_batches(object()) == (
+        2 * search_index.BATCHES_PER_CLAIM,
+        False,
+    )
+    assert calls == search_index.BATCHES_PER_CLAIM
 
 
 def test_readonly_open_does_not_enqueue_but_first_search_does(tmp_path, monkeypatch):

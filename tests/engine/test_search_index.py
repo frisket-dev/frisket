@@ -5,7 +5,9 @@ from types import SimpleNamespace
 
 import pytest
 
+import frisket.search as search_mod
 from frisket.engine.store import Project
+from frisket.engine.store.project import ProjectReadSnapshot
 from frisket.search import (
     SearchIndexNotReady,
     drain_index,
@@ -64,6 +66,45 @@ def test_partial_results_hide_changed_and_deleted_text(documents):
     drain_index(project, batch_size=2)
     assert search_project(project, "replacement", rerank="off")[0]["row_id"] == rows[0]
     assert len(search_project(project, "needle", rerank="off")) == 5
+
+
+def test_incomplete_page_retains_bounded_overfetch_and_validation(
+    tmp_path, monkeypatch
+):
+    project = Project.create(tmp_path / "incomplete.frisket")
+    try:
+        sheet = project.add_sheet("Documents")
+        column = project.add_column(sheet, "body")
+        rows = project.add_rows(
+            sheet,
+            [
+                {"body": ("needle " * (20 if index < 2 else 1)) + str(index)}
+                for index in range(60)
+            ],
+            {"body": column},
+        )
+        drain_index(project)
+        project.apply_edits(
+            [{"row_id": rows[0], "column_id": column, "value": "replacement"}]
+        )
+        project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (rows[1],))
+        project.db.commit()
+
+        observed = []
+        ranked_candidates = search_mod._ranked_candidates
+
+        def record_limit(db, query, limit):
+            observed.append(limit)
+            return ranked_candidates(db, query, limit)
+
+        monkeypatch.setattr(search_mod, "_ranked_candidates", record_limit)
+        page = search_project_page(project, "needle", limit=3, rerank="off")
+
+        assert observed == [12]
+        assert page["complete"] is False
+        assert {hit["row_id"] for hit in page["hits"]}.isdisjoint(rows[:2])
+    finally:
+        project.close()
 
 
 def test_sparse_edits_reindex_only_the_changed_cells(documents):
@@ -309,32 +350,80 @@ def test_byte_budget_loads_only_cells_it_can_process(tmp_path, monkeypatch):
             {"body": column},
         )
         loaded = []
-        sized = []
-        read = maintenance._read_cell
-        size = maintenance._cell_size
+        get_values = ProjectReadSnapshot.get_values
 
-        def observe(*args):
-            loaded.append(args[-1])
-            return read(*args)
+        def observe(snapshot, sheet_id, column_id, row_ids=None, **kwargs):
+            loaded.append(list(row_ids or []))
+            return get_values(snapshot, sheet_id, column_id, row_ids=row_ids, **kwargs)
 
-        def observe_size(*args):
-            sized.append(args[-1])
-            return size(*args)
-
-        monkeypatch.setattr(maintenance, "_read_cell", observe)
-        monkeypatch.setattr(maintenance, "_cell_size", observe_size)
+        monkeypatch.setattr(ProjectReadSnapshot, "get_values", observe)
         progress = index_batch(project)
         assert not progress.complete
         assert 3 * 1024 * 1024 < progress.processed_bytes < 4 * 1024 * 1024
-        assert len(loaded) == 2
-        # Size the first rejected candidate, but don't read sizes or bodies for
-        # later candidates that this quantum cannot possibly process.
-        assert len(sized) == 3
+        assert loaded == [project.visible_row_ids(sheet)[:2]]
         drain_index(project)
-        assert len(loaded) == 4
+        assert [row for batch in loaded for row in batch] == project.visible_row_ids(
+            sheet
+        )
         assert search_project(project, "tailneedle3", rerank="off")
     finally:
         project.close()
+
+
+def test_index_batch_hydrates_a_small_page_in_one_authoritative_read(
+    tmp_path, monkeypatch
+):
+    project = Project.create(tmp_path / "batched-values.frisket")
+    try:
+        sheet = project.add_sheet("Documents")
+        column = project.add_column(sheet, "body")
+        rows = project.add_rows(
+            sheet,
+            [{"body": f"needle {index}"} for index in range(100)],
+            {"body": column},
+        )
+        loaded = []
+        get_values = ProjectReadSnapshot.get_values
+
+        def observe(snapshot, sheet_id, column_id, row_ids=None, **kwargs):
+            loaded.append(list(row_ids or []))
+            return get_values(snapshot, sheet_id, column_id, row_ids=row_ids, **kwargs)
+
+        monkeypatch.setattr(ProjectReadSnapshot, "get_values", observe)
+        progress = index_batch(project, batch_size=200, max_bytes=1024 * 1024)
+
+        assert progress.complete
+        assert loaded == [rows]
+    finally:
+        project.close()
+
+
+def test_unchanged_scope_preserves_sidecar_identities_and_answers(documents):
+    project, sheet, column, _ = documents
+    drain_index(project)
+    from frisket.engine.store.search_index_work import enqueue_dirty_scope
+    from frisket.search import _read_sidecar
+
+    def identities():
+        db = _read_sidecar(project)
+        try:
+            return db.execute(
+                "SELECT column_id,row_id,id,source_hash,column_name "
+                "FROM search_cells ORDER BY column_id,row_id"
+            ).fetchall()
+        finally:
+            db.close()
+
+    before_rows = [tuple(row) for row in identities()]
+    before_hits = search_project(project, "needle", rerank="off")
+    project.db.execute("BEGIN IMMEDIATE")
+    enqueue_dirty_scope(project.db, sheet_id=sheet, column_id=column)
+    project.db.commit()
+
+    drain_index(project)
+
+    assert [tuple(row) for row in identities()] == before_rows
+    assert search_project(project, "needle", rerank="off") == before_hits
 
 
 def test_single_oversized_cell_keeps_full_searchable_content(tmp_path):
@@ -403,11 +492,12 @@ def test_candidate_discovery_does_not_read_cell_values(documents):
             scope = SimpleNamespace(
                 sheet_id=sheet, column_id=column, row_id_start=None, row_id_end=None
             )
-            ids, live_ids = maintenance._column_page(
+            ids, live_ids, old_by_row = maintenance._column_page(
                 snapshot.db, index, scope, column, 0, 500, searchable=True
             )
             assert ids == rows
             assert live_ids == set(rows)
+            assert set(old_by_row) == set(rows)
     finally:
         index.close()
 
@@ -445,11 +535,12 @@ def test_sparse_column_discovery_does_not_scan_other_columns(tmp_path):
                 scope = SimpleNamespace(
                     sheet_id=sheet, column_id=column, row_id_start=None, row_id_end=None
                 )
-                ids, live_ids = maintenance._column_page(
+                ids, live_ids, old_by_row = maintenance._column_page(
                     snapshot.db, index, scope, column, 0, 500, searchable=True
                 )
                 assert ids == expected
                 assert live_ids == set(expected)
+                assert old_by_row == {}
     finally:
         index.close()
         project.close()

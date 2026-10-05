@@ -22,21 +22,28 @@ from .worker import HandlerRegistration, HandlerRegistry
 
 INDEX_BATCH_SIZE = 1000
 BATCHES_PER_CLAIM = 4
+INDEX_BATCH_MAX_BYTES = 4 * 1024 * 1024
+INDEX_BYTES_PER_CLAIM = INDEX_BATCH_MAX_BYTES * BATCHES_PER_CLAIM
 
 
 def process_index_batches(
     project: Project, *, stopped=lambda: False
 ) -> tuple[int, bool]:
     """Process one fair worker quantum of durable keyword-index work."""
-    processed = 0
+    processed = processed_bytes = 0
     complete = False
     for _ in range(BATCHES_PER_CLAIM):
         if stopped():
             break
-        progress = index_batch(project, batch_size=INDEX_BATCH_SIZE)
+        progress = index_batch(
+            project,
+            batch_size=INDEX_BATCH_SIZE,
+            max_bytes=INDEX_BATCH_MAX_BYTES,
+        )
         processed += progress.processed
+        processed_bytes += progress.processed_bytes
         complete = progress.complete
-        if complete:
+        if complete or processed_bytes >= INDEX_BYTES_PER_CLAIM:
             break
     return processed, complete
 
