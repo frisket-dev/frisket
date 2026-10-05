@@ -74,10 +74,12 @@ from frisket.execution.price_book import (
     quote_to_markdown,
     quote_transcription,
     quote_translate,
+    quote_classify,
     sku_for,
 )
 from frisket.execution.targets import (
     CAPABILITY_CENSUS,
+    CAPABILITY_CLASSIFY,
     CAPABILITY_GEOCODE,
     CAPABILITY_OCR,
     CAPABILITY_TO_MARKDOWN,
@@ -114,6 +116,7 @@ from frisket.execution.resolver import (
 # target can honestly refuse (``support_inability``): the recognition-language
 # hint and searchable-PDF composition.
 _CAPABILITY_OPTION_KEYS: dict[str, tuple[str, ...]] = {
+    CAPABILITY_CLASSIFY: (),
     CAPABILITY_TRANSCRIBE: (
         "vad",
         "language",
@@ -457,6 +460,45 @@ def _selected_row_count(project: Any, spec: Mapping[str, Any]) -> int:
     from frisket.engine.runner.validation import target_rows
 
     return len(target_rows(project, dict(spec)))
+
+
+def _classify_cost_basis(
+    project: Any,
+    spec: Mapping[str, Any],
+    recipe: Any,
+    resolution: Resolution,
+    composition: ExecutionComposition,
+) -> tuple[CostBasis, int | None]:
+    from frisket.contracts.clef import (
+        classification_text,
+        clef_questions,
+        estimate_clef_input_tokens,
+    )
+    from frisket.engine.runner.row_inputs import row_values
+    from frisket.engine.runner.validation import target_rows
+
+    resolved = _free_local_or(CAPABILITY_CLASSIFY, resolution, composition)
+    if resolved is None:
+        return OperatorBorneZeroCost(), None
+    funding, target_id, engine, offering = resolved
+    params = spec["params"]
+    questions = clef_questions(params["fields"], params.get("context") or "")
+    col_map = {c["name"]: c["id"] for c in project.columns(spec["sheet_id"])}
+    input_tokens = 0
+    for row_id in target_rows(project, dict(spec)):
+        values = row_values(
+            project, recipe, dict(spec), col_map, row_id, for_model=False
+        )
+        text = classification_text(values)
+        if text.strip():
+            input_tokens += estimate_clef_input_tokens(text, questions)
+    return quote_classify(
+        target_id=target_id,
+        engine=engine,
+        funding=funding,
+        offering=offering,
+        input_tokens=input_tokens,
+    ), input_tokens
 
 
 def _translate_cost_basis(
@@ -828,6 +870,8 @@ def _default_engine(capability: str) -> str:
         return "opus_mt"
     if capability == CAPABILITY_CENSUS:
         return "us_census_acs"
+    if capability == CAPABILITY_CLASSIFY:
+        return "local_semantic"
     from frisket.sdk.ops.transcribe_engines import DEFAULT_ENGINE
 
     return DEFAULT_ENGINE
@@ -839,6 +883,7 @@ def _default_engine(capability: str) -> str:
 #: written against route facts and promise sets and needed no change for a
 #: second capability.
 _CAPABILITY_COST_BASIS: dict[str, Any] = {
+    CAPABILITY_CLASSIFY: _classify_cost_basis,
     CAPABILITY_TRANSCRIBE: _transcribe_cost_basis,
     CAPABILITY_OCR: _ocr_cost_basis,
     CAPABILITY_TRANSLATE: _translate_cost_basis,

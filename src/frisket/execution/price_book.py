@@ -14,6 +14,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN, ROUND_HALF_UP
 from typing import Any, Literal, Union
 
 from frisket.ai.external_pricing import (
+    CLOUDFLARE_CLEF_INPUT_TOKEN,
     DATALAB_CONVERT_PAGE,
     DATALAB_OCR_PAGE,
     DEEPL_TRANSLATE_CHAR,
@@ -31,12 +32,14 @@ from frisket.execution.promise_compiler import (
 )
 from frisket.execution.targets import (
     CAPABILITY_CENSUS,
+    CAPABILITY_CLASSIFY,
     CAPABILITY_GEOCODE,
     CAPABILITY_OCR,
     CAPABILITY_TO_MARKDOWN,
     CAPABILITY_TRANSCRIBE,
     CAPABILITY_TRANSLATE,
     DATALAB_TARGET_ID,
+    CLOUDFLARE_CLEF_TARGET_ID,
     DEEPL_TARGET_ID,
     GOOGLE_TRANSLATE_TARGET_ID,
     OPENCAGE_TARGET_ID,
@@ -170,6 +173,7 @@ SKU_GEOCODE_OPENCAGE_ROW = GEOCODE_OPENCAGE_ROW
 #: rather than a branch per capability inside :func:`sku_for`, so a venue that
 #: gains a SKU cannot gain it in one function and not the other.
 _VENUE_SKU: dict[tuple[str, str], str] = {
+    (CAPABILITY_CLASSIFY, CLOUDFLARE_CLEF_TARGET_ID): CLOUDFLARE_CLEF_INPUT_TOKEN,
     (CAPABILITY_TRANSLATE, DEEPL_TARGET_ID): SKU_DEEPL_TRANSLATE_CHAR,
     (CAPABILITY_TRANSLATE, GOOGLE_TRANSLATE_TARGET_ID): SKU_GOOGLE_TRANSLATE_CHAR,
     (CAPABILITY_TO_MARKDOWN, DATALAB_TARGET_ID): SKU_DATALAB_CONVERT_PAGE,
@@ -182,6 +186,7 @@ _VENUE_SKU: dict[tuple[str, str], str] = {
 #: on the operator's own box — never because a table lookup missed.
 _PHASE_4_CAPABILITIES = frozenset(
     {
+        CAPABILITY_CLASSIFY,
         CAPABILITY_TRANSLATE,
         CAPABILITY_TO_MARKDOWN,
         CAPABILITY_GEOCODE,
@@ -339,6 +344,9 @@ def _provider_direct_terms(capability: str, pricing_key: str) -> dict[str, Any]:
         rounding_mode, decimal_places = "exact", None
     elif capability == CAPABILITY_TRANSLATE:
         quantity_unit, meter_key = "character", "characters"
+        rounding_mode, decimal_places = "exact", None
+    elif capability == CAPABILITY_CLASSIFY:
+        quantity_unit, meter_key = "input_token", "input_tokens"
         rounding_mode, decimal_places = "exact", None
     elif capability == CAPABILITY_TO_MARKDOWN:
         quantity_unit, meter_key = "page", "pages"
@@ -665,6 +673,25 @@ def _quote_catalog_sku(
         )
     except (InvalidOperation, ValueError):
         return UnpriceableCost()
+
+
+def quote_classify(
+    *,
+    target_id: str,
+    engine: str,
+    funding: Funding,
+    offering: CommercialOffering | None,
+    input_tokens: int | None,
+) -> CostBasis:
+    """Quote Clef's input-token tariff from the selected text and questions."""
+    return _quote_catalog_sku(
+        capability=CAPABILITY_CLASSIFY,
+        target_id=target_id,
+        engine=engine,
+        funding=funding,
+        offering=offering,
+        quantity=input_tokens,
+    )
 
 
 def quote_translate(

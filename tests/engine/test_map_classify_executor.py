@@ -532,7 +532,21 @@ def test_map_classify_native_engine_is_free_and_publishes_review_scores(
             idempotency_key=f"map_classify_{engine}@sha256:native",
         )
         plan = build_typed_map_rows_plan(env.project, typed_action_for_request(action))
-        estimate = estimate_run(env.project, plan.spec_dict(), program=plan.program)
+        from frisket.execution.provider import (
+            ExecutionCompositionContext,
+            open_execution_composition,
+        )
+        from frisket.execution.pricing_policy import IdentityPricingPolicy
+
+        estimate = estimate_run(
+            env.project,
+            plan.spec_dict(),
+            program=plan.program,
+            composition=open_execution_composition(
+                env.project, ModelRouter(), ExecutionCompositionContext.direct()
+            ),
+            pricing_policy=IdentityPricingPolicy(),
+        )
         assert estimate["cost"] == 0.0
         assert estimate["cost_source"] == "free_local"
         assert calls == []

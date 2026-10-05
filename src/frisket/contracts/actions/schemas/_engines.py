@@ -75,6 +75,7 @@ ToMarkdownTransport = Literal["local", "sidecar.convert", "datalab.convert"]
 #: differ (DeepL reports ``billed_characters``; Google v2 does not, so its count
 #: is the source length).
 TranslateTransport = Literal["local", "deepl.v2", "google.translate.v2"]
+ClassifyTransport = Literal["local", "sidecar.classify", "cloudflare.clef"]
 
 #: The wires a geocode engine is spoken to over. Two providers, two contracts,
 #: no local path: geocoding in this build always leaves the operator's box.
@@ -474,6 +475,27 @@ if _missing_transcription_capabilities:
         "transcription engine declarations are missing capabilities: "
         + ", ".join(_missing_transcription_capabilities)
     )
+
+
+CLASSIFY_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
+    EngineDeclaration(
+        id="local_semantic", label="Local semantic", tier="local", provider="local"
+    ),
+    EngineDeclaration(
+        id="gliclass", label="GLiClass Base", tier="local", provider="local"
+    ),
+    EngineDeclaration(id="jeff", label="Jeff 0.8B", tier="local", provider="local"),
+    EngineDeclaration(
+        id="clef-flash", label="Clef Flash", tier="sidecar", provider="frisket-sidecar"
+    ),
+    EngineDeclaration(
+        id="clef",
+        label="Clef (Cloudflare)",
+        tier="hosted",
+        provider="cloudflare",
+        billable=True,
+    ),
+)
 
 
 TO_MARKDOWN_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (

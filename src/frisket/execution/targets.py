@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict
 
 from frisket.contracts.actions.schemas._engines import (
     CensusTransport,
+    ClassifyTransport,
     GeocodeTransport,
     OcrTransport,
     ToMarkdownTransport,
@@ -56,6 +57,7 @@ CAPABILITY_OCR = "ocr"
 #: ``RunResultStore._ROUTED_FACT_CAPABILITIES`` and a downstream composition's
 #: settlement allowlist both key on.
 CAPABILITY_TRANSLATE = "translate"
+CAPABILITY_CLASSIFY = "classify"
 CAPABILITY_TO_MARKDOWN = "document.convert"
 CAPABILITY_GEOCODE = "geocode"
 CAPABILITY_CENSUS = "census_demographics"
@@ -64,6 +66,7 @@ EXECUTION_CAPABILITIES: frozenset[str] = frozenset(
         CAPABILITY_TRANSCRIBE,
         CAPABILITY_OCR,
         CAPABILITY_TRANSLATE,
+        CAPABILITY_CLASSIFY,
         CAPABILITY_TO_MARKDOWN,
         CAPABILITY_GEOCODE,
         CAPABILITY_CENSUS,
@@ -104,6 +107,7 @@ DATALAB_TARGET_ID = "datalab"
 #: a target is a venue, not a kind of work.
 DEEPL_TARGET_ID = "deepl"
 GOOGLE_TRANSLATE_TARGET_ID = "google-translate"
+CLOUDFLARE_CLEF_TARGET_ID = "cloudflare-clef"
 OPENCAGE_TARGET_ID = "opencage"
 NOMINATIM_TARGET_ID = "nominatim"
 US_CENSUS_TARGET_ID = "us-census"
@@ -125,6 +129,7 @@ Transport = Union[
     TranslateTransport,
     GeocodeTransport,
     CensusTransport,
+    ClassifyTransport,
 ]
 
 #: capability -> the wires THAT capability's engines may be spoken to over.
@@ -144,7 +149,14 @@ CAPABILITY_TRANSPORTS: dict[str, frozenset[str]] = {
     CAPABILITY_TRANSLATE: frozenset(get_args(TranslateTransport)),
     CAPABILITY_GEOCODE: frozenset(get_args(GeocodeTransport)),
     CAPABILITY_CENSUS: frozenset(get_args(CensusTransport)),
+    CAPABILITY_CLASSIFY: frozenset(get_args(ClassifyTransport)),
 }
+
+
+class ClassifyOptionSupport(BaseModel):
+    """Classification fields and context are supported by every target."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
 
 class OcrOptionSupport(BaseModel):
@@ -262,6 +274,7 @@ OptionSupport = Union[
     ToMarkdownOptionSupport,
     GeocodeOptionSupport,
     CensusOptionSupport,
+    ClassifyOptionSupport,
 ]
 
 #: Which option-support type each capability declares. One table, consulted by
@@ -275,6 +288,7 @@ CAPABILITY_OPTION_SUPPORT: dict[str, type] = {
     CAPABILITY_TO_MARKDOWN: ToMarkdownOptionSupport,
     CAPABILITY_GEOCODE: GeocodeOptionSupport,
     CAPABILITY_CENSUS: CensusOptionSupport,
+    CAPABILITY_CLASSIFY: ClassifyOptionSupport,
 }
 
 # (The categorical-implication lattice used to be declared twice: here, as

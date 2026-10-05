@@ -16,6 +16,7 @@ JEFF_MODEL_REVISION = "f0a2b523f1b64c567d4628fadd60caea03cc6847"
 JEFF_SETUP_REF = "engine-setup:jeff.local@1"
 
 LOCAL_CLASSIFIER_ENGINE_IDS = frozenset({GLICLASS_ENGINE_ID, JEFF_ENGINE_ID})
+CLEF_ENGINE_IDS = frozenset({"clef", "clef-flash"})
 CATEGORY_ONLY_CLASSIFIER_ENGINE_IDS = frozenset(
     {"local_semantic", *LOCAL_CLASSIFIER_ENGINE_IDS}
 )

@@ -561,11 +561,19 @@ class _TypedMapRowsProgram(Recipe):
             for capability in getattr(self._terminal, "capabilities", ()):
                 if capability is Classifier:
                     from frisket.engine.executor.classify_read import AdmittedClassifier
+                    from frisket.engine.executor.clef_read import AdmittedClefClassifier
+                    from frisket.contracts.classification import CLEF_ENGINE_IDS
 
-                    reader = AdmittedClassifier(
-                        engine=_capability_engine(
-                            self._terminal, self._params, capability
-                        ),
+                    engine = _capability_engine(
+                        self._terminal, self._params, capability
+                    )
+                    factory = (
+                        AdmittedClefClassifier
+                        if engine in CLEF_ENGINE_IDS
+                        else AdmittedClassifier
+                    )
+                    reader = factory(
+                        engine=engine,
                         context=getattr(self._params, "context", ""),
                         cancelled=ctx.extras.get("cancelled"),
                     )
@@ -917,6 +925,7 @@ class _TypedMapRowsProgram(Recipe):
                     DocumentConverter,
                     Transcriber,
                     OcrReader,
+                    Classifier,
                     NerExtractor,
                     Translator,
                     Researcher,
@@ -934,7 +943,6 @@ class _TypedMapRowsProgram(Recipe):
                     VisualCutsReader,
                     TopicSectionsReader,
                     PdfTablesReader,
-                    Classifier,
                     *self._file_capabilities,
                 )
                 else binding.bind_row(ctx)

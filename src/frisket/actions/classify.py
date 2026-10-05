@@ -28,6 +28,7 @@ from frisket.actions.types import (
 )
 from frisket.ai.message_content import render_input_block
 from frisket.contracts.classification import (
+    CLEF_ENGINE_IDS,
     GLICLASS_ENGINE_ID,
     JEFF_ENGINE_ID,
     LOCAL_CLASSIFIERS,
@@ -40,6 +41,8 @@ CLASSIFY_ENGINES = (
     "local_semantic",
     GLICLASS_ENGINE_ID,
     JEFF_ENGINE_ID,
+    "clef-flash",
+    "clef",
     "llm",
 )
 
@@ -61,7 +64,7 @@ class ClassifyParams(ActionParams):
     engine: EngineRef[Classifier] = Field(
         default=EngineRef[Classifier]("local_semantic"),
         title="Engine",
-        description="Local semantic, GLiClass, Jeff, or Model (hosted LLM).",
+        description="Local classifiers, Clef-flash (model server), Clef (Cloudflare), or Model.",
     )
     model: ModelRef | None = Field(
         default=None,
@@ -100,6 +103,12 @@ class ClassifyParams(ActionParams):
             return self
         if self.model is not None:
             raise ValueError(f"the {self.engine.root} engine does not use a model")
+        if self.engine.root in CLEF_ENGINE_IDS:
+            from frisket.contracts.clef import clef_questions
+
+            clef_questions([field.model_dump() for field in self.fields], self.context)
+            if self.include_justification:
+                raise ValueError("Clef returns decisions, not written justifications")
         if self.engine.root == "local_semantic" and (
             len(self.fields) != 1 or self.fields[0].type != "category"
         ):
@@ -241,11 +250,9 @@ def classify_prompt(params: ClassifyParams, row: Row) -> ModelPrompt[DynamicOutp
 
 
 def _source_text(row_values: dict[str, Any]) -> str:
-    return "\n".join(
-        str(value)
-        for value in row_values.values()
-        if value is not None and not isinstance(value, dict)
-    )
+    from frisket.contracts.clef import classification_text
+
+    return classification_text(row_values)
 
 
 async def classify_row(

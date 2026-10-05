@@ -12,6 +12,7 @@ from frisket.ops import ytdlp
 from frisket.actions.system import root_action_catalog_payload
 from frisket.contracts.actions.schemas._engines import (
     CENSUS_ENGINE_TABLE,
+    CLASSIFY_ENGINE_TABLE,
     GEOCODE_ENGINE_TABLE,
     OCR_ENGINE_TABLE,
     TO_MARKDOWN_ENGINE_TABLE,
@@ -19,7 +20,9 @@ from frisket.contracts.actions.schemas._engines import (
     EngineDeclaration,
 )
 from frisket.credentials import missing_required_credentials
+from frisket.contracts.classification import CLEF_ENGINE_IDS
 from frisket.ai.external_pricing import (
+    CLOUDFLARE_CLEF_INPUT_TOKEN,
     DATALAB_CONVERT_PAGE,
     DATALAB_OCR_PAGE,
     GEOCODE_EXTERNAL_GEOCODER,
@@ -495,6 +498,7 @@ def _project_execution_composition_engines(
             continue
 
         engine = dict(original)
+        use_clef_declaration = capability == "classify" and engine_id in CLEF_ENGINE_IDS
         existing_targets = [
             dict(row) for row in (engine.get("targets") or []) if isinstance(row, dict)
         ]
@@ -543,6 +547,7 @@ def _project_execution_composition_engines(
                 offering is not None
                 or use_gateway_declaration
                 or use_managed_local_declaration
+                or use_clef_declaration
                 or capability == "transcribe"
             ):
                 available, error = projected_liveness(target.id)
@@ -584,6 +589,7 @@ def _project_execution_composition_engines(
                 or preferred_offer is not None
                 or use_gateway_declaration
                 or use_managed_local_declaration
+                or use_clef_declaration
             ):
                 available, error = projected_liveness(preferred_target.id)
                 engine_update = {"available": available}
@@ -798,6 +804,10 @@ def _recipe_engines(
             classifier_ready,
             classifier_runtime_present,
         )
+        from frisket.execution.definitions import (
+            CLOUDFLARE_CLEF_TARGET_ID,
+            StaticExecutionTargetProvider,
+        )
         from frisket.semantic import (
             PROVIDERLESS_CLASSIFY_MODEL,
             local_embedder,
@@ -922,7 +932,45 @@ def _recipe_engines(
                 }
             )
             local_classifiers.append(row)
-        return [local_semantic, *local_classifiers, llm]
+        clef_flash_ok, clef_flash_error, _ = _sidecar_engine(
+            sidecar_capabilities, route="/classify", name="clef-flash"
+        )
+        classify_declarations = _table_decls(CLASSIFY_ENGINE_TABLE)
+        clef_flash = _declared_engine(
+            classify_declarations["clef-flash"],
+            available=clef_flash_ok,
+            error=clef_flash_error,
+        )
+        provider = StaticExecutionTargetProvider(secrets=project)
+        try:
+            clef_ok = provider.connection(CLOUDFLARE_CLEF_TARGET_ID) is not None
+            clef_error = (
+                None if clef_ok else provider.liveness_remedy(CLOUDFLARE_CLEF_TARGET_ID)
+            )
+        except ValueError as exc:
+            clef_ok, clef_error = False, str(exc)
+        clef = _declared_engine(
+            classify_declarations["clef"],
+            available=clef_ok,
+            error=clef_error,
+            pricing=external_pricing_entry(CLOUDFLARE_CLEF_INPUT_TOKEN),
+        )
+        for row in (clef_flash, clef):
+            row["classification_options"] = {
+                "field_types": ["category", "boolean", "score"],
+                "max_fields": 64,
+                "include_confidence": True,
+                "include_justification": False,
+            }
+        clef_flash["description"] = (
+            "Classify text on your model server with Clef Flash. "
+            "Supports categories, booleans, and integer scores from 0 to 10."
+        )
+        clef["description"] = (
+            "Classify text with Cloudflare Workers AI. "
+            "Supports categories, booleans, and integer scores from 0 to 10."
+        )
+        return [local_semantic, *local_classifiers, clef_flash, clef, llm]
     if action_kind == "enrich.geocode":
         from frisket.credentials import resolve_credential
 
@@ -1694,7 +1742,15 @@ def project_action_catalog_launcher_hints(
         and (action_kinds is None or spec.action_kind in action_kinds)
     ]
     providers.extend(
-        (registered.action_id, registered.action_id.rsplit(".", 1)[-1], True, [], None)
+        (
+            registered.action_id,
+            registered.action_id.rsplit(".", 1)[-1],
+            True,
+            [],
+            ROUTED_CAPABILITIES.get(
+                routed_capability(registered.definition.run.direct)
+            ),
+        )
         for registered in ACTION_REGISTRY.actions
         if isinstance(registered.definition.run, ModelRows)
     )

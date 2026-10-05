@@ -172,6 +172,25 @@ frisket ./my-workspace
 
 ## Extras
 
+### Clef classification
+
+The Classify action includes **Clef Flash** for an operator-managed model server
+and **Clef (Cloudflare)** for Cloudflare Workers AI. Both accept up to 64 output
+fields: categories with 2–254 labels, booleans, or integer scores from 0 to 10.
+They can include confidence values; justifications and free-text outputs are
+not supported. Choose the engine directly in Classify; no separate model is needed.
+
+For Clef Flash, install the model server's `classify-clef` extra and configure
+`FRISKET_MODELS_URL` and `FRISKET_MODELS_TOKEN` as above. It becomes available
+when the authenticated server advertises `clef-flash` on `/classify` in its
+capabilities. The managed Docling installation does not install Clef Flash.
+
+For hosted Clef, set `CLOUDFLARE_ACCOUNT_ID` to your 32-character hexadecimal
+Cloudflare account ID and `CLOUDFLARE_API_TOKEN` to your Workers AI API token
+before starting Frisket. The token can also be saved as `CLOUDFLARE_API_TOKEN`
+in the project's **Settings → Secrets**. Hosted classification sends the selected
+text to Cloudflare and uses Frisket's external-action cost and consent flow.
+
 ### Local models
 
 > Fair warning: some of these aren't yet available without some additional setup.

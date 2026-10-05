@@ -88,10 +88,25 @@ DATALAB_CONVERT_PAGE = "datalab.convert.page"
 DATALAB_OCR_PAGE = "datalab.ocr.page"
 DEEPL_TRANSLATE_CHAR = "deepl.translate.char"
 GOOGLE_TRANSLATE_CHAR = "google.translate.char"
+CLOUDFLARE_CLEF_INPUT_TOKEN = "classify.cloudflare.clef.input_token"
 EXA_SEARCH_REQUEST = "exa.search.request"
 TAVILY_SEARCH_CREDIT = "tavily.search.credit"
 
 CATALOG: dict[str, ExternalPricingEntry] = {
+    CLOUDFLARE_CLEF_INPUT_TOKEN: ExternalPricingEntry(
+        key=CLOUDFLARE_CLEF_INPUT_TOKEN,
+        label="Cloudflare Clef classification (per input token)",
+        provider="Cloudflare",
+        unit="input_token",
+        default_unit_price_usd=Decimal("0.00000024"),
+        env_var=None,
+        billable=True,
+        external_api=True,
+        description=(
+            "Cloudflare Workers AI Clef input tokens at $0.24 per million. "
+            "Estimates include the source text and classification questions."
+        ),
+    ),
     EXA_SEARCH_REQUEST: ExternalPricingEntry(
         key=EXA_SEARCH_REQUEST,
         label="Exa Search request",
