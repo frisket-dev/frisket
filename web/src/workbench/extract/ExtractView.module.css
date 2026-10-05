@@ -60,22 +60,17 @@
 .continuation { color: var(--text-mid, #756c66); }
 .overlay { position: absolute; inset: 0; z-index: 3; touch-action: none; user-select: none; }
 .connectors { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
-.region { position: absolute; padding: 0; min-width: 0; min-height: 0; background: transparent; border-radius: 0; box-sizing: border-box; cursor: inherit; color: #4b4ddb; }
-.key { border: 1.5px dashed currentColor; }
-.value { border: 2px solid currentColor; background: rgb(75 77 219 / 10%); }
+.region { border-radius: 0; color: #4b4ddb; }
+.key { outline: 1.5px dashed currentColor; outline-offset: -1.5px; }
+.value { outline: 2px solid currentColor; outline-offset: -2px; background: rgb(75 77 219 / 10%); }
 .repeated { color: #1f7a5a; }
 .value.repeated { background: rgb(31 122 90 / 10%); }
-.first { border: 2px solid #1f7a5a; background: rgb(31 122 90 / 5%); }
-.rest { border: 1.5px dashed #1f7a5a; background: repeating-linear-gradient(135deg, transparent 0 6px, rgb(31 122 90 / 9%) 6px 8px); }
-.ignore { border: 0; color: #756c66; background: repeating-linear-gradient(135deg, rgb(163 154 147 / 15%) 0 4px, rgb(163 154 147 / 35%) 4px 6px); }
+.first { outline: 2px solid #1f7a5a; outline-offset: -2px; background: rgb(31 122 90 / 5%); }
+.rest { outline: 1.5px dashed #1f7a5a; outline-offset: -1.5px; background: repeating-linear-gradient(135deg, transparent 0 6px, rgb(31 122 90 / 9%) 6px 8px); }
+.ignore { color: #756c66; background: repeating-linear-gradient(135deg, rgb(163 154 147 / 15%) 0 4px, rgb(163 154 147 / 35%) 4px 6px); }
 .regionLabel { position: absolute; left: calc(100% + 5px); top: 0; white-space: nowrap; font: 11px var(--mono, monospace); text-shadow: 0 0 2px white; pointer-events: none; }
 .first .regionLabel, .rest .regionLabel, .ignore .regionLabel { left: 6px; top: 4px; }
-.handle { position: absolute; width: 7px; height: 7px; background: white; border: 1px solid currentColor; }
-.nw { top: -4px; left: -4px; cursor: nwse-resize; }
-.ne { top: -4px; right: -4px; cursor: nesw-resize; }
-.sw { bottom: -4px; left: -4px; cursor: nesw-resize; }
-.se { bottom: -4px; right: -4px; cursor: nwse-resize; }
-.draft { border: 1.5px dashed #211c19; background: rgb(33 28 25 / 6%); pointer-events: none; }
-.mutedOverlay .region { opacity: .35; border-width: 1px; background: transparent; }
-.focusRegion, .mutedOverlay .focusRegion { border: 2px solid #c27c12; background: rgb(194 124 18 / 15%); opacity: 1; pointer-events: none; }
+.draft { outline: 1.5px dashed #211c19; outline-offset: -1.5px; background: rgb(33 28 25 / 6%); }
+.mutedOverlay .region { opacity: .35; outline-width: 1px; background: transparent; }
+.focusRegion, .mutedOverlay .focusRegion { outline: 2px solid #c27c12; outline-offset: -2px; background: rgb(194 124 18 / 15%); opacity: 1; }
 @media (max-width: 1100px) { .rail { width: 185px; } .fields { width: 260px; } }
