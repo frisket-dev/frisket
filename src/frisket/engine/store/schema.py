@@ -89,6 +89,10 @@ CREATE TABLE IF NOT EXISTS columns (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_columns_active_name
   ON columns(sheet_id,name) WHERE active=1;
+-- RUN_REVIEW_CURRENT_COLUMN_INDEX_BEGIN
+CREATE INDEX IF NOT EXISTS idx_columns_current_run
+  ON columns(current_run_id, id) WHERE current_run_id IS NOT NULL;
+-- RUN_REVIEW_CURRENT_COLUMN_INDEX_END
 
 CREATE TABLE IF NOT EXISTS rows (
   id INTEGER PRIMARY KEY,
@@ -215,6 +219,22 @@ CREATE TABLE IF NOT EXISTS runs (
   -- Human review workflow state is independent of execution completion.
   -- NULL means open; a timestamp means the reviewer marked this run complete.
   review_completed_at TEXT,
+  -- RUN_REVIEW_RUN_COLUMNS_BEGIN
+  -- Compact review projections. The result rows remain authority; these
+  -- counters are rebuilt once when a run terminalizes and updated by exact
+  -- review transitions. ``resolved`` includes migrated verified results whose
+  -- historical human decision is unknown, while field-level reviewed counts
+  -- below count only a non-NULL review_decision.
+  review_stats_ready INTEGER NOT NULL DEFAULT 0
+    CHECK (review_stats_ready IN (0,1)),
+  review_bundle_count INTEGER NOT NULL DEFAULT 0
+    CHECK (review_bundle_count >= 0),
+  review_resolved_bundle_count INTEGER NOT NULL DEFAULT 0
+    CHECK (
+      review_resolved_bundle_count >= 0
+      AND review_resolved_bundle_count <= review_bundle_count
+    ),
+  -- RUN_REVIEW_RUN_COLUMNS_END
   -- Code identity of the worker process that claimed and executed this run
   -- (worker-version-guard-v1: frisket.worker_version.code_version(), stamped
   -- by the project.run/action.run handlers). NULL for runs never claimed off
@@ -335,6 +355,31 @@ CREATE TABLE IF NOT EXISTS results (
 CREATE INDEX IF NOT EXISTS idx_results_rowcol ON results(column_id, row_id);
 CREATE INDEX IF NOT EXISTS idx_results_run_col_row ON results(run_id, column_id, row_id);
 CREATE INDEX IF NOT EXISTS idx_results_column_run ON results(column_id, run_id);
+-- One compact row per output field freezes whether that output was primary or
+-- support for this run. Later column renames cannot reclassify history. Counts
+-- cover stable run results rather than current publication heads; the run
+-- picker below is the sole currentness gate.
+-- RUN_REVIEW_FIELDS_BEGIN
+CREATE TABLE IF NOT EXISTS run_review_fields (
+  run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  column_id INTEGER NOT NULL REFERENCES columns(id) ON DELETE RESTRICT,
+  column_name TEXT NOT NULL,
+  column_type TEXT NOT NULL,
+  column_position INTEGER NOT NULL,
+  is_primary INTEGER NOT NULL CHECK (is_primary IN (0,1)),
+  eligible_count INTEGER NOT NULL DEFAULT 0 CHECK (eligible_count >= 0),
+  reviewed_count INTEGER NOT NULL DEFAULT 0 CHECK (reviewed_count >= 0),
+  accepted_count INTEGER NOT NULL DEFAULT 0 CHECK (accepted_count >= 0),
+  incorrect_count INTEGER NOT NULL DEFAULT 0 CHECK (incorrect_count >= 0),
+  resolved_count INTEGER NOT NULL DEFAULT 0 CHECK (resolved_count >= 0),
+  confidence_count INTEGER NOT NULL DEFAULT 0 CHECK (confidence_count >= 0),
+  PRIMARY KEY (run_id, column_id),
+  CHECK (reviewed_count <= eligible_count),
+  CHECK (accepted_count + incorrect_count <= reviewed_count),
+  CHECK (resolved_count <= eligible_count),
+  CHECK (confidence_count <= eligible_count)
+) WITHOUT ROWID;
+-- RUN_REVIEW_FIELDS_END
 
 -- Normalized model/provider usage facts. Results keep the user-facing cell
 -- values; model_calls keeps the neutral execution facts that produced those
@@ -696,6 +741,10 @@ CREATE TABLE IF NOT EXISTS cell_result_heads (
   FOREIGN KEY (run_id, column_id)
     REFERENCES run_output_generations(run_id, column_id) ON DELETE RESTRICT
 ) WITHOUT ROWID;
+-- RUN_REVIEW_HEAD_INDEX_BEGIN
+CREATE INDEX IF NOT EXISTS idx_cell_result_heads_run
+  ON cell_result_heads(run_id, row_id, column_id);
+-- RUN_REVIEW_HEAD_INDEX_END
 
 -- An effect is assigned only after the owning generation is declared and
 -- while its journal op is still applied. Sealed generations cannot acquire

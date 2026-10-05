@@ -15,12 +15,6 @@ from typing import Any
 
 from filelock import FileLock
 
-from frisket.review_predicate import (
-    primary_params,
-    primary_where,
-)
-
-from .runs import REVIEWABLE_OUTCOMES_SQL
 from .schema import FORMAT_VERSION
 
 _log = logging.getLogger(__name__)
@@ -186,9 +180,11 @@ def _write_manifest(project: Any, **updates: Any) -> None:
 
 
 def refresh_pending_review_summary(project: Any) -> int:
-    """Recompute the pending-review bundle count (rows/runs still needing
-    accept/reject/edit — the same definition runner.review.review_bundle_count
-    uses) and persist it into manifest.json's pending_review_count field.
+    """Refresh the cached pending-review bundle count and persist it.
+
+    Per-run totals describe the stable original review task. Current result
+    heads select which terminal runs still belong in Review; partially
+    replacing one output therefore does not rewrite that run's assessment.
 
     This is the cheap externalized-summary pattern manifest.json already
     uses for `name`/`retention` (all writers go through _write_manifest):
@@ -198,58 +194,11 @@ def refresh_pending_review_summary(project: Any) -> int:
     ~5-44ms/project depending on OS page-cache state — unacceptable across
     a many-project workspace).
 
-    Call this after any write that can change the count: a run's results
-    becoming current (store/runs.py's column-pointer write,
-    point_column_at_run), an undo/redo (reverts/reapplies both
-    review_state and run pointers), and a typed review.decision mutation."""
-    row = project.db.execute(
-        f"""
-        WITH review_columns AS MATERIALIZED (
-            SELECT c.id, c.sheet_id, c.current_run_id,
-                   {primary_where("c")} AS is_primary,
-                   NOT EXISTS (
-                       SELECT 1 FROM run_output_generations generation
-                       WHERE generation.column_id=c.id
-                   ) AS is_legacy
-            FROM columns c
-        ), pending_bundles AS (
-            SELECT res.run_id, res.row_id
-            FROM results res
-            JOIN review_columns review_column
-              ON review_column.id = res.column_id
-            LEFT JOIN cell_result_heads active_head
-              ON active_head.column_id=res.column_id
-             AND active_head.row_id=res.row_id
-             AND active_head.run_id=res.run_id
-            JOIN runs ON runs.id = res.run_id
-            JOIN rows rr
-              ON rr.id = res.row_id
-             AND rr.sheet_id = review_column.sheet_id
-            JOIN sheets review_sheet
-              ON review_sheet.id = review_column.sheet_id
-            WHERE res.review_state = 'unreviewed'
-              AND res.outcome IN ({REVIEWABLE_OUTCOMES_SQL})
-              AND rr.hidden = 0
-              AND review_sheet.hidden = 0
-              AND (
-                  active_head.run_id IS NOT NULL
-                  OR (
-                      review_column.current_run_id=res.run_id
-                      AND review_column.is_legacy
-                  )
-              )
-              AND (runs.action_kind='map.find' OR review_column.is_primary)
-            -- rows.id is globally unique, and the join above proves that its
-            -- sheet is review_column.sheet_id. Keeping sheet_id in this key
-            -- is redundant and makes SQLite sort all qualifying results
-            -- instead of streaming the (run_id,row_id) results-key prefix.
-            GROUP BY res.run_id, res.row_id
-        )
-        SELECT COUNT(*) AS count FROM pending_bundles
-        """,
-        primary_params(),
-    ).fetchone()
-    count = int(row["count"] if row is not None else 0)
+    Call this after any write that can change run eligibility or one of the
+    bounded review counters: publication, undo/redo, and review decisions."""
+    from .review_stats import pending_review_bundle_count
+
+    count = pending_review_bundle_count(project.db)
     project._write_manifest(pending_review_count=count)
     return count
 

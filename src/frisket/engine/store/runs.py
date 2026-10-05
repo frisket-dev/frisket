@@ -744,11 +744,29 @@ class RunResultStore:
         commit: bool = True,
     ) -> int:
         self._require_run_sheet_mutable(run_id)
+        before = self.db.execute(
+            "SELECT review_state,review_decision FROM results "
+            "WHERE run_id=? AND row_id=? AND column_id=?",
+            (run_id, row_id, column_id),
+        ).fetchone()
         cur = self.db.execute(
             "UPDATE results SET review_state=? "
             "WHERE run_id=? AND row_id=? AND column_id=?",
             (review_state, run_id, row_id, column_id),
         )
+        if before is not None and cur.rowcount == 1:
+            from .review_stats import adjust_review_stats_for_result_transition
+
+            adjust_review_stats_for_result_transition(
+                self.db,
+                run_id=run_id,
+                row_id=row_id,
+                column_id=column_id,
+                before_state=before["review_state"],
+                before_decision=before["review_decision"],
+                after_state=review_state,
+                after_decision=before["review_decision"],
+            )
         if commit:
             self.db.commit()
         return int(cur.rowcount)
@@ -764,11 +782,29 @@ class RunResultStore:
         commit: bool = True,
     ) -> int:
         self._require_run_sheet_mutable(run_id)
+        before = self.db.execute(
+            "SELECT review_state,review_decision FROM results "
+            "WHERE run_id=? AND row_id=? AND column_id=?",
+            (run_id, row_id, column_id),
+        ).fetchone()
         cur = self.db.execute(
             "UPDATE results SET review_decision=?, review_note=? "
             "WHERE run_id=? AND row_id=? AND column_id=?",
             (decision, note, run_id, row_id, column_id),
         )
+        if before is not None and cur.rowcount == 1:
+            from .review_stats import adjust_review_stats_for_result_transition
+
+            adjust_review_stats_for_result_transition(
+                self.db,
+                run_id=run_id,
+                row_id=row_id,
+                column_id=column_id,
+                before_state=before["review_state"],
+                before_decision=before["review_decision"],
+                after_state=before["review_state"],
+                after_decision=decision,
+            )
         if commit:
             self.db.commit()
         return int(cur.rowcount)
@@ -787,6 +823,9 @@ class RunResultStore:
             "WHERE run_id=? AND review_state='unreviewed'",
             (run_id,),
         )
+        from .review_stats import mark_run_review_stats_dirty
+
+        mark_run_review_stats_dirty(self.db, run_id)
         if commit:
             self.db.commit()
         return int(cur.rowcount)
@@ -1228,6 +1267,9 @@ class RunResultStore:
                 for r, value_kind, value in encoded_batch
             ],
         )
+        from .review_stats import mark_run_review_stats_dirty
+
+        mark_run_review_stats_dirty(self.db, run_id)
         return rows_in_batch, before_states
 
     def _finalize_result_values_uncommitted(
@@ -2925,6 +2967,9 @@ class RunResultStore:
             "UPDATE runs SET status=?, finished_at=datetime('now') WHERE id=?",
             (status, run_id),
         )
+        from .review_stats import rebuild_run_review_stats
+
+        rebuild_run_review_stats(self.db, run_id)
         if commit:
             self.db.commit()
 

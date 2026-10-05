@@ -18,6 +18,7 @@ from .schema import (
     require_current_schema,
 )
 from .typed_storage_migration import migrate_typed_values as _migrate_typed_values
+from .review_stats_migration import migrate_review_stats as _migrate_review_stats
 
 # v0.1.1a62 (907a324c) -> v0.1.1a64's receipt-owned execution attempts.
 # Fixed endpoints cannot accidentally stamp a future schema edit as current.
@@ -125,6 +126,7 @@ def open_bundle(project: Any) -> None:
             bundle_path=project.db_path,
             from_digest=_TYPED_VALUES_FROM_DIGEST,
         )
+        _migrate_review_stats(project.db)
         require_current_schema(project.db, bundle_path=project.path)
         _reconcile_open_time_policy(project)
 
