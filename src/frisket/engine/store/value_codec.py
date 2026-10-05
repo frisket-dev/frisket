@@ -5,7 +5,9 @@ distinguish booleans from integers, explicit nulls from absent payloads, or
 exact out-of-range integers from ordinary text.  New writes use
 ``encode_stored_value``.  The schema migration additionally uses
 ``migrate_legacy_json_value`` so malformed historical JSON remains byte-for-
-byte recoverable instead of being discarded or coerced.
+byte recoverable instead of being discarded or coerced. Ill-formed Unicode
+surrogates are replaced at this boundary so downstream UTF-8 consumers all
+observe the same valid text.
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ VALUE_KINDS = frozenset(
 _INTEGER_MIN = -(2**63)
 _INTEGER_MAX = 2**63 - 1
 _CANONICAL_INTEGER = re.compile(r"-?(?:0|[1-9]\d*)\Z")
+_SURROGATE_CODE_UNITS = re.compile(r"[\ud800-\udfff]")
 
 
 def _reject_non_json_constant(value: str) -> None:
@@ -44,6 +47,38 @@ def _encode_complex(value: Any) -> str:
     return json.dumps(value, allow_nan=False)
 
 
+def repair_unicode_text(value: str) -> str:
+    """Replace unpaired surrogates while preserving valid pairs and text."""
+
+    if _SURROGATE_CODE_UNITS.search(value) is None:
+        return value
+    return value.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
+
+
+def repair_unicode_value(value: Any) -> Any:
+    """Repair strings recursively in a JSON value without mutating the input."""
+
+    if isinstance(value, str):
+        return repair_unicode_text(value)
+    if isinstance(value, list):
+        return [repair_unicode_value(item) for item in value]
+    if isinstance(value, dict):
+        repaired: dict[Any, Any] = {}
+        original_keys: dict[Any, Any] = {}
+        for key, item in value.items():
+            repaired_key = repair_unicode_text(key) if isinstance(key, str) else key
+            if repaired_key in repaired and original_keys[repaired_key] != key:
+                raise ValueError(
+                    "Unicode repair would collapse distinct object keys "
+                    f"{original_keys[repaired_key]!r} and {key!r}"
+                )
+            repaired_item = repair_unicode_value(item)
+            repaired[repaired_key] = repaired_item
+            original_keys[repaired_key] = key
+        return repaired
+    return value
+
+
 def encode_stored_value(value: Any) -> tuple[str, SQLiteValue]:
     """Encode one decoded cell value using a native SQLite storage class."""
 
@@ -52,15 +87,7 @@ def encode_stored_value(value: Any) -> tuple[str, SQLiteValue]:
     if isinstance(value, bool):
         return "boolean", int(value)
     if isinstance(value, str):
-        try:
-            value.encode("utf-8")
-        except UnicodeEncodeError:
-            # sqlite3 cannot bind lone surrogates as TEXT. The existing
-            # legacy_invalid read path also carries bindable escaped JSON for
-            # historical strings with this representation and decodes them
-            # back to their original string value.
-            return "legacy_invalid", _encode_complex(value)
-        return "text", value
+        return "text", repair_unicode_text(value)
     if isinstance(value, int):
         if _INTEGER_MIN <= value <= _INTEGER_MAX:
             return "integer", value
@@ -74,17 +101,20 @@ def encode_stored_value(value: Any) -> tuple[str, SQLiteValue]:
     decoded = json.loads(encoded, parse_constant=_reject_non_json_constant)
     if not isinstance(decoded, (list, dict)):
         raise TypeError(f"unsupported cell value type: {type(value).__name__}")
+    repaired = repair_unicode_value(decoded)
+    if repaired != decoded:
+        encoded = _encode_complex(repaired)
     return "json", encoded
 
 
 def migrate_legacy_json_value(encoded: str | None) -> tuple[str, SQLiteValue]:
-    """Convert one historical JSON payload without losing malformed text.
+    """Convert one historical JSON payload without losing invalid JSON bytes.
 
-    Valid arrays and objects retain their original serialized bytes.  Valid
-    scalars move to native SQLite storage.  SQL NULL historically decoded as
-    an empty value and becomes an explicit null authority row; callers that
-    use SQL NULL for an absent/error payload must handle that case before
-    invoking this helper.
+    Valid arrays and objects retain their original serialized bytes unless
+    ill-formed Unicode requires repair. Valid scalars move to native SQLite
+    storage. SQL NULL historically decoded as an empty value and becomes an
+    explicit null authority row; callers that use SQL NULL for an absent/error
+    payload must handle that case before invoking this helper.
     """
 
     if encoded is None:
@@ -95,17 +125,13 @@ def migrate_legacy_json_value(encoded: str | None) -> tuple[str, SQLiteValue]:
         json.dumps(decoded, allow_nan=False)
     except (TypeError, ValueError, OverflowError, RecursionError):
         return "legacy_invalid", encoded
-    if isinstance(decoded, (list, dict)):
-        return "json", encoded
-    if isinstance(decoded, str):
-        try:
-            decoded.encode("utf-8")
-        except UnicodeEncodeError:
-            # sqlite3 binds Python strings as UTF-8. Preserve the escaped JSON
-            # bytes when a historical scalar contains a lone surrogate rather
-            # than failing the whole project migration.
-            return "legacy_invalid", encoded
-    return encode_stored_value(decoded)
+    try:
+        repaired = repair_unicode_value(decoded)
+    except RecursionError:
+        return "legacy_invalid", encoded
+    if isinstance(repaired, (list, dict)):
+        return "json", encoded if repaired == decoded else _encode_complex(repaired)
+    return encode_stored_value(repaired)
 
 
 def decode_stored_value(
@@ -126,7 +152,7 @@ def decode_stored_value(
         if value_kind == "text":
             if not isinstance(stored_value, str):
                 raise ValueError("text cell payload is not SQLite text")
-            return stored_value
+            return repair_unicode_text(stored_value)
         if value_kind == "integer":
             if type(stored_value) is not int:
                 raise ValueError("integer cell payload is not SQLite integer")
@@ -145,7 +171,7 @@ def decode_stored_value(
             decoded = json.loads(stored_value, parse_constant=_reject_non_json_constant)
             if not isinstance(decoded, (list, dict)):
                 raise ValueError("JSON cell payload is not an array or object")
-            return decoded
+            return repair_unicode_value(decoded)
         if value_kind == "bigint":
             if (
                 not isinstance(stored_value, str)
@@ -161,7 +187,9 @@ def decode_stored_value(
                 raise ValueError("legacy invalid payload is not SQLite text")
             # Replay the historical strict decode failure rather than presenting
             # malformed serialization as a user-authored text value.
-            return json.loads(stored_value, parse_constant=_reject_non_json_constant)
+            return repair_unicode_value(
+                json.loads(stored_value, parse_constant=_reject_non_json_constant)
+            )
         raise ValueError(f"unknown stored value kind: {value_kind!r}")
     except (TypeError, ValueError, OverflowError, RecursionError):
         if tolerate_errors:

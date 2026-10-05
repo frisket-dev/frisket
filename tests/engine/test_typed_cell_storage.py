@@ -24,6 +24,8 @@ from frisket.engine.store.value_codec import (
     decode_stored_value,
     encode_stored_value,
     migrate_legacy_json_value,
+    repair_unicode_text,
+    repair_unicode_value,
 )
 from frisket.search import drain_index, search_project
 from frisket.search_index import index_needs_work
@@ -84,31 +86,79 @@ def test_value_codec_preserves_legacy_invalid_bytes_and_failure_contract() -> No
     assert decode_stored_value("legacy_invalid", raw, tolerate_errors=True) is None
 
 
-def test_legacy_surrogate_string_stays_bindable_and_decodable() -> None:
+def test_unicode_repair_changes_only_malformed_surrogates() -> None:
+    ordinary = "already valid: café 😀"
+    assert repair_unicode_text(ordinary) is ordinary
+    assert repair_unicode_text("pair: \ud83d\ude00") == "pair: 😀"
+    assert repair_unicode_text("bad: \ud800 / \udcff") == "bad: � / �"
+    assert repair_unicode_value(
+        {"key\ud800": ["value\udcff", {"\ud83d\ude00": ordinary}]}
+    ) == {"key�": ["value�", {"😀": ordinary}]}
+
+
+def test_value_codec_repairs_nested_json_values_and_keys() -> None:
+    value = {"key\ud800": ["value\udcff", "\ud83d\ude00"]}
+    value_kind, stored = encode_stored_value(value)
+
+    assert value_kind == "json"
+    assert isinstance(stored, str) and "\\ud800" not in stored
+    assert decode_stored_value(value_kind, stored) == {"key�": ["value�", "😀"]}
+
+
+def test_unicode_repair_rejects_dictionary_key_collisions() -> None:
+    value = {key: number for key, number in (("key\ud800", 1), ("key\ud801", 2))}
+    with pytest.raises(ValueError, match="collapse distinct object keys"):
+        repair_unicode_value(value)
+    with pytest.raises(ValueError, match="collapse distinct object keys"):
+        encode_stored_value(value)
+    with pytest.raises(ValueError, match="collapse distinct object keys"):
+        migrate_legacy_json_value('{"key\\ud800":1,"key\\ud801":2}')
+
+
+def test_legacy_surrogate_string_becomes_bindable_replacement_text() -> None:
     raw = '"\\ud800"'
     value_kind, stored = migrate_legacy_json_value(raw)
-    assert (value_kind, stored) == ("legacy_invalid", raw)
-    assert decode_stored_value(value_kind, stored) == "\ud800"
+    assert (value_kind, stored) == ("text", "�")
+    assert decode_stored_value(value_kind, stored) == "�"
     db = sqlite3.connect(":memory:")
     db.execute("CREATE TABLE migrated(value_kind TEXT NOT NULL,value)")
     db.execute("INSERT INTO migrated VALUES (?,?)", (value_kind, stored))
 
 
-def test_forward_write_preserves_lone_surrogate_string(tmp_path) -> None:
+def test_legacy_json_reserializes_only_when_unicode_needs_repair() -> None:
+    unchanged = ' { "nested" : ["café", "\\ud83d\\ude00"] } '
+    assert migrate_legacy_json_value(unchanged) == ("json", unchanged)
+
+    changed = '{"key\\ud800":["value\\udcff","\\ud83d\\ude00"]}'
+    value_kind, stored = migrate_legacy_json_value(changed)
+    assert value_kind == "json"
+    assert stored != changed
+    assert decode_stored_value(value_kind, stored) == {"key�": ["value�", "😀"]}
+
+
+def test_forward_writes_repair_surrogates_and_remain_searchable(tmp_path) -> None:
     value = "prefix\ud800suffix"
     project = Project.create(tmp_path / "surrogate.frisket")
     try:
         sheet_id = project.add_sheet("Rows")
         column_id = project.add_column(sheet_id, "text", type="text")
 
-        bad_row, ordinary_row = project.add_rows(
+        bad_row, edit_row, ordinary_row = project.add_rows(
             sheet_id,
-            [{"text": value}, {"text": "ordinaryneedle"}],
+            [
+                {"text": value},
+                {"text": "before edit"},
+                {"text": "ordinaryneedle"},
+            ],
             {"text": column_id},
+        )
+        project.apply_edits(
+            [{"row_id": edit_row, "column_id": column_id, "value": "edit\udc00text"}]
         )
 
         assert project.get_values(sheet_id, column_id) == {
-            bad_row: value,
+            bad_row: "prefix�suffix",
+            edit_row: "edit�text",
             ordinary_row: "ordinaryneedle",
         }
         stored = project.db.execute(
@@ -116,11 +166,22 @@ def test_forward_write_preserves_lone_surrogate_string(tmp_path) -> None:
             "WHERE row_id=? AND column_id=?",
             (bad_row, column_id),
         ).fetchone()
-        assert stored[:] == ("legacy_invalid", '"prefix\\ud800suffix"', "text")
+        assert stored[:] == ("text", "prefix�suffix", "text")
+        stored_edit = project.db.execute(
+            "SELECT value_kind,value,typeof(value) FROM edits "
+            "WHERE row_id=? AND column_id=?",
+            (edit_row, column_id),
+        ).fetchone()
+        assert stored_edit[:] == ("text", "edit�text", "text")
 
         drain_index(project)
         assert not index_needs_work(project)
-        assert search_project(project, "prefix", rerank="off") == []
+        assert [
+            hit["row_id"] for hit in search_project(project, "prefix", rerank="off")
+        ] == [bad_row]
+        assert [
+            hit["row_id"] for hit in search_project(project, "edit", rerank="off")
+        ] == [edit_row]
         assert [
             hit["row_id"]
             for hit in search_project(project, "ordinaryneedle", rerank="off")
@@ -129,12 +190,12 @@ def test_forward_write_preserves_lone_surrogate_string(tmp_path) -> None:
         project.close()
 
 
-def test_typed_migration_preserves_surrogate_in_every_authority(tmp_path) -> None:
+def test_typed_migration_repairs_surrogate_in_every_authority(tmp_path) -> None:
     db = _database()
     db.execute("INSERT INTO rows (id,sheet_id,position) VALUES (102,1,3)")
     db.execute("PRAGMA foreign_keys=OFF")
     _restore_legacy_authorities(db)
-    raw = '"\\ud800"'
+    raw = '"prefix\\ud800suffix"'
     db.executemany(
         "INSERT INTO ops (id,kind,spec) VALUES (?,?, '{}')",
         [(1, "source.write"), (2, "map.test"), (3, "edit")],
@@ -191,16 +252,16 @@ def test_typed_migration_preserves_surrogate_in_every_authority(tmp_path) -> Non
 
     for table in ("cells", "results", "edits"):
         assert db.execute(f"SELECT value_kind,value FROM {table}").fetchone()[:] == (
-            "legacy_invalid",
-            raw,
+            "text",
+            "prefix�suffix",
         )
     migrated = db.execute(
         "SELECT row_id,value_kind,value FROM current_cell_values ORDER BY row_id"
     ).fetchall()
     assert [tuple(row) for row in migrated] == [
-        (100, "legacy_invalid", raw),
-        (101, "legacy_invalid", raw),
-        (102, "legacy_invalid", raw),
+        (100, "text", "prefix�suffix"),
+        (101, "text", "prefix�suffix"),
+        (102, "text", "prefix�suffix"),
     ]
     assert (
         db.execute(
@@ -210,7 +271,7 @@ def test_typed_migration_preserves_surrogate_in_every_authority(tmp_path) -> Non
     )
 
 
-def test_project_open_reads_migrated_surrogate_as_original_string(tmp_path) -> None:
+def test_project_open_reads_migrated_surrogate_as_replacement_text(tmp_path) -> None:
     path = tmp_path / "migrated-surrogate.frisket"
     project = Project.create(path)
     sheet_id = project.add_sheet("Rows")
@@ -239,7 +300,12 @@ def test_project_open_reads_migrated_surrogate_as_original_string(tmp_path) -> N
         )
 
     migrated = Project(path)
-    assert migrated.get_values(sheet_id, column_id) == {row_id: "\ud800"}
+    assert migrated.get_values(sheet_id, column_id) == {row_id: "�"}
+    assert migrated.db.execute(
+        "SELECT value_kind,value FROM current_cell_values "
+        "WHERE row_id=? AND column_id=?",
+        (row_id, column_id),
+    ).fetchone()[:] == ("text", "�")
     migrated.close()
 
 
@@ -357,5 +423,5 @@ def test_tolerant_historical_rows_decode_valid_legacy_json_and_keep_malformed_ra
         [(20, 102, 10), (20, 103, 10)], tolerate_decode_errors=True
     )
 
-    assert rows[(20, 102, 10)]["value"] == "\ud800"
+    assert rows[(20, 102, 10)]["value"] == "�"
     assert rows[(20, 103, 10)]["value"] == '{"broken":'
