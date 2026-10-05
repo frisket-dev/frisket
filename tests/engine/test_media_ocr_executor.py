@@ -314,6 +314,7 @@ def _go_stale(project: Project, seeded: dict[str, Any]) -> None:
     project.db.execute(
         "DELETE FROM run_output_generations WHERE column_id=?", (column_id,)
     )
+    project.db.execute("DELETE FROM run_review_fields WHERE column_id=?", (column_id,))
     project.db.execute("DELETE FROM columns WHERE id=?", (column_id,))
     project.db.commit()
 
