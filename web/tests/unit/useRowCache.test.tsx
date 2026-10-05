@@ -65,15 +65,14 @@ describe('useRowCache request epochs', () => {
     }
   });
 
-  it('clears an old total on a key switch and rejects the old deferred response', async () => {
-    const oldRequest = deferred<{ columns: []; total: number; rows: Row[] }>();
-    const newRequest = deferred<{ columns: []; total: number; rows: Row[] }>();
-    const getSheetData = vi.fn((
-      _sheet: string,
-      _offset: number,
-      _limit: number,
-      options?: SheetDataOptions | null,
-    ) => options?.filter ? newRequest.promise : oldRequest.promise);
+  it('rejects stale responses across an A-to-B-to-A key cycle', async () => {
+    const oldA = deferred<{ columns: []; total: number; rows: Row[] }>();
+    const requestB = deferred<{ columns: []; total: number; rows: Row[] }>();
+    const newA = deferred<{ columns: []; total: number; rows: Row[] }>();
+    const getSheetData = vi.fn()
+      .mockImplementationOnce(() => oldA.promise)
+      .mockImplementationOnce(() => requestB.promise)
+      .mockImplementationOnce(() => newA.promise);
     const api = gridApi({ getSheetData });
     const store = createRowCacheStore();
     const { result, rerender } = renderHook(
@@ -85,15 +84,71 @@ describe('useRowCache request epochs', () => {
 
     rerender({ options: { filter: { score: { gte: '2' } } } });
     await waitFor(() => expect(getSheetData).toHaveBeenCalledTimes(2));
+    rerender({ options: null });
+    await waitFor(() => expect(getSheetData).toHaveBeenCalledTimes(3));
     expect(result.current.rowCount).toBe(999);
 
-    await act(async () => oldRequest.resolve({ columns: [], total: 17, rows: [row(17)] }));
+    await act(async () => oldA.resolve({ columns: [], total: 17, rows: [row(17)] }));
     expect(result.current.rowCount).toBe(999);
     expect(result.current.getRow(0)).toBeUndefined();
 
-    await act(async () => newRequest.resolve({ columns: [], total: 3, rows: [row(3)] }));
+    await act(async () => requestB.resolve({ columns: [], total: 2, rows: [row(2)] }));
+    expect(result.current.rowCount).toBe(999);
+    await act(async () => newA.resolve({ columns: [], total: 3, rows: [row(3)] }));
     expect(result.current.rowCount).toBe(3);
     expect(result.current.getRow(0)?.id).toBe('3');
+  });
+
+  it('coalesces refreshes during an anchor into one trailing refresh', async () => {
+    const pendingAnchor = deferred<{ columns: []; total: number; rows: Row[] }>();
+    const getSheetData = vi.fn()
+      .mockResolvedValueOnce({ columns: [], total: 10, rows: [row(0)] })
+      .mockImplementationOnce(() => pendingAnchor.promise)
+      .mockResolvedValueOnce({ columns: [], total: 12, rows: [row(0)] });
+    const api = gridApi({ getSheetData });
+    const store = createRowCacheStore();
+    const { result } = renderHook(() => useRowCache('7', 10, 1, store, null, api));
+    await waitFor(() => expect(getSheetData).toHaveBeenCalledTimes(1));
+
+    act(() => result.current.refresh());
+    await waitFor(() => expect(getSheetData).toHaveBeenCalledTimes(2));
+    act(() => {
+      result.current.refresh();
+      result.current.refresh();
+    });
+    expect(getSheetData).toHaveBeenCalledTimes(2);
+
+    await act(async () => pendingAnchor.resolve({ columns: [], total: 11, rows: [row(0)] }));
+    await waitFor(() => expect(getSheetData).toHaveBeenCalledTimes(3));
+    expect(result.current.rowCount).toBe(12);
+  });
+
+  it('waits for refresh siblings before starting one coalesced trailing group', async () => {
+    const pendingSibling = deferred<{ rows: Row[] }>();
+    const getSheetRows = vi.fn()
+      .mockResolvedValueOnce({ rows: [row(500, 500)] })
+      .mockImplementationOnce(() => pendingSibling.promise)
+      .mockResolvedValueOnce({ rows: [row(500, 500)] });
+    const api = gridApi({ getSheetRows });
+    const store = createRowCacheStore();
+    const { result } = renderHook(() => useRowCache('7', 1_500, 1, store, null, api));
+    await waitFor(() => expect(api.getSheetData).toHaveBeenCalledTimes(1));
+    act(() => result.current.onVisibleRowsChanged(0, 500));
+    await waitFor(() => expect(getSheetRows).toHaveBeenCalledTimes(1));
+
+    act(() => result.current.refresh());
+    await waitFor(() => expect(api.getSheetData).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(getSheetRows).toHaveBeenCalledTimes(2));
+    act(() => {
+      result.current.refresh();
+      result.current.refresh();
+    });
+    expect(api.getSheetData).toHaveBeenCalledTimes(2);
+    expect(getSheetRows).toHaveBeenCalledTimes(2);
+
+    await act(async () => pendingSibling.resolve({ rows: [row(500, 500)] }));
+    await waitFor(() => expect(api.getSheetData).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(getSheetRows).toHaveBeenCalledTimes(3));
   });
 
   it('deduplicates an in-flight page and makes a rejected page retryable', async () => {

@@ -69,7 +69,6 @@ function createRowCacheSlot(): RowCacheSlot {
     activate(key: string) {
       if (snapshot.key === key) return;
       pages = new Map();
-      activeEpoch = 0;
       metadataReadyEpoch = -1;
       snapshot = { key, version: snapshot.version + 1, totalRows: null };
       emit();

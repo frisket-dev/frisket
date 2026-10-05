@@ -180,6 +180,7 @@ import type {
   SearchOptions,
   SpendReport,
 } from './types';
+import type { ProjectApiPort } from './ports';
 import type {
   ActionCatalogPayload,
   ActionJob,
@@ -1921,4 +1922,4 @@ class RealApi implements FrisketApi {
 }
 
 const realApi = new RealApi();
-export const createProjectApi = (projectId: string): FrisketApi => new RealApi(projectId);
+export const createProjectApi = (projectId: string): ProjectApiPort => new RealApi(projectId);

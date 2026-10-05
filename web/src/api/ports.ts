@@ -2,7 +2,7 @@ import type { FrisketApi, Row, SheetDataOptions } from './types';
 
 export interface GridApiPort {
   getSheetData: FrisketApi['getSheetData'];
-  getSheetRows?(
+  getSheetRows(
     sheetId: string,
     offset: number,
     limit: number,

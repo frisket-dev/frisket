@@ -14,6 +14,17 @@ import { computeRowCacheKey, type RowCacheStoreHandle } from './rowCacheStore';
 
 const PAGE_SIZE = 500;
 
+interface RefreshRequest {
+  anchorPage: number;
+  refreshPages?: number[];
+}
+
+interface RefreshGroup extends RefreshRequest {
+  key: string;
+  epoch: number;
+  trailing: RefreshRequest | null;
+}
+
 export interface RowCache {
   getRow(rowIndex: number): Row | undefined;
   onVisibleRowsChanged(firstRow: number, lastRow: number): void;
@@ -37,7 +48,7 @@ export function useRowCache(
   const store = useMemo(() => rowCacheStore.getSlot(sheetId), [rowCacheStore, sheetId]);
   const visible = useRef<[number, number]>([0, 1]);
   const optionsRef = useRef(queryOptions);
-  const anchorPending = useRef<{ key: string; epoch: number } | null>(null);
+  const refreshGroup = useRef<RefreshGroup | null>(null);
 
   useEffect(() => {
     optionsRef.current = queryOptions;
@@ -65,19 +76,12 @@ export function useRowCache(
           );
           return store.setPage(resetKey, epoch, page, data.rows, data.total);
         }
-        const data = gridApi.getSheetRows
-          ? await gridApi.getSheetRows(
-            sheetId,
-            page * PAGE_SIZE,
-            PAGE_SIZE,
-            optionsRef.current,
-          )
-          : await gridApi.getSheetData(
-            sheetId,
-            page * PAGE_SIZE,
-            PAGE_SIZE,
-            optionsRef.current,
-          );
+        const data = await gridApi.getSheetRows(
+          sheetId,
+          page * PAGE_SIZE,
+          PAGE_SIZE,
+          optionsRef.current,
+        );
         return store.setPage(resetKey, epoch, page, data.rows);
       } catch {
         store.failPage(resetKey, epoch, page);
@@ -90,35 +94,55 @@ export function useRowCache(
   );
 
   const startEpoch = useCallback((anchorPage: number, refreshPages?: number[]) => {
-    if (anchorPending.current?.key === resetKey) return;
-    const epoch = store.beginEpoch(resetKey);
-    if (epoch < 0) return;
-    anchorPending.current = { key: resetKey, epoch };
-    void fetchPage(anchorPage, epoch, true, true).then((accepted) => {
-      if (!accepted || !store.isMetadataReady(resetKey, epoch)) return;
-      const pages = refreshPages ?? (() => {
-        const [first, last] = visible.current;
-        const firstPage = Math.floor(Math.max(0, first - PAGE_SIZE / 2) / PAGE_SIZE);
-        const exactTotal = store.getSnapshot().totalRows ?? rowCount;
-        const lastPage = Math.floor(
-          Math.min(exactTotal - 1, last + PAGE_SIZE / 2) / PAGE_SIZE,
-        );
-        return Array.from(
-          { length: Math.max(0, lastPage - firstPage + 1) },
-          (_unused, index) => firstPage + index,
-        );
-      })();
-      for (const page of pages) {
-        if (page !== anchorPage) void fetchPage(page, epoch, false, refreshPages !== undefined);
-      }
-    }).finally(() => {
-      if (
-        anchorPending.current?.key === resetKey
-        && anchorPending.current.epoch === epoch
-      ) {
-        anchorPending.current = null;
-      }
-    });
+    const requested: RefreshRequest = { anchorPage, refreshPages };
+    const active = refreshGroup.current;
+    if (active?.key === resetKey) {
+      active.trailing = requested;
+      return;
+    }
+
+    const launch = (request: RefreshRequest) => {
+      const epoch = store.beginEpoch(resetKey);
+      if (epoch < 0) return;
+      const group: RefreshGroup = {
+        ...request,
+        key: resetKey,
+        epoch,
+        trailing: null,
+      };
+      refreshGroup.current = group;
+      void (async () => {
+        const accepted = await fetchPage(request.anchorPage, epoch, true, true);
+        if (!accepted || !store.isMetadataReady(resetKey, epoch)) return;
+        const pages = request.refreshPages ?? (() => {
+          const [first, last] = visible.current;
+          const firstPage = Math.floor(Math.max(0, first - PAGE_SIZE / 2) / PAGE_SIZE);
+          const exactTotal = store.getSnapshot().totalRows ?? rowCount;
+          const lastPage = Math.floor(
+            Math.min(exactTotal - 1, last + PAGE_SIZE / 2) / PAGE_SIZE,
+          );
+          return Array.from(
+            { length: Math.max(0, lastPage - firstPage + 1) },
+            (_unused, index) => firstPage + index,
+          );
+        })();
+        await Promise.all(pages
+          .filter((page) => page !== request.anchorPage)
+          .map((page) => fetchPage(
+            page,
+            epoch,
+            false,
+            request.refreshPages !== undefined,
+          )));
+      })().finally(() => {
+        if (refreshGroup.current !== group) return;
+        const trailing = group.trailing;
+        refreshGroup.current = null;
+        if (trailing) launch(trailing);
+      });
+    };
+
+    launch(requested);
   }, [fetchPage, resetKey, rowCount, store]);
 
   // A new key clears the previous key's exact total before its anchor starts.
@@ -132,6 +156,11 @@ export function useRowCache(
     });
     return () => {
       cancelled = true;
+      const active = refreshGroup.current;
+      if (active?.key === resetKey) {
+        active.trailing = null;
+        refreshGroup.current = null;
+      }
     };
   }, [resetKey, startEpoch, store]);
 
@@ -142,7 +171,7 @@ export function useRowCache(
       const lastPage = Math.floor(Math.min(totalRows - 1, lastRow + PAGE_SIZE / 2) / PAGE_SIZE);
       const epoch = store.getEpoch();
       if (!store.isMetadataReady(resetKey, epoch)) {
-        startEpoch(firstPage);
+        if (refreshGroup.current?.key !== resetKey) startEpoch(firstPage);
         return;
       }
       for (let p = firstPage; p <= lastPage; p++) {
