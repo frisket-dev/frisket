@@ -49,6 +49,26 @@ describe('useRowCache request epochs', () => {
     expect(api.getSheetRows).toHaveBeenCalledWith('7', 500, 500, {});
   });
 
+  it('reanchors the exact total when the inventory row count changes', async () => {
+    const getSheetData = vi.fn()
+      .mockResolvedValueOnce({ columns: [], total: 1_500, rows: [row(0)] })
+      .mockResolvedValueOnce({ columns: [], total: 1_750, rows: [row(0)] });
+    const api = gridApi({ getSheetData });
+    const store = createRowCacheStore();
+    const { result, rerender } = renderHook(
+      ({ inventoryRows }: { inventoryRows: number }) =>
+        useRowCache('7', inventoryRows, 1, store, null, api),
+      { initialProps: { inventoryRows: 1_500 } },
+    );
+    await waitFor(() => expect(getSheetData).toHaveBeenCalledTimes(1));
+    expect(result.current.rowCount).toBe(1_500);
+
+    rerender({ inventoryRows: 2_000 });
+
+    await waitFor(() => expect(getSheetData).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.rowCount).toBe(1_750));
+  });
+
   it('uses one full anchor per refresh and rows-only loaded siblings', async () => {
     const api = gridApi();
     const store = createRowCacheStore();
