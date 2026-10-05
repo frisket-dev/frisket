@@ -115,9 +115,9 @@ describe('ReviewRunControls', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Review order' }));
     expect(screen.getByRole('button', { name: 'Lowest confidence' })).toBeDisabled();
-    const runOrder = screen.getByRole('button', { name: 'Run order' });
-    expect(runOrder).toBeEnabled();
-    fireEvent.click(runOrder);
+    const rowOrder = screen.getByRole('button', { name: 'Row order' });
+    expect(rowOrder).toBeEnabled();
+    fireEvent.click(rowOrder);
     expect(changedOrder).toHaveBeenCalledWith('row');
   });
 

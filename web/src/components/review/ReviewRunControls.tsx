@@ -256,7 +256,7 @@ export function ReviewRunControls({
                 onClick={() => onOrderChange('row')}
                 disabled={disabled}
               >
-                Run order
+                Row order
               </button>
             </div>
           </div>
