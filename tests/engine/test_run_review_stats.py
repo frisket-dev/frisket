@@ -357,6 +357,30 @@ def test_concurrent_review_stats_ensure_rechecks_ready_under_write_lock(
         project.close()
 
 
+def test_ready_review_stats_ensure_does_not_take_write_lock(tmp_path: Path) -> None:
+    project = Project.create(tmp_path / "ready-read.frisket")
+    try:
+        sheet_id = project.add_sheet("Rows")
+        output = project.add_column(sheet_id, "answer", ai_generated=True)
+        rows = project.add_rows(sheet_id, [{}], {})
+        run_id = _managed_run(
+            project, sheet_id=sheet_id, columns=[output], row_ids=rows
+        )
+        statements: list[str] = []
+        project.db.set_trace_callback(statements.append)
+        try:
+            ensure_run_review_stats(project.db, run_id)
+        finally:
+            project.db.set_trace_callback(None)
+
+        assert not project.db.in_transaction
+        assert all(
+            statement.strip().upper() != "BEGIN IMMEDIATE" for statement in statements
+        )
+    finally:
+        project.close()
+
+
 def test_primary_membership_and_totals_survive_rename_and_partial_replacement(
     tmp_path: Path,
 ) -> None:
