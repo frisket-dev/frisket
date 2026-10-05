@@ -21,6 +21,7 @@ function page(name: string): ReviewBundlePage {
     total: 1,
     hasMore: false,
     nextOffset: null,
+    nextCursor: null,
     bundles: [{
       id: `bundle-${name}`,
       runId: '9',
@@ -61,9 +62,9 @@ afterEach(() => {
 });
 
 const options = { order: 'shuffle' as const, seed: 4 };
-function mount(onClose = vi.fn()) {
+function mount(onClose = vi.fn(), reviewOptions = options) {
   return render(<WorkspaceStoresContext.Provider value={stores}>
-    <ReviewSession runId="9" options={options} onChanged={vi.fn()} onClose={onClose}
+    <ReviewSession runId="9" options={reviewOptions} onChanged={vi.fn()} onClose={onClose}
       renderToolbar={(navigation, leave) => <>{navigation}<button onClick={() => leave(onClose)}>Close</button></>} />
   </WorkspaceStoresContext.Provider>);
 }
@@ -212,6 +213,30 @@ it('edits the field whose pencil was clicked and records a correction', async ()
   expect(screen.queryByRole('button', { name: 'Reject and clear' })).not.toBeInTheDocument();
 });
 
+it('keeps historical decisions and notes available while explaining why edit is disabled', async () => {
+  const value = page('replaced');
+  value.bundles[0].fields[0].canEdit = false;
+  vi.spyOn(stores.projectApi, 'getReviewBundles').mockResolvedValue(value);
+  const decide = vi.spyOn(stores.projectApi, 'reviewItem').mockResolvedValue();
+  vi.spyOn(stores.projectApi, 'getReviewCount').mockResolvedValue(1);
+  mount();
+
+  const edit = await screen.findByRole('button', { name: 'Edit replaced', exact: true });
+  expect(edit).toBeDisabled();
+  expect(edit).toHaveAttribute('title', expect.stringContaining('replaced or edited after the run'));
+  expect(screen.getByText(/Accept, reject, clear, and notes are still available/)).toBeVisible();
+  expect(screen.getByTestId('review-note-input')).toBeEnabled();
+
+  const reject = screen.getByRole('button', { name: 'Reject replaced', exact: true });
+  expect(reject).toBeEnabled();
+  fireEvent.click(reject);
+  await waitFor(() => expect(decide).toHaveBeenLastCalledWith('9:3:4', 'reject', undefined));
+  fireEvent.click(reject);
+  await waitFor(() => expect(decide).toHaveBeenLastCalledWith('9:3:4', 'clear', undefined));
+  fireEvent.click(screen.getByRole('button', { name: 'Accept all' }));
+  await waitFor(() => expect(decide).toHaveBeenLastCalledWith('9:3:4', 'accept', undefined));
+});
+
 it('allows edits only for plain text results through both buttons and keyboard shortcuts', async () => {
   const value = multiPage();
   value.bundles[0].fields[1] = {
@@ -263,6 +288,35 @@ it('waits for a complete bulk save before advancing across the page boundary', a
   finish();
   await waitFor(() => expect(screen.getByTestId('review-page-status')).toHaveTextContent('2 / 2'));
   expect(load).toHaveBeenLastCalledWith(1, 25, '9', true, options);
+});
+
+it('uses row cursors for stable next and previous pages without sending a shuffle seed', async () => {
+  const first = page('first');
+  Object.assign(first, { total: 2, limit: 1, hasMore: true, nextOffset: null, nextCursor: 3 });
+  const next = page('next');
+  Object.assign(next, {
+    offset: 0, total: 2, limit: 1, nextCursor: null,
+    bundles: [{ ...next.bundles[0], rowId: '4', id: 'bundle-next', fields: next.bundles[0].fields.map((field) => ({
+      ...field, id: `9:4:${field.columnId}`, rowId: '4',
+    })) }],
+  });
+  const load = vi.spyOn(stores.projectApi, 'getReviewBundles')
+    .mockResolvedValueOnce(first)
+    .mockResolvedValueOnce(next)
+    .mockResolvedValueOnce(first);
+  mount(vi.fn(), { order: 'row', seed: 99 });
+
+  await waitFor(() => expect(screen.getByTestId('review-page-status')).toHaveTextContent('1 / 2'));
+  fireEvent.click(screen.getAllByRole('button', { name: 'Next row', exact: true })[0]);
+  await waitFor(() => expect(screen.getByTestId('review-page-status')).toHaveTextContent('2 / 2'));
+  fireEvent.click(screen.getByRole('button', { name: 'Previous row' }));
+  await waitFor(() => expect(screen.getByTestId('review-page-status')).toHaveTextContent('1 / 2'));
+
+  expect(load.mock.calls).toEqual([
+    [0, 25, '9', true, { fieldId: undefined, order: 'row', cursor: undefined }],
+    [0, 25, '9', true, { fieldId: undefined, order: 'row', cursor: 3 }],
+    [0, 25, '9', true, { fieldId: undefined, order: 'row', cursor: undefined }],
+  ]);
 });
 
 it('lets the reviewer close while the initial page is loading', async () => {

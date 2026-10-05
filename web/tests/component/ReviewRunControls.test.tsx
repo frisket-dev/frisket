@@ -49,6 +49,7 @@ describe('ReviewRunControls', () => {
     expect(screen.getByRole('progressbar', { name: 'Review progress' })).toHaveAttribute('aria-valuenow', '5');
     fireEvent.click(screen.getByRole('button', { name: 'Results' }));
     expect(screen.getByTestId('review-results')).toBeInTheDocument();
+    expect(screen.getByText('Run: Classify on Articles')).toBeInTheDocument();
     expect(screen.getByTestId('review-run-summary')).toHaveTextContent('75% correct among reviewed');
   });
 
@@ -96,6 +97,28 @@ describe('ReviewRunControls', () => {
     expect(confidence).toHaveAttribute('title', expect.stringContaining('no confidence values'));
     fireEvent.click(confidence);
     expect(changedOrder).not.toHaveBeenCalled();
+  });
+
+  it('offers stable run order even when confidence ordering is unavailable', () => {
+    const changedOrder = vi.fn();
+    render(
+      <ReviewRunControls
+        runs={[run]}
+        selectedRunId="9"
+        onSelectedRunChange={vi.fn()}
+        selectedFieldId="5"
+        onSelectedFieldChange={vi.fn()}
+        order="shuffle"
+        onOrderChange={changedOrder}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Review order' }));
+    expect(screen.getByRole('button', { name: 'Lowest confidence' })).toBeDisabled();
+    const runOrder = screen.getByRole('button', { name: 'Run order' });
+    expect(runOrder).toBeEnabled();
+    fireEvent.click(runOrder);
+    expect(changedOrder).toHaveBeenCalledWith('row');
   });
 
   it('keeps ordering in a compact popover and exposes results separately', () => {

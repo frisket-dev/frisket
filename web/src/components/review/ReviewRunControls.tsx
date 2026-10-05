@@ -250,6 +250,14 @@ export function ReviewRunControls({
               >
                 Lowest confidence
               </button>
+              <button
+                type="button"
+                aria-pressed={order === 'row'}
+                onClick={() => onOrderChange('row')}
+                disabled={disabled}
+              >
+                Run order
+              </button>
             </div>
           </div>
           {!confidenceAvailable && <p className={styles.noConfidence}>No confidence values in this scope.</p>}

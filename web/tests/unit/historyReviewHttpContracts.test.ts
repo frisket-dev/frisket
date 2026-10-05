@@ -150,6 +150,7 @@ const reviewItem = {
   review_state: 'unreviewed',
   role: 'field',
   chore: false,
+  can_edit: false,
 };
 
 const reviewBundlesFixture = {
@@ -159,6 +160,7 @@ const reviewBundlesFixture = {
   total: 1,
   has_more: false,
   next_offset: null,
+  next_cursor: null,
   bundles: [{
     id: 'bundle-9-7',
     run_id: 9,
@@ -391,6 +393,44 @@ describe('history and review generated HTTP reads', () => {
       '/api/projects/review-controls/review/bundles?offset=0&limit=25&run_id=9&field_id=5&order=shuffle&seed=17',
       '/api/projects/review-controls/review/runs?offset=50&limit=50&sheet_id=3&run_id=9',
     ]);
+  });
+
+  it('sends stable row cursors without a shuffle seed and maps the next cursor', async () => {
+    const requests: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      requests.push(String(input));
+      return jsonResponse({
+        ...reviewBundlesFixture,
+        offset: 0,
+        has_more: true,
+        next_offset: null,
+        next_cursor: 7,
+      });
+    }));
+    const transport = createHistoryReviewApi(
+      (status, payload) => new MappedContractError(status, payload),
+      'row-order',
+    );
+    const domain = createHistoryReviewDomainApi(
+      (status, payload) => new MappedContractError(status, payload),
+      { v1ActionSession: createV1ActionSession('row-order') },
+      'row-order',
+    );
+
+    await transport.getReviewBundles(0, 25, '9', true, undefined, {
+      order: 'row', cursor: 6, seed: 99,
+    });
+    const page = await domain.getReviewBundles(0, 25, '9', true, {
+      order: 'row', cursor: 6, seed: 99,
+    });
+
+    expect(requests).toEqual([
+      '/api/projects/row-order/review/bundles?offset=0&limit=25&run_id=9&include_reviewed=true&order=row&cursor=6',
+      '/api/projects/row-order/review/bundles?offset=0&limit=25&run_id=9&include_reviewed=true&order=row&cursor=6',
+    ]);
+    expect(page.nextCursor).toBe(7);
+    expect(page.nextOffset).toBeNull();
+    expect(page.bundles[0].fields[0].canEdit).toBe(false);
   });
 
   it('maps durable run status and exact per-field counts', async () => {

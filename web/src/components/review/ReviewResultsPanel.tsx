@@ -91,7 +91,7 @@ export function ReviewResultsPanel({ run, onClose }: ReviewResultsPanelProps) {
       <header className={styles.header}>
         <div>
           <h2 className="modal-title" id="review-results-title">Results</h2>
-          <p className={styles.description}>Current run: {run.actionName || run.actionKind || 'AI run'} on {run.sheetName}</p>
+          <p className={styles.description}>Run: {run.actionName || run.actionKind || 'AI run'} on {run.sheetName}</p>
         </div>
         <button type="button" className="icon-btn" onClick={onClose} aria-label="Close review results">
           <X size={16} aria-hidden />

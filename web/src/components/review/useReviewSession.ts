@@ -11,6 +11,14 @@ export interface ReviewSessionOptions {
   onChanged(remaining: number): void;
 }
 
+interface RowPageTarget {
+  cursor?: number;
+  index: number;
+  start: number;
+}
+
+const FIRST_ROW_PAGE: RowPageTarget = { index: 0, start: 0 };
+
 /** Corrections are text edits. Structured and typed values keep their shape. */
 export function isPlainTextReviewField(field: ReviewBundleField | null | undefined): boolean {
   if (!field || field.columnType !== 'text' || (field.value !== null && typeof field.value !== 'string')) return false;
@@ -44,6 +52,9 @@ export function useReviewSession({ runId, options, readOnly = false, onDecisionS
   const [loading, setLoading] = useState(true);
   const [problem, setProblem] = useState<string | null>(null);
   const request = useRef(0);
+  const rowPages = useRef<RowPageTarget[]>([FIRST_ROW_PAGE]);
+  const currentRowPage = useRef<RowPageTarget>(FIRST_ROW_PAGE);
+  const [rowPage, setRowPage] = useState<RowPageTarget>(FIRST_ROW_PAGE);
   const bundle = page?.bundles[cursor];
   const field = bundle?.fields.find((item) => item.id === selectedId) ?? bundle?.fields[0];
 
@@ -57,13 +68,21 @@ export function useReviewSession({ runId, options, readOnly = false, onDecisionS
     setNote(value);
   }, []);
 
-  const loadPage = useCallback((offset: number, last = false) => {
+  const loadPage = useCallback((offset: number, last = false, rowTarget?: RowPageTarget) => {
     const generation = ++request.current;
-    return api.getReviewBundles(offset, 25, runId, true, options).then((response) => {
+    const rowOrdered = options.order === 'row';
+    const requestOptions: ReviewBundleOptions = rowOrdered
+      ? { fieldId: options.fieldId, order: 'row', cursor: rowTarget?.cursor }
+      : options;
+    return api.getReviewBundles(rowOrdered ? 0 : offset, 25, runId, true, requestOptions).then((response) => {
       if (generation !== request.current) return;
       const loaded = options.fieldId ? { ...response, bundles: response.bundles.map((row) => ({
         ...row, fields: row.fields.filter((item) => item.columnId === options.fieldId),
       })) } : response;
+      if (rowOrdered && rowTarget) {
+        currentRowPage.current = rowTarget;
+        setRowPage(rowTarget);
+      }
       setPage(loaded);
       selectRow(loaded, last ? Math.max(0, loaded.bundles.length - 1) : 0);
       setProblem(null);
@@ -75,7 +94,9 @@ export function useReviewSession({ runId, options, readOnly = false, onDecisionS
   }, [api, options, runId, selectRow]);
 
   useEffect(() => {
-    void loadPage(0);
+    rowPages.current = [FIRST_ROW_PAGE];
+    currentRowPage.current = FIRST_ROW_PAGE;
+    void loadPage(0, false, FIRST_ROW_PAGE);
     return () => { request.current += 1; };
   }, [loadPage]);
 
@@ -116,8 +137,26 @@ export function useReviewSession({ runId, options, readOnly = false, onDecisionS
     if (!page) return;
     const next = cursor + delta;
     if (next >= 0 && next < page.bundles.length) selectRow(page, next);
-    else if (delta === 1 && page.nextOffset !== null) { setLoading(true); void loadPage(page.nextOffset); }
-    else if (delta === -1 && page.offset > 0) { setLoading(true); void loadPage(Math.max(0, page.offset - page.limit), true); }
+    else if (delta === 1 && options.order === 'row' && page.nextCursor !== null) {
+      const target = {
+        cursor: page.nextCursor,
+        index: rowPage.index + 1,
+        start: rowPage.start + page.bundles.length,
+      };
+      rowPages.current = [...rowPages.current.slice(0, target.index), target];
+      setLoading(true);
+      void loadPage(0, false, target);
+    } else if (delta === 1 && page.nextOffset !== null) {
+      setLoading(true);
+      void loadPage(page.nextOffset);
+    } else if (delta === -1 && options.order === 'row' && rowPage.index > 0) {
+      const target = rowPages.current[rowPage.index - 1];
+      setLoading(true);
+      void loadPage(0, true, target);
+    } else if (delta === -1 && page.offset > 0) {
+      setLoading(true);
+      void loadPage(Math.max(0, page.offset - page.limit), true);
+    }
   });
 
   const selectField = (id: string) => { setSelectedId(id); setEditingId(null); };
@@ -127,7 +166,7 @@ export function useReviewSession({ runId, options, readOnly = false, onDecisionS
     selectField(bundle.fields[(index + delta + bundle.fields.length) % bundle.fields.length].id);
   };
   const startEdit = (target = field) => {
-    if (!target || !isPlainTextReviewField(target) || busy || readOnly) return;
+    if (!target || target.canEdit === false || !isPlainTextReviewField(target) || busy || readOnly) return;
     setSelectedId(target.id);
     setEditingId(target.id);
     setEditValue(target.value === null ? '' : String(target.value));
@@ -178,12 +217,17 @@ export function useReviewSession({ runId, options, readOnly = false, onDecisionS
 
   return {
     bundle, field, page, cursor, note, changeNote, saveNote, savingNote, busy: busy || loading, loading,
-    problem, retry: () => { setLoading(true); void loadPage(page?.offset ?? 0); }, readOnly, leave,
+    problem, retry: () => {
+      setLoading(true);
+      void loadPage(page?.offset ?? 0, false, options.order === 'row' ? currentRowPage.current : undefined);
+    }, readOnly, leave,
     moveRow, moveField, selectField, startEdit, editingId, editValue, setEditValue,
     cancelEdit: () => setEditingId(null), resolve, toggle, acceptRemaining, reset,
     projectId: chromePreferences.projectId,
-    canPrevious: !!page && page.offset + cursor > 0,
-    canNext: !!page && (cursor < page.bundles.length - 1 || page.hasMore),
+    position: page ? (options.order === 'row' ? rowPage.start : page.offset) + cursor + 1 : 0,
+    canPrevious: !!page && (cursor > 0 || (options.order === 'row' ? rowPage.index > 0 : page.offset > 0)),
+    canNext: !!page && (cursor < page.bundles.length - 1
+      || (options.order === 'row' ? page.nextCursor !== null : page.hasMore)),
   };
 }
 export type ReviewSessionController = ReturnType<typeof useReviewSession>;
