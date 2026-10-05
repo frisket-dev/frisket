@@ -200,7 +200,11 @@ operation automatically for a standalone append.
 
 The storage owners encode values with `engine.store.value_codec` and maintain
 `current_cells` in the same transaction. That projection holds the winning
-authority and validity, without copying its payload. Read decoded values via
+authority and validity, plus bounded copies of numeric, boolean, null, and short
+category/date values. Large text and structured values remain in their authority
+tables. The shared projection writer maintains these copies atomically; direct
+SQL changes that bypass the storage owners require a projection rebuild. Read
+decoded values via
 `Project.get_values` / `get_values_with_refs`; use `apply_edits=False` only for
 the generated candidate beneath an edit. SQL queries use `current_cell_values`
 and its native `value` plus `value_kind`; JSON functions apply only to complex
