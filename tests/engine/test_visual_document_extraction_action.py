@@ -1,0 +1,367 @@
+"""Visual extraction admission, preview and table publication share one matcher."""
+
+from contextlib import closing
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from frisket.actions.document_extract import DocumentExtractParams
+from frisket.actions.document_extraction_types import ExtractionTemplate
+from frisket.actions.system import typed_action_for_request
+from frisket.engine.executor.document_extraction_read import load_positioned_document
+from frisket.engine.executor.table_action import run_typed_create_sheet_action
+from frisket.engine.store import Project
+from frisket.engine.store.evidence import (
+    record_source_artifact,
+    record_source_span,
+    list_cell_evidence,
+    resolve_evidence_viewer,
+)
+from frisket.server.routes.document_extraction import (
+    register_document_extraction_routes,
+)
+from frisket.server.services.document_extraction import DocumentExtractionService
+from frisket.server.workspace import Workspace
+
+
+def seed(project, count=2, *, repeats=False, engine="tesseract"):
+    sheet = project.add_sheet("Documents")
+    column = project.add_column(sheet, "document", "file")
+    blobs = []
+    for index in range(count):
+        blob = project.add_blob(
+            f"image {index}".encode(), filename=f"form-{index}.png", mime="image/png"
+        )
+        blobs.append(blob)
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            blob_hash=blob,
+            media_type="image/png",
+            metadata={
+                "engine": engine,
+                "page_images": {"1": {"source_width": 100, "source_height": 100}},
+            },
+        )
+        words = [
+            ("NAME", 0.1, 0.1, 0.2),
+            (f"Person{index}", 0.1, 0.35, 0.55),
+            ("ARRESTED", 0.2, 0.1, 0.3),
+        ]
+        if index == 0:
+            words.append(("X", 0.2, 0.35, 0.4))
+        if repeats:
+            words.extend(
+                [
+                    ("NAME", 0.4, 0.1, 0.2),
+                    (f"Other{index}", 0.4, 0.35, 0.55),
+                    ("ARRESTED", 0.5, 0.1, 0.3),
+                ]
+            )
+        for text, y, x0, x1 in words:
+            record_source_span(
+                project,
+                artifact_id=artifact["id"],
+                span_kind="region",
+                page_start=1,
+                page_end=1,
+                bbox=[
+                    {
+                        "x0": x0,
+                        "y0": y,
+                        "x1": x1,
+                        "y1": y + 0.03,
+                        "space": "page_normalized",
+                    }
+                ],
+                quote=text,
+            )
+    rows = project.add_rows(
+        sheet,
+        [
+            {
+                "document": {
+                    "blob": blob,
+                    "filename": f"form-{i}.png",
+                    "mime": "image/png",
+                }
+            }
+            for i, blob in enumerate(blobs)
+        ],
+        {"document": column},
+    )
+    doc = load_positioned_document(project, blobs[0])
+
+    def region(x0, y0, x1, y1):
+        return {"page": 1, "box": {"x0": x0, "y0": y0, "x1": x1, "y1": y1}}
+
+    fields = [
+        {
+            "id": "name",
+            "name": "Name",
+            "key": region(0.09, 0.09, 0.22, 0.14),
+            "value": region(0.34, 0.09, 0.65, 0.14),
+        },
+        {
+            "id": "arrested",
+            "name": "Arrested",
+            "key": region(0.09, 0.19, 0.31, 0.24),
+            "value": region(0.34, 0.19, 0.65, 0.24),
+        },
+    ]
+    sections = []
+    if repeats:
+        for field in fields:
+            field["section_id"] = "people"
+        sections = [
+            {
+                "id": "people",
+                "first": {
+                    "start": {"page": 1, "y": 0.08},
+                    "end": {"page": 1, "y": 0.27},
+                },
+                "rest": {"start": {"page": 1, "y": 0.3}, "end": {"page": 1, "y": 0.9}},
+            }
+        ]
+    template = ExtractionTemplate(
+        reference_blob_id=blobs[0],
+        reference_fingerprint=doc.document.source_fingerprint,
+        fields=fields,
+        sections=sections,
+    )
+    return sheet, column, rows, template
+
+
+def request(sheet, template, *, rows=None, key="visual", rename=None):
+    return {
+        "action_id": "media.extract_document",
+        "scope": {"kind": "sheet_rows", "sheet_id": sheet, "row_ids": rows},
+        "params": {
+            "source": "document",
+            "template": template.model_dump(mode="json"),
+            "repeat_group_id": "people" if template.sections else None,
+        },
+        "output_names": rename or {},
+        "sheet_name": key,
+        "idempotency_key": key,
+    }
+
+
+def test_actual_run_blank_citation_and_replay(tmp_path):
+    with closing(Project.create(tmp_path / "project")) as project:
+        sheet, column, row_ids, template = seed(project)
+        bound = typed_action_for_request(
+            request(sheet, template, rename={"Arrested": "Mark"})
+        )
+        result = run_typed_create_sheet_action(project, "p", bound)
+        assert result.status == "completed", result.errors
+        output = result.outputs[0].ref
+        assert output["row_count"] == 2
+        values = project.get_values(output["sheet_id"], output["columns"]["Mark"])
+        assert list(values.values()) == ["X", ""]
+        empty_row = list(values)[1]
+        links = list_cell_evidence(
+            project,
+            sheet_id=output["sheet_id"],
+            row_id=empty_row,
+            column_id=output["columns"]["Mark"],
+            project_id="p",
+        )
+        assert len(links["links"]) == 1
+        viewer = resolve_evidence_viewer(
+            project, links["links"][0]["id"], project_id="p"
+        )
+        assert viewer
+        replay = run_typed_create_sheet_action(project, "p", bound)
+        assert replay.status == "completed", replay.errors
+        assert replay.receipt_id == result.receipt_id
+        assert project.db.execute("SELECT count(*) FROM sheets").fetchone()[0] == 2
+
+
+def test_repetition_one_aggregate_table(tmp_path):
+    with closing(Project.create(tmp_path / "project")) as project:
+        sheet, column, row_ids, template = seed(project, count=3, repeats=True)
+        result = run_typed_create_sheet_action(
+            project, "p", typed_action_for_request(request(sheet, template))
+        )
+        assert result.status == "completed", result.errors
+        assert result.outputs[0].ref["row_count"] == 6
+        assert project.db.execute("SELECT count(*) FROM sheets").fetchone()[0] == 2
+
+
+def test_api_preview_bounded_parity_persistence_and_stale_reference(tmp_path):
+    workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
+    workspace.create("Test", project_id="p")
+    project = workspace.get("p")
+    sheet, column, rows, template = seed(project, count=14)
+    service = DocumentExtractionService(workspace)
+    app = FastAPI()
+    register_document_extraction_routes(app, service=service)
+    with TestClient(app) as client:
+        prefix = "/api/projects/p/document-extraction"
+        geometry = client.get(
+            f"{prefix}/documents/{rows[0]}",
+            params={"sheet_id": sheet, "column_id": column},
+        )
+        assert geometry.status_code == 200, geometry.text
+        assert (
+            geometry.json()["document"]["source_fingerprint"]
+            == template.reference_fingerprint
+        )
+        body = {
+            "sheet_id": sheet,
+            "source": "document",
+            "template": template.model_dump(mode="json"),
+        }
+        preview = client.post(f"{prefix}/preview", json=body)
+        assert preview.status_code == 200, preview.text
+        assert len(preview.json()["documents"]) == 12
+        assert (
+            preview.json()["documents"][1]["result"]["records"][0]["cells"]["arrested"][
+                "status"
+            ]
+            == "empty"
+        )
+        assert project.db.execute("SELECT count(*) FROM sheets").fetchone()[0] == 1
+        save = client.post(
+            f"{prefix}/templates",
+            json={**body, "name": "Forms", "reference_row_id": rows[0]},
+        )
+        assert save.status_code == 200, save.text
+        updated = client.post(
+            f"{prefix}/templates",
+            json={
+                **body,
+                "name": "Forms revised",
+                "reference_row_id": rows[0],
+                "id": save.json()["id"],
+            },
+        )
+        assert updated.status_code == 200, updated.text
+        saved = client.get(f"{prefix}/templates", params={"sheet_id": sheet}).json()[
+            "templates"
+        ]
+        assert len(saved) == 1 and saved[0]["name"] == "Forms revised"
+        body["template"]["reference_fingerprint"] = "stale"
+        assert client.post(f"{prefix}/preview", json=body).status_code == 422
+
+
+def test_missing_geometry_is_not_an_empty_success(tmp_path):
+    with closing(Project.create(tmp_path / "project")) as project:
+        sheet, column, rows, template = seed(project)
+        project.db.execute(
+            "DELETE FROM source_spans WHERE artifact_id IN (SELECT id FROM source_artifacts WHERE blob_hash != ?)",
+            (template.reference_blob_id,),
+        )
+        project.db.commit()
+        from frisket.engine.executor.document_extraction_read import (
+            AdmittedPositionedDocumentReader,
+        )
+        from frisket.actions.types import SheetRows
+
+        params = DocumentExtractParams(source="document", template=template)
+        reader = AdmittedPositionedDocumentReader(
+            project, scope=SheetRows(sheet_id=sheet), params=params
+        )
+        try:
+            results = list(reader.document_results(params))
+            assert results[1][2].outcome == "alignment_failed"
+            assert results[1][2].records == []
+        finally:
+            reader.close()
+
+
+def test_public_queued_run_and_empty_scope(tmp_path):
+    from frisket.server.app import create_app
+    from frisket.engine.jobs.worker import Worker
+
+    with TestClient(create_app(tmp_path / "workspace")) as client:
+        pid = client.post("/api/projects", json={"name": "Extraction"}).json()["id"]
+        workspace = client.app.state.workspace
+        project = workspace.get(pid)
+        sheet, column, rows, template = seed(project)
+        prefix = f"/api/projects/{pid}/document-extraction"
+        empty = client.post(
+            f"{prefix}/preview",
+            json={
+                "sheet_id": sheet,
+                "source": "document",
+                "row_ids": [],
+                "template": template.model_dump(mode="json"),
+            },
+        )
+        assert empty.status_code == 200, empty.text
+        assert empty.json()["documents"] == []
+        launched = client.post(
+            f"/api/projects/{pid}/actions/v1/run", json=request(sheet, template)
+        )
+        assert launched.status_code == 200, launched.text
+        assert launched.json()["status"] == "queued", launched.text
+        worker = Worker(
+            workspace.queue, workspace.registry, worker_id="visual-extraction-test"
+        )
+        assert worker.run_once()
+        receipt = client.get(
+            f"/api/projects/{pid}/actions/v1/receipts/{launched.json()['receipt_id']}"
+        )
+        assert receipt.status_code == 200, receipt.text
+        assert receipt.json()["status"] == "completed", receipt.text
+        assert receipt.json()["outputs"][0]["ref"]["row_count"] == 2
+
+
+def test_zero_repeats_yield_no_fabricated_rows_but_document_outcome(tmp_path):
+    from frisket.engine.executor.document_extraction_read import (
+        AdmittedPositionedDocumentReader,
+    )
+    from frisket.actions.types import SheetRows
+
+    with closing(Project.create(tmp_path / "project")) as project:
+        sheet, column, rows, template = seed(project, repeats=True)
+        # A legitimate different document with positioned text but no records.
+        blob = project.add_blob(b"no records", filename="none.png", mime="image/png")
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            blob_hash=blob,
+            media_type="image/png",
+            metadata={
+                "engine": "tesseract",
+                "page_images": {"1": {"source_width": 100, "source_height": 100}},
+            },
+        )
+        record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="region",
+            page_start=1,
+            page_end=1,
+            bbox=[{"x0": 0.1, "y0": 0.1, "x1": 0.2, "y1": 0.13}],
+            quote="EMPTY",
+        )
+        zero_row = project.add_rows(
+            sheet,
+            [{"document": {"blob": blob, "filename": "none.png", "mime": "image/png"}}],
+            {"document": column},
+        )[0]
+        params = DocumentExtractParams(
+            source="document", template=template, repeat_group_id="people"
+        )
+        reader = AdmittedPositionedDocumentReader(
+            project, scope=SheetRows(sheet_id=sheet, row_ids=[zero_row]), params=params
+        )
+        try:
+            [_source_loaded_result] = list(reader.document_results(params))
+            result = _source_loaded_result[2]
+            assert result.records == []
+            assert result.outcome == "zero_records"
+            assert reader.documents[0]["row_id"] == zero_row
+        finally:
+            reader.close()
+        result = run_typed_create_sheet_action(
+            project,
+            "p",
+            typed_action_for_request(request(sheet, template, rows=[zero_row])),
+        )
+        assert result.status == "completed", result.errors
+        assert result.outputs[0].ref["row_count"] == 0
+        assert result.warnings

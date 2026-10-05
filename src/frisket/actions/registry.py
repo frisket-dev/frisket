@@ -10,6 +10,7 @@ from frisket.actions.core import (
     _ProjectAction,
 )
 from frisket.actions.transcript_segments import TRANSCRIPT_SEGMENTS
+from frisket.actions.document_extract import definition as document_extract_definition
 from frisket.actions.temporal_segments import TEMPORAL_SEGMENTS
 from frisket.actions.temporal_extract import EXTRACT_RANGE
 from frisket.actions.mutations import (
@@ -205,6 +206,7 @@ DERIVE_ACTIONS = ActionNamespace(
 MEDIA_ACTIONS = ActionNamespace(
     "media",
     actions=(
+        document_extract_definition(),
         EXTRACT_METADATA,
         EXTRACT_PDF_TABLES,
         TO_MARKDOWN,

@@ -262,6 +262,7 @@ ACCEPTED_EXECUTION_OUTLIERS: Mapping[str, str] = MappingProxyType({})
 # registrations are a separate domain.
 _RUNLESS_ACTION_KINDS: frozenset[str] = frozenset(
     {
+        "media.extract_document",
         "cell.edit",
         "cell.edit_query",
         "column.add",
@@ -371,6 +372,7 @@ _QUEUED_PROJECT_RUN_KINDS: frozenset[str] = frozenset(
 # dispatch through the generic action.run job.
 _QUEUED_ACTION_JOB_KINDS: frozenset[str] = frozenset(
     {
+        "media.extract_document",
         "embedding.index_refresh",
         "temporal.extract_range",
         "derive.temporal_segments",

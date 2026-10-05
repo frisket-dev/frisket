@@ -230,6 +230,7 @@ from frisket.actions.types import (
     template_ref_types,
     discover_references,
 )
+from frisket.actions.document_extract import PositionedDocumentReader
 from frisket.features.temporal_values import TimelinePointsValue, TimelineRangesValue
 from frisket.actions.types import (
     EmbeddingIndexPolicy,
@@ -3127,6 +3128,7 @@ def create_sheet(
             ClusterReceiptReader,
             ImportBlobStager,
             PdfPageRenderer,
+            PositionedDocumentReader,
         }
         for capability in capabilities
     ):
@@ -3337,6 +3339,7 @@ def _request_scope_types(
             scopes
             for capability, scopes in (
                 (TranscriptReader, (SheetRows,)),
+                (PositionedDocumentReader, (SheetRows,)),
                 (TemporalMediaReader, (SheetRows,)),
                 (JoinedTablesReader, (SheetRows,)),
                 (SheetRowsReader, (SheetRows,)),
@@ -4106,7 +4109,11 @@ class RegisteredAction:
                 if opencorporates
                 or any(
                     c in getattr(definition.run, "capabilities", ())
-                    for c in (TranscriptReader, TemporalMediaReader)
+                    for c in (
+                        TranscriptReader,
+                        TemporalMediaReader,
+                        PositionedDocumentReader,
+                    )
                 )
                 else "async"
                 if isinstance(definition.run, GoogleSheetsExport)

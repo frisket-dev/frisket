@@ -9,6 +9,7 @@ from typing import Any
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.core import GoogleSheetsExport, CreateSheet
 from frisket.actions.transcript_types import TranscriptReader
+from frisket.actions.document_extract import PositionedDocumentReader
 from frisket.actions.temporal_types import TemporalMediaReader
 from frisket.actions.find_types import FindScanner
 from frisket.engine.executor.google_sheets_action import (
@@ -68,7 +69,11 @@ def _contributed_action_job_executors(
             if isinstance(registered.definition.run, CreateSheet)
             and any(
                 cap in registered.definition.run.capabilities
-                for cap in (TranscriptReader, TemporalMediaReader)
+                for cap in (
+                    TranscriptReader,
+                    TemporalMediaReader,
+                    PositionedDocumentReader,
+                )
             )
         },
         **{

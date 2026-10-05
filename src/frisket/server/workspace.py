@@ -1004,6 +1004,7 @@ class Workspace:
         *,
         registry_artifact: dict[str, Any] | None = None,
         eval_receipts: list[dict[str, Any]] | None = None,
+        recipe_id: int | None = None,
     ) -> dict:
         from frisket.server.services.saved_actions import require_saved_action_spec
 
@@ -1012,7 +1013,15 @@ class Workspace:
             lock_path.parent.mkdir(parents=True, exist_ok=True)
             with FileLock(str(lock_path), timeout=-1):
                 recipes = self._read_saved_recipes()
-                rid = max((r.get("id", 0) for r in recipes), default=0) + 1
+                if recipe_id is not None and not any(
+                    r.get("id") == recipe_id for r in recipes
+                ):
+                    raise KeyError("saved action not found")
+                rid = (
+                    recipe_id
+                    if recipe_id is not None
+                    else max((r.get("id", 0) for r in recipes), default=0) + 1
+                )
                 entry = {
                     "id": rid,
                     "name": name,
@@ -1022,6 +1031,7 @@ class Workspace:
                     entry["registry_artifact"] = registry_artifact
                 if eval_receipts is not None:
                     entry["eval_receipts"] = eval_receipts
+                recipes = [r for r in recipes if r.get("id") != rid]
                 recipes.append(entry)
                 tmp = self._saved_recipes_path.with_suffix(".json.tmp")
                 tmp.write_text(json.dumps(recipes, indent=2))

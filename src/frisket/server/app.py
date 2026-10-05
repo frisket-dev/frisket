@@ -103,6 +103,10 @@ from frisket.server.routes.project_inspection import (
     register_sample_project_routes,
 )
 from frisket.server.routes.project_evidence import register_project_evidence_routes
+from frisket.server.routes.document_extraction import (
+    register_document_extraction_routes,
+)
+from frisket.server.services.document_extraction import DocumentExtractionService
 from frisket.server.routes.projects import register_project_lifecycle_routes
 from frisket.server.routes.project_mcp import register_project_mcp_routes
 from frisket.server.routes.providers import register_provider_config_routes
@@ -838,6 +842,7 @@ def create_app(
     # ---------- cells / blobs ----------
 
     register_project_evidence_routes(app, service=ProjectEvidenceService(ws))
+    register_document_extraction_routes(app, service=DocumentExtractionService(ws))
 
     register_project_blob_routes(app, service=ProjectBlobService(ws))
 
