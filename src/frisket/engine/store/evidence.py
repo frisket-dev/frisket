@@ -1132,7 +1132,10 @@ def _text_layer_hash_mismatch(
                 return True
             continue
         values = project.get_values(
-            int(sheet_id), int(column_id), row_ids=[int(row_id)]
+            int(sheet_id),
+            int(column_id),
+            row_ids=[int(row_id)],
+            preserve_invalid=True,
         )
         current = values.get(int(row_id))
         if current is None:

@@ -122,6 +122,21 @@ def test_http_viewer_flags_missing_current_cell_for_frozen_cell_surface(
         row_id=row_id,
         column_id=column_id,
     )
+    project.set_column_type(column_id, "number")
+    assert project.get_values(sheet_id, column_id, row_ids=[row_id])[row_id] is None
+    assert (
+        project.get_values(
+            sheet_id, column_id, row_ids=[row_id], preserve_invalid=True
+        )[row_id]
+        == original
+    )
+    invalid_response = client.get(
+        f"/api/projects/{project_id}/evidence/links/{link['stable_id']}/viewer"
+    )
+    assert invalid_response.status_code == 200, invalid_response.text
+    assert invalid_response.json()["link"]["text_layer_hash_mismatch"] is False
+
+    project.set_column_type(column_id, "text")
     project.apply_edits([{"row_id": row_id, "column_id": column_id, "value": None}])
 
     response = client.get(
