@@ -284,6 +284,15 @@ def _sheet_row_scope_plan(
     columns_by_id = {int(c["id"]): c for c in cols}
     filters = _parse_sheet_filter(filter_, columns_by_name, project)
     sorts = _parse_sheet_sort(sort, columns_by_name)
+    required_numeric_columns: set[int] = set()
+    for filter_item in filters:
+        if isinstance(filter_item, (RuntimeSheetFilter, GroupLocatorPredicate)):
+            continue
+        column, operator, _value = filter_item
+        if operator in {"gte", "lte", "between"} and range_facet_value_kind(
+            str(column["type"])
+        ) in {"integer", "number"}:
+            required_numeric_columns.add(int(column["id"]))
     generation_store = ResultGenerationStore(project)
     managed_columns: dict[int, bool] = {}
     live_aliases: dict[int, str] = {}
@@ -311,8 +320,12 @@ def _sheet_row_scope_plan(
         if alias is None:
             alias = f"live_{len(live_aliases)}"
             live_aliases[column_id] = alias
+            # Numeric ranges reject absent, missing, and invalid values. Their
+            # required join can start at the indexed column instead of walking
+            # every sheet row; sort-only and NULL-sensitive joins stay outer.
+            join = "JOIN" if column_id in required_numeric_columns else "LEFT JOIN"
             joins.append(
-                f"LEFT JOIN current_cell_values AS {alias} "
+                f"{join} current_cell_values AS {alias} "
                 f"ON {alias}.column_id=? AND {alias}.row_id={row_alias}.id"
             )
             join_params.append(column_id)

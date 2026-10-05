@@ -7,7 +7,11 @@ import json
 from pathlib import Path
 
 from frisket.engine.store import Project
-from frisket.querysets import resolve_sheet_filter_rows, sheet_row_scope_query
+from frisket.querysets import (
+    resolve_sheet_filter_rows,
+    sheet_row_scope_plan,
+    sheet_row_scope_query,
+)
 from frisket.server.services.sheet_grid import SheetGridService
 
 
@@ -33,6 +37,7 @@ def _number_sheet(tmp_path: Path) -> tuple[Project, int, int, list[int]]:
             {"score": "3000"},
             {"score": None},
             {"score": True},
+            {},
         ],
         {"score": column_id},
     )
@@ -88,6 +93,7 @@ def test_numeric_filter_and_sort_preserve_typed_value_semantics(tmp_path: Path) 
         row_ids[4],
         row_ids[5],
         row_ids[6],
+        row_ids[7],
     ]
 
 
@@ -111,42 +117,63 @@ def test_numeric_filter_and_sort_reduce_sqlite_vm_work(tmp_path: Path) -> None:
             sort=sort_json,
         )
         order_sql = ", ".join(order_parts)
+        plan = sheet_row_scope_plan(
+            project,
+            sheet_id,
+            filter_=filter_json,
+            sort=sort_json,
+        )
 
-        def legacy_query() -> tuple[int, list[int]]:
-            total = int(
+        legacy_count, legacy_count_steps = _vm_steps(
+            project,
+            lambda: int(
                 project.db.execute(
                     f"SELECT COUNT(*) FROM rows r WHERE {where_sql}", where_params
                 ).fetchone()[0]
-            )
-            rows = project.db.execute(
+            ),
+        )
+        optimized_count, optimized_count_steps = _vm_steps(
+            project,
+            lambda: int(
+                project.db.execute(
+                    f"SELECT COUNT(*) FROM {plan.filter_from_sql} "
+                    f"WHERE {plan.where_sql}",
+                    plan.filter_params,
+                ).fetchone()[0]
+            ),
+        )
+        legacy_rows, legacy_page_steps = _vm_steps(
+            project,
+            lambda: project.db.execute(
                 "SELECT r.id FROM rows r "
                 f"WHERE {where_sql} ORDER BY {order_sql} LIMIT ? OFFSET ?",
                 [*where_params, *order_params, 10, 0],
-            ).fetchall()
-            return total, [int(row["id"]) for row in rows]
-
-        legacy, legacy_steps = _vm_steps(project, legacy_query)
-        grid, optimized_steps = _vm_steps(
+            ).fetchall(),
+        )
+        optimized_rows, optimized_page_steps = _vm_steps(
             project,
-            lambda: SheetGridService(_OneProjectWorkspace(project)).sheet_data(
-                "project",
-                sheet_id,
-                filter_=filter_json,
-                sort=sort_json,
-                limit=10,
-            ),
+            lambda: project.db.execute(
+                f"SELECT r.id FROM {plan.from_sql} WHERE {plan.where_sql} "
+                f"ORDER BY {', '.join(plan.order_parts)} LIMIT ? OFFSET ?",
+                [*plan.select_params, 10, 0],
+            ).fetchall(),
+        )
+        grid = SheetGridService(_OneProjectWorkspace(project)).sheet_data(
+            "project",
+            sheet_id,
+            filter_=filter_json,
+            sort=sort_json,
+            limit=10,
         )
     finally:
         project.close()
 
     expected = (100, list(reversed(row_ids[-10:])))
-    assert legacy == expected
+    assert (legacy_count, [int(row["id"]) for row in legacy_rows]) == expected
+    assert (optimized_count, [int(row["id"]) for row in optimized_rows]) == expected
     assert (grid["total"], [row["id"] for row in grid["rows"]]) == expected
-    # The typed store resolves each returned value from its authority table,
-    # so fixed payload projection is a larger share of this small page. The
-    # joined grid plan must still do materially less VM work than repeating
-    # correlated scope expressions.
-    assert optimized_steps < legacy_steps * 0.9
+    assert optimized_count_steps < legacy_count_steps * 0.7
+    assert optimized_page_steps < legacy_page_steps * 0.7
 
 
 def test_correlated_scope_query_binds_date_filter_parameters(tmp_path: Path) -> None:
