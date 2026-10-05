@@ -59,15 +59,17 @@ def test_review_queue_bundles_counts_and_summary_follow_exact_mixed_heads(
     assert [(item["run_id"], item["row_id"], item["value"]) for item in queue] == [
         (fixture.first_run_id, fixture.row_ids[3], "first-untargeted"),
         (fixture.second_run_id, fixture.row_ids[0], "second-value"),
+        (fixture.first_run_id, fixture.row_ids[0], "first-value"),
+        (fixture.first_run_id, fixture.row_ids[1], "first-null-old"),
         (fixture.second_run_id, fixture.row_ids[1], None),
+        (fixture.first_run_id, fixture.row_ids[2], "first-error-old"),
     ]
-    # The badge counts whole stable inventories for each finished run that
-    # still owns any current output. The legacy no-run queue remains an active
-    # cell view until a run is selected.
+    # Every global read uses the same stable inventories for finished runs
+    # that still own any current output.
     assert queue_count(project) == 6
     assert queue_count(project, run_id=fixture.first_run_id) == 4
     assert queue_count(project, run_id=fixture.second_run_id) == 2
-    assert review_bundle_count(project, sheet_id=fixture.sheet_id) == 3
+    assert review_bundle_count(project, sheet_id=fixture.sheet_id) == 6
     assert review_bundle_count(project, run_id=fixture.first_run_id) == 4
     assert review_bundle_count(project, run_id=fixture.second_run_id) == 2
 
@@ -75,14 +77,17 @@ def test_review_queue_bundles_counts_and_summary_follow_exact_mixed_heads(
     assert [(bundle["run_id"], bundle["row_id"]) for bundle in bundles] == [
         (fixture.first_run_id, fixture.row_ids[3]),
         (fixture.second_run_id, fixture.row_ids[0]),
+        (fixture.first_run_id, fixture.row_ids[0]),
+        (fixture.first_run_id, fixture.row_ids[1]),
         (fixture.second_run_id, fixture.row_ids[1]),
+        (fixture.first_run_id, fixture.row_ids[2]),
     ]
     retained = bundles[0]
     assert retained["fields"][0]["value"] == "first-untargeted"
     assert retained["fields"][0]["run_id"] == fixture.first_run_id
 
     page = review_bundle_page(project, sheet_id=fixture.sheet_id, offset=0, limit=2)
-    assert page["total"] == 3
+    assert page["total"] == 6
     assert len(page["bundles"]) == 2
     assert project.refresh_pending_review_summary() == 6
 
@@ -111,7 +116,7 @@ def test_review_decision_grades_stable_outputs_but_skips_nonreviewable_results(
         _review_state(fixture, run_id=fixture.first_run_id, row_id=retained_row)
         == "verified"
     )
-    assert review_bundle_count(project) == 2
+    assert review_bundle_count(project) == 5
     assert project.refresh_pending_review_summary() == 5
 
     stale_direct = run_action_spec(
@@ -130,6 +135,7 @@ def test_review_decision_grades_stable_outputs_but_skips_nonreviewable_results(
         == "verified"
     )
     assert project.refresh_pending_review_summary() == 4
+    assert review_bundle_count(project) == 4
 
     error_row = fixture.row_ids[2]
     error_review = run_action_spec(
@@ -165,7 +171,7 @@ def test_review_decision_grades_stable_outputs_but_skips_nonreviewable_results(
         _review_state(fixture, run_id=fixture.second_run_id, row_id=null_row)
         == "verified"
     )
-    assert review_bundle_count(project) == 1
+    assert review_bundle_count(project) == 3
     assert project.refresh_pending_review_summary() == 3
 
     stale = run_action_spec(

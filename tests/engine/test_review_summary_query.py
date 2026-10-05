@@ -62,13 +62,12 @@ def test_review_summary_keeps_exact_bundle_and_visibility_semantics(
         project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (row_ids[1],))
         project.db.commit()
 
-        # The support field cannot keep row one pending. The project badge is
-        # a stable whole-run assessment, so hiding row two does not rewrite
-        # the original task even though the active-cell queue omits that row.
+        # The support field cannot keep row one pending. Every global review
+        # read is a stable whole-run assessment, so hiding row two does not
+        # rewrite the original task.
         assert project.refresh_pending_review_summary() == 1
         assert review_bundle_count(project, run_id=run_id) == 1
-        # The legacy no-run page continues to expose only visible active rows.
-        assert review_bundle_count(project) == 0
+        assert review_bundle_count(project) == 1
 
         hidden_sheet_id = project.add_sheet("Hidden")
         hidden_output_id = project.add_column(
@@ -106,6 +105,6 @@ def test_review_summary_keeps_exact_bundle_and_visibility_semantics(
         # Row ids are globally unique across sheets, and a hidden sheet never
         # adds a bundle even when its current result remains unreviewed.
         assert project.refresh_pending_review_summary() == 1
-        assert review_bundle_count(project) == 0
+        assert review_bundle_count(project) == 1
     finally:
         project.close()

@@ -499,6 +499,97 @@ def test_superseded_result_can_be_graded_but_cannot_overwrite_current_value(
         assert _review_metadata(project, seeded, row_id) == ("accept", None)
 
 
+def test_resumed_running_run_is_not_reviewable_until_it_stops(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from frisket.engine.store.runs import RunResultStore
+
+    with case_env(CASES[0], tmp_path, monkeypatch) as env:
+        project, seeded = env.project, env.seeded
+        project.db.execute(
+            "UPDATE runs SET status='running',finished_at=NULL WHERE id=?",
+            (seeded["run_id"],),
+        )
+        project.db.commit()
+
+        assert review_bundle_page(project, run_id=seeded["run_id"])["total"] == 0
+        refused = env.run(
+            {
+                **_make_action(seeded),
+                "idempotency_key": "review-running-refused@sha256:v1",
+            }
+        )
+        assert refused.status == "failed"
+        assert [error.code for error in refused.errors] == ["review_target_not_found"]
+
+        RunResultStore(project).finish_run(seeded["run_id"], "completed")
+        assert review_bundle_page(project, run_id=seeded["run_id"])["total"] == 2
+        accepted = env.run(
+            {
+                **_make_action(seeded),
+                "idempotency_key": "review-stopped-accepted@sha256:v1",
+            }
+        )
+        assert accepted.status == "completed", accepted.errors
+
+
+def test_nonreviewable_primary_output_is_evidence_not_an_actionable_field(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    del monkeypatch
+    from frisket.engine.executor import run_action_spec
+    from frisket.engine.store.runs import RunResultStore
+    from helpers import write_claimed_test_results
+
+    project = Project.create(tmp_path / "review-error-sibling.frisket")
+    try:
+        sheet_id = project.add_sheet("Rows")
+        answer_id = project.add_column(sheet_id, "answer", ai_generated=True)
+        error_id = project.add_column(sheet_id, "other", ai_generated=True)
+        row_id = project.add_rows(sheet_id, [{}], {})[0]
+        op_id = project.append_op("map", {"fixture": "mixed review outcomes"})
+        run_id = RunResultStore(project).start_run(
+            op_id,
+            sheet_id,
+            "map.extract",
+            row_ids=[row_id],
+            total_rows=1,
+        )
+        write_claimed_test_results(
+            project,
+            run_id,
+            [
+                {"row_id": row_id, "column_id": answer_id, "value": "ok"},
+                {
+                    "row_id": row_id,
+                    "column_id": error_id,
+                    "error": "bad sibling",
+                    "outcome": "model_error",
+                },
+            ],
+        )
+        RunResultStore(project).finish_run(run_id, "completed")
+        page = review_bundle_page(project, run_id=run_id, include_reviewed=True)
+        [bundle] = page["bundles"]
+        assert [item["column_id"] for item in bundle["fields"]] == [answer_id]
+        assert [item["column_id"] for item in bundle["evidence"]] == [error_id]
+
+        accepted = run_action_spec(
+            project,
+            _review_action(
+                run_id=run_id,
+                row_id=row_id,
+                column_id=answer_id,
+                decision="accept",
+                key="review-valid-sibling-only@sha256:v1",
+            ),
+            project_id="review-error-sibling",
+        )
+        assert accepted.status == "completed", accepted.errors
+    finally:
+        project.close()
+
+
 def test_clear_decision_preserves_review_note_and_visible_edit_overlay(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

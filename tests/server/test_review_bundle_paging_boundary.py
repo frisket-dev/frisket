@@ -215,9 +215,7 @@ def test_selected_run_keeps_frozen_hidden_and_renamed_outputs(tmp_path: Path) ->
     assert stable["total"] == len(row_ids)
     first = next(item for item in stable["bundles"] if item["row_id"] == row_ids[0])
     assert {item["column_name"] for item in first["fields"]} == {"risk", "tone"}
-    assert {item["column_name"] for item in first["evidence"]} == {
-        "renamed_primary"
-    }
+    assert {item["column_name"] for item in first["evidence"]} == {"risk_justification"}
 
 
 def test_review_bundle_page_params_are_validated(tmp_path: Path) -> None:
@@ -245,23 +243,15 @@ def test_review_runs_report_decisions_and_persist_workflow_status(
         for row in project.db.execute("SELECT id, name FROM columns").fetchall()
     }
     store = RunResultStore(project)
-    store.set_result_review_state(
-        run_id, row_ids[0], columns["risk"], "verified"
-    )
+    store.set_result_review_state(run_id, row_ids[0], columns["risk"], "verified")
     store.set_result_review_metadata(
         run_id, row_ids[0], columns["risk"], "accept", None
     )
-    store.set_result_review_state(
-        run_id, row_ids[0], columns["tone"], "verified"
-    )
-    store.set_result_review_metadata(
-        run_id, row_ids[0], columns["tone"], "edit", None
-    )
+    store.set_result_review_state(run_id, row_ids[0], columns["tone"], "verified")
+    store.set_result_review_metadata(run_id, row_ids[0], columns["tone"], "edit", None)
     # Old reviewed rows have no durable accept-vs-edit fact. They stay in the
     # eligible total, but not in known decisions or pending work.
-    store.set_result_review_state(
-        run_id, row_ids[1], columns["risk"], "verified"
-    )
+    store.set_result_review_state(run_id, row_ids[1], columns["risk"], "verified")
 
     response = client.get(
         f"/api/projects/{project_id}/review/runs",

@@ -320,6 +320,8 @@ def test_find_occurrences_publish_reviewable_grounded_result_heads(
         assert queue_count(project, run_id=run_id) == 3
         [current_run] = review_runs_page(project)["runs"]
         assert current_run["run_id"] == second.run_id
+        [historical_run] = review_runs_page(project, run_id=run_id)["runs"]
+        assert historical_run["run_id"] == run_id
         regraded = run_action_spec(
             project,
             _decision(

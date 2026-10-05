@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any, Literal
 
 from frisket.actions.types import (
@@ -42,6 +41,7 @@ from frisket.engine.store.cells import (
 )
 from frisket.engine.store.runs import REVIEWABLE_OUTCOMES_SQL, RunResultStore
 from frisket.engine.store.review_stats import ensure_run_review_stats
+from frisket.review_predicate import is_exact_review_correction
 
 
 def _is_current_review_value(
@@ -56,20 +56,12 @@ def _is_current_review_value(
     op = project.db.execute(
         "SELECT status,kind,spec FROM ops WHERE id=?", (int(ref["op_id"]),)
     ).fetchone()
-    if op is None or op["status"] != "applied" or op["kind"] != "review.decision":
-        return False
-    try:
-        spec = json.loads(op["spec"] or "{}")
-    except (TypeError, ValueError):
-        return False
-    params = spec.get("params") if isinstance(spec, dict) else None
-    return (
-        isinstance(params, dict)
-        and spec.get("action_id") == "review.decision"
-        and params.get("run_id") == target["run_id"]
-        and params.get("row_id") == target["row_id"]
-        and params.get("column_id") == target["column_id"]
-        and params.get("decision") in {"edit", "reject_clear"}
+    return is_exact_review_correction(
+        run_id=int(target["run_id"]),
+        row_id=int(target["row_id"]),
+        column_id=int(target["column_id"]),
+        ref=ref,
+        op=dict(op) if op is not None else None,
     )
 
 
@@ -102,6 +94,10 @@ def _review_target(
         JOIN rows ON rows.id=res.row_id AND rows.sheet_id=c.sheet_id
         WHERE res.run_id=? AND res.row_id=? AND res.column_id=?
           AND res.outcome IN ({REVIEWABLE_OUTCOMES_SQL})
+          AND runs.status<>'running'
+          AND EXISTS (SELECT 1 FROM ops review_op
+                      WHERE review_op.id=runs.op_id
+                        AND review_op.status='applied')
         """,
         (run_id, row_id, column_id),
     ).fetchone()
@@ -132,7 +128,11 @@ def _review_row_targets(
 ) -> list[dict[str, Any]]:
     ensure_run_review_stats(project.db, run_id)
     run = project.db.execute(
-        "SELECT review_completed_at FROM runs WHERE id=?", (run_id,)
+        "SELECT runs.review_completed_at FROM runs "
+        "WHERE runs.id=? AND runs.status<>'running' "
+        "AND EXISTS (SELECT 1 FROM ops review_op "
+        "WHERE review_op.id=runs.op_id AND review_op.status='applied')",
+        (run_id,),
     ).fetchone()
     if run is None:
         _refuse(
