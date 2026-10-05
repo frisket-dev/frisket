@@ -114,7 +114,7 @@ export function useRowCache(
       void (async () => {
         const accepted = await fetchPage(request.anchorPage, epoch, true, true);
         if (!accepted || !store.isMetadataReady(resetKey, epoch)) return;
-        const pages = request.refreshPages ?? (() => {
+        const visiblePages = (() => {
           const [first, last] = visible.current;
           const firstPage = Math.floor(Math.max(0, first - PAGE_SIZE / 2) / PAGE_SIZE);
           const exactTotal = store.getSnapshot().totalRows ?? rowCount;
@@ -126,13 +126,15 @@ export function useRowCache(
             (_unused, index) => firstPage + index,
           );
         })();
+        const refreshPages = new Set(request.refreshPages ?? []);
+        const pages = [...new Set([...refreshPages, ...visiblePages])];
         await Promise.all(pages
           .filter((page) => page !== request.anchorPage)
           .map((page) => fetchPage(
             page,
             epoch,
             false,
-            request.refreshPages !== undefined,
+            refreshPages.has(page),
           )));
       })().finally(() => {
         if (refreshGroup.current !== group) return;

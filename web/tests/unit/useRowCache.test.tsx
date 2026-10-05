@@ -123,6 +123,52 @@ describe('useRowCache request epochs', () => {
     expect(result.current.rowCount).toBe(12);
   });
 
+  it('loads a page revealed while a refresh anchor is pending', async () => {
+    const pendingAnchor = deferred<{ columns: []; total: number; rows: Row[] }>();
+    const getSheetData = vi.fn()
+      .mockResolvedValueOnce({ columns: [], total: 1_500, rows: [row(0)] })
+      .mockImplementationOnce(() => pendingAnchor.promise);
+    const getSheetRows = vi.fn(async (_sheet, offset) => ({
+      rows: [row(offset, offset)],
+    }));
+    const api = gridApi({ getSheetData, getSheetRows });
+    const store = createRowCacheStore();
+    const { result } = renderHook(() => useRowCache('7', 1_500, 1, store, null, api));
+    await waitFor(() => expect(getSheetData).toHaveBeenCalledTimes(1));
+
+    act(() => result.current.refresh());
+    await waitFor(() => expect(getSheetData).toHaveBeenCalledTimes(2));
+    act(() => result.current.onVisibleRowsChanged(500, 500));
+    expect(getSheetRows).not.toHaveBeenCalled();
+
+    await act(async () => pendingAnchor.resolve({
+      columns: [], total: 1_500, rows: [row(0)],
+    }));
+    await waitFor(() => expect(getSheetRows).toHaveBeenCalledTimes(1));
+    expect(getSheetRows).toHaveBeenCalledWith('7', 500, 500, {});
+    await waitFor(() => expect(result.current.getRow(500)?.id).toBe('500'));
+    expect(getSheetData).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not launch a coalesced refresh after unmount', async () => {
+    const pendingAnchor = deferred<{ columns: []; total: number; rows: Row[] }>();
+    const getSheetData = vi.fn()
+      .mockResolvedValueOnce({ columns: [], total: 10, rows: [row(0)] })
+      .mockImplementationOnce(() => pendingAnchor.promise);
+    const api = gridApi({ getSheetData });
+    const store = createRowCacheStore();
+    const { result, unmount } = renderHook(() => useRowCache('7', 10, 1, store, null, api));
+    await waitFor(() => expect(getSheetData).toHaveBeenCalledTimes(1));
+
+    act(() => result.current.refresh());
+    await waitFor(() => expect(getSheetData).toHaveBeenCalledTimes(2));
+    act(() => result.current.refresh());
+    unmount();
+    await act(async () => pendingAnchor.resolve({ columns: [], total: 11, rows: [row(0)] }));
+
+    expect(getSheetData).toHaveBeenCalledTimes(2);
+  });
+
   it('waits for refresh siblings before starting one coalesced trailing group', async () => {
     const pendingSibling = deferred<{ rows: Row[] }>();
     const getSheetRows = vi.fn()
