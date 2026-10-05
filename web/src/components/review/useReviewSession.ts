@@ -206,7 +206,7 @@ export function useReviewSession({ runId, options, readOnly = false, onDecisionS
     else if (delta === 1 && options.order === 'shuffle' && randomPage) {
       const stored = randomPages.current[randomPage.index + 1];
       setLoading(true);
-      if (stored) void loadPage(0, false, undefined, { kind: 'rows', target: stored });
+      if (stored?.rowIds.length) void loadPage(0, false, undefined, { kind: 'rows', target: stored });
       else if (randomPage.frontierHasMore) {
         const excludeRowIds = [...new Set(randomPages.current.flatMap((target) => target.rowIds))];
         void loadPage(0, false, undefined, {
@@ -322,7 +322,7 @@ export function useReviewSession({ runId, options, readOnly = false, onDecisionS
     moveRow, moveField, selectField, startEdit, editingId, editValue, setEditValue,
     cancelEdit: () => setEditingId(null), resolve, toggle, acceptRemaining, reset,
     projectId: chromePreferences.projectId,
-    position: page ? (options.order === 'row' ? rowPage.start
+    position: page?.bundles.length ? (options.order === 'row' ? rowPage.start
       : options.order === 'shuffle' ? randomPage?.start ?? 0 : page.offset) + cursor + 1 : 0,
     canPrevious: !!page && (cursor > 0 || (options.order === 'row' ? rowPage.index > 0
       : options.order === 'shuffle' ? !!randomPage?.index : page.offset > 0)),

@@ -401,3 +401,29 @@ it('lets the reviewer close while the initial page is loading', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Close' }));
   await waitFor(() => expect(close).toHaveBeenCalledOnce());
 });
+
+it('resamples an empty history page after a run becomes available again', async () => {
+  const first = { ...page('first'), total: 2, hasMore: true };
+  const empty = { ...first, total: 0, hasMore: false, bundles: [] };
+  const next = page('next');
+  next.total = 2;
+  next.bundles[0].rowId = '4';
+  const load = vi.spyOn(stores.projectApi, 'getReviewBundles')
+    .mockResolvedValueOnce(first)
+    .mockResolvedValueOnce(empty)
+    .mockResolvedValueOnce(first)
+    .mockResolvedValueOnce(next);
+  mount();
+
+  await screen.findByTestId('review-card');
+  fireEvent.click(screen.getAllByRole('button', { name: 'Next row', exact: true })[0]);
+  await screen.findByTestId('review-empty');
+  expect(screen.getByTestId('review-page-status')).toHaveTextContent('0 / 0');
+  fireEvent.click(screen.getByRole('button', { name: 'Previous row' }));
+  await screen.findByTestId('review-card');
+  fireEvent.click(screen.getAllByRole('button', { name: 'Next row', exact: true })[0]);
+  await waitFor(() => expect(screen.getByTestId('review-page-status')).toHaveTextContent('2 / 2'));
+  expect(load).toHaveBeenLastCalledWith(0, 25, '9', true, {
+    fieldId: undefined, order: 'shuffle', excludeRowIds: ['3'],
+  });
+});
