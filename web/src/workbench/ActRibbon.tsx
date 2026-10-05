@@ -57,6 +57,7 @@ export function ActRibbon({
   onCommand,
   onLaunchContribution,
   onCollapse,
+  hideBand = false,
 }: {
   tabs: ResolvedActTab[];
   activeTabId: string;
@@ -66,6 +67,8 @@ export function ActRibbon({
   /** Reveal a plugin launcher's primary placement (LIBRARY group). */
   onLaunchContribution(contributionId: string): void;
   onCollapse(): void;
+  /** A view-owned contextual toolbar occupies the band instead. */
+  hideBand?: boolean;
 }) {
   const onItemClick = (item: ResolvedActItem) => {
     if (item.kind === 'action') onRunAction(item.launcherKind);
@@ -149,7 +152,7 @@ export function ActRibbon({
           <PanelTopClose size={13} /> Collapse ribbon
         </button>
       </div>
-      <div className="act-ribbon-band" data-testid="act-ribbon-band">
+      {!hideBand && <div className="act-ribbon-band" data-testid="act-ribbon-band">
         {activeTab?.groups.map((group, groupIndex) => (
           <div className="act-ribbon-group" key={`${group.caption}-${groupIndex}`}>
             {groupIndex > 0 && <span className="act-ribbon-group-divider" aria-hidden />}
@@ -196,7 +199,7 @@ export function ActRibbon({
             <div className="act-ribbon-group-caption">{group.caption}</div>
           </div>
         ))}
-      </div>
+      </div>}
     </div>
   );
 }

@@ -74,6 +74,7 @@ import {
   setWorkViewResetTransition,
   setWorkViewGridTransition,
   setWorkViewDocumentTransition,
+  setWorkViewExtractTransition,
   setWorkViewAnswersTransition,
   setWorkViewGalleryTransition,
   promoteCurrentViewTransition,
@@ -380,6 +381,7 @@ export function useWorkspaceModel({
   const topicCompareSession = useSelector(compareView.store, (s) => s.topic.session);
   const topicCompareCloseWarn = useSelector(compareView.store, (s) => s.topic.closeWarn);
   const answersViewSheetId = useSelector(workView.store, (s) => s.answersViewSheetId);
+  const extractViewSheetId = useSelector(workView.store, (s) => s.extractViewSheetId);
 
   const {
     actionPanelOpen,
@@ -2200,6 +2202,8 @@ export function useWorkspaceModel({
   const firstGeoColumn = sheet?.columns.find((column) => column.type === 'geo_point') ?? null;
 
   const firstMediaColumn = sheet ? documentMediaColumns(sheet)[0] ?? null : null;
+  const firstExtractSourceColumn =
+    sheet?.columns.find((column) => column.type === 'file' || column.type === 'image') ?? null;
 
   const sheetIsEdgeShaped =
     sheet?.materializedKind === 'edge' || sheet?.materializedKind === 'join';
@@ -2222,6 +2226,7 @@ export function useWorkspaceModel({
         contributionIds: { graphNeighborhood: GRAPH_NEIGHBORHOOD_CONTRIBUTION_ID },
         firstGeoColumn,
         firstMediaColumn,
+        firstExtractSourceColumn,
         imageGalleryAvailable: imageGalleryAvailability.available,
         sheetIsEdgeShaped,
         citedColumnIds,
@@ -2233,6 +2238,7 @@ export function useWorkspaceModel({
       mapContributionId,
       firstGeoColumn,
       firstMediaColumn,
+      firstExtractSourceColumn,
       imageGalleryAvailability.available,
       sheetIsEdgeShaped,
       citedColumnIds,
@@ -2240,6 +2246,7 @@ export function useWorkspaceModel({
     ],
   );
   const documentAvailable = workViewAvailability.document.available;
+  const extractAvailable = workViewAvailability.extract.available;
   const answersAvailable = workViewAvailability.answers.available;
   const mapAvailable = workViewAvailability.map.available;
   const mapAvailabilityReason = workViewAvailability.map.reason;
@@ -2267,7 +2274,14 @@ export function useWorkspaceModel({
     !graphNeighborhoodHidden &&
     sheetIsEdgeShaped;
 
+  const extractViewShowing =
+    extractViewSheetId !== null &&
+    extractViewSheetId === sheet?.id &&
+    documentView?.sheetId === sheet?.id &&
+    extractAvailable;
+
   const documentViewShowing =
+    !extractViewShowing &&
     documentView !== null && documentView.sheetId === sheet?.id && documentAvailable;
 
   const answersViewShowing =
@@ -2279,17 +2293,19 @@ export function useWorkspaceModel({
     return view && view.sheetId === sheet.id ? view : null;
   }, [activePromotedKey, promotedViews, sheet]);
 
-  const activeWorkView: WorkViewKind = documentViewShowing
-    ? 'document'
-    : answersViewShowing
-      ? 'answers'
-      : mapSplitShowing
-        ? 'map'
-        : graphSplitShowing
-          ? 'graph'
-          : galleryPaneShowing
-            ? 'gallery'
-            : 'grid';
+  const activeWorkView: WorkViewKind = extractViewShowing
+    ? 'extract'
+    : documentViewShowing
+      ? 'document'
+      : answersViewShowing
+        ? 'answers'
+        : mapSplitShowing
+          ? 'map'
+          : graphSplitShowing
+            ? 'graph'
+            : galleryPaneShowing
+              ? 'gallery'
+              : 'grid';
 
   const workViewSegments = useMemo(
     () =>
@@ -2343,6 +2359,30 @@ export function useWorkspaceModel({
               : null,
           );
           break;
+        case 'extract':
+          setWorkViewExtractTransition(
+            { setOpenSplit, setDocumentView },
+            workView,
+            sheetId,
+            sheetId
+              ? documentView && documentView.sheetId === sheetId
+                ? { ...documentView, sync: false }
+                : {
+                    sheetId,
+                    sourceColumnId: firstExtractSourceColumn
+                      ? String(firstExtractSourceColumn.id)
+                      : null,
+                    titleColumnId: null,
+                    layout: 'continuous',
+                    fit: 'width',
+                    videoFit: 'full',
+                    textLayer: true,
+                    sync: false,
+                    activeRowId: null,
+                  }
+              : null,
+          );
+          break;
         case 'answers':
           setWorkViewAnswersTransition({ setOpenSplit }, workView, sheetId);
           break;
@@ -2363,6 +2403,7 @@ export function useWorkspaceModel({
       setDocumentView,
       setOpenSplit,
       firstGeoColumn,
+      firstExtractSourceColumn,
       openMapPanel,
       openGraphPanel,
       workView,
@@ -2375,7 +2416,12 @@ export function useWorkspaceModel({
   );
 
   const promoteCurrentView = useCallback(() => {
-    if (!sheet || activeWorkView === 'grid' || activeWorkView === 'answers') return;
+    if (
+      !sheet ||
+      activeWorkView === 'grid' ||
+      activeWorkView === 'answers' ||
+      activeWorkView === 'extract'
+    ) return;
     const kind = activeWorkView;
     const columnId =
       kind === 'map' ? mapColumn?.id ?? firstGeoColumn?.id ?? undefined : undefined;
@@ -3655,6 +3701,7 @@ export function useWorkspaceModel({
       closeSplit,
       documentView,
       documentViewShowing,
+      extractViewShowing,
       annotatedTextColumnIds,
       documentAnnotationPreferences,
       setSheetAnnotationToggles,
@@ -3808,6 +3855,7 @@ export function useWorkspaceModel({
       closeSplit,
       documentView,
       documentViewShowing,
+      extractViewShowing,
       answersViewShowing,
       answersCitedColumns,
       gridContribution,

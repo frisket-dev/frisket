@@ -41,6 +41,8 @@ import {
   closeRoutePanelTransition,
   confirmDeleteRowsTransition,
   applyLensTransition,
+  setWorkViewExtractTransition,
+  setWorkViewResetTransition,
 } from './workspaceTransitions';
 import {
   emptySelectedRows,
@@ -94,6 +96,54 @@ describe('route hydration exceptions', () => {
 
     expect(chrome.store.get().actionPanelOpen).toBe(true);
     expect(detail.store.get().proposalInspect).toBe(proposal);
+  });
+});
+
+describe('extract work-view transitions', () => {
+  it('activates Extract while preserving shared document reader state', () => {
+    const workView = createWorkViewStore();
+    const setOpenSplit = vi.fn();
+    const setDocumentView = vi.fn();
+    const documentView = {
+      sheetId: 's1',
+      sourceColumnId: 'file-1',
+      titleColumnId: null,
+      layout: 'continuous' as const,
+      fit: 'width' as const,
+      videoFit: 'full' as const,
+      textLayer: true,
+      sync: false,
+      activeRowId: 'r1',
+      readerPage: { rowId: 'r1', page: 3 },
+    };
+
+    setWorkViewExtractTransition({ setOpenSplit, setDocumentView }, workView, 's1', documentView);
+
+    expect(workView.store.get().extractViewSheetId).toBe('s1');
+    expect(setDocumentView).toHaveBeenCalledWith(documentView);
+    expect(setOpenSplit).toHaveBeenCalledWith(null);
+  });
+
+  it('switching to Document clears only Extract activation and keeps document state', () => {
+    const workView = createWorkViewStore();
+    const compareView = createCompareViewStore();
+    const setDocumentView = vi.fn();
+    workView.setExtractViewSheetId('s1');
+
+    setWorkViewResetTransition({ setDocumentView }, workView, compareView, 'document');
+
+    expect(workView.store.get().extractViewSheetId).toBeNull();
+    expect(setDocumentView).not.toHaveBeenCalled();
+  });
+
+  it('switching to Extract does not clear the shared document state', () => {
+    const workView = createWorkViewStore();
+    const compareView = createCompareViewStore();
+    const setDocumentView = vi.fn();
+
+    setWorkViewResetTransition({ setDocumentView }, workView, compareView, 'extract');
+
+    expect(setDocumentView).not.toHaveBeenCalled();
   });
 });
 

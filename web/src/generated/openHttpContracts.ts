@@ -766,6 +766,36 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "tenant.extraction_document_get.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/document-extraction/documents/{row_id}",
+      "request": null
+    },
+    {
+      "id": "tenant.extraction_preview.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/document-extraction/preview",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.extraction_template_save.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/document-extraction/templates",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.extraction_templates_list.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/document-extraction/templates",
+      "request": null
+    },
+    {
       "id": "tenant.get_import_session.get",
       "method": "GET",
       "path": "/api/projects/{pid}/import/files/sessions/{ref}",
@@ -4686,6 +4716,360 @@ export type HttpEvidenceViewerResponse = ({
   "warnings": (Array<(string)>);
 });
 
+type HttpExtractionDocumentResponse_Box = ({
+  "x0": (number);
+  "x1": (number);
+  "y0": (number);
+  "y1": (number);
+});
+
+type HttpExtractionDocumentResponse_PositionedDocument = ({
+  "pages": (Array<(HttpExtractionDocumentResponse_PositionedPage)>);
+  "source_fingerprint": (string);
+});
+
+type HttpExtractionDocumentResponse_PositionedPage = ({
+  "height": (number);
+  "page": (number);
+  "tokens": (Array<(HttpExtractionDocumentResponse_PositionedToken)>);
+  "width": (number);
+});
+
+type HttpExtractionDocumentResponse_PositionedToken = ({
+  "box": (HttpExtractionDocumentResponse_Box);
+  "granularity"?: ("word" | "line" | "block") & (string);
+  "text": (string);
+});
+
+export type HttpExtractionDocumentResponse = ({
+  "blob_id": (string);
+  "document": (HttpExtractionDocumentResponse_PositionedDocument);
+  "filename": (string);
+  "mime": (string);
+  "row_id": (number);
+});
+
+type HttpExtractionPreviewRequest_Box = ({
+  "x0": (number);
+  "x1": (number);
+  "y0": (number);
+  "y1": (number);
+});
+
+type HttpExtractionPreviewRequest_ExtractionField = ({
+  "id": (string);
+  "key": (HttpExtractionPreviewRequest_PageRegion);
+  "name": (string);
+  "section_id"?: (((string)) | ((null)));
+  "value": (HttpExtractionPreviewRequest_PageRegion);
+});
+
+type HttpExtractionPreviewRequest_ExtractionTemplate = ({
+  "continue_across_pages"?: (boolean);
+  "expand_values"?: (boolean);
+  "fields": (Array<(HttpExtractionPreviewRequest_ExtractionField)>);
+  "ignore_bands"?: (Array<(HttpExtractionPreviewRequest_IgnoreBand)>);
+  "look_every_page"?: (boolean);
+  "reference_blob_id": (string);
+  "reference_fingerprint": (string);
+  "sections"?: (Array<(HttpExtractionPreviewRequest_RepeatedSection)>);
+});
+
+type HttpExtractionPreviewRequest_IgnoreBand = ({
+  "box": (HttpExtractionPreviewRequest_Box);
+});
+
+type HttpExtractionPreviewRequest_PagePosition = ({
+  "page": (number);
+  "y": (number);
+});
+
+type HttpExtractionPreviewRequest_PageRegion = ({
+  "box": (HttpExtractionPreviewRequest_Box);
+  "page": (number);
+});
+
+type HttpExtractionPreviewRequest_PageSpan = ({
+  "end": (HttpExtractionPreviewRequest_PagePosition);
+  "start": (HttpExtractionPreviewRequest_PagePosition);
+});
+
+type HttpExtractionPreviewRequest_RepeatedSection = ({
+  "first": (HttpExtractionPreviewRequest_PageSpan);
+  "id": (string);
+  "name"?: (string);
+  "rest": (HttpExtractionPreviewRequest_PageSpan);
+});
+
+export type HttpExtractionPreviewRequest = ({
+  "repeat_group_id"?: (((string)) | ((null)));
+  "row_ids"?: (((Array<(number)>)) | ((null)));
+  "sheet_id": (number);
+  "source": (string);
+  "template": (HttpExtractionPreviewRequest_ExtractionTemplate);
+});
+
+type HttpExtractionPreviewResponse_Box = ({
+  "x0": (number);
+  "x1": (number);
+  "y0": (number);
+  "y1": (number);
+});
+
+type HttpExtractionPreviewResponse_DocumentExtraction = ({
+  "diagnostics"?: (Array<(string)>);
+  "outcome": ("extracted" | "zero_records" | "alignment_failed") & (string);
+  "records": (Array<(HttpExtractionPreviewResponse_ExtractedRecord)>);
+});
+
+type HttpExtractionPreviewResponse_ExtractedCell = ({
+  "diagnostic"?: (((string)) | ((null)));
+  "regions"?: (Array<(HttpExtractionPreviewResponse_PageRegion)>);
+  "status": ("extracted" | "empty" | "not_found") & (string);
+  "text": (((string)) | ((null)));
+});
+
+type HttpExtractionPreviewResponse_ExtractedRecord = ({
+  "cells": ({
+  [key: string]: (HttpExtractionPreviewResponse_ExtractedCell);
+});
+});
+
+type HttpExtractionPreviewResponse_ExtractionPreviewDocument = ({
+  "blob_id": (string);
+  "filename": (string);
+  "result": (HttpExtractionPreviewResponse_DocumentExtraction);
+  "row_id": (number);
+});
+
+type HttpExtractionPreviewResponse_PageRegion = ({
+  "box": (HttpExtractionPreviewResponse_Box);
+  "page": (number);
+});
+
+export type HttpExtractionPreviewResponse = ({
+  "documents": (Array<(HttpExtractionPreviewResponse_ExtractionPreviewDocument)>);
+  "truncated"?: (boolean);
+});
+
+type HttpExtractionSavedTemplate_Box = ({
+  "x0": (number);
+  "x1": (number);
+  "y0": (number);
+  "y1": (number);
+});
+
+type HttpExtractionSavedTemplate_DocumentColumn = (string);
+
+type HttpExtractionSavedTemplate_DocumentExtractParams = ({
+  "repeat_group_id"?: (((string)) | ((null)));
+  "source": (HttpExtractionSavedTemplate_DocumentColumn);
+  "template": (HttpExtractionSavedTemplate_ExtractionTemplate);
+});
+
+type HttpExtractionSavedTemplate_ExtractionField = ({
+  "id": (string);
+  "key": (HttpExtractionSavedTemplate_PageRegion);
+  "name": (string);
+  "section_id"?: (((string)) | ((null)));
+  "value": (HttpExtractionSavedTemplate_PageRegion);
+});
+
+type HttpExtractionSavedTemplate_ExtractionSavedSpec = ({
+  "action_kind": ("media.extract_document") & (string);
+  "params": (HttpExtractionSavedTemplate_DocumentExtractParams);
+  "project_id": (string);
+  "reference_row_id": (number);
+  "sheet_id": (number);
+});
+
+type HttpExtractionSavedTemplate_ExtractionTemplate = ({
+  "continue_across_pages"?: (boolean);
+  "expand_values"?: (boolean);
+  "fields": (Array<(HttpExtractionSavedTemplate_ExtractionField)>);
+  "ignore_bands"?: (Array<(HttpExtractionSavedTemplate_IgnoreBand)>);
+  "look_every_page"?: (boolean);
+  "reference_blob_id": (string);
+  "reference_fingerprint": (string);
+  "sections"?: (Array<(HttpExtractionSavedTemplate_RepeatedSection)>);
+});
+
+type HttpExtractionSavedTemplate_IgnoreBand = ({
+  "box": (HttpExtractionSavedTemplate_Box);
+});
+
+type HttpExtractionSavedTemplate_PagePosition = ({
+  "page": (number);
+  "y": (number);
+});
+
+type HttpExtractionSavedTemplate_PageRegion = ({
+  "box": (HttpExtractionSavedTemplate_Box);
+  "page": (number);
+});
+
+type HttpExtractionSavedTemplate_PageSpan = ({
+  "end": (HttpExtractionSavedTemplate_PagePosition);
+  "start": (HttpExtractionSavedTemplate_PagePosition);
+});
+
+type HttpExtractionSavedTemplate_RepeatedSection = ({
+  "first": (HttpExtractionSavedTemplate_PageSpan);
+  "id": (string);
+  "name"?: (string);
+  "rest": (HttpExtractionSavedTemplate_PageSpan);
+});
+
+export type HttpExtractionSavedTemplate = ({
+  "id": (number);
+  "name": (string);
+  "reference_row_id": (number);
+  "sheet_id": (number);
+  "spec": (HttpExtractionSavedTemplate_ExtractionSavedSpec);
+});
+
+type HttpExtractionTemplateSave_Box = ({
+  "x0": (number);
+  "x1": (number);
+  "y0": (number);
+  "y1": (number);
+});
+
+type HttpExtractionTemplateSave_ExtractionField = ({
+  "id": (string);
+  "key": (HttpExtractionTemplateSave_PageRegion);
+  "name": (string);
+  "section_id"?: (((string)) | ((null)));
+  "value": (HttpExtractionTemplateSave_PageRegion);
+});
+
+type HttpExtractionTemplateSave_ExtractionTemplate = ({
+  "continue_across_pages"?: (boolean);
+  "expand_values"?: (boolean);
+  "fields": (Array<(HttpExtractionTemplateSave_ExtractionField)>);
+  "ignore_bands"?: (Array<(HttpExtractionTemplateSave_IgnoreBand)>);
+  "look_every_page"?: (boolean);
+  "reference_blob_id": (string);
+  "reference_fingerprint": (string);
+  "sections"?: (Array<(HttpExtractionTemplateSave_RepeatedSection)>);
+});
+
+type HttpExtractionTemplateSave_IgnoreBand = ({
+  "box": (HttpExtractionTemplateSave_Box);
+});
+
+type HttpExtractionTemplateSave_PagePosition = ({
+  "page": (number);
+  "y": (number);
+});
+
+type HttpExtractionTemplateSave_PageRegion = ({
+  "box": (HttpExtractionTemplateSave_Box);
+  "page": (number);
+});
+
+type HttpExtractionTemplateSave_PageSpan = ({
+  "end": (HttpExtractionTemplateSave_PagePosition);
+  "start": (HttpExtractionTemplateSave_PagePosition);
+});
+
+type HttpExtractionTemplateSave_RepeatedSection = ({
+  "first": (HttpExtractionTemplateSave_PageSpan);
+  "id": (string);
+  "name"?: (string);
+  "rest": (HttpExtractionTemplateSave_PageSpan);
+});
+
+export type HttpExtractionTemplateSave = ({
+  "id"?: (((number)) | ((null)));
+  "name": (string);
+  "reference_row_id": (number);
+  "repeat_group_id"?: (((string)) | ((null)));
+  "sheet_id": (number);
+  "source": (string);
+  "template": (HttpExtractionTemplateSave_ExtractionTemplate);
+});
+
+type HttpExtractionTemplatesResponse_Box = ({
+  "x0": (number);
+  "x1": (number);
+  "y0": (number);
+  "y1": (number);
+});
+
+type HttpExtractionTemplatesResponse_DocumentColumn = (string);
+
+type HttpExtractionTemplatesResponse_DocumentExtractParams = ({
+  "repeat_group_id"?: (((string)) | ((null)));
+  "source": (HttpExtractionTemplatesResponse_DocumentColumn);
+  "template": (HttpExtractionTemplatesResponse_ExtractionTemplate);
+});
+
+type HttpExtractionTemplatesResponse_ExtractionField = ({
+  "id": (string);
+  "key": (HttpExtractionTemplatesResponse_PageRegion);
+  "name": (string);
+  "section_id"?: (((string)) | ((null)));
+  "value": (HttpExtractionTemplatesResponse_PageRegion);
+});
+
+type HttpExtractionTemplatesResponse_ExtractionSavedSpec = ({
+  "action_kind": ("media.extract_document") & (string);
+  "params": (HttpExtractionTemplatesResponse_DocumentExtractParams);
+  "project_id": (string);
+  "reference_row_id": (number);
+  "sheet_id": (number);
+});
+
+type HttpExtractionTemplatesResponse_ExtractionSavedTemplate = ({
+  "id": (number);
+  "name": (string);
+  "reference_row_id": (number);
+  "sheet_id": (number);
+  "spec": (HttpExtractionTemplatesResponse_ExtractionSavedSpec);
+});
+
+type HttpExtractionTemplatesResponse_ExtractionTemplate = ({
+  "continue_across_pages"?: (boolean);
+  "expand_values"?: (boolean);
+  "fields": (Array<(HttpExtractionTemplatesResponse_ExtractionField)>);
+  "ignore_bands"?: (Array<(HttpExtractionTemplatesResponse_IgnoreBand)>);
+  "look_every_page"?: (boolean);
+  "reference_blob_id": (string);
+  "reference_fingerprint": (string);
+  "sections"?: (Array<(HttpExtractionTemplatesResponse_RepeatedSection)>);
+});
+
+type HttpExtractionTemplatesResponse_IgnoreBand = ({
+  "box": (HttpExtractionTemplatesResponse_Box);
+});
+
+type HttpExtractionTemplatesResponse_PagePosition = ({
+  "page": (number);
+  "y": (number);
+});
+
+type HttpExtractionTemplatesResponse_PageRegion = ({
+  "box": (HttpExtractionTemplatesResponse_Box);
+  "page": (number);
+});
+
+type HttpExtractionTemplatesResponse_PageSpan = ({
+  "end": (HttpExtractionTemplatesResponse_PagePosition);
+  "start": (HttpExtractionTemplatesResponse_PagePosition);
+});
+
+type HttpExtractionTemplatesResponse_RepeatedSection = ({
+  "first": (HttpExtractionTemplatesResponse_PageSpan);
+  "id": (string);
+  "name"?: (string);
+  "rest": (HttpExtractionTemplatesResponse_PageSpan);
+});
+
+export type HttpExtractionTemplatesResponse = ({
+  "templates": (Array<(HttpExtractionTemplatesResponse_ExtractionSavedTemplate)>);
+});
+
 type HttpHTTPValidationError_ValidationError = ({
   "ctx"?: ({
   [key: string]: JsonValue;
@@ -5126,6 +5510,10 @@ export type HttpInline_0c9cd7bcf35ce8b1 = ({
   "status"?: (string);
 });
 
+export type HttpInline_0f64b6890a30596c = ({
+  "sheet_id": (number);
+});
+
 type HttpInline_1137e1194abf7002_ActionError = ({
   "action_kind"?: (((string)) | ((null)));
   "code": (string);
@@ -5163,6 +5551,11 @@ export type HttpInline_1f4a92d17785b699 = ({
 
 export type HttpInline_23cd5f2df57b1133 = ({
   "user_id": (number);
+});
+
+export type HttpInline_24f76f09f7c0ab9a = ({
+  "pid": (string);
+  "row_id": (number);
 });
 
 export type HttpInline_257b8f9f88face12 = ({
@@ -6529,6 +6922,11 @@ export type HttpInline_f106ec7345e46bb8 = (((HttpInline_f106ec7345e46bb8_HttpErr
 export type HttpInline_f1d457c20e1408b0 = ({
   "pid": (string);
   "plugin_id": (string);
+});
+
+export type HttpInline_f3d1f0a8a5bb42df = ({
+  "column_id": (number);
+  "sheet_id": (number);
 });
 
 export type HttpInline_f5786d802e3fc311 = ({
@@ -11499,6 +11897,58 @@ export type HttpContractOperationMap = {
       readonly "401": HttpError;
       readonly "403": HttpError;
       readonly "404": HttpInline_08f832331573f245;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.extraction_document_get.get": {
+    readonly pathParams: HttpInline_24f76f09f7c0ab9a;
+    readonly query: HttpInline_f3d1f0a8a5bb42df;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpExtractionDocumentResponse;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.extraction_preview.post": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpExtractionPreviewRequest;
+    readonly responses: {
+      readonly "200": HttpExtractionPreviewResponse;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.extraction_template_save.post": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpExtractionTemplateSave;
+    readonly responses: {
+      readonly "200": HttpExtractionSavedTemplate;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.extraction_templates_list.get": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_0f64b6890a30596c;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpExtractionTemplatesResponse;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
     };

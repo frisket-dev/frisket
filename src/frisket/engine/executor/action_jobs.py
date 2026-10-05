@@ -680,6 +680,7 @@ def reserve_typed_action_job(
     """Reserve canonical intent without invoking a worker-resolved callable."""
     from frisket.actions.core import _ProjectAction, CreateSheet
     from frisket.actions.transcript_types import TranscriptReader
+    from frisket.actions.document_extract import PositionedDocumentReader
     from frisket.actions.import_inventory_types import FileInventoryReader
     from frisket.actions.temporal_types import TemporalMediaReader
     from frisket.engine.executor.action_inventory import _TypedProjectEnvelope
@@ -691,7 +692,12 @@ def reserve_typed_action_job(
         or isinstance(terminal, CreateSheet)
         and any(
             cap in terminal.capabilities
-            for cap in (TranscriptReader, TemporalMediaReader, FileInventoryReader)
+            for cap in (
+                TranscriptReader,
+                TemporalMediaReader,
+                FileInventoryReader,
+                PositionedDocumentReader,
+            )
         )
     ):
         raise TypeError(
@@ -730,6 +736,7 @@ def bind_typed_action_job(
     """Revalidate queued intent; queue fields never authorize capability arguments."""
     from frisket.actions.core import _ProjectAction, CreateSheet
     from frisket.actions.transcript_types import TranscriptReader
+    from frisket.actions.document_extract import PositionedDocumentReader
     from frisket.actions.import_inventory_types import FileInventoryReader
     from frisket.actions.temporal_types import TemporalMediaReader
     from frisket.actions.system import typed_action_for_request
@@ -761,6 +768,7 @@ def bind_typed_action_job(
                         TranscriptReader,
                         TemporalMediaReader,
                         FileInventoryReader,
+                        PositionedDocumentReader,
                     )
                 )
             )

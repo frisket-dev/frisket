@@ -138,7 +138,8 @@ def test_action_job_binding_registry_invariants() -> None:
     assert rows["derive.transcript_segments"] is run_typed_table_action_job
     assert rows[TEMPORAL_SPLIT_ACTION_KIND] is run_typed_table_action_job
     assert rows[temporal_extract_range_kind] is run_typed_temporal_extract_job
-    assert len(rows) == 5
+    assert rows["media.extract_document"] is run_typed_table_action_job
+    assert len(rows) == 6
     assert tuple(inspect.signature(rows["export.google_sheets"]).parameters) == (
         "project",
         "envelope",
@@ -153,6 +154,7 @@ def test_action_job_binding_registry_invariants() -> None:
         temporal_extract_range_kind,
         "export.google_sheets",
         "map.find",
+        "media.extract_document",
     }
     for kind, executor in (
         (TEMPORAL_SPLIT_ACTION_KIND, run_typed_table_action_job),

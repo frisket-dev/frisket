@@ -38,6 +38,9 @@ export interface WorkViewState {
    *  state). null = not showing. Compared against the current sheet id the
    *  same way documentViewShowing compares documentView.sheetId. */
   answersViewSheetId: string | null;
+  /** Work-view-only activation. Extract reuses chrome's DocumentViewState for
+   *  document/page selection, but must not make Document the active mode. */
+  extractViewSheetId: string | null;
   answersView: AnswersViewState;
 }
 
@@ -46,6 +49,7 @@ export function createWorkViewState(): WorkViewState {
     gridOnlySheetId: null,
     activePromotedKey: null,
     answersViewSheetId: null,
+    extractViewSheetId: null,
     answersView: createAnswersViewState(),
   };
 }
@@ -62,6 +66,7 @@ export function createWorkViewStore(): {
   /** = setWorkView's 'answers' case (via workspaceTransitions.ts's
    *  setWorkViewAnswersTransition): the work-view-only activation flag. */
   setAnswersViewSheetId(sheetId: string | null): void;
+  setExtractViewSheetId(sheetId: string | null): void;
   /** The column picker's onChange. */
   setAnswersColumn(columnId: string | null): void;
   /** A citation chip's onOpen, or the docked pane's onClose(null). */
@@ -82,6 +87,7 @@ export function createWorkViewStore(): {
     resetForSheetChange() {
       store.set((s) => ({
         ...s,
+        extractViewSheetId: null,
         answersView: createAnswersViewState(),
       }));
     },
@@ -89,6 +95,11 @@ export function createWorkViewStore(): {
     setAnswersViewSheetId(sheetId) {
       store.set((s) =>
         s.answersViewSheetId === sheetId ? s : { ...s, answersViewSheetId: sheetId },
+      );
+    },
+    setExtractViewSheetId(sheetId) {
+      store.set((s) =>
+        s.extractViewSheetId === sheetId ? s : { ...s, extractViewSheetId: sheetId },
       );
     },
     setAnswersColumn(columnId) {

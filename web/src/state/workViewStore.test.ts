@@ -19,11 +19,12 @@ describe('createWorkViewStore', () => {
     expect(store.get().activePromotedKey).toBe('map:s1:');
   });
 
-  it('sheet change clears only nested Answers choices and preserves work-view activation facts', () => {
+  it('sheet change clears Extract activation and nested Answers choices', () => {
     const workView = createWorkViewStore();
     workView.setGridOnlySheetId('s1');
     workView.setActivePromotedKey('map:s1:c1');
     workView.setAnswersViewSheetId('s1');
+    workView.setExtractViewSheetId('s1');
     workView.setAnswersColumn('c1');
     workView.setAnswersActiveLink(42);
 
@@ -31,6 +32,7 @@ describe('createWorkViewStore', () => {
       gridOnlySheetId: 's1',
       activePromotedKey: 'map:s1:c1',
       answersViewSheetId: 's1',
+      extractViewSheetId: 's1',
       answersView: { chosenColumnId: 'c1', activeLinkId: 42 },
     });
 
@@ -40,8 +42,17 @@ describe('createWorkViewStore', () => {
       gridOnlySheetId: 's1',
       activePromotedKey: 'map:s1:c1',
       answersViewSheetId: 's1',
+      extractViewSheetId: null,
       answersView: { chosenColumnId: null, activeLinkId: null },
     });
+  });
+
+  it('sets extract activation idempotently', () => {
+    const workView = createWorkViewStore();
+    workView.setExtractViewSheetId('s1');
+    const before = workView.store.get();
+    workView.setExtractViewSheetId('s1');
+    expect(workView.store.get()).toBe(before);
   });
 
   it('creates isolated state for separate project-mounted owners', () => {

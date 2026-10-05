@@ -110,6 +110,22 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
         ("tenant", "cell_evidence", "GET"): "tenant.cell_evidence.get",
         (
             "tenant",
+            "extraction_document_get",
+            "GET",
+        ): "tenant.extraction_document_get.get",
+        (
+            "tenant",
+            "extraction_templates_list",
+            "GET",
+        ): "tenant.extraction_templates_list.get",
+        ("tenant", "extraction_preview", "POST"): "tenant.extraction_preview.post",
+        (
+            "tenant",
+            "extraction_template_save",
+            "POST",
+        ): "tenant.extraction_template_save.post",
+        (
+            "tenant",
             "cell_text_annotations",
             "GET",
         ): "tenant.cell_text_annotations.get",

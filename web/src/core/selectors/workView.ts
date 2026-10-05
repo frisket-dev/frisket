@@ -11,7 +11,14 @@ import type { ColumnDef, SheetMeta } from '../../api/open';
 import { memoizeByArgs } from './memo';
 import { WORK_VIEW_DESCRIPTORS } from './views/registry';
 
-export type WorkViewKind = 'grid' | 'document' | 'map' | 'gallery' | 'graph' | 'answers';
+export type WorkViewKind =
+  | 'grid'
+  | 'document'
+  | 'extract'
+  | 'map'
+  | 'gallery'
+  | 'graph'
+  | 'answers';
 
 export interface WorkViewAvailabilityInput {
   sheet: SheetMeta | null;
@@ -30,6 +37,9 @@ export interface WorkViewAvailabilityInput {
   /** Pure column-shape probes lifted verbatim from the current inline code. */
   firstGeoColumn: ColumnDef | null; // useWorkspaceModel.tsx
   firstMediaColumn: ColumnDef | null; // useWorkspaceModel.tsx (documentMediaColumns)
+  /** Extraction accepts only file/PDF and image sources, not annotated text,
+   * audio, or video sources that the broader Document reader supports. */
+  firstExtractSourceColumn: ColumnDef | null;
   imageGalleryAvailable: boolean; // resolvePluginViewAvailability(...).available
   sheetIsEdgeShaped: boolean; // materializedKind edge|join
   /** DISTINCT active-evidence column ids for the sheet, straight from
@@ -60,6 +70,7 @@ function computeWorkViewAvailability(
   graphNeighborhoodContributionId: string,
   firstGeoColumn: ColumnDef | null,
   firstMediaColumn: ColumnDef | null,
+  firstExtractSourceColumn: ColumnDef | null,
   imageGalleryAvailable: boolean,
   sheetIsEdgeShaped: boolean,
   citedColumnIds: readonly string[],
@@ -77,6 +88,7 @@ function computeWorkViewAvailability(
     contributionIds: { graphNeighborhood: graphNeighborhoodContributionId },
     firstGeoColumn,
     firstMediaColumn,
+    firstExtractSourceColumn,
     imageGalleryAvailable,
     sheetIsEdgeShaped,
     citedColumnIds,
@@ -110,6 +122,7 @@ export function selectWorkViewAvailability(
     i.contributionIds.graphNeighborhood,
     i.firstGeoColumn,
     i.firstMediaColumn,
+    i.firstExtractSourceColumn,
     i.imageGalleryAvailable,
     i.sheetIsEdgeShaped,
     i.citedColumnIds,

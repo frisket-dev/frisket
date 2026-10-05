@@ -23,6 +23,19 @@ Frisket can analyze spreadsheets, PDFs, images, videos, probably a hundred other
 
 Those were all done the old-fashioned hard-work way, though. No one has done *anything* with Frisket yet, so you can be the first.
 
+### Extract similarly formatted documents
+
+Open a document sheet's **Extract** view and draw a box around a label, then its
+value. Fields become columns. For repeated records, mark the first record and
+the remaining-records area; each record becomes a row in one combined result
+sheet. Preview a sample before extracting the collection, and click preview
+values to inspect their source regions. Save the template to reuse it.
+
+Native PDF text works directly; scanned PDFs and images need OCR with positioned
+text first. Extraction itself uses no generative model or paid OCR. **Expand value
+areas** follows neighboring labels; **Continue across pages** is off by default.
+An empty value remains empty, and a document with no repeated records adds no rows.
+
 ## Installation
 
 ### Frisket Desktop

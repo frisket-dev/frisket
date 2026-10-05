@@ -193,6 +193,17 @@ describe('catalog-derived action-presentation completeness', () => {
     expect(dispositions.get('map.columns_from_json')).toEqual({ kind: 'generated' });
     expect(dispositions.get('map.python')?.kind).toBe('generated');
     expect(dispositions.get('derive.collection_expand')?.kind).toBe('hidden');
+    // Visual document extraction is configured in the dedicated Extract work
+    // view. It remains in the served catalog for automation, but must not grow
+    // a raw generated Params drawer or a fallback Misc action tile.
+    expect(servedCatalog.actions.some((entry) => entry.kind === 'media.extract_document')).toBe(true);
+    expect(dispositions.get('media.extract_document')).toEqual({
+      kind: 'hidden',
+      reason: 'no_action_drawer_launcher',
+    });
+    expect(templatesFor(servedCatalog).some(
+      (template) => template.actionKind === 'media.extract_document',
+    )).toBe(false);
     expect(dispositions.get('cluster.values')?.kind).toBe('generated');
     expect(dispositions.get('temporal.extract_range')?.kind).toBe('generated');
     expect(dispositions.get('derive.temporal_segments')?.kind).toBe('generated');

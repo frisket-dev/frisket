@@ -51,6 +51,8 @@ type OptionsPopoverRenderer = (props: {
   style: CSSProperties;
 }) => ReactNode;
 
+export interface DocumentPageImage { page: number; width: number; height: number; url: string }
+
 /** Invokes the `optionsPopover` render-prop from a component that never
  *  itself calls `useRef` — react-hooks/refs' render-time-ref-access check
  *  tracks identifiers a component sources from its OWN `useRef`/`useCallback`
@@ -115,6 +117,11 @@ interface DocumentReaderProps {
    *  the Document view, which drives page nav from its own header. */
   initialPage?: number | null;
   onPageChange?(page: number): void;
+  /** Positioned inside the rendered page, in its CSS-pixel coordinate space. */
+  renderPageOverlay?(page: number): ReactNode;
+  /** Use server-rendered geometry when extraction coordinates use MediaBox,
+   * rather than PDF.js's default CropBox viewport. */
+  pageImages?: readonly DocumentPageImage[];
 }
 
 /** The center reader. A thin header (title + media-type chip + PDF page
@@ -144,6 +151,8 @@ export function DocumentReader({
   timedTranscriptDocument = null,
   initialPage,
   onPageChange,
+  renderPageOverlay,
+  pageImages,
 }: DocumentReaderProps) {
   // The view-options popover (Document view only; the OCR compare host passes
   // optionsOpen=false so the hook is inert there, and optionsPopover=null).
@@ -348,11 +357,17 @@ export function DocumentReader({
             currentPage={currentPage}
             onLoaded={handleLoaded}
             onCurrentPageChange={goToPage}
+            renderPageOverlay={renderPageOverlay}
+            pageImages={pageImages}
           />
         )}
         {media && mediaKind === 'image' && (
-          <div className="document-native document-native-image" data-testid="document-image">
-            <img src={media.url} alt={title} />
+          <div className="document-native document-native-image" data-testid="document-image"
+            style={{ alignItems: 'safe center', justifyContent: 'safe center' }}>
+            <div style={{ position: 'relative', display: 'inline-block', maxWidth: '100%', flexShrink: 0 }}>
+              <img src={media.url} alt={title} style={{ display: 'block' }} />
+              {renderPageOverlay?.(1)}
+            </div>
           </div>
         )}
         {media && mediaKind === 'video' && timedTranscriptDocument && showTimedTranscript && (
@@ -409,6 +424,8 @@ interface PdfViewerProps {
   currentPage: number;
   onLoaded(count: number): void;
   onCurrentPageChange(page: number): void;
+  renderPageOverlay?(page: number): ReactNode;
+  pageImages?: readonly DocumentPageImage[];
 }
 
 function PdfViewer({
@@ -420,6 +437,8 @@ function PdfViewer({
   currentPage,
   onLoaded,
   onCurrentPageChange,
+  renderPageOverlay,
+  pageImages,
 }: PdfViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const pageRefs = useRef<Map<number, HTMLDivElement> | null>(null);
@@ -433,6 +452,7 @@ function PdfViewer({
   // PdfViewer is keyed on `url`, so a doc switch remounts it — no synchronous
   // state reset needed here.
   useEffect(() => {
+    if (pageImages) { onLoaded(pageImages.length); return; }
     let cancelled = false;
     const task = pdfjsLib.getDocument({ url });
     task.promise
@@ -452,7 +472,7 @@ function PdfViewer({
       cancelled = true;
       void task.destroy();
     };
-  }, [url, onLoaded]);
+  }, [url, onLoaded, pageImages]);
 
   // Track the container size so pages scale to fit width/page.
   useLayoutEffect(() => {
@@ -464,18 +484,18 @@ function PdfViewer({
     const observer = new ResizeObserver(measure);
     observer.observe(node);
     return () => observer.disconnect();
-  }, [doc]);
+  }, [doc, pageImages]);
 
   const pageNumbers = useMemo(() => {
-    if (!doc) return [];
-    const all = Array.from({ length: doc.numPages }, (_, index) => index + 1);
+    if (!doc && !pageImages) return [];
+    const all = pageImages?.map((page) => page.page) ?? Array.from({ length: doc!.numPages }, (_, index) => index + 1);
     if (layout === 'single') return [currentPage];
     if (layout === 'two-up') {
       const start = currentPage % 2 === 0 ? currentPage - 1 : currentPage;
       return all.slice(start - 1, start + 1);
     }
     return all;
-  }, [doc, layout, currentPage]);
+  }, [doc, layout, currentPage, pageImages]);
 
   // Continuous layout: nav scrolls the target page to the top; a scroll listener
   // reflects the most-visible page back into the indicator (guarded so a
@@ -520,7 +540,7 @@ function PdfViewer({
     <div
       className={`document-pdf document-pdf-${layout}`}
       data-testid="document-pdf"
-      data-page-count={doc ? String(doc.numPages) : ''}
+      data-page-count={pageImages ? String(pageImages.length) : doc ? String(doc.numPages) : ''}
       data-layout={layout}
       ref={containerRef}
       onScroll={onScroll}
@@ -530,7 +550,7 @@ function PdfViewer({
           {error}
         </div>
       )}
-      {doc &&
+      {(doc || pageImages) &&
         pageNumbers.map((pageNumber) => (
           <PdfPage
             key={pageNumber}
@@ -542,6 +562,8 @@ function PdfViewer({
             containerWidth={viewport.width}
             containerHeight={viewport.height}
             registerPage={registerPage}
+            renderPageOverlay={renderPageOverlay}
+            pageImage={pageImages?.find((image) => image.page === pageNumber)}
           />
         ))}
     </div>
@@ -549,7 +571,7 @@ function PdfViewer({
 }
 
 interface PdfPageProps {
-  doc: PdfDocumentProxy;
+  doc: PdfDocumentProxy | null;
   pageNumber: number;
   fit: DocumentViewFit;
   zoom: number;
@@ -557,6 +579,8 @@ interface PdfPageProps {
   containerWidth: number;
   containerHeight: number;
   registerPage(page: number, node: HTMLDivElement | null): void;
+  renderPageOverlay?(page: number): ReactNode;
+  pageImage?: DocumentPageImage;
 }
 
 function PdfPage({
@@ -568,6 +592,8 @@ function PdfPage({
   containerWidth,
   containerHeight,
   registerPage,
+  renderPageOverlay,
+  pageImage,
 }: PdfPageProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -579,7 +605,7 @@ function PdfPage({
   }, [pageNumber, registerPage]);
 
   useEffect(() => {
-    if (containerWidth <= 0) return;
+    if (containerWidth <= 0 || !doc || pageImage) return;
     let cancelled = false;
     let page: PdfPageProxy | null = null;
     let renderTask: ReturnType<PdfPageProxy['render']> | null = null;
@@ -636,17 +662,23 @@ function PdfPage({
       renderTask?.cancel();
       page?.cleanup();
     };
-  }, [doc, pageNumber, fit, zoom, textLayer, containerWidth, containerHeight]);
+  }, [doc, pageNumber, fit, zoom, textLayer, containerWidth, containerHeight, pageImage]);
+
+  const imageScale = pageImage ? Math.max(0.1, (fit === 'page'
+    ? Math.min((containerWidth - 32) / pageImage.width, (containerHeight - 32) / pageImage.height)
+    : (containerWidth - 32) / pageImage.width) * zoom) : 1;
 
   return (
     <div className="document-pdf-page" data-testid="document-pdf-page" data-page={pageNumber} ref={wrapRef}>
       <div className="document-pdf-page-inner">
-        <canvas ref={canvasRef} />
+        {pageImage ? <img src={pageImage.url} alt={`Page ${pageNumber}`} draggable={false}
+          style={{ width: Math.floor(pageImage.width * imageScale), height: Math.floor(pageImage.height * imageScale), display: 'block' }} /> : <canvas ref={canvasRef} />}
         <div
           className={`textLayer document-pdf-textlayer${textLayer ? '' : ' document-pdf-textlayer-off'}`}
           data-testid="document-pdf-textlayer"
           ref={textRef}
         />
+        {renderPageOverlay?.(pageNumber)}
       </div>
     </div>
   );

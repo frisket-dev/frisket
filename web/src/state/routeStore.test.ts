@@ -179,6 +179,7 @@ describe('applyRoute fixed six-class matrix', () => {
       harness.workView.setGridOnlySheetId('s1');
       harness.workView.setActivePromotedKey('map:s1:c1');
       harness.workView.setAnswersViewSheetId('s1');
+      harness.workView.setExtractViewSheetId('s1');
       harness.workView.setAnswersColumn('c1');
       harness.workView.setAnswersActiveLink(42);
 
@@ -188,6 +189,7 @@ describe('applyRoute fixed six-class matrix', () => {
         gridOnlySheetId: 's1',
         activePromotedKey: 'map:s1:c1',
         answersViewSheetId: 's1',
+        extractViewSheetId: null,
         answersView: { chosenColumnId: null, activeLinkId: null },
       });
     },

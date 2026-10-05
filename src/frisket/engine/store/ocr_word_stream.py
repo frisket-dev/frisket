@@ -15,6 +15,7 @@ class ResolvedWordStream:
     stream: WordStream
     page_images: dict[str, Any]
     artifact_id: int
+    engine: str = ""
 
 
 @dataclass(frozen=True)
@@ -48,8 +49,13 @@ def resolve_ocr_word_stream(
     recent sibling ``media.ocr`` artifact, or ``None`` if no positioned OCR
     stream exists for the blob (-> Degradation Law at the caller)."""
 
+    return next(iter_ocr_word_streams(project, blob_hash), None)
+
+
+def iter_ocr_word_streams(project: Any, blob_hash: str | None):
+    """Newest-first streams; consumers may require additional page geometry."""
     if not blob_hash:
-        return None
+        return
 
     rows = project.db.execute(
         "SELECT id, metadata FROM source_artifacts WHERE blob_hash=? ORDER BY id DESC",
@@ -69,12 +75,12 @@ def resolve_ocr_word_stream(
         tokens = _tokens_from_region_spans(project, artifact_id)
         if not tokens:
             continue
-        return ResolvedWordStream(
+        yield ResolvedWordStream(
             stream=WordStream(tokens=tokens),
             page_images=page_images,
             artifact_id=artifact_id,
+            engine=str(metadata["engine"]),
         )
-    return None
 
 
 def resolve_current_ocr_evidence(
@@ -203,12 +209,15 @@ def _tokens_from_region_spans(project: Any, artifact_id: int) -> list[WordToken]
         except (KeyError, TypeError, ValueError):
             continue
         text = span["quote"] or span["snippet"] or ""
-        page = span["page_start"]
+        try:
+            page = int(span["page_start"]) if span["page_start"] is not None else None
+        except (TypeError, ValueError):
+            continue
         tokens.append(
             WordToken(
                 text=str(text),
                 box=coords,
-                page=int(page) if page is not None else None,
+                page=page,
                 source="ocr",
             )
         )

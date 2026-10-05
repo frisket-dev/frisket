@@ -1086,6 +1086,66 @@ export type MaterializeParams = ({
   "force"?: (boolean);
 });
 
+type DocumentExtractParams_Box = ({
+  "x0": (number);
+  "y0": (number);
+  "x1": (number);
+  "y1": (number);
+});
+
+type DocumentExtractParams_DocumentColumn = (string);
+
+type DocumentExtractParams_ExtractionField = ({
+  "id": (string);
+  "name": (string);
+  "key": (DocumentExtractParams_PageRegion);
+  "value": (DocumentExtractParams_PageRegion);
+  "section_id"?: (((string)) | ((null)));
+});
+
+type DocumentExtractParams_ExtractionTemplate = ({
+  "reference_blob_id": (string);
+  "reference_fingerprint": (string);
+  "fields": (Array<(DocumentExtractParams_ExtractionField)>);
+  "sections"?: (Array<(DocumentExtractParams_RepeatedSection)>);
+  "ignore_bands"?: (Array<(DocumentExtractParams_IgnoreBand)>);
+  "expand_values"?: (boolean);
+  "look_every_page"?: (boolean);
+  "continue_across_pages"?: (boolean);
+});
+
+type DocumentExtractParams_IgnoreBand = ({
+  "box": (DocumentExtractParams_Box);
+});
+
+type DocumentExtractParams_PagePosition = ({
+  "page": (number);
+  "y": (number);
+});
+
+type DocumentExtractParams_PageRegion = ({
+  "page": (number);
+  "box": (DocumentExtractParams_Box);
+});
+
+type DocumentExtractParams_PageSpan = ({
+  "start": (DocumentExtractParams_PagePosition);
+  "end": (DocumentExtractParams_PagePosition);
+});
+
+type DocumentExtractParams_RepeatedSection = ({
+  "id": (string);
+  "name"?: (string);
+  "first": (DocumentExtractParams_PageSpan);
+  "rest": (DocumentExtractParams_PageSpan);
+});
+
+export type DocumentExtractParams = ({
+  "source": (DocumentExtractParams_DocumentColumn);
+  "template": (DocumentExtractParams_ExtractionTemplate);
+  "repeat_group_id"?: (((string)) | ((null)));
+});
+
 type ExtractFacesParams_ImageColumn = (string);
 
 export type ExtractFacesParams = ({
@@ -1544,6 +1604,7 @@ export interface GeneratedActionParams {
   'map.to_geo_point': ToGeoPointParams;
   'map.translate': TranslateParams;
   'media.enclosure_materialize': MaterializeParams;
+  'media.extract_document': DocumentExtractParams;
   'media.extract_faces': ExtractFacesParams;
   'media.extract_metadata': MetadataParams;
   'media.extract_pdf_tables': PdfTablesParams;

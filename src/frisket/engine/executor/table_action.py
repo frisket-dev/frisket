@@ -16,6 +16,7 @@ from pydantic import BaseModel, ValidationError
 from pydantic_core import SchemaValidator
 
 from frisket.actions.core import CreateSheet, OutputField, _publication_return_schema
+from frisket.actions.document_extract import PositionedDocumentReader
 from frisket.actions.url_import_types import UrlImporter
 from frisket.actions.import_inventory_types import FileInventoryReader
 from frisket.actions.entity_types import ClusterReceiptReader
@@ -379,7 +380,11 @@ def _validated_table_rows(bound, fields, iterator, readers, *, max_rows):
         )
         if set(values) != set(logical_names):
             raise ValueError("row_shape_mismatch")
-        for capability in (TranscriptReader, TemporalMediaReader):
+        for capability in (
+            TranscriptReader,
+            TemporalMediaReader,
+            PositionedDocumentReader,
+        ):
             if capability in readers:
                 values = readers[capability].lower_row(
                     values, fields, raw.sources, raw.parent, bound.request.output_names
@@ -658,6 +663,19 @@ def prepare_table_producer(
                     action_kind=bound.action.action_id,
                 )
                 resources.callback(reader.close)
+            elif capability is PositionedDocumentReader:
+                from frisket.engine.executor.document_extraction_read import (
+                    AdmittedPositionedDocumentReader,
+                )
+
+                reader = AdmittedPositionedDocumentReader(
+                    project,
+                    scope=bound.request.scope,
+                    params=bound.params,
+                    row_limit=row_limit,
+                    cancelled=cancelled,
+                )
+                resources.callback(reader.close)
             elif capability is TemporalMediaReader:
                 reader = AdmittedTemporalMediaReader(
                     project,
@@ -809,6 +827,7 @@ def _table_read_metadata(bound, produced, readers, row_count):
         or SemanticMatchReader in readers
         or JoinedTablesReader in readers
         or TranscriptReader in readers
+        or PositionedDocumentReader in readers
         or TemporalMediaReader in readers
         or ClusterReceiptReader in readers
         or RuntimeImporter in readers
@@ -1004,7 +1023,8 @@ def run_table_source(
 
     def replay_existing(existing):
         if any(
-            c in source.capabilities for c in (TranscriptReader, TemporalMediaReader)
+            c in source.capabilities
+            for c in (TranscriptReader, TemporalMediaReader, PositionedDocumentReader)
         ):
             from frisket.engine.executor.action_reservations import (
                 _reserved_receipt_result_from_existing,
@@ -1159,7 +1179,11 @@ def run_table_source(
                 "joined_tables_reader": prepared.readers.get(JoinedTablesReader),
                 "projection_readers": [
                     prepared.readers[c]
-                    for c in (TranscriptReader, TemporalMediaReader)
+                    for c in (
+                        TranscriptReader,
+                        TemporalMediaReader,
+                        PositionedDocumentReader,
+                    )
                     if c in prepared.readers
                 ],
                 "source_roles": {
@@ -1172,7 +1196,11 @@ def run_table_source(
             }
             if any(
                 c in source.capabilities
-                for c in (TranscriptReader, TemporalMediaReader)
+                for c in (
+                    TranscriptReader,
+                    TemporalMediaReader,
+                    PositionedDocumentReader,
+                )
             ):
                 return _run_reserved_table(
                     project,
