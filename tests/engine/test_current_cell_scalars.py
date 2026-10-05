@@ -45,6 +45,7 @@ def test_inline_scalars_follow_public_precedence_and_transactions(
         row_ids=row_ids,
         label="numeric scalar generation",
     )
+    released = False
     try:
         _declare(generations, run, column_id, write_mode="create")
         _write(
@@ -79,6 +80,8 @@ def test_inline_scalars_follow_public_precedence_and_transactions(
             ],
         )
         _seal(generations, run, column_id)
+        _release(project, run)
+        released = True
 
         assert project.get_values(sheet_id, column_id, row_ids) == {
             row_ids[0]: 10,
@@ -138,7 +141,8 @@ def test_inline_scalars_follow_public_precedence_and_transactions(
     finally:
         if project.db.in_transaction:
             project.db.rollback()
-        _release(project, run)
+        if not released:
+            _release(project, run)
         project.close()
 
 
