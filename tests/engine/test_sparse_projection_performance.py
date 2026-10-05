@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from types import SimpleNamespace
 
 import pytest
 
 from frisket.engine.store import Project
 from frisket.engine.store.current_cells import refresh_current_cells_from_key_table
+from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.schema import SCHEMA
 
 
@@ -107,6 +109,57 @@ def test_exact_key_refresh_work_is_bounded_by_sparse_target() -> None:
     assert db.execute("SELECT COUNT(*) FROM current_cells").fetchone()[0] == row_count
     db.rollback()
     db.close()
+
+
+def _sparse_head_rebuild_vm_work(row_count: int) -> int:
+    db = _production_shaped_database(row_count)
+    key_table = "temp_result_keys_5678abcd"
+    db.execute(
+        f"CREATE TEMP TABLE {key_table} ("
+        "row_id INTEGER NOT NULL,column_id INTEGER NOT NULL,"
+        "PRIMARY KEY(row_id,column_id)) WITHOUT ROWID"
+    )
+    target_rows = list(range(row_count - 300, row_count + 1))
+    db.executemany(
+        f"INSERT INTO {key_table} (row_id,column_id) VALUES (?,10)",
+        ((row_id,) for row_id in target_rows),
+    )
+    db.commit()
+    db.execute("BEGIN")
+
+    progress_calls = 0
+
+    def count_vm_work() -> int:
+        nonlocal progress_calls
+        progress_calls += 1
+        return 0
+
+    db.set_progress_handler(count_vm_work, 1_000)
+    try:
+        store = ResultGenerationStore(SimpleNamespace(db=db))
+        assert store.rebuild_heads_from_key_table(key_table, commit=False) == len(
+            target_rows
+        )
+    finally:
+        db.set_progress_handler(None, 0)
+
+    assert {
+        int(row["row_id"])
+        for row in db.execute(
+            "SELECT row_id FROM cell_result_heads WHERE column_id=10 "
+            f"AND row_id IN (SELECT row_id FROM {key_table})"
+        )
+    } == set(target_rows)
+    db.rollback()
+    db.close()
+    return progress_calls
+
+
+def test_sparse_head_rebuild_work_does_not_scale_with_unrelated_history() -> None:
+    small_work = _sparse_head_rebuild_vm_work(2_500)
+    large_work = _sparse_head_rebuild_vm_work(25_000)
+
+    assert large_work <= small_work * 2 + 50
 
 
 def test_plain_source_and_output_edit_undo_redo_skip_review_recount(

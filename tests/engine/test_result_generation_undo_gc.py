@@ -157,6 +157,7 @@ def test_partial_generation_undo_redo_refreshes_only_its_result_coordinates(
 
         assert project.undo() == manual_op_id
         project.db.execute("DELETE FROM projection_audit")
+        project.db.execute("DELETE FROM search_dirty_scopes")
         project.db.commit()
         assert project.undo() == second.op_id
         restored = generations.read_cell_heads(column_id)
@@ -176,8 +177,16 @@ def test_partial_generation_undo_redo_refreshes_only_its_result_coordinates(
         assert {
             (int(row["row_id"]), int(row["column_id"])) for row in current_writes
         } == {(row_ids[0], column_id)}
+        assert [
+            tuple(row)
+            for row in project.db.execute(
+                "SELECT sheet_id,column_id,row_id_start,row_id_end "
+                "FROM search_dirty_scopes ORDER BY id"
+            )
+        ] == [(sheet_id, column_id, row_ids[0], row_ids[0])]
 
         project.db.execute("DELETE FROM projection_audit")
+        project.db.execute("DELETE FROM search_dirty_scopes")
         project.db.commit()
         assert project.redo() == second.op_id
         assert (
@@ -190,6 +199,13 @@ def test_partial_generation_undo_redo_refreshes_only_its_result_coordinates(
                 "SELECT row_id,column_id FROM projection_audit"
             )
         } == {(row_ids[0], column_id)}
+        assert [
+            tuple(row)
+            for row in project.db.execute(
+                "SELECT sheet_id,column_id,row_id_start,row_id_end "
+                "FROM search_dirty_scopes ORDER BY id"
+            )
+        ] == [(sheet_id, column_id, row_ids[0], row_ids[0])]
     finally:
         project.close()
 

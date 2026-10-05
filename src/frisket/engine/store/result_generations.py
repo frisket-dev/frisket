@@ -1321,7 +1321,7 @@ class ResultGenerationStore:
                 "ORDER BY result.run_id DESC"
                 ") AS precedence "
                 f"FROM {key_table} target "
-                "JOIN results result ON result.row_id=target.row_id "
+                "CROSS JOIN results result ON result.row_id=target.row_id "
                 "AND result.column_id=target.column_id "
                 "JOIN run_output_generations generation "
                 "ON generation.run_id=result.run_id "
