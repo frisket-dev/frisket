@@ -7,7 +7,7 @@ second summary or normalize the separate review-queue endpoint.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, JsonValue
 
@@ -214,6 +214,28 @@ class ReviewBundle(WireModel):
     items: list[ReviewBundleItem]
 
 
+class ReviewBatchScope(WireModel):
+    run_id: int = Field(gt=0)
+    field_id: int | None = Field(default=None, gt=0)
+    include_reviewed: bool = False
+
+
+class ReviewSampleRequest(ReviewBatchScope):
+    kind: Literal["sample"]
+    limit: int = Field(default=25, ge=1, le=100)
+    exclude_row_ids: list[Annotated[int, Field(gt=0)]] = Field(default_factory=list)
+
+
+class ReviewRowsRequest(ReviewBatchScope):
+    kind: Literal["rows"]
+    row_ids: list[Annotated[int, Field(gt=0)]] = Field(min_length=1, max_length=100)
+
+
+ReviewBatchRequest = Annotated[
+    ReviewSampleRequest | ReviewRowsRequest, Field(discriminator="kind")
+]
+
+
 class ReviewBundlesPage(WireModel):
     schema_version: Literal["frisket.review_bundles_page.v1"]
     offset: int = Field(ge=0)
@@ -290,6 +312,9 @@ __all__ = [
     "HistoryRun",
     "HistoryTarget",
     "JudgeReviewScore",
+    "ReviewBatchRequest",
+    "ReviewSampleRequest",
+    "ReviewRowsRequest",
     "ReviewBundle",
     "ReviewBundleItem",
     "ReviewBundleSource",
