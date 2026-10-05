@@ -18,6 +18,7 @@ function baseInput(overrides: Partial<WorkViewAvailabilityInput> = {}): WorkView
     contributionIds: { graphNeighborhood: GRAPH_NEIGHBORHOOD_ID },
     firstGeoColumn: GEO_COLUMN,
     firstMediaColumn: MEDIA_COLUMN,
+    firstExtractSourceColumn: MEDIA_COLUMN,
     imageGalleryAvailable: true,
     sheetIsEdgeShaped: true,
     citedColumnIds: ['col-answer-1'],
@@ -40,6 +41,33 @@ describe('selectWorkViewAvailability', () => {
       }),
     );
     expect(empty.grid).toEqual({ available: true, status: 'enabled', reason: 'available' });
+  });
+
+  describe('extract', () => {
+    it('is available for a file or image source', () => {
+      expect(selectWorkViewAvailability(baseInput()).extract.available).toBe(true);
+      expect(
+        selectWorkViewAvailability(
+          baseInput({ firstExtractSourceColumn: { id: 'image-1', name: 'Scan', type: 'image' } }),
+        ).extract.available,
+      ).toBe(true);
+    });
+
+    it('does not treat annotated text or other document media as an extraction source', () => {
+      const result = selectWorkViewAvailability(
+        baseInput({
+          firstMediaColumn: { id: 'audio-1', name: 'Audio', type: 'audio' },
+          firstExtractSourceColumn: null,
+          annotatedTextColumnIds: ['body'],
+        }),
+      );
+      expect(result.document.available).toBe(true);
+      expect(result.extract).toEqual({
+        available: false,
+        status: 'disabled',
+        reason: 'data_requirements_unmet',
+      });
+    });
   });
 
   // ---- document: firstMediaColumn !== null OR annotatedTextColumnIds -------

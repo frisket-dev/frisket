@@ -309,6 +309,99 @@ def test_public_queued_run_and_empty_scope(tmp_path):
         assert receipt.json()["outputs"][0]["ref"]["row_count"] == 2
 
 
+def test_partial_field_failure_warns_without_discarding_valid_fields(tmp_path):
+    with closing(Project.create(tmp_path / "project")) as project:
+        sheet, column, rows, template = seed(project)
+        project.db.execute(
+            "DELETE FROM source_spans WHERE quote='NAME' AND artifact_id IN "
+            "(SELECT id FROM source_artifacts WHERE blob_hash != ?)",
+            (template.reference_blob_id,),
+        )
+        project.db.commit()
+        result = run_typed_create_sheet_action(
+            project,
+            "p",
+            typed_action_for_request(request(sheet, template, rows=[rows[1]])),
+        )
+        assert result.status == "completed", result.errors
+        output = result.outputs[0].ref
+        assert list(
+            project.get_values(output["sheet_id"], output["columns"]["Name"]).values()
+        ) == [None]
+        assert list(
+            project.get_values(
+                output["sheet_id"], output["columns"]["Arrested"]
+            ).values()
+        ) == [""]
+        assert any(
+            f"Document row {rows[1]}" in warning and "Name:" in warning
+            for warning in result.warnings
+        )
+        assert any("1 unresolved fields" in warning for warning in result.warnings)
+
+
+def test_multiregion_publication_does_not_repeat_whole_value_as_page_quote(
+    tmp_path, monkeypatch
+):
+    from frisket.actions.document_extraction_types import (
+        DocumentExtraction,
+        ExtractedRecord,
+        ExtractedCell,
+    )
+    from frisket.engine import document_extraction
+
+    with closing(Project.create(tmp_path / "project")) as project:
+        sheet, column, rows, template = seed(project, count=1)
+        # The matcher separately tests page-spanning assembly. Exercise publication
+        # of its multipart result without attributing the whole text to either box.
+        regions = [
+            template.fields[0].value,
+            template.fields[0].value.model_copy(update={"page": 2}),
+        ]
+        monkeypatch.setattr(
+            document_extraction,
+            "extract_document",
+            lambda *_args: DocumentExtraction(
+                outcome="extracted",
+                records=[
+                    ExtractedRecord(
+                        cells={
+                            "name": ExtractedCell(
+                                text="first\nsecond",
+                                status="extracted",
+                                regions=regions,
+                            ),
+                            "arrested": ExtractedCell(
+                                text="X",
+                                status="extracted",
+                                regions=[template.fields[1].value],
+                            ),
+                        }
+                    )
+                ],
+            ),
+        )
+        result = run_typed_create_sheet_action(
+            project, "p", typed_action_for_request(request(sheet, template))
+        )
+        assert result.status == "completed", result.errors
+        output = result.outputs[0].ref
+        assert list(
+            project.get_values(output["sheet_id"], output["columns"]["Name"]).values()
+        ) == ["first\nsecond"]
+        spans = project.db.execute(
+            "SELECT sp.page_start,sp.quote FROM source_spans sp "
+            "JOIN evidence_link_spans els ON els.span_id=sp.id "
+            "JOIN evidence_links el ON el.id=els.link_id "
+            "WHERE el.sheet_id=? AND el.column_id=? ORDER BY els.rank",
+            (output["sheet_id"], output["columns"]["Name"]),
+        ).fetchall()
+        assert [(span["page_start"], span["quote"]) for span in spans] == [
+            (1, None),
+            (2, None),
+        ]
+
+
 def test_zero_repeats_yield_no_fabricated_rows_but_document_outcome(tmp_path):
     from frisket.engine.executor.document_extraction_read import (
         AdmittedPositionedDocumentReader,

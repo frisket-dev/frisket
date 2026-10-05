@@ -99,6 +99,7 @@ import { DiscoverPanel, type DiscoverTabDescriptor } from './workbench/DiscoverP
 import { useSheetTabsOverflow } from './workbench/useSheetTabsOverflow';
 import { nerReplayPlan } from './workbench/nerReplayModel';
 import { DocumentView } from './workbench/DocumentView';
+import { ExtractView } from './workbench/extract/ExtractView';
 import { AnswersView } from './workbench/AnswersView';
 import { resolveTitleColumn } from './workbench/rowTitle';
 import {
@@ -1004,9 +1005,19 @@ const WorkspaceActRegion = memo(function WorkspaceActRegion() {
     setActiveRibbonTab,
   } = useWorkspaceShell();
   const { actRibbonTabs, launchActionFromSurface, runActionFromSurface } = useWorkspaceAct();
+  const { extractViewShowing } = useMainViewModel();
+  const [extractionToolsChoice, setExtractionToolsChoice] = useState({ active: extractViewShowing, selected: true });
+  if (extractionToolsChoice.active !== extractViewShowing) {
+    setExtractionToolsChoice({ active: extractViewShowing, selected: true });
+  }
+  const extractionToolsSelected = extractionToolsChoice.active !== extractViewShowing || extractionToolsChoice.selected;
   const chrome = useChromeHandle();
   const ribbonMode = useSelector(chrome.store, (s) => s.ribbonMode);
   const activeRibbonTab = useSelector(chrome.store, (s) => s.activeRibbonTab);
+  const showExtractionTools = extractViewShowing && (ribbonMode === 'menu' || extractionToolsSelected);
+  const ribbonTabs = extractViewShowing
+    ? [...actRibbonTabs, { id: 'extract-pdf-tools', label: 'PDF tools', contextual: true, accent: 'file' as const, groups: [] }]
+    : actRibbonTabs;
   const actSurface = useActSurfaceHandle();
   const actionCatalog = useActionCatalogHandle();
   const catalogStatus = useSelector(actionCatalog.store, (state) => state.status);
@@ -1044,9 +1055,13 @@ const WorkspaceActRegion = memo(function WorkspaceActRegion() {
     >
       {ribbonMode === 'ribbon' ? (
         <ActRibbon
-          tabs={actRibbonTabs}
-          activeTabId={activeRibbonTab}
-          onSelectTab={setActiveRibbonTab}
+          tabs={ribbonTabs}
+          activeTabId={showExtractionTools ? 'extract-pdf-tools' : activeRibbonTab}
+          onSelectTab={(tabId) => {
+            setExtractionToolsChoice({ active: extractViewShowing, selected: tabId === 'extract-pdf-tools' });
+            if (tabId !== 'extract-pdf-tools') setActiveRibbonTab(tabId);
+          }}
+          hideBand={showExtractionTools}
           onRunAction={launchActionFromSurface}
           onCommand={runActCommand}
           onLaunchContribution={revealPluginLauncher}
@@ -1061,6 +1076,7 @@ const WorkspaceActRegion = memo(function WorkspaceActRegion() {
           onExpandRibbon={() => setRibbonMode('ribbon')}
         />
       )}
+      <div id="extract-toolbar-host" hidden={!showExtractionTools} />
       <ImportWorkspaceDialog
         open={importDialogOpen}
         entryMode={importDialogEntryMode}
@@ -2700,6 +2716,7 @@ function WorkspaceSourceHealthMainView() {
 const WORK_VIEW_SWITCH: Array<{ kind: WorkViewKind; label: string; Icon: LucideIcon }> = [
   { kind: 'grid', label: 'Grid', Icon: LayoutGrid },
   { kind: 'document', label: 'Document', Icon: FileText },
+  { kind: 'extract', label: 'Extract', Icon: FileText },
   { kind: 'answers', label: 'Answers', Icon: MessageSquareQuote },
   { kind: 'map', label: 'Map', Icon: MapPin },
   { kind: 'gallery', label: 'Gallery', Icon: Images },
@@ -2871,6 +2888,7 @@ function WorkspaceSheetToolbar() {
                   />
                   {activeWorkView !== 'grid' &&
                     activeWorkView !== 'document' &&
+                    activeWorkView !== 'extract' &&
                     activeWorkView !== 'answers' && (
                     <span className="work-split-hint" data-testid="work-view-split-hint">
                       · split view
@@ -3491,6 +3509,7 @@ function WorkspacePrimarySurface() {
     closeSplit,
     documentView,
     documentViewShowing,
+    extractViewShowing,
     annotatedTextColumnIds,
     documentAnnotationPreferences,
     setSheetAnnotationToggles,
@@ -3582,7 +3601,7 @@ function WorkspacePrimarySurface() {
 
   if (activePreviewView?.result?.kind === 'table') return <>{gridContribution}</>;
 
-  if (documentViewShowing && documentView && sheet) {
+  if ((documentViewShowing || extractViewShowing) && documentView && sheet) {
 
     const titleColumnOrder = visibleOrderedColumns.map((column) => column.name);
     const titleColumn = resolveTitleColumn(sheet, {
@@ -3618,6 +3637,42 @@ function WorkspacePrimarySurface() {
       });
       return page.rows[0] ?? null;
     };
+    if (extractViewShowing) {
+      const filtered = Boolean(activeChildFilter || activeGridFilter || scopeRowIds !== null);
+      return <ExtractView
+        key={`${sheet.id}:${orderKey}`}
+        projectId={project.id}
+        sheet={sheet}
+        state={documentView}
+        onChangeState={setDocumentView}
+        onDocumentFocus={selectDocumentRow}
+        queryDocuments={queryDocuments}
+        hydrateRow={hydrateDocumentRow}
+        orderKey={orderKey}
+        titleColumnOrder={titleColumnOrder}
+        toolbarTargetId="extract-toolbar-host"
+        scopeLabel={filtered ? 'filtered documents' : 'all'}
+        resolveRowIds={async (sourceColumnId, limit) => {
+          if (!filtered) return undefined;
+          const ids: number[] = [];
+          let cursor: string | undefined;
+          do {
+            const page = await queryDocuments({ sourceColumnId, titleColumnId: null, query: '',
+              cursor, limit: Math.min(limit ? limit - ids.length : 100, 100) });
+            ids.push(...page.items.map((item) => Number(item.rowId)));
+            cursor = page.nextCursor ?? undefined;
+          } while (cursor && (!limit || ids.length < limit));
+          if (!ids.length) throw new Error('No documents match the current view.');
+          return ids;
+        }}
+        onExtract={({ template, source, repeat_group_id, sheet_name, row_ids }) => {
+          startRun({ action_id: 'media.extract_document',
+            scope: { kind: 'sheet_rows', sheet_id: Number(sheet.id), ...(row_ids ? { row_ids } : {}) },
+            params: { source, template, repeat_group_id },
+            output_names: {}, sheet_name, idempotency_key: `extract-document:${crypto.randomUUID()}` });
+        }}
+      />;
+    }
     return (
       <DocumentView
         projectId={project.id}

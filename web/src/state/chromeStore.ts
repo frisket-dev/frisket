@@ -11,6 +11,8 @@ import {
 export { chromeStorageKeys } from './workspaceResources';
 import { navigate } from '../routes';
 import { writeSettingsProjectContext } from '../settings/settingsProjectContext';
+import type { WorkViewKind } from '../core/selectors/workView';
+export type { WorkViewKind } from '../core/selectors/workView';
 
 const BOTTOM_DOCK_FALLBACK_TAB_PLACEMENT_ID = 'jobs';
 
@@ -41,8 +43,6 @@ export const DISCOVER_TABS: readonly DiscoverTab[] = [
   'Embeddings',
   'Notifications',
 ];
-
-export type WorkViewKind = 'grid' | 'map' | 'gallery' | 'graph' | 'document' | 'answers';
 
 export type DocumentViewLayout = 'continuous' | 'single' | 'two-up';
 export type DocumentViewFit = 'width' | 'page';
@@ -75,7 +75,7 @@ export type DocumentAlongsidePreferences = Record<string, DocumentAlongsidePrefe
 export interface PromotedView {
   key: string;
   sheetId: string;
-  kind: Exclude<WorkViewKind, 'grid' | 'answers'>;
+  kind: Exclude<WorkViewKind, 'grid' | 'answers' | 'extract'>;
   columnId?: string;
   label: string;
 }

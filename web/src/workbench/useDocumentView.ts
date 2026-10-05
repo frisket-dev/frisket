@@ -33,12 +33,14 @@ export interface UseDocumentViewArgs {
   orderKey: string;
   titleColumnOrder?: readonly string[];
   annotatedTextColumnIds: readonly string[];
+  sourceColumnTypes?: readonly string[];
 }
 
 export function useDocumentView(args: UseDocumentViewArgs) {
   const { projectId, sheet, state, onChangeState, onDocumentFocus, queryDocuments,
     hydrateRow, orderKey, titleColumnOrder, annotatedTextColumnIds } = args;
-  const sources = useMemo(() => documentSources(sheet, annotatedTextColumnIds), [sheet, annotatedTextColumnIds]);
+  const sources = useMemo(() => documentSources(sheet, annotatedTextColumnIds)
+    .filter((entry) => !args.sourceColumnTypes || args.sourceColumnTypes.includes(entry.column.type)), [sheet, annotatedTextColumnIds, args.sourceColumnTypes]);
   const source = useMemo(() => sources.find((entry) => String(entry.column.id) === state.sourceColumnId)
     ?? sources[0] ?? null, [sources, state.sourceColumnId]);
   const sourceColumn = source?.column ?? null;

@@ -1,7 +1,8 @@
-/** Actions without a drawer: collection expansion remains available through
- * its URL handler, saved actions, and Ask. */
+/** Actions without a generic drawer. They remain catalog-visible for API and
+ * automation callers; dedicated product workflows own their browser UI. */
 export function hasNoActionDrawer(canonicalKind: string): boolean {
-  return canonicalKind === 'derive.collection_expand';
+  return canonicalKind === 'derive.collection_expand'
+    || canonicalKind === 'media.extract_document';
 }
 
 /** Dedicated workflows supply files, index IDs, or completed result receipts.

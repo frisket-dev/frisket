@@ -118,8 +118,9 @@ export function setWorkViewResetTransition(
 ): void {
   workView.setActivePromotedKey(null);
   compareView.standDown();
-  if (kind !== 'document') chrome.setDocumentView(null);
+  if (kind !== 'document' && kind !== 'extract') chrome.setDocumentView(null);
   if (kind !== 'answers') workView.setAnswersViewSheetId(null);
+  if (kind !== 'extract') workView.setExtractViewSheetId(null);
 }
 
 export function setWorkViewGridTransition(
@@ -139,6 +140,18 @@ export function setWorkViewDocumentTransition(
 ): void {
   chrome.setOpenSplit(null);
   workView.setGridOnlySheetId(null);
+  if (sheetId && documentView) chrome.setDocumentView(documentView);
+}
+
+export function setWorkViewExtractTransition(
+  chrome: Pick<PersistedChromeWrites, 'setOpenSplit' | 'setDocumentView'>,
+  workView: WorkViewHandle,
+  sheetId: string | null,
+  documentView: DocumentViewState | null,
+): void {
+  chrome.setOpenSplit(null);
+  workView.setGridOnlySheetId(null);
+  workView.setExtractViewSheetId(sheetId);
   if (sheetId && documentView) chrome.setDocumentView(documentView);
 }
 

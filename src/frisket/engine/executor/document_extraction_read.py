@@ -207,6 +207,7 @@ class AdmittedPositionedDocumentReader:
         self.documents = []
         self.warnings = []
         self.outcome_counts = {"extracted": 0, "zero_records": 0, "alignment_failed": 0}
+        self.unresolved_fields = 0
         self.identities = {}
         self.source_blobs = {}
         self.reference = None
@@ -273,6 +274,24 @@ class AdmittedPositionedDocumentReader:
             # output occurrences, not a duplicate corpus of positioned text.
             self.documents[:] = [outcome]
             self.outcome_counts[result.outcome] += 1
+            unresolved = 0
+            field_diagnostics = []
+            field_names = {field.id: field.name for field in fields}
+            for record_index, record in enumerate(result.records, 1):
+                for field_id, cell in record.cells.items():
+                    if cell.status != "not_found":
+                        continue
+                    unresolved += 1
+                    if len(field_diagnostics) < 8:
+                        field_diagnostics.append(
+                            f"record {record_index}, {field_names[field_id]}: "
+                            f"{cell.diagnostic or 'field could not be located'}"
+                        )
+            self.unresolved_fields += unresolved
+            if unresolved > len(field_diagnostics):
+                field_diagnostics.append(
+                    f"{unresolved - len(field_diagnostics)} additional unresolved fields"
+                )
             self.facts.append(
                 {
                     "kind": "document_extraction_input",
@@ -282,13 +301,15 @@ class AdmittedPositionedDocumentReader:
                     "artifact_id": loaded.artifact_id if loaded else None,
                     "outcome": result.outcome,
                     "record_count": len(result.records),
+                    "unresolved_fields": unresolved,
                 }
             )
-            if (result.outcome != "extracted" or result.diagnostics) and len(
-                self.warnings
-            ) < 99:
+            if (
+                result.outcome != "extracted" or result.diagnostics or unresolved
+            ) and len(self.warnings) < 99:
+                diagnostics = [*result.diagnostics, *field_diagnostics]
                 self.warnings.append(
-                    f"Document row {item.source.row_id}: {result.outcome}. {'; '.join(result.diagnostics)}"
+                    f"Document row {item.source.row_id}: {result.outcome}. {'; '.join(diagnostics)}"
                 )
             yield item.source, loaded, result
 
@@ -311,6 +332,7 @@ class AdmittedPositionedDocumentReader:
                 if (
                     self.outcome_counts["zero_records"]
                     or self.outcome_counts["alignment_failed"]
+                    or self.unresolved_fields
                 ):
                     self.warnings.append(
                         "Document extraction: "
@@ -318,6 +340,7 @@ class AdmittedPositionedDocumentReader:
                             f"{count} {outcome.replace('_', ' ')}"
                             for outcome, count in self.outcome_counts.items()
                         )
+                        + f", {self.unresolved_fields} unresolved fields"
                     )
 
         return TableResult(rows=rows(), warnings=self.warnings)
@@ -407,7 +430,7 @@ class AdmittedPositionedDocumentReader:
                         page_start=region.page,
                         page_end=region.page,
                         bbox=[{**region.box.model_dump(), "space": "page_normalized"}],
-                        quote=cell.text or None,
+                        quote=(cell.text or None) if len(cell.regions) == 1 else None,
                         metadata={"field_id": field.id, "status": cell.status},
                     )
                     spans.append({"span_id": span["id"], "rank": len(spans)})

@@ -20,6 +20,7 @@ const viewsDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'selectors'
 const EXPECTED_KINDS: ReadonlyArray<WorkViewKind> = [
   'grid',
   'document',
+  'extract',
   'map',
   'gallery',
   'graph',
@@ -34,7 +35,7 @@ describe('WORK_VIEW_DESCRIPTORS — glob self-registration', () => {
     expect(WORK_VIEW_KINDS).toHaveLength(files.length);
   });
 
-  it('registers exactly the six WorkViewKind union members', () => {
+  it('registers exactly the seven WorkViewKind union members', () => {
     expect(Object.keys(WORK_VIEW_DESCRIPTORS).sort()).toEqual([...EXPECTED_KINDS].sort());
     expect([...WORK_VIEW_KINDS].sort()).toEqual([...EXPECTED_KINDS].sort());
   });
