@@ -1,22 +1,21 @@
-import type { HttpExtractionDocumentResponse, HttpExtractionPreviewRequest } from '../../generated/openHttpContracts';
-import type { ExtractionPreviewDocument } from '../../api/documentExtraction';
+import type { ExtractionDocument, ExtractionRequest, ExtractionPreviewDocument } from '../../api/documentExtraction';
 
 export function previewOutcome(result: ExtractionPreviewDocument['result']): { warning: boolean; text: string } {
-  const missing = result.records.flatMap((record) => Object.values(record.cells)).find((cell) => cell.status === 'not_found');
-  return { warning: result.outcome === 'alignment_failed' || result.diagnostics.length > 0 || Boolean(missing),
-    text: result.diagnostics[0] ?? missing?.diagnostic ?? (missing ? 'Some fields were not found'
+  const warnedCell = result.records.flatMap((record) => Object.values(record.cells)).find((cell) => cell.status === 'not_found' || Boolean(cell.diagnostic));
+  return { warning: result.outcome === 'alignment_failed' || result.diagnostics.length > 0 || Boolean(warnedCell),
+    text: result.diagnostics[0] ?? warnedCell?.diagnostic ?? (warnedCell ? 'Some fields were not found'
       : result.outcome === 'alignment_failed' ? 'Could not align this document'
       : result.outcome === 'zero_records' ? 'No repeated records found' : `${result.records.length} records`) };
 }
 
-type WireTemplate = HttpExtractionPreviewRequest['template'];
+type WireTemplate = ExtractionRequest['template'];
 export type ExtractionField = Required<WireTemplate['fields'][number]>;
 export type PageRegion = ExtractionField['key'];
 export type Box = PageRegion['box'];
 export type RepeatedSection = Required<NonNullable<WireTemplate['sections']>[number]>;
 export type PageSpan = RepeatedSection['first'];
 export type ExtractionTemplate = Omit<Required<WireTemplate>, 'fields' | 'sections'> & { fields: ExtractionField[]; sections: RepeatedSection[] };
-export type PositionedDocument = HttpExtractionDocumentResponse['document'];
+export type PositionedDocument = ExtractionDocument['document'];
 
 export function templateDefaults(template: WireTemplate): ExtractionTemplate {
   return { ...template, expand_values: template.expand_values ?? false, look_every_page: template.look_every_page ?? true,

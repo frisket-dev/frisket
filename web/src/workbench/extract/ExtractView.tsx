@@ -227,7 +227,7 @@ function ExtractWorkspace({ toolbarTargetId, onExtract, ...props }: ExtractViewP
       className={tool === id ? styles.activeTool : ''} aria-pressed={tool === id} disabled={!isReference || !currentGeometry || !loadedTemplates}
       onClick={() => { setTool(id); setPending(null); }}><Icon size={18} /><span>{label}</span></button>)}</div><small>Annotate</small></div>
     <div className={styles.toolbarGroup}><div className={styles.options}>
-      <label><input type="checkbox" checked={template.expand_values} onChange={(event) => update({ ...template, expand_values: event.target.checked })} />Expand value areas</label>
+      <label><input type="checkbox" aria-describedby="extract-area-help" checked={template.expand_values} onChange={(event) => update({ ...template, expand_values: event.target.checked })} />Expand value areas</label>
       <label><input type="checkbox" checked={template.look_every_page} onChange={(event) => update({ ...template, look_every_page: event.target.checked })} />Look on every page</label>
       <label><input type="checkbox" checked={template.continue_across_pages} onChange={(event) => update({ ...template, continue_across_pages: event.target.checked })} />Continue across pages</label>
       <label>Rows <select className="form-input" aria-label="Result rows" value={repeatGroupId ?? ''} onChange={(event) => { update(template); setRepeatGroupId(event.target.value || null); }}>
@@ -285,7 +285,7 @@ function ExtractWorkspace({ toolbarTargetId, onExtract, ...props }: ExtractViewP
     <div className={styles.body}>
       <aside className={styles.rail} aria-label="Documents">
         <input className="form-input" type="search" placeholder="Search documents…" aria-label="Search documents" value={search} onChange={(event) => setSearch(event.target.value)} />
-        <small>{preview ? `Previewing ${preview.documents.length} documents` : `${items.length} loaded`}</small>
+        <small>{preview ? `Preview sample · ${preview.documents.length} documents` : `${items.length} loaded`}</small>
         <div className="document-list-body drawer-body" ref={listBodyRef} onScroll={onListScroll} onKeyDown={onListKeyDown} tabIndex={0} role="listbox" aria-label="Document list">
           {list.error && <p role="alert">{list.error}</p>}
           <div style={{ position: 'relative', height: `${items.length * LIST_ITEM_HEIGHT}px` }}>
@@ -311,6 +311,9 @@ function ExtractWorkspace({ toolbarTargetId, onExtract, ...props }: ExtractViewP
             setJumpRow({ row_id: reference.row_id, blob_id: reference.blob_id, filename: reference.filename, result: { records: [], diagnostics: [], outcome: 'extracted' } }); setReaderPage(1); setFocusRegions([]);
           }}>Back to example</button>}
         </div>
+        <p id="extract-area-help" className={styles.areaHelp}>{template.expand_values
+          ? 'Expanded areas follow matched field boundaries. Check Preview for alignment warnings.'
+          : 'Fixed areas read only the selected space. Draw the full possible value area, or enable Expand value areas for variable-length text.'}</p>
         <DocumentReader key={`${currentRowId}:${readerPage}`} media={activeMedia} mediaKind={activeKind} title={jumpRow?.filename ?? activeItem?.title ?? 'No document selected'}
           layout="single" fit="width" videoFit="full" onVideoFitChange={() => undefined} textLayer={false}
           onPageCount={recordPageCount} rowKey={currentRowId ?? ''} onOpenDetail={() => undefined} canOpenDetail={false}
@@ -320,7 +323,7 @@ function ExtractWorkspace({ toolbarTargetId, onExtract, ...props }: ExtractViewP
             tool={tool} selected={selected} muted={!isReference} focusRegions={focusRegions} pending={pending}
             onSelect={select} onDraw={draw} onChange={(target, region) => update(changeRegion(template, target, region))} onDelete={remove} /> : null} />
         <button type="button" className={styles.previewToggle} aria-expanded={previewOpen} onClick={() => setPreviewOpen((open) => !open)}>
-          <strong>Preview</strong><span>{preview ? `${preview.documents.length} documents · ${preview.documents.reduce((count, doc) => count + doc.result.records.length, 0)} rows` : 'Add fields, then preview on a sample of documents'}</span><span>{previewOpen ? '▾' : '▴'}</span>
+          <strong>Preview</strong><span>{preview ? `${preview.documents.length}-document sample · ${preview.documents.reduce((count, doc) => count + doc.result.records.length, 0)} rows` : 'Add fields, then preview on a sample of documents'}</span><span>{previewOpen ? '▾' : '▴'}</span>
         </button>
         {previewOpen && <div className={styles.previewPane}>{busy === 'preview' ? <p role="status">Extracting sample documents…</p> : preview ? <ExtractPreview template={previewTemplate} preview={preview} onSelect={choosePreview} /> : <p>Run Preview to inspect extracted values and their source regions.</p>}</div>}
       </div>

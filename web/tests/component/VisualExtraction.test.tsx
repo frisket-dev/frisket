@@ -108,12 +108,22 @@ describe('annotation interactions', () => {
       { row_id: 2, blob_id: 'b', filename: 'b.pdf', result: { records: [{ cells: { name: { text: null, status: 'not_found' as const, regions: [], diagnostic: 'Missing label' } } }], diagnostics: [], outcome: 'extracted' as const } },
       { row_id: 3, blob_id: 'c', filename: 'c.pdf', result: { records: [], diagnostics: [], outcome: 'zero_records' as const } },
     ];
-    render(<ExtractPreview template={template} preview={{ documents, truncated: false }} onSelect={onSelect} />);
+    const { rerender } = render(<ExtractPreview template={template} preview={{ documents, truncated: false }} onSelect={onSelect} />);
     fireEvent.click(screen.getByRole('button', { name: 'empty' }));
     expect(onSelect).toHaveBeenCalledWith(documents[0], empty);
     expect(screen.getByText('⚠ not found')).toBeInTheDocument();
     expect(screen.getByText('No repeated records found')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Preview sample: 3 documents.');
     expect(previewOutcome(documents[1].result)).toEqual({ warning: true, text: 'Missing label' });
     expect(previewOutcome(documents[0].result)).toEqual({ warning: false, text: '1 records' });
+    rerender(<ExtractPreview template={template} preview={{ documents, truncated: true }} onSelect={onSelect} />);
+    expect(screen.getByRole('status')).toHaveTextContent('Not all selected documents or rows are shown.');
+    const warned = { ...documents[0], result: { ...documents[0].result, records: [{ cells: {
+      name: { ...empty, text: 'Alice', status: 'extracted' as const, diagnostic: 'A word crosses the selected boundary' },
+    } }] } };
+    rerender(<ExtractPreview template={template} preview={{ documents: [warned], truncated: false }} onSelect={onSelect} />);
+    expect(previewOutcome(warned.result)).toEqual({ warning: true, text: 'A word crosses the selected boundary' });
+    expect(screen.getByLabelText('A word crosses the selected boundary')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Alice/ })).toHaveTextContent('Alice');
   });
 });

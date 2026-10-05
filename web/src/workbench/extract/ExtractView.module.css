@@ -25,6 +25,7 @@
 .center { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .center :global(.document-reader) { flex: 1; min-height: 0; }
 .instruction { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 4px 14px; color: var(--text-mid, #756c66); font-size: 12px; background: var(--bg-panel, #fbf9f7); }
+.areaHelp { margin: 0; padding: 0 14px 7px; color: var(--text-mid); font-size: 12px; background: var(--bg-panel); }
 .fields { width: 320px; flex-shrink: 0; overflow: auto; border-left: 1px solid var(--border, #e7e1db); padding: 14px; }
 .fields > header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 12px; }
 .fields h3, .fields h4 { margin: 0; font-size: 13px; }

@@ -20,7 +20,8 @@ from frisket.actions.types import DynamicOutput, TableError, TableResult, TableR
 from frisket.contracts.action import ReceiptEvidence
 from frisket.engine.executor.sheet_rows_read import AdmittedSheetRowsReader
 from frisket.engine.sandbox.media_sync import run_media_sync
-from frisket.engine.store.blob_backend import validate_blob_digest
+from frisket.engine.store.blob_backend import BlobStoreError, validate_blob_digest
+from frisket.engine.store.ocr_word_stream import iter_ocr_word_streams
 from frisket.engine.store.evidence import (
     record_evidence_link,
     record_source_artifact,
@@ -68,44 +69,34 @@ class DocumentIdentity:
 
 def _ocr_pages(project, blob_id):
     """Keep actual OCR geometry, including line/block granularity and blank pages."""
-    artifacts = project.db.execute(
-        "SELECT id, metadata FROM source_artifacts WHERE blob_hash=? ORDER BY id DESC",
-        (blob_id,),
-    ).fetchall()
-    for artifact in artifacts:
-        metadata = json.loads(artifact["metadata"] or "{}")
-        images = metadata.get("page_images")
-        if not isinstance(images, dict) or not metadata.get("engine"):
-            continue
-        spans = project.db.execute(
-            "SELECT page_start, bbox_json, quote, snippet FROM source_spans "
-            "WHERE artifact_id=? AND span_kind='region' ORDER BY id",
-            (artifact["id"],),
-        ).fetchall()
+    for resolved in iter_ocr_word_streams(project, blob_id):
         tokens = {}
-        for span in spans:
-            boxes = json.loads(span["bbox_json"] or "[]")
-            text = str(span["quote"] or span["snippet"] or "")
-            if not boxes or not text:
+        for token in resolved.stream.tokens:
+            if not token.text or token.page is None or token.page < 1:
                 continue
-            box = boxes[0]
             try:
-                region = Box(**{key: box[key] for key in ("x0", "y0", "x1", "y1")})
+                region = Box(
+                    **dict(zip(("x0", "y0", "x1", "y1"), token.box, strict=True))
+                )
             except (KeyError, ValueError, TypeError):
                 continue
-            granularity = "word" if metadata["engine"] == "tesseract" else "block"
-            if metadata["engine"] in {"rapidocr", "pp-ocrv6", "paddleocr", "datalab"}:
+            granularity = "word" if resolved.engine == "tesseract" else "block"
+            if resolved.engine in {"rapidocr", "pp-ocrv6", "paddleocr", "datalab"}:
                 granularity = "line"
-            tokens.setdefault(int(span["page_start"]), []).append(
-                PositionedToken(text=text, box=region, granularity=granularity)
+            tokens.setdefault(token.page, []).append(
+                PositionedToken(text=token.text, box=region, granularity=granularity)
             )
         if not tokens:
             continue
         pages = []
-        for number, image in sorted(images.items(), key=lambda pair: int(pair[0])):
-            width = image.get("source_width") or image.get("width")
-            height = image.get("source_height") or image.get("height")
-            if width and height:
+        try:
+            for number, image in sorted(
+                resolved.page_images.items(), key=lambda pair: int(pair[0])
+            ):
+                if not isinstance(image, dict):
+                    raise ValueError("Invalid page geometry")
+                width = image.get("source_width") or image.get("width")
+                height = image.get("source_height") or image.get("height")
                 pages.append(
                     PositionedPage(
                         page=int(number),
@@ -114,14 +105,22 @@ def _ocr_pages(project, blob_id):
                         tokens=tokens.get(int(number), []),
                     )
                 )
-        if pages:
-            return pages, int(artifact["id"])
+        except (ValueError, TypeError):
+            continue
+        if (
+            pages
+            and any(page.tokens for page in pages)
+            and set(tokens) <= {page.page for page in pages}
+        ):
+            return pages, resolved.artifact_id
     return [], None
 
 
 def load_positioned_document(
     project, blob_id: str, *, cancelled=None
 ) -> LoadedDocument:
+    if cancelled is not None and cancelled():
+        raise TableError("action_cancelled", "Document reading was cancelled")
     try:
         validate_blob_digest(blob_id)
     except ValueError as exc:
@@ -155,6 +154,10 @@ def load_positioned_document(
             ) from exc
         except PdfTextError as exc:
             raise TableError("document_geometry_unavailable", str(exc)) from exc
+        except (BlobStoreError, OSError) as exc:
+            raise TableError(
+                "document_geometry_unavailable", "Document bytes could not be read"
+            ) from exc
     if not pages or not any(page.tokens for page in pages):
         raise TableError(
             "document_geometry_unavailable",
@@ -208,6 +211,7 @@ class AdmittedPositionedDocumentReader:
         self.warnings = []
         self.outcome_counts = {"extracted": 0, "zero_records": 0, "alignment_failed": 0}
         self.unresolved_fields = 0
+        self.field_warnings = 0
         self.identities = {}
         self.source_blobs = {}
         self.reference = None
@@ -275,22 +279,25 @@ class AdmittedPositionedDocumentReader:
             self.documents[:] = [outcome]
             self.outcome_counts[result.outcome] += 1
             unresolved = 0
+            field_warning_count = 0
             field_diagnostics = []
             field_names = {field.id: field.name for field in fields}
             for record_index, record in enumerate(result.records, 1):
                 for field_id, cell in record.cells.items():
-                    if cell.status != "not_found":
+                    if cell.status != "not_found" and not cell.diagnostic:
                         continue
-                    unresolved += 1
+                    unresolved += cell.status == "not_found"
+                    field_warning_count += 1
                     if len(field_diagnostics) < 8:
                         field_diagnostics.append(
                             f"record {record_index}, {field_names[field_id]}: "
                             f"{cell.diagnostic or 'field could not be located'}"
                         )
             self.unresolved_fields += unresolved
-            if unresolved > len(field_diagnostics):
+            self.field_warnings += field_warning_count
+            if field_warning_count > len(field_diagnostics):
                 field_diagnostics.append(
-                    f"{unresolved - len(field_diagnostics)} additional unresolved fields"
+                    f"{field_warning_count - len(field_diagnostics)} additional field warnings"
                 )
             self.facts.append(
                 {
@@ -302,10 +309,13 @@ class AdmittedPositionedDocumentReader:
                     "outcome": result.outcome,
                     "record_count": len(result.records),
                     "unresolved_fields": unresolved,
+                    "field_warnings": field_warning_count,
                 }
             )
             if (
-                result.outcome != "extracted" or result.diagnostics or unresolved
+                result.outcome != "extracted"
+                or result.diagnostics
+                or field_warning_count
             ) and len(self.warnings) < 99:
                 diagnostics = [*result.diagnostics, *field_diagnostics]
                 self.warnings.append(
@@ -333,6 +343,7 @@ class AdmittedPositionedDocumentReader:
                     self.outcome_counts["zero_records"]
                     or self.outcome_counts["alignment_failed"]
                     or self.unresolved_fields
+                    or self.field_warnings
                 ):
                     self.warnings.append(
                         "Document extraction: "
@@ -341,6 +352,7 @@ class AdmittedPositionedDocumentReader:
                             for outcome, count in self.outcome_counts.items()
                         )
                         + f", {self.unresolved_fields} unresolved fields"
+                        + f", {self.field_warnings} field warnings"
                     )
 
         return TableResult(rows=rows(), warnings=self.warnings)
@@ -356,14 +368,10 @@ class AdmittedPositionedDocumentReader:
         # one selected for this run. Never silently publish against a later OCR.
         for blob_id, loaded in self.identities.items():
             if loaded.artifact_id is not None:
-                latest = self.project.db.execute(
-                    "SELECT id FROM source_artifacts a WHERE blob_hash=? "
-                    "AND json_extract(metadata,'$.engine') IS NOT NULL "
-                    "AND EXISTS (SELECT 1 FROM source_spans s WHERE s.artifact_id=a.id AND s.span_kind='region') "
-                    "ORDER BY id DESC LIMIT 1",
-                    (blob_id,),
-                ).fetchone()
-                if latest is None or int(latest["id"]) != loaded.artifact_id:
+                # Use the same admissibility predicate as the original read:
+                # a newer unusable artifact does not make an older one stale.
+                _pages, artifact_id = _ocr_pages(self.project, blob_id)
+                if artifact_id != loaded.artifact_id:
                     raise TableError(
                         "stale_input",
                         "Document text changed during extraction; preview again",

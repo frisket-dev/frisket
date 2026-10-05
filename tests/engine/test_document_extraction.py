@@ -332,8 +332,10 @@ def test_cross_page_expansion_is_explicit_and_has_page_local_citations(continuat
         assert cell.regions[0].box.y1 == 0.94
         assert cell.regions[1].box.y0 == 0.06
     else:
-        assert cell.status == "not_found"
-        assert "across a page" in cell.diagnostic
+        assert cell.text == "first"
+        assert cell.status == "extracted"
+        assert "page boundary" in cell.diagnostic
+        assert [region.page for region in cell.regions] == [1]
 
 
 def test_coarse_line_is_not_split_into_invented_words():
@@ -623,6 +625,109 @@ def test_repeated_reference_needs_a_guard_on_the_side_with_other_records():
     )
     with pytest.raises(ValueError, match="outside its annotated section"):
         compile_template(annotation, source)
+
+
+def test_partially_intersected_words_warn_but_unselected_whole_lines_do_not():
+    source = document([token("ARRESTED")])
+    compiled = compile_template(template(field()), source)
+    crossing = document([token("ARRESTED"), token("literal", x0=0.59, x1=0.7)])
+    cell = extract_document(compiled, crossing).records[0].cells["ARRESTED"]
+    assert cell.text == ""
+    assert "intersects a word" in cell.diagnostic
+    separate = document([token("ARRESTED"), token("outside", 0.2, x0=0.35)])
+    cell = extract_document(compiled, separate).records[0].cells["ARRESTED"]
+    assert cell.text == ""
+    assert cell.diagnostic is None
+
+
+def test_multiword_unselected_boundary_starts_at_its_first_word():
+    item = field("Description", value=region(0.14, x1=0.8))
+    source = document(
+        [
+            token("Description"),
+            token("short", 0.14),
+            token("Incident", 0.3, x1=0.22),
+            token("Date:", 0.3, x0=0.24, x1=0.32),
+        ]
+    )
+    target = document(
+        [
+            token("Description"),
+            token("first", 0.14),
+            token("last", 0.35),
+            token("Incident", 0.4, x1=0.22),
+            token("Date:", 0.4, x0=0.24, x1=0.32),
+        ]
+    )
+    compiled = compile_template(template(item, expand_values=True), source)
+    assert compiled.fields[0].bottom.text == "incident date"
+    cell = extract_document(compiled, target).records[0].cells[item.id]
+    assert cell.text == "first\nlast"
+    assert cell.regions[0].box.y1 == 0.4
+
+
+def test_unselected_colon_boundary_does_not_match_an_ordinary_value_word():
+    item = field("Description", value=region(0.14, x1=0.8))
+    source = document([token("Description"), token("short", 0.14), token("STOP:", 0.3)])
+    target = document(
+        [
+            token("Description"),
+            token("first", 0.14),
+            token("STOP", 0.2),
+            token("last", 0.3),
+            token("STOP:", 0.4),
+        ]
+    )
+    cell = (
+        extract_document(
+            compile_template(template(item, expand_values=True), source), target
+        )
+        .records[0]
+        .cells[item.id]
+    )
+    assert cell.text == "first\nSTOP\nlast"
+
+
+def test_expanded_document_field_does_not_absorb_repeated_records_or_disable_footer():
+    annotation = template(
+        field("Summary", 0.03, value=region(0.05, x0=0.1, x1=0.8, height=0.025)),
+        field("Name", 0.2, "people"),
+        field("Footer", 0.75, value=region(0.78, x0=0.1, x1=0.8, height=0.025)),
+        sections=[
+            RepeatedSection(id="people", first=span(0.18, 0.3), rest=span(0.4, 0.65))
+        ],
+        expand_values=True,
+    )
+    source = document(
+        [
+            token("Summary", 0.03),
+            token("intro", 0.05),
+            token("Name", 0.2),
+            token("Ann", 0.2, x0=0.35),
+            token("Name", 0.5),
+            token("Bob", 0.5, x0=0.35),
+            token("Footer", 0.75),
+            token("foot", 0.78),
+            token("END:", 0.9),
+        ]
+    )
+    result = extract_document(compile_template(annotation, source), source, "people")
+    assert len(result.records) == 2
+    assert all(row.cells["Summary"].text == "intro" for row in result.records)
+    assert all(row.cells["Footer"].text == "foot" for row in result.records)
+
+
+def test_adjacent_value_regions_do_not_duplicate_a_word_on_the_seam():
+    first = field("First", 0.05, value=region(0.125, x0=0.1, x1=0.8, height=0.125))
+    second = field("Second", 0.6, value=region(0.25, x0=0.1, x1=0.8, height=0.125))
+    source = document([token("First", 0.05), token("seam", 0.24), token("Second", 0.6)])
+    result = extract_document(
+        compile_template(template(first, second), source), source
+    ).records[0]
+    assert [result.cells[key].text for key in ("First", "Second")] == ["", "seam"]
+
+
+def test_after_guard_does_not_admit_records_before_the_annotated_group():
     annotation = template(
         field("Name", 0.3, "people"),
         field("Age", 0.4, "people"),
@@ -643,3 +748,45 @@ def test_repeated_reference_needs_a_guard_on_the_side_with_other_records():
     )
     with pytest.raises(ValueError, match="outside its annotated section"):
         compile_template(annotation, source)
+
+
+def test_final_repeated_value_expands_to_known_closing_anchor_not_reference_tail():
+    annotation = template(
+        field("Name", 0.1, "people"),
+        field("Age", 0.2, "people"),
+        sections=[
+            RepeatedSection(id="people", first=span(0.08, 0.28), rest=span(0.4, 0.75))
+        ],
+        expand_values=True,
+    )
+    source = document(
+        [
+            token("Name"),
+            token("Age", 0.2),
+            token("Name", 0.4),
+            token("Age", 0.5),
+            token("END:", 0.8),
+        ]
+    )
+    target = document(
+        [
+            token("Name"),
+            token("Age", 0.2),
+            token("Name", 0.4),
+            token("Age", 0.5),
+            token("first", 0.5, x0=0.35),
+            token("last", 0.65, x0=0.35),
+            token("END:", 0.85),
+        ]
+    )
+    compiled = compile_template(annotation, source)
+    result = extract_document(compiled, target, "people")
+    assert len(result.records) == 2
+    assert result.records[-1].cells["Age"].text == "first\nlast"
+    assert result.records[-1].cells["Age"].regions[0].box.y1 == 0.85
+    missing = document(target.pages[0].tokens[:-1])
+    result = extract_document(compiled, missing, "people")
+    assert result.records[-1].cells["Age"].status == "not_found"
+    assert (
+        "Final repeated section boundary" in result.records[-1].cells["Age"].diagnostic
+    )

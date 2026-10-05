@@ -7,7 +7,7 @@ export function ExtractPreview({ template, preview, onSelect }: {
   onSelect(document: ExtractionPreviewDocument, cell: ExtractedCell | null): void;
 }) {
   return <div className={styles.previewTable}>
-    {preview.truncated && <p role="status">Preview was limited. Full extraction processes all selected documents.</p>}
+    <p role="status">Preview sample: {preview.documents.length} documents.{preview.truncated ? ' Not all selected documents or rows are shown.' : ''}</p>
     <table aria-label="Extraction preview"><thead><tr><th>Document</th>{template.fields.map((field) => <th key={field.id}>{field.name}</th>)}</tr></thead>
       <tbody>{preview.documents.flatMap((document) => {
         const warnings = document.result.diagnostics;
@@ -22,6 +22,7 @@ export function ExtractPreview({ template, preview, onSelect }: {
             const cell = record.cells[field.id];
             return <td key={field.id} className={cell?.status === 'not_found' || !cell ? styles.notFound : index > 0 && !field.section_id ? styles.continuation : ''}>
               <button type="button" title={cell?.diagnostic ?? undefined} onClick={() => onSelect(document, cell ?? null)}>
+                {cell?.diagnostic && cell.status !== 'not_found' && <span className={styles.warning} aria-label={cell.diagnostic}>⚠ </span>}
                 {!cell || cell.status === 'not_found' ? '⚠ not found' : cell.status === 'empty' ? <em className={styles.empty}>empty</em> : cell.text}
               </button>
             </td>;

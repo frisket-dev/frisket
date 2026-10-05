@@ -17,6 +17,7 @@ from frisket.contracts.http.document_extraction import (
 )
 from frisket.server.services.document_extraction import DocumentExtractionService
 from frisket.server.thread_worker import await_thread_worker
+from frisket.server.route_errors import RouteError, http_error_responses
 
 
 def register_document_extraction_routes(
@@ -25,6 +26,8 @@ def register_document_extraction_routes(
     def call(function, *args, **kwargs):
         try:
             return function(*args, **kwargs)
+        except RouteError:
+            raise
         except (TableError, ValueError) as exc:
             raise HTTPException(422, str(exc)) from exc
 
@@ -55,6 +58,7 @@ def register_document_extraction_routes(
     @app.get(
         "/api/projects/{pid}/document-extraction/documents/{row_id}",
         response_model=ExtractionDocumentResponse,
+        responses=http_error_responses(401, 403, 404, 422, 500),
     )
     async def extraction_document_get(
         request: Request, pid: str, row_id: int, sheet_id: int, column_id: int
@@ -71,6 +75,7 @@ def register_document_extraction_routes(
     @app.post(
         "/api/projects/{pid}/document-extraction/preview",
         response_model=ExtractionPreviewResponse,
+        responses=http_error_responses(401, 403, 404, 422, 500),
     )
     async def extraction_preview(
         request: Request, pid: str, body: ExtractionPreviewRequest
@@ -80,6 +85,7 @@ def register_document_extraction_routes(
     @app.get(
         "/api/projects/{pid}/document-extraction/templates",
         response_model=ExtractionTemplatesResponse,
+        responses=http_error_responses(401, 403, 404, 422, 500),
     )
     def extraction_templates_list(pid: str, sheet_id: int):
         return call(service.templates, pid, sheet_id)
@@ -87,6 +93,9 @@ def register_document_extraction_routes(
     @app.post(
         "/api/projects/{pid}/document-extraction/templates",
         response_model=ExtractionSavedTemplate,
+        responses=http_error_responses(401, 403, 404, 422, 500),
     )
-    def extraction_template_save(pid: str, body: ExtractionTemplateSave):
-        return call(service.save, pid, body)
+    async def extraction_template_save(
+        request: Request, pid: str, body: ExtractionTemplateSave
+    ):
+        return await read(request, service.save, pid, body)

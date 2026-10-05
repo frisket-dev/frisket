@@ -4,7 +4,12 @@ from typing import Any, ClassVar, Protocol
 
 from pydantic import model_validator
 
-from frisket.actions.document_extraction_types import ExtractionTemplate
+from frisket.actions.document_extraction_types import (
+    Box,
+    ExtractionField,
+    ExtractionTemplate,
+    PageRegion,
+)
 from frisket.actions.types import (
     ActionParams,
     ColumnRef,
@@ -67,4 +72,25 @@ def definition():
         description="Extract fields and repeated records from similarly formatted documents using drawn regions.",
         category=ActionCategory.EXTRACT,
         run=create_sheet(extract_documents, columns_from=extraction_columns),
+        examples=(
+            DocumentExtractParams(
+                source="document",
+                template=ExtractionTemplate(
+                    reference_blob_id="a" * 64,
+                    reference_fingerprint="example-positioned-document",
+                    fields=[
+                        ExtractionField(
+                            id="name",
+                            name="Name",
+                            key=PageRegion(
+                                page=1, box=Box(x0=0.1, y0=0.1, x1=0.25, y1=0.15)
+                            ),
+                            value=PageRegion(
+                                page=1, box=Box(x0=0.3, y0=0.1, x1=0.8, y1=0.15)
+                            ),
+                        )
+                    ],
+                ),
+            ),
+        ),
     )

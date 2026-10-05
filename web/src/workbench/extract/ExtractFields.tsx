@@ -24,7 +24,7 @@ export function ExtractFields({ template, reference, selected, preview, onChange
       </button>
       {preview?.documents.flatMap((document) => document.result.records.flatMap((record, index) => {
         const cell = record.cells[id];
-        return cell?.status === 'not_found' ? [<p key={`${document.row_id}-${index}`} className={styles.warning}>{document.filename}: {cell.diagnostic ?? 'Field not found'}</p>] : [];
+        return cell && (cell.status === 'not_found' || cell.diagnostic) ? [<p key={`${document.row_id}-${index}`} className={styles.warning}>{document.filename}: {cell.diagnostic ?? 'Field not found'}</p>] : [];
       }))}
     </div>;
   };

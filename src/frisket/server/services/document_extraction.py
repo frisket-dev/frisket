@@ -66,6 +66,15 @@ class DocumentExtractionService:
                 )
         finally:
             reader.close()
+        source_count = next(
+            (
+                len(fact["row_ids"])
+                for fact in reader.facts
+                if fact.get("kind") == "sheet_rows_read"
+            ),
+            0,
+        )
+        truncated |= source_count > len(documents)
         return ExtractionPreviewResponse(documents=documents, truncated=truncated)
 
     def templates(self, pid, sheet_id):
@@ -86,7 +95,7 @@ class DocumentExtractionService:
             ]
         )
 
-    def save(self, pid, body):
+    def save(self, pid, body, *, cancelled=None):
         project = self.workspace.get(pid)
         params = DocumentExtractParams(
             source=body.source,
@@ -115,7 +124,9 @@ class DocumentExtractionService:
 
         compile_template(
             body.template,
-            load_positioned_document(project, body.template.reference_blob_id).document,
+            load_positioned_document(
+                project, body.template.reference_blob_id, cancelled=cancelled
+            ).document,
         )
         if body.id is not None:
             existing = self.workspace.saved_recipe_by_id(body.id)
@@ -133,6 +144,8 @@ class DocumentExtractionService:
             "reference_row_id": body.reference_row_id,
             "params": params.model_dump(mode="json"),
         }
+        if cancelled is not None and cancelled():
+            raise TableError("action_cancelled", "Template saving was cancelled")
         entry = self.workspace.save_recipe(body.name, spec, recipe_id=body.id)
         return ExtractionSavedTemplate(
             id=entry["id"],

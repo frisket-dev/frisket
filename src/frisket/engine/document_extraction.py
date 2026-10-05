@@ -27,6 +27,7 @@ class Anchor:
     text: str
     region: PageRegion
     section_id: str | None
+    requires_colon: bool = False
 
 
 @dataclass(frozen=True)
@@ -52,7 +53,7 @@ class CompiledTemplate:
     template: ExtractionTemplate
     fields: tuple[CompiledField, ...]
     anchors: tuple[Anchor, ...]
-    section_limits: tuple[tuple[str, Anchor | None, Anchor | None], ...]
+    section_limits: tuple[tuple[str, Anchor | None, Anchor | None, Anchor | None], ...]
     document_context: tuple[AnchorContext, ...]
 
 
@@ -75,8 +76,8 @@ def _normalized(text: str) -> str:
 
 def _center_inside(inner: Box, outer: Box) -> bool:
     return (
-        outer.x0 <= (inner.x0 + inner.x1) / 2 <= outer.x1
-        and outer.y0 <= (inner.y0 + inner.y1) / 2 <= outer.y1
+        outer.x0 <= (inner.x0 + inner.x1) / 2 < outer.x1
+        and outer.y0 <= (inner.y0 + inner.y1) / 2 < outer.y1
     )
 
 
@@ -155,6 +156,34 @@ def _inside_span(region: PageRegion, span: PageSpan) -> bool:
     ) <= (span.end.page, span.end.y)
 
 
+def _annotated(region: PageRegion, template: ExtractionTemplate) -> bool:
+    return any(
+        marked.page == region.page and _overlap(marked.box, region.box)
+        for field in template.fields
+        for marked in (field.key, field.value)
+    )
+
+
+def _label_phrase(
+    tokens: list[PositionedToken], index: int, page: int, template: ExtractionTemplate
+) -> list[PositionedToken]:
+    """Include adjacent words before a colon, never selected key/value text."""
+    chosen = [tokens[index]]
+    for previous in reversed(tokens[:index]):
+        first = chosen[0]
+        height = max(first.box.y1 - first.box.y0, previous.box.y1 - previous.box.y0)
+        if (
+            abs(previous.box.y0 - first.box.y0) > height * 0.5
+            or first.box.x0 - previous.box.x1 > max(height * 1.5, 0.015)
+            or previous.box.x0 >= first.box.x0
+            or not re.fullmatch(r"[\w][\w \-/]{0,79}", previous.text.strip())
+            or _annotated(PageRegion(page=page, box=previous.box), template)
+        ):
+            break
+        chosen.insert(0, previous)
+    return chosen
+
+
 def compile_template(
     template: ExtractionTemplate, reference: PositionedDocument
 ) -> CompiledTemplate:
@@ -211,19 +240,15 @@ def compile_template(
     # Only explicit colon-terminated reference labels qualify as unselected
     # boundaries. Never train on selected values or arbitrary target prose.
     for page in reference.pages:
-        for index, token in enumerate(_tokens(reference, page.page, template)):
+        page_tokens = _tokens(reference, page.page, template)
+        for index, token in enumerate(page_tokens):
             if not re.fullmatch(r"[\w][\w \-/]{0,79}:", token.text.strip()):
                 continue
-            region = PageRegion(page=page.page, box=token.box)
+            label = _label_phrase(page_tokens, index, page.page, template)
+            region = PageRegion(page=page.page, box=_union(label))
             if any(_inside_span(region, section.rest) for section in template.sections):
                 continue
-            if any(
-                field.key.page == page.page
-                and _overlap(field.key.box, token.box)
-                or field.value.page == page.page
-                and _overlap(field.value.box, token.box)
-                for field in template.fields
-            ):
+            if _annotated(region, template):
                 continue
             section_id = next(
                 (
@@ -236,9 +261,10 @@ def compile_template(
             anchors.append(
                 Anchor(
                     f"boundary:{page.page}:{index}",
-                    _normalized(token.text),
+                    _normalized(" ".join(item.text for item in label)),
                     region,
                     section_id,
+                    requires_colon=True,
                 )
             )
     compiled: list[CompiledField] = []
@@ -256,6 +282,15 @@ def compile_template(
             for anchor in candidates
             if (anchor.region.page, anchor.region.box.y0) >= (value.page, value.box.y1)
             and abs(anchor.region.box.x0 - own.region.box.x0) < 0.08
+            and not (
+                field.section_id is None
+                and any(
+                    (value.page, value.box.y1)
+                    <= (section.first.start.page, section.first.start.y)
+                    <= (anchor.region.page, anchor.region.box.y0)
+                    for section in template.sections
+                )
+            )
         ]
         right = [
             anchor
@@ -340,11 +375,12 @@ def compile_template(
             if before and needs_lower
             else None
         )
-        upper = (
+        closing = (
             min(after, key=lambda anchor: (anchor.region.page, anchor.region.box.y0))
-            if after and needs_upper
+            if after
             else None
         )
+        upper = closing if needs_upper else None
         if any(
             (
                 lower is None
@@ -361,7 +397,7 @@ def compile_template(
             raise ValueError(
                 "Repeated starting key also occurs outside its annotated section without distinguishing labels"
             )
-        section_limits.append((section.id, lower, upper))
+        section_limits.append((section.id, lower, upper, closing))
     document_anchors = [anchor for anchor in anchors if anchor.section_id is None]
     reference_hits = {
         anchor.id: _find_hits(anchor, reference, template)
@@ -464,7 +500,12 @@ def _find_hits(
                     break
                 chosen.append(candidate)
                 if text == anchor.text:
-                    hits.append(_Hit(PageRegion(page=page.page, box=_union(chosen))))
+                    if not anchor.requires_colon or candidate.text.rstrip().endswith(
+                        ":"
+                    ):
+                        hits.append(
+                            _Hit(PageRegion(page=page.page, box=_union(chosen)))
+                        )
                     break
     return sorted(hits, key=lambda hit: (hit.start, hit.region.box.x0))
 
@@ -511,6 +552,7 @@ def _cell(
     document: PositionedDocument,
     matched: dict[str, _Hit],
     bounds: tuple[float, float] | None = None,
+    missing_final_boundary: str | None = None,
 ) -> ExtractedCell:
     hit = matched.get(field.anchor.id)
     if hit is None:
@@ -520,7 +562,10 @@ def _cell(
     left, right = value.x0 + dx, value.x1 + dx
     start = hit.region.page - 1 + value.y0 + dy
     end = hit.region.page - 1 + value.y1 + dy
+    warnings: list[str] = []
     if compiled.template.expand_values:
+        if field.bottom is None and missing_final_boundary is not None:
+            return _missing(missing_final_boundary)
         for boundary, edge in ((field.bottom, "bottom"), (field.right, "right")):
             if boundary is None:
                 continue
@@ -548,7 +593,14 @@ def _cell(
     if not compiled.template.continue_across_pages and (
         start < hit.region.page - 1 or end > hit.region.page
     ):
-        return _missing("Value continues across a page; enable Continue across pages")
+        if not compiled.template.expand_values or start < hit.region.page - 1:
+            return _missing(
+                "Value continues across a page; enable Continue across pages"
+            )
+        end = hit.region.page
+        warnings.append(
+            "Expansion stops at the page boundary because Continue across pages is off"
+        )
     regions = _regions(document, compiled.template, left, right, start, end)
     if not regions:
         return _missing(
@@ -559,12 +611,24 @@ def _cell(
         tokens, coarse = _region_tokens(document, region, compiled.template)
         if coarse:
             return _missing("Positioned text is too coarse to isolate the value region")
+        if any(
+            token.granularity == "word"
+            and _overlap(token.box, region.box)
+            and not _contains(region.box, token.box)
+            for token in _tokens(document, region.page, compiled.template)
+        ):
+            warnings.append(
+                "Value region intersects a word; resize the region or enable Expand value areas"
+            )
         text = _text(tokens)
         if text:
             pieces.append(text)
     text = "\n".join(pieces)
     return ExtractedCell(
-        text=text, status="extracted" if text else "empty", regions=regions
+        text=text,
+        status="extracted" if text else "empty",
+        regions=regions,
+        diagnostic="; ".join(dict.fromkeys(warnings)) or None,
     )
 
 
@@ -679,7 +743,7 @@ def extract_document(
         section for section in template.sections if section.id == repeat_group_id
     )
     first = fields[0]
-    _, before, after = next(
+    _, before, after, closing = next(
         item for item in compiled.section_limits if item[0] == repeat_group_id
     )
     if any(
@@ -700,6 +764,7 @@ def extract_document(
             outcome="alignment_failed",
             diagnostics=["Repeated section's surrounding labels are out of order"],
         )
+    closing_hits = hits[closing.id] if closing is not None else []
     hits = {
         identity: [hit for hit in values if scope_start <= hit.start < scope_end]
         for identity, values in hits.items()
@@ -727,6 +792,7 @@ def extract_document(
         next_hit = starts[index + 1] if index + 1 < len(starts) else None
         end = next_hit.start if next_hit else float("inf")
         page = None if template.continue_across_pages else start_hit.region.page
+        missing_final_boundary = None
         matches = _unique(group_hits, start_hit.start, end, page)
         # More than one instance of a non-start key between starts cannot be
         # assigned safely. Withhold this group instead of merging records.
@@ -775,12 +841,22 @@ def extract_document(
                 - last_matched.anchor.region.box.y0
             )
             upper = last_hit.start + tail
+            if next_hit is None and template.expand_values and closing is not None:
+                if len(closing_hits) == 1 and closing_hits[0].start > start_hit.start:
+                    upper = closing_hits[0].start
+                else:
+                    missing_final_boundary = f"Final repeated section boundary {closing.text!r} was not found unambiguously"
         upper = min(upper, scope_end)
         cells = dict(document_cells)
         cells.update(
             {
                 field.field.id: _cell(
-                    compiled, field, document, matches, (lower, upper)
+                    compiled,
+                    field,
+                    document,
+                    matches,
+                    (lower, upper),
+                    missing_final_boundary,
                 )
                 for field in fields
             }

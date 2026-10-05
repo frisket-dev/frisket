@@ -11907,7 +11907,11 @@ export type HttpContractOperationMap = {
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpExtractionDocumentResponse;
-      readonly "422": HttpHTTPValidationError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
     };
   };
   readonly "tenant.extraction_preview.post": {
@@ -11916,7 +11920,11 @@ export type HttpContractOperationMap = {
     readonly request: HttpExtractionPreviewRequest;
     readonly responses: {
       readonly "200": HttpExtractionPreviewResponse;
-      readonly "422": HttpHTTPValidationError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
     };
   };
   readonly "tenant.extraction_template_save.post": {
@@ -11925,7 +11933,11 @@ export type HttpContractOperationMap = {
     readonly request: HttpExtractionTemplateSave;
     readonly responses: {
       readonly "200": HttpExtractionSavedTemplate;
-      readonly "422": HttpHTTPValidationError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
     };
   };
   readonly "tenant.extraction_templates_list.get": {
@@ -11934,7 +11946,11 @@ export type HttpContractOperationMap = {
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpExtractionTemplatesResponse;
-      readonly "422": HttpHTTPValidationError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
     };
   };
   readonly "tenant.get_import_session.get": {

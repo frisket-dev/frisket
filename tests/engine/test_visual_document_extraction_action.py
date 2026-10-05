@@ -2,6 +2,7 @@
 
 from contextlib import closing
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -197,6 +198,9 @@ def test_api_preview_bounded_parity_persistence_and_stale_reference(tmp_path):
     service = DocumentExtractionService(workspace)
     app = FastAPI()
     register_document_extraction_routes(app, service=service)
+    from frisket.server.route_errors import register_route_error_handler
+
+    register_route_error_handler(app)
     with TestClient(app) as client:
         prefix = "/api/projects/p/document-extraction"
         geometry = client.get(
@@ -216,6 +220,9 @@ def test_api_preview_bounded_parity_persistence_and_stale_reference(tmp_path):
         preview = client.post(f"{prefix}/preview", json=body)
         assert preview.status_code == 200, preview.text
         assert len(preview.json()["documents"]) == 12
+        assert preview.json()["truncated"] is True
+        selected = client.post(f"{prefix}/preview", json={**body, "row_ids": rows[:2]})
+        assert selected.json()["truncated"] is False
         assert (
             preview.json()["documents"][1]["result"]["records"][0]["cells"]["arrested"][
                 "status"
@@ -242,8 +249,144 @@ def test_api_preview_bounded_parity_persistence_and_stale_reference(tmp_path):
             "templates"
         ]
         assert len(saved) == 1 and saved[0]["name"] == "Forms revised"
+        missing = client.post(
+            f"{prefix}/templates",
+            json={**body, "name": "Missing", "reference_row_id": rows[0], "id": 9999},
+        )
+        assert missing.status_code == 404, missing.text
         body["template"]["reference_fingerprint"] = "stale"
         assert client.post(f"{prefix}/preview", json=body).status_code == 422
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "empty_text",
+        "missing_dimensions",
+        "malformed_json",
+        "null_page",
+        "nonobject_box",
+    ],
+)
+def test_newer_unusable_ocr_artifact_does_not_permanently_invalidate_template(
+    tmp_path, defect
+):
+    with closing(Project.create(tmp_path / "project")) as project:
+        sheet, column, rows, template = seed(project, count=1)
+        metadata = {
+            "engine": "tesseract",
+            "page_images": {"1": {"width": 100, "height": 100}},
+        }
+        if defect == "missing_dimensions":
+            metadata["page_images"]["1"]["width"] = None
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            blob_hash=template.reference_blob_id,
+            media_type="image/png",
+            metadata=metadata,
+        )
+        record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="region",
+            page_start=None if defect == "null_page" else 1,
+            bbox=[42]
+            if defect == "nonobject_box"
+            else [{"x0": 0.1, "y0": 0.1, "x1": 0.2, "y1": 0.13}],
+            quote=None if defect == "empty_text" else "NAME",
+        )
+        if defect == "malformed_json":
+            project.db.execute(
+                "UPDATE source_artifacts SET metadata='{' WHERE id=?", (artifact["id"],)
+            )
+            project.db.commit()
+        loaded = load_positioned_document(project, template.reference_blob_id)
+        assert loaded.document.source_fingerprint == template.reference_fingerprint
+        result = run_typed_create_sheet_action(
+            project, "p", typed_action_for_request(request(sheet, template))
+        )
+        assert result.status == "completed", result.errors
+        assert result.outputs[0].ref["row_count"] == 1
+
+
+def test_one_corrupt_document_does_not_discard_other_documents(tmp_path):
+    with closing(Project.create(tmp_path / "project")) as project:
+        sheet, column, rows, template = seed(project)
+        project.db.execute(
+            "UPDATE source_artifacts SET metadata='{' WHERE blob_hash != ?",
+            (template.reference_blob_id,),
+        )
+        project.db.commit()
+        result = run_typed_create_sheet_action(
+            project, "p", typed_action_for_request(request(sheet, template))
+        )
+        assert result.status == "completed", result.errors
+        assert result.outputs[0].ref["row_count"] == 1
+        assert any(
+            f"Document row {rows[1]}: alignment_failed" in warning
+            for warning in result.warnings
+        )
+
+
+def test_cancelled_template_save_does_not_persist(tmp_path):
+    from frisket.actions.types import TableError
+    from frisket.contracts.http.document_extraction import ExtractionTemplateSave
+
+    workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
+    workspace.create("Test", project_id="p")
+    sheet, column, rows, template = seed(workspace.get("p"), count=1)
+    service = DocumentExtractionService(workspace)
+    body = ExtractionTemplateSave(
+        sheet_id=sheet,
+        source="document",
+        reference_row_id=rows[0],
+        template=template,
+        name="Cancelled",
+    )
+    with pytest.raises(TableError, match="cancelled"):
+        service.save("p", body, cancelled=lambda: True)
+    assert workspace.saved_recipes() == []
+
+
+def test_missing_pdf_bytes_is_a_document_failure_not_a_batch_failure(
+    tmp_path, monkeypatch
+):
+    with closing(Project.create(tmp_path / "project")) as project:
+        sheet, column, rows, template = seed(project, count=1)
+        missing_blob = project.add_blob(
+            b"missing source", filename="missing.pdf", mime="application/pdf"
+        )
+        missing_row = project.add_rows(
+            sheet,
+            [
+                {
+                    "document": {
+                        "blob": missing_blob,
+                        "filename": "missing.pdf",
+                        "mime": "application/pdf",
+                    }
+                }
+            ],
+            {"document": column},
+        )[0]
+        original = project.materialize_blob
+
+        def materialize(blob_id):
+            if blob_id == missing_blob:
+                raise FileNotFoundError("unreadable bytes")
+            return original(blob_id)
+
+        monkeypatch.setattr(project, "materialize_blob", materialize)
+        result = run_typed_create_sheet_action(
+            project, "p", typed_action_for_request(request(sheet, template))
+        )
+        assert result.status == "completed", result.errors
+        assert result.outputs[0].ref["row_count"] == 1
+        assert any(
+            f"Document row {missing_row}: alignment_failed" in warning
+            for warning in result.warnings
+        )
 
 
 def test_missing_geometry_is_not_an_empty_success(tmp_path):
@@ -370,6 +513,7 @@ def test_multiregion_publication_does_not_repeat_whole_value_as_page_quote(
                                 text="first\nsecond",
                                 status="extracted",
                                 regions=regions,
+                                diagnostic="Text intersects the selected boundary",
                             ),
                             "arrested": ExtractedCell(
                                 text="X",
@@ -400,6 +544,7 @@ def test_multiregion_publication_does_not_repeat_whole_value_as_page_quote(
             (1, None),
             (2, None),
         ]
+        assert any("Name: Text intersects" in warning for warning in result.warnings)
 
 
 def test_zero_repeats_yield_no_fabricated_rows_but_document_outcome(tmp_path):
