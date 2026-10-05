@@ -159,7 +159,32 @@ def test_scalar_quality_is_reported_once_per_referenced_column(tmp_path):
             "invalid": 0,
         }
     }
+    assert result["row_count"] == 5
+    assert result["denominators"] == {}
     assert "quality" not in result["groups"][0]
+
+    percentage = evaluate_analytics(
+        project,
+        {
+            "sheet_id": sheet,
+            "filter": {"status": {"eq": "awarded"}},
+            "metrics": [
+                {
+                    "id": "sum",
+                    "kind": "sum",
+                    "column_id": columns["amount"],
+                    "percent_of_total": True,
+                }
+            ],
+        },
+        {"kind": "sheet", "sheet_id": sheet},
+    )
+    assert percentage["denominators"]["sum"] == {
+        "value": 9,
+        "reason": None,
+        "mixed_sign": True,
+    }
+    assert percentage["groups"][0]["percentages"]["sum"] == 100.0
     project.close()
 
 

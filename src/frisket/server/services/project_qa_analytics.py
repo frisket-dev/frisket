@@ -260,10 +260,19 @@ def _evaluate(
         + ")"
     )
     median_joins = _median_ctes(ctes, request, columns, group_fields)
-    denominator_fields = _denominator_fields(request, columns)
-    ctes.append(
-        "denominators AS (SELECT " + ", ".join(denominator_fields) + " FROM prepared)"
-    )
+    if not request.groups and not any(
+        metric.percent_of_total for metric in request.metrics
+    ):
+        ctes.append(
+            "denominators AS (SELECT row_count AS full_row_count FROM aggregated)"
+        )
+    else:
+        denominator_fields = _denominator_fields(request, columns)
+        ctes.append(
+            "denominators AS (SELECT "
+            + ", ".join(denominator_fields)
+            + " FROM prepared)"
+        )
 
     select_fields = ["a.*", *median_joins[0], "d.*"]
     from_sql = "aggregated a " + median_joins[1] + " CROSS JOIN denominators d"
