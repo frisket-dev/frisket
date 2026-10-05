@@ -131,6 +131,9 @@ def rebuild_run_review_stats(db: sqlite3.Connection, run_id: int) -> None:
         "SUM(result.confidence IS NOT NULL) AS confidence_count "
         "FROM results result JOIN run_review_fields field "
         "ON field.run_id=result.run_id AND field.column_id=result.column_id "
+        "JOIN columns column_meta ON column_meta.id=result.column_id "
+        "JOIN rows row_meta ON row_meta.id=result.row_id "
+        "AND row_meta.sheet_id=column_meta.sheet_id "
         f"WHERE result.run_id=? AND field.is_primary=1 AND result.outcome IN ({outcomes}) "
         "GROUP BY result.column_id",
         (run_id, *REVIEWABLE_OUTCOMES),
@@ -160,6 +163,9 @@ def rebuild_run_review_stats(db: sqlite3.Connection, run_id: int) -> None:
         "AND result.review_decision IS NULL) AS pending_count "
         "FROM results result JOIN run_review_fields field "
         "ON field.run_id=result.run_id AND field.column_id=result.column_id "
+        "JOIN columns column_meta ON column_meta.id=result.column_id "
+        "JOIN rows row_meta ON row_meta.id=result.row_id "
+        "AND row_meta.sheet_id=column_meta.sheet_id "
         f"WHERE result.run_id=? AND field.is_primary=1 AND result.outcome IN ({outcomes}) "
         "GROUP BY result.row_id) bundle",
         (run_id, *REVIEWABLE_OUTCOMES),
@@ -213,6 +219,9 @@ def adjust_review_stats_for_result_transition(
         "FROM results result JOIN runs ON runs.id=result.run_id "
         "LEFT JOIN run_review_fields field ON field.run_id=result.run_id "
         "AND field.column_id=result.column_id "
+        "JOIN columns column_meta ON column_meta.id=result.column_id "
+        "JOIN rows row_meta ON row_meta.id=result.row_id "
+        "AND row_meta.sheet_id=column_meta.sheet_id "
         "WHERE result.run_id=? AND result.row_id=? AND result.column_id=?",
         (int(run_id), int(row_id), int(column_id)),
     ).fetchone()
@@ -247,6 +256,9 @@ def adjust_review_stats_for_result_transition(
     other_pending = db.execute(
         "SELECT 1 FROM results sibling JOIN run_review_fields field "
         "ON field.run_id=sibling.run_id AND field.column_id=sibling.column_id "
+        "JOIN columns column_meta ON column_meta.id=sibling.column_id "
+        "JOIN rows row_meta ON row_meta.id=sibling.row_id "
+        "AND row_meta.sheet_id=column_meta.sheet_id "
         "WHERE sibling.run_id=? AND sibling.row_id=? AND field.is_primary=1 "
         "AND sibling.column_id<>? "
         f"AND sibling.outcome IN ({outcomes}) "

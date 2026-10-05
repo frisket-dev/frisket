@@ -2967,10 +2967,11 @@ class RunResultStore:
             "UPDATE runs SET status=?, finished_at=datetime('now') WHERE id=?",
             (status, run_id),
         )
-        from .review_stats import rebuild_run_review_stats
+        from .review_stats import mark_run_review_stats_dirty, rebuild_run_review_stats
 
-        rebuild_run_review_stats(self.db, run_id)
+        mark_run_review_stats_dirty(self.db, run_id)
         if commit:
+            rebuild_run_review_stats(self.db, run_id)
             self.db.commit()
 
     def request_cancel(self, run_id: int, *, commit: bool = True) -> bool:

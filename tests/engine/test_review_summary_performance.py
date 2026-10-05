@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from frisket.engine.store import Project
+from frisket.engine.store.review_stats import mark_run_review_stats_dirty
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.value_codec import encode_stored_value
 
@@ -72,7 +73,7 @@ def _publish_managed_results(
                 for column_id in column_ids
             ],
         )
-    project.db.commit()
+    RunResultStore(project).finish_run(run_id)
     return run_id
 
 
@@ -115,17 +116,19 @@ def test_large_review_summary_keeps_exact_active_visibility_and_primary_semantic
             row_ids=row_ids,
         )
 
-        # Historical primary results are not active, support-only results do
-        # not keep a bundle pending, and map.find owns fields whose names would
-        # conventionally mark them as support.
-        assert project.refresh_pending_review_summary() == 1_200
+        # A partially replaced run remains one stable review task while any of
+        # its outputs are current. Support fields do not add items, while
+        # map.find owns fields whose names conventionally mark them as support.
+        assert project.refresh_pending_review_summary() == 1_260
         manifest = json.loads((project.path / "manifest.json").read_text())
-        assert manifest["pending_review_count"] == 1_200
+        assert manifest["pending_review_count"] == 1_260
 
-        project.db.execute(
-            "UPDATE results SET review_state='verified' "
-            "WHERE run_id=? AND row_id=? AND column_id=?",
-            (replacement_run_id, replacement_rows[0], answer_id),
+        RunResultStore(project).set_result_review_state(
+            replacement_run_id,
+            replacement_rows[0],
+            answer_id,
+            "verified",
+            commit=False,
         )
         project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (row_ids[1],))
 
@@ -148,12 +151,13 @@ def test_large_review_summary_keeps_exact_active_visibility_and_primary_semantic
             "INSERT INTO cell_result_heads (column_id,row_id,run_id) VALUES (?,?,?)",
             (answer_id, other_row_id, replacement_run_id),
         )
+        mark_run_review_stats_dirty(project.db, replacement_run_id)
         project.db.commit()
 
-        # One verified active answer and one hidden row remove two normal-map
-        # bundles; the hidden row also removes its map.find bundle. A malformed
-        # cross-sheet result is excluded by the row/column membership join.
-        assert project.refresh_pending_review_summary() == 1_197
+        # The decision resolves one stable bundle. Row visibility does not
+        # rewrite historical totals, and malformed cross-sheet data remains
+        # excluded by the membership join.
+        assert project.refresh_pending_review_summary() == 1_259
 
         project.db.execute("UPDATE sheets SET hidden=1 WHERE id=?", (sheet_id,))
         project.db.commit()

@@ -73,8 +73,7 @@ def _managed_run(
         "ON CONFLICT(column_id,row_id) DO UPDATE SET run_id=excluded.run_id",
         [(column_id, row_id, run_id) for row_id in row_ids for column_id in columns],
     )
-    store.finish_run(run_id, commit=False)
-    project.db.commit()
+    store.finish_run(run_id)
     return run_id
 
 
