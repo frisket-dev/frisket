@@ -16,6 +16,7 @@ from frisket.engine.store.review_stats import (
     ensure_run_review_stats,
 )
 from frisket.engine.store.runs import REVIEWABLE_OUTCOMES_SQL, RunResultStore
+from frisket.engine.runner.review_ordering import select_confidence_bundle_keys
 
 
 _ACTIVE_HEAD_JOIN = (
@@ -336,7 +337,24 @@ def review_bundles(
         LIMIT ? OFFSET ?
         """
     key_params = (*order_params, *params, limit, offset)
-    keys = project.db.execute(keys_sql, key_params).fetchall()
+    if order == "confidence" and run_id is not None:
+        keys = select_confidence_bundle_keys(
+            project,
+            run_id=run_id,
+            sheet_id=sheet_id,
+            limit=limit,
+            offset=offset,
+            include_reviewed=include_reviewed,
+            field_id=field_id,
+        )
+    else:
+        keys = project.db.execute(keys_sql, key_params).fetchall()
+
+    return _hydrate_review_bundles(project, keys)
+
+
+def _hydrate_review_bundles(project: Project, keys: list[Any]) -> list[dict[str, Any]]:
+    """Build review payloads for ordered bundle keys selected by any strategy."""
 
     source_contexts = _source_contexts(
         project,
