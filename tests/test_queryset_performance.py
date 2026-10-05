@@ -103,12 +103,14 @@ def test_numeric_filtered_pages_keep_exact_totals_at_page_boundaries(
     project, sheet_id, _column_id, _row_ids = _number_sheet(tmp_path)
     service = SheetGridService(_OneProjectWorkspace(project))
     filter_json = json.dumps({"score": {"gte": 2000}})
+    sort_json = json.dumps([{"column": "score", "dir": "desc"}])
     try:
         for limit, offset, total in ((0, 0, 3), (2, 99, 3)):
             resolved = resolve_sheet_filter_rows(
                 project,
                 sheet_id,
                 filter_=filter_json,
+                sort=sort_json,
                 limit=limit,
                 offset=offset,
             )
@@ -116,6 +118,7 @@ def test_numeric_filtered_pages_keep_exact_totals_at_page_boundaries(
                 "project",
                 sheet_id,
                 filter_=filter_json,
+                sort=sort_json,
                 limit=limit,
                 offset=offset,
             )
@@ -124,13 +127,59 @@ def test_numeric_filtered_pages_keep_exact_totals_at_page_boundaries(
 
         empty_filter = json.dumps({"score": {"gte": 9999}})
         resolved = resolve_sheet_filter_rows(
-            project, sheet_id, filter_=empty_filter, limit=2
+            project, sheet_id, filter_=empty_filter, sort=sort_json, limit=2
         )
-        grid = service.sheet_data("project", sheet_id, filter_=empty_filter, limit=2)
+        grid = service.sheet_data(
+            "project", sheet_id, filter_=empty_filter, sort=sort_json, limit=2
+        )
         assert (resolved.row_ids, resolved.total) == ([], 0)
         assert (grid["rows"], grid["total"]) == ([], 0)
     finally:
         project.close()
+
+
+def test_full_range_default_order_keeps_bounded_page_query(tmp_path: Path) -> None:
+    project = Project.create(tmp_path / "query-full-range-work.frisket")
+    try:
+        sheet_id = project.add_sheet("Scores")
+        column_id = project.add_column(sheet_id, "score", type="number")
+        row_ids = project.add_rows(
+            sheet_id,
+            [{"score": value} for value in range(3_000)],
+            {"score": column_id},
+        )
+        filter_json = json.dumps({"score": {"gte": 0}})
+        plan = sheet_row_scope_plan(project, sheet_id, filter_=filter_json)
+
+        def count_and_page():
+            total = int(
+                project.db.execute(
+                    f"SELECT COUNT(*) FROM {plan.filter_from_sql} "
+                    f"WHERE {plan.where_sql}",
+                    plan.filter_params,
+                ).fetchone()[0]
+            )
+            rows = project.db.execute(
+                f"SELECT r.id FROM {plan.from_sql} WHERE {plan.where_sql} "
+                f"ORDER BY {', '.join(plan.order_parts)} LIMIT 10 OFFSET 0",
+                plan.select_params,
+            ).fetchall()
+            return total, [int(row["id"]) for row in rows]
+
+        old_page, old_steps = _vm_steps(project, count_and_page)
+        resolved, resolved_steps = _vm_steps(
+            project,
+            lambda: resolve_sheet_filter_rows(
+                project, sheet_id, filter_=filter_json, limit=10
+            ),
+        )
+    finally:
+        project.close()
+
+    expected = (3_000, row_ids[:10])
+    assert old_page == expected
+    assert (resolved.total, resolved.row_ids) == expected
+    assert resolved_steps <= old_steps * 1.05
 
 
 def test_numeric_filter_and_sort_reduce_sqlite_vm_work(tmp_path: Path) -> None:
@@ -204,12 +253,15 @@ def test_numeric_filter_and_sort_reduce_sqlite_vm_work(tmp_path: Path) -> None:
                 limit=10,
             ),
         )
-        grid = SheetGridService(_OneProjectWorkspace(project)).sheet_data(
-            "project",
-            sheet_id,
-            filter_=filter_json,
-            sort=sort_json,
-            limit=10,
+        grid, grid_steps = _vm_steps(
+            project,
+            lambda: SheetGridService(_OneProjectWorkspace(project)).sheet_data(
+                "project",
+                sheet_id,
+                filter_=filter_json,
+                sort=sort_json,
+                limit=10,
+            ),
         )
     finally:
         project.close()
@@ -222,6 +274,7 @@ def test_numeric_filter_and_sort_reduce_sqlite_vm_work(tmp_path: Path) -> None:
     assert optimized_count_steps < legacy_count_steps * 0.7
     assert optimized_page_steps < legacy_page_steps * 0.7
     assert resolved_steps < (optimized_count_steps + optimized_page_steps) * 0.7
+    assert grid_steps < (legacy_count_steps + legacy_page_steps) * 0.9
 
 
 def test_correlated_scope_query_binds_date_filter_parameters(tmp_path: Path) -> None:

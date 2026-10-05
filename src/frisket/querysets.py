@@ -669,7 +669,10 @@ def _sheet_row_scope_plan(
         joins=tuple(joins),
         join_params=tuple(join_params),
         use_window_count_page=(
-            join_live_values and bool(required_numeric_columns) and row_ids is None
+            join_live_values
+            and bool(required_numeric_columns)
+            and bool(sorts)
+            and row_ids is None
         ),
     )
 
