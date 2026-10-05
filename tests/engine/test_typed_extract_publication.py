@@ -239,7 +239,7 @@ def test_text_citation_repairs_malformed_source_and_keeps_anchors(source):
             "summary": {
                 "value": "found",
                 "evidence": [
-                    {"source": "body", "quote": "before \ufffd"},
+                    {"source": "body", "quote": "before \ud800"},
                     {"source": "body", "quote": "after 🚀"},
                 ],
             }

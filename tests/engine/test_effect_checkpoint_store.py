@@ -92,6 +92,34 @@ def test_complete_runs_accounting_in_the_same_transaction(store) -> None:
     assert after["accounting_persisted"] is True
 
 
+def test_complete_repairs_returned_payload_for_live_read_and_replay(store) -> None:
+    checkpoint_id, unit = _reserved(store)
+    calls: list[dict] = []
+
+    def accrue(checkpoint: dict) -> float:
+        calls.append(checkpoint)
+        return 0.25
+
+    payload = {
+        "quote": "before \ud800 after",
+        "nested": {"key\udcff": ["\ud83d\ude00", "ok"]},
+    }
+    assert store.complete(checkpoint_id, **unit, payload=payload, accrue=accrue) == (
+        pytest.approx(0.25)
+    )
+
+    expected = {
+        "quote": "before � after",
+        "nested": {"key�": ["😀", "ok"]},
+    }
+    after = store.get(checkpoint_id)
+    assert after is not None
+    assert after["payload"] == expected
+    assert after["accounting_persisted"] is True
+    assert len(calls) == 1
+    assert store.returned_for_replay(**unit)["payload"] == expected
+
+
 def test_complete_rolls_back_when_accounting_raises(store) -> None:
     checkpoint_id, unit = _reserved(store)
 
@@ -192,17 +220,23 @@ def test_account_returned_is_idempotent(store) -> None:
         return 0.5
 
     first = store.account_returned(
-        checkpoint_id, **unit, payload={"cost": 0.0}, accrue=accrue
+        checkpoint_id,
+        **unit,
+        payload={"cost": 0.0, "quote": "replay \ud800"},
+        accrue=accrue,
     )
     second = store.account_returned(
-        checkpoint_id, **unit, payload={"cost": 0.0}, accrue=accrue
+        checkpoint_id,
+        **unit,
+        payload={"cost": 0.0, "quote": "replay \ud800"},
+        accrue=accrue,
     )
     assert first == pytest.approx(0.5)
     assert second == 0.0
     assert len(calls) == 1
     after = store.get(checkpoint_id)
     assert after is not None
-    assert after["payload"] == {"cost": 0.0}
+    assert after["payload"] == {"cost": 0.0, "quote": "replay �"}
     assert after["accounting_persisted"] is True
 
 
