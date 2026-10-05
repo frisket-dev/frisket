@@ -1286,8 +1286,11 @@ export type EngineTier = 'local' | 'sidecar' | 'hosted';
 export interface ClassificationOptionDeclaration {
   field_types: Array<'category' | 'score' | 'integer' | 'number' | 'boolean' | 'text'>;
   max_fields: number;
+  min_labels?: number;
+  max_labels?: number | null;
   include_confidence: boolean;
   include_justification: boolean;
+  behavior_note?: string;
 }
 
 export interface EngineOption {

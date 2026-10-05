@@ -4,6 +4,7 @@ from typing import Any, Self
 
 from pydantic import Field, field_validator, model_validator
 
+from frisket.actions.classify_types import Classifier, ClassifyField
 from frisket.actions.core import ActionCategory, action, model_rows
 from frisket.actions.extract.grounding import complete_extraction
 from frisket.actions.extraction_types import (
@@ -16,14 +17,34 @@ from frisket.actions.model_rows import _ModelRowsParams
 from frisket.actions.types import (
     ColumnRef,
     DynamicOutput,
+    EngineRef,
     ModelPrompt,
+    ModelRef,
+    Outcome,
     Row,
+    RowError,
     RowResult,
+)
+from frisket.contracts.classification import CLEF_ENGINE_IDS, validate_classification
+from frisket.contracts.clef import (
+    classification_context,
+    classification_text,
+    clef_questions,
+    validate_clef_request,
 )
 from frisket.ops.extraction import extract_response_schema, render_extract_messages
 
 
 class ExtractParams(_ModelRowsParams):
+    engine: EngineRef[Classifier] = Field(
+        default=EngineRef[Classifier]("llm"),
+        title="Engine",
+        description="Model, Clef-flash (model server), or Clef (Cloudflare).",
+    )
+    model: ModelRef | None = Field(
+        default=None,
+        description="Provider/model id; required only for the Model engine.",
+    )
     instruction: str = Field(
         default="",
         json_schema_extra={"x-frisket-input": "textarea"},
@@ -33,6 +54,13 @@ class ExtractParams(_ModelRowsParams):
     source_document_columns: list[ColumnRef[Any]] = Field(default_factory=list)
     grounding: ExtractGrounding | None = Field(default=ExtractGrounding(enabled=True))
     evidence_policy: ExtractEvidencePolicy | None = None
+
+    @field_validator("engine")
+    @classmethod
+    def _known_engine(cls, value: EngineRef[Classifier]) -> EngineRef[Classifier]:
+        if value.root not in {"llm", *CLEF_ENGINE_IDS}:
+            raise ValueError("engine must be one of llm, clef-flash, clef")
+        return value
 
     @field_validator("instruction")
     @classmethod
@@ -44,6 +72,33 @@ class ExtractParams(_ModelRowsParams):
         extraction_output_fields(
             self.fields, include_confidence=self.include_confidence
         )
+        if self.engine.root == "llm":
+            if self.model is None:
+                raise ValueError("the llm engine requires a model")
+            return self
+        if self.model is not None:
+            raise ValueError(f"the {self.engine.root} engine does not use a model")
+        validate_classification(
+            self.engine.root,
+            [field.model_dump() for field in self.fields],
+            include_confidence=self.include_confidence,
+        )
+        validate_clef_request(
+            self.engine.root,
+            clef_questions(
+                [field.model_dump() for field in self.fields],
+                classification_context(self.model_dump()),
+            ),
+        )
+        if (
+            self.grounding
+            and (self.grounding.enabled or self.grounding.citation_required)
+        ) or (self.evidence_policy and self.evidence_policy.citation_required):
+            raise ValueError(
+                "Clef does not support citations or grounding. "
+                "Turn Citations Off or choose a compatible model; "
+                "citation-required policies need a compatible model."
+            )
         return self
 
 
@@ -90,6 +145,37 @@ def complete_extract(
     )
 
 
+async def extract_row(
+    params: ExtractParams, row: Row, classifier: Classifier
+) -> RowResult[DynamicOutput]:
+    """Keep each admitted decision and probability in its original cell outcome."""
+    fields = tuple(
+        ClassifyField(
+            name=field.name,
+            type=field.type,
+            description=field.description,
+            labels=field.labels,
+        )
+        for field in params.fields
+    )
+    outcomes = await classifier.classify(row, classification_text(row.values), fields)
+    missing = [field.name for field in params.fields if field.name not in outcomes]
+    if missing:
+        raise RowError(
+            "classify_output_missing",
+            f"classifier returned no outcome for {', '.join(missing)}",
+        )
+    values: dict[str, Any] = {
+        field.name: outcomes[field.name] for field in params.fields
+    }
+    if params.include_confidence:
+        first = outcomes[params.fields[0].name]
+        values[f"{params.fields[0].name}_confidence"] = Outcome.ok(
+            getattr(first, "confidence", None)
+        )
+    return RowResult(output=DynamicOutput(values))
+
+
 EXTRACT = action(
     examples=(
         ExtractParams(
@@ -105,6 +191,7 @@ EXTRACT = action(
     run=model_rows(
         extract,
         source_param="source",
+        direct=extract_row,
         complete=complete_extract,
         dynamic_outputs=extract_outputs,
     ),

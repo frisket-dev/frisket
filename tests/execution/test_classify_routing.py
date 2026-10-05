@@ -187,12 +187,19 @@ def test_classify_model_call_receipt_binds_to_route(
         assert fact["credential_source"] == "project_key"
 
 
-def test_classify_quote_measures_selected_text_and_questions(tmp_path, monkeypatch):
+@pytest.mark.parametrize("action_id", ["map.classify", "map.extract"])
+def test_classify_quote_measures_selected_text_and_questions(
+    tmp_path, monkeypatch, action_id
+):
     from frisket.actions.registry import ACTION_REGISTRY
     from frisket.actions.system import BoundTypedActionRequest
     from frisket.actions.types import ActionRequest, SheetRows
     from frisket.ai.llm import ModelRouter
-    from frisket.contracts.clef import clef_questions, estimate_clef_input_tokens
+    from frisket.contracts.clef import (
+        classification_context,
+        clef_questions,
+        estimate_clef_input_tokens,
+    )
     from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
     from frisket.engine.store import Project
     from frisket.execution.provider import (
@@ -213,19 +220,27 @@ def test_classify_quote_measures_selected_text_and_questions(tmp_path, monkeypat
             {"body": column},
         )
         fields = [{"name": "topic", "type": "category", "labels": ["a", "b"]}]
+        parameters = {
+            "source": ["body"],
+            "engine": "clef",
+            "fields": fields,
+            "context": "News archive",
+        }
+        if action_id == "map.classify":
+            # The public field default is category; durable identities omit it.
+            parameters["fields"] = [{"name": "topic", "labels": ["a", "b"]}]
+        else:
+            parameters.update(
+                grounding=None, instruction="Decide only from explicit content."
+            )
         plan = build_typed_map_rows_plan(
             project,
             BoundTypedActionRequest.bind(
-                ACTION_REGISTRY.get("map.classify"),
+                ACTION_REGISTRY.get(action_id),
                 ActionRequest(
-                    action_id="map.classify",
+                    action_id=action_id,
                     scope=SheetRows(sheet_id=sheet, row_ids=row_ids[:2]),
-                    params={
-                        "source": ["body"],
-                        "engine": "clef",
-                        "fields": fields,
-                        "context": "News archive",
-                    },
+                    params=parameters,
                     idempotency_key="classify-quote",
                 ),
             ),
@@ -244,7 +259,7 @@ def test_classify_quote_measures_selected_text_and_questions(tmp_path, monkeypat
         basis = resolved.cost_basis
         assert isinstance(basis, PricedCostBasis)
         expected = estimate_clef_input_tokens(
-            "hello", clef_questions(fields, "News archive")
+            "hello", clef_questions(fields, classification_context(parameters))
         )
         assert int(basis.estimated_quantity) == expected
         claims = {

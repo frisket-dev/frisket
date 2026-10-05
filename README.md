@@ -172,13 +172,23 @@ frisket ./my-workspace
 
 ## Extras
 
-### Clef classification
+### Clef classification and extraction
 
-The Classify action includes **Clef Flash** for an operator-managed model server
+The Classify and Extract actions include **Clef Flash** for an operator-managed model server
 and **Clef (Cloudflare)** for Cloudflare Workers AI. Both accept up to 64 output
 fields: categories with 2–254 labels, booleans, or integer scores from 0 to 10.
 They can include confidence values; justifications and free-text outputs are
-not supported. Choose the engine directly in Classify; no separate model is needed.
+not supported. Choose the engine directly; no separate model is needed.
+One engine answers every field in the request. Clef always selects an answer,
+even when the input is inconclusive; it does not return “not found.” Confidence
+is the probability of the selected answer.
+
+For Extract, use text source columns and set **Citations** to **Off**. Clef does
+not support citations, image input, free text, arbitrary numbers, lists, or JSON
+objects. Switching engines keeps existing fields and citation settings visible;
+incompatible settings must be corrected before running. Choose a generative model
+for those settings. Extract's instructions, dataset context, required fields and
+output column names also apply to Clef.
 
 For Clef Flash, install the model server's `classify-clef` extra and configure
 `FRISKET_MODELS_URL` and `FRISKET_MODELS_TOKEN` as above. It becomes available

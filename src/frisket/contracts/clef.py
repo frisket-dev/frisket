@@ -7,6 +7,70 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from frisket.contracts.classification import validate_classification
+
+
+CLEF_FLASH_MAX_TEXT_CHARS = 65536
+CLEF_FLASH_MAX_SCHEMA_CHARS = 65536
+CLEF_FLASH_MAX_TOTAL_OPTIONS = 512
+CLEF_FLASH_MAX_DESCRIPTION_CHARS = 4096
+
+
+def validate_clef_request(
+    engine: str,
+    questions: Mapping[str, Mapping[str, Any]],
+    text: str | None = None,
+) -> None:
+    """Check the Flash worker's bounds on the rendered request before admission."""
+    if engine != "clef-flash":
+        return
+    if text is not None and len(text) > CLEF_FLASH_MAX_TEXT_CHARS:
+        raise ValueError(
+            f"Clef Flash input exceeds {CLEF_FLASH_MAX_TEXT_CHARS} characters; "
+            "shorten the input."
+        )
+    chars = options = 0
+    for name, question in questions.items():
+        instruction = question.get("instructions", "")
+        criteria = question.get("criteria") or {}
+        descriptions = criteria.values() if isinstance(criteria, Mapping) else criteria
+        if any(
+            len(description) > CLEF_FLASH_MAX_DESCRIPTION_CHARS
+            for description in (instruction, *descriptions)
+        ):
+            raise ValueError(
+                "Clef Flash question instructions and label descriptions must each "
+                f"fit {CLEF_FLASH_MAX_DESCRIPTION_CHARS} characters; "
+                "shorten the context, instructions, or labels."
+            )
+        chars += len(name) + len(instruction)
+        options += 2 if question["type"] == "noul" else len(criteria)
+        if isinstance(criteria, Mapping):
+            chars += sum(len(key) + len(value) for key, value in criteria.items())
+        else:
+            chars += sum(map(len, criteria))
+    if options > CLEF_FLASH_MAX_TOTAL_OPTIONS:
+        raise ValueError(
+            f"Clef Flash supports at most {CLEF_FLASH_MAX_TOTAL_OPTIONS} total "
+            "options; reduce the fields or labels."
+        )
+    if chars > CLEF_FLASH_MAX_SCHEMA_CHARS:
+        raise ValueError(
+            f"Clef Flash question schema exceeds {CLEF_FLASH_MAX_SCHEMA_CHARS} "
+            "characters; shorten the context, instructions, or labels."
+        )
+
+
+def classification_context(params: Mapping[str, Any]) -> str:
+    """One effective context for classifier execution and question token estimates."""
+    context = params.get("context") or ""
+    instruction = params.get("instruction") or ""
+    if not instruction:
+        return context
+    return "\n\n".join(
+        part for part in (context, f"Extraction instructions: {instruction}") if part
+    )
+
 
 def classification_text(values: Mapping[str, Any]) -> str:
     return "\n".join(
@@ -19,8 +83,7 @@ def classification_text(values: Mapping[str, Any]) -> str:
 def clef_questions(
     fields: Sequence[Mapping[str, Any]], context: str = ""
 ) -> dict[str, dict[str, Any]]:
-    if not 1 <= len(fields) <= 64:
-        raise ValueError("Clef requires between 1 and 64 fields")
+    validate_classification("clef", fields)
     questions = {}
     for index, field in enumerate(fields):
         kind = field["type"]
@@ -34,8 +97,6 @@ def clef_questions(
             labels = (
                 field["labels"] if kind == "category" else list(map(str, range(11)))
             )
-            if not 2 <= len(labels) <= 254:
-                raise ValueError("Clef category fields require 2 to 254 labels")
             descriptions = field.get("label_descriptions", {})
             question.update(
                 type="choice",
@@ -48,8 +109,6 @@ def clef_questions(
             )
             if kind == "score":
                 question["instructions"] += "\nChoose an integer score from 0 to 10."
-        else:
-            raise ValueError("Clef supports category, boolean, and score fields only")
         # User column names and labels may contain spaces, Unicode or punctuation.
         # They are descriptions, never provider-constrained question/option IDs.
         questions[f"q{index}"] = question

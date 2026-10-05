@@ -21,6 +21,7 @@ export function ClassifyParamsBody({ params, setParams, errors, Field, onParamIn
   return <>
     <Field name="source" />
     <Field name="engine" />
+    {engine?.description && <p className="form-hint">{engine.description}</p>}
     <StructuredFieldsEditor actionKind="map.classify" maxFields={maxFields}
       fieldTypes={fieldTypes}
       value={(params.fields ?? []).map((field) => ({

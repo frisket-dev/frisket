@@ -470,6 +470,7 @@ def _classify_cost_basis(
     composition: ExecutionComposition,
 ) -> tuple[CostBasis, int | None]:
     from frisket.contracts.clef import (
+        classification_context,
         classification_text,
         clef_questions,
         estimate_clef_input_tokens,
@@ -481,8 +482,10 @@ def _classify_cost_basis(
     if resolved is None:
         return OperatorBorneZeroCost(), None
     funding, target_id, engine, offering = resolved
-    params = spec["params"]
-    questions = clef_questions(params["fields"], params.get("context") or "")
+    # The durable identity deliberately omits unset defaults. Execution already
+    # has validated typed Params; use the same fully populated fields for cost.
+    params = recipe._params.model_dump(mode="json")
+    questions = clef_questions(params["fields"], classification_context(params))
     col_map = {c["name"]: c["id"] for c in project.columns(spec["sheet_id"])}
     input_tokens = 0
     for row_id in target_rows(project, dict(spec)):

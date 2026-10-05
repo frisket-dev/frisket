@@ -309,7 +309,8 @@ const EXACT_CUSTOMIZATIONS = {
   'map.extract': {
     body: ExtractParamsBody,
     inlineDiagnosticFields: (params): readonly GeneratedFieldName<'map.extract'>[] => [
-      'source', 'fields', 'instruction', 'model', 'include_confidence', 'context',
+      'source', 'engine', 'fields', 'instruction', 'include_confidence', 'context',
+      ...((params.engine ?? 'llm') === 'llm' ? ['model'] as const : []),
       ...(isRecord(params.grounding) && params.grounding.enabled ? ['source_document_columns'] as const : []),
     ],
     initialParams: { fields: [{ name: 'value', type: 'text', description: '' }] },

@@ -13,7 +13,7 @@ from frisket.ai.external_pricing import (
     external_unit_price_usd,
 )
 from frisket.ai.models.metadata import ModelCallMeta
-from frisket.contracts.clef import clef_questions, clef_values
+from frisket.contracts.clef import clef_questions, clef_values, validate_clef_request
 from frisket.execution.attempt import routed_admission_in_scope
 from frisket.execution.credential_use import (
     CredentialUseRefusal,
@@ -65,6 +65,10 @@ class _BoundClefClassifier:
             raise RowError("classify_input_empty", "Classifier input must contain text")
         field_specs = [field.model_dump() for field in fields]
         questions = clef_questions(field_specs, owner.context)
+        try:
+            validate_clef_request(owner.engine, questions, text=text)
+        except ValueError as error:
+            raise RowError("classify_input_invalid", str(error)) from None
         admission = routed_admission_in_scope(ctx.extras)
         preview = preview_resolution_in_scope(ctx.extras)
         transport = "cloudflare.clef" if owner.engine == "clef" else "sidecar.classify"

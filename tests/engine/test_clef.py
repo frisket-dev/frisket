@@ -143,7 +143,9 @@ def resolved(engine):
     )
 
 
-async def invoke(monkeypatch, handler, *, engine="clef", resolution=None):
+async def invoke(
+    monkeypatch, handler, *, engine="clef", resolution=None, text="Example court filing"
+):
     # Supply a resolved preview boundary directly to isolate the HTTP adapter.
     # End-to-end admission/confirmation is covered by the executor test below.
     resolution = resolution or resolved(engine)
@@ -152,7 +154,7 @@ async def invoke(monkeypatch, handler, *, engine="clef", resolution=None):
         lambda extras: resolution,
     )
     owner = AdmittedClefClassifier(engine=engine)
-    row = Row({"body": "Example court filing"})
+    row = Row({"body": text})
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         ctx = SimpleNamespace(
             http=client, extras={}, credential_use_context=CredentialUseContext.open()
@@ -160,6 +162,20 @@ async def invoke(monkeypatch, handler, *, engine="clef", resolution=None):
         bound = owner.bind_row(row, row_id=1, ctx=ctx)
         result = await classify_row(params(engine, include_confidence=True), row, bound)
     return result, owner.accounting_by_row[1]
+
+
+@pytest.mark.asyncio
+async def test_oversized_flash_input_refuses_before_http(monkeypatch):
+    from frisket.contracts.clef import CLEF_FLASH_MAX_TEXT_CHARS
+
+    with pytest.raises(RowError, match="input exceeds") as raised:
+        await invoke(
+            monkeypatch,
+            lambda request: pytest.fail("must not send oversized input"),
+            engine="clef-flash",
+            text="x" * (CLEF_FLASH_MAX_TEXT_CHARS + 1),
+        )
+    assert raised.value.code == "classify_input_invalid"
 
 
 @pytest.mark.asyncio
@@ -233,8 +249,9 @@ async def test_wrong_credential_posture_refuses_before_http(monkeypatch):
 
 
 @pytest.mark.parametrize("engine", ["clef", "clef-flash"])
+@pytest.mark.parametrize("action_id", ["map.classify", "map.extract"])
 def test_executor_confirms_executes_and_replays_without_another_call(
-    tmp_path, monkeypatch, engine
+    tmp_path, monkeypatch, engine, action_id
 ):
     import asyncio
 
@@ -253,6 +270,10 @@ def test_executor_confirms_executes_and_replays_without_another_call(
     def respond(request):
         calls.append(request)
         body = reply(engine)
+        body["answers"]["q1"]["noul"] = 0.1
+        body["answers"]["q2"].update(
+            choice="o0", probabilities={f"o{i}": float(i == 0) for i in range(11)}
+        )
         return httpx.Response(
             200, json={"success": True, "result": body} if engine == "clef" else body
         )
@@ -263,11 +284,27 @@ def test_executor_confirms_executes_and_replays_without_another_call(
     try:
         sheet = project.add_sheet("Documents")
         column = project.add_column(sheet, "body", type="text")
-        project.add_rows(sheet, [{"body": "Example court filing"}], {"body": column})
+        row = project.add_rows(
+            sheet, [{"body": "Example court filing"}], {"body": column}
+        )[0]
+        parameters = params(engine, include_confidence=True).model_dump(mode="json")
+        if action_id == "map.extract":
+            from frisket.actions.extract import ExtractParams
+
+            parameters = ExtractParams(
+                source=["body"],
+                engine=engine,
+                fields=[{**f, "required": True} for f in FIELDS],
+                grounding=None,
+                include_confidence=True,
+                instruction="Only use explicit document content.",
+                context="Archive",
+            ).model_dump(mode="json")
         request = {
-            "action_id": "map.classify",
+            "action_id": action_id,
             "scope": {"kind": "sheet_rows", "sheet_id": sheet},
-            "params": params(engine, include_confidence=True).model_dump(mode="json"),
+            "params": parameters,
+            "output_names": {"Document kind": "Kind"},
             "idempotency_key": "clef-executor",
         }
         result = run_action_spec(project, request, project_id="clef")
@@ -278,6 +315,25 @@ def test_executor_confirms_executes_and_replays_without_another_call(
             result = run_action_spec(project, request, project_id="clef")
         assert result.status == "completed", result.errors
         assert len(calls) == 1
+        if action_id == "map.extract":
+            import json
+
+            sent = json.loads(calls[0].content)
+            assert (
+                "Only use explicit document content."
+                in sent["questions"]["q0"]["instructions"]
+            )
+            assert "Archive" in sent["questions"]["q0"]["instructions"]
+        columns = {c["name"]: c["id"] for c in project.columns(sheet)}
+        for name, expected in {
+            "Kind": "Court filing",
+            "Relevant": False,
+            "Priority": 0,
+            "Document kind_confidence": 0.8,
+        }.items():
+            assert (
+                project.get_values(sheet, columns[name], row_ids=[row])[row] == expected
+            )
         facts = RunResultStore(project).model_calls(result.run_id)
         assert len(facts) == 1
         assert facts[0]["capability"] == "classify"
@@ -287,6 +343,108 @@ def test_executor_confirms_executes_and_replays_without_another_call(
         replay = run_action_spec(project, request, project_id="clef")
         assert replay.status == "completed", replay.errors
         assert len(calls) == 1
+    finally:
+        project.close()
+        asyncio.run(client.aclose())
+
+
+@pytest.mark.parametrize("action_id", ["map.classify", "map.extract"])
+@pytest.mark.parametrize("template", [False, True])
+def test_decision_image_sources_reject_before_provider_call(
+    tmp_path, monkeypatch, action_id, template
+):
+    from frisket.ai.llm import ModelRouter
+    from frisket.engine.executor import run_action_spec
+    from frisket.engine.store import Project
+
+    monkeypatch.setattr(
+        ModelRouter,
+        "client",
+        property(lambda self: pytest.fail("must not call provider")),
+    )
+    project = Project.create(tmp_path / "images.frisket")
+    try:
+        sheet = project.add_sheet("Images")
+        project.add_column(sheet, "image", type="image")
+        parameters = {"engine": "clef", "source": ["image"], "fields": FIELDS}
+        if template:
+            parameters["source"] = {"text": "Read {{image}}"}
+        if action_id == "map.extract":
+            parameters["grounding"] = None
+        result = run_action_spec(
+            project,
+            {
+                "action_id": action_id,
+                "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+                "params": parameters,
+                "idempotency_key": "image-reject",
+            },
+            project_id="images",
+        )
+        assert result.status == "failed"
+        assert any("Clef accepts text" in error.message for error in result.errors), (
+            result.errors
+        )
+    finally:
+        project.close()
+
+
+def test_paid_extract_preview_uses_one_clef_call_without_publishing(
+    tmp_path, monkeypatch
+):
+    import asyncio
+    import json
+
+    from frisket.ai.llm import ModelRouter
+    from frisket.engine.executor import resolve_map_preview
+    from frisket.engine.store import Project
+    from tests.preview.test_accounted_action_preview import _runner, _admit, _outputs
+
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "a" * 32)
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "test-secret")
+    calls = []
+
+    def respond(request):
+        calls.append(json.loads(request.content))
+        return httpx.Response(200, json={"success": True, "result": reply()})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+    monkeypatch.setattr(ModelRouter, "client", property(lambda self: client))
+    project = Project.create(tmp_path / "preview.frisket")
+    try:
+        sheet = project.add_sheet("Text")
+        column = project.add_column(sheet, "body", type="text")
+        project.add_rows(sheet, [{"body": "Archive evidence"}], {"body": column})
+        request = {
+            "action_id": "map.extract",
+            "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+            "params": {
+                "source": ["body"],
+                "engine": "clef",
+                "fields": FIELDS,
+                "grounding": None,
+                "instruction": "Decide from archive.",
+            },
+            "idempotency_key": "clef-preview",
+        }
+        plan = resolve_map_preview(project, request)
+        runner = _runner(project, None)
+        before = _outputs(project)
+        spec, attempt = _admit(runner, plan)
+        result = asyncio.run(
+            runner.preview(spec, program=plan.program, attempt=attempt)
+        )
+        assert len(calls) == 1
+        assert "Decide from archive." in calls[0]["questions"]["q0"]["instructions"]
+        assert result.values
+        assert all(
+            cells["Document kind"]["value"] == "Court filing"
+            for cells in result.values.values()
+        )
+        assert _outputs(project) == before
+        facts = runner.run_store.model_calls()
+        assert len(facts) == 1 and facts[0]["run_id"] is None
+        assert facts[0]["provider_cost_usd"] == pytest.approx(0.00024)
     finally:
         project.close()
         asyncio.run(client.aclose())

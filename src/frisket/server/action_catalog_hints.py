@@ -20,7 +20,7 @@ from frisket.contracts.actions.schemas._engines import (
     EngineDeclaration,
 )
 from frisket.credentials import missing_required_credentials
-from frisket.contracts.classification import CLEF_ENGINE_IDS
+from frisket.contracts.classification import CLEF_ENGINE_IDS, classification_options
 from frisket.ai.external_pricing import (
     CLOUDFLARE_CLEF_INPUT_TOKEN,
     DATALAB_CONVERT_PAGE,
@@ -793,7 +793,7 @@ def _recipe_engines(
     has_local_model_endpoint: bool = False,
     effective_router: Any = None,
 ) -> list[dict[str, Any]]:
-    if action_kind == "map.classify":
+    if action_kind in {"map.classify", "map.extract"}:
         from frisket.contracts.classification import (
             GLICLASS_ENGINE_ID,
             JEFF_ENGINE_ID,
@@ -814,43 +814,12 @@ def _recipe_engines(
         )
         from frisket.server.provider_config import ENV_VAR as PROVIDER_ENV_VAR
 
-        local_error = None
-        try:
-            local_ok = (
-                local_embedder(
-                    PROVIDERLESS_CLASSIFY_MODEL,
-                    capability="providerless_classify",
-                )
-                is not None
-            )
-        except ValueError as exc:
-            local_ok = False
-            local_error = str(exc)
         llm_providers = _configured_llm_providers(
             project,
             org_provider_keys,
             has_local_model_endpoint=has_local_model_endpoint,
             effective_router=effective_router,
         )
-        local_semantic = _engine(
-            "local_semantic",
-            "Local semantic",
-            tier="local",
-            available=local_ok,
-            error=(
-                None
-                if local_ok
-                else local_error
-                or "Local FastEmbed is unavailable; reinstall Frisket, unset FRISKET_DISABLE_LOCAL_EMBED, or explicitly enable providerless Classify."
-            ),
-            models=[PROVIDERLESS_CLASSIFY_MODEL] if local_ok else None,
-        )
-        local_semantic["classification_options"] = {
-            "field_types": ["category"],
-            "max_fields": 1,
-            "include_confidence": False,
-            "include_justification": False,
-        }
         llm = _engine(
             "llm",
             "Model",
@@ -862,23 +831,45 @@ def _recipe_engines(
                 if llm_providers
                 else "Configure a provider API key ("
                 + ", ".join(PROVIDER_ENV_VAR.values())
-                + ") to enable model classification."
+                + ") to enable model extraction or classification."
             ),
         )
-        llm["classification_options"] = {
-            "field_types": [
-                "category",
-                "score",
-                "integer",
-                "number",
-                "boolean",
-                "text",
-            ],
-            "max_fields": 64,
-            "include_confidence": True,
-            "include_justification": True,
-        }
-        runtime_present = classifier_runtime_present()
+        llm["classification_options"] = classification_options("llm")
+        # Extraction shares only the direct decision engines and LLM option.
+        # Do not initialize or probe unrelated local classification runtimes.
+        local_semantic = None
+        if action_kind == "map.classify":
+            local_error = None
+            try:
+                local_ok = (
+                    local_embedder(
+                        PROVIDERLESS_CLASSIFY_MODEL,
+                        capability="providerless_classify",
+                    )
+                    is not None
+                )
+            except ValueError as exc:
+                local_ok = False
+                local_error = str(exc)
+            local_semantic = _engine(
+                "local_semantic",
+                "Local semantic",
+                tier="local",
+                available=local_ok,
+                error=(
+                    None
+                    if local_ok
+                    else local_error
+                    or "Local FastEmbed is unavailable; reinstall Frisket, unset FRISKET_DISABLE_LOCAL_EMBED, or explicitly enable providerless Classify."
+                ),
+                models=[PROVIDERLESS_CLASSIFY_MODEL] if local_ok else None,
+            )
+            local_semantic["classification_options"] = classification_options(
+                "local_semantic"
+            )
+        runtime_present = (
+            classifier_runtime_present() if action_kind == "map.classify" else False
+        )
         labels = {
             GLICLASS_ENGINE_ID: "GLiClass Base",
             JEFF_ENGINE_ID: "Jeff 0.8B",
@@ -888,7 +879,11 @@ def _recipe_engines(
             JEFF_ENGINE_ID: "Higher-quality local classification.",
         }
         local_classifiers: list[dict[str, Any]] = []
-        for engine_id in (GLICLASS_ENGINE_ID, JEFF_ENGINE_ID):
+        for engine_id in (
+            (GLICLASS_ENGINE_ID, JEFF_ENGINE_ID)
+            if action_kind == "map.classify"
+            else ()
+        ):
             spec = LOCAL_CLASSIFIERS[engine_id]
             ready = classifier_ready(engine_id)
             artifact = classifier_artifact(engine_id)
@@ -914,12 +909,7 @@ def _recipe_engines(
                     "description": descriptions[engine_id],
                     "model_card_url": artifact.source_url,
                     "setup_ref": spec.setup_ref,
-                    "classification_options": {
-                        "field_types": ["category"],
-                        "max_fields": 64,
-                        "include_confidence": False,
-                        "include_justification": False,
-                    },
+                    "classification_options": classification_options(engine_id),
                     "downloadable_models": [
                         {
                             "ref": artifact.ref,
@@ -956,21 +946,22 @@ def _recipe_engines(
             pricing=external_pricing_entry(CLOUDFLARE_CLEF_INPUT_TOKEN),
         )
         for row in (clef_flash, clef):
-            row["classification_options"] = {
-                "field_types": ["category", "boolean", "score"],
-                "max_fields": 64,
-                "include_confidence": True,
-                "include_justification": False,
-            }
+            row["classification_options"] = classification_options(row["id"])
         clef_flash["description"] = (
-            "Classify text on your model server with Clef Flash. "
-            "Supports categories, booleans, and integer scores from 0 to 10."
+            "Use Clef Flash on your model server. "
+            "Text only; supports categories, booleans, and integer scores from 0 to 10. "
+            "Citations are not supported. "
+            + clef_flash["classification_options"]["behavior_note"]
         )
         clef["description"] = (
-            "Classify text with Cloudflare Workers AI. "
-            "Supports categories, booleans, and integer scores from 0 to 10."
+            "Use Clef with Cloudflare Workers AI. "
+            "Text only; supports categories, booleans, and integer scores from 0 to 10. "
+            "Citations are not supported. "
+            + clef["classification_options"]["behavior_note"]
         )
-        return [local_semantic, *local_classifiers, clef_flash, clef, llm]
+        if local_semantic is not None:
+            return [local_semantic, *local_classifiers, clef_flash, clef, llm]
+        return [clef_flash, clef, llm]
     if action_kind == "enrich.geocode":
         from frisket.credentials import resolve_credential
 
