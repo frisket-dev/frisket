@@ -5,7 +5,6 @@ edit overlay (so they beat model values and are undoable)."""
 
 from __future__ import annotations
 
-from hashlib import blake2b
 from typing import Any
 
 from frisket.review_predicate import is_exact_review_correction
@@ -241,10 +240,6 @@ def review_queue(
     return out
 
 
-def _shuffle_key(seed: int, run_id: int, row_id: int) -> bytes:
-    return blake2b(f"{seed}:{run_id}:{row_id}".encode(), digest_size=8).digest()
-
-
 def review_bundles(
     project: Project,
     sheet_id: int | None = None,
@@ -254,15 +249,27 @@ def review_bundles(
     include_reviewed: bool = False,
     field_id: int | None = None,
     order: str = "confidence",
-    seed: int = 0,
     cursor: int | None = None,
 ) -> list[dict[str, Any]]:
     """Group unreviewed primary results by run/row and attach support fields.
 
     The review state stays per result cell; bundles are only the queue shape.
     """
+    if order not in {"confidence", "row"}:
+        raise ValueError(f"unknown review order: {order}")
     if run_id is not None:
         ensure_run_review_stats(project.db, run_id)
+        if order == "confidence":
+            keys = select_confidence_bundle_keys(
+                project,
+                run_id=run_id,
+                sheet_id=sheet_id,
+                limit=limit,
+                offset=offset,
+                include_reviewed=include_reviewed,
+                field_id=field_id,
+            )
+            return _hydrate_review_bundles(project, keys)
         cte = ""
         current_join = ""
         where = (
@@ -292,35 +299,19 @@ def review_bundles(
         if include_reviewed
         else "res.review_state = 'unreviewed' AND res.review_decision IS NULL"
     )
-    if order == "shuffle":
-        # A seeded hash gives each row a stable shuffled rank across pages and
-        # refreshes without materializing the run's row IDs in Python.
-        project.db.create_function(
-            "review_shuffle_key", 3, _shuffle_key, deterministic=True
-        )
-        shuffle_select = (
-            ", review_shuffle_key(?, res.run_id, res.row_id) AS shuffle_key"
-        )
-        order_by = "shuffle_key, res.row_id, res.run_id, c.sheet_id"
-        order_params: tuple[Any, ...] = (seed,)
-    elif order == "row":
+    if order == "row":
         if run_id is None:
             raise ValueError("row-order review pages require run_id")
-        shuffle_select = ""
         order_by = "res.row_id"
-        order_params = ()
         if cursor is not None:
             where += " AND res.row_id > ?"
             params.append(cursor)
     else:
-        shuffle_select = ""
         order_by = "confidence ASC NULLS LAST, res.row_id, res.run_id, c.sheet_id"
-        order_params = ()
     keys_sql = f"""
         {cte}
         SELECT res.run_id, res.row_id, c.sheet_id, s.name AS sheet_name,
                runs.action_kind, runs.model, MIN(res.confidence) AS confidence
-               {shuffle_select}
         FROM results res
         {current_join}
         JOIN run_review_fields review_field
@@ -336,19 +327,7 @@ def review_bundles(
         ORDER BY {order_by}
         LIMIT ? OFFSET ?
         """
-    key_params = (*order_params, *params, limit, offset)
-    if order == "confidence" and run_id is not None:
-        keys = select_confidence_bundle_keys(
-            project,
-            run_id=run_id,
-            sheet_id=sheet_id,
-            limit=limit,
-            offset=offset,
-            include_reviewed=include_reviewed,
-            field_id=field_id,
-        )
-    else:
-        keys = project.db.execute(keys_sql, key_params).fetchall()
+    keys = project.db.execute(keys_sql, (*params, limit, offset)).fetchall()
 
     return _hydrate_review_bundles(project, keys)
 
@@ -648,7 +627,6 @@ def review_bundle_page(
     include_reviewed: bool = False,
     field_id: int | None = None,
     order: str = "confidence",
-    seed: int = 0,
     cursor: int | None = None,
 ) -> dict[str, Any]:
     """Bounded public page of pending review bundles."""
@@ -673,7 +651,6 @@ def review_bundle_page(
         include_reviewed=include_reviewed,
         field_id=field_id,
         order=order,
-        seed=seed,
         cursor=cursor,
     )
     if order == "row":
