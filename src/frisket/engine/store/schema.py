@@ -1032,9 +1032,10 @@ CREATE TABLE IF NOT EXISTS edits (
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS idx_edits_rowcol ON edits(column_id, row_id, op_id);
 
--- Rebuildable visible-cell head projection. Payload stays in exactly one
--- authority table; null/error result heads and explicit edit clears still
--- occupy a row so an older layer can never bleed through.
+-- Rebuildable visible-cell head projection. Bounded native scalars are copied
+-- beside their head so hot reads avoid an authority lookup; broad text and
+-- structured values remain authority references. Null/error result heads and
+-- explicit edit clears still occupy a row so an older layer cannot bleed through.
 -- CURRENT_CELLS_BEGIN
 CREATE TABLE IF NOT EXISTS current_cells (
   column_id INTEGER NOT NULL REFERENCES columns(id) ON DELETE CASCADE,
@@ -1046,6 +1047,22 @@ CREATE TABLE IF NOT EXISTS current_cells (
   origin_run_id INTEGER REFERENCES runs(id) ON DELETE CASCADE,
   base_producer_id INTEGER REFERENCES base_cell_producers(id) ON DELETE RESTRICT,
   validity TEXT NOT NULL CHECK (validity IN ('valid', 'missing', 'invalid')),
+  inline_value_kind TEXT CHECK (inline_value_kind IN (
+    'null','text','integer','real','boolean','bigint'
+  )),
+  inline_value,
+  CHECK (
+    (inline_value_kind IS NULL AND inline_value IS NULL)
+    OR (inline_value_kind='null' AND inline_value IS NULL)
+    OR (inline_value_kind='text' AND typeof(inline_value)='text')
+    OR (inline_value_kind='integer' AND typeof(inline_value)='integer')
+    OR (inline_value_kind='real' AND typeof(inline_value)='real'
+        AND inline_value=inline_value
+        AND abs(inline_value)<=1.7976931348623157e308)
+    OR (inline_value_kind='boolean' AND typeof(inline_value)='integer'
+        AND inline_value IN (0,1))
+    OR (inline_value_kind='bigint' AND typeof(inline_value)='text')
+  ),
   CHECK (
     (
       origin_kind='source_cell'
@@ -1080,12 +1097,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_current_cells_column_row
   ON current_cells(column_id,row_id);
 
 -- Stable native-value relation for every current-cell reader. Keeping only the
--- head table in FROM lets SQLite flatten this view into an outer sheet query;
--- each CASE-selected scalar probe then uses one complete authority key. CASE,
--- rather than COALESCE, preserves explicit null payloads.
+-- head table in FROM lets SQLite flatten this view into an outer sheet query.
+-- Cached bounded scalars avoid authority probes; fallback CASE probes use one
+-- complete authority key. CASE, rather than COALESCE, preserves explicit nulls.
 CREATE VIEW IF NOT EXISTS current_cell_values AS
 SELECT head.column_id,head.row_id,
-       CASE head.origin_kind
+       CASE WHEN head.inline_value_kind IS NOT NULL
+       THEN head.inline_value_kind ELSE CASE head.origin_kind
          WHEN 'source_cell' THEN (
            SELECT source.value_kind FROM cells AS source
            WHERE source.row_id=head.row_id
@@ -1108,8 +1126,9 @@ SELECT head.column_id,head.row_id,
              AND edit.row_id=head.row_id
              AND edit.column_id=head.column_id
          )
-       END AS value_kind,
-       CASE head.origin_kind
+       END END AS value_kind,
+       CASE WHEN head.inline_value_kind IS NOT NULL
+       THEN head.inline_value ELSE CASE head.origin_kind
          WHEN 'source_cell' THEN (
            SELECT source.value FROM cells AS source
            WHERE source.row_id=head.row_id
@@ -1130,7 +1149,7 @@ SELECT head.column_id,head.row_id,
              AND edit.row_id=head.row_id
              AND edit.column_id=head.column_id
          )
-       END AS value,
+       END END AS value,
        head.origin_kind,head.origin_op_id,head.origin_run_id,
        head.base_producer_id,head.validity
 FROM current_cells AS head INDEXED BY idx_current_cells_column_row;

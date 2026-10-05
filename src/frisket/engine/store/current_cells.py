@@ -18,6 +18,50 @@ from frisket.engine.store.value_codec import decode_stored_value
 
 _SQLITE_BIND_LIMIT = 900
 _MAX_SEARCH_ROW_RANGES = 128
+INLINE_TEXT_BYTE_LIMIT = 128
+
+
+def inline_scalar_eligibility_sql(
+    *, descriptor_alias: str, value_kind_sql: str, value_sql: str
+) -> str:
+    """Return the bounded scalar-copy policy for the current projection.
+
+    Native null, integer, real, and boolean values are always compact. Big integers
+    stay bounded text, while category/date strings have a small byte ceiling. Other
+    text and every structured value remain authority-table references.
+    """
+
+    return (
+        f"({value_kind_sql} IN ('null','integer','real','boolean') "
+        f"OR ({value_kind_sql}='bigint' "
+        f"AND {descriptor_alias}.type IN ('integer','number') "
+        f"AND length(CAST({value_sql} AS BLOB))<={INLINE_TEXT_BYTE_LIMIT}) "
+        f"OR ({value_kind_sql}='text' "
+        f"AND {descriptor_alias}.type IN ('category','date') "
+        f"AND length(CAST({value_sql} AS BLOB))<={INLINE_TEXT_BYTE_LIMIT}))"
+    )
+
+
+def backfill_inline_scalar_values(db: sqlite3.Connection) -> None:
+    """Fill bounded scalar copies after the additive schema migration."""
+
+    _require_transaction(db)
+    eligible = inline_scalar_eligibility_sql(
+        descriptor_alias="descriptor",
+        value_kind_sql="live.value_kind",
+        value_sql="live.value",
+    )
+    db.execute(
+        "WITH eligible AS ("
+        "SELECT live.column_id,live.row_id,live.value_kind,live.value "
+        "FROM current_cell_values live "
+        "JOIN columns descriptor ON descriptor.id=live.column_id "
+        f"WHERE {eligible}"
+        ") UPDATE current_cells AS head SET "
+        "inline_value_kind=eligible.value_kind,inline_value=eligible.value "
+        "FROM eligible WHERE head.column_id=eligible.column_id "
+        "AND head.row_id=eligible.row_id"
+    )
 
 
 def decoded_cell_validity(column_type: str, value: object) -> str:
@@ -172,10 +216,14 @@ def _insert_candidates(
     typed_authorities = any(
         str(row[1]) == "value_kind" for row in db.execute("PRAGMA table_info(cells)")
     )
-    has_validity = any(
-        str(row[1]) == "validity"
-        for row in db.execute("PRAGMA table_info(current_cells)")
-    )
+    projection_columns = {
+        str(row[1]) for row in db.execute("PRAGMA table_info(current_cells)")
+    }
+    has_validity = "validity" in projection_columns
+    has_inline_scalars = {
+        "inline_value_kind",
+        "inline_value",
+    } <= projection_columns
     if has_validity:
         if typed_authorities:
             db.create_function(
@@ -216,6 +264,18 @@ def _insert_candidates(
     )
     insert_payload_column = "" if typed_authorities else "value,"
     select_payload_column = "" if typed_authorities else "value,"
+    inline_columns = ",inline_value_kind,inline_value" if has_inline_scalars else ""
+    inline_values = ""
+    if has_inline_scalars:
+        eligible = inline_scalar_eligibility_sql(
+            descriptor_alias="descriptor",
+            value_kind_sql="ranked.value_kind",
+            value_sql="ranked.value",
+        )
+        inline_values = (
+            f",CASE WHEN {eligible} THEN ranked.value_kind END"
+            f",CASE WHEN {eligible} THEN ranked.value END"
+        )
     edit_precedence = live_edit_precedence_predicate(
         edit_alias="source", op_alias="source_op"
     )
@@ -263,10 +323,10 @@ def _insert_candidates(
         "INSERT INTO current_cells "
         f"(column_id,row_id,{insert_payload_column}"
         "origin_kind,origin_op_id,origin_run_id,"
-        "base_producer_id" + validity_column + ") "
+        "base_producer_id" + validity_column + inline_columns + ") "
         f"SELECT column_id,row_id,{select_payload_column}"
         "origin_kind,origin_op_id,origin_run_id,"
-        "base_producer_id" + validity_value + " "
+        "base_producer_id" + validity_value + inline_values + " "
         "FROM ranked CROSS JOIN columns descriptor "
         "ON descriptor.id=ranked.column_id "
         "WHERE rank=1",

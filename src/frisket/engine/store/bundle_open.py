@@ -22,6 +22,9 @@ from .review_stats_migration import migrate_review_stats as _migrate_review_stat
 from .review_confidence_migration import (
     migrate_review_confidence as _migrate_review_confidence,
 )
+from .scalar_storage_migration import (
+    migrate_scalar_current_values as _migrate_scalar_current_values,
+)
 
 # v0.1.1a62 (907a324c) -> v0.1.1a64's receipt-owned execution attempts.
 # Fixed endpoints cannot accidentally stamp a future schema edit as current.
@@ -131,6 +134,7 @@ def open_bundle(project: Any) -> None:
         )
         _migrate_review_stats(project.db)
         _migrate_review_confidence(project.db)
+        _migrate_scalar_current_values(project.db)
         require_current_schema(project.db, bundle_path=project.path)
         _reconcile_open_time_policy(project)
 

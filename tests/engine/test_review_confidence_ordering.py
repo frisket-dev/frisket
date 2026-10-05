@@ -11,6 +11,9 @@ from frisket.engine.store.review_confidence_migration import (
 )
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
+from frisket.engine.store.scalar_storage_migration import (
+    SCALAR_CURRENT_VALUES_FROM_DIGEST,
+)
 from helpers import write_claimed_test_results
 
 
@@ -147,7 +150,7 @@ def test_prior_review_schema_adds_confidence_ordering_index_on_open(
 
     migrated = Project(path)
     try:
-        assert REVIEW_CONFIDENCE_TO_DIGEST == SCHEMA_DIGEST
+        assert REVIEW_CONFIDENCE_TO_DIGEST == SCALAR_CURRENT_VALUES_FROM_DIGEST
         assert migrated.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
         index_columns = {
             tuple(
