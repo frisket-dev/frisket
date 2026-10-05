@@ -16,7 +16,7 @@ from executor_harness import (
 )
 from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
-from frisket.engine.runner.review import review_bundle_page
+from frisket.engine.runner.review import review_bundle_page, review_runs_page
 from frisket.engine.store.evidence import (
     list_cell_evidence,
     record_evidence_link,
@@ -573,6 +573,8 @@ def test_nonreviewable_primary_output_is_evidence_not_an_actionable_field(
         [bundle] = page["bundles"]
         assert [item["column_id"] for item in bundle["fields"]] == [answer_id]
         assert [item["column_id"] for item in bundle["evidence"]] == [error_id]
+        [review_run] = review_runs_page(project, run_id=run_id)["runs"]
+        assert [field["column_id"] for field in review_run["fields"]] == [answer_id]
 
         accepted = run_action_spec(
             project,

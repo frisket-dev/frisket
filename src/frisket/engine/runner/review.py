@@ -751,6 +751,7 @@ def review_runs_page(
                    confidence_count
             FROM run_review_fields
             WHERE run_id IN ({placeholders}) AND is_primary=1
+              AND eligible_count>0
             ORDER BY run_id DESC, column_position, column_id
             """,
             selected_ids,
