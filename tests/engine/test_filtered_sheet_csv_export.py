@@ -463,10 +463,19 @@ def test_explicit_value_page_uses_rowid_lookup_and_preserves_scope(
     source_query = next(
         query
         for query in traced
-        if "FROM rows r NOT INDEXED LEFT JOIN current_cells c" in query
+        if "FROM rows r NOT INDEXED LEFT JOIN current_cell_values c" in query
     )
     query_plan = project.db.execute("EXPLAIN QUERY PLAN " + source_query).fetchall()
     assert any("USING INTEGER PRIMARY KEY" in row["detail"] for row in query_plan)
+    assert any(
+        "SEARCH head USING INDEX idx_current_cells_column_row "
+        "(column_id=? AND row_id=?)" in row["detail"]
+        for row in query_plan
+    )
+    assert not any(
+        "MATERIALIZE current_cell_values" in row["detail"] for row in query_plan
+    )
+    assert not any("SCAN head" in row["detail"] for row in query_plan)
 
 
 def test_hosted_csv_export_limit_refuses_before_direct_or_action_delivery(
@@ -817,6 +826,29 @@ def test_csv_byte_iterator_splits_a_single_large_record_without_losing_bytes(
     _payload, expected = render_export_csv(project, plan)
     assert b"".join(chunks) == expected.encode("utf-8")
     assert max(map(len, chunks)) <= 64 * 1024
+
+
+def test_csv_repairs_malformed_unicode_and_preserves_valid_emoji(
+    tmp_path: Path,
+) -> None:
+    from frisket.server.exports.plan import build_sheet_export_plan
+    from frisket.server.exports.sheet_csv import iter_export_csv_bytes
+
+    client = _client(tmp_path)
+    pid = client.post("/api/projects", json={"name": "Unicode CSV"}).json()["id"]
+    project = client.app.state.workspace.get(pid)
+    sheet_id = project.add_sheet("records")
+    column = project.add_column(sheet_id, "body")
+    project.add_rows(
+        sheet_id,
+        [{"body": "before \ud800 after 🚀"}],
+        {"body": column},
+    )
+    plan = build_sheet_export_plan(project, sheet_id, streaming_rowset=True)
+
+    exported = b"".join(iter_export_csv_bytes(project, plan, bom=False)).decode("utf-8")
+
+    assert "before \ufffd after 🚀" in exported
 
 
 def test_empty_output_row_ids_remain_serialized_outside_large_csv_exports() -> None:

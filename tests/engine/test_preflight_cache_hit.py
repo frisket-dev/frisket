@@ -12,6 +12,7 @@ from frisket.ai.llm import (
 from typed_model_fixtures import model_plan
 from frisket.engine.runner import MapRunner, MissingProviderKey
 from frisket.engine.store import Project
+from frisket.engine.store.value_codec import decode_stored_value
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from typed_model_fixtures import (
     prepare_with_exact_confirmation,
@@ -88,7 +89,7 @@ def test_replay_mode_cache_hit_completes_keyless_no_missing_provider_key(tmp_pat
         rows = {
             r["row_id"]: r
             for r in project.db.execute(
-                "SELECT row_id, value, error, outcome FROM results "
+                "SELECT row_id, value_kind, value, error, outcome FROM results "
                 "WHERE run_id=? AND column_id=?",
                 (progress.run_id, col["id"]),
             ).fetchall()
@@ -96,15 +97,20 @@ def test_replay_mode_cache_hit_completes_keyless_no_missing_provider_key(tmp_pat
         hit_row_id, miss_row_id = row_ids
         assert rows[hit_row_id]["error"] is None
         assert rows[hit_row_id]["outcome"] == "ok"
-        # cache stores the score under the field's own JSON shape
-        import json
-
-        assert json.loads(rows[hit_row_id]["value"]) == 7
+        assert rows[hit_row_id]["value_kind"] == "integer"
+        assert (
+            decode_stored_value(
+                rows[hit_row_id]["value_kind"], rows[hit_row_id]["value"]
+            )
+            == 7
+        )
 
         # The genuine miss surfaces the SAME typed, actionable copy the
         # eager pre-flight would have raised — as a per-row failure, not a
         # run-wide crash.
         assert rows[miss_row_id]["error"] is not None
+        assert rows[miss_row_id]["value_kind"] is None
+        assert rows[miss_row_id]["value"] is None
         assert "No API key is configured" in rows[miss_row_id]["error"]
         assert rows[miss_row_id]["outcome"] == "model_error"
     finally:

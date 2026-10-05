@@ -1794,8 +1794,11 @@ class RealApi implements FrisketApi {
     return this.projectEvidenceApi.getColumnEvidence(sheetId, columnId, opts?.rowIds);
   }
 
-  getEvidenceViewer(evidenceLinkId: string | number): Promise<EvidenceViewerPayload> {
-    return this.projectEvidenceApi.getEvidenceViewer(evidenceLinkId);
+  getEvidenceViewer(
+    evidenceLinkId: string | number,
+    options?: { locateCurrent?: boolean },
+  ): Promise<EvidenceViewerPayload> {
+    return this.projectEvidenceApi.getEvidenceViewer(evidenceLinkId, options);
   }
 
   async getProvenanceManifest(

@@ -15,6 +15,7 @@ from frisket.engine.store.cells import MixedOriginReplayUnsupported
 from frisket.engine.store.current_cells import refresh_current_cells
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.value_codec import encode_stored_value
 from frisket.preview.entity_mentions import (
     EntityMentionsPreviewError,
     resolve_entity_mentions_preview,
@@ -77,16 +78,22 @@ def _publish_result(
     confidence: float | None = None,
     justification: str | None = None,
 ) -> None:
-    encoded = json.dumps(value) if effect == "publish_value" else None
+    if effect == "publish_value":
+        value_kind, stored_value = encode_stored_value(value)
+    elif effect == "publish_null":
+        value_kind, stored_value = encode_stored_value(None)
+    else:
+        value_kind, stored_value = None, None
     project.db.execute(
         "INSERT INTO results "
-        "(run_id,row_id,column_id,value,confidence,justification,error,outcome,"
-        "publication_effect) VALUES (?,?,?,?,?,?,?,?,?)",
+        "(run_id,row_id,column_id,value_kind,value,confidence,justification,error,"
+        "outcome,publication_effect) VALUES (?,?,?,?,?,?,?,?,?,?)",
         (
             run_id,
             row_id,
             column_id,
-            encoded,
+            value_kind,
+            stored_value,
             confidence,
             justification,
             error,
@@ -146,14 +153,14 @@ def test_scalar_only_ai_results_are_not_a_live_reader_lane(tmp_path: Path) -> No
         )
         project.db.executemany(
             "INSERT INTO results "
-            "(run_id,row_id,column_id,value,confidence,error,outcome) "
-            "VALUES (?,?,?,?,?,?,?)",
+            "(run_id,row_id,column_id,value_kind,value,confidence,error,outcome) "
+            "VALUES (?,?,?,?,?,?,?,?)",
             [
                 (
                     run_id,
                     row_ids[0],
                     output_column_id,
-                    json.dumps("retired-result"),
+                    *encode_stored_value("retired-result"),
                     0.99,
                     None,
                     "ok",
@@ -162,6 +169,7 @@ def test_scalar_only_ai_results_are_not_a_live_reader_lane(tmp_path: Path) -> No
                     run_id,
                     row_ids[1],
                     output_column_id,
+                    None,
                     None,
                     None,
                     "retired failure",

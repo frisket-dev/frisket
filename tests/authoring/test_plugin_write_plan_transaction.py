@@ -12,19 +12,17 @@ both transaction scaffolds:
 
 from __future__ import annotations
 
-from unittest import mock
-
 import pytest
 
 from frisket.contracts.plugin_write_plan import (
     PROJECT_WRITES_CAPABILITY,
     WRITE_PLAN_SCHEMA_VERSION,
 )
-from frisket.engine.executor import plugin_write_apply
 from frisket.engine.executor.plugin_write_apply import (
     WritePlanApplyError,
     apply_write_plan,
 )
+from frisket.engine.store import cell_writes
 from frisket.engine.store.project import Project
 
 _BOOM = "BOOM-mid-apply"
@@ -46,27 +44,28 @@ def _plan_with_boom_cell() -> dict:
     }
 
 
-def _dumps_that_explodes_on_boom():
-    """Wrap the module's json.dumps so it raises only when serializing the _BOOM
-    cell value — i.e. AFTER the sheet, column, and row rows are already inserted."""
-    real = plugin_write_apply.json.dumps
+def _encoder_that_explodes_on_boom():
+    """Raise while encoding the cell, after its sheet, column, and row exist."""
 
-    def fake(obj, *args, **kwargs):
+    real = cell_writes.encode_stored_value
+
+    def fake(obj):
         if obj == _BOOM:
             raise RuntimeError("injected mid-apply failure")
-        return real(obj, *args, **kwargs)
+        return real(obj)
 
     return fake
 
 
-def test_mid_apply_failure_rolls_back_begin_immediate(tmp_path) -> None:
+def test_mid_apply_failure_rolls_back_begin_immediate(tmp_path, monkeypatch) -> None:
     project = _project(tmp_path)
     cursor_before = project.get_meta("op_cursor")
     ops_before = project.db.execute("SELECT COUNT(*) AS n FROM ops").fetchone()["n"]
 
-    with mock.patch.object(
-        plugin_write_apply.json, "dumps", _dumps_that_explodes_on_boom()
-    ):
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            cell_writes, "encode_stored_value", _encoder_that_explodes_on_boom()
+        )
         with pytest.raises(WritePlanApplyError):
             apply_write_plan(
                 project,
@@ -87,7 +86,9 @@ def test_mid_apply_failure_rolls_back_begin_immediate(tmp_path) -> None:
     assert project.db.in_transaction is False
 
 
-def test_mid_apply_failure_rolls_back_savepoint_and_keeps_outer_txn(tmp_path) -> None:
+def test_mid_apply_failure_rolls_back_savepoint_and_keeps_outer_txn(
+    tmp_path, monkeypatch
+) -> None:
     project = _project(tmp_path)
     db = project.db
 
@@ -96,9 +97,10 @@ def test_mid_apply_failure_rolls_back_savepoint_and_keeps_outer_txn(tmp_path) ->
     db.execute("INSERT INTO sheets (name, position) VALUES ('Prior', 1)")
     assert db.in_transaction is True
 
-    with mock.patch.object(
-        plugin_write_apply.json, "dumps", _dumps_that_explodes_on_boom()
-    ):
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            cell_writes, "encode_stored_value", _encoder_that_explodes_on_boom()
+        )
         with pytest.raises(WritePlanApplyError):
             apply_write_plan(
                 project,

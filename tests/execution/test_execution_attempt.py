@@ -968,15 +968,11 @@ def test_edition_run_context_lands_on_its_column_not_in_params(project, consente
 # ---------------------------------------------------------------------------
 
 
-def test_the_attempt_outlives_the_run_compaction_reclaims(project):
+def test_compaction_preserves_the_attempt_and_its_run(project):
     """A paid action, undone, its branch discarded, then compacted.
 
-    ``compact()`` is allowed to reclaim the *data* on a discarded branch —
-    that is its whole job. It is not allowed to reclaim the record that the
-    user consented and was charged: "did I approve it, what did it cost" has
-    to stay answerable after the rows it produced are gone. The attempt row
-    survives with ``run_id`` NULL (the ``receipts.run_id`` shape), still
-    naming its consent, its cost basis and its pinned price card.
+    Authority history and the record that the user consented and was charged
+    remain inspectable together after compaction.
     """
     from frisket.engine.store.runs import RunResultStore
 
@@ -1019,16 +1015,11 @@ def test_the_attempt_outlives_the_run_compaction_reclaims(project):
 
     project.compact()
 
-    # The run itself IS reclaimed — that is the behaviour under test, not a
-    # bug: if the run row survived, this test would prove nothing.
-    assert (
-        project.db.execute("SELECT id FROM runs WHERE id=?", (run_id,)).fetchone()
-        is None
-    )
+    assert project.db.execute("SELECT id FROM runs WHERE id=?", (run_id,)).fetchone()
 
     receipt = attempt_receipt(project, attempt.attempt_id)
     assert receipt is not None, "the consent record died with the data"
-    assert receipt["run_id"] is None  # honest absence, not a dangling id
+    assert receipt["run_id"] == run_id
     assert receipt["state"] == "effected"
     assert receipt["consent"]["id"] == consent.id
     assert receipt["consent"]["promise_set_hash"] == promise_set.promise_set_hash
@@ -1050,19 +1041,15 @@ def test_the_attempt_outlives_the_run_compaction_reclaims(project):
     assert receipt["price_card_version"] == "test.synthetic.terms.v1"
     assert receipt["scope"] == [7, 11]
 
-    # What it was AUTHORIZED to cost survives (above). What it actually
-    # metered does NOT: `model_calls.run_id` cascades, so the rows this join
-    # sums went with the run. The receipt says that instead of summing an
-    # empty set into a confident "$0" for a run that really was billed.
+    # The metered fact remains attached to the retained run, so settlement can
+    # still answer what the action actually cost.
     assert (
-        project.db.execute(
-            "SELECT id FROM model_calls WHERE attempt_id=?", (attempt.attempt_id,)
-        ).fetchall()
-        == []
+        len(
+            project.db.execute(
+                "SELECT id FROM model_calls WHERE attempt_id=?", (attempt.attempt_id,)
+            ).fetchall()
+        )
+        == 1
     )
-    assert receipt["settlement"] == {
-        "price_card_version": "test.synthetic.terms.v1",
-        "terminal_status": None,
-        "charge_usd": None,
-        "unsettleable": "metering_reclaimed",
-    }
+    assert "unsettleable" not in receipt["settlement"]
+    assert receipt["settlement"]["charge_usd"] == "0.02"

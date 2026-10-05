@@ -20,6 +20,7 @@ from frisket.engine.store.evidence import (
     list_column_evidence,
     resolve_evidence_viewer,
 )
+from frisket.engine.store.evidence_recovery import locate_current_evidence_text
 from frisket.engine.store.text_annotations import resolve_text_annotations
 from frisket.engine.store.media_clip import (
     ClipError,
@@ -158,25 +159,33 @@ class ProjectEvidenceService:
         self,
         project_id: str,
         evidence_link_id: str,
+        *,
+        locate_current: bool = False,
     ) -> Any:
         project = self._project_or_404(project_id)
-        try:
-            return resolve_evidence_viewer(
-                project,
-                evidence_link_id,
-                project_id=project_id,
+        with project.read_snapshot() as snapshot:
+            try:
+                viewer = resolve_evidence_viewer(
+                    snapshot,
+                    evidence_link_id,
+                    project_id=project_id,
+                )
+            except KeyError as exc:
+                raise ProjectEvidenceRouteError(
+                    404,
+                    _v1_action_error(
+                        code="evidence_link_not_found",
+                        message="No evidence link exists with that id in this project.",
+                        field="evidence_link_id",
+                        details={"evidence_link_id": evidence_link_id},
+                    ),
+                    bare_json=True,
+                ) from exc
+            return (
+                locate_current_evidence_text(snapshot.db, viewer)
+                if locate_current
+                else viewer
             )
-        except KeyError as exc:
-            raise ProjectEvidenceRouteError(
-                404,
-                _v1_action_error(
-                    code="evidence_link_not_found",
-                    message="No evidence link exists with that id in this project.",
-                    field="evidence_link_id",
-                    details={"evidence_link_id": evidence_link_id},
-                ),
-                bare_json=True,
-            ) from exc
 
     async def evidence_span_clip(
         self,

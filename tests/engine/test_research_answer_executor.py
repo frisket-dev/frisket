@@ -1350,7 +1350,7 @@ def test_verification_nudge_grounds_a_memory_answer(
         for cell in _answer_cells(project, result.run_id):
             # nudge grounded it -> normal ok outcome, no unverified marker.
             assert cell["outcome"] == "ok"
-            assert json.loads(cell["value"]) == "Grounded answer citing the source."
+            assert cell["value"] == "Grounded answer citing the source."
         # The verification run uses the same validator: per row it performs
         # memory answer -> search -> malformed text -> corrected prose.
         assert len(adapter.requests) == 8
@@ -1426,7 +1426,7 @@ def test_failed_verification_does_not_ground_the_original_memory_answer(
     try:
         assert result.status == "completed", result.errors
         for cell in _answer_cells(project, result.run_id):
-            assert json.loads(cell["value"]) == (
+            assert cell["value"] == (
                 "Answer straight from model memory (no source consulted)."
             )
             assert cell["outcome"] == "unverified_memory"

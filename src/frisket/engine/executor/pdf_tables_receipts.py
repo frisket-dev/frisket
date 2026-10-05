@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 from frisket.actions.core import _value_annotation
 from frisket.actions.pdf_table_types import PdfTableRows
 from frisket.actions.types import _without_none
@@ -14,7 +12,7 @@ from frisket.engine.executor.recordsets import (
 )
 from frisket.engine.store.artifact_timeline import canonical_json_hash
 from frisket.engine.store.receipts import ReceiptStore
-from frisket.engine.store.runs import FAILURE_OUTCOMES
+from frisket.engine.store.runs import FAILURE_OUTCOMES, RunResultStore
 from frisket.ops.pdf_tables import _media_extract_pdf_tables_item_schema
 
 
@@ -41,16 +39,16 @@ def pdf_table_receipt_projection(project, plan, facts, refs, receipt_id):
         ref = next(
             item for item in refs if item["name"] == plan.output_names[field.key]
         )
-        rows = project.db.execute(
-            "SELECT row_id,value,error,error_code,outcome FROM results "
-            "WHERE run_id=? AND column_id=? ORDER BY row_id",
-            (facts.run_id, ref["column_id"]),
-        ).fetchall()
+        coordinates = [
+            (facts.run_id, row_id, int(ref["column_id"])) for row_id in facts.row_ids
+        ]
+        resolved = RunResultStore(project).decoded_result_rows(coordinates)
+        rows = sorted(resolved.values(), key=lambda row: int(row["row_id"]))
         expected_columns, successful, count = None, [], 0
         for row in rows:
             if row["row_id"] not in facts.row_ids or row["outcome"] in FAILURE_OUTCOMES:
                 continue
-            value = json.loads(row["value"]) if row["value"] is not None else None
+            value = row["value"]
             read = next(
                 (
                     item

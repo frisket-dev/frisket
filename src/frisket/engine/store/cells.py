@@ -29,6 +29,7 @@ from frisket.engine.store.current_cells import (
     refresh_current_cells,
 )
 from frisket.engine.store.result_generations import ResultGenerationStore
+from frisket.engine.store.value_codec import decode_stored_value
 
 # Column types live in the pluggable registry (frisket.column_types) — the
 # core types are registered there on the same seam plugins use. COLUMN_TYPES
@@ -36,26 +37,6 @@ from frisket.engine.store.result_generations import ResultGenerationStore
 # (`t in COLUMN_TYPES` now also matches plugin-registered types).
 COLUMN_TYPES = column_types.TypeNamesView()
 _SQLITE_ID_CHUNK_SIZE = 900
-
-
-def _reject_non_json_constant(value: str) -> None:
-    raise ValueError(f"non-JSON numeric constant: {value}")
-
-
-def _decode_stored_value(encoded: str | None, *, tolerate_errors: bool) -> Any:
-    """Decode one stored source/edit value, optionally failing closed to null."""
-    if encoded is None:
-        return None
-    if not tolerate_errors:
-        return json.loads(encoded)
-    try:
-        decoded = json.loads(encoded, parse_constant=_reject_non_json_constant)
-        # ``1e400`` becomes infinity without invoking parse_constant, while a
-        # deeply nested value can decode but remain unsafe to re-encode.
-        json.dumps(decoded, allow_nan=False)
-    except (TypeError, ValueError, OverflowError, RecursionError):
-        return None
-    return decoded
 
 
 class MixedOriginReplayUnsupported(ValueError):
@@ -126,7 +107,7 @@ def replay_generated_snapshot(
         else ""
     )
     row = project.db.execute(
-        "SELECT res.value FROM results res "
+        "SELECT res.value_kind,res.value FROM results res "
         + head_join
         + "JOIN rows r ON r.id=res.row_id AND r.sheet_id=? AND r.hidden=0 "
         "WHERE res.run_id=? AND res.row_id=? AND res.column_id=? "
@@ -135,7 +116,7 @@ def replay_generated_snapshot(
     ).fetchone()
     if row is None:
         return {"run_id": run_id}
-    value = json.loads(row["value"])
+    value = decode_stored_value(row["value_kind"], row["value"])
     return {
         "run_id": run_id,
         "value": value,
@@ -577,7 +558,7 @@ def _current_cell_rows(
             for offset in range(0, len(row_ids), _SQLITE_ID_CHUNK_SIZE)
         ]
     )
-    fields = "r.id, c.value, COALESCE(c.validity, 'missing') AS validity"
+    fields = "r.id, c.value_kind, c.value, COALESCE(c.validity, 'missing') AS validity"
     if with_refs:
         fields += ", c.origin_kind, c.origin_op_id, c.origin_run_id"
     for chunk in chunks:
@@ -588,7 +569,7 @@ def _current_cell_rows(
             params.extend(chunk)
         rows_source = "rows r NOT INDEXED" if chunk is not None else "rows r"
         yield from project.db.execute(
-            f"SELECT {fields} FROM {rows_source} LEFT JOIN current_cells c "
+            f"SELECT {fields} FROM {rows_source} LEFT JOIN current_cell_values c "
             "ON c.column_id=? AND c.row_id=r.id "
             f"WHERE r.sheet_id=? AND r.hidden=0{row_filter}",
             params,
@@ -632,7 +613,10 @@ def get_values_with_refs(
             project, sheet_id, column_id, row_ids, with_refs=True
         ):
             row_id = int(row["id"])
-            values[row_id] = _decode_stored_value(
+            values[row_id] = decode_stored_value(
+                None
+                if row["validity"] == "invalid" and not preserve_invalid
+                else row["value_kind"],
                 None
                 if row["validity"] == "invalid" and not preserve_invalid
                 else row["value"],
@@ -684,14 +668,14 @@ def get_values_with_refs(
     rows_source = "rows r NOT INDEXED" if row_ids is not None else "rows r"
     # 3) source cells
     for r in project.db.execute(
-        f"SELECT r.id, c.row_id AS source_row_id, c.value "
+        f"SELECT r.id, c.row_id AS source_row_id, c.value_kind, c.value "
         f"FROM {rows_source} LEFT JOIN cells c "
         f"ON c.row_id = r.id AND c.column_id = ? "
         f"WHERE r.sheet_id=? AND r.hidden=0{row_filter}",
         params,
     ):
-        out[r["id"]] = _decode_stored_value(
-            r["value"], tolerate_errors=tolerate_decode_errors
+        out[r["id"]] = decode_stored_value(
+            r["value_kind"], r["value"], tolerate_errors=tolerate_decode_errors
         )
         if r["source_row_id"] is not None:
             refs[r["id"]] = {
@@ -755,7 +739,10 @@ def get_values(
     ``get_values_with_refs``)."""
     if apply_edits:
         return {
-            int(row["id"]): _decode_stored_value(
+            int(row["id"]): decode_stored_value(
+                None
+                if row["validity"] == "invalid" and not preserve_invalid
+                else row["value_kind"],
                 None
                 if row["validity"] == "invalid" and not preserve_invalid
                 else row["value"],
@@ -935,7 +922,8 @@ def _replay_pending_candidates(
             return []
         row_filter = f" AND res.row_id IN ({','.join('?' * len(row_ids))})"
     rows = project.db.execute(
-        "SELECT res.row_id AS row_id, res.value AS result_value, "
+        "SELECT res.row_id AS row_id, res.value_kind AS result_value_kind, "
+        "res.value AS result_value, e.value_kind AS edit_value_kind, "
         "e.value AS edit_value "
         "FROM results res "
         + head_join
@@ -963,10 +951,8 @@ def _replay_pending_candidates(
     }
     candidates: list[dict[str, Any]] = []
     for row in rows:
-        fresh = json.loads(row["result_value"])
-        edit_value = (
-            json.loads(row["edit_value"]) if row["edit_value"] is not None else None
-        )
+        fresh = decode_stored_value(row["result_value_kind"], row["result_value"])
+        edit_value = decode_stored_value(row["edit_value_kind"], row["edit_value"])
         if fresh == edit_value:
             continue  # edit matches the fresh value -> nothing to surface
         value_hash = replay_generated_value_hash(fresh)

@@ -85,9 +85,9 @@ def test_sparse_edits_reindex_only_the_changed_cells(documents):
             break
     else:
         pytest.fail("sparse edit maintenance did not finish")
-    # Includes the JSON quotes stored with each text value; empty-scope
-    # bookkeeping may consume work units but must not reread unchanged cells.
-    assert processed_bytes == len(changed) * len('"changedneedle"')
+    # Native text bytes are the indexing budget; empty-scope bookkeeping may
+    # consume work units but must not reread unchanged cells.
+    assert processed_bytes == len(changed) * len("changedneedle")
     assert {
         hit["row_id"] for hit in search_project(project, "changedneedle", rerank="off")
     } == changed

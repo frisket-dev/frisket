@@ -281,6 +281,9 @@ class EvidenceViewerArtifact(WireModel):
     artifact_ref: EvidenceArtifactReference
     metadata: JsonValue
     text_context: EvidenceTextContext | None = None
+    text_context_status: Literal["available", "stale"] | None = None
+    recovery_status: Literal["located", "not_found", "unsupported"] | None = None
+    recovery_notice: str | None = None
     spans: list[EvidenceViewerSpan]
     pages: list[EvidenceViewerPage]
     runs: list[EvidenceTemporalRun]

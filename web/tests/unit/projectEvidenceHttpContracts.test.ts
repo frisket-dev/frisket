@@ -213,6 +213,26 @@ describe('project evidence generated HTTP reads', () => {
     await expect(api.getEvidenceViewer('json-leaves')).resolves.toEqual(viewerJsonLeavesFixture);
   });
 
+  it('adds current-passage location only when the caller explicitly requests it', async () => {
+    const requests: Array<RequestInfo | URL> = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      requests.push(input);
+      return jsonResponse(viewerFixture);
+    }));
+    const api = createProjectEvidenceApi(
+      (status) => new Error(`evidence ${status}`),
+      'evidence/project',
+    );
+
+    await api.getEvidenceViewer('link/a');
+    await api.getEvidenceViewer('link/a', { locateCurrent: true });
+
+    expect(requests).toEqual([
+      '/api/projects/evidence%2Fproject/evidence/links/link%2Fa/viewer',
+      '/api/projects/evidence%2Fproject/evidence/links/link%2Fa/viewer?locate_current=true',
+    ]);
+  });
+
   it('maps annotations at the project-evidence domain boundary', async () => {
     const domainAnnotations = {
       ...annotationsFixture,

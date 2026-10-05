@@ -132,7 +132,8 @@ def test_malformed_non_array_and_unknown_object_cells_fail_closed(project):
         {"tags": tags},
     )
     project.db.execute(
-        "UPDATE cells SET value=? WHERE row_id=? AND column_id=?",
+        "UPDATE cells SET value_kind='legacy_invalid', value=? "
+        "WHERE row_id=? AND column_id=?",
         ("{not json", invalid, tags),
     )
     project.db.commit()

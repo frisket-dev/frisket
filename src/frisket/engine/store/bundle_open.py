@@ -12,7 +12,12 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from .schema import BundleSchemaMismatch, SCHEMA_DIGEST_META_KEY, require_current_schema
+from .schema import (
+    BundleSchemaMismatch,
+    SCHEMA_DIGEST_META_KEY,
+    require_current_schema,
+)
+from .typed_storage_migration import migrate_typed_values as _migrate_typed_values
 
 # v0.1.1a62 (907a324c) -> v0.1.1a64's receipt-owned execution attempts.
 # Fixed endpoints cannot accidentally stamp a future schema edit as current.
@@ -75,6 +80,7 @@ _ROWID_CELL_LAYOUT_TO_DIGEST = "frisket.schema.v1:f078f2bc57411d372468936618f2f8
 
 _ACTIVE_COLUMNS_FROM_DIGEST = _ROWID_CELL_LAYOUT_TO_DIGEST
 _ACTIVE_COLUMNS_TO_DIGEST = "frisket.schema.v1:e865652f2f64091605730c143e3ee5f3"
+_TYPED_VALUES_FROM_DIGEST = _ACTIVE_COLUMNS_TO_DIGEST
 
 # The frontend fires hot read endpoints (/sheets, /review/queue) concurrently,
 # so two threads can open the same per-project DB at once. Both open-time
@@ -114,6 +120,11 @@ def open_bundle(project: Any) -> None:
         _migrate_index_hygiene(project.db)
         _migrate_rowid_cell_layout(project.db)
         _migrate_active_columns(project.db)
+        _migrate_typed_values(
+            project.db,
+            bundle_path=project.db_path,
+            from_digest=_TYPED_VALUES_FROM_DIGEST,
+        )
         require_current_schema(project.db, bundle_path=project.path)
         _reconcile_open_time_policy(project)
 
@@ -532,6 +543,15 @@ def _migrate_search_work(db: sqlite3.Connection) -> None:
             tail = SCHEMA[SCHEMA.index(marker) :]
             tail = tail[: tail.index("-- SEARCH_INDEX_WORK_END")]
             tail = tail.replace(marker, marker.replace("UNIQUE ", ""), 1)
+            # The stable native-value view was added later with the typed
+            # authority migration. Historical search upgrades still run over
+            # JSON authorities, so install only their original worklist DDL.
+            typed_marker = "CREATE VIEW IF NOT EXISTS current_cell_values"
+            search_table = "CREATE TABLE IF NOT EXISTS search_dirty_scopes"
+            if typed_marker in tail:
+                tail = (
+                    tail[: tail.index(typed_marker)] + tail[tail.index(search_table) :]
+                )
             statement = ""
             for line in tail.splitlines():
                 statement += line + "\n"

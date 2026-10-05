@@ -5,6 +5,7 @@ from pathlib import Path
 
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.value_codec import encode_stored_value
 from frisket.server.run_payloads import column_run_provenance_payload
 
 
@@ -19,13 +20,13 @@ def _result(
 ) -> None:
     project.db.execute(
         "INSERT INTO results "
-        "(run_id,row_id,column_id,value,review_state,review_decision,outcome) "
-        "VALUES (?,?,?,?,?,?, 'ok')",
+        "(run_id,row_id,column_id,value_kind,value,review_state,review_decision,outcome) "
+        "VALUES (?,?,?,?,?,?,?, 'ok')",
         (
             run_id,
             row_id,
             column_id,
-            json.dumps(value),
+            *encode_stored_value(value),
             "unreviewed" if decision is None else "verified",
             decision,
         ),

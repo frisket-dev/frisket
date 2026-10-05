@@ -15,7 +15,6 @@ if TYPE_CHECKING:
 _NER_CAPTURE_PREFIX = "__frisket_ner_capture_v1__:"
 _NER_CAPTURE_SCHEMA = "frisket.ner_input_capture.v1"
 _NER_EVIDENCE_KEY = "_frisket_ner_evidence"
-_SQLITE_ID_CHUNK_SIZE = 900
 
 
 def typed_ner_evidence_spec(
@@ -213,20 +212,20 @@ def _write_entity_spans(
         record_text_surface,
     )
     from frisket.engine.store.result_generations import ResultGenerationStore
+    from frisket.engine.store.runs import RunResultStore
 
-    result_rows = []
-    for start in range(0, len(row_ids), _SQLITE_ID_CHUNK_SIZE):
-        chunk = row_ids[start : start + _SQLITE_ID_CHUNK_SIZE]
-        placeholders = ",".join("?" for _ in chunk)
-        result_rows.extend(
-            project.db.execute(
-                "SELECT row_id, value, justification FROM results "
-                f"WHERE run_id=? AND column_id=? AND row_id IN ({placeholders}) "
-                "AND error IS NULL ORDER BY row_id",
-                (run_id, output_column_id, *chunk),
-            ).fetchall()
-        )
-    result_rows.sort(key=lambda row: int(row["row_id"]))
+    coordinates = [(run_id, int(row_id), output_column_id) for row_id in row_ids]
+    decoded_results = RunResultStore(project).decoded_result_rows(coordinates)
+    result_rows = sorted(
+        (
+            row
+            for coordinate, row in decoded_results.items()
+            if coordinate[0] == run_id
+            and coordinate[2] == output_column_id
+            and row.get("error") is None
+        ),
+        key=lambda row: int(row["row_id"]),
+    )
     first_input_column_id = next(iter(input_column_ids.values()), None)
     engine = runner_spec.get("engine")
     input_column_id_set = {int(value) for value in input_column_ids.values()}
@@ -241,10 +240,7 @@ def _write_entity_spans(
             is not None
         ):
             continue
-        try:
-            raw_value = json.loads(result_row["value"] or "null")
-        except (TypeError, ValueError):
-            raw_value = None
+        raw_value = result_row["value"]
         entities = [
             entity
             for entity in (raw_value if isinstance(raw_value, list) else [])
@@ -347,11 +343,17 @@ def _write_entity_spans(
                 if surface_spec is not None
                 else first_input_column_id
             ),
+            captured_text_native=captured_text is not None,
             metadata={
                 "engine": engine,
                 "op": "map.ner",
                 **(
-                    {"captured_text": captured_text}
+                    {
+                        "captured_text": captured_text,
+                        "captured_source": {
+                            "value_ref": surface_spec["value_ref"],
+                        },
+                    }
                     if captured_text is not None
                     else {}
                 ),

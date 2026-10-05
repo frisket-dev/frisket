@@ -620,10 +620,11 @@ def test_capture_page_links_mode_materializes_absolute_link_rows_with_lineage(
 
         first_child_row_id = child_row_ids[0]
         url_column_id = int(columns["url"]["id"])
-        stored_url = project.db.execute(
-            "SELECT value FROM cells WHERE row_id=? AND column_id=?",
-            (first_child_row_id, url_column_id),
-        ).fetchone()["value"]
+        stored_url = project.get_values(
+            child_sheet_id,
+            url_column_id,
+            row_ids=[first_child_row_id],
+        )[first_child_row_id]
         replace_test_source_cell(
             project,
             row_id=first_child_row_id,
@@ -637,7 +638,7 @@ def test_capture_page_links_mode_materializes_absolute_link_rows_with_lineage(
             project,
             row_id=first_child_row_id,
             column_id=url_column_id,
-            value=json.loads(stored_url),
+            value=stored_url,
         )
         assert run_action_spec(project, action, project_id=PROJECT_ID).status == (
             "completed"

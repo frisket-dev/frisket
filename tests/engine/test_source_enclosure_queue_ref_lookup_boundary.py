@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -314,14 +313,15 @@ def test_enclosure_download_dedupe_uses_indexed_refs_beyond_recent_queue_window(
             and job.workspace_root == str(workspace)
         ]
         assert [job.id for job in matching] == [old_job_id]
-        status = project.db.execute(
-            "SELECT cells.value FROM cells "
-            "JOIN columns ON columns.id = cells.column_id "
-            "WHERE columns.sheet_id=? AND columns.name='media_status' "
-            "AND cells.row_id=?",
-            (sheet_id, row_id),
-        ).fetchone()
-        assert json.loads(status["value"]) == "remote"
+        status_column_id = next(
+            int(column["id"])
+            for column in project.columns(sheet_id, include_hidden=True)
+            if column["name"] == "media_status"
+        )
+        assert (
+            project.get_values(sheet_id, status_column_id, row_ids=[row_id])[row_id]
+            == "remote"
+        )
     finally:
         queue.close()
         project.close()

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -91,14 +90,14 @@ def test_e2e_result_seeder_uses_one_immutable_claimed_writer(
             ).fetchone()["status"]
             == "released"
         )
-        assert (
-            json.loads(
-                project.db.execute(
-                    "SELECT value FROM results WHERE run_id=? AND row_id=? AND column_id=?",
-                    (run_id, row_id, output_column_id),
-                ).fetchone()["value"]
-            )
-            == "Budget approved"
+        stored = project.db.execute(
+            "SELECT value_kind,value FROM results "
+            "WHERE run_id=? AND row_id=? AND column_id=?",
+            (run_id, row_id, output_column_id),
+        ).fetchone()
+        assert (stored["value_kind"], stored["value"]) == (
+            "text",
+            "Budget approved",
         )
     finally:
         project.close()

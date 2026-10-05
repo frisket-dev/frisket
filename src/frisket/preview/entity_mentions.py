@@ -54,6 +54,7 @@ from frisket.querysets import (
     entity_mention_source_sql,
     guarded_entity_array_params,
     is_entity_mentions_column,
+    sheet_live_value_kind_sql,
     sheet_live_value_sql,
 )
 
@@ -225,6 +226,7 @@ def _mention_stream(
     about which items exist.
     """
     value_sql, value_params = sheet_live_value_sql("r", column)
+    value_kind_sql, value_kind_params = sheet_live_value_kind_sql("r", column)
     unfingerprinted = sorted(UNFINGERPRINTED_ENTITY_TYPES)
     placeholders = ", ".join("?" * len(unfingerprinted))
 
@@ -250,14 +252,14 @@ def _mention_stream(
             THEN json_extract({_ITEM}.value, '$.fingerprint')
           END AS fingerprint
         FROM rows r
-        JOIN {entity_mention_source_sql(value_sql)}
+        JOIN {entity_mention_source_sql(value_sql, value_kind_sql)}
         WHERE {" AND ".join(where)}
     """
     # Bind in SQL TEXT order: the CASE in the SELECT list precedes json_each()
     # in the FROM clause, which precedes the WHERE.
     params = [
         *unfingerprinted,
-        *guarded_entity_array_params(value_params),
+        *guarded_entity_array_params(value_params, value_kind_params),
         *where_params,
     ]
     return sql, params

@@ -15,6 +15,7 @@ from frisket.engine.store.current_cells import (
     refresh_current_cells,
     refresh_current_cells_from_key_table,
 )
+from frisket.engine.store.value_codec import decode_stored_value
 
 PUBLICATION_EFFECTS = frozenset({"publish_value", "publish_null", "publish_error"})
 WRITE_MODES = frozenset({"create", "replace_scope"})
@@ -80,7 +81,7 @@ class PublishedCellHead:
 
 
 def decode_published_result_value(
-    publication_effect: str, encoded_value: str | None
+    publication_effect: str, value_kind: str | None, stored_value: object
 ) -> Any:
     """Decode one exact result without null/error fallback semantics."""
 
@@ -88,9 +89,9 @@ def decode_published_result_value(
         raise ValueError(f"unknown publication effect {publication_effect!r}")
     if publication_effect != "publish_value":
         return None
-    if encoded_value is None:
-        raise ValueError("publish_value result has no encoded value")
-    return json.loads(encoded_value)
+    if value_kind is None:
+        raise ValueError("publish_value result has no stored value kind")
+    return decode_stored_value(value_kind, stored_value)
 
 
 def _chunks(
@@ -1047,7 +1048,7 @@ class ResultGenerationStore:
                 params.extend(row_id_batch)
             rows = self.db.execute(
                 "SELECT head.run_id,head.row_id,head.column_id,"
-                "result.publication_effect,result.value,result.error,"
+                "result.publication_effect,result.value_kind,result.value,result.error,"
                 "result.error_code,result.outcome,result.review_state,"
                 "result.confidence,result.justification,run.op_id "
                 "FROM cell_result_heads head "
@@ -1066,7 +1067,9 @@ class ResultGenerationStore:
                     row_id=row_id,
                     column_id=int(row["column_id"]),
                     publication_effect=effect,
-                    value=decode_published_result_value(effect, row["value"]),
+                    value=decode_published_result_value(
+                        effect, row["value_kind"], row["value"]
+                    ),
                     error=None if row["error"] is None else str(row["error"]),
                     error_code=(
                         None if row["error_code"] is None else str(row["error_code"])

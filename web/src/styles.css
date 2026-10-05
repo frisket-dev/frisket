@@ -5629,6 +5629,24 @@ li.panel-empty { list-style: none; }
   font-size: 12px;
   line-height: 1.45;
 }
+.evidence-text-recovery,
+.evidence-text-recovery-notice {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-mid);
+  border-radius: var(--radius-6);
+  padding: 9px 10px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.evidence-text-recovery-error {
+  flex-basis: 100%;
+  color: var(--amber);
+}
 .evidence-source-section {
   display: grid;
   gap: 12px;

@@ -139,8 +139,9 @@ def test_integer_ranges_keep_signed_64_bit_endpoints_exact(tmp_path):
             "INSERT INTO rows (sheet_id, position) VALUES (?, ?)", (sheet, 4)
         ).lastrowid
         project.db.execute(
-            "INSERT INTO cells (row_id, column_id, value) VALUES (?, ?, ?)",
-            (invalid_row, identifier, json.dumps(2**63)),
+            "INSERT INTO cells (row_id, column_id, value_kind, value) "
+            "VALUES (?, ?, 'bigint', ?)",
+            (invalid_row, identifier, str(2**63)),
         )
         project.db.commit()
         preview = resolve_column_values_preview(

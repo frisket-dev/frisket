@@ -83,21 +83,27 @@ def _descriptor_sql(
     source_value = (
         "CASE WHEN s.validity='valid' THEN s.value END" if read_source else "NULL"
     )
+    source_kind = (
+        "CASE WHEN s.validity='valid' THEN s.value_kind END" if read_source else "NULL"
+    )
     source_join = (
-        "LEFT JOIN current_cells s ON s.row_id=r.id AND s.column_id=?"
+        "LEFT JOIN current_cell_values s ON s.row_id=r.id AND s.column_id=?"
         if read_source
         else ""
     )
-    # Titles are display values, like /data's preserve_invalid projection.
-    title_value = "CASE WHEN json_valid(t.value) THEN t.value END"
-    # Blob envelopes may be stored as JSON objects or JSON-encoded strings.
+    # Titles are display values, like /data's preserve-invalid projection.
+    title_value = "t.value"
+    title_kind = "t.value_kind"
+    # Media envelopes are the only source values handed to JSON1.
     envelope = (
-        "CASE WHEN json_type(sv)='object' THEN sv WHEN json_valid(json_extract(sv,'$')) THEN json_extract(sv,'$') END"
+        "CASE WHEN sk='json' THEN CASE WHEN json_type(sv)='object' THEN sv END "
+        "WHEN sk='text' THEN CASE WHEN json_valid(sv) THEN "
+        "CASE WHEN json_type(sv)='object' THEN sv END END END"
         if media
         else "NULL"
     )
     label = (
-        "COALESCE(CASE WHEN json_type(envelope,'$.filename')='text' THEN NULLIF(json_extract(envelope,'$.filename'),'') END,CASE WHEN json_type(envelope,'$.blob')='text' THEN substr(json_extract(envelope,'$.blob'),1,12) END,CASE WHEN json_type(sv)='text' THEN frisket_document_url_label(json_extract(sv,'$')) END)"
+        "COALESCE(CASE WHEN json_type(envelope,'$.filename')='text' THEN NULLIF(json_extract(envelope,'$.filename'),'') END,CASE WHEN json_type(envelope,'$.blob')='text' THEN substr(json_extract(envelope,'$.blob'),1,12) END,CASE WHEN sk='text' THEN frisket_document_url_label(sv) END)"
         if media
         else "NULL"
     )
@@ -107,14 +113,15 @@ def _descriptor_sql(
             ELSE label END AS display_title
         FROM (
             SELECT *, {label} AS label,
-                CASE WHEN json_type(tv)='true' THEN 'true' WHEN json_type(tv)='false' THEN 'false'
-                ELSE json_extract(tv,'$') END AS raw_title,
+                CASE WHEN tk='boolean' THEN CASE WHEN tv THEN 'true' ELSE 'false' END
+                WHEN tk IN ('text','integer','real','bigint','json') THEN tv END AS raw_title,
                 CASE WHEN json_type(envelope,'$.mime')='text' THEN json_extract(envelope,'$.mime') END AS mime
             FROM (
                 SELECT *, {envelope} AS envelope FROM (
-                    SELECT r.id AS row_id,r.position,{source_value} AS sv,{title_value} AS tv
+                    SELECT r.id AS row_id,r.position,{source_value} AS sv,
+                        {source_kind} AS sk,{title_value} AS tv,{title_kind} AS tk
                     FROM rows r {source_join}
-                    LEFT JOIN current_cells t ON t.row_id=r.id AND t.column_id=?
+                    LEFT JOIN current_cell_values t ON t.row_id=r.id AND t.column_id=?
                     WHERE r.id={row_id_sql}
                 )
             )
@@ -233,15 +240,23 @@ def _document_browse(
     membership_params = list(scope_plan.filter_join_params)
     ordered_source = scope_plan.from_sql
     ordered_params = list(scope_plan.join_params)
+    ranked_anchor = (
+        q is None
+        and decoded is None
+        and anchor_row_id is not None
+        and (filter is not None or sort is not None)
+    )
     # Only explicit title search needs pre-search ranks for the existing Row N
-    # fallback. Materialize identities/ranks in SQLite, never source bodies.
-    if q:
+    # fallback. An initial filtered/sorted anchor also uses the ranked identity
+    # set so its ordinal and page need only one evaluation of the row scope.
+    if q or ranked_anchor:
         normal_order = ",".join(term.order_sql() for term in terms)
         ctes.append(
             f"ranked AS MATERIALIZED (SELECT r.id,row_number() OVER (ORDER BY {normal_order}) AS ordinal FROM {ordered_source} WHERE {where})"
         )
         # Window ORDER BY is lexically before FROM, unlike an ordinary SELECT.
         cte_params.extend([*order_params, *ordered_params, *where_params])
+    if q:
         membership_source = "rows r JOIN ranked z ON z.id=r.id"
         membership_params = []
         ordered_source += " JOIN ranked z ON z.id=r.id"
@@ -275,7 +290,7 @@ def _document_browse(
     seek, seek_params = "1=1", []
     ordinal = decoded["ordinal"] if decoded else 1
     has_prior = decoded is not None
-    if anchor is not None:
+    if anchor is not None and not ranked_anchor:
         if (
             project.db.execute(
                 prefix + f"SELECT 1 FROM {membership_source} WHERE r.id=? AND {where}",
@@ -325,19 +340,33 @@ def _document_browse(
                     ).fetchone()[0]
                 )
                 has_prior = ordinal > 1
-    order = ",".join(term.order_sql(reverse=back) for term in terms)
-    rows = project.db.execute(
-        prefix
-        + f"SELECT r.id{',z.ordinal' if q else ''} FROM {ordered_source} WHERE {where} AND {seek} ORDER BY {order} LIMIT ?",
-        [
-            *cte_params,
-            *ordered_params,
-            *where_params,
-            *seek_params,
-            *order_params,
-            limit + 1,
-        ],
-    ).fetchall()
+    if ranked_anchor:
+        rows = project.db.execute(
+            prefix + "SELECT r.id,z.ordinal FROM ranked z JOIN rows r ON r.id=z.id "
+            "WHERE z.ordinal >= (SELECT ordinal FROM ranked WHERE id=?) "
+            "ORDER BY z.ordinal LIMIT ?",
+            [*cte_params, anchor, limit + 1],
+        ).fetchall()
+        if not rows or int(rows[0]["id"]) != anchor:
+            raise ValueError(
+                "document cursor anchor is no longer in scope; restart browsing"
+            )
+        ordinal = int(rows[0]["ordinal"])
+        has_prior = ordinal > 1
+    else:
+        order = ",".join(term.order_sql(reverse=back) for term in terms)
+        rows = project.db.execute(
+            prefix
+            + f"SELECT r.id{',z.ordinal' if q else ''} FROM {ordered_source} WHERE {where} AND {seek} ORDER BY {order} LIMIT ?",
+            [
+                *cte_params,
+                *ordered_params,
+                *where_params,
+                *seek_params,
+                *order_params,
+                limit + 1,
+            ],
+        ).fetchall()
     more = len(rows) > limit
     rows = rows[:limit]
     start = max(1, ordinal - len(rows)) if back else ordinal + (1 if decoded else 0)
@@ -345,9 +374,14 @@ def _document_browse(
         rows.reverse()
     items = []
     for index, row in enumerate(rows):
+        detail_params: list[Any] | dict[str, Any]
+        if isinstance(descriptor_params, dict):
+            detail_params = {**descriptor_params, "row_id": int(row["id"])}
+        else:
+            detail_params = [*descriptor_params, int(row["id"])]
         detail = project.db.execute(
-            f"SELECT substr(display_title,1,256) AS title,length(display_title)>256 AS title_truncated,substr(label,1,256) AS label,lower(substr(label,-10)) AS suffix,length(label)>256 AS label_truncated,substr(mime,1,128) AS mime,length(json_extract(sv,'$')) AS character_count,json_extract(sv,'$') IS NOT NULL AND json_extract(sv,'$')<>'' AS source_present FROM ({descriptor})",
-            [*descriptor_params, int(row["id"])],
+            f"SELECT substr(display_title,1,256) AS title,length(display_title)>256 AS title_truncated,substr(label,1,256) AS label,lower(substr(label,-10)) AS suffix,length(label)>256 AS label_truncated,substr(mime,1,128) AS mime,CASE WHEN sk='text' THEN length(sv) END AS character_count,CASE WHEN sk IN ('text','json') THEN sv IS NOT NULL AND sv<>'' ELSE 0 END AS source_present FROM ({descriptor})",
+            detail_params,
         ).fetchone()
         mime = (detail["mime"] or "").lower()
         label = detail["label"]
@@ -370,7 +404,7 @@ def _document_browse(
                     )
                 ):
                     kind = "text"
-        rank = int(row["ordinal"]) if q else start + index
+        rank = int(row["ordinal"]) if q or ranked_anchor else start + index
         items.append(
             dict(
                 row_id=int(row["id"]),

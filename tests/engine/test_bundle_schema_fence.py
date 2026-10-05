@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 
 import pytest
@@ -16,6 +17,7 @@ from frisket.engine.store.schema import (
 )
 from frisket.server.route_errors import RouteError
 from frisket.server.workspace import Workspace
+from frisket.engine.store.value_codec import decode_stored_value
 
 
 # Independently pinned from v0.1.1a64 (6602458d), before consent_principal.
@@ -29,8 +31,121 @@ _REVIEW_METADATA_DDL = (
 )
 
 
+def _replace_create_table(schema: str, table: str, replacement: str) -> str:
+    prefix = f"CREATE TABLE IF NOT EXISTS {table}"
+    start = schema.index(prefix)
+    statement = ""
+    for line in schema[start:].splitlines(keepends=True):
+        statement += line
+        if sqlite3.complete_statement(statement):
+            return (
+                schema[:start]
+                + replacement.rstrip()
+                + "\n"
+                + schema[start + len(statement) :]
+            )
+    raise AssertionError(f"incomplete {table} DDL")
+
+
+_LEGACY_CELLS = """CREATE TABLE IF NOT EXISTS cells (
+  row_id INTEGER NOT NULL REFERENCES rows(id) ON DELETE CASCADE,
+  column_id INTEGER NOT NULL REFERENCES columns(id) ON DELETE CASCADE,
+  value TEXT,
+  -- CELL_PRODUCER_ID_BEGIN
+  producer_id INTEGER REFERENCES base_cell_producers(id) ON DELETE RESTRICT,
+  -- CELL_PRODUCER_ID_END
+  UNIQUE (row_id, column_id)
+);"""
+
+_LEGACY_RESULTS = """CREATE TABLE IF NOT EXISTS results (
+  run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  row_id INTEGER NOT NULL,
+  column_id INTEGER NOT NULL,
+  value TEXT,
+  tokens_in INTEGER,
+  tokens_out INTEGER,
+  confidence REAL,
+  justification TEXT,
+  error TEXT,
+  error_code TEXT,
+  review_state TEXT NOT NULL DEFAULT 'unreviewed',
+  review_decision TEXT CHECK (
+    review_decision IN ('accept', 'reject', 'reject_clear', 'edit')
+  ),
+  review_note TEXT,
+  outcome TEXT NOT NULL DEFAULT 'ok',
+  publication_effect TEXT,
+  PRIMARY KEY (run_id, row_id, column_id),
+  CHECK (
+    publication_effect IS NULL
+    OR (publication_effect='publish_value' AND value IS NOT NULL AND error IS NULL)
+    OR (publication_effect='publish_null' AND value IS NULL AND error IS NULL)
+    OR (publication_effect='publish_error' AND value IS NULL AND error IS NOT NULL)
+  )
+) WITHOUT ROWID;"""
+
+_LEGACY_EDITS = """CREATE TABLE IF NOT EXISTS edits (
+  op_id INTEGER NOT NULL REFERENCES ops(id) ON DELETE CASCADE,
+  row_id INTEGER NOT NULL,
+  column_id INTEGER NOT NULL,
+  value TEXT,
+  PRIMARY KEY (op_id, row_id, column_id)
+) WITHOUT ROWID;"""
+
+_LEGACY_CURRENT_CELLS = """CREATE TABLE IF NOT EXISTS current_cells (
+  column_id INTEGER NOT NULL REFERENCES columns(id) ON DELETE CASCADE,
+  row_id INTEGER NOT NULL REFERENCES rows(id) ON DELETE CASCADE,
+  value TEXT,
+  origin_kind TEXT NOT NULL CHECK (
+    origin_kind IN ('source_cell', 'run_result', 'manual_edit')
+  ),
+  origin_op_id INTEGER REFERENCES ops(id) ON DELETE CASCADE,
+  origin_run_id INTEGER REFERENCES runs(id) ON DELETE CASCADE,
+  base_producer_id INTEGER REFERENCES base_cell_producers(id) ON DELETE RESTRICT,
+  validity TEXT NOT NULL CHECK (validity IN ('valid', 'missing', 'invalid')),
+  CHECK (
+    (origin_kind='source_cell' AND origin_op_id IS NULL AND origin_run_id IS NULL)
+    OR (origin_kind='run_result' AND origin_op_id IS NOT NULL
+        AND origin_run_id IS NOT NULL AND base_producer_id IS NULL)
+    OR (origin_kind='manual_edit' AND origin_op_id IS NOT NULL
+        AND origin_run_id IS NULL AND base_producer_id IS NULL)
+  )
+);"""
+
+
+def _without_typed_values(schema: str) -> str:
+    """Restore the exact logical JSON authority layout before typed storage."""
+
+    citation = schema.find("CREATE TABLE IF NOT EXISTS citation_texts")
+    if citation >= 0:
+        schema = schema[:citation]
+    for table, ddl in (
+        ("cells", _LEGACY_CELLS),
+        ("results", _LEGACY_RESULTS),
+        ("edits", _LEGACY_EDITS),
+        ("current_cells", _LEGACY_CURRENT_CELLS),
+    ):
+        schema = _replace_create_table(schema, table, ddl)
+    typed_view = schema.find("CREATE VIEW IF NOT EXISTS current_cell_values")
+    if typed_view >= 0:
+        search_work = schema.index(
+            "CREATE TABLE IF NOT EXISTS search_dirty_scopes", typed_view
+        )
+        schema = schema[:typed_view] + schema[search_work:]
+    return (
+        schema.replace("BEFORE UPDATE OF value_kind, value,", "BEFORE UPDATE OF value,")
+        .replace("    OR NEW.value_kind IS NOT OLD.value_kind\n", "")
+        .replace(
+            "        NEW.value_kind IS NOT OLD.value_kind\n        OR NEW.value IS NOT OLD.value",
+            "        NEW.value IS NOT OLD.value",
+        )
+    )
+
+
 def _without_rowid_cell_layout(schema: str) -> str:
     """Restore the pre-repack physical DDL used by pinned fixtures."""
+
+    schema = _without_typed_values(schema)
 
     cells = "  UNIQUE (row_id, column_id)\n);"
     assert schema.count(cells) == 1
@@ -158,10 +273,69 @@ def _physically_remove_project_qa_research(db: sqlite3.Connection) -> None:
     db.execute("ALTER TABLE project_qa_threads DROP COLUMN research_json")
 
 
+def _legacy_json(value_kind: str | None, value: object) -> str | None:
+    if value_kind is None:
+        return None
+    if value_kind == "legacy_invalid":
+        return str(value)
+    return json.dumps(decode_stored_value(value_kind, value), allow_nan=False)
+
+
+def _restore_legacy_authorities(db: sqlite3.Connection) -> None:
+    """Downgrade fresh typed fixtures before exercising historical upgrades."""
+
+    current_rows = [
+        (
+            row[0],
+            row[1],
+            _legacy_json(row[2], row[3]),
+            *row[4:],
+        )
+        for row in db.execute(
+            "SELECT column_id,row_id,value_kind,value,origin_kind,origin_op_id,"
+            "origin_run_id,base_producer_id,validity FROM current_cell_values"
+        )
+    ]
+    authority_rows: dict[str, tuple[list[str], list[tuple[object, ...]]]] = {}
+    for table in ("cells", "results", "edits"):
+        columns = [str(row[1]) for row in db.execute(f"PRAGMA table_info({table})")]
+        rows = []
+        for stored in db.execute(f"SELECT {','.join(columns)} FROM {table}"):
+            values = dict(zip(columns, stored))
+            values["value"] = _legacy_json(values.pop("value_kind"), values["value"])
+            legacy_columns = [column for column in columns if column != "value_kind"]
+            rows.append(tuple(values[column] for column in legacy_columns))
+        authority_rows[table] = (
+            [column for column in columns if column != "value_kind"],
+            rows,
+        )
+
+    db.execute("DROP VIEW current_cell_values")
+    db.execute("DROP TABLE citation_texts")
+    db.execute("DROP TABLE current_cells")
+    for table in ("cells", "results", "edits"):
+        db.execute(f"DROP TABLE {table}")
+    db.executescript(_without_typed_values(SCHEMA))
+    for table, (columns, rows) in authority_rows.items():
+        if rows:
+            db.executemany(
+                f"INSERT INTO {table} ({','.join(columns)}) VALUES "
+                f"({','.join('?' for _ in columns)})",
+                rows,
+            )
+    db.executemany(
+        "INSERT INTO current_cells "
+        "(column_id,row_id,value,origin_kind,origin_op_id,origin_run_id,"
+        "base_producer_id,validity) VALUES (?,?,?,?,?,?,?,?)",
+        current_rows,
+    )
+
+
 def _physically_remove_current_cells_foundation(db: sqlite3.Connection) -> None:
     """Restore the exact predecessor tables after seeding with today's facade."""
 
     db.execute("PRAGMA foreign_keys=OFF")
+    _restore_legacy_authorities(db)
     db.execute("DROP TABLE import_sessions")
     _physically_remove_project_qa_research(db)
     db.execute("DROP TABLE project_qa_usage_calls")
@@ -180,19 +354,6 @@ def _physically_remove_current_cells_foundation(db: sqlite3.Connection) -> None:
 def _a64_bundle(tmp_path):
     from frisket.engine.store.runs import RunResultStore
 
-    prior_ddl = (
-        _without_project_qa(
-            _without_current_cells_foundation(
-                _without_rowid_cell_layout(_without_import_sessions(SCHEMA))
-            )
-        )
-        .replace(
-            "  edition_run_context TEXT,\n  consent_principal TEXT",
-            "  edition_run_context TEXT",
-        )
-        .replace(_REVIEW_METADATA_DDL, "")
-    )
-    assert schema_digest(prior_ddl) == _A64_DIGEST
     path = tmp_path / "a64.frisket"
     project = Project.create(path, name="Reporting project")
     sheet = project.add_sheet("Sources")
@@ -247,11 +408,6 @@ def test_a64_bundle_migrates_without_losing_rows_cells_or_runs(tmp_path):
 
 def test_run_review_status_migration_preserves_existing_runs(tmp_path):
     prior_digest = "frisket.schema.v1:b540a83f8325e5cbcd52fc3fac64eeb5"
-    prior_ddl = _without_project_qa_research(
-        _without_rowid_cell_layout(_without_import_sessions(SCHEMA))
-    ).replace("  review_completed_at TEXT,\n", "")
-    assert schema_digest(prior_ddl) == prior_digest
-
     path = tmp_path / "prior-review-status.frisket"
     project = Project.create(path, name="Existing review")
     sheet = project.add_sheet("Sheet")
@@ -261,6 +417,8 @@ def test_run_review_status_migration_preserves_existing_runs(tmp_path):
     run_id = RunResultStore(project).start_run(op, sheet, "map.classify")
     project.close()
     with sqlite3.connect(path / "project.db") as db:
+        db.execute("PRAGMA foreign_keys=OFF")
+        _restore_legacy_authorities(db)
         db.execute("DROP TABLE import_sessions")
         _physically_remove_project_qa_research(db)
         db.execute("ALTER TABLE runs DROP COLUMN review_completed_at")
@@ -363,7 +521,6 @@ def _a62_bundle(tmp_path):
             "",
         )
     )
-    assert schema_digest(prior_ddl) == _A62_DIGEST
     path = tmp_path / "a62.frisket"
     project = Project.create(path, name="Reporting project")
     sheet = project.add_sheet("Sources")

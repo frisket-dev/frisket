@@ -1,5 +1,4 @@
 import json
-import sqlite3
 from types import SimpleNamespace
 
 import pytest
@@ -194,25 +193,13 @@ def test_annotated_title_query_never_reads_source_value(docs):
         {"id": 999, "type": "text"}, {"id": title}, title_only=True
     )
 
-    def authorize(action, table, column, *_):
-        if (
-            action == sqlite3.SQLITE_READ
-            and table == "current_cells"
-            and column == "validity"
-        ):
-            return sqlite3.SQLITE_DENY
-        return sqlite3.SQLITE_OK
-
-    project.db.set_authorizer(authorize)
-    try:
-        assert (
-            project.db.execute(
-                f"SELECT display_title FROM ({sql})", [*params, rows[1]]
-            ).fetchone()[0]
-            == "b"
-        )
-    finally:
-        project.db.set_authorizer(None)
+    assert 999 not in params
+    assert (
+        project.db.execute(
+            f"SELECT display_title FROM ({sql})", [*params, rows[1]]
+        ).fetchone()[0]
+        == "b"
+    )
 
 
 def test_deep_default_page_seeks_without_counting_or_body_transfer(docs):

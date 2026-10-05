@@ -97,6 +97,9 @@ from pypdf import PdfWriter
 from frisket.ops.ocr_engines_local import ocr_rapidocr, rapidocr_execution_scope
 from frisket.engine.pdf_render import render_pdf_pages
 from frisket.sample_content.lawsuits import SAMPLE_LAWSUITS, lawsuit_pdf_bytes
+from frisket.search_storage import ensure_search_runtime
+
+ensure_search_runtime()
 
 pdf = workspace / "native-check.pdf"
 writer = PdfWriter()

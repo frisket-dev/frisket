@@ -39,6 +39,7 @@ from frisket.engine.store.output_claims import (
     OutputColumnClaimStore,
 )
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.value_codec import encode_stored_value
 from frisket.execution.attempt import StaleAttemptWriter
 from frisket.execution.provider import (
     ExecutionCompositionContext,
@@ -1290,9 +1291,10 @@ def test_a_different_action_still_re_asks(workspace, gateway_env, adapter_stub):
     values = project.get_values(sheet_id, source["id"])
     # Identical bytes, distinct authored input: cost is unchanged, intent is not.
     for row_id, value in values.items():
+        value_kind, stored_value = encode_stored_value(value)
         project.db.execute(
-            "INSERT INTO cells(row_id,column_id,value) VALUES(?,?,?)",
-            (row_id, other_column, json.dumps(value)),
+            "INSERT INTO cells(row_id,column_id,value_kind,value) VALUES(?,?,?,?)",
+            (row_id, other_column, value_kind, stored_value),
         )
     project.db.commit()
     other = _spec(

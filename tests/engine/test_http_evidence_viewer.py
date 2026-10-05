@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -10,12 +11,144 @@ from frisket.engine.store.evidence import (
     record_evidence_link,
     record_source_artifact,
     record_source_span,
+    record_text_surface,
 )
 from frisket.engine.executor.actions import run_action_spec
 from frisket.server.app import create_app
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
+
+
+def _text_hash(text: str) -> str:
+    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def test_http_viewer_does_not_treat_html_blob_hash_as_cell_text_hash(
+    tmp_path: Path,
+) -> None:
+    client = TestClient(create_app(tmp_path / "ws"))
+    project_id = client.post("/api/projects", json={"name": "Web capture"}).json()["id"]
+    project = client.app.state.workspace.get(project_id)
+    sheet_id = project.add_sheet("Pages")
+    column_id = project.add_column(sheet_id, "url", "text")
+    [row_id] = project.add_rows(
+        sheet_id, [{"url": "https://example.test"}], {"url": column_id}
+    )
+    blob_hash = project.add_blob(b"<html>captured</html>", "page.html", "text/html")
+    artifact = record_source_artifact(
+        project,
+        artifact_kind="web_capture_html",
+        media_type="text/html",
+        blob_hash=blob_hash,
+        source_sheet_id=sheet_id,
+        source_row_id=row_id,
+        source_column_id=column_id,
+    )
+    span = record_source_span(
+        project,
+        artifact_id=artifact["id"],
+        span_kind="html",
+        selector={"blob_hash": blob_hash},
+        text_layer_hash=blob_hash,
+    )
+    link = record_evidence_link(
+        project,
+        subject_kind="test",
+        subject_ref={"kind": "test"},
+        spans=[{"span_id": span["id"]}],
+        sheet_id=sheet_id,
+        row_id=row_id,
+        column_id=column_id,
+    )
+
+    response = client.get(
+        f"/api/projects/{project_id}/evidence/links/{link['stable_id']}/viewer"
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["link"]["text_layer_hash_mismatch"] is False
+
+
+def test_http_viewer_flags_missing_current_cell_for_frozen_cell_surface(
+    tmp_path: Path,
+) -> None:
+    client = TestClient(create_app(tmp_path / "ws"))
+    project_id = client.post("/api/projects", json={"name": "Frozen citation"}).json()[
+        "id"
+    ]
+    project = client.app.state.workspace.get(project_id)
+    sheet_id = project.add_sheet("Sources")
+    column_id = project.add_column(sheet_id, "body", "text")
+    original = "Saved source text"
+    [row_id] = project.add_rows(sheet_id, [{"body": original}], {"body": column_id})
+    _values, refs = project.get_values_with_refs(sheet_id, column_id, row_ids=[row_id])
+    content_hash = _text_hash(original)
+    surface = record_text_surface(
+        project,
+        surface_kind="cell",
+        content_hash=content_hash,
+        offset_unit="unicode_codepoint",
+        text_sheet_id=sheet_id,
+        text_row_id=row_id,
+        text_column_id=column_id,
+        value_ref=refs[row_id],
+    )
+    artifact = record_source_artifact(
+        project,
+        artifact_kind="text",
+        media_type="text/plain",
+        source_sheet_id=sheet_id,
+        source_row_id=row_id,
+        source_column_id=column_id,
+        metadata={"captured_text": original},
+    )
+    span = record_source_span(
+        project,
+        artifact_id=artifact["id"],
+        span_kind="text",
+        char_start=0,
+        char_end=len(original),
+        quote=original,
+        text_layer_hash=content_hash,
+        text_surface_id=surface["id"],
+    )
+    link = record_evidence_link(
+        project,
+        subject_kind="test",
+        subject_ref={"kind": "test"},
+        spans=[{"span_id": span["id"]}],
+        sheet_id=sheet_id,
+        row_id=row_id,
+        column_id=column_id,
+    )
+    project.set_column_type(column_id, "number")
+    assert project.get_values(sheet_id, column_id, row_ids=[row_id])[row_id] is None
+    assert (
+        project.get_values(
+            sheet_id, column_id, row_ids=[row_id], preserve_invalid=True
+        )[row_id]
+        == original
+    )
+    invalid_response = client.get(
+        f"/api/projects/{project_id}/evidence/links/{link['stable_id']}/viewer"
+    )
+    assert invalid_response.status_code == 200, invalid_response.text
+    assert invalid_response.json()["link"]["text_layer_hash_mismatch"] is False
+
+    project.set_column_type(column_id, "text")
+    project.apply_edits([{"row_id": row_id, "column_id": column_id, "value": None}])
+
+    response = client.get(
+        f"/api/projects/{project_id}/evidence/links/{link['stable_id']}/viewer"
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["link"]["status"] == "active"
+    assert payload["link"]["text_layer_hash_mismatch"] is True
+    assert payload["artifacts"][0]["text_context_status"] == "available"
+    assert payload["artifacts"][0]["text_context"]["text"] == original
 
 
 def _seed_generated_cell(

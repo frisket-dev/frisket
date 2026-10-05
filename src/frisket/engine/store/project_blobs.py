@@ -1,6 +1,6 @@
 """Blob metadata store for a project bundle: canonical blob rows (bytes live
 in the pluggable blob backend), blob-to-blob derivation lineage, and the
-reference-scan GC that prunes metadata for blobs no live value mentions.
+reference-scan GC that prunes metadata no retained authority value mentions.
 Free functions over the facade's per-thread SQLite connection; ``project``
 stays duck-typed (``Any``) so this leaf never re-imports the facade module."""
 
@@ -24,7 +24,7 @@ from .blob_backend import (
     sha256_blob_path,
     validate_blob_digest,
 )
-from .runs import FAILURE_OUTCOMES, outcome_sql_list
+from .value_codec import decode_stored_value
 
 
 def publish_prepared_blob(
@@ -250,51 +250,49 @@ def _insert_live_hashes(
     )
 
 
+def _decoded_texts(value):
+    """Yield every string a decoded JSON-compatible authority value contains."""
+
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, list):
+        for item in value:
+            yield from _decoded_texts(item)
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            yield from _decoded_texts(key)
+            yield from _decoded_texts(item)
+
+
+def _authority_root_texts(db: sqlite3.Connection):
+    # Every authority value is history, including values on discarded ops and
+    # failed results. Preserve field-name-agnostic retention, including hashes
+    # embedded inside longer strings. Overlapping matches preserve the old
+    # substring semantics.
+    for table in ("cells", "results", "edits"):
+        for value_kind, stored_value in db.execute(
+            f"SELECT value_kind,value FROM {table} WHERE value_kind IS NOT NULL"
+        ):
+            if value_kind == "legacy_invalid":
+                if not isinstance(stored_value, str):
+                    raise ValueError("legacy invalid payload is not SQLite text")
+                yield stored_value
+                continue
+            yield from _decoded_texts(decode_stored_value(value_kind, stored_value))
+
+
 def _root_texts(db: sqlite3.Connection):
-    # Preserve field-name-agnostic retention, including hashes embedded inside
-    # longer strings. Overlapping matches preserve the old substring semantics.
-    queries = (
-        "SELECT value FROM cells WHERE value IS NOT NULL",
-        (
-            "SELECT res.value FROM results res "
-            "JOIN runs ru ON ru.id = res.run_id "
-            "JOIN ops o ON o.id = ru.op_id "
-            "WHERE res.value IS NOT NULL "
-            f"AND res.outcome NOT IN ({outcome_sql_list(FAILURE_OUTCOMES)}) "
-            "AND (o.status != 'discarded' "
-            "     OR res.run_id IN ("
-            "       SELECT generation.expected_base_run_id "
-            "       FROM run_output_generations generation "
-            "       JOIN runs owner ON owner.id=generation.run_id "
-            "       JOIN ops owner_op ON owner_op.id=owner.op_id "
-            "       WHERE generation.expected_base_run_id IS NOT NULL "
-            "       AND owner_op.status!='discarded'"
-            "     ) "
-            "     OR (NOT EXISTS ("
-            "       SELECT 1 FROM run_output_generations generation "
-            "       WHERE generation.run_id=res.run_id "
-            "       AND generation.column_id=res.column_id"
-            "     ) AND res.run_id IN ("
-            "       SELECT current_run_id FROM columns "
-            "       WHERE current_run_id IS NOT NULL"
-            "     )))"
-        ),
-        (
-            "SELECT e.value FROM edits e JOIN ops o ON o.id = e.op_id "
-            "WHERE o.status!='discarded' AND e.value IS NOT NULL"
-        ),
-        (
-            "SELECT external_ref_json FROM source_artifacts "
-            "UNION ALL SELECT metadata FROM source_artifacts "
-            "UNION ALL SELECT selector_json FROM source_spans "
-            "UNION ALL SELECT preview_json FROM source_spans "
-            "UNION ALL SELECT metadata FROM source_spans"
-        ),
+    yield from _authority_root_texts(db)
+    query = (
+        "SELECT external_ref_json FROM source_artifacts "
+        "UNION ALL SELECT metadata FROM source_artifacts "
+        "UNION ALL SELECT selector_json FROM source_spans "
+        "UNION ALL SELECT preview_json FROM source_spans "
+        "UNION ALL SELECT metadata FROM source_spans"
     )
-    for query in queries:
-        for row in db.execute(query):
-            if row[0]:
-                yield row[0]
+    for row in db.execute(query):
+        if row[0]:
+            yield row[0]
 
 
 def _file_output_hashes(ref):
@@ -587,10 +585,10 @@ def reclaim_local_blobs(project: Any, *, dry_run: bool = True) -> dict[str, Any]
 
 
 def gc_blobs(project: Any, dry_run: bool = False) -> dict[str, Any]:
-    """Prune metadata for blobs no longer reachable from live data.
+    """Prune metadata for blobs no longer reachable from retained data.
 
-    A blob is collectable when no live value, evidence artifact, or retained
-    project-file export or published row-file occurrence references it.
+    A blob is collectable when no authority value, evidence artifact, retained
+    project-file export, or published row-file occurrence references it.
     Canonical bytes remain retained until explicit offline reclamation;
     this online operation therefore reports zero bytes freed.
     With ``dry_run=True`` even the

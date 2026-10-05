@@ -310,20 +310,29 @@ def action_run_rows_payload(
     by_row: dict[int, list[dict[str, Any]]] = {row_id: [] for row_id in page_ids}
     if page_ids:
         ph = ",".join("?" * len(page_ids))
-        for row in project.db.execute(
+        result_rows = project.db.execute(
             "SELECT res.row_id, res.column_id, c.name AS column_name, "
-            "res.value, res.error, res.tokens_in, res.tokens_out, "
+            "res.error, res.tokens_in, res.tokens_out, "
             "res.confidence, res.justification, res.review_state "
             "FROM results res JOIN columns c ON c.id=res.column_id "
             f"WHERE res.run_id=? AND res.row_id IN ({ph}) "
             "ORDER BY res.row_id, c.position, c.id",
             [run_id, *page_ids],
-        ):
+        ).fetchall()
+        coordinates = [
+            (run_id, int(row["row_id"]), int(row["column_id"])) for row in result_rows
+        ]
+        resolved = RunResultStore(project).decoded_result_rows(
+            coordinates, tolerate_decode_errors=True
+        )
+        for row in result_rows:
+            coordinate = (run_id, int(row["row_id"]), int(row["column_id"]))
+            result = resolved.get(coordinate)
             by_row[row["row_id"]].append(
                 {
                     "column_id": row["column_id"],
                     "column_name": row["column_name"],
-                    "value": _json_loads(row["value"]),
+                    "value": result["value"] if result is not None else None,
                     "error": row["error"],
                     "tokens_in": row["tokens_in"],
                     "tokens_out": row["tokens_out"],
@@ -445,8 +454,7 @@ def _review_decisions_by_row(
 
 
 def _bool_result(value: Any) -> bool | None:
-    loaded = _json_loads(value)
-    return loaded if isinstance(loaded, bool) else None
+    return value if isinstance(value, bool) else None
 
 
 def _judge_scores(
@@ -541,14 +549,24 @@ def _judge_scores(
         verdict_column_id = int(link["verdict_column_id"])
         exact_rows = link["exact_rows"]
         judged: dict[int, bool] = {}
-        for result in project.db.execute(
-            "SELECT row_id, value FROM results "
+        result_rows = project.db.execute(
+            "SELECT row_id FROM results "
             "WHERE run_id=? AND column_id=? AND error IS NULL",
             (judge_run_id, verdict_column_id),
-        ):
-            if int(result["row_id"]) not in exact_rows:
+        ).fetchall()
+        coordinates = [
+            (judge_run_id, int(result["row_id"]), verdict_column_id)
+            for result in result_rows
+        ]
+        resolved = RunResultStore(project).decoded_result_rows(
+            coordinates, tolerate_decode_errors=True
+        )
+        for result in result_rows:
+            row_id = int(result["row_id"])
+            if row_id not in exact_rows:
                 continue
-            parsed = _bool_result(result["value"])
+            decoded = resolved.get((judge_run_id, row_id, verdict_column_id))
+            parsed = _bool_result(decoded["value"] if decoded is not None else None)
             if parsed is not None:
                 judged[int(result["row_id"])] = parsed
         compared_rows = set(judged) & set(human_by_run[source_run_id])

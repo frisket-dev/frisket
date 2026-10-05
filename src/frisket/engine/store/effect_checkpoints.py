@@ -44,6 +44,8 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, ClassVar
 
+from .value_codec import repair_unicode_value
+
 # The retained payload written when an OPERATOR (frisket reconcile) decides a
 # reserved unit's unknown provider effect really happened.  It is an
 # attestation of a human decision — never a provider response, result, or
@@ -78,6 +80,10 @@ def canonical_json(value: Any) -> str:
         ensure_ascii=False,
         allow_nan=False,
     )
+
+
+def _returned_payload_json(payload: dict[str, Any]) -> str:
+    return canonical_json(repair_unicode_value(payload))
 
 
 class EffectCheckpointRefused(RuntimeError):
@@ -343,7 +349,7 @@ class EffectCheckpointStore:
         ``accounting_persisted`` is set so a later idempotent
         :meth:`account_returned` replays free."""
 
-        encoded = canonical_json(payload)
+        encoded = _returned_payload_json(payload)
         with self._txn():
             checkpoint = self._verified_unit(
                 checkpoint_id,
@@ -396,7 +402,7 @@ class EffectCheckpointStore:
         the payload (the caller passes its zero-cost replay); replays return
         ``0.0`` without re-running ``accrue``."""
 
-        encoded = canonical_json(payload)
+        encoded = _returned_payload_json(payload)
         with self._txn():
             checkpoint = self._verified_unit(
                 checkpoint_id,

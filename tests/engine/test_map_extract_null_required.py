@@ -20,6 +20,7 @@ import pytest
 from executor_harness import run_action_with_confirmation
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
 from frisket.engine.store import Project
+from frisket.engine.store.value_codec import decode_stored_value
 from frisket.actions.extract import ExtractParams
 from frisket.actions.extraction_types import ExtractField
 from frisket.ops.extraction import normalize_extracted_value
@@ -95,13 +96,16 @@ def _column_result(
         "SELECT id FROM columns WHERE sheet_id=? AND name=?", (sheet_id, name)
     ).fetchone()
     row = project.db.execute(
-        "SELECT value, outcome, error FROM results WHERE run_id=? AND column_id=?",
+        "SELECT value_kind, value, outcome, error, publication_effect "
+        "FROM results WHERE run_id=? AND column_id=?",
         (run_id, int(column["id"])),
     ).fetchone()
     return {
-        "value": json.loads(row["value"]) if row["value"] is not None else None,
+        "value_kind": row["value_kind"],
+        "value": decode_stored_value(row["value_kind"], row["value"]),
         "outcome": row["outcome"],
         "error": row["error"],
+        "publication_effect": row["publication_effect"],
     }
 
 
@@ -180,6 +184,8 @@ def test_null_string_becomes_genuinely_empty_cell(tmp_path: Path) -> None:
         # Genuinely empty -- NOT the 4-char string "null".
         assert name["value"] is None
         assert title["value"] is None
+        assert name["value_kind"] == "null"
+        assert title["value_kind"] == "null"
         # Not required -> a plain empty cell, never withheld.
         assert name["outcome"] == "empty"
         assert title["outcome"] == "empty"
@@ -217,10 +223,15 @@ def test_required_missing_field_is_withheld(tmp_path: Path) -> None:
         )
         summary = _column_result(project, sheet_id, result.run_id, "summary")
         assert required["value"] is None
+        # Withheld output has no payload; it differs from the optional
+        # explicit-null cells covered above.
+        assert required["value_kind"] is None
         assert required["outcome"] == "withheld_unverified"
+        assert required["publication_effect"] == "publish_error"
         assert required["error"]
         # The optional field is untouched.
         assert summary["value"] == "A short document."
+        assert summary["value_kind"] == "text"
         assert summary["outcome"] != "withheld_unverified"
         # A declared wire code surfaces on the action result.
         codes = {err.code for err in result.errors}
@@ -248,6 +259,7 @@ def test_required_field_found_is_not_withheld(tmp_path: Path) -> None:
         assert result.status == "completed", result.errors
         cell = _column_result(project, sheet_id, result.run_id, "head_of_state_name")
         assert cell["value"] == "Ada Lovelace"
+        assert cell["value_kind"] == "text"
         assert cell["outcome"] != "withheld_unverified"
         assert "required_field_missing" not in {err.code for err in result.errors}
     finally:

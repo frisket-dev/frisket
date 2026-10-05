@@ -2,7 +2,7 @@
 # Torch is pinned to the CPU wheel index: no CUDA blobs in this image.
 # Models are NOT pre-baked (multi-GB) — they download at first use into the
 # /models volume (HF_HOME + the fastembed/CT2 caches all live under it).
-FROM python:3.12-slim
+FROM python:3.12-slim-trixie
 # libgl/libglib: image processing; ffmpeg: audio decode (faster-whisper)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg libgl1 libglib2.0-0 curl \

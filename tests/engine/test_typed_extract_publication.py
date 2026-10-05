@@ -5,7 +5,10 @@ import pytest
 from frisket.actions.core import RegisteredAction
 from frisket.actions.extract import EXTRACT
 from frisket.actions.types import ActionRequest
-from frisket.engine.executor.extract_evidence import _source_artifact
+from frisket.engine.executor.extract_evidence import (
+    _captured_text_spans,
+    _source_artifact,
+)
 from frisket.engine.executor.extract_result_evidence import (
     ExtractResultEvidence,
     _grounding_artifact_source,
@@ -162,7 +165,7 @@ def test_typed_extract_list_citations_and_confidence_policy(source, members):
         assert any(error.code == "evidence_required" for error in receipt.errors)
 
 
-def test_text_citation_freezes_source_and_projects_all_utf16_ranges(source):
+def test_text_citation_projects_utf16_ranges_then_marks_changed_source_stale(source):
     project, sheet, column, row = source
     text = "🚀 Ada\t Lovelace. Ada  Lovelace."
     project.apply_edits([{"row_id": row, "column_id": column, "value": text}])
@@ -214,8 +217,94 @@ def test_text_citation_freezes_source_and_projects_all_utf16_ranges(source):
         [{"row_id": row, "column_id": column, "value": "changed later"}]
     )
     edited = resolve_evidence_viewer(project, evidence["links"][0]["stable_id"])
-    assert edited["artifacts"][0]["text_context"]["text"] == text
+    assert edited["artifacts"][0]["text_context"] is None
+    assert edited["artifacts"][0]["text_context_status"] == "stale"
+    assert [span["quote"] for span in edited["artifacts"][0]["spans"]] == [
+        "Ada\t Lovelace.",
+        "Ada  Lovelace.",
+    ]
     assert edited["link"]["text_layer_hash_mismatch"] is True
+
+
+def test_text_citation_repairs_malformed_source_and_keeps_anchors(source):
+    project, sheet, column, row = source
+    project.apply_edits(
+        [{"row_id": row, "column_id": column, "value": "before \ud800 after 🚀"}]
+    )
+
+    result, _ = run_extract(
+        source,
+        [{"name": "summary", "type": "text"}],
+        {
+            "summary": {
+                "value": "found",
+                "evidence": [
+                    {"source": "body", "quote": "before \ud800"},
+                    {"source": "body", "quote": "after 🚀"},
+                ],
+            }
+        },
+        grounding=True,
+        citation_required=True,
+    )
+
+    assert result.status == "completed", result.errors
+    output = next(c for c in project.columns(sheet) if c["name"] == "published_summary")
+    links = list_cell_evidence(
+        project, sheet_id=sheet, row_id=row, column_id=output["id"]
+    )["links"]
+    artifacts = [
+        resolve_evidence_viewer(project, link["stable_id"])["artifacts"][0]
+        for link in links
+    ]
+
+    assert len(artifacts) == 2
+    assert {artifact["text_context"]["text"] for artifact in artifacts} == {
+        "before \ufffd after 🚀"
+    }
+    anchored = sorted(
+        (
+            artifact["spans"][0]["quote"],
+            artifact["text_context"]["ranges"][0]["start"],
+            artifact["text_context"]["ranges"][0]["end"],
+        )
+        for artifact in artifacts
+    )
+    assert anchored == [("after 🚀", 9, 17), ("before \ufffd", 0, 8)]
+
+
+def test_capture_repairs_malformed_model_quote_before_alignment(source):
+    project, sheet, column, row = source
+    captured = {
+        "column_id": column,
+        "captured_text": "before \ud800 after",
+        "composite": True,
+    }
+    artifact = _source_artifact(
+        project,
+        sheet_id=sheet,
+        row_id=row,
+        source_columns=["body"],
+        input_column_ids={"body": column},
+        artifact_cache={},
+        captured_sources={"body": captured},
+    )
+
+    spans = _captured_text_spans(
+        project,
+        artifact=artifact,
+        source=captured,
+        source_label="body",
+        sheet_id=sheet,
+        row_id=row,
+        entry={"quote": "before \ud800"},
+        rank=0,
+    )
+
+    assert spans is not None
+    assert [span["quote"] for span in spans] == ["before \ufffd"]
+    assert (spans[0]["char_start"], spans[0]["char_end"]) == (0, 8)
+    assert spans[0]["metadata"]["raw"]["quote"] == "before \ufffd"
 
 
 def test_text_claims_resolve_per_visible_source_and_per_deliberate_claim(source):

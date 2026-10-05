@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 from pathlib import Path
 
@@ -110,16 +109,17 @@ def test_generation_schema_uses_exact_composite_identity_and_monotone_run_ids(
     ):
         project.db.execute(
             "INSERT INTO results "
-            "(run_id,row_id,column_id,value,publication_effect) "
-            "VALUES (?,?,?,?,?)",
-            (run_id, row_id, column_id, json.dumps("alpha"), "publish_value"),
+            "(run_id,row_id,column_id,value_kind,value,publication_effect) "
+            "VALUES (?,?,?,'text',?,?)",
+            (run_id, row_id, column_id, "alpha", "publish_value"),
         )
 
     _declare_generation(project, run_id=run_id, column_id=column_id)
     project.db.execute(
         "INSERT INTO results "
-        "(run_id,row_id,column_id,value,publication_effect) VALUES (?,?,?,?,?)",
-        (run_id, row_id, column_id, json.dumps("alpha"), "publish_value"),
+        "(run_id,row_id,column_id,value_kind,value,publication_effect) "
+        "VALUES (?,?,?,'text',?,?)",
+        (run_id, row_id, column_id, "alpha", "publish_value"),
     )
     project.db.execute(
         "INSERT INTO cell_result_heads (column_id,row_id,run_id) VALUES (?,?,?)",
@@ -133,7 +133,7 @@ def test_generation_schema_uses_exact_composite_identity_and_monotone_run_ids(
     ) == (column_id, row_id, run_id)
 
 
-def test_compacted_run_id_is_not_reused_by_surviving_row_effect_checkpoint(
+def test_compaction_preserves_run_id_and_row_effect_checkpoint(
     tmp_path: Path,
 ) -> None:
     project, sheet_id, _column_id, row_id, _other_row_id, run_id = _seed_generation(
@@ -153,10 +153,7 @@ def test_compacted_run_id_is_not_reused_by_surviving_row_effect_checkpoint(
     project.db.commit()
 
     project.compact(vacuum=False)
-    assert (
-        project.db.execute("SELECT 1 FROM runs WHERE id=?", (run_id,)).fetchone()
-        is None
-    )
+    assert project.db.execute("SELECT 1 FROM runs WHERE id=?", (run_id,)).fetchone()
     assert (
         project.db.execute(
             "SELECT 1 FROM effect_checkpoints WHERE id='orphan-row-effect'"
@@ -175,17 +172,18 @@ def test_compacted_run_id_is_not_reused_by_surviving_row_effect_checkpoint(
 
 
 @pytest.mark.parametrize(
-    ("value", "error", "effect"),
+    ("value_kind", "value", "error", "effect"),
     [
-        (None, None, "publish_value"),
-        (json.dumps("value"), None, "publish_null"),
-        (None, None, "publish_error"),
-        (json.dumps("value"), "boom", "publish_error"),
-        (json.dumps("value"), None, "not_a_publication_effect"),
+        (None, None, None, "publish_value"),
+        ("text", "value", None, "publish_null"),
+        (None, None, None, "publish_error"),
+        ("text", "value", "boom", "publish_error"),
+        ("text", "value", None, "not_a_publication_effect"),
     ],
 )
 def test_publication_effect_is_explicit_and_payload_coherent(
     tmp_path: Path,
+    value_kind: str | None,
     value: str | None,
     error: str | None,
     effect: str,
@@ -198,9 +196,9 @@ def test_publication_effect_is_explicit_and_payload_coherent(
     with pytest.raises(sqlite3.IntegrityError, match="CHECK constraint failed"):
         project.db.execute(
             "INSERT INTO results "
-            "(run_id,row_id,column_id,value,error,publication_effect) "
-            "VALUES (?,?,?,?,?,?)",
-            (run_id, row_id, column_id, value, error, effect),
+            "(run_id,row_id,column_id,value_kind,value,error,publication_effect) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (run_id, row_id, column_id, value_kind, value, error, effect),
         )
 
 
@@ -213,13 +211,13 @@ def test_published_result_payload_is_immutable_but_review_state_is_not(
     _declare_generation(project, run_id=run_id, column_id=column_id)
     project.db.execute(
         "INSERT INTO results "
-        "(run_id,row_id,column_id,value,confidence,justification,"
-        "publication_effect) VALUES (?,?,?,?,?,?,?)",
+        "(run_id,row_id,column_id,value_kind,value,confidence,justification,"
+        "publication_effect) VALUES (?,?,?,'text',?,?,?,?)",
         (
             run_id,
             row_id,
             column_id,
-            json.dumps("alpha"),
+            "alpha",
             0.75,
             "fixture",
             "publish_value",
@@ -257,7 +255,7 @@ def test_published_result_payload_is_immutable_but_review_state_is_not(
     # exact result identity is immutable from insertion onward.
     project.db.execute(
         "UPDATE results SET value=? WHERE run_id=? AND row_id=? AND column_id=?",
-        (json.dumps("finalized"), run_id, row_id, column_id),
+        ("finalized", run_id, row_id, column_id),
     )
     project.db.execute(
         "INSERT INTO cell_result_heads (column_id,row_id,run_id) VALUES (?,?,?)",
@@ -268,7 +266,7 @@ def test_published_result_payload_is_immutable_but_review_state_is_not(
     ):
         project.db.execute(
             "UPDATE results SET value=? WHERE run_id=? AND row_id=? AND column_id=?",
-            (json.dumps("changed"), run_id, row_id, column_id),
+            ("changed", run_id, row_id, column_id),
         )
     with pytest.raises(sqlite3.IntegrityError, match="published result is immutable"):
         project.db.execute(
@@ -336,8 +334,9 @@ def test_generation_managed_results_require_an_explicit_effect(
         match="publication effect",
     ):
         project.db.execute(
-            "INSERT INTO results (run_id,row_id,column_id,value) VALUES (?,?,?,?)",
-            (run_id, row_id, column_id, json.dumps("ambiguous")),
+            "INSERT INTO results (run_id,row_id,column_id,value_kind,value) "
+            "VALUES (?,?,?,'text',?)",
+            (run_id, row_id, column_id, "ambiguous"),
         )
 
     legacy_column_id = int(
@@ -351,8 +350,9 @@ def test_generation_managed_results_require_an_explicit_effect(
         match="publication effect",
     ):
         project.db.execute(
-            "INSERT INTO results (run_id,row_id,column_id,value) VALUES (?,?,?,?)",
-            (run_id, other_row_id, legacy_column_id, json.dumps("legacy")),
+            "INSERT INTO results (run_id,row_id,column_id,value_kind,value) "
+            "VALUES (?,?,?,'text',?)",
+            (run_id, other_row_id, legacy_column_id, "legacy"),
         )
 
     legacy_op_id = project.append_op("legacy")
@@ -360,8 +360,9 @@ def test_generation_managed_results_require_an_explicit_effect(
         legacy_op_id, sheet_id, "test.legacy"
     )
     project.db.execute(
-        "INSERT INTO results (run_id,row_id,column_id,value) VALUES (?,?,?,?)",
-        (legacy_run_id, other_row_id, legacy_column_id, json.dumps("legacy")),
+        "INSERT INTO results (run_id,row_id,column_id,value_kind,value) "
+        "VALUES (?,?,?,'text',?)",
+        (legacy_run_id, other_row_id, legacy_column_id, "legacy"),
     )
     with pytest.raises(
         sqlite3.IntegrityError,
@@ -390,8 +391,9 @@ def test_legacy_null_sibling_result_freezes_the_complete_declaration_set(
         sheet_id, "legacy-sibling", ai_generated=True
     )
     project.db.execute(
-        "INSERT INTO results (run_id,row_id,column_id,value) VALUES (?,?,?,?)",
-        (run_id, row_id, legacy_sibling_column_id, json.dumps("legacy")),
+        "INSERT INTO results (run_id,row_id,column_id,value_kind,value) "
+        "VALUES (?,?,?,'text',?)",
+        (run_id, row_id, legacy_sibling_column_id, "legacy"),
     )
 
     with pytest.raises(
@@ -528,8 +530,9 @@ def test_discard_gc_must_remove_head_before_generation_and_result(
     _declare_generation(project, run_id=run_id, column_id=column_id)
     project.db.execute(
         "INSERT INTO results "
-        "(run_id,row_id,column_id,value,publication_effect) VALUES (?,?,?,?,?)",
-        (run_id, row_id, column_id, json.dumps("published"), "publish_value"),
+        "(run_id,row_id,column_id,value_kind,value,publication_effect) "
+        "VALUES (?,?,?,'text',?,?)",
+        (run_id, row_id, column_id, "published", "publish_value"),
     )
     project.db.execute(
         "INSERT INTO cell_result_heads (column_id,row_id,run_id) VALUES (?,?,?)",

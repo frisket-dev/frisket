@@ -14,6 +14,7 @@ from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter, request_key
 from frisket.server.app import create_app
 from frisket.engine.jobs import RUN_PROJECT_KIND, Worker
 from frisket.operability.trace import trace_path
+from frisket.engine.store.value_codec import encode_stored_value
 from http_test_helpers import (
     post_canonical_run_spec_as_v1_action as _post_canonical_run_spec,
     post_operation_redo_as_v1_action,
@@ -1185,14 +1186,15 @@ class TestCancelRun:
         )
         run_id = cur.lastrowid
         p.db.executemany(
-            "INSERT INTO results (run_id, row_id, column_id, value, tokens_in, "
-            "tokens_out, error, outcome) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO results "
+            "(run_id,row_id,column_id,value_kind,value,tokens_in,tokens_out,error,outcome) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (
                     run_id,
                     rows[0]["id"],
                     out_col,
-                    json.dumps("transit"),
+                    *encode_stored_value("transit"),
                     10,
                     4,
                     None,
@@ -1202,7 +1204,7 @@ class TestCancelRun:
                     run_id,
                     rows[0]["id"],
                     note_col,
-                    json.dumps("ok"),
+                    *encode_stored_value("ok"),
                     3,
                     2,
                     None,
@@ -1212,6 +1214,7 @@ class TestCancelRun:
                     run_id,
                     rows[1]["id"],
                     out_col,
+                    None,
                     None,
                     8,
                     0,

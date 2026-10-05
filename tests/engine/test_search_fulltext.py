@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 import sqlite3
 import threading
 
@@ -21,6 +22,8 @@ from frisket.search import (
     search_project,
     search_sheet,
 )
+from frisket.search_index import index_needs_work
+from frisket.search_storage import reclaim_is_pending
 from frisket.semantic import (
     SEMANTIC_CELL_PREFIX_CHARS,
     SEMANTIC_COVERAGE,
@@ -29,6 +32,28 @@ from frisket.semantic import (
 
 
 NEEDLE = "nebulaquartz"
+
+
+def test_relative_project_path_indexes_and_searches(tmp_path, monkeypatch):
+    seeded = Project.create(tmp_path / "relative.frisket", name="relative")
+    sheet = seeded.add_sheet("Documents")
+    column = seeded.add_column(sheet, "body")
+    [row] = seeded.add_rows(sheet, [{"body": "relativepathneedle"}], {"body": column})
+    seeded.close()
+
+    monkeypatch.chdir(tmp_path)
+    project = Project(Path("relative.frisket"))
+    try:
+        drain_index(project)
+
+        assert not index_needs_work(project)
+        assert not reclaim_is_pending(project.path / "project.search.db")
+        assert (
+            search_project(project, "relativepathneedle", rerank="off")[0]["row_id"]
+            == row
+        )
+    finally:
+        project.close()
 
 
 def _import_writer(project: Project) -> StreamingSheetWriter:
@@ -185,14 +210,13 @@ def test_complete_fts_finds_late_multi_megabyte_cell_in_project_sheet_and_scope(
 
 
 def test_same_op_truncated_sidecar_rebuilds_for_content_version(tmp_path):
-    project, sheet, column, late_row = _project_with_large_match(tmp_path)
+    project, _sheet, _column, late_row = _project_with_large_match(tmp_path)
     db = _sidecar(project)
     try:
         db.execute("DELETE FROM cell_fts")
         db.execute(
-            "INSERT INTO cell_fts "
-            "(content, sheet_id, row_id, column_id, column_name) VALUES (?,?,?,?,?)",
-            ("ordinary filler " * 100, sheet, late_row, column, "body"),
+            "INSERT INTO cell_fts(content) VALUES (?)",
+            ("ordinary filler " * 100,),
         )
         db.execute(
             "INSERT INTO fts_state (key, value) VALUES ('indexed_at_op', ?)",
@@ -327,10 +351,14 @@ def test_rebuild_streams_snapshot_rows_without_materializing_columns(
     column = project.add_column(sheet, "body")
     project.add_rows(sheet, [{"body": "streamneedle"}], {"body": column})
 
-    def whole_column_read(*_args, **_kwargs):
-        pytest.fail("rebuild materialized a complete column")
+    original_get_values = ProjectReadSnapshot.get_values
 
-    monkeypatch.setattr(ProjectReadSnapshot, "get_values", whole_column_read)
+    def bounded_read(snapshot, *args, **kwargs):
+        if kwargs.get("row_ids") is None:
+            pytest.fail("rebuild materialized a complete column")
+        return original_get_values(snapshot, *args, **kwargs)
+
+    monkeypatch.setattr(ProjectReadSnapshot, "get_values", bounded_read)
     assert rebuild_index(project) == 1
     assert search_project(project, "streamneedle", rerank="off")
     project.close()

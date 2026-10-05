@@ -11,6 +11,10 @@ export interface ProjectEvidenceOptions {
   headers?: HeadersInit;
 }
 
+export interface EvidenceViewerOptions extends ProjectEvidenceOptions {
+  locateCurrent?: boolean;
+}
+
 export type CellEvidenceWire =
   HttpContractSuccessResponse<'tenant.cell_evidence.get'>;
 export type CellTextAnnotationsWire =
@@ -40,7 +44,7 @@ export interface ProjectEvidenceApi {
   ): Promise<ColumnEvidenceWire>;
   getEvidenceViewer(
     evidenceLinkId: string | number,
-    options?: ProjectEvidenceOptions,
+    options?: EvidenceViewerOptions,
   ): Promise<EvidenceViewerWire>;
 }
 
@@ -67,7 +71,7 @@ export interface ProjectEvidenceDomainApi {
   ): Promise<ColumnEvidenceWire>;
   getEvidenceViewer(
     evidenceLinkId: string | number,
-    options?: ProjectEvidenceOptions,
+    options?: EvidenceViewerOptions,
   ): Promise<EvidenceViewerWire>;
 }
 
@@ -146,7 +150,9 @@ export function createProjectEvidenceApi(
             pid: projectId,
             evidence_link_id: String(evidenceLinkId),
           },
-          query: {},
+          query: {
+            locate_current: options.locateCurrent ? true : undefined,
+          },
           signal: options.signal,
           headers: options.headers,
           errorFactory,

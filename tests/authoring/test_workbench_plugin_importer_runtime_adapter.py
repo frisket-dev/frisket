@@ -14,6 +14,7 @@ from frisket.authoring.plugin_registry import (
     unregister_trusted_backend_handler,
 )
 from frisket.engine.store import Project
+from frisket.engine.store.value_codec import decode_stored_value
 from workbench_runtime_test_helpers import activate_runtime_plugin_for_project
 
 
@@ -111,7 +112,7 @@ def test_trusted_importer_runtime_binding_validates_materializes_and_replays(
         assert sheet is not None
         values = project.db.execute(
             """
-            SELECT c.name AS column_name, cells.value
+            SELECT c.name AS column_name, cells.value_kind, cells.value
             FROM cells
             JOIN columns c ON c.id = cells.column_id
             JOIN rows r ON r.id = cells.row_id
@@ -120,7 +121,13 @@ def test_trusted_importer_runtime_binding_validates_materializes_and_replays(
             """,
             (sheet["id"],),
         ).fetchall()
-        assert [(row["column_name"], json.loads(row["value"])) for row in values] == [
+        assert [
+            (
+                row["column_name"],
+                decode_stored_value(row["value_kind"], row["value"]),
+            )
+            for row in values
+        ] == [
             ("name", "New York"),
             ("score", 9),
             ("name", "Boston"),

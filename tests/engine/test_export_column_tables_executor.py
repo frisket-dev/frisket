@@ -20,6 +20,7 @@ import pytest
 from executor_harness import CatalogEntry, ExecutorCase, Gate, case_env
 from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.store import Project
+from frisket.engine.store.value_codec import encode_stored_value
 
 _COUNT_TABLES = ("sheets", "columns", "rows", "receipts", "blobs")
 
@@ -117,14 +118,12 @@ def _seed_pdf_tables_sheet(project: Project) -> tuple[int, int, int]:
         item["source_row_id"] = row_ids[0]
     for item in bravo_items:
         item["source_row_id"] = row_ids[1]
-    project.db.execute(
-        "UPDATE cells SET value=? WHERE row_id=? AND column_id=?",
-        (json.dumps(alpha_items), row_ids[0], columns["pdf_tables"]),
-    )
-    project.db.execute(
-        "UPDATE cells SET value=? WHERE row_id=? AND column_id=?",
-        (json.dumps(bravo_items), row_ids[1], columns["pdf_tables"]),
-    )
+    for row_id, items in ((row_ids[0], alpha_items), (row_ids[1], bravo_items)):
+        value_kind, stored_value = encode_stored_value(items)
+        project.db.execute(
+            "UPDATE cells SET value_kind=?, value=? WHERE row_id=? AND column_id=?",
+            (value_kind, stored_value, row_id, columns["pdf_tables"]),
+        )
     project.db.commit()
     return sheet_id, columns["pdf_tables"], columns["title"]
 

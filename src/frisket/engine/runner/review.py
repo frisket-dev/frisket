@@ -16,7 +16,7 @@ from frisket.review_predicate import (
 )
 from frisket.server.paging import offset_page_payload
 from frisket.engine.store import Project
-from frisket.engine.store.runs import REVIEWABLE_OUTCOMES_SQL
+from frisket.engine.store.runs import REVIEWABLE_OUTCOMES_SQL, RunResultStore
 
 
 _ACTIVE_HEAD_JOIN = (
@@ -34,16 +34,6 @@ _ELIGIBLE_PRIMARY_WHERE = (
     f"res.outcome IN ({REVIEWABLE_OUTCOMES_SQL}) "
     f"AND {_visible_result_where('rr', 'c')} AND {_ACTIVE_RESULT_WHERE}"
 )
-_EXACT_REVIEW_CORRECTION = """
-    visible_cell.origin_kind = 'manual_edit'
-    AND visible_op.status = 'applied'
-    AND visible_op.kind = 'review.decision'
-    AND json_extract(visible_op.spec, '$.action_id') = 'review.decision'
-    AND json_extract(visible_op.spec, '$.params.run_id') = res.run_id
-    AND json_extract(visible_op.spec, '$.params.row_id') = res.row_id
-    AND json_extract(visible_op.spec, '$.params.column_id') = res.column_id
-    AND json_extract(visible_op.spec, '$.params.decision') IN ('edit', 'reject_clear')
-"""
 
 
 def _loads(value: str | None) -> Any:
@@ -55,6 +45,31 @@ def _loads(value: str | None) -> Any:
         return _json.loads(value)
     except (TypeError, ValueError):
         return value
+
+
+def _is_exact_review_correction(
+    cell: dict[str, Any],
+    ref: dict[str, Any] | None,
+    op: dict[str, Any] | None,
+) -> bool:
+    if (
+        not isinstance(ref, dict)
+        or ref.get("kind") != "manual_edit"
+        or not isinstance(op, dict)
+        or op.get("status") != "applied"
+        or op.get("kind") != "review.decision"
+    ):
+        return False
+    spec = _loads(op.get("spec"))
+    params = spec.get("params") if isinstance(spec, dict) else None
+    return (
+        isinstance(params, dict)
+        and spec.get("action_id") == "review.decision"
+        and params.get("run_id") == cell["run_id"]
+        and params.get("row_id") == cell["row_id"]
+        and params.get("column_id") == cell["column_id"]
+        and params.get("decision") in {"edit", "reject_clear"}
+    )
 
 
 def _run_source_names(project: Project, run_id: int) -> tuple[str, ...]:
@@ -160,7 +175,7 @@ def review_queue(
     primary_params = _primary_params()
     rows = project.db.execute(
         f"""
-        SELECT res.run_id, res.row_id, res.column_id, res.value,
+        SELECT res.run_id, res.row_id, res.column_id,
                res.confidence, res.justification, res.error,
                res.review_decision, res.review_note,
                c.name AS column_name, c.sheet_id, runs.action_kind, runs.model
@@ -177,8 +192,16 @@ def review_queue(
         (*params, *primary_params, limit),
     ).fetchall()
 
+    coordinates = [
+        (int(row["run_id"]), int(row["row_id"]), int(row["column_id"])) for row in rows
+    ]
+    resolved = RunResultStore(project).decoded_result_rows(
+        coordinates, tolerate_decode_errors=True
+    )
     out = []
     for r in rows:
+        coordinate = (int(r["run_id"]), int(r["row_id"]), int(r["column_id"]))
+        result = resolved.get(coordinate)
         out.append(
             {
                 "bundle_id": f"{r['run_id']}:{r['row_id']}",
@@ -187,7 +210,7 @@ def review_queue(
                 "column_id": r["column_id"],
                 "column_name": r["column_name"],
                 "sheet_id": r["sheet_id"],
-                "value": _loads(r["value"]),
+                "value": result["value"] if result is not None else None,
                 "confidence": r["confidence"],
                 "justification": r["justification"],
                 "review_decision": r["review_decision"],
@@ -275,37 +298,115 @@ def review_bundles(
             for key in keys
         ],
     )
+    cells_by_bundle: dict[tuple[int, int, int], list[dict[str, Any]]] = {}
+    rows_by_current: dict[tuple[int, int], list[int]] = {}
+    for key in keys:
+        cells = [
+            dict(cell)
+            for cell in project.db.execute(
+                f"""
+                SELECT res.run_id, res.row_id, res.column_id,
+                       res.confidence, res.justification, res.error,
+                       res.review_state, res.review_decision, res.review_note,
+                       c.name AS column_name, c.type AS column_type,
+                       c.semantic_type, c.format,
+                       c.sheet_id
+                FROM results res
+                JOIN columns c ON c.id = res.column_id
+                {_ACTIVE_HEAD_JOIN}
+                JOIN rows rr ON rr.id = res.row_id AND rr.sheet_id = c.sheet_id
+                WHERE res.run_id=? AND res.row_id=? AND c.sheet_id=?
+                  AND rr.hidden=0 AND {_ACTIVE_RESULT_WHERE}
+                ORDER BY c.position, c.id
+                """,
+                (key["run_id"], key["row_id"], key["sheet_id"]),
+            ).fetchall()
+        ]
+        bundle_key = (
+            int(key["run_id"]),
+            int(key["sheet_id"]),
+            int(key["row_id"]),
+        )
+        cells_by_bundle[bundle_key] = cells
+        for cell in cells:
+            rows_by_current.setdefault(
+                (int(cell["sheet_id"]), int(cell["column_id"])), []
+            ).append(int(cell["row_id"]))
+
+    current_values: dict[tuple[int, int], dict[int, Any]] = {}
+    current_refs: dict[tuple[int, int], dict[int, dict[str, Any]]] = {}
+    for (sheet_id, column_id), row_ids in rows_by_current.items():
+        values, refs = project.get_values_with_refs(
+            sheet_id,
+            column_id,
+            row_ids=list(dict.fromkeys(row_ids)),
+            preserve_invalid=True,
+        )
+        current_values[(sheet_id, column_id)] = values
+        current_refs[(sheet_id, column_id)] = refs
+
+    op_ids = sorted(
+        {
+            int(ref["op_id"])
+            for refs in current_refs.values()
+            for ref in refs.values()
+            if ref.get("kind") == "manual_edit" and ref.get("op_id") is not None
+        }
+    )
+    ops_by_id: dict[int, dict[str, Any]] = {}
+    for offset in range(0, len(op_ids), 800):
+        chunk = op_ids[offset : offset + 800]
+        placeholders = ",".join("?" for _ in chunk)
+        for op in project.db.execute(
+            f"SELECT id,status,kind,spec FROM ops WHERE id IN ({placeholders})",
+            chunk,
+        ):
+            ops_by_id[int(op["id"])] = dict(op)
+
+    result_coordinates: list[tuple[int, int, int]] = []
+    for cells in cells_by_bundle.values():
+        for cell in cells:
+            ref = current_refs[(int(cell["sheet_id"]), int(cell["column_id"]))].get(
+                int(cell["row_id"])
+            )
+            op_id = ref.get("op_id") if isinstance(ref, dict) else None
+            cell["changed"] = _is_exact_review_correction(
+                cell,
+                ref,
+                ops_by_id.get(int(op_id)) if op_id is not None else None,
+            )
+            if not cell["changed"]:
+                result_coordinates.append(
+                    (
+                        int(cell["run_id"]),
+                        int(cell["row_id"]),
+                        int(cell["column_id"]),
+                    )
+                )
+
+    resolved = RunResultStore(project).decoded_result_rows(
+        result_coordinates, tolerate_decode_errors=True
+    )
     bundles: list[dict[str, Any]] = []
     for key in keys:
-        cells = project.db.execute(
-            f"""
-            SELECT res.run_id, res.row_id, res.column_id,
-                   CASE WHEN {_EXACT_REVIEW_CORRECTION}
-                        THEN visible_cell.value ELSE res.value END AS value,
-                   CASE WHEN {_EXACT_REVIEW_CORRECTION} THEN 1 ELSE 0 END AS changed,
-                   res.confidence, res.justification, res.error,
-                   res.review_state, res.review_decision, res.review_note,
-                   c.name AS column_name, c.type AS column_type,
-                   c.semantic_type, c.format,
-                   c.sheet_id
-            FROM results res
-            JOIN columns c ON c.id = res.column_id
-            {_ACTIVE_HEAD_JOIN}
-            LEFT JOIN current_cells visible_cell
-              ON visible_cell.column_id=res.column_id
-              AND visible_cell.row_id=res.row_id
-            LEFT JOIN ops visible_op ON visible_op.id=visible_cell.origin_op_id
-            JOIN rows rr ON rr.id = res.row_id AND rr.sheet_id = c.sheet_id
-            WHERE res.run_id=? AND res.row_id=? AND c.sheet_id=? AND rr.hidden=0
-              AND {_ACTIVE_RESULT_WHERE}
-            ORDER BY c.position, c.id
-            """,
-            (key["run_id"], key["row_id"], key["sheet_id"]),
-        ).fetchall()
+        bundle_key = (
+            int(key["run_id"]),
+            int(key["sheet_id"]),
+            int(key["row_id"]),
+        )
+        cells = cells_by_bundle[bundle_key]
         items = []
         fields = []
         evidence = []
         for cell in cells:
+            row_id = int(cell["row_id"])
+            column_id = int(cell["column_id"])
+            if cell["changed"]:
+                value = current_values[(int(cell["sheet_id"]), column_id)].get(row_id)
+            else:
+                coordinate = (int(cell["run_id"]), row_id, column_id)
+                result = resolved.get(coordinate)
+                value = result["value"] if result is not None else None
             role = (
                 "evidence"
                 if is_support_column(
@@ -322,7 +423,7 @@ def review_bundles(
                 "semantic_type": cell["semantic_type"],
                 "format": cell["format"],
                 "sheet_id": cell["sheet_id"],
-                "value": _loads(cell["value"]),
+                "value": value,
                 "confidence": cell["confidence"],
                 "justification": cell["justification"],
                 "error": cell["error"],

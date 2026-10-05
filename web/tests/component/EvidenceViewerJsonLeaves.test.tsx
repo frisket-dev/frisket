@@ -176,6 +176,27 @@ const jsonLeafPayload: EvidenceViewerPayload = {
   warnings: [],
 };
 
+function staleTextPayload(
+  artifactFields: Partial<EvidenceViewerPayload['artifacts'][number]> = {},
+): EvidenceViewerPayload {
+  const source: EvidenceViewerPayload['artifacts'][number] = {
+    ...structuredClone(jsonLeafPayload.artifacts[1]),
+    text_context_status: 'stale',
+    recovery_status: null,
+    recovery_notice: null,
+    ...artifactFields,
+  };
+  return {
+    ...jsonLeafPayload,
+    link: {
+      ...jsonLeafPayload.link,
+      status: 'stale',
+      stale_reason: 'source_changed',
+    },
+    artifacts: [source],
+  };
+}
+
 describe('EvidenceViewer JSON leaves', () => {
   it('renders valid scalar/null JSON leaves without normalizing them into records', async () => {
     getEvidenceViewer.mockResolvedValue(jsonLeafPayload);
@@ -230,6 +251,79 @@ describe('EvidenceViewer JSON leaves', () => {
     expect(screen.queryByText('internal_only_warning')).not.toBeInTheDocument();
     screen.getByTestId('evidence-details-toggle').click();
     expect(screen.queryByTestId('evidence-grounding-degraded')).not.toBeInTheDocument();
+  });
+});
+
+describe('EvidenceViewer stale text recovery', () => {
+  it('does not try to locate a stale passage while mounting the viewer', async () => {
+    getEvidenceViewer.mockResolvedValue(staleTextPayload());
+
+    render(<EvidenceViewer evidenceLinkId="evidence-link:1" mode="pane" onClose={() => {}} />);
+
+    expect(await screen.findByRole('button', { name: 'Try to find this passage' })).not.toBeNull();
+    expect(getEvidenceViewer).toHaveBeenCalledTimes(1);
+    expect(getEvidenceViewer.mock.calls).toEqual([['evidence-link:1']]);
+  });
+
+  it('only requests current-source location after the button is clicked', async () => {
+    let finishRecovery: ((payload: EvidenceViewerPayload) => void) | undefined;
+    const recoveryResponse = new Promise<EvidenceViewerPayload>((resolve) => {
+      finishRecovery = resolve;
+    });
+    getEvidenceViewer
+      .mockResolvedValueOnce(staleTextPayload())
+      .mockReturnValueOnce(recoveryResponse);
+
+    render(<EvidenceViewer evidenceLinkId="evidence-link:1" mode="pane" onClose={() => {}} />);
+
+    const button = await screen.findByRole('button', { name: 'Try to find this passage' });
+    button.click();
+    expect(getEvidenceViewer).toHaveBeenNthCalledWith(
+      2,
+      'evidence-link:1',
+      { locateCurrent: true },
+    );
+    expect(
+      (await screen.findByRole('button', { name: 'Looking for passage…' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+
+    finishRecovery?.(staleTextPayload({
+      recovery_status: 'not_found',
+      recovery_notice: 'Could not find this passage in the current source.',
+      text_context: {
+        text: 'The current source no longer contains the cited wording.',
+        offset_unit: 'utf16_code_unit',
+        ranges: [],
+      },
+    }));
+    expect((await screen.findByTestId('evidence-text-recovery-not-found')).textContent)
+      .toContain('Could not find this passage in the current source.');
+  });
+
+  it('shows recovered current context and highlights every returned match', async () => {
+    getEvidenceViewer
+      .mockResolvedValueOnce(staleTextPayload())
+      .mockResolvedValueOnce(staleTextPayload({
+        recovery_status: 'located',
+        recovery_notice: 'Found two matches in the current source.',
+        text_context: {
+          text: 'Repeated passage, then the repeated passage again.',
+          offset_unit: 'utf16_code_unit',
+          ranges: [
+            { span_id: 'evidence_span:text', start: 0, end: 16 },
+            { span_id: 'evidence_span:text', start: 27, end: 43 },
+          ],
+        },
+      }));
+
+    render(<EvidenceViewer evidenceLinkId="evidence-link:1" mode="pane" onClose={() => {}} />);
+
+    (await screen.findByRole('button', { name: 'Try to find this passage' })).click();
+    expect((await screen.findByTestId('evidence-text-recovery-located')).textContent)
+      .toContain('Found two matches in the current source.');
+    expect(screen.getAllByTestId('evidence-text-highlight')).toHaveLength(2);
+    expect(screen.getByText('support · stale')).not.toBeNull();
   });
 });
 

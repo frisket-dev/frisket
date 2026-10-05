@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from frisket.engine.store import bundle_io
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
@@ -336,7 +335,7 @@ def test_edit_undo_redo_refreshes_only_the_changed_search_cell(tmp_path: Path) -
         project.close()
 
 
-def test_compaction_roots_redoable_journal_then_prunes_discarded_generation(
+def test_compaction_preserves_discarded_generation_and_its_blob(
     tmp_path: Path,
 ) -> None:
     project, sheet_id, column_id, row_ids = _seed_project(tmp_path)
@@ -424,42 +423,30 @@ def test_compaction_roots_redoable_journal_then_prunes_discarded_generation(
         project.db.commit()
 
         summary = project.compact(vacuum=False)
-        assert summary["results_pruned"] == 1
+        assert summary["results_pruned"] == 0
         head = generations.read_cell_heads(column_id)[row_ids[0]]
-        assert head.run_id == first.run_id
-        assert (
-            project.db.execute(
-                "SELECT 1 FROM run_output_generations WHERE run_id=?", (second.run_id,)
-            ).fetchone()
-            is None
-        )
-        assert (
-            project.db.execute(
-                "SELECT 1 FROM results WHERE run_id=?", (second.run_id,)
-            ).fetchone()
-            is None
-        )
-        assert (
-            project.db.execute(
-                "SELECT 1 FROM runs WHERE id=?", (second.run_id,)
-            ).fetchone()
-            is None
-        )
+        assert head.run_id == second.run_id
+        assert project.db.execute(
+            "SELECT 1 FROM run_output_generations WHERE run_id=?", (second.run_id,)
+        ).fetchone()
+        assert project.db.execute(
+            "SELECT 1 FROM results WHERE run_id=?", (second.run_id,)
+        ).fetchone()
+        assert project.db.execute(
+            "SELECT 1 FROM runs WHERE id=?", (second.run_id,)
+        ).fetchone()
         assert (
             project.db.execute(
                 "SELECT current_run_id FROM columns WHERE id=?", (column_id,)
             ).fetchone()[0]
-            is None
+            == second.run_id
         )
         assert project.db.execute(
             "SELECT 1 FROM blobs WHERE hash=?", (first_blob,)
         ).fetchone()
-        assert (
-            project.db.execute(
-                "SELECT 1 FROM blobs WHERE hash=?", (second_blob,)
-            ).fetchone()
-            is None
-        )
+        assert project.db.execute(
+            "SELECT 1 FROM blobs WHERE hash=?", (second_blob,)
+        ).fetchone()
     finally:
         project.close()
 
@@ -496,10 +483,52 @@ def test_compaction_retains_discarded_base_referenced_by_surviving_generation(
         project.close()
 
 
-def test_compaction_rolls_back_all_generation_pruning_on_failure(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_compaction_preserves_discarded_staged_replacement(tmp_path: Path) -> None:
+    project, sheet_id, column_id, row_ids = _seed_project(tmp_path)
+    generations = ResultGenerationStore(project)
+    blob = project.add_blob(b"staged replacement history")
+    try:
+        staged = _start_claimed_run(
+            project,
+            sheet_id=sheet_id,
+            output_column_id=column_id,
+            row_ids=[row_ids[0]],
+            label="staged replacement",
+        )
+        _declare(generations, staged, column_id, write_mode="replace_scope")
+        _write(
+            project,
+            staged,
+            [
+                {
+                    "row_id": row_ids[0],
+                    "column_id": column_id,
+                    "value": {"blob": blob},
+                    "publication_effect": "publish_value",
+                }
+            ],
+        )
+        _release(project, staged)
+        project.db.execute(
+            "UPDATE ops SET status='discarded' WHERE id=?", (staged.op_id,)
+        )
+        project.db.commit()
+
+        summary = project.compact(vacuum=False)
+
+        assert summary["results_pruned"] == 0
+        assert generations.get_binding(staged.run_id, column_id) is not None
+        assert project.db.execute(
+            "SELECT 1 FROM results WHERE run_id=?", (staged.run_id,)
+        ).fetchone()
+        assert project.db.execute(
+            "SELECT 1 FROM blobs WHERE hash=?", (blob,)
+        ).fetchone()
+    finally:
+        project.close()
+
+
+def test_compaction_does_not_mutate_generation_history(tmp_path: Path) -> None:
     project, column_id, _row_ids, generations, _first, second = _publish_replacement(
         tmp_path
     )
@@ -548,15 +577,8 @@ def test_compaction_rolls_back_all_generation_pruning_on_failure(
             )
 
         before = snapshot()
-        original_prune = bundle_io._prune_dead_runs
-
-        def fail_after_pruning(prune_project) -> int:  # noqa: ANN001
-            original_prune(prune_project)
-            raise RuntimeError("injected compact failure")
-
-        monkeypatch.setattr(bundle_io, "_prune_dead_runs", fail_after_pruning)
-        with pytest.raises(RuntimeError, match="injected compact failure"):
-            project.compact(vacuum=False)
+        summary = project.compact(vacuum=False)
+        assert summary["results_pruned"] == 0
         assert snapshot() == before
         assert generations.get_binding(second.run_id, column_id) is not None
     finally:

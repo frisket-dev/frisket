@@ -4,7 +4,10 @@ import sqlite3
 
 import pytest
 
+from frisket.engine.store.bundle_open import _migrate_search_work
 from frisket.engine.store.project import Project
+from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
+from frisket.engine.store.value_codec import encode_stored_value
 from frisket.engine.store.search_index_work import (
     SearchDirtyScope,
     ack_dirty_scope,
@@ -86,9 +89,10 @@ def test_current_cell_refresh_enqueues_bounded_region(tmp_path) -> None:
     project.db.commit()
 
     with project.db:
+        value_kind, stored_value = encode_stored_value("hello")
         project.db.execute(
-            "INSERT INTO cells(row_id,column_id,value) VALUES (?,?,?)",
-            (row_id, column_id, '"hello"'),
+            "INSERT INTO cells(row_id,column_id,value_kind,value) VALUES (?,?,?,?)",
+            (row_id, column_id, value_kind, stored_value),
         )
         from frisket.engine.store.current_cells import refresh_current_cells
 
@@ -152,6 +156,17 @@ def test_known_bundle_migration_preserves_data_and_seeds_repair(tmp_path) -> Non
             "UPDATE meta SET value=? WHERE key='schema_digest'",
             (_PRE_SEARCH_DIGEST,),
         )
+    # This test isolates the search migration. Stamping a current typed schema
+    # as every older physical schema would make a subsequent full open exercise
+    # unrelated table-layout migrations against a layout it never claimed to
+    # have. Run the targeted migration, then restore the honest current stamp
+    # before proving that the repaired bundle reopens normally.
+    _migrate_search_work(project.db)
+    project.db.execute(
+        "UPDATE meta SET value=? WHERE key=?",
+        (SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY),
+    )
+    project.db.commit()
     project.close()
 
     reopened = Project(path)

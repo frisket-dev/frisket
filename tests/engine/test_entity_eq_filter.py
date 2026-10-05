@@ -235,7 +235,8 @@ def test_missing_cell_and_invalid_json_match_nothing_and_never_raise(project):
     )
     # invalid JSON can only be written past json.dumps
     project.db.execute(
-        "UPDATE cells SET value=? WHERE row_id=? AND column_id=?",
+        "UPDATE cells SET value_kind='legacy_invalid', value=? "
+        "WHERE row_id=? AND column_id=?",
         ("{not json at all", invalid, entities),
     )
     project.db.commit()

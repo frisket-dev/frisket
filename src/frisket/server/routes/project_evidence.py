@@ -77,9 +77,17 @@ def register_project_evidence_routes(
             **http_error_responses(401, 403, 422, 500),
         },
     )
-    def evidence_viewer(pid: str, evidence_link_id: str) -> EvidenceViewerResponse:
+    def evidence_viewer(
+        pid: str,
+        evidence_link_id: str,
+        locate_current: bool = Query(default=False),
+    ) -> EvidenceViewerResponse:
         return EvidenceViewerResponse.model_validate(
-            service.evidence_viewer(pid, evidence_link_id)
+            service.evidence_viewer(
+                pid,
+                evidence_link_id,
+                locate_current=locate_current,
+            )
         )
 
     # The Grounded Answers reading view's middle-pane batch, grouped per

@@ -434,7 +434,8 @@ def _next_revision(
         return 1
     n = project.db.execute(
         "SELECT COUNT(*) FROM cells c JOIN rows r ON r.id = c.row_id "
-        "WHERE r.sheet_id=? AND c.column_id=? AND c.value=?",
-        (sheet_id, revises_col, json.dumps(guid)),
+        "WHERE r.sheet_id=? AND c.column_id=? "
+        "AND c.value_kind='text' AND c.value=?",
+        (sheet_id, revises_col, guid),
     ).fetchone()[0]
     return int(n) + 1

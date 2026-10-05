@@ -34,6 +34,7 @@ from frisket.engine.runner import MapRunner, NetworkDisabled, validation
 from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.store.value_codec import decode_stored_value
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.ops.base import Recipe
 
@@ -269,21 +270,30 @@ def test_typed_action_persists_independent_outcomes_and_partial_failure(
     rows = {
         (row["row_id"], row["column_id"]): row
         for row in store.db.execute(
-            "SELECT row_id, column_id, value, confidence, justification, error, "
+            "SELECT row_id, column_id, value_kind, value, confidence, justification, error, "
             "error_code, outcome, publication_effect FROM results WHERE run_id=?",
             (result.run_id,),
         )
     }
     stable_second = rows[(row_ids[1], columns["stable"])]
-    assert stable_second["value"] == '"TWO"'
+    assert stable_second["value_kind"] == "text"
+    assert (
+        decode_stored_value(stable_second["value_kind"], stable_second["value"])
+        == "TWO"
+    )
     assert stable_second["confidence"] == 0.95
     assert stable_second["error"] is None
 
     fallible_first = rows[(row_ids[0], columns["fallible"])]
-    assert fallible_first["value"] == '"eno"'
+    assert fallible_first["value_kind"] == "text"
+    assert (
+        decode_stored_value(fallible_first["value_kind"], fallible_first["value"])
+        == "eno"
+    )
     assert fallible_first["confidence"] == 0.25
 
     fallible_second = rows[(row_ids[1], columns["fallible"])]
+    assert fallible_second["value_kind"] is None
     assert fallible_second["value"] is None
     assert fallible_second["error"] == "No domain match"
     assert fallible_second["error_code"] == "domain_lookup_failed"
@@ -291,7 +301,11 @@ def test_typed_action_persists_independent_outcomes_and_partial_failure(
     assert fallible_second["publication_effect"] == "publish_error"
 
     literal_error = rows[(row_ids[1], columns["error"])]
-    assert literal_error["value"] == '"literal two"'
+    assert literal_error["value_kind"] == "text"
+    assert (
+        decode_stored_value(literal_error["value_kind"], literal_error["value"])
+        == "literal two"
+    )
     assert literal_error["error"] is None
 
 

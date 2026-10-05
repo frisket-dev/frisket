@@ -4,11 +4,17 @@ from __future__ import annotations
 
 from pathlib import Path
 import sqlite3
-import zlib
 
 
 RECLAIM_PENDING_KEY = "reclaim_pending"
-_DECODE_FUNCTION = "frisket_zlib_decode"
+MIN_CONTENTLESS_DELETE_SQLITE = (3, 43, 0)
+
+
+class SearchStorageUnsupported(RuntimeError):
+    """The linked SQLite cannot maintain Frisket's contentless FTS index."""
+
+
+_contentless_delete_probed = False
 
 _SCHEMA = (
     "CREATE TABLE IF NOT EXISTS fts_state (key TEXT PRIMARY KEY, value TEXT)",
@@ -17,47 +23,81 @@ _SCHEMA = (
     "sheet_id INTEGER NOT NULL,"
     "column_id INTEGER NOT NULL,"
     "row_id INTEGER NOT NULL,"
+    "column_name TEXT NOT NULL,"
     "source_hash TEXT NOT NULL,"
     "UNIQUE(column_id,row_id))",
     "CREATE INDEX IF NOT EXISTS search_cells_sheet_column "
     "ON search_cells(sheet_id,column_id,row_id)",
-    "CREATE TABLE IF NOT EXISTS search_content ("
-    "id INTEGER PRIMARY KEY,"
-    "compressed_content BLOB NOT NULL,"
-    "column_name TEXT NOT NULL,"
-    "FOREIGN KEY(id) REFERENCES search_cells(id) ON DELETE CASCADE)",
-    "CREATE VIEW IF NOT EXISTS search_content_view AS "
-    "SELECT c.id,frisket_zlib_decode(c.compressed_content) AS content,"
-    "s.sheet_id,s.row_id,s.column_id,c.column_name "
-    "FROM search_content AS c JOIN search_cells AS s ON s.id=c.id",
     "CREATE VIRTUAL TABLE IF NOT EXISTS cell_fts USING fts5("
-    "content,sheet_id UNINDEXED,row_id UNINDEXED,column_id UNINDEXED,"
-    "column_name UNINDEXED,content='search_content_view',content_rowid='id')",
+    "content,content='',contentless_delete=1)",
     # The content-addressed semantic cache is independent of keyword schema
     # versions and deliberately survives a keyword reset.
     "CREATE TABLE IF NOT EXISTS cell_vec (key TEXT PRIMARY KEY, vec BLOB NOT NULL)",
 )
 
 
-def encode_search_content(value: str) -> bytes:
-    return zlib.compress(value.encode("utf-8"), level=6)
-
-
-def _decode_search_content(value: bytes) -> str:
-    return zlib.decompress(value).decode("utf-8")
-
-
 def configure_search_connection(db: sqlite3.Connection) -> None:
-    """Install connection-local functions required by the external-content view."""
-    db.create_function(
-        _DECODE_FUNCTION,
-        1,
-        _decode_search_content,
-        deterministic=True,
-    )
+    """Verify the linked SQLite can maintain contentless-delete FTS5."""
+    del db
+    ensure_search_runtime()
+
+
+def ensure_search_runtime() -> None:
+    """Probe the process SQLite without opening or modifying a project index."""
+
+    global _contentless_delete_probed
+    if sqlite3.sqlite_version_info < MIN_CONTENTLESS_DELETE_SQLITE:
+        required = ".".join(str(part) for part in MIN_CONTENTLESS_DELETE_SQLITE)
+        raise SearchStorageUnsupported(
+            "Search requires SQLite "
+            f"{required} or newer for FTS5 contentless-delete indexes; "
+            f"this Python runtime links SQLite {sqlite3.sqlite_version}."
+        )
+    if _contentless_delete_probed:
+        return
+    db = sqlite3.connect(":memory:")
+    try:
+        db.execute(
+            "CREATE VIRTUAL TABLE temp.frisket_contentless_delete_probe "
+            "USING fts5(content,content='',contentless_delete=1)"
+        )
+        db.execute(
+            "INSERT INTO temp.frisket_contentless_delete_probe(rowid,content) "
+            "VALUES (1,'probe')"
+        )
+        db.execute("DELETE FROM temp.frisket_contentless_delete_probe WHERE rowid=1")
+        if db.execute(
+            "SELECT count(*) FROM temp.frisket_contentless_delete_probe "
+            "WHERE frisket_contentless_delete_probe MATCH 'probe'"
+        ).fetchone()[0]:
+            raise sqlite3.OperationalError(
+                "contentless-delete probe left deleted postings searchable"
+            )
+        db.execute("DROP TABLE temp.frisket_contentless_delete_probe")
+    except sqlite3.DatabaseError as exc:
+        try:
+            db.execute("DROP TABLE IF EXISTS temp.frisket_contentless_delete_probe")
+        except sqlite3.DatabaseError:
+            pass
+        raise SearchStorageUnsupported(
+            "Search requires SQLite with FTS5 contentless-delete support "
+            f"(SQLite 3.43 or newer); capability probe failed on "
+            f"SQLite {sqlite3.sqlite_version}: {exc}"
+        ) from exc
+    finally:
+        db.close()
+    _contentless_delete_probed = True
+
+
+def require_contentless_delete(db: sqlite3.Connection) -> None:
+    """Compatibility wrapper for schema helpers with an existing connection."""
+
+    del db
+    ensure_search_runtime()
 
 
 def ensure_search_schema(db: sqlite3.Connection) -> None:
+    require_contentless_delete(db)
     for statement in _SCHEMA:
         db.execute(statement)
 
@@ -69,7 +109,7 @@ def keyword_schema_is_current(db: sqlite3.Connection) -> bool:
     if row is None or row[0] is None:
         return False
     normalized = "".join(str(row[0]).lower().split())
-    return "content='search_content_view'" in normalized
+    return "content=''" in normalized and "contentless_delete=1" in normalized
 
 
 def keyword_storage_has_rows(db: sqlite3.Connection) -> bool:
@@ -87,6 +127,8 @@ def reset_keyword_storage(
     db: sqlite3.Connection, *, content_version: str, reclaim: bool
 ) -> None:
     """Replace keyword objects transactionally while preserving ``cell_vec``."""
+    # Probe before destructive DDL so an older runtime leaves a legacy index intact.
+    require_contentless_delete(db)
     db.execute("DROP TABLE IF EXISTS cell_fts")
     db.execute("DROP VIEW IF EXISTS search_content_view")
     db.execute("DROP TABLE IF EXISTS search_content")
@@ -109,7 +151,7 @@ def reclaim_is_pending(path: Path) -> bool:
         return False
     db = None
     try:
-        db = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True, timeout=0)
+        db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=0)
         configure_search_connection(db)
         return (
             db.execute(

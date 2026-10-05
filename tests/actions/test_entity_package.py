@@ -28,6 +28,7 @@ from frisket.engine.executor.action_inventory import (
 from frisket.engine.executor.callable_action import run_typed_callable_action
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.store.value_codec import decode_stored_value
 
 
 class Params(ActionParams):
@@ -270,7 +271,7 @@ def test_committed_packages_survive_gc_and_later_handler_failure(
 def test_late_import_failure_preserves_previous_effect_and_receipt(
     tmp_path, entities, monkeypatch, failure
 ):
-    from frisket.engine.executor import plugin_write_apply
+    from frisket.engine.store import cell_writes
     from tests.engine.test_export_delivery_failure import _wrap_project_db_commit
 
     path, _ = entities
@@ -292,14 +293,14 @@ def test_late_import_failure_preserves_previous_effect_and_receipt(
             before = tuple(project.db.iterdump())
             with monkeypatch.context() as patch:
                 if failure == "apply":
-                    original = plugin_write_apply.json.dumps
+                    original = cell_writes.encode_stored_value
 
-                    def reject(value, *args, **kwargs):
+                    def reject(value):
                         if value == "Director":
                             raise RuntimeError("late relationship cell")
-                        return original(value, *args, **kwargs)
+                        return original(value)
 
-                    patch.setattr(plugin_write_apply.json, "dumps", reject)
+                    patch.setattr(cell_writes, "encode_stored_value", reject)
                 elif failure == "receipt":
                     update = ReceiptStore.update_body_status
                     patch.setattr(
@@ -487,9 +488,10 @@ def test_import_plan_chunks_existing_append_bound_without_losing_order(tmp_path)
             project, plan, operation_kind="test.import", label="Import", provenance={}
         )
         rows = project.db.execute(
-            "SELECT value FROM cells JOIN rows ON rows.id=cells.row_id ORDER BY position"
+            "SELECT value_kind,value FROM cells "
+            "JOIN rows ON rows.id=cells.row_id ORDER BY position"
         ).fetchall()
-        assert [json.loads(row[0]) for row in rows] == [
+        assert [decode_stored_value(row[0], row[1]) for row in rows] == [
             str(index) for index in range(count)
         ]
         assert len(applied.row_ids["s0"]) == count

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any, Literal
 
 from frisket.actions.types import (
@@ -40,6 +39,7 @@ from frisket.engine.store.cells import (
     replay_generated_value_hash,
     replay_origin_run_id,
 )
+from frisket.engine.store.runs import RunResultStore
 from frisket.review_predicate import is_support_column, visible_result_where
 
 
@@ -48,7 +48,7 @@ def _visible_current_review_target(
 ) -> dict[str, Any]:
     row = project.db.execute(
         f"""
-        SELECT res.run_id, res.row_id, res.column_id, res.value,
+        SELECT res.run_id, res.row_id, res.column_id,
                res.confidence, res.justification, res.error, res.review_state,
                res.review_decision, res.review_note, runs.review_completed_at,
                c.sheet_id, c.name AS column_name
@@ -85,7 +85,11 @@ def _visible_current_review_target(
             action_kind=action_kind,
             field="params.run_id",
         )
-    return dict(row)
+    target = dict(row)
+    coordinate = (run_id, row_id, column_id)
+    decoded = RunResultStore(project).decoded_result_rows([coordinate]).get(coordinate)
+    target["value"] = decoded["value"] if decoded is not None else None
+    return target
 
 
 def _visible_current_review_row_targets(
@@ -685,7 +689,7 @@ def _review_result_and_receipt(
     params_hash: str,
 ) -> tuple[ActionResult, Receipt]:
     target = capability.target
-    target_value = json.loads(target["value"]) if target["value"] is not None else None
+    target_value = target["value"]
     target_ref = {
         "kind": "target_result_cell",
         "run_id": returned.run_id,

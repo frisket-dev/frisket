@@ -20,6 +20,7 @@ from .import_sessions import (
     require_cancelled_import_removal,
     require_import_sheet_write,
 )
+from .value_codec import SQLiteValue, encode_stored_value
 
 
 @dataclass(frozen=True)
@@ -165,14 +166,18 @@ def discard_pending_base_cell_producer(
     db.execute("DELETE FROM base_cell_producers WHERE id=?", (producer_id,))
 
 
-def _encode_base_cells(cells: Iterable[BaseCellWrite]) -> list[tuple[int, int, str]]:
-    encoded: list[tuple[int, int, str]] = []
+def _encode_base_cells(
+    cells: Iterable[BaseCellWrite],
+) -> list[tuple[int, int, str, SQLiteValue]]:
+    encoded: list[tuple[int, int, str, SQLiteValue]] = []
     for cell in cells:
+        value_kind, value = encode_stored_value(cell.value)
         encoded.append(
             (
                 int(cell.row_id),
                 int(cell.column_id),
-                json.dumps(cell.value, allow_nan=False),
+                value_kind,
+                value,
             )
         )
     return encoded
@@ -220,12 +225,13 @@ def _validate_cell_pairs(
 
 
 def _refresh_written_region(
-    db: sqlite3.Connection, encoded: Collection[tuple[int, int, str]]
+    db: sqlite3.Connection,
+    encoded: Collection[tuple[int, int, str, SQLiteValue]],
 ) -> None:
     if not encoded:
         return
     refresh_current_cell_pairs(
-        db, {(row_id, column_id) for row_id, column_id, _value in encoded}
+        db, {(row_id, column_id) for row_id, column_id, _kind, _value in encoded}
     )
 
 
@@ -265,16 +271,17 @@ def initialize_base_cells(
         return 0
     _validate_cell_pairs(
         db,
-        [(row_id, column_id) for row_id, column_id, _value in encoded],
+        [(row_id, column_id) for row_id, column_id, _kind, _value in encoded],
         require_hidden_sheet=producing_op_id is None,
     )
     _require_cell_targets_mutable(
         db,
-        [(row_id, column_id) for row_id, column_id, _value in encoded],
+        [(row_id, column_id) for row_id, column_id, _kind, _value in encoded],
         producer_id=producer_id,
     )
     db.executemany(
-        "INSERT INTO cells (row_id,column_id,value,producer_id) VALUES (?,?,?,?)",
+        "INSERT INTO cells (row_id,column_id,value_kind,value,producer_id) "
+        "VALUES (?,?,?,?,?)",
         [(*cell, producer_id) for cell in encoded],
     )
     _refresh_written_region(db, encoded)
@@ -370,11 +377,12 @@ def replace_base_cells(
     if any(
         column_id not in column_scope
         or (row_scope is not None and row_id not in row_scope)
-        for row_id, column_id, _value in encoded
+        for row_id, column_id, _kind, _value in encoded
     ):
         raise ValueError("replacement cell falls outside its declared region")
     _validate_cell_pairs(
-        db, [(row_id, column_id) for row_id, column_id, _value in encoded]
+        db,
+        [(row_id, column_id) for row_id, column_id, _kind, _value in encoded],
     )
     target_rows = rows or [
         int(row[0])
@@ -395,7 +403,8 @@ def replace_base_cells(
     db.execute(f"DELETE FROM cells WHERE {where}", params)
     if encoded:
         db.executemany(
-            "INSERT INTO cells (row_id,column_id,value,producer_id) VALUES (?,?,?,?)",
+            "INSERT INTO cells (row_id,column_id,value_kind,value,producer_id) "
+            "VALUES (?,?,?,?,?)",
             [(*cell, producer_id) for cell in encoded],
         )
     refresh_current_cells(db, column_ids=columns, row_ids=rows)
@@ -410,30 +419,29 @@ def insert_edits(
     _require_transaction(db)
     op_id = int(op_id)
     _require_applied_op(db, op_id)
-    encoded = [
-        (
-            op_id,
-            int(edit.row_id),
-            int(edit.column_id),
-            json.dumps(edit.value, allow_nan=False),
+    encoded = []
+    for edit in edits:
+        value_kind, value = encode_stored_value(edit.value)
+        encoded.append(
+            (op_id, int(edit.row_id), int(edit.column_id), value_kind, value)
         )
-        for edit in edits
-    ]
     if not encoded:
         return 0
     _validate_cell_pairs(
-        db, [(row_id, column_id) for _op, row_id, column_id, _value in encoded]
+        db,
+        [(row_id, column_id) for _op, row_id, column_id, _kind, _value in encoded],
     )
     _require_cell_targets_mutable(
         db,
-        [(row_id, column_id) for _op, row_id, column_id, _value in encoded],
+        [(row_id, column_id) for _op, row_id, column_id, _kind, _value in encoded],
     )
     db.executemany(
-        "INSERT INTO edits (op_id,row_id,column_id,value) VALUES (?,?,?,?)",
+        "INSERT INTO edits (op_id,row_id,column_id,value_kind,value) "
+        "VALUES (?,?,?,?,?)",
         encoded,
     )
     refresh_current_cell_pairs(
         db,
-        {(row_id, column_id) for _op, row_id, column_id, _value in encoded},
+        {(row_id, column_id) for _op, row_id, column_id, _kind, _value in encoded},
     )
     return len(encoded)

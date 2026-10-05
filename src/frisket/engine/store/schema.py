@@ -16,6 +16,8 @@ import re
 import sqlite3
 from pathlib import Path
 
+from .citation_text import CITATION_TEXT_SCHEMA_SQL
+
 FORMAT_VERSION = 1
 
 #: ``meta`` key carrying the digest of the DDL a bundle was created with.
@@ -112,16 +114,32 @@ CREATE TABLE IF NOT EXISTS base_cell_producers (
 );
 -- BASE_CELL_PRODUCERS_END
 
--- Source/static cell values (imported data). JSON-encoded.
+-- Source/static cell values. ``value`` intentionally has no declared affinity:
+-- value_kind and the CHECK below preserve native SQLite scalar storage without
+-- coercing text that resembles a number.
 CREATE TABLE IF NOT EXISTS cells (
   row_id INTEGER NOT NULL REFERENCES rows(id) ON DELETE CASCADE,
   column_id INTEGER NOT NULL REFERENCES columns(id) ON DELETE CASCADE,
-  value TEXT,
+  value_kind TEXT NOT NULL CHECK (value_kind IN (
+    'null','text','integer','real','boolean','json','bigint','legacy_invalid'
+  )),
+  value,
   -- NULL is reserved for migrated history whose producer was never recorded.
   -- CELL_PRODUCER_ID_BEGIN
   producer_id INTEGER REFERENCES base_cell_producers(id) ON DELETE RESTRICT,
   -- CELL_PRODUCER_ID_END
-  UNIQUE (row_id, column_id)
+  UNIQUE (row_id, column_id),
+  CHECK (
+    (value_kind='null' AND value IS NULL)
+    OR (value_kind='text' AND typeof(value)='text')
+    OR (value_kind='integer' AND typeof(value)='integer')
+    OR (value_kind='real' AND typeof(value)='real'
+        AND value=value AND abs(value)<=1.7976931348623157e308)
+    OR (value_kind='boolean' AND typeof(value)='integer' AND value IN (0,1))
+    OR (value_kind='json' AND typeof(value)='text' AND json_valid(value))
+    OR (value_kind='bigint' AND typeof(value)='text')
+    OR (value_kind='legacy_invalid' AND typeof(value)='text')
+  )
 );
 -- CELL_COLUMN_INDEX_BEGIN
 CREATE INDEX IF NOT EXISTS idx_cells_column ON cells(column_id, row_id);
@@ -244,7 +262,10 @@ CREATE TABLE IF NOT EXISTS results (
   run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
   row_id INTEGER NOT NULL,
   column_id INTEGER NOT NULL,
-  value TEXT,
+  value_kind TEXT CHECK (value_kind IN (
+    'null','text','integer','real','boolean','json','bigint','legacy_invalid'
+  )),
+  value,
   tokens_in INTEGER,
   tokens_out INTEGER,
   confidence REAL,
@@ -277,19 +298,35 @@ CREATE TABLE IF NOT EXISTS results (
   publication_effect TEXT,
   PRIMARY KEY (run_id, row_id, column_id),
   CHECK (
+    (value_kind IS NULL AND value IS NULL)
+    OR (value_kind='null' AND value IS NULL)
+    OR (value_kind='text' AND typeof(value)='text')
+    OR (value_kind='integer' AND typeof(value)='integer')
+    OR (value_kind='real' AND typeof(value)='real'
+        AND value=value AND abs(value)<=1.7976931348623157e308)
+    OR (value_kind='boolean' AND typeof(value)='integer' AND value IN (0,1))
+    OR (value_kind='json' AND typeof(value)='text' AND json_valid(value))
+    OR (value_kind='bigint' AND typeof(value)='text')
+    OR (value_kind='legacy_invalid' AND typeof(value)='text')
+  ),
+  CHECK (
     publication_effect IS NULL
     OR (
       publication_effect = 'publish_value'
+      AND value_kind IS NOT NULL
+      AND value_kind <> 'null'
       AND value IS NOT NULL
       AND error IS NULL
     )
     OR (
       publication_effect = 'publish_null'
+      AND value_kind = 'null'
       AND value IS NULL
       AND error IS NULL
     )
     OR (
       publication_effect = 'publish_error'
+      AND value_kind IS NULL
       AND value IS NULL
       AND error IS NOT NULL
     )
@@ -738,13 +775,14 @@ END;
 -- open applied generation. Review-only updates are intentionally outside the
 -- trigger column list and remain valid after publication.
 CREATE TRIGGER IF NOT EXISTS trg_results_semantic_update_open_generation
-BEFORE UPDATE OF value, tokens_in, tokens_out, confidence, justification,
+BEFORE UPDATE OF value_kind, value, tokens_in, tokens_out, confidence, justification,
   error, error_code, outcome, publication_effect ON results
 WHEN NEW.publication_effect IS NOT NULL
   AND (
     NEW.run_id IS NOT OLD.run_id
     OR NEW.row_id IS NOT OLD.row_id
     OR NEW.column_id IS NOT OLD.column_id
+    OR NEW.value_kind IS NOT OLD.value_kind
     OR NEW.value IS NOT OLD.value
     OR NEW.tokens_in IS NOT OLD.tokens_in
     OR NEW.tokens_out IS NOT OLD.tokens_out
@@ -795,7 +833,8 @@ WHEN OLD.publication_effect IS NOT NULL
           )
       )
       AND (
-        NEW.value IS NOT OLD.value
+        NEW.value_kind IS NOT OLD.value_kind
+        OR NEW.value IS NOT OLD.value
         OR NEW.tokens_in IS NOT OLD.tokens_in
         OR NEW.tokens_out IS NOT OLD.tokens_out
         OR NEW.confidence IS NOT OLD.confidence
@@ -919,22 +958,32 @@ CREATE TABLE IF NOT EXISTS edits (
   op_id INTEGER NOT NULL REFERENCES ops(id) ON DELETE CASCADE,
   row_id INTEGER NOT NULL,
   column_id INTEGER NOT NULL,
-  value TEXT,
-  PRIMARY KEY (op_id, row_id, column_id)
+  value_kind TEXT NOT NULL CHECK (value_kind IN (
+    'null','text','integer','real','boolean','json','bigint','legacy_invalid'
+  )),
+  value,
+  PRIMARY KEY (op_id, row_id, column_id),
+  CHECK (
+    (value_kind='null' AND value IS NULL)
+    OR (value_kind='text' AND typeof(value)='text')
+    OR (value_kind='integer' AND typeof(value)='integer')
+    OR (value_kind='real' AND typeof(value)='real'
+        AND value=value AND abs(value)<=1.7976931348623157e308)
+    OR (value_kind='boolean' AND typeof(value)='integer' AND value IN (0,1))
+    OR (value_kind='json' AND typeof(value)='text' AND json_valid(value))
+    OR (value_kind='bigint' AND typeof(value)='text')
+    OR (value_kind='legacy_invalid' AND typeof(value)='text')
+  )
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS idx_edits_rowcol ON edits(column_id, row_id, op_id);
 
--- Rebuildable visible-cell projection. Values stay in their existing JSON
--- encoding; null/error result heads and explicit edit clears still occupy a
--- row so an older layer can never bleed through. Source-cell public refs keep
--- op_id=NULL; base_producer_id is separate internal provenance enrichment.
--- Validity is derived from the winning value and current column descriptor;
--- the original JSON and its provenance remain untouched.
+-- Rebuildable visible-cell head projection. Payload stays in exactly one
+-- authority table; null/error result heads and explicit edit clears still
+-- occupy a row so an older layer can never bleed through.
 -- CURRENT_CELLS_BEGIN
 CREATE TABLE IF NOT EXISTS current_cells (
   column_id INTEGER NOT NULL REFERENCES columns(id) ON DELETE CASCADE,
   row_id INTEGER NOT NULL REFERENCES rows(id) ON DELETE CASCADE,
-  value TEXT,
   origin_kind TEXT NOT NULL CHECK (
     origin_kind IN ('source_cell', 'run_result', 'manual_edit')
   ),
@@ -974,6 +1023,62 @@ CREATE INDEX IF NOT EXISTS idx_current_cells_row
 -- indexer a narrow column scan that avoids loading value/provenance payload.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_current_cells_column_row
   ON current_cells(column_id,row_id);
+
+-- Stable native-value relation for every current-cell reader. Keeping only the
+-- head table in FROM lets SQLite flatten this view into an outer sheet query;
+-- each CASE-selected scalar probe then uses one complete authority key. CASE,
+-- rather than COALESCE, preserves explicit null payloads.
+CREATE VIEW IF NOT EXISTS current_cell_values AS
+SELECT head.column_id,head.row_id,
+       CASE head.origin_kind
+         WHEN 'source_cell' THEN (
+           SELECT source.value_kind FROM cells AS source
+           WHERE source.row_id=head.row_id
+             AND source.column_id=head.column_id
+             AND source.producer_id IS head.base_producer_id
+         )
+         WHEN 'run_result' THEN (
+           SELECT CASE result.publication_effect
+             WHEN 'publish_value' THEN result.value_kind
+             WHEN 'publish_null' THEN 'null'
+           END
+           FROM results AS result
+           WHERE result.run_id=head.origin_run_id
+             AND result.row_id=head.row_id
+             AND result.column_id=head.column_id
+         )
+         WHEN 'manual_edit' THEN (
+           SELECT edit.value_kind FROM edits AS edit
+           WHERE edit.op_id=head.origin_op_id
+             AND edit.row_id=head.row_id
+             AND edit.column_id=head.column_id
+         )
+       END AS value_kind,
+       CASE head.origin_kind
+         WHEN 'source_cell' THEN (
+           SELECT source.value FROM cells AS source
+           WHERE source.row_id=head.row_id
+             AND source.column_id=head.column_id
+             AND source.producer_id IS head.base_producer_id
+         )
+         WHEN 'run_result' THEN (
+           SELECT CASE WHEN result.publication_effect='publish_value'
+             THEN result.value END
+           FROM results AS result
+           WHERE result.run_id=head.origin_run_id
+             AND result.row_id=head.row_id
+             AND result.column_id=head.column_id
+         )
+         WHEN 'manual_edit' THEN (
+           SELECT edit.value FROM edits AS edit
+           WHERE edit.op_id=head.origin_op_id
+             AND edit.row_id=head.row_id
+             AND edit.column_id=head.column_id
+         )
+       END AS value,
+       head.origin_kind,head.origin_op_id,head.origin_run_id,
+       head.base_producer_id,head.validity
+FROM current_cells AS head INDEXED BY idx_current_cells_column_row;
 CREATE TABLE IF NOT EXISTS search_dirty_scopes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   sheet_id INTEGER,
@@ -2106,6 +2211,10 @@ CREATE INDEX IF NOT EXISTS idx_project_qa_research_operations_unsettled
   WHERE actual_micros IS NULL;
 -- PROJECT_QA_RESEARCH_END
 """
+
+# Citation fallback DDL is owned beside its resolver/triggers, but remains part
+# of the one authoritative fresh-bundle schema and therefore of its digest.
+SCHEMA += "\n" + CITATION_TEXT_SCHEMA_SQL + "\n"
 
 # The run queue (jobs + worker_heartbeats) lives in its OWN database, never a
 # project bundle: `<workspace>/.queue.db` locally, the hosted run-queue Postgres

@@ -263,18 +263,14 @@ def _result_cell_payload(
 ) -> dict[str, Any] | None:
     if column_id is None:
         return None
-    row = project.db.execute(
-        "SELECT value, error, confidence, justification, review_state "
-        "FROM results WHERE run_id=? AND row_id=? AND column_id=?",
-        (run_id, row_id, column_id),
-    ).fetchone()
+    coordinate = (run_id, row_id, column_id)
+    row = RunResultStore(project).decoded_result_rows([coordinate]).get(coordinate)
     if row is None:
         return None
-    value = json.loads(row["value"]) if row["value"] is not None else None
     return {
         "row_id": row_id,
         "column_id": column_id,
-        "value": value,
+        "value": row["value"],
         "error": row["error"],
         "confidence": row["confidence"],
         "justification": row["justification"],

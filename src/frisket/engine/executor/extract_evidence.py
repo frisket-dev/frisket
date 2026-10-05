@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
+from frisket.engine.store.value_codec import repair_unicode_text
+
 
 _UNRESOLVED_TRANSCRIPT = object()
 
@@ -76,6 +78,7 @@ def _source_artifact(
         if not isinstance(captured_text, str) and captured.get("model_visible"):
             captured_text = value if isinstance(value, str) else None
         if isinstance(captured_text, str):
+            captured_text = repair_unicode_text(captured_text)
             cache_key = (row_id, column_id or 0, _text_hash(captured_text))
             if cache_key in artifact_cache:
                 return artifact_cache[cache_key]
@@ -91,6 +94,12 @@ def _source_artifact(
                 source_sheet_id=sheet_id if column_id is not None else None,
                 source_row_id=row_id if column_id is not None else None,
                 source_column_id=column_id,
+                captured_text_native=(
+                    column_id is not None
+                    and isinstance(value, str)
+                    and captured_text == value
+                    and not captured.get("composite")
+                ),
                 metadata={
                     "source_label": name,
                     "captured_text": captured_text,
@@ -160,8 +169,12 @@ def _captured_text_spans(
 ) -> list[dict[str, Any]] | None:
     """Locate one quote in its frozen model-visible source, if it has text."""
 
-    text = source.get("captured_text")
+    raw_text = source.get("captured_text")
+    text = repair_unicode_text(raw_text) if isinstance(raw_text, str) else raw_text
     quote = _optional_string(entry.get("quote"))
+    if quote is not None:
+        quote = repair_unicode_text(quote)
+        entry = {**entry, "quote": quote}
     if not isinstance(text, str):
         return None
     if quote is None:

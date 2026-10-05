@@ -105,7 +105,7 @@ def test_add_row_undo_hides_row_and_redo_restores_it(tmp_path: Path) -> None:
     raw_cells = project.db.execute(
         "SELECT value FROM cells WHERE row_id=?", (added_row_id,)
     ).fetchall()
-    assert [json.loads(r["value"]) for r in raw_cells] == ["Grace"]
+    assert [r["value"] for r in raw_cells] == ["Grace"]
     export = client.get(
         f"/api/projects/{pid}/exports/sheets?sheet_id={sheet_id}&format=csv"
     )

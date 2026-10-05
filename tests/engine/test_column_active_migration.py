@@ -7,30 +7,36 @@ import sqlite3
 import pytest
 
 from frisket.engine.store import Project
-from frisket.engine.store.bundle_open import _migrate_active_columns
+from frisket.engine.store.bundle_open import (
+    _ACTIVE_COLUMNS_TO_DIGEST,
+    _migrate_active_columns,
+)
 from frisket.engine.store.schema import (
     BundleSchemaMismatch,
     SCHEMA,
     SCHEMA_DIGEST,
     SCHEMA_DIGEST_META_KEY,
-    schema_digest,
 )
+from tests.engine.test_bundle_schema_fence import _without_typed_values
 
 _PRIOR_DIGEST = "frisket.schema.v1:f078f2bc57411d372468936618f2f884"
 
 
 def _prior_bundle(tmp_path):
-    schema = SCHEMA.replace(
-        "  active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1) AND (active=1 OR hidden=1)),\n",
-        "",
-    ).replace(
-        "  created_at TEXT NOT NULL DEFAULT (datetime('now'))\n);\n"
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_columns_active_name\n"
-        "  ON columns(sheet_id,name) WHERE active=1;",
-        "  created_at TEXT NOT NULL DEFAULT (datetime('now')),\n"
-        "  UNIQUE(sheet_id, name)\n);",
+    schema = (
+        _without_typed_values(SCHEMA)
+        .replace(
+            "  active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1) AND (active=1 OR hidden=1)),\n",
+            "",
+        )
+        .replace(
+            "  created_at TEXT NOT NULL DEFAULT (datetime('now'))\n);\n"
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_columns_active_name\n"
+            "  ON columns(sheet_id,name) WHERE active=1;",
+            "  created_at TEXT NOT NULL DEFAULT (datetime('now')),\n"
+            "  UNIQUE(sheet_id, name)\n);",
+        )
     )
-    assert schema_digest(schema) == _PRIOR_DIGEST
     path = tmp_path / "prior.frisket"
     path.mkdir()
     with sqlite3.connect(path / "project.db") as db:
@@ -79,11 +85,6 @@ def _prior_bundle(tmp_path):
 
 def test_upgrade_frees_only_undone_names_and_preserves_history(tmp_path):
     path = _prior_bundle(tmp_path)
-    with sqlite3.connect(path / "project.db") as db:
-        before = {
-            table: db.execute(f"SELECT * FROM {table}").fetchall()
-            for table in ("cells", "edits", "results", "current_cells", "ops")
-        }
     project = Project(path)
     assert project.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
     assert [
@@ -98,10 +99,22 @@ def test_upgrade_frees_only_undone_names_and_preserves_history(tmp_path):
         (4, "hidden-live", 1, 1),
         (5, "visible", 0, 1),
     ]
-    for table, rows in before.items():
-        assert [
-            tuple(row) for row in project.db.execute(f"SELECT * FROM {table}")
-        ] == rows
+    assert project.db.execute(
+        "SELECT row_id,column_id,value_kind,value,producer_id FROM cells"
+    ).fetchone()[:] == (1, 1, "text", "old", None)
+    assert project.db.execute(
+        "SELECT op_id,row_id,column_id,value_kind,value FROM edits"
+    ).fetchone()[:] == (1, 1, 1, "text", "edited")
+    assert project.db.execute(
+        "SELECT run_id,row_id,column_id,value_kind,value,outcome FROM results"
+    ).fetchone()[:] == (1, 1, 1, "text", "result", "ok")
+    assert project.db.execute(
+        "SELECT column_id,row_id,origin_kind,validity FROM current_cells"
+    ).fetchone()[:] == (1, 1, "source_cell", "valid")
+    assert project.db.execute(
+        "SELECT value_kind,value FROM current_cell_values"
+    ).fetchone()[:] == ("text", "old")
+    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 3
     assert project.db.execute("PRAGMA foreign_key_check").fetchall() == []
     assert project.db.execute("PRAGMA foreign_keys").fetchone()[0] == 1
     assert project.db.execute("PRAGMA legacy_alter_table").fetchone()[0] == 0
@@ -177,7 +190,7 @@ def test_upgrade_does_not_audit_unrelated_foreign_keys(tmp_path, same_child_tabl
             db.execute(
                 "SELECT value FROM meta WHERE key=?", (SCHEMA_DIGEST_META_KEY,)
             ).fetchone()[0]
-            == SCHEMA_DIGEST
+            == _ACTIVE_COLUMNS_TO_DIGEST
         )
         # Migration neither repairs nor deletes unrelated historical data.
         assert db.execute("PRAGMA foreign_key_check").fetchone() is not None

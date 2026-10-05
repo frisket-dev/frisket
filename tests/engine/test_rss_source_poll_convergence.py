@@ -274,6 +274,10 @@ def test_same_batch_duplicate_dedupe_key_is_collapsed_not_appended(
         source_run = next(
             output.ref for output in result.outputs if output.kind == "source_run"
         )
+        sheet_id = next(
+            output.sheet_id for output in result.outputs if output.kind == "sheet"
+        )
+        assert sheet_id is not None
         assert source_run["new_rows"] == 1
         assert _sheet_row_count(project) == 1
         items = project.db.execute("SELECT * FROM source_items").fetchall()
@@ -281,13 +285,15 @@ def test_same_batch_duplicate_dedupe_key_is_collapsed_not_appended(
         assert items[0]["dedupe_key"] == "dup-1"
         # The surviving row is the last copy in feed order.
         row_id = int(items[0]["row_id"])
-        title = project.db.execute(
-            "SELECT c.value AS value FROM cells c JOIN columns col "
-            "ON col.id=c.column_id WHERE c.row_id=? AND col.name='title'",
-            (row_id,),
-        ).fetchone()
-        assert title is not None
-        assert json.loads(title["value"]) == "Same guid, second copy"
+        title_column_id = next(
+            int(column["id"])
+            for column in project.columns(sheet_id, include_hidden=True)
+            if column["name"] == "title"
+        )
+        assert (
+            project.get_values(sheet_id, title_column_id, row_ids=[row_id])[row_id]
+            == "Same guid, second copy"
+        )
     finally:
         project.close()
         register_rss_poller(replace=True)

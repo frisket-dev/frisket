@@ -13,6 +13,7 @@ from frisket.engine.store.project_qa import (
     ProjectQAStore,
 )
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
+from tests.engine.test_bundle_schema_fence import _restore_legacy_authorities
 
 
 def _store(tmp_path) -> tuple[Project, ProjectQAStore]:
@@ -287,6 +288,8 @@ def test_schema_migration_preserves_existing_bundle_and_stamps_new_digest(
     project.close()
 
     with sqlite3.connect(path / "project.db") as db:
+        db.execute("PRAGMA foreign_keys=OFF")
+        _restore_legacy_authorities(db)
         db.execute("DROP TABLE import_sessions")
         db.execute("DROP TABLE project_qa_usage_calls")
         db.execute("DROP TABLE project_qa_citations")

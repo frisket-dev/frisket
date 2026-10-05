@@ -1,9 +1,8 @@
 """Bundle-level I/O for a project store: streaming tar.gz export, raw SQLite
 snapshot export, safe bundle import (member validation and streaming hash
-verification), compaction of discarded
-history, and bundle deletion. Free functions over the facade's per-thread
-SQLite connection; ``project`` stays duck-typed (``Any``) so this leaf never
-re-imports the facade module."""
+verification), retained-history compaction, and bundle deletion. Free functions
+over the facade's per-thread SQLite connection; ``project`` stays duck-typed
+(``Any``) so this leaf never re-imports the facade module."""
 
 from __future__ import annotations
 
@@ -196,17 +195,14 @@ def export_database(project: Any, target_db: str | Path) -> Path:
 def compact(
     project: Any, vacuum: bool = True, *, force: bool = False
 ) -> dict[str, Any]:
-    """Reclaim space without touching live data (the un-append-forever).
+    """Reclaim derived storage without deleting the project's journal.
 
-    Three passes:
-      1. prune results/runs on discarded (un-redoable) op branches,
-      2. GC blobs no live value references,
-      3. VACUUM the db to return freed pages to the filesystem and
-         checkpoint the WAL.
-
-    Reachable history — applied ops and the still-redoable undo branch — is
-    never touched, so undo/redo and provenance stay intact. Returns a
-    summary of what was reclaimed.
+    Authority history is durable even when its operation is discarded. Blob
+    metadata GC therefore treats every stored cell/result/edit as a root, and
+    this operation only removes metadata with no retained owner before an
+    optional VACUUM returns already-free pages to the filesystem. The legacy
+    ``results_pruned`` result field remains for API compatibility and is always
+    zero.
     """
     if project.db.in_transaction:
         raise RuntimeError("cannot compact while this connection has pending writes")
@@ -222,13 +218,6 @@ def compact(
             "db_bytes_after": size_before,
             "db_bytes_reclaimed": 0,
         }
-    try:
-        project.db.execute("BEGIN IMMEDIATE")
-        results_pruned = _prune_dead_runs(project)
-        project.db.commit()
-    except BaseException:
-        project.db.rollback()
-        raise
     blob_summary = project.gc_blobs()
     if vacuum:
         # checkpoint first so the VACUUM sees a clean main db
@@ -239,122 +228,13 @@ def compact(
     return {
         "skipped": False,
         "reason": None,
-        "results_pruned": results_pruned,
+        "results_pruned": 0,
         "blobs_removed": blob_summary["blobs_removed"],
         "bytes_freed": blob_summary["bytes_freed"],
         "db_bytes_before": size_before,
         "db_bytes_after": size_after,
         "db_bytes_reclaimed": max(0, size_before - size_after),
     }
-
-
-def _prune_dead_runs(project: Any) -> int:
-    """Delete discarded managed journals and unreachable legacy results.
-    Applied ops and the redoable undo branch are preserved.
-
-    Paid-effect checkpoints are exempt: they answer a money question
-    reachability cannot (see the comment below), and survive as orphans for
-    the operator to decide."""
-    from frisket.engine.store.result_generations import ResultGenerationStore
-
-    generations = ResultGenerationStore(project)
-    discarded_bindings = [
-        binding
-        for op in project.db.execute(
-            "SELECT id FROM ops WHERE status='discarded' ORDER BY id"
-        ).fetchall()
-        for binding in generations.bindings_for_op(int(op["id"]))
-    ]
-    surviving_base_run_ids = {
-        int(row["expected_base_run_id"])
-        for row in project.db.execute(
-            "SELECT DISTINCT generation.expected_base_run_id "
-            "FROM run_output_generations generation "
-            "JOIN runs run ON run.id=generation.run_id "
-            "JOIN ops op ON op.id=run.op_id "
-            "WHERE generation.expected_base_run_id IS NOT NULL "
-            "AND op.status!='discarded'"
-        ).fetchall()
-    }
-    managed_run_ids = sorted(
-        {binding.run_id for binding in discarded_bindings} - surviving_base_run_ids
-    )
-    if discarded_bindings:
-        generations.rebuild_heads(
-            {binding.column_id for binding in discarded_bindings}, commit=False
-        )
-        for run_id in managed_run_ids:
-            project.db.execute(
-                "UPDATE columns SET current_run_id=NULL WHERE current_run_id=? "
-                "AND id IN (SELECT column_id FROM run_output_generations "
-                "WHERE run_id=?)",
-                (run_id, run_id),
-            )
-            project.db.execute(
-                "DELETE FROM run_output_generations WHERE run_id=?", (run_id,)
-            )
-
-    deleted = 0
-    for run_id in managed_run_ids:
-        deleted += int(
-            project.db.execute("DELETE FROM results WHERE run_id=?", (run_id,)).rowcount
-        )
-
-    cur = project.db.execute(
-        "DELETE FROM results WHERE run_id IN ("
-        "  SELECT r.id FROM runs r "
-        "  JOIN ops o ON o.id = r.op_id "
-        "  WHERE o.status='discarded' "
-        "    AND r.id NOT IN ("
-        "      SELECT generation.expected_base_run_id "
-        "      FROM run_output_generations generation "
-        "      JOIN runs owner ON owner.id=generation.run_id "
-        "      JOIN ops owner_op ON owner_op.id=owner.op_id "
-        "      WHERE generation.expected_base_run_id IS NOT NULL "
-        "      AND owner_op.status!='discarded'"
-        "    ) "
-        "    AND r.id NOT IN (SELECT current_run_id FROM columns "
-        "                     WHERE current_run_id IS NOT NULL))"
-    )
-    deleted += int(cur.rowcount)
-    # Effect checkpoints are deliberately NOT pruned with their run.
-    #
-    # The retired per-family table carried a runs(id) ON DELETE CASCADE and
-    # the shared lifecycle reproduced it here as an explicit same-predicate
-    # DELETE — faithfully preserving a behaviour that was wrong all along.
-    # Reachability is the wrong question to ask of a paid effect: a
-    # ``reserved`` row records that a provider MAY already have charged for a
-    # unit and a ``returned`` row that it DID, and neither fact stops being
-    # true because the operator undid the op and reclaimed space.  Compaction
-    # was silently answering the money question ("no charge happened") that
-    # only a human with the provider's bill can answer.
-    #
-    # Every legal state of a runner-family checkpoint carries money meaning —
-    # ``reserved`` is ambiguous egress, ``returned`` is a durable paid
-    # response, and ``consumed`` here is the operator's own accept-charged
-    # attestation — so there is no reachability-shaped subset left to
-    # reclaim.  This is why the checkpoint schema has no run foreign key: the
-    # rows outlive their referent as ORPHANED reconcilable records, which
-    # ``frisket reconcile list`` surfaces with an honest reason, and the
-    # OPERATOR pair (``operator_discard`` / ``operator_accept_charged``) is
-    # the only authority that may retire one.
-    #
-    # the now-empty discarded runs themselves
-    project.db.execute(
-        "DELETE FROM runs WHERE op_id IN (SELECT id FROM ops WHERE status='discarded') "
-        "AND id NOT IN ("
-        "  SELECT generation.expected_base_run_id "
-        "  FROM run_output_generations generation "
-        "  JOIN runs owner ON owner.id=generation.run_id "
-        "  JOIN ops owner_op ON owner_op.id=owner.op_id "
-        "  WHERE generation.expected_base_run_id IS NOT NULL "
-        "  AND owner_op.status!='discarded'"
-        ") "
-        "AND id NOT IN (SELECT current_run_id FROM columns "
-        "               WHERE current_run_id IS NOT NULL) "
-        "AND id NOT IN (SELECT DISTINCT run_id FROM results)"
-    )
-    return deleted
 
 
 def _stamp_staged_manifest_for_target(staging: Path, target: Path) -> None:

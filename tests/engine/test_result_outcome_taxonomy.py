@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,6 +18,7 @@ from frisket.engine.store.runs import (
     RunResultStore,
     _result_outcome,
 )
+from frisket.engine.store.value_codec import decode_stored_value
 from frisket.engine.runner.batch_normalization import normalize_batch_row
 from frisket.ops.base import OpContext, Recipe
 from helpers import write_claimed_test_results
@@ -351,10 +351,12 @@ def test_withhold_result_value_marks_terminal_without_failing(tmp_path: Path) ->
     ):
         store.withhold_result_value(run_id, row_ids[0], out, "no citation")
     row = project.db.execute(
-        "SELECT value, error, outcome FROM results WHERE run_id=? AND row_id=?",
+        "SELECT value_kind, value, error, outcome FROM results "
+        "WHERE run_id=? AND row_id=?",
         (run_id, row_ids[0]),
     ).fetchone()
-    assert json.loads(row["value"]) == "v"
+    assert row["value_kind"] == "text"
+    assert decode_stored_value(row["value_kind"], row["value"]) == "v"
     assert row["error"] is None
     assert row["outcome"] == "ok"
     assert store.pending_run_row_scope_count(run_id, [out]) == 5

@@ -146,22 +146,19 @@ def _rows(project: Project, sheet_id: int) -> list[dict[str, Any]]:
         int(column["id"]): column["name"]
         for column in project.columns(sheet_id, include_hidden=True)
     }
-    out: list[dict[str, Any]] = []
-    for row in project.db.execute(
-        "SELECT id FROM rows WHERE sheet_id=? ORDER BY position",
-        (sheet_id,),
-    ).fetchall():
-        values = project.db.execute(
-            "SELECT column_id, value FROM cells WHERE row_id=?",
-            (row["id"],),
-        ).fetchall()
-        out.append(
-            {
-                columns[int(value["column_id"])]: json.loads(value["value"])
-                for value in values
-            }
-        )
-    return out
+    row_ids = project.visible_row_ids(sheet_id)
+    cells = {
+        column_id: project.get_values_with_refs(sheet_id, column_id, row_ids=row_ids)
+        for column_id in columns
+    }
+    return [
+        {
+            name: cells[column_id][0][row_id]
+            for column_id, name in columns.items()
+            if cells[column_id][1][row_id]["kind"] != "missing"
+        }
+        for row_id in row_ids
+    ]
 
 
 def _table_count(project: Project, table: str) -> int:

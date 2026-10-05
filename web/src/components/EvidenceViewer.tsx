@@ -31,6 +31,11 @@ type ViewerState =
   | { phase: 'error'; message: string }
   | { phase: 'done'; payload: EvidenceViewerPayload };
 
+type RecoveryState =
+  | { phase: 'idle' }
+  | { phase: 'loading' }
+  | { phase: 'error'; message: string };
+
 export function EvidenceViewer({
   evidenceLinkId,
   mode = 'peek',
@@ -43,22 +48,60 @@ export function EvidenceViewer({
 }: EvidenceViewerProps) {
   const { projectApi } = useWorkspaceStores();
   const [state, setState] = useState<ViewerState>({ phase: 'loading' });
+  const [recovery, setRecovery] = useState<RecoveryState>({ phase: 'idle' });
+  const requestEpoch = useRef(0);
+  const mounted = useRef(true);
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      requestEpoch.current += 1;
+    };
+  }, []);
+
+  useEffect(() => {
+    const epoch = ++requestEpoch.current;
     let alive = true;
     projectApi
       .getEvidenceViewer(evidenceLinkId)
       .then((payload) => {
-        if (alive) setState({ phase: 'done', payload });
+        if (alive && requestEpoch.current === epoch) {
+          setState({ phase: 'done', payload });
+          setRecovery({ phase: 'idle' });
+        }
       })
       .catch((error: Error) => {
-        if (alive) setState({ phase: 'error', message: error.message });
+        if (alive && requestEpoch.current === epoch) {
+          setState({ phase: 'error', message: error.message });
+          setRecovery({ phase: 'idle' });
+        }
       });
     return () => {
       alive = false;
     };
   }, [evidenceLinkId, projectApi]);
+
+  const locateCurrentPassage = () => {
+    if (state.phase !== 'done' || recovery.phase === 'loading') return;
+    const epoch = ++requestEpoch.current;
+    setRecovery({ phase: 'loading' });
+    projectApi
+      .getEvidenceViewer(evidenceLinkId, { locateCurrent: true })
+      .then((payload) => {
+        if (!mounted.current || requestEpoch.current !== epoch) return;
+        setState({ phase: 'done', payload });
+        setRecovery({ phase: 'idle' });
+      })
+      .catch((error: Error) => {
+        if (!mounted.current || requestEpoch.current !== epoch) return;
+        setRecovery({
+          phase: 'error',
+          message: error.message || 'Could not search the current source.',
+        });
+      });
+  };
 
   useEffect(() => {
     if (mode !== 'peek') return;
@@ -93,6 +136,8 @@ export function EvidenceViewer({
           scopeSpanId={scopeSpanId}
           highlight={highlight}
           defaultShowDetails={defaultShowDetails}
+          recovery={recovery}
+          onLocateCurrent={locateCurrentPassage}
         />
       )}
     </>
@@ -171,12 +216,16 @@ function EvidencePayloadView({
   scopeSpanId,
   highlight = true,
   defaultShowDetails = false,
+  recovery,
+  onLocateCurrent,
 }: {
   payload: EvidenceViewerPayload;
   scopeRowId?: string | null;
   scopeSpanId?: string;
   highlight?: boolean;
   defaultShowDetails?: boolean;
+  recovery: RecoveryState;
+  onLocateCurrent(): void;
 }) {
   const focusedArtifacts = useMemo(() => {
     if (!scopeSpanId) return payload.artifacts;
@@ -221,6 +270,8 @@ function EvidencePayloadView({
               artifact={artifact}
               scopeSpanId={scopeSpanId}
               highlight={highlight}
+              recovery={recovery}
+              onLocateCurrent={onLocateCurrent}
             />
           ))
         )}
@@ -337,12 +388,16 @@ export function ArtifactSource({
   scopeSpanId,
   highlight = true,
   emphasizedSpanIds = [],
+  recovery = { phase: 'idle' },
+  onLocateCurrent,
 }: {
   artifact: EvidenceArtifact;
   scopeSpanId?: string;
   highlight?: boolean;
   /** A host may distinguish its focused citation while retaining all support. */
   emphasizedSpanIds?: readonly string[];
+  recovery?: RecoveryState;
+  onLocateCurrent?: () => void;
 }) {
   const blob = artifact.artifact_ref.blob;
   return (
@@ -359,6 +414,11 @@ export function ArtifactSource({
           </a>
         )}
       </header>
+      <TextPassageRecovery
+        artifact={artifact}
+        recovery={recovery}
+        onLocateCurrent={onLocateCurrent}
+      />
       {artifact.pages.length > 0 ? (
         artifact.pages.map((page) => (
           <EvidencePageView key={page.page} page={page} artifactStableId={artifact.stable_id} emphasizedSpanIds={emphasizedSpanIds} />
@@ -383,6 +443,67 @@ export function ArtifactSource({
         <MediaOrFallback key={artifact.stable_id} artifact={artifact} emphasizedSpanIds={emphasizedSpanIds} />
       )}
     </section>
+  );
+}
+
+function TextPassageRecovery({
+  artifact,
+  recovery,
+  onLocateCurrent,
+}: {
+  artifact: EvidenceArtifact;
+  recovery: RecoveryState;
+  onLocateCurrent?: () => void;
+}) {
+  if (
+    artifact.text_context_status !== 'stale'
+    || !isTextRenderableMediaType(artifact.media_type)
+  ) {
+    return null;
+  }
+
+  const notice = artifact.recovery_notice?.trim();
+  if (artifact.recovery_status === 'located') {
+    return (
+      <div className="evidence-text-recovery-notice" data-testid="evidence-text-recovery-located">
+        {notice || 'Found this passage in the current source. The original citation remains marked stale.'}
+      </div>
+    );
+  }
+  if (artifact.recovery_status === 'not_found') {
+    return (
+      <div className="evidence-text-recovery-notice" data-testid="evidence-text-recovery-not-found">
+        {notice || 'Could not find this passage in the current source.'}
+      </div>
+    );
+  }
+  if (artifact.recovery_status === 'unsupported') {
+    return (
+      <div className="evidence-text-recovery-notice" data-testid="evidence-text-recovery-unsupported">
+        {notice || 'This source cannot be searched for the passage.'}
+      </div>
+    );
+  }
+
+  return (
+    <div className="evidence-text-recovery" data-testid="evidence-text-recovery-stale">
+      <div>The source text has changed since this citation was created.</div>
+      {recovery.phase === 'error' && (
+        <div className="evidence-text-recovery-error" role="status">
+          Could not search the current source: {recovery.message}
+        </div>
+      )}
+      {onLocateCurrent && (
+        <button
+          type="button"
+          className="mini-btn"
+          disabled={recovery.phase === 'loading'}
+          onClick={onLocateCurrent}
+        >
+          {recovery.phase === 'loading' ? 'Looking for passage…' : 'Try to find this passage'}
+        </button>
+      )}
+    </div>
   );
 }
 

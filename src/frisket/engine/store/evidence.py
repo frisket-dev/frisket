@@ -15,6 +15,10 @@ import sqlite3
 import uuid
 from typing import Any
 
+from frisket.engine.store.citation_text import (
+    resolve_artifact_texts,
+    store_captured_text,
+)
 from frisket.engine.store.deep_link import compose_deep_link
 from frisket.engine.store.media_blobs import MediaBlobStore
 from frisket.engine.store.project import Project
@@ -58,38 +62,53 @@ def record_source_artifact(
     source_column_id: int | None = None,
     external_ref: dict[str, Any] | None = None,
     metadata: dict[str, Any] | None = None,
+    captured_text_native: bool = False,
 ) -> dict[str, Any]:
     """Create a source artifact and return its public row shape."""
 
     artifact_stable_id = stable_id or _stable_id("source_artifact")
+    artifact_metadata = dict(metadata or {})
+    captured_text = artifact_metadata.get("captured_text")
     owns_transaction = not project.db.in_transaction
-    cur = project.db.execute(
-        "INSERT INTO source_artifacts ("
-        "stable_id, artifact_kind, media_type, blob_hash, source_url, "
-        "canonical_url, title, filename, page_count, duration_ms, "
-        "source_sheet_id, source_row_id, source_column_id, external_ref_json, "
-        "metadata"
-        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (
-            artifact_stable_id,
-            artifact_kind,
-            media_type,
-            blob_hash,
-            source_url,
-            canonical_url,
-            title,
-            filename,
-            page_count,
-            duration_ms,
-            source_sheet_id,
-            source_row_id,
-            source_column_id,
-            _json_dumps(external_ref or {}),
-            _json_dumps(metadata or {}),
-        ),
-    )
-    if owns_transaction:
-        project.db.commit()
+    try:
+        if isinstance(captured_text, str):
+            artifact_metadata = store_captured_text(
+                project.db,
+                metadata=artifact_metadata,
+                text=captured_text,
+                native=captured_text_native,
+            )
+        cur = project.db.execute(
+            "INSERT INTO source_artifacts ("
+            "stable_id, artifact_kind, media_type, blob_hash, source_url, "
+            "canonical_url, title, filename, page_count, duration_ms, "
+            "source_sheet_id, source_row_id, source_column_id, external_ref_json, "
+            "metadata"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                artifact_stable_id,
+                artifact_kind,
+                media_type,
+                blob_hash,
+                source_url,
+                canonical_url,
+                title,
+                filename,
+                page_count,
+                duration_ms,
+                source_sheet_id,
+                source_row_id,
+                source_column_id,
+                _json_dumps(external_ref or {}),
+                _json_dumps(artifact_metadata),
+            ),
+        )
+        if owns_transaction:
+            project.db.commit()
+    except Exception:
+        if owns_transaction:
+            project.db.rollback()
+        raise
     return _artifact_row(project, int(cur.lastrowid))
 
 
@@ -826,9 +845,21 @@ def resolve_evidence_viewer(
             )
         )
 
+    artifact_texts, stale_artifacts = resolve_artifact_texts(
+        project.db, list(artifacts.values())
+    )
     for artifact in artifacts.values():
         artifact["pages"] = _page_payloads(artifact, project_id=project_id)
-        artifact["text_context"] = _artifact_text_context(artifact)
+        artifact_id = int(artifact["id"])
+        text = artifact_texts.get(artifact_id)
+        artifact["text_context"] = _artifact_text_context(artifact, text)
+        artifact["text_context_status"] = (
+            "stale"
+            if artifact_id in stale_artifacts
+            else "available"
+            if isinstance(text, str)
+            else None
+        )
 
     # Attach each cited span's run membership (run_index) and each
     # artifact's run-level clip affordances -- ONE clip per contiguous run
@@ -880,6 +911,7 @@ def resolve_evidence_viewer(
             *(_list_value(producer.get("warnings"))),
         ]
     )
+    source_changed = bool(stale_artifacts)
     return {
         "schema_version": EVIDENCE_VIEWER_SCHEMA_VERSION,
         "link": {
@@ -896,11 +928,13 @@ def resolve_evidence_viewer(
             "receipt_id": link["receipt_id"],
             "item_index": item_index,
             "role": link["link_role"],
-            "status": link["status"],
+            "status": "stale" if source_changed else link["status"],
             "confidence": link["confidence"],
             "pinned": bool(link["pinned"]),
             "producer": producer,
-            "stale_reason": link["stale_reason"],
+            "stale_reason": (
+                "source_changed" if source_changed else link["stale_reason"]
+            ),
             "stale_at": link["stale_at"],
             "created_at": link["created_at"],
             # A hash-mismatch flag, NOT a silent hide and NOT a delete. Every
@@ -1059,19 +1093,27 @@ def _text_layer_hash_mismatch(
     that forgot to call ``mark_evidence_stale_for_cell_refs`` (the documented
     gap -- ``store/staleness.py``: "fires from only 2 of many mutation
     sites") still surfaces a loud flag instead of silently serving drifted
-    grounding. A link with no hash-bearing spans, or whose subject cell can't
-    be resolved as plain text, has nothing to revalidate and reports False.
+    grounding. Only hashes attached to a declared cell text surface are
+    revalidated. Legacy text spans without a surface fall back to the link's
+    cell; hashes on rendered/blob spans belong to a different coordinate
+    system and are ignored here. A missing current cell is a mismatch because
+    the saved native text surface no longer exists. Other non-string values
+    may have an immutable rendered text surface (for example a numbered JSON
+    segment list), so they are not compared to a native-text digest.
     """
-    hash_bearing = [row for row in joined_spans if row["text_layer_hash"]]
-    if not hash_bearing:
-        return False
-    for row in hash_bearing:
+    for row in joined_spans:
+        if not row["text_layer_hash"]:
+            continue
         sheet_id, row_id, column_id = (
             link["sheet_id"],
             link["row_id"],
             link["column_id"],
         )
-        if row["text_surface_id"] is not None:
+        declared_cell_surface = False
+        if row["text_surface_id"] is None:
+            if row["span_kind"] != "text":
+                continue
+        else:
             surface = project.db.execute(
                 "SELECT surface_kind,text_sheet_id,text_row_id,text_column_id "
                 "FROM text_surfaces WHERE id=?",
@@ -1079,17 +1121,25 @@ def _text_layer_hash_mismatch(
             ).fetchone()
             if surface is None or surface["surface_kind"] != "cell":
                 continue
+            declared_cell_surface = True
             sheet_id, row_id, column_id = (
                 surface["text_sheet_id"],
                 surface["text_row_id"],
                 surface["text_column_id"],
             )
         if sheet_id is None or row_id is None or column_id is None:
+            if declared_cell_surface:
+                return True
             continue
         values = project.get_values(
-            int(sheet_id), int(column_id), row_ids=[int(row_id)]
+            int(sheet_id),
+            int(column_id),
+            row_ids=[int(row_id)],
+            preserve_invalid=True,
         )
         current = values.get(int(row_id))
+        if current is None:
+            return True
         if isinstance(current, str) and row["text_layer_hash"] != _text_hash(current):
             return True
     return False
@@ -1099,11 +1149,12 @@ def _utf16_offset(text: str, codepoint_offset: int) -> int:
     return len(text[:codepoint_offset].encode("utf-16-le")) // 2
 
 
-def _artifact_text_context(artifact: dict[str, Any]) -> dict[str, Any] | None:
-    """Project a cited artifact's frozen text and verified cited ranges."""
+def _artifact_text_context(
+    artifact: dict[str, Any], text: str | None
+) -> dict[str, Any] | None:
+    """Project an available artifact passage and its verified cited ranges."""
 
     metadata = artifact.get("metadata")
-    text = metadata.get("captured_text") if isinstance(metadata, dict) else None
     if not isinstance(text, str):
         return None
     expected_hash = _text_hash(text)

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.value_codec import encode_stored_value
 
 
 def _publish_managed_results(
@@ -45,10 +46,17 @@ def _publish_managed_results(
     )
     project.db.executemany(
         "INSERT INTO results "
-        "(run_id,row_id,column_id,value,outcome,publication_effect) "
-        "VALUES (?,?,?,?,?,?)",
+        "(run_id,row_id,column_id,value_kind,value,outcome,publication_effect) "
+        "VALUES (?,?,?,?,?,?,?)",
         [
-            (run_id, row_id, column_id, '"value"', "ok", "publish_value")
+            (
+                run_id,
+                row_id,
+                column_id,
+                *encode_stored_value("value"),
+                "ok",
+                "publish_value",
+            )
             for row_id in row_ids
             for column_id in column_ids
         ],
@@ -125,13 +133,13 @@ def test_large_review_summary_keeps_exact_active_visibility_and_primary_semantic
         other_row_id = project.add_rows(other_sheet_id, [{}], {})[0]
         project.db.execute(
             "INSERT INTO results "
-            "(run_id,row_id,column_id,value,outcome,publication_effect) "
-            "VALUES (?,?,?,?,?,?)",
+            "(run_id,row_id,column_id,value_kind,value,outcome,publication_effect) "
+            "VALUES (?,?,?,?,?,?,?)",
             (
                 replacement_run_id,
                 other_row_id,
                 answer_id,
-                '"wrong sheet"',
+                *encode_stored_value("wrong sheet"),
                 "ok",
                 "publish_value",
             ),
