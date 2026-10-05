@@ -12,6 +12,7 @@ from typing import Any
 from frisket.querysets import (
     SheetRowScopePlan,
     SheetRowSetError,
+    execute_sheet_row_page,
     sheet_row_scope_plan as shared_sheet_row_scope_plan,
 )
 from frisket.server.workspace import Workspace
@@ -96,20 +97,7 @@ class SheetGridService:
             row_ids=scoped_row_ids,
         )
         cols = projected_columns
-        total = project.db.execute(
-            f"SELECT COUNT(*) FROM {plan.filter_from_sql} WHERE {plan.where_sql}",
-            plan.filter_params,
-        ).fetchone()[0]
-        rows = project.db.execute(
-            f"""
-            SELECT r.id, r.parent_row_id
-            FROM {plan.from_sql}
-            WHERE {plan.where_sql}
-            ORDER BY {", ".join(plan.order_parts)}
-            LIMIT ? OFFSET ?
-            """,
-            [*plan.select_params, limit, offset],
-        ).fetchall()
+        rows, total = execute_sheet_row_page(project, plan, limit=limit, offset=offset)
         return _sheet_data_payload(
             project,
             sheet_id,

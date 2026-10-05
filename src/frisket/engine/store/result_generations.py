@@ -15,6 +15,7 @@ from frisket.engine.store.current_cells import (
     refresh_current_cells,
     refresh_current_cells_from_key_table,
 )
+from frisket.engine.store.search_index_work import enqueue_dirty_scope
 from frisket.engine.store.value_codec import decode_stored_value
 
 PUBLICATION_EFFECTS = frozenset({"publish_value", "publish_null", "publish_error"})
@@ -897,6 +898,69 @@ class ResultGenerationStore:
             (json.dumps(info), int(operation["id"])),
         )
 
+    def _already_projected_active_creates(
+        self, run_id: int, bindings: Collection[RunOutputGeneration]
+    ) -> dict[int, int]:
+        """Return active fresh columns whose publishable results all have heads.
+
+        Active fresh writes move each result head and refresh the same current-cell
+        pair inside one savepoint.  This proof deliberately checks persisted heads,
+        rather than trusting the binding state: low-level callers may suppress
+        progressive projection.  Exact result foreign keys, head publication
+        triggers, and immutable headed result semantics make the head coordinates a
+        subset of the publishable result coordinates, so equal per-column counts
+        prove the sets equal.  This is not a repair check for arbitrary direct SQL
+        changes to the rebuildable ``current_cells`` projection.
+        """
+
+        candidates = sorted(
+            binding.column_id
+            for binding in bindings
+            if binding.state == "active" and binding.write_mode == "create"
+        )
+        result_counts = dict.fromkeys(candidates, 0)
+        head_counts = dict.fromkeys(candidates, 0)
+        for column_batch in _chunks(candidates, _SQLITE_ID_CHUNK_SIZE - 1):
+            placeholders = ",".join("?" for _ in column_batch)
+            for row in self.db.execute(
+                "SELECT column_id,COUNT(*) AS result_count FROM results "
+                "WHERE run_id=? AND publication_effect IS NOT NULL "
+                f"AND column_id IN ({placeholders}) GROUP BY column_id",
+                (int(run_id), *column_batch),
+            ):
+                result_counts[int(row["column_id"])] = int(row["result_count"])
+            for row in self.db.execute(
+                "SELECT column_id,COUNT(*) AS head_count FROM cell_result_heads "
+                f"WHERE run_id=? AND column_id IN ({placeholders}) GROUP BY column_id",
+                (int(run_id), *column_batch),
+            ):
+                head_counts[int(row["column_id"])] = int(row["head_count"])
+        return {
+            column_id: result_count
+            for column_id, result_count in result_counts.items()
+            if head_counts[column_id] == result_count
+        }
+
+    def _coalesce_search_work(self, projected_counts: dict[int, int]) -> None:
+        """Replace progressive row ranges with one pending scope per dirty column."""
+
+        dirty_columns = sorted(
+            column_id for column_id, count in projected_counts.items() if count > 0
+        )
+        for column_batch in _chunks(dirty_columns, _SQLITE_ID_CHUNK_SIZE):
+            placeholders = ",".join("?" for _ in column_batch)
+            rows = self.db.execute(
+                "SELECT id,sheet_id FROM columns "
+                f"WHERE id IN ({placeholders}) ORDER BY id",
+                column_batch,
+            ).fetchall()
+            for row in rows:
+                enqueue_dirty_scope(
+                    self.db,
+                    sheet_id=int(row["sheet_id"]),
+                    column_id=int(row["id"]),
+                )
+
     def seal(
         self,
         run_id: int,
@@ -976,6 +1040,12 @@ class ResultGenerationStore:
                     int(run_id), declared_column_ids
                 )
 
+            already_projected = (
+                self._already_projected_active_creates(int(run_id), open_bindings)
+                if publish_generation
+                else {}
+            )
+
             for binding in open_bindings:
                 updated = self.db.execute(
                     "UPDATE run_output_generations SET state='sealed', "
@@ -1007,7 +1077,14 @@ class ResultGenerationStore:
                     "DELETE FROM cell_result_heads WHERE column_id=?",
                     (int(column_id),),
                 )
-            open_column_ids = [binding.column_id for binding in open_bindings]
+            self._coalesce_search_work(already_projected)
+            open_column_ids = [
+                binding.column_id
+                for binding in open_bindings
+                if binding.column_id not in already_projected
+            ]
+            if not open_column_ids and not changed_descriptors:
+                return 0
             with self.run_effect_key_table(
                 int(run_id), open_column_ids
             ) as publication_key_table:

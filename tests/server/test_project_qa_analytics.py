@@ -211,6 +211,73 @@ def test_having_is_numeric_and_denominator_precedes_group_filtering(tmp_path):
     project.close()
 
 
+def test_metric_sort_counts_excluded_groups_in_the_page_query(tmp_path):
+    project = Project.create(tmp_path / "sorted-null-groups.frisket")
+    sheet = project.add_sheet("values")
+    group = project.add_column(sheet, "group")
+    amount = project.add_column(sheet, "amount", type="number")
+    project.add_rows(
+        sheet,
+        [
+            {"group": "A", "amount": 4},
+            {"group": "A"},
+            {"group": "B"},
+            {"group": "C"},
+            {"group": "C", "amount": None},
+        ],
+        {"group": group, "amount": amount},
+    )
+
+    def evaluate(offset: int) -> tuple[dict, int]:
+        request = AnalyticsRequest.model_validate(
+            {
+                "sheet_id": sheet,
+                "groups": [{"column_id": group}],
+                "metrics": [
+                    {
+                        "id": "rows",
+                        "kind": "count",
+                        "percent_of_total": True,
+                    },
+                    {"id": "total", "kind": "sum", "column_id": amount},
+                ],
+                "having": [{"metric_id": "rows", "operator": "gt", "value": 1}],
+                "sort": [{"kind": "metric", "metric_id": "total", "direction": "desc"}],
+                "offset": offset,
+            }
+        )
+        statements: list[str] = []
+        with project.read_snapshot() as snapshot:
+            snapshot.db.set_trace_callback(statements.append)
+            try:
+                result = project_qa_analytics._evaluate(
+                    snapshot,
+                    request,
+                    {"kind": "sheet", "sheet_id": sheet},
+                )
+            finally:
+                snapshot.db.set_trace_callback(None)
+        analytics_statements = sum(
+            statement.lstrip().startswith("WITH scoped AS") for statement in statements
+        )
+        return result, analytics_statements
+
+    first_page, first_page_statements = evaluate(0)
+    assert [item["group"][0]["value"] for item in first_page["groups"]] == ["A"]
+    assert first_page["excluded_null_groups"] == 1
+    assert first_page["row_count"] == 5
+    assert first_page["denominators"]["rows"]["value"] == 5
+    assert first_page_statements == 1
+
+    off_end, off_end_statements = evaluate(99)
+    assert off_end["groups"] == []
+    assert off_end["excluded_null_groups"] == 1
+    assert off_end["row_count"] == 5
+    assert off_end["denominators"]["rows"]["value"] == 5
+    assert off_end_statements == 2
+    project.close()
+
+
 def test_overflow_and_pre_cancel_fail_the_whole_analytics_request(tmp_path):
     project = Project.create(tmp_path / "overflow.frisket", name="overflow")
     sheet = project.add_sheet("values")
