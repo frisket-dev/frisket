@@ -42,6 +42,28 @@ def inline_scalar_eligibility_sql(
     )
 
 
+def backfill_inline_scalar_values(db: sqlite3.Connection) -> None:
+    """Fill bounded scalar copies after the additive schema migration."""
+
+    _require_transaction(db)
+    eligible = inline_scalar_eligibility_sql(
+        descriptor_alias="descriptor",
+        value_kind_sql="live.value_kind",
+        value_sql="live.value",
+    )
+    db.execute(
+        "WITH eligible AS ("
+        "SELECT live.column_id,live.row_id,live.value_kind,live.value "
+        "FROM current_cell_values live "
+        "JOIN columns descriptor ON descriptor.id=live.column_id "
+        f"WHERE {eligible}"
+        ") UPDATE current_cells AS head SET "
+        "inline_value_kind=eligible.value_kind,inline_value=eligible.value "
+        "FROM eligible WHERE head.column_id=eligible.column_id "
+        "AND head.row_id=eligible.row_id"
+    )
+
+
 def decoded_cell_validity(column_type: str, value: object) -> str:
     """Classify one decoded value against its column descriptor."""
 

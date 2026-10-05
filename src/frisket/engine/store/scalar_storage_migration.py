@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from .current_cells import inline_scalar_eligibility_sql
+from .current_cells import backfill_inline_scalar_values
 from .review_confidence_migration import REVIEW_CONFIDENCE_TO_DIGEST
 from .schema import BundleSchemaMismatch, SCHEMA_DIGEST_META_KEY
 
@@ -62,29 +62,10 @@ def _ensure_inline_columns(db: sqlite3.Connection) -> None:
     )
 
 
-def _backfill_inline_values(db: sqlite3.Connection) -> None:
-    eligible = inline_scalar_eligibility_sql(
-        descriptor_alias="descriptor",
-        value_kind_sql="live.value_kind",
-        value_sql="live.value",
-    )
-    db.execute(
-        "WITH eligible AS ("
-        "SELECT live.column_id,live.row_id,live.value_kind,live.value "
-        "FROM current_cell_values live "
-        "JOIN columns descriptor ON descriptor.id=live.column_id "
-        f"WHERE {eligible}"
-        ") UPDATE current_cells AS head SET "
-        "inline_value_kind=eligible.value_kind,inline_value=eligible.value "
-        "FROM eligible WHERE head.column_id=eligible.column_id "
-        "AND head.row_id=eligible.row_id"
-    )
-
-
 def _apply_scalar_current_values(db: sqlite3.Connection) -> None:
     before = int(db.execute("SELECT COUNT(*) FROM current_cells").fetchone()[0])
     _ensure_inline_columns(db)
-    _backfill_inline_values(db)
+    backfill_inline_scalar_values(db)
     db.execute("DROP VIEW current_cell_values")
     db.execute(_fresh_schema_statement("CREATE VIEW IF NOT EXISTS current_cell_values"))
     after = int(db.execute("SELECT COUNT(*) FROM current_cell_values").fetchone()[0])
