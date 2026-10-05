@@ -225,12 +225,23 @@ def test_having_is_numeric_and_denominator_precedes_group_filtering(tmp_path):
         {
             "sheet_id": sheet,
             "groups": [{"column_id": columns["supplier"]}],
-            "metrics": [{"id": "rows", "kind": "count"}],
+            "metrics": [
+                {"id": "rows", "kind": "count"},
+                {"id": "total", "kind": "sum", "column_id": columns["amount"]},
+            ],
             "having": [{"metric_id": "rows", "operator": "gt", "value": 2}],
+            "sort": [{"kind": "metric", "metric_id": "total", "direction": "desc"}],
         },
         {"kind": "sheet", "sheet_id": sheet},
     )
     assert [group["group"][0]["value"] for group in non_percentage["groups"]] == ["A"]
+    assert non_percentage["groups"][0]["metrics"] == {"rows": 3, "total": 4.0}
+    assert non_percentage["groups"][0]["quality"][str(columns["amount"])] == {
+        "column_id": columns["amount"],
+        "present": 2,
+        "missing": 1,
+        "invalid": 0,
+    }
     assert non_percentage["row_count"] == 6
     assert non_percentage["denominators"] == {}
 
