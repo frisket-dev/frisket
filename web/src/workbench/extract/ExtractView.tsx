@@ -318,7 +318,7 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
   };
   const inspectedRecord = inspection?.recordIndex === null || inspection === null
     ? null : inspection.document.result.records[inspection.recordIndex] ?? null;
-  const resultFields = inspectedRecord ? template.fields.map((field) => ({ id: field.id, name: field.name,
+  const resultFields = inspectedRecord ? previewTemplate.fields.map((field) => ({ id: field.id, name: field.name,
     regions: inspectedRecord.cells[field.id]?.regions ?? [] })) : [];
   const inspectField = (fieldId: string) => {
     if (!inspection || inspection.recordIndex === null) return;
@@ -467,7 +467,7 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
         </button>
         {previewOpen && <div className={styles.previewPane}>{busy === 'preview' ? <p role="status">Extracting sample documents…</p> : preview ? <ExtractPreview template={previewTemplate} preview={preview} onSelect={choosePreview} /> : <p>Run Preview to inspect extracted values and their source regions.</p>}</div>}
       </div>
-      <ExtractFields disabled={editorReadOnly} template={template} reference={referenceDocument?.document ?? null} selected={selected} preview={preview}
+      <ExtractFields disabled={editorReadOnly} template={inspection ? previewTemplate : template} reference={referenceDocument?.document ?? null} selected={selected} preview={preview}
         inspection={inspection} onInspectField={inspectField} onChange={update} onSelect={select} onDelete={remove} />
     </div>
   </section>;

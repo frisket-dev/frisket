@@ -291,6 +291,35 @@ it('inspects actual preview geometry and values independently from reference edi
   expect(mocks.reader.mock.lastCall![0].renderPageOverlay(2).props.showTemplate).toBe(false);
 });
 
+it('inspects only document fields and the selected repeated section', async () => {
+  const value = { ...region, box: { ...region.box, x0: .3, x1: .45 } };
+  const active = { id: 'active', name: 'Active records', first: { start: { page: 1, y: .05 }, end: { page: 1, y: .2 } },
+    rest: { start: { page: 1, y: .25 }, end: { page: 1, y: .8 } } };
+  const other = { ...active, id: 'other', name: 'Other records' };
+  saved = [{ ...newLayout(1, { ...emptyDraft, reference_blob_id: 'example', reference_fingerprint: 'native:example',
+    sections: [active, other], fields: [
+      { id: 'header', name: 'Header', key: region, value, section_id: null },
+      { id: 'active-field', name: 'Active', key: region, value, section_id: active.id },
+      { id: 'other-field', name: 'Other', key: region, value, section_id: other.id },
+    ] }), repeat_group_id: active.id, reference_row_id: 1 }];
+  const cell = (text: string) => ({ text, status: 'extracted' as const, regions: [value], diagnostic: null });
+  mocks.preview.mockResolvedValue({ documents: [{ row_id: 1, blob_id: 'example', filename: 'cropped.pdf', result: {
+    records: [{ cells: { header: cell('Header value'), 'active-field': cell('Active value') } }],
+    diagnostics: [], outcome: 'extracted' as const,
+  } }], truncated: false });
+
+  render(<ExtractView {...props()} />); await ready();
+  fireEvent.click(screen.getByTestId('extract-preview-button'));
+  fireEvent.click(await screen.findByRole('button', { name: 'Active value' }));
+  const values = await screen.findByLabelText('Preview values');
+  expect(within(values).getByText('Header')).toBeInTheDocument();
+  expect(within(values).getByText('Active')).toBeInTheDocument();
+  expect(within(values).queryByText('Other')).not.toBeInTheDocument();
+  expect(within(values).queryByText('Not found')).not.toBeInTheDocument();
+  expect(mocks.reader.mock.lastCall![0].renderPageOverlay(1).props.resultFields.map((field: { id: string }) => field.id))
+    .toEqual(['header', 'active-field']);
+});
+
 it('restores an applied layout with an empty cohort without falling back to all documents', async () => {
   saved = [newLayout(1), { ...newLayout(2), has_applied: true }]; selectedId = 2;
   render(<ExtractView {...props()} />); await ready();
