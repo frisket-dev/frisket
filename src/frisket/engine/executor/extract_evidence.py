@@ -105,7 +105,6 @@ def _prepared_word_stream(
             continue
         width = positions.get("width")
         height = positions.get("height")
-        source_name = str(positions.get("engine") or "ocr")
         for block in blocks:
             if not isinstance(block, dict):
                 continue
@@ -120,7 +119,7 @@ def _prepared_word_stream(
                     text=text,
                     box=tuple(float(bbox[key]) for key in ("x0", "y0", "x1", "y1")),
                     page=int(pin.page_number),
-                    source="pdf_text" if source_name == "native_pdf" else "ocr",
+                    source="ocr",
                 )
             )
     return prepared, WordStream(tokens=tokens)

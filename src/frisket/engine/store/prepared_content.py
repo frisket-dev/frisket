@@ -55,7 +55,13 @@ def _positions_json(value: Any | None) -> str | None:
     if value is None:
         return None
     repaired = repair_unicode_value(value)
-    return json.dumps(repaired, allow_nan=False, sort_keys=True, separators=(",", ":"))
+    return json.dumps(
+        repaired,
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
 
 
 def _page_drafts(
