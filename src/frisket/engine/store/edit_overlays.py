@@ -8,6 +8,7 @@ from typing import Any
 from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
 from frisket.engine.store.evidence import mark_evidence_stale_for_cell_refs
 from frisket.engine.store.op_log import append_op, set_undo_info
+from frisket.engine.store.prepared_edits import prepared_edit_values
 
 
 def write_edit_overlay(
@@ -31,6 +32,7 @@ def write_edit_overlay(
         undo_info=info,
         commit=False,
     )
+    values = prepared_edit_values(project, op_id=op_id, targets=targets)
     insert_edits(
         project.db,
         op_id=op_id,
@@ -38,9 +40,9 @@ def write_edit_overlay(
             EditCellWrite(
                 row_id=int(target["row_id"]),
                 column_id=int(target["column_id"]),
-                value=target["value_after"],
+                value=value,
             )
-            for target in targets
+            for target, value in zip(targets, values, strict=True)
         ],
     )
     stale_ids = mark_evidence_stale_for_cell_refs(

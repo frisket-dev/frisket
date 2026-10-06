@@ -42,8 +42,16 @@ def _stage_document_and_page(
         source_artifact_id=int(artifact["id"]),
         producing_op_id=producing_op_id,
         pages=(
-            PreparedPageDraft(page_number=1, text="alpha boundary-left"),
-            PreparedPageDraft(page_number=2, text="boundary-right omega"),
+            PreparedPageDraft(
+                page_number=1,
+                text="alpha boundary-left",
+                positions={"tokens": [{"text": "alpha"}]},
+            ),
+            PreparedPageDraft(
+                page_number=2,
+                text="boundary-right omega",
+                positions={"tokens": [{"text": "omega"}]},
+            ),
         ),
     )
     resolved = store.resolve(document_ref.ref_id)
@@ -244,5 +252,161 @@ def test_search_and_csv_export_use_full_prepared_document(tmp_path: Path) -> Non
 
         _metadata, csv_text = render_sheet_csv(project, sheet_id)
         assert '"alpha boundary-left\n\nboundary-right omega"' in csv_text
+    finally:
+        project.close()
+
+
+def test_page_edit_stages_replacement_but_document_edit_stays_flat(
+    tmp_path: Path,
+) -> None:
+    project = Project.create(tmp_path / "prepared-edits.frisket")
+    try:
+        sheet_id = project.add_sheet("Documents")
+        body_id = project.add_column(sheet_id, "body", type="text")
+        document_ref, page_ref = _stage_document_and_page(project)
+        document_row, page_row = project.add_rows(
+            sheet_id,
+            [{"body": document_ref}, {"body": page_ref}],
+            {"body": body_id},
+            commit=False,
+        )
+        project.db.commit()
+        store = PreparedContentStore(project)
+        original_document = store.resolve(document_ref.ref_id)
+
+        page_edit_op = project.apply_edits(
+            [
+                {
+                    "row_id": page_row,
+                    "column_id": body_id,
+                    "value": "corrected second page",
+                }
+            ]
+        )
+        values, refs = project.get_values_with_refs(
+            sheet_id, body_id, row_ids=[page_row]
+        )
+        edited_ref_id = refs[page_row]["prepared_ref_id"]
+        edited = store.resolve(edited_ref_id)
+        assert values[page_row] == "corrected second page"
+        assert edited.page_number == 2
+        assert original_document.pins[1].positions is not None
+        assert edited.pins[0].positions is None
+        assert edited.ref_id != page_ref.ref_id
+        assert (
+            project.db.execute(
+                "SELECT producing_op_id FROM prepared_content_sets WHERE id=?",
+                (edited.set_id,),
+            ).fetchone()[0]
+            == page_edit_op
+        )
+        assert tuple(
+            project.db.execute(
+                "SELECT value_kind,value FROM edits "
+                "WHERE op_id=? AND row_id=? AND column_id=?",
+                (page_edit_op, page_row, body_id),
+            ).fetchone()
+        ) == ("prepared_content_ref", edited_ref_id)
+        original_versions = {
+            pin.page_number: pin.version_id for pin in original_document.pins
+        }
+        edited_versions = {
+            int(row["page_number"]): int(row["version_id"])
+            for row in project.db.execute(
+                "SELECT page_number,version_id FROM prepared_content_set_pages "
+                "WHERE set_id=? ORDER BY page_number",
+                (edited.set_id,),
+            )
+        }
+        assert edited_versions[1] == original_versions[1]
+        assert edited_versions[2] != original_versions[2]
+
+        assert project.undo() == page_edit_op
+        old_values, old_refs = project.get_values_with_refs(
+            sheet_id, body_id, row_ids=[page_row]
+        )
+        assert old_values[page_row] == "boundary-right omega"
+        assert old_refs[page_row]["prepared_ref_id"] == page_ref.ref_id
+        assert project.redo() == page_edit_op
+        redone_values, redone_refs = project.get_values_with_refs(
+            sheet_id, body_id, row_ids=[page_row]
+        )
+        assert redone_values[page_row] == "corrected second page"
+        assert redone_refs[page_row]["prepared_ref_id"] == edited_ref_id
+
+        document_edit_op = project.apply_edits(
+            [
+                {
+                    "row_id": document_row,
+                    "column_id": body_id,
+                    "value": "flat derived markdown",
+                }
+            ]
+        )
+        document_values, document_refs = project.get_values_with_refs(
+            sheet_id, body_id, row_ids=[document_row]
+        )
+        assert document_values[document_row] == "flat derived markdown"
+        assert "prepared_ref_id" not in document_refs[document_row]
+        stored = project.db.execute(
+            "SELECT value_kind,value FROM edits "
+            "WHERE op_id=? AND row_id=? AND column_id=?",
+            (document_edit_op, document_row, body_id),
+        ).fetchone()
+        assert tuple(stored) == ("text", "flat derived markdown")
+        assert project.undo() == document_edit_op
+        assert project.get_values(sheet_id, body_id, [document_row]) == {
+            document_row: "alpha boundary-left\n\nboundary-right omega"
+        }
+        assert project.redo() == document_edit_op
+        assert project.get_values(sheet_id, body_id, [document_row]) == {
+            document_row: "flat derived markdown"
+        }
+    finally:
+        project.close()
+
+
+def test_page_edit_after_source_deletion_falls_back_to_flat_text(
+    tmp_path: Path,
+) -> None:
+    project = Project.create(tmp_path / "prepared-deleted-source-edit.frisket")
+    try:
+        sheet_id = project.add_sheet("Documents")
+        body_id = project.add_column(sheet_id, "body", type="text")
+        _document_ref, page_ref = _stage_document_and_page(project)
+        page_row = project.add_rows(
+            sheet_id,
+            [{"body": page_ref}],
+            {"body": body_id},
+            commit=False,
+        )[0]
+        project.db.commit()
+        source_artifact_id = (
+            PreparedContentStore(project).resolve(page_ref.ref_id).source_artifact_id
+        )
+        project.db.execute(
+            "DELETE FROM source_artifacts WHERE id=?", (source_artifact_id,)
+        )
+        project.db.commit()
+
+        op_id = project.apply_edits(
+            [
+                {
+                    "row_id": page_row,
+                    "column_id": body_id,
+                    "value": "surviving flat correction",
+                }
+            ]
+        )
+
+        assert project.get_values(sheet_id, body_id, [page_row]) == {
+            page_row: "surviving flat correction"
+        }
+        stored = project.db.execute(
+            "SELECT value_kind,value FROM edits "
+            "WHERE op_id=? AND row_id=? AND column_id=?",
+            (op_id, page_row, body_id),
+        ).fetchone()
+        assert tuple(stored) == ("text", "surviving flat correction")
     finally:
         project.close()
