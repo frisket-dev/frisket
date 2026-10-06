@@ -87,7 +87,7 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
   const [selected, setSelected] = useState<AnnotationTarget | null>(null);
   const [geometry, setGeometry] = useState<{ key: string; value: ExtractionDocument | null; error: string | null }>({ key: '', value: null, error: null });
   const [reference, setReference] = useState<ExtractionDocument | null>(null);
-  const [referenceStatus, setReferenceStatus] = useState<'ready' | 'loading' | 'stale'>(referenceRowId === null ? 'ready' : 'loading');
+  const [referenceVerification, setReferenceVerification] = useState<{ key: string; status: 'ready' | 'stale' } | null>(null);
   const [preview, setPreview] = useState<ExtractionPreview | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [busy, setBusy] = useState<'preview' | 'run' | null>(null);
@@ -118,6 +118,10 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
   const referenceBlobId = template.reference_blob_id;
   const referencePage = template.reference_page;
   const referenceFingerprint = template.reference_fingerprint;
+  const referenceKey = referenceRowId === null ? null
+    : JSON.stringify([layout?.id, referenceRowId, referenceBlobId, referencePage, referenceFingerprint]);
+  const referenceStatus = referenceKey === null ? 'ready'
+    : referenceVerification?.key === referenceKey ? referenceVerification.status : 'loading';
   const geometryMatchesReference = matchesReference(currentGeometry, referenceBlobId, referencePage, referenceFingerprint);
   const referenceDocument = geometryMatchesReference ? currentGeometry : reference;
   const isReference = !template.reference_blob_id || geometryMatchesReference;
@@ -157,20 +161,20 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
       .then((value) => { if (!controller.signal.aborted) {
         if (!matchesReference(value, referenceBlobId, referencePage, referenceFingerprint)) {
           setReference(null);
-          setReferenceStatus('stale');
+          setReferenceVerification({ key: referenceKey!, status: 'stale' });
           setError('The saved reference document has changed or is unavailable. The layout was kept unchanged.');
           return;
         }
         setReference(value);
-        setReferenceStatus('ready');
+        setReferenceVerification({ key: referenceKey!, status: 'ready' });
         setJumpRow({ row_id: value.row_id, blob_id: value.blob_id, filename: value.filename, result: { records: [], diagnostics: [], outcome: 'extracted' } });
       } }).catch((cause) => { if (!controller.signal.aborted) {
         setReference(null);
-        setReferenceStatus('stale');
+        setReferenceVerification({ key: referenceKey!, status: 'stale' });
         setError(`The saved reference document is unavailable: ${errorText(cause)}`);
       } });
     return () => controller.abort();
-  }, [projectId, sheet.id, sourceId, referenceRowId, layout?.id, referenceBlobId, referencePage, referenceFingerprint]);
+  }, [projectId, sheet.id, sourceId, referenceRowId, referenceKey, referenceBlobId, referencePage, referenceFingerprint]);
 
   useEffect(() => {
     if (!currentRowId || !sourceColumn) return;
@@ -218,7 +222,6 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
       reference_fingerprint: currentGeometry.document.source_fingerprint };
     setReference(currentGeometry);
     if (referenceRowId === null) {
-      setReferenceStatus('loading');
       changeLayout({ reference_row_id: currentGeometry.row_id });
     }
     if (tool === 'ignore') { update({ ...base, ignore_bands: [...base.ignore_bands, { box: region.box }] }); return; }

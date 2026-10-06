@@ -108,7 +108,7 @@ it('keeps a layout selectable but read-only when its saved reference is unavaila
   const pageTwoRegion = { ...region, page: 2 };
   saved = [{ ...newLayout(1, { ...emptyDraft, reference_blob_id: 'missing', reference_page: 2,
     reference_fingerprint: 'native:missing:page:2', fields: [{ id: 'name', name: 'Name', key: pageTwoRegion,
-      value: pageTwoRegion, section_id: null }] }), reference_row_id: 1 }];
+      value: pageTwoRegion, section_id: null }] }), reference_row_id: 1 }, newLayout(2)];
   mocks.document.mockRejectedValue(new Error('Not found'));
   render(<ExtractView {...props()} />);
   await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('saved reference document is unavailable'));
@@ -116,6 +116,33 @@ it('keeps a layout selectable but read-only when its saved reference is unavaila
   expect(screen.getByLabelText('Column name for Name')).toBeDisabled();
   expect(screen.getByTestId('extract-layout-selector')).toBeEnabled();
   expect(mocks.save).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByTestId('extract-layout-selector'), { target: { value: '2' } });
+  await waitFor(() => expect(screen.getByTestId('extract-layout-selector')).toHaveValue('2'));
+  expect(screen.getByTestId('extract-options-button')).toBeEnabled();
+  expect(mocks.save).not.toHaveBeenCalled();
+});
+
+it('keeps a newly selected saved reference read-only until that identity is verified', async () => {
+  const pageTwoRegion = { ...region, page: 2 };
+  const healthy = { row_id: 2, blob_id: 'healthy', reference_page: 2, filename: 'healthy.pdf', mime: 'application/pdf',
+    document: { source_fingerprint: 'native:healthy:page:2', pages: [{ page: 2, width: 800, height: 1000, tokens: [] }] } };
+  saved = [newLayout(1), { ...newLayout(2, { ...emptyDraft, reference_blob_id: healthy.blob_id, reference_page: 2,
+    reference_fingerprint: healthy.document.source_fingerprint, fields: [{ id: 'name', name: 'Name', key: pageTwoRegion,
+      value: pageTwoRegion, section_id: null }] }), reference_row_id: 2 }];
+  let resolveHealthy!: (value: typeof healthy) => void;
+  const healthyRequest = new Promise<typeof healthy>((resolve) => { resolveHealthy = resolve; });
+  mocks.document.mockImplementation(async (...args: unknown[]) => args[3] === '2' ? healthyRequest : {
+    row_id: 1, blob_id: 'example', filename: 'cropped.pdf', mime: 'application/pdf',
+    document: { source_fingerprint: 'native:example', pages: [{ page: 1, width: 800, height: 1000, tokens: [] }] },
+  });
+  render(<ExtractView {...props()} />); await ready();
+  fireEvent.change(screen.getByTestId('extract-layout-selector'), { target: { value: '2' } });
+  await waitFor(() => expect(screen.getByTestId('extract-layout-selector')).toHaveValue('2'));
+  expect(screen.getByTestId('extract-options-button')).toBeDisabled();
+  expect(screen.getByLabelText('Column name for Name')).toBeDisabled();
+  await act(async () => { resolveHealthy(healthy); await healthyRequest; });
+  await waitFor(() => expect(screen.getByTestId('extract-options-button')).toBeEnabled());
+  expect(screen.getByLabelText('Column name for Name')).toBeEnabled();
 });
 
 it('keeps tools and options inside Extract and leaves reader View options independent', async () => {
