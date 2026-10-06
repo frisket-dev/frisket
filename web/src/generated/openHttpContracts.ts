@@ -9568,6 +9568,7 @@ type HttpSheetList_SheetListItem = ({
   "op_label"?: (((string)) | ((null)));
   "parent_op_id": (((number)) | ((null)));
   "parent_sheet_id": (((number)) | ((null)));
+  "refreshable": (boolean);
   "rows": (number);
   "stale_reason"?: (((string)) | ((null)));
   "syncState"?: (((string)) | ((null)));
