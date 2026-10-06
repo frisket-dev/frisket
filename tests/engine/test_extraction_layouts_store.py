@@ -404,8 +404,8 @@ def test_layout_migration_rejects_unfinished_statement_atomically(
     _prior_layout_bundle(path)
     monkeypatch.setattr(
         migration,
-        "EXTRACTION_LAYOUTS_SCHEMA_SQL",
-        migration.EXTRACTION_LAYOUTS_SCHEMA_SQL + "\nCREATE TABLE unfinished (",
+        "_EXTRACTION_LAYOUTS_MIGRATION_SQL",
+        migration._EXTRACTION_LAYOUTS_MIGRATION_SQL + "\nCREATE TABLE unfinished (",
     )
     with pytest.raises(
         RuntimeError, match="incomplete extraction layouts migration DDL"
