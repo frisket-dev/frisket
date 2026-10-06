@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from frisket.engine.store import Project
+from frisket.engine.store.current_cells import refresh_current_cell_pairs
 from frisket.engine.store.evidence import record_source_artifact
 from frisket.engine.store.prepared_content import (
     PreparedContentStore,
@@ -13,6 +16,12 @@ from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.value_codec import encode_stored_value
 from frisket.querysets import resolve_sheet_filter_rows
+from frisket.search import drain_index, search_project
+from frisket.server.exports.sheet_csv import render_sheet_csv
+from frisket.server.services.project_qa_sources import (
+    find_source_text,
+    read_source_text,
+)
 
 
 def _stage_document_and_page(
@@ -145,5 +154,95 @@ def test_historical_result_readers_resolve_prepared_content(tmp_path: Path) -> N
         )[row_id]
         assert head.value == "alpha boundary-left\n\nboundary-right omega"
         assert head.prepared_ref_id == document_ref.ref_id
+    finally:
+        project.close()
+
+
+def test_ask_source_reads_pin_exact_ref_and_reject_same_text_ref_change(
+    tmp_path: Path,
+) -> None:
+    project = Project.create(tmp_path / "prepared-ask.frisket")
+    try:
+        sheet_id = project.add_sheet("Documents")
+        body_id = project.add_column(sheet_id, "body", type="text")
+        document_ref, _page_ref = _stage_document_and_page(project)
+        row_id = project.add_rows(
+            sheet_id,
+            [{"body": document_ref}],
+            {"body": body_id},
+            commit=False,
+        )[0]
+        project.db.commit()
+
+        source = read_source_text(project, (sheet_id, row_id, body_id), limit=10)
+        assert source["text"] == "alpha boun"
+        assert source["value_ref"]["prepared_ref_id"] == document_ref.ref_id
+        assert source["version"]["prepared_ref_id"] == document_ref.ref_id
+        found = find_source_text(
+            project,
+            (sheet_id, row_id, body_id),
+            "boundary-left\n\nboundary-right",
+        )
+        assert found["matches"][0]["start"] == len("alpha ")
+
+        project.db.execute("BEGIN IMMEDIATE")
+        replacement_op_id = project.append_op(
+            "prepare.test", {}, label="replace test PDF text", commit=False
+        )
+        replacement_ref = PreparedContentStore(project).stage_replacement(
+            base_ref_id=document_ref.ref_id,
+            producing_op_id=replacement_op_id,
+            replacements=(
+                PreparedPageDraft(page_number=1, text="alpha boundary-left"),
+            ),
+        )
+        project.db.execute(
+            "UPDATE cells SET value=? WHERE row_id=? AND column_id=?",
+            (replacement_ref.ref_id, row_id, body_id),
+        )
+        refresh_current_cell_pairs(project.db, {(row_id, body_id)})
+        project.db.commit()
+
+        replacement = read_source_text(project, (sheet_id, row_id, body_id), limit=10)
+        assert replacement["text"] == source["text"]
+        assert replacement["version"] == {
+            **source["version"],
+            "prepared_ref_id": replacement_ref.ref_id,
+        }
+        with pytest.raises(ValueError, match="source_changed"):
+            read_source_text(
+                project,
+                (sheet_id, row_id, body_id),
+                cursor=source["next_cursor"],
+            )
+    finally:
+        project.close()
+
+
+def test_search_and_csv_export_use_full_prepared_document(tmp_path: Path) -> None:
+    project = Project.create(tmp_path / "prepared-search-export.frisket")
+    try:
+        sheet_id = project.add_sheet("Documents")
+        body_id = project.add_column(sheet_id, "body", type="text")
+        document_ref, _page_ref = _stage_document_and_page(project)
+        row_id = project.add_rows(
+            sheet_id,
+            [{"body": document_ref}],
+            {"body": body_id},
+            commit=False,
+        )[0]
+        project.db.commit()
+
+        drain_index(project)
+        assert search_project(project, "omega", rerank="off")[0]["row_id"] == row_id
+        assert (
+            search_project(project, '"boundary left boundary right"', rerank="off")[0][
+                "row_id"
+            ]
+            == row_id
+        )
+
+        _metadata, csv_text = render_sheet_csv(project, sheet_id)
+        assert '"alpha boundary-left\n\nboundary-right omega"' in csv_text
     finally:
         project.close()
