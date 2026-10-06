@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
-import { MousePointer2, ScanLine, Rows3, Minus, Play, Save, X } from 'lucide-react';
+import { MousePointer2, ScanLine, Rows3, Minus, Play, Save, Search, X } from 'lucide-react';
+import { MenuPop } from '../../components/MenuPop';
 import type { DocumentListPage, Row, SheetMeta } from '../../api/types';
 import { documentExtractionApi, type ExtractionDocument, type ExtractionPreview, type ExtractionPreviewDocument, type ExtractedCell } from '../../api/documentExtraction';
 import type { DocumentViewState } from '../../workspace/useWorkspaceChromeState';
@@ -51,7 +52,7 @@ export function ExtractView(props: ExtractViewProps) {
 function ExtractWorkspace({ toolbarTargetId, onExtract, ...props }: ExtractViewProps) {
   const { projectId, sheet, state, onChangeState } = props;
   const { activeRowId, sourceColumn, activeMedia: documentMedia, activeItem, sources, search, setSearch,
-    list, items, listBodyRef, onListScroll, onListKeyDown, windowRows, startIndex, loadMore, selectDocument, recordPageCount,
+    list, items, listBodyRef, onListScroll, onListKeyDown, windowRows, startIndex, loadMore, selectDocument, recordPageCount, optionsOpen, setOptionsOpen,
   } = useDocumentView({ ...props, annotatedTextColumnIds: NO_TEXT_SOURCES, sourceColumnTypes: EXTRACTION_SOURCE_TYPES });
   const [toolbarTarget, setToolbarTarget] = useState<HTMLElement | null>(null);
   useEffect(() => {
@@ -226,22 +227,27 @@ function ExtractWorkspace({ toolbarTargetId, onExtract, ...props }: ExtractViewP
     setTool('select');
     setPending(null);
   };
-  const toolbar = <div className={styles.toolbar} aria-label="PDF extraction tools">
-    <div className={styles.toolbarGroup}><div className={styles.tools}>{TOOLS.map(({ id, label, Icon }) => <button key={id} type="button"
-      className={tool === id ? styles.activeTool : ''} aria-pressed={tool === id} disabled={!isReference || !currentGeometry || !loadedTemplates}
-      onClick={() => { setTool(id); setPending(null); }}><Icon size={18} /><span>{label}</span></button>)}</div><small>Annotate</small></div>
-    <div className={styles.toolbarGroup}><div className={styles.options}>
-      <label><input type="checkbox" aria-describedby="extract-area-help" checked={template.expand_values} onChange={(event) => update({ ...template, expand_values: event.target.checked })} />Expand value areas</label>
-      <label><input type="checkbox" checked={template.look_every_page} onChange={(event) => update({ ...template, look_every_page: event.target.checked })} />Look on every page</label>
-      <label><input type="checkbox" checked={template.continue_across_pages} onChange={(event) => update({ ...template, continue_across_pages: event.target.checked })} />Continue across pages</label>
-      <label>Rows <select className="form-input" aria-label="Result rows" value={repeatGroupId ?? ''} onChange={(event) => { update(template); setRepeatGroupId(event.target.value || null); }}>
+  const optionsPopover = ({ popoverRef, style }: { popoverRef: (el: HTMLDivElement | null) => void; style: CSSProperties }) => (
+    <MenuPop ref={popoverRef} style={style} className="document-options" role="group" aria-label="Extraction options">
+      <label className="document-option-row document-option-check"><input type="checkbox" aria-describedby="extract-area-help" checked={template.expand_values} onChange={(event) => update({ ...template, expand_values: event.target.checked })} />Expand value areas</label>
+      <p id="extract-area-help" className={styles.areaHelp}>{template.expand_values
+        ? 'Expanded areas follow matched field boundaries. Check Preview for alignment warnings.'
+        : 'Fixed areas read only the selected space. Draw the full possible value area, or expand areas for variable-length text.'}</p>
+      <label className="document-option-row document-option-check"><input type="checkbox" checked={template.look_every_page} onChange={(event) => update({ ...template, look_every_page: event.target.checked })} />Look on every page</label>
+      <label className="document-option-row document-option-check"><input type="checkbox" checked={template.continue_across_pages} onChange={(event) => update({ ...template, continue_across_pages: event.target.checked })} />Continue across pages</label>
+      <label className="document-option-row">Rows <select className="form-input" aria-label="Result rows" value={repeatGroupId ?? ''} onChange={(event) => { update(template); setRepeatGroupId(event.target.value || null); }}>
         {template.sections.length === 0 ? <option value="">One per document</option> : <option value="" disabled>Choose repeated section</option>}
         {template.sections.map((section) => <option key={section.id} value={section.id}>One per {section.name}</option>)}
       </select></label>
-    </div><small>Template</small></div>
-    <div className={styles.toolbarGroup}><div className={styles.runButtons}>
+    </MenuPop>
+  );
+  const toolbar = <div className={styles.toolbar} aria-label="PDF extraction tools" data-testid="extract-toolbar">
+    <div className={`segmented segmented-toolbar ${styles.tools}`} role="group" aria-label="Annotation tools">{TOOLS.map(({ id, label, Icon }) => <button key={id} type="button"
+      className={tool === id ? 'active' : ''} aria-pressed={tool === id} disabled={!isReference || !currentGeometry || !loadedTemplates}
+      onClick={() => { setTool(id); setPending(null); }}><Icon size={14} /><span>{label}</span></button>)}</div>
+    <div className={styles.runButtons}>
       <label>New sheet <input className="form-input" aria-label="Result sheet name" value={outputName} onChange={(event) => setOutputName(event.target.value)} /></label>
-      <button type="button" className="mini-btn" disabled={!valid || busy !== null} onClick={() => void runPreview()}><Play size={13} />{busy === 'preview' ? 'Previewing…' : 'Preview on 12 documents'}</button>
+      <button type="button" className="mini-btn" aria-label="Preview on 12 documents" title="Preview on 12 documents" disabled={!valid || busy !== null} onClick={() => void runPreview()}><Play size={13} />{busy === 'preview' ? 'Previewing…' : 'Preview'}</button>
       <button type="button" className="mini-btn" disabled={!valid || busy !== null || !onExtract || !outputName.trim()} onClick={async () => {
         const snapshot = request();
         const editVersion = edits.current;
@@ -253,7 +259,7 @@ function ExtractWorkspace({ toolbarTargetId, onExtract, ...props }: ExtractViewP
         catch (cause) { if (mounted.current) setError(errorText(cause)); }
         finally { if (mounted.current) setBusy(null); }
       }}>{busy === 'run' ? 'Starting extraction…' : `Extract ${props.scopeLabel ?? 'all'} → new sheet`}</button>
-    </div><small>Run</small></div>
+    </div>
   </div>;
   return <section className={styles.workspace} data-testid="extract-view" aria-label="Extract structured data"
     onKeyDown={(event) => {
@@ -285,9 +291,9 @@ function ExtractWorkspace({ toolbarTargetId, onExtract, ...props }: ExtractViewP
     {(error || geometryError) && <div className={styles.error} role="alert">{error || geometryError}</div>}
     {validationIssue && <div className={styles.validation} role="status">{validationIssue}</div>}
     <div className={styles.body}>
-      <aside className={styles.rail} aria-label="Documents">
-        <input className="form-input" type="search" placeholder="Search documents…" aria-label="Search documents" value={search} onChange={(event) => setSearch(event.target.value)} />
-        <small>{preview ? `Preview sample · ${preview.documents.length} documents` : `${items.length} loaded`}</small>
+      <aside className="document-list" aria-label="Documents">
+        <div className="document-list-search"><Search size={13} aria-hidden /><input type="search" placeholder="Search documents…" aria-label="Search documents" value={search} onChange={(event) => setSearch(event.target.value)} /></div>
+        <div className="document-list-count muted mono">{preview ? `Preview sample · ${preview.documents.length} documents` : `${items.length} loaded`}</div>
         <div className="document-list-body drawer-body" ref={listBodyRef} onScroll={onListScroll} onKeyDown={onListKeyDown} tabIndex={0} role="listbox" aria-label="Document list">
           {list.error && <p role="alert">{list.error}</p>}
           <div style={{ position: 'relative', height: `${items.length * LIST_ITEM_HEIGHT}px` }}>
@@ -313,13 +319,10 @@ function ExtractWorkspace({ toolbarTargetId, onExtract, ...props }: ExtractViewP
             setJumpRow({ row_id: reference.row_id, blob_id: reference.blob_id, filename: reference.filename, result: { records: [], diagnostics: [], outcome: 'extracted' } }); setReaderPage(1); setFocusRegions([]);
           }}>Back to example</button>}
         </div>
-        <p id="extract-area-help" className={styles.areaHelp}>{template.expand_values
-          ? 'Expanded areas follow matched field boundaries. Check Preview for alignment warnings.'
-          : 'Fixed areas read only the selected space. Draw the full possible value area, or enable Expand value areas for variable-length text.'}</p>
         <DocumentReader key={`${currentRowId}:${readerPage}`} media={activeMedia} mediaKind={activeKind} title={jumpRow?.filename ?? activeItem?.title ?? 'No document selected'}
           layout="single" fit="width" videoFit="full" onVideoFitChange={() => undefined} textLayer={false}
           onPageCount={recordPageCount} rowKey={currentRowId ?? ''} onOpenDetail={() => undefined} canOpenDetail={false}
-          optionsOpen={false} onToggleOptions={() => undefined} optionsPopover={null} selectionCount={0} initialPage={readerPage}
+          optionsOpen={optionsOpen} onToggleOptions={() => setOptionsOpen(!optionsOpen)} optionsPopover={optionsPopover} selectionCount={0} initialPage={readerPage}
           pageImages={pageImages}
           renderPageOverlay={(page) => currentGeometry && (activeKind === 'pdf' ? pageImages !== undefined : activeKind === 'image') ? <ExtractPageOverlay page={page} template={template}
             tool={tool} selected={selected} muted={!isReference} focusRegions={focusRegions} pending={pending}
