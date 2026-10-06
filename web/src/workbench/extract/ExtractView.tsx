@@ -43,6 +43,13 @@ const TOOLS = [
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 const EXTRACTION_SOURCE_TYPES = ['file', 'image'];
 const NO_TEXT_SOURCES: readonly string[] = [];
+function useExtractionPageImages(geometry: ExtractionDocument | null, kind: ReturnType<typeof documentMediaKind>, projectId: string) {
+  // PdfReader uses this array as a loading dependency; page-count updates must not recreate it.
+  return useMemo(() => geometry && kind === 'pdf' ? geometry.document.pages.map((page) => ({
+    page: page.page, width: page.width, height: page.height,
+    url: `/api/projects/${encodeURIComponent(projectId)}/blobs/${encodeURIComponent(geometry.blob_id)}/pages/${page.page}/image`,
+  })) : undefined, [geometry, kind, projectId]);
+}
 
 export function ExtractView(props: ExtractViewProps) {
   // A separate keyed component prevents late responses from another sheet
@@ -100,10 +107,7 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
   const activeMedia = jumpRow ? { url: `/api/projects/${encodeURIComponent(projectId)}/blobs/${encodeURIComponent(jumpRow.blob_id)}`, label: jumpRow.filename,
     filename: jumpRow.filename, mime: currentGeometry?.mime, blobHash: jumpRow.blob_id } : documentMedia;
   const activeKind = documentMediaKind(activeMedia, sourceColumn?.type ?? 'file');
-  const pageImages = currentGeometry && activeKind === 'pdf' ? currentGeometry.document.pages.map((page) => ({
-    page: page.page, width: page.width, height: page.height,
-    url: `/api/projects/${encodeURIComponent(projectId)}/blobs/${encodeURIComponent(currentGeometry.blob_id)}/pages/${page.page}/image`,
-  })) : undefined;
+  const pageImages = useExtractionPageImages(currentGeometry, activeKind, projectId);
   const referenceDocument = currentGeometry?.blob_id === template.reference_blob_id ? currentGeometry : reference;
   const isReference = !template.reference_blob_id || currentGeometry?.blob_id === template.reference_blob_id;
   const setPending = useCallback((region: PageRegion | null) => changeLayout((current) => ({ draft: { ...current.draft,

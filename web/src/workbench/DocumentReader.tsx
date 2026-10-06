@@ -314,7 +314,7 @@ export function DocumentReader({
             >
               <FileSearch size={15} />
             </button>
-            <div className="document-options-anchor">
+            {optionsPopover !== null && <div className="document-options-anchor">
               <button
                 type="button"
                 ref={optionsTriggerRef}
@@ -334,7 +334,7 @@ export function DocumentReader({
                   render={optionsPopover}
                 />
               )}
-            </div>
+            </div>}
           </>
         }
       />

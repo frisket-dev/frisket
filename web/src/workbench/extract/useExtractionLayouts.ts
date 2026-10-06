@@ -28,7 +28,8 @@ export function useExtractionLayouts(projectId: string, sheetId: string, source:
   const mounted = useRef(false);
   const savedKeys = useRef(new Map<number, string>());
   const queue = useRef<Promise<unknown>>(Promise.resolve());
-  const inFlight = useRef(new Map<string, Promise<Layout>>());
+  const inFlight = useRef(new Map<Promise<Layout>, string>());
+  const latestSave = useRef<{ key: string; work: Promise<Layout> } | null>(null);
 
   const activate = useCallback((next: Layout) => {
     current.current = next;
@@ -38,10 +39,11 @@ export function useExtractionLayouts(projectId: string, sheetId: string, source:
 
   const save = useCallback((snapshot: Layout): Promise<Layout> => {
     const key = draftKey(snapshot);
-    if (savedKeys.current.get(snapshot.id) === key) return Promise.resolve(snapshot);
     const requestKey = `${context}:${snapshot.id}:${key}`;
-    const pending = inFlight.current.get(requestKey);
-    if (pending) return pending;
+    const last = latestSave.current;
+    // Only coalesce the final queued write: A → B → A must finish on A.
+    if (last?.key === requestKey && pendingWrites.get(context) === last.work) return last.work;
+    if (savedKeys.current.get(snapshot.id) === key && !pendingWrites.has(context)) return Promise.resolve(snapshot);
     const active = () => mounted.current && activeContext.current === context;
     if (active()) { setSaving(true); setError(null); }
     const work = (pendingWrites.get(context) ?? queue.current).catch(() => undefined).then(() => documentExtractionApi.save(projectId, {
@@ -55,16 +57,18 @@ export function useExtractionLayouts(projectId: string, sheetId: string, source:
       if (active()) {
         setLayouts((items) => items.map((item) => item.id === saved.id ? saved : item));
         setAcknowledged((previous) => ({ ...previous, [snapshot.id]: key }));
+        if (current.current?.id === snapshot.id && draftKey(current.current) === key) setError(null);
       }
       return saved;
     }).catch((cause: unknown) => {
-      if (active() && current.current?.id === snapshot.id) setError(message(cause));
+      if (active() && current.current?.id === snapshot.id && draftKey(current.current) === key) setError(message(cause));
       throw cause;
     }).finally(() => {
-      inFlight.current.delete(requestKey);
-      if (active()) setSaving([...inFlight.current.keys()].some((entry) => entry.startsWith(`${context}:`)));
+      inFlight.current.delete(work);
+      if (active()) setSaving([...inFlight.current.values()].includes(context));
     });
-    inFlight.current.set(requestKey, work);
+    inFlight.current.set(work, context);
+    latestSave.current = { key: requestKey, work };
     queue.current = work;
     pendingWrites.set(context, work);
     void work.finally(() => { if (pendingWrites.get(context) === work) pendingWrites.delete(context); }).catch(() => undefined);
@@ -142,7 +146,7 @@ export function useExtractionLayouts(projectId: string, sheetId: string, source:
     if (!layout || savedKeys.current.get(layout.id) === draftKey(layout)) return;
     const timer = window.setTimeout(() => { void save(layout).catch(() => undefined); }, 450);
     return () => window.clearTimeout(timer);
-  }, [layout, save]);
+  }, [layout, acknowledged, save]);
 
   const flush = async () => {
     const snapshot = current.current;
