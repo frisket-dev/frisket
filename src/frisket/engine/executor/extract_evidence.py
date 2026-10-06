@@ -886,7 +886,7 @@ def _resolve_evidence_entry_spans(
     prepared_source = captured_source or {}
     prepared_ref_id = _prepared_ref_id(prepared_source)
     quote = _optional_string(entry.get("quote"))
-    if entry_spans is None and prepared_ref_id is not None and quote is not None:
+    if entry_spans is None and prepared_ref_id is not None:
         metadata = {
             "raw": entry,
             "grounding_method": _optional_string(entry.get("grounding_method")),
@@ -915,6 +915,10 @@ def _resolve_evidence_entry_spans(
 
             pdf_artifact = get_source_artifact(project, prepared.source_artifact_id)
             if pdf_artifact is not None:
+                if quote is None:
+                    return _source_spans(
+                        project, artifact=pdf_artifact, item=entry, rank=rank
+                    )
                 entry_spans.extend(
                     _prepared_aligned_quote_spans(
                         project,

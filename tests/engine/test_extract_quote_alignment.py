@@ -753,3 +753,56 @@ def test_two_prepared_outputs_keep_distinct_text_contexts_for_one_pdf(tmp_path):
         )
     finally:
         project.close()
+
+
+@pytest.mark.parametrize(
+    "claim,kind",
+    [
+        ({"page": 1, "snippet": "Prepared page"}, "page_range"),
+        ({"page": 1, "bbox": {"x0": 0.1, "y0": 0.2, "x1": 0.8, "y1": 0.3}}, "region"),
+    ],
+)
+def test_prepared_page_and_region_claims_do_not_require_a_quote(tmp_path, claim, kind):
+    from frisket.actions.grounding_types import EvidenceClaim
+
+    seeded = _seed_pdf_project(tmp_path)
+    project = seeded["project"]
+    try:
+        original = record_source_artifact(
+            project,
+            artifact_kind="file",
+            media_type="application/pdf",
+            blob_hash=seeded["blob"],
+            page_count=1,
+        )
+        ref_id = _stage_prepared_reference(
+            project,
+            artifact_id=original["id"],
+            pages=[("Prepared page", None)],
+        )
+        source = _prepared_source(ref_id, "Prepared page", column_id=2)
+        artifact = _source_artifact(
+            project,
+            sheet_id=seeded["sheet_id"],
+            row_id=seeded["row_ids"][0],
+            source_columns=["prepared"],
+            input_column_ids={"prepared": 2},
+            artifact_cache={},
+            captured_sources={"prepared": source},
+        )
+        spans = _resolve_evidence_entry_spans(
+            project,
+            artifact=artifact,
+            sheet_id=seeded["sheet_id"],
+            row_id=seeded["row_ids"][0],
+            entry=EvidenceClaim.model_validate(claim).model_dump(exclude_none=True),
+            rank=0,
+            captured_source=source,
+            source_label="prepared",
+        )
+        assert len(spans) == 1
+        assert spans[0]["artifact_id"] == original["id"]
+        assert spans[0]["span_kind"] == kind
+        assert spans[0]["page_start"] == 1
+    finally:
+        project.close()
