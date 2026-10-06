@@ -180,7 +180,7 @@ function LineageNodeChip({
         {node.name}
         {node.kind === 'sheet' && node.syncState && (
           <StatusChip tone={stale ? 'warning' : 'success'} size="sm">
-            {stale ? 'stale' : 'synced'}
+            {stale ? 'source changed' : 'up to date'}
           </StatusChip>
         )}
       </div>

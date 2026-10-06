@@ -12,7 +12,7 @@ import { pdfjsLib } from '../../src/media/pdfjsSetup';
 
 const template: ExtractionTemplate = {
   reference_blob_id: 'example', reference_page: null, reference_fingerprint: 'fingerprint', fields: [
-    { id: 'name', name: 'Name', key: { page: 1, box: { x0: .1, x1: .2, y0: .1, y1: .15 } }, value: { page: 1, box: { x0: .3, x1: .6, y0: .1, y1: .15 } }, section_id: null },
+    { id: 'name', name: 'Name', kind: 'key_value', key: { page: 1, box: { x0: .1, x1: .2, y0: .1, y1: .15 } }, value: { page: 1, box: { x0: .3, x1: .6, y0: .1, y1: .15 } }, section_id: null },
   ], sections: [], ignore_bands: [], expand_values: false, look_every_page: true, continue_across_pages: false,
 };
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
@@ -26,11 +26,18 @@ describe('visual extraction geometry', () => {
       rest: { start: { page: 1, y: .2 }, end: { page: 1, y: .9 } } };
     const assigned = { ...template.fields[0], section_id: 'old' };
     const outside = { ...template.fields[0], id: 'outside', value: { page: 2, box: template.fields[0].value.box } };
-    const result = assignUnclaimedFields([assigned, outside, template.fields[0]], section);
-    expect(result.map((field) => field.section_id)).toEqual(['old', null, 'new']);
+    const fixed = {
+      ...template.fields[0],
+      id: 'fixed',
+      name: 'Fixed',
+      kind: 'value_only' as const,
+      key: null,
+    };
+    const result = assignUnclaimedFields([assigned, outside, fixed, template.fields[0]], section);
+    expect(result.map((field) => field.section_id)).toEqual(['old', null, null, 'new']);
     expect(regionInsideSpan(outside.value, section.first)).toBe(false);
     expect(templateIssue({ ...template, sections: [section] }, section.id)).toContain('add a key/value pair inside record 1');
-    const valid = { ...template, sections: [section], fields: [result[2]] };
+    const valid = { ...template, sections: [section], fields: [result[3], fixed] };
     expect(templateIssue(valid, section.id)).toBeNull();
     expect(templateIssue({ ...valid, sections: [{ ...section, first: { ...section.first, end: { page: 1, y: .11 } } }] }, section.id)).toContain('Enlarge the band or move the boxes');
   });
@@ -81,12 +88,13 @@ describe('annotation interactions', () => {
       layout="single" fit="width" videoFit="full" onVideoFitChange={() => undefined} textLayer={false} onPageCount={() => undefined}
       rowKey="1" onOpenDetail={() => undefined} canOpenDetail={false} optionsOpen={false} onToggleOptions={() => undefined}
       optionsPopover={null} selectionCount={0} pageImages={pages} renderPageOverlay={(page) => <div data-testid="annotation-page">{page}</div>} />);
-    expect(await screen.findByRole('img', { name: 'Page 1' })).toHaveAttribute('src', pages[0].url);
-    expect(screen.getByRole('img', { name: 'Page 1' })).toHaveStyle({ width: '800px', height: '1000px' });
-    expect(pdfjsLib.getDocument).not.toHaveBeenCalled();
+    // Navigation is usable before the lazy PDF renderer reports its page count.
     fireEvent.click(screen.getByTestId('document-page-next'));
+    expect(screen.getByTestId('document-page-indicator')).toHaveTextContent('2 / 2');
     expect(await screen.findByRole('img', { name: 'Page 2' })).toHaveAttribute('src', pages[1].url);
+    expect(screen.getByRole('img', { name: 'Page 2' })).toHaveStyle({ width: '800px', height: '1000px' });
     expect(screen.getByTestId('annotation-page')).toHaveTextContent('2');
+    expect(pdfjsLib.getDocument).not.toHaveBeenCalled();
   });
   it('offers keyboard selection, bounded movement and deletion for the selected region', () => {
     const onChange = vi.fn(); const onDelete = vi.fn(); const onSelect = vi.fn();
@@ -99,12 +107,14 @@ describe('annotation interactions', () => {
     fireEvent.keyDown(value, { key: 'Backspace' });
     expect(onDelete).toHaveBeenCalledWith({ kind: 'value', id: 'name' });
   });
-  it('muted other-document overlays cannot edit the reference template', () => {
+  it('shows actual preview regions without placing reference boxes on the target', () => {
     const onChange = vi.fn(); const onDelete = vi.fn();
-    render(<ExtractPageOverlay page={1} template={template} tool="select" selected={null} muted onSelect={vi.fn()} onDraw={vi.fn()} onChange={onChange} onDelete={onDelete} />);
-    const value = screen.getByRole('button', { name: 'Name value' });
-    expect(value).toBeDisabled();
-    fireEvent.keyDown(value, { key: 'Delete' });
+    const matched = { page: 1, box: { x0: .55, x1: .8, y0: .7, y1: .8 } };
+    render(<ExtractPageOverlay page={1} template={template} tool="select" selected={null} muted showTemplate={false}
+      resultFields={[{ id: 'name', name: 'Name', regions: [matched] }]} focusedResultFieldId="name"
+      onSelect={vi.fn()} onDraw={vi.fn()} onChange={onChange} onDelete={onDelete} />);
+    expect(screen.queryByRole('button', { name: 'Name value' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Name extracted value')).toBeInTheDocument();
     expect(onDelete).not.toHaveBeenCalled();
   });
   it('editing a field name does not delete its box when Backspace is pressed', () => {
@@ -137,7 +147,7 @@ describe('annotation interactions', () => {
     ];
     const { rerender } = render(<ExtractPreview template={template} preview={{ documents, truncated: false }} onSelect={onSelect} />);
     fireEvent.click(screen.getByRole('button', { name: 'empty' }));
-    expect(onSelect).toHaveBeenCalledWith(documents[0], empty);
+    expect(onSelect).toHaveBeenCalledWith(documents[0], 0, 'name');
     expect(screen.getByText('⚠ not found')).toBeInTheDocument();
     expect(screen.getByText('No matching records')).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('Preview sample: 3 documents.');

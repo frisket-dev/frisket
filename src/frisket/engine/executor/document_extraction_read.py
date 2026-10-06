@@ -9,7 +9,10 @@ from dataclasses import dataclass
 from itertools import islice
 from pathlib import Path
 
-from frisket.actions.document_extract import extraction_fields
+from frisket.actions.document_extract import (
+    extraction_fields,
+    source_document_column_name,
+)
 from frisket.actions.document_extraction_types import (
     Box,
     DocumentExtraction,
@@ -98,6 +101,17 @@ class DocumentIdentity:
             loaded.artifact_id,
             loaded.page,
         )
+
+
+def _source_document_value(document: DocumentIdentity) -> dict[str, object]:
+    value: dict[str, object] = {
+        "blob": document.blob_id,
+        "filename": document.filename,
+        "mime": document.mime,
+    }
+    if document.page is not None:
+        value["page"] = document.page
+    return value
 
 
 def _ocr_pages(
@@ -536,6 +550,7 @@ class AdmittedPositionedDocumentReader:
     def read(self, params):
         def rows():
             fields = extraction_fields(params)
+            source_column_name = source_document_column_name(params)
             try:
                 for source, loaded, result in self.document_results(params):
                     for record in result.records:
@@ -543,6 +558,7 @@ class AdmittedPositionedDocumentReader:
                         values = {
                             field.name: record.cells[field.id].text for field in fields
                         }
+                        values[source_column_name] = _source_document_value(loaded)
                         yield TableRow(
                             output=DynamicOutput(values),
                             sources=(source,),

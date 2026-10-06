@@ -22,6 +22,7 @@ import {
   type RunEstimate,
   type RunProgress,
   type SheetMeta,
+  type V1Receipt,
 } from '../api/open';
 import type { ProjectApiPort } from '../api/ports';
 import { isActiveRunStatus, isTerminalActionJobStatus } from '../runStatusModel';
@@ -76,6 +77,7 @@ export interface ActionJobsState {
 interface QueuedJobTarget {
   jobId: number | null;
   receiptId: string | null;
+  navigationEpoch: number;
 }
 
 export interface JobState {
@@ -105,7 +107,7 @@ export interface JobRunDeps {
    *  paths (they throw, never reaching handleRunLaunchSettled). The action
    *  drawer subscribes to this to auto-close; preview never calls startRun. */
   onLaunchAccepted?(): void;
-  /** Opens a sheet that a synchronous materializing action just created. */
+  /** Opens a sheet that a completed materializing action just created. */
   onMaterializedSheetCreated?(sheetId: string): void;
 }
 
@@ -113,6 +115,14 @@ const initialActionJobsState: ActionJobsState = { error: null, jobs: [], loading
 
 function isTerminalReceiptStatus(status: string | null | undefined): boolean {
   return ['completed', 'partial', 'failed', 'cancelled'].includes(status ?? '');
+}
+
+function receiptMaterializedSheetId(receipt: V1Receipt): string | null {
+  const output = receipt.outputs.find(({ ref }) => (
+    ref.kind === 'materialized_sheet'
+    && (typeof ref.sheet_id === 'number' || typeof ref.sheet_id === 'string')
+  ));
+  return output === undefined ? null : String(output.ref.sheet_id);
 }
 
 function initialJobState(): JobState {
@@ -612,18 +622,37 @@ export function createJobStore(
     launch: ActionLaunch,
     runId: string,
     deps: Pick<JobRunDeps, 'refreshSheets' | 'onLaunchAccepted'>,
-  ): void {
+  ): { sheetRefresh: Promise<void> | void } | null {
     if (!performForCurrentActionLaunch(
       launch,
       () => setRun((current) => (current ? { ...current, runId } : current)),
-    )) return;
+    )) return null;
     // The run handle is back — rows are
     // coming. Close the launching drawer; the new-columns affordance takes
     // over the feedback role.
-    if (!performForCurrentActionLaunch(launch, () => deps.onLaunchAccepted?.())) return;
-    if (!performForCurrentActionLaunch(launch, () => { void deps.refreshSheets(); })) return;
-    if (!performForCurrentActionLaunch(launch, () => { void refresh(); })) return;
-    performForCurrentActionLaunch(launch, () => setRunTarget(runId));
+    if (!performForCurrentActionLaunch(launch, () => deps.onLaunchAccepted?.())) return null;
+    let sheetRefresh: Promise<void> | void;
+    if (!performForCurrentActionLaunch(launch, () => {
+      sheetRefresh = deps.refreshSheets();
+    })) return null;
+    if (!performForCurrentActionLaunch(launch, () => { void refresh(); })) return null;
+    if (!performForCurrentActionLaunch(launch, () => setRunTarget(runId))) return null;
+    return { sheetRefresh: sheetRefresh! };
+  }
+
+  function openMaterializedSheetAfterRefresh(
+    generation: number,
+    navigationEpoch: number,
+    status: string | undefined,
+    outputSheetId: string | null | undefined,
+    sheetRefresh: Promise<void> | void,
+    callback: JobRunDeps['onMaterializedSheetCreated'],
+  ): void {
+    if (status !== 'completed' || !outputSheetId) return;
+    void Promise.resolve(sheetRefresh).then(() => {
+      if (!isResourceCurrent(generation) || actionLaunchEpoch !== navigationEpoch) return;
+      callback?.(outputSheetId);
+    });
   }
 
   function handleQueuedActionJobStarted(
@@ -647,13 +676,27 @@ export function createJobStore(
     if (!isCurrentActionLaunch(launch)) return;
     const { runId, jobId, receiptId, status, outputSheetId } = result;
     if (runId !== null) {
-      handleRunStarted(launch, runId, deps);
+      const started = handleRunStarted(launch, runId, deps);
+      if (started !== null) {
+        openMaterializedSheetAfterRefresh(
+          launch.resourceGeneration,
+          actionLaunchEpoch,
+          status,
+          outputSheetId,
+          started.sheetRefresh,
+          deps.onMaterializedSheetCreated,
+        );
+      }
       return;
     }
     if ((jobId != null || receiptId) && (status === 'queued' || status === 'running')) {
       handleQueuedActionJobStarted(
         launch,
-        { jobId: jobId ?? null, receiptId: receiptId ?? null },
+        {
+          jobId: jobId ?? null,
+          receiptId: receiptId ?? null,
+          navigationEpoch: actionLaunchEpoch,
+        },
         deps,
       );
       return;
@@ -672,13 +715,14 @@ export function createJobStore(
     if (!performForCurrentActionLaunch(launch, () => {
       sheetRefresh = deps.refreshSheets();
     })) return;
-    if (status === 'completed' && outputSheetId) {
-      const generation = launch.resourceGeneration;
-      void Promise.resolve(sheetRefresh!).then(() => {
-        if (!isResourceCurrent(generation)) return;
-        deps.onMaterializedSheetCreated?.(outputSheetId);
-      });
-    }
+    openMaterializedSheetAfterRefresh(
+      launch.resourceGeneration,
+      actionLaunchEpoch,
+      status,
+      outputSheetId,
+      sheetRefresh!,
+      deps.onMaterializedSheetCreated,
+    );
     if (!performForCurrentActionLaunch(launch, () => { void deps.refreshHistory(); })) return;
     if (!performForCurrentActionLaunch(launch, () => { void deps.refreshReviewCount(); })) return;
     performForCurrentActionLaunch(launch, () => { void refresh(); });
@@ -1144,10 +1188,11 @@ export function createJobStore(
       && queuedTarget === target
       && queuedLane.isCurrent(epochJob)
     );
-    const { jobId, receiptId } = target;
+    const { jobId, receiptId, navigationEpoch } = target;
     try {
       let terminal = false;
       let terminalStatus: string | null = null;
+      let outputSheetId: string | null = null;
       let job: ActionJob | null = null;
       if (jobId !== null) {
         if (projectApi.getActionJob) {
@@ -1166,7 +1211,7 @@ export function createJobStore(
         terminal = isTerminalActionJobStatus(job?.status);
         if (terminal) terminalStatus = job?.status ?? null;
       }
-      if (!terminal && receiptId) {
+      if (receiptId) {
         const receipt = await projectApi.getReceipt(receiptId, {
           projectId,
           signal: epochJob.signal,
@@ -1174,6 +1219,9 @@ export function createJobStore(
         if (!isCurrent()) return;
         terminal = isTerminalReceiptStatus(receipt.status);
         if (terminal) terminalStatus = receipt.status;
+        if (receipt.status === 'completed') {
+          outputSheetId = receiptMaterializedSheetId(receipt);
+        }
       }
       if (!isCurrent()) return;
       void refresh();
@@ -1191,7 +1239,16 @@ export function createJobStore(
         if (!stillTerminal()) return;
         deps.invalidateProjectData();
         if (!stillTerminal()) return;
-        void deps.refreshSheets();
+        const sheetRefresh = deps.refreshSheets();
+        if (!stillTerminal()) return;
+        openMaterializedSheetAfterRefresh(
+          generation,
+          navigationEpoch,
+          terminalStatus ?? undefined,
+          outputSheetId,
+          sheetRefresh,
+          deps.onMaterializedSheetCreated,
+        );
         if (!stillTerminal()) return;
         void deps.refreshHistory();
         if (!stillTerminal()) return;

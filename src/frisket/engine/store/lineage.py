@@ -15,7 +15,9 @@ from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.staleness import compute_sync_states
 
 
-def build_lineage_dag(project: Any) -> dict[str, Any]:
+def build_lineage_dag(
+    project: Any, *, refreshable_sheet_ids: set[int] | None = None
+) -> dict[str, Any]:
     """The Monitor Lineage DAG: sources -> sheets -> AI columns.
 
     Generalizes ProjectDebugService.debug's lineage shape (sheets + columns +
@@ -41,8 +43,13 @@ def build_lineage_dag(project: Any) -> dict[str, Any]:
     present_sheet_ids = {int(s["id"]) for s in sheets}
     generations = ResultGenerationStore(project)
 
+    def _sync_state(sheet_id: int) -> dict[str, str | None] | None:
+        if refreshable_sheet_ids is not None and sheet_id not in refreshable_sheet_ids:
+            return None
+        return sync_states.get(sheet_id)
+
     def _stale(sheet_id: int) -> bool:
-        state = sync_states.get(sheet_id)
+        state = _sync_state(sheet_id)
         return state is not None and state["sync_state"] == "stale"
 
     # Sources tier.
@@ -73,7 +80,7 @@ def build_lineage_dag(project: Any) -> dict[str, Any]:
     # Sheets tier + AI-column tier.
     for sheet in sheets:
         sheet_id = int(sheet["id"])
-        state = sync_states.get(sheet_id)
+        state = _sync_state(sheet_id)
         node: dict[str, Any] = {
             "id": f"sheet:{sheet_id}",
             "kind": "sheet",

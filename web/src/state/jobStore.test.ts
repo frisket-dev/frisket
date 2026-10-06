@@ -17,6 +17,7 @@ import type {
   RegisteredActionRequest,
   RunActionLaunchResult,
   RunProgress,
+  V1Receipt,
 } from '../api/open';
 import type { ProjectApiPort } from '../api/ports';
 
@@ -111,6 +112,27 @@ function actionJob(overrides: Partial<ActionJob> = {}): ActionJob {
       finishedAt: null,
     },
     error: null,
+    ...overrides,
+  };
+}
+
+function actionReceipt(overrides: Partial<V1Receipt> = {}): V1Receipt {
+  return {
+    schemaVersion: 'frisket.receipt.v1',
+    receiptId: 'receipt-7',
+    projectId: 'project-a',
+    actionId: 'action-7',
+    actionKind: 'media.extract_document',
+    runId: '88',
+    opIds: [9],
+    idempotencyKey: 'queued-action-7',
+    paramsHash: 'sha256:queued-action-7',
+    status: 'completed',
+    inputs: [],
+    outputs: [],
+    providerUse: [],
+    evidence: [],
+    errors: [],
     ...overrides,
   };
 }
@@ -1204,6 +1226,109 @@ describe('createJobStore — complete 4B cadence, fencing, and transport pins', 
     expect(deps.invalidateProjectData).not.toHaveBeenCalled();
   });
 
+  it('opens a queued materialized sheet only after its completed receipt refreshes inventory', async () => {
+    vi.useFakeTimers();
+    setDocumentHidden(false);
+    const terminalJob = deferred<ActionJob>();
+    const sheetRefresh = deferred<void>();
+    const deps = {
+      ...noopDeps(),
+      refreshSheets: vi.fn(() => sheetRefresh.promise),
+      onMaterializedSheetCreated: vi.fn(),
+    };
+    const completedReceipt = actionReceipt({
+      outputs: [{
+        name: 'Extracted records',
+        ref: { kind: 'materialized_sheet', sheet_id: 42, row_count: 3 },
+      }],
+    });
+    const getReceipt = vi.fn().mockResolvedValue(completedReceipt);
+    const jobs = createJobStore('project-a', projectPort({
+      listActionJobs: vi.fn().mockResolvedValue({ jobs: [] }),
+      getActionJob: vi.fn().mockReturnValue(terminalJob.promise),
+      getReceipt,
+      runAction: vi.fn().mockResolvedValue({
+        runId: null, jobId: 7, receiptId: 'receipt-7', status: 'queued',
+      }),
+    }));
+    jobs.start(deps);
+    await vi.advanceTimersByTimeAsync(0);
+    jobs.startRun(runRequest({ actionKind: 'media.extract_document' }), {
+      id: 'sheet-1', rowCount: 1,
+    } as never);
+    await flushMicrotasks();
+
+    terminalJob.resolve(actionJob({
+      jobId: 7,
+      runId: '88',
+      receiptId: 'receipt-7',
+      status: 'completed',
+      actionKind: 'media.extract_document',
+    }));
+    await flushMicrotasks();
+    expect(getReceipt).toHaveBeenCalledWith('receipt-7', {
+      projectId: 'project-a', signal: expect.any(AbortSignal),
+    });
+    expect(deps.onMaterializedSheetCreated).not.toHaveBeenCalled();
+
+    sheetRefresh.resolve();
+    await flushMicrotasks();
+    expect(deps.onMaterializedSheetCreated).toHaveBeenCalledWith('42');
+  });
+
+  it('does not let an old queued receipt navigate over a newer direct launch', async () => {
+    vi.useFakeTimers();
+    setDocumentHidden(false);
+    const oldTerminalJob = deferred<ActionJob>();
+    const oldSheetRefresh = deferred<void>();
+    const deps = {
+      ...noopDeps(),
+      refreshSheets: vi.fn()
+        .mockResolvedValueOnce(undefined)
+        .mockReturnValueOnce(oldSheetRefresh.promise),
+      onMaterializedSheetCreated: vi.fn(),
+    };
+    const runAction = vi.fn()
+      .mockResolvedValueOnce({
+        runId: null, jobId: 7, receiptId: 'receipt-7', status: 'queued',
+      })
+      .mockResolvedValueOnce({ runId: 'new-run', status: 'running' });
+    const jobs = createJobStore('project-a', projectPort({
+      listActionJobs: vi.fn().mockResolvedValue({ jobs: [] }),
+      getActionJob: vi.fn().mockReturnValue(oldTerminalJob.promise),
+      getReceipt: vi.fn().mockResolvedValue(actionReceipt({
+        outputs: [{
+          name: 'Old output',
+          ref: { kind: 'materialized_sheet', sheet_id: 42 },
+        }],
+      })),
+      runAction,
+    }));
+    jobs.start(deps);
+    await vi.advanceTimersByTimeAsync(0);
+    jobs.startRun(runRequest({ actionKind: 'media.extract_document' }), {
+      id: 'sheet-1', rowCount: 1,
+    } as never);
+    await flushMicrotasks();
+
+    jobs.startRun(runRequest({ targetColumnId: 'new-result' }), {
+      id: 'sheet-1', rowCount: 1,
+    } as never);
+    await flushMicrotasks();
+    expect(jobs.store.get().run?.runId).toBe('new-run');
+
+    oldTerminalJob.resolve(actionJob({
+      jobId: 7, runId: '88', receiptId: 'receipt-7', status: 'completed',
+    }));
+    await flushMicrotasks();
+    oldSheetRefresh.resolve();
+    await flushMicrotasks();
+
+    expect(deps.onMaterializedSheetCreated).not.toHaveBeenCalled();
+    expect(deps.refreshHistory).toHaveBeenCalled();
+    expect(deps.refreshReviewCount).toHaveBeenCalled();
+  });
+
   it('drops stale cancel and backfill continuations after dispose/restart', async () => {
     vi.useFakeTimers();
     const cancelResult = deferred<RunProgress>();
@@ -2261,6 +2386,32 @@ describe('createJobStore — startRun / cost gate (parity with the pre-migration
       id: '11', rowCount: 5,
     } as never);
     await flushMicrotasks();
+    expect(deps.onMaterializedSheetCreated).not.toHaveBeenCalled();
+
+    refresh.resolve();
+    await flushMicrotasks();
+    expect(deps.onMaterializedSheetCreated).toHaveBeenCalledWith('42');
+  });
+
+  it('opens a completed run-backed materialization after its inventory refresh', async () => {
+    const jobs = createJobStore('test-project', projectPort());
+    const refresh = deferred<void>();
+    const deps = {
+      ...noopDeps(),
+      refreshSheets: vi.fn(() => refresh.promise),
+      onMaterializedSheetCreated: vi.fn(),
+    };
+    vi.spyOn(api, 'runAction').mockResolvedValueOnce({
+      runId: 'run-42',
+      status: 'completed',
+      outputSheetId: '42',
+    });
+    vi.spyOn(api, 'listActionJobs').mockResolvedValue({ jobs: [] } as never);
+    jobs.start(deps);
+
+    jobs.startRun(runRequest(), { id: '11', rowCount: 5 } as never);
+    await flushMicrotasks();
+    expect(jobs.store.get().run?.runId).toBe('run-42');
     expect(deps.onMaterializedSheetCreated).not.toHaveBeenCalled();
 
     refresh.resolve();

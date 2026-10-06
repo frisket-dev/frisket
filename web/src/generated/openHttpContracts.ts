@@ -4784,7 +4784,8 @@ type HttpExtractionPreviewRequest_Box = ({
 
 type HttpExtractionPreviewRequest_ExtractionField = ({
   "id": (string);
-  "key": (HttpExtractionPreviewRequest_PageRegion);
+  "key"?: (((HttpExtractionPreviewRequest_PageRegion)) | ((null)));
+  "kind"?: ("key_value" | "value_only") & (string);
   "name": (string);
   "section_id"?: (((string)) | ((null)));
   "value": (HttpExtractionPreviewRequest_PageRegion);
@@ -4901,7 +4902,8 @@ type HttpExtractionSavedLayout_Box = ({
 
 type HttpExtractionSavedLayout_ExtractionDraftField = ({
   "id": (string);
-  "key": (HttpExtractionSavedLayout_PageRegion);
+  "key"?: (((HttpExtractionSavedLayout_PageRegion)) | ((null)));
+  "kind"?: ("key_value" | "value_only") & (string);
   "name"?: (string);
   "section_id"?: (((string)) | ((null)));
   "value": (HttpExtractionSavedLayout_PageRegion);
@@ -4991,7 +4993,8 @@ type HttpExtractionTemplateSave_Box = ({
 
 type HttpExtractionTemplateSave_ExtractionDraftField = ({
   "id": (string);
-  "key": (HttpExtractionTemplateSave_PageRegion);
+  "key"?: (((HttpExtractionTemplateSave_PageRegion)) | ((null)));
+  "kind"?: ("key_value" | "value_only") & (string);
   "name"?: (string);
   "section_id"?: (((string)) | ((null)));
   "value": (HttpExtractionTemplateSave_PageRegion);
@@ -5059,7 +5062,8 @@ type HttpExtractionTemplatesResponse_Box = ({
 
 type HttpExtractionTemplatesResponse_ExtractionDraftField = ({
   "id": (string);
-  "key": (HttpExtractionTemplatesResponse_PageRegion);
+  "key"?: (((HttpExtractionTemplatesResponse_PageRegion)) | ((null)));
+  "kind"?: ("key_value" | "value_only") & (string);
   "name"?: (string);
   "section_id"?: (((string)) | ((null)));
   "value": (HttpExtractionTemplatesResponse_PageRegion);
@@ -9564,6 +9568,7 @@ type HttpSheetList_SheetListItem = ({
   "op_label"?: (((string)) | ((null)));
   "parent_op_id": (((number)) | ((null)));
   "parent_sheet_id": (((number)) | ((null)));
+  "refreshable": (boolean);
   "rows": (number);
   "stale_reason"?: (((string)) | ((null)));
   "syncState"?: (((string)) | ((null)));

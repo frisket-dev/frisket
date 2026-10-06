@@ -1098,7 +1098,8 @@ type DocumentExtractParams_DocumentColumn = (string);
 type DocumentExtractParams_ExtractionField = ({
   "id": (string);
   "name": (string);
-  "key": (DocumentExtractParams_PageRegion);
+  "kind"?: ("key_value" | "value_only") & (string);
+  "key"?: (((DocumentExtractParams_PageRegion)) | ((null)));
   "value": (DocumentExtractParams_PageRegion);
   "section_id"?: (((string)) | ((null)));
 });

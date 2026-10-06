@@ -75,9 +75,20 @@ class PositionedDocument(ExtractionModel):
 class ExtractionField(ExtractionModel):
     id: str = Field(min_length=1)
     name: str = Field(min_length=1)
-    key: PageRegion
+    kind: Literal["key_value", "value_only"] = "key_value"
+    key: PageRegion | None = None
     value: PageRegion
     section_id: str | None = None
+
+    @model_validator(mode="after")
+    def field_kind(self) -> "ExtractionField":
+        if self.kind == "key_value" and self.key is None:
+            raise ValueError("Key/value fields require a key region")
+        if self.kind == "value_only" and self.key is not None:
+            raise ValueError("Value-only fields cannot have a key region")
+        if self.kind == "value_only" and self.section_id is not None:
+            raise ValueError("Value-only fields cannot belong to repeated sections")
+        return self
 
 
 class PagePosition(ExtractionModel):

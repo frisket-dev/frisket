@@ -72,6 +72,7 @@ def test_project_lifecycle_routes_preserve_http_contract(tmp_path) -> None:
             "cited_column_ids": [],
             "annotated_text_column_ids": [],
             "dependent_sheet_ids": [],
+            "refreshable": False,
             "columns": [
                 {
                     "id": column_id,
@@ -112,6 +113,8 @@ def test_project_lifecycle_routes_preserve_http_contract(tmp_path) -> None:
     dependencies = client.get(f"/api/projects/{pid}/sheets").json()
     facts = next(sheet for sheet in dependencies if sheet["id"] == sheet_id)
     assert facts["dependent_sheet_ids"] == [derived_id]
+    derived = next(sheet for sheet in dependencies if sheet["id"] == derived_id)
+    assert derived["refreshable"] is False
 
     retention = client.get(f"/api/projects/{pid}/retention")
     assert retention.status_code == 200, retention.text

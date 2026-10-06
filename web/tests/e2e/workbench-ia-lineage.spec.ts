@@ -161,7 +161,7 @@ test('derived tab sync dot flips green->amber on a parent edit; popover shows St
   await page.getByTestId(`workbench-mainView-tab-info-${childId}`).click();
   const popover = page.getByTestId('sheet-info-popover');
   await expect(popover).toBeVisible();
-  await expect(page.getByTestId('sheet-info-badge')).toHaveText('Stale');
+  await expect(page.getByTestId('sheet-info-badge')).toHaveText('Source changed');
   // HOW IT'S MADE carries the REAL op kind/label — never a hardcoded 'derive'.
   await expect(page.getByTestId('sheet-info-transform')).toContainText('derive.table_from_list');
 });

@@ -10,8 +10,13 @@ export function previewOutcome(result: ExtractionPreviewDocument['result']): { w
 }
 
 type WireTemplate = ExtractionRequest['template'];
-export type ExtractionField = Required<WireTemplate['fields'][number]>;
-export type PageRegion = ExtractionField['key'];
+type WireField = WireTemplate['fields'][number];
+export type PageRegion = NonNullable<WireField['value']>;
+export type ExtractionField = Omit<Required<WireField>, 'kind' | 'key' | 'value'> & {
+  kind: 'key_value' | 'value_only';
+  key: PageRegion | null;
+  value: PageRegion;
+};
 export type Box = PageRegion['box'];
 export type RepeatedSection = Required<NonNullable<WireTemplate['sections']>[number]>;
 export type PageSpan = RepeatedSection['first'];
@@ -24,7 +29,11 @@ export function templateDefaults(template: WireTemplate | SavedExtractionTemplat
     expand_values: template.expand_values ?? false, look_every_page: template.look_every_page ?? true,
     continue_across_pages: template.continue_across_pages ?? false, ignore_bands: template.ignore_bands ?? [],
     sections: (template.sections ?? []).map((section) => ({ ...section, name: section.name ?? 'Repeated section' })),
-    fields: (template.fields ?? []).map((field) => ({ ...field, name: field.name ?? '', section_id: field.section_id ?? null })) };
+    fields: (template.fields ?? []).map((field) => {
+      const kind = 'kind' in field && field.kind === 'value_only' ? 'value_only' : 'key_value';
+      return { ...field, kind, key: kind === 'value_only' ? null : field.key ?? null,
+        name: field.name ?? '', section_id: field.section_id ?? null };
+    }) };
 }
 
 export function regionInsideSpan(region: PageRegion, span: PageSpan): boolean {
@@ -33,24 +42,26 @@ export function regionInsideSpan(region: PageRegion, span: PageSpan): boolean {
 }
 
 export function assignUnclaimedFields(fields: ExtractionField[], section: RepeatedSection): ExtractionField[] {
-  return fields.map((field) => !field.section_id && regionInsideSpan(field.key, section.first) && regionInsideSpan(field.value, section.first)
+  return fields.map((field) => field.kind !== 'value_only' && field.key && !field.section_id
+    && regionInsideSpan(field.key, section.first) && regionInsideSpan(field.value, section.first)
     ? { ...field, section_id: section.id } : field);
 }
 
 export function templateIssue(template: ExtractionTemplate, repeatGroupId: string | null): string | null {
-  if (!template.fields.length) return 'Add at least one key/value pair.';
+  if (!template.fields.length) return 'Add at least one field.';
   if (template.fields.some((field) => !field.name.trim())) return 'Give every field a column name.';
+  if (template.fields.some((field) => field.kind !== 'value_only' && !field.key)) return 'Finish drawing every key/value field.';
   if (new Set(template.fields.map((field) => field.name)).size !== template.fields.length) return 'Column names must be unique.';
   for (const section of template.sections) {
-    const fields = template.fields.filter((field) => field.section_id === section.id);
+    const fields = template.fields.filter((field) => field.kind !== 'value_only' && field.section_id === section.id);
     if (!fields.length) return `${section.name}: add a key/value pair inside record 1, or delete this section.`;
-    const outside = fields.find((field) => !regionInsideSpan(field.key, section.first) || !regionInsideSpan(field.value, section.first));
+    const outside = fields.find((field) => !field.key || !regionInsideSpan(field.key, section.first) || !regionInsideSpan(field.value, section.first));
     if (outside) return `${section.name}: both boxes for ${outside.name} must fit inside record 1. Enlarge the band or move the boxes.`;
   }
   if (template.sections.length && !template.sections.some((section) => section.id === repeatGroupId)) return 'Choose which repeated section creates the result rows.';
   return null;
 }
-export type ExtractTool = 'select' | 'key' | 'repeat' | 'ignore';
+export type ExtractTool = 'select' | 'key' | 'value' | 'repeat' | 'ignore';
 export type AnnotationTarget = { kind: 'key' | 'value'; id: string } | { kind: 'first' | 'rest'; id: string } | { kind: 'ignore'; id: string };
 
 export function textInRegion(document: PositionedDocument | null, region: PageRegion): string {

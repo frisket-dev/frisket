@@ -54,6 +54,15 @@ def field(name="ARRESTED", y=0.1, section=None, value=None, page=1):
     )
 
 
+def value_only(name="AMOUNT", *, value=None, page=1):
+    return ExtractionField(
+        id=name,
+        name=name,
+        kind="value_only",
+        value=value or region(0.2, x0=0.35, x1=0.6, page=page),
+    )
+
+
 def template(*fields, **kwargs):
     return ExtractionTemplate(
         reference_blob_id="blob-reference",
@@ -107,6 +116,131 @@ def test_missing_key_produces_zero_records_not_a_blank_record():
     result = extract_document(compiled, document([token("UNRELATED")]))
     assert result.outcome == "zero_records"
     assert result.records == []
+
+
+def test_value_only_field_reads_its_fixed_page_and_region_once():
+    item = value_only(page=2)
+    reference = document([], [token("reference", 0.2, x0=0.35, x1=0.5)])
+    target = document(
+        [token("wrong page", 0.2, x0=0.35, x1=0.5)],
+        [token("right page", 0.2, x0=0.35, x1=0.5)],
+    )
+
+    cell = (
+        extract_document(
+            compile_template(
+                template(item, look_every_page=True, expand_values=True), reference
+            ),
+            target,
+        )
+        .records[0]
+        .cells[item.id]
+    )
+
+    assert (cell.text, cell.status) == ("right page", "extracted")
+    assert cell.regions == [item.value]
+
+
+def test_value_only_field_preserves_empty_region_and_ignore_bands():
+    item = value_only(value=region(0.1, x0=0.35, x1=0.6, height=0.2))
+    annotation = template(
+        item,
+        ignore_bands=[IgnoreBand(box=box(0, 0.15, 1, 0.2))],
+    )
+
+    cell = (
+        extract_document(compile_template(annotation, document([])), document([]))
+        .records[0]
+        .cells[item.id]
+    )
+
+    assert (cell.text, cell.status) == ("", "empty")
+    assert len(cell.regions) == 2
+    assert (cell.regions[0].box.y0, cell.regions[0].box.y1) == pytest.approx(
+        (0.1, 0.15)
+    )
+    assert (cell.regions[1].box.y0, cell.regions[1].box.y1) == pytest.approx((0.2, 0.3))
+
+
+def test_value_only_field_missing_page_produces_zero_records():
+    item = value_only(page=2)
+    compiled = compile_template(template(item), document([], []))
+
+    result = extract_document(compiled, document([]))
+
+    assert result.outcome == "zero_records"
+    assert result.records == []
+    assert result.diagnostics == ["Fixed value page 2 is unavailable"]
+
+
+def test_value_only_field_refuses_coarse_partial_text():
+    item = value_only()
+    compiled = compile_template(template(item), document([]))
+
+    result = extract_document(
+        compiled,
+        document([token("wide line", 0.2, x0=0.35, x1=0.9, granularity="line")]),
+    )
+
+    assert result.outcome == "zero_records"
+    assert result.diagnostics == [
+        "Positioned text is too coarse to isolate the value region"
+    ]
+
+
+def test_document_value_only_field_is_reused_for_each_repeated_record():
+    header = value_only("Case", value=region(0.02, x0=0.35, x1=0.6))
+    annotation = repeat_template().model_copy(
+        update={"fields": [header, *repeat_template().fields]}
+    )
+    reference = document(
+        [
+            token("A-1", 0.02, x0=0.35),
+            token("Name"),
+            token("Age", 0.2),
+            token("Name", 0.4),
+            token("Age", 0.5),
+        ]
+    )
+    target = document(
+        [
+            token("B-2", 0.02, x0=0.35),
+            token("Name"),
+            token("Age", 0.2),
+            token("Name", 0.4),
+            token("Age", 0.5),
+        ]
+    )
+
+    result = extract_document(compile_template(annotation, reference), target, "people")
+
+    assert [record.cells[header.id].text for record in result.records] == [
+        "B-2",
+        "B-2",
+    ]
+
+
+def test_value_only_field_contract_defaults_legacy_and_rejects_invalid_combinations():
+    assert field().kind == "key_value"
+    assert value_only().key is None
+    with pytest.raises(ValueError, match="Key/value fields require a key region"):
+        ExtractionField(id="bad", name="Bad", value=region())
+    with pytest.raises(ValueError, match="Value-only fields cannot have a key region"):
+        ExtractionField(
+            id="bad",
+            name="Bad",
+            kind="value_only",
+            key=region(),
+            value=region(),
+        )
+    with pytest.raises(ValueError, match="Value-only fields cannot belong"):
+        ExtractionField(
+            id="bad",
+            name="Bad",
+            kind="value_only",
+            value=region(),
+            section_id="people",
+        )
 
 
 def test_reference_fingerprint_is_checked():
