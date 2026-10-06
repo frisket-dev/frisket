@@ -17,6 +17,7 @@ import type {
   RegisteredActionRequest,
   RunActionLaunchResult,
   RunProgress,
+  V1Receipt,
 } from '../api/open';
 import type { ProjectApiPort } from '../api/ports';
 
@@ -1202,6 +1203,70 @@ describe('createJobStore — complete 4B cadence, fencing, and transport pins', 
 
     expect(getReceipt).not.toHaveBeenCalled();
     expect(deps.invalidateProjectData).not.toHaveBeenCalled();
+  });
+
+  it('opens a queued materialized sheet only after its completed receipt refreshes inventory', async () => {
+    vi.useFakeTimers();
+    setDocumentHidden(false);
+    const terminalJob = deferred<ActionJob>();
+    const sheetRefresh = deferred<void>();
+    const deps = {
+      ...noopDeps(),
+      refreshSheets: vi.fn(() => sheetRefresh.promise),
+      onMaterializedSheetCreated: vi.fn(),
+    };
+    const completedReceipt: V1Receipt = {
+      schemaVersion: 'frisket.receipt.v1',
+      receiptId: 'receipt-7',
+      projectId: 'project-a',
+      actionId: 'extract-action-7',
+      actionKind: 'media.extract_document',
+      runId: '88',
+      opIds: [9],
+      idempotencyKey: 'queued-extract-7',
+      paramsHash: 'sha256:queued-extract-7',
+      status: 'completed',
+      inputs: [],
+      outputs: [{
+        name: 'Extracted records',
+        ref: { kind: 'materialized_sheet', sheet_id: 42, row_count: 3 },
+      }],
+      providerUse: [],
+      evidence: [],
+      errors: [],
+    };
+    const getReceipt = vi.fn().mockResolvedValue(completedReceipt);
+    const jobs = createJobStore('project-a', projectPort({
+      listActionJobs: vi.fn().mockResolvedValue({ jobs: [] }),
+      getActionJob: vi.fn().mockReturnValue(terminalJob.promise),
+      getReceipt,
+      runAction: vi.fn().mockResolvedValue({
+        runId: null, jobId: 7, receiptId: 'receipt-7', status: 'queued',
+      }),
+    }));
+    jobs.start(deps);
+    await vi.advanceTimersByTimeAsync(0);
+    jobs.startRun(runRequest({ actionKind: 'media.extract_document' }), {
+      id: 'sheet-1', rowCount: 1,
+    } as never);
+    await flushMicrotasks();
+
+    terminalJob.resolve(actionJob({
+      jobId: 7,
+      runId: '88',
+      receiptId: 'receipt-7',
+      status: 'completed',
+      actionKind: 'media.extract_document',
+    }));
+    await flushMicrotasks();
+    expect(getReceipt).toHaveBeenCalledWith('receipt-7', {
+      projectId: 'project-a', signal: expect.any(AbortSignal),
+    });
+    expect(deps.onMaterializedSheetCreated).not.toHaveBeenCalled();
+
+    sheetRefresh.resolve();
+    await flushMicrotasks();
+    expect(deps.onMaterializedSheetCreated).toHaveBeenCalledWith('42');
   });
 
   it('drops stale cancel and backfill continuations after dispose/restart', async () => {

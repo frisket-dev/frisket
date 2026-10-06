@@ -22,6 +22,7 @@ import {
   type RunEstimate,
   type RunProgress,
   type SheetMeta,
+  type V1Receipt,
 } from '../api/open';
 import type { ProjectApiPort } from '../api/ports';
 import { isActiveRunStatus, isTerminalActionJobStatus } from '../runStatusModel';
@@ -113,6 +114,14 @@ const initialActionJobsState: ActionJobsState = { error: null, jobs: [], loading
 
 function isTerminalReceiptStatus(status: string | null | undefined): boolean {
   return ['completed', 'partial', 'failed', 'cancelled'].includes(status ?? '');
+}
+
+function receiptMaterializedSheetId(receipt: V1Receipt): string | null {
+  const output = receipt.outputs.find(({ ref }) => (
+    ref.kind === 'materialized_sheet'
+    && (typeof ref.sheet_id === 'number' || typeof ref.sheet_id === 'string')
+  ));
+  return output === undefined ? null : String(output.ref.sheet_id);
 }
 
 function initialJobState(): JobState {
@@ -631,17 +640,16 @@ export function createJobStore(
   }
 
   function openMaterializedSheetAfterRefresh(
-    launch: ActionLaunch,
+    generation: number,
+    navigationEpoch: number,
     status: string | undefined,
     outputSheetId: string | null | undefined,
     sheetRefresh: Promise<void> | void,
     callback: JobRunDeps['onMaterializedSheetCreated'],
   ): void {
     if (status !== 'completed' || !outputSheetId) return;
-    const generation = launch.resourceGeneration;
-    const launchEpoch = actionLaunchEpoch;
     void Promise.resolve(sheetRefresh).then(() => {
-      if (!isResourceCurrent(generation) || actionLaunchEpoch !== launchEpoch) return;
+      if (!isResourceCurrent(generation) || actionLaunchEpoch !== navigationEpoch) return;
       callback?.(outputSheetId);
     });
   }
@@ -670,7 +678,8 @@ export function createJobStore(
       const started = handleRunStarted(launch, runId, deps);
       if (started !== null) {
         openMaterializedSheetAfterRefresh(
-          launch,
+          launch.resourceGeneration,
+          actionLaunchEpoch,
           status,
           outputSheetId,
           started.sheetRefresh,
@@ -702,7 +711,8 @@ export function createJobStore(
       sheetRefresh = deps.refreshSheets();
     })) return;
     openMaterializedSheetAfterRefresh(
-      launch,
+      launch.resourceGeneration,
+      actionLaunchEpoch,
       status,
       outputSheetId,
       sheetRefresh!,
@@ -1177,6 +1187,7 @@ export function createJobStore(
     try {
       let terminal = false;
       let terminalStatus: string | null = null;
+      let outputSheetId: string | null = null;
       let job: ActionJob | null = null;
       if (jobId !== null) {
         if (projectApi.getActionJob) {
@@ -1195,7 +1206,7 @@ export function createJobStore(
         terminal = isTerminalActionJobStatus(job?.status);
         if (terminal) terminalStatus = job?.status ?? null;
       }
-      if (!terminal && receiptId) {
+      if (receiptId) {
         const receipt = await projectApi.getReceipt(receiptId, {
           projectId,
           signal: epochJob.signal,
@@ -1203,6 +1214,9 @@ export function createJobStore(
         if (!isCurrent()) return;
         terminal = isTerminalReceiptStatus(receipt.status);
         if (terminal) terminalStatus = receipt.status;
+        if (receipt.status === 'completed') {
+          outputSheetId = receiptMaterializedSheetId(receipt);
+        }
       }
       if (!isCurrent()) return;
       void refresh();
@@ -1220,7 +1234,17 @@ export function createJobStore(
         if (!stillTerminal()) return;
         deps.invalidateProjectData();
         if (!stillTerminal()) return;
-        void deps.refreshSheets();
+        const navigationEpoch = actionLaunchEpoch;
+        const sheetRefresh = deps.refreshSheets();
+        if (!stillTerminal() || actionLaunchEpoch !== navigationEpoch) return;
+        openMaterializedSheetAfterRefresh(
+          generation,
+          navigationEpoch,
+          terminalStatus ?? undefined,
+          outputSheetId,
+          sheetRefresh,
+          deps.onMaterializedSheetCreated,
+        );
         if (!stillTerminal()) return;
         void deps.refreshHistory();
         if (!stillTerminal()) return;
