@@ -43,7 +43,10 @@ export function useExtractionLayouts(projectId: string, sheetId: string, source:
     const last = latestSave.current;
     // Only coalesce the final queued write: A → B → A must finish on A.
     if (last?.key === requestKey && pendingWrites.get(context) === last.work) return last.work;
-    if (savedKeys.current.get(snapshot.id) === key && !pendingWrites.has(context)) return Promise.resolve(snapshot);
+    if (savedKeys.current.get(snapshot.id) === key && !pendingWrites.has(context)) {
+      unsavedDrafts.get(context)?.delete(snapshot.id);
+      return Promise.resolve(snapshot);
+    }
     const active = () => mounted.current && activeContext.current === context;
     if (active()) { setSaving(true); setError(null); }
     const work = (pendingWrites.get(context) ?? queue.current).catch(() => undefined).then(() => documentExtractionApi.save(projectId, {
@@ -91,7 +94,8 @@ export function useExtractionLayouts(projectId: string, sheetId: string, source:
       const cached = unsavedDrafts.get(context);
       const items = response.templates.map((item) => {
         savedKeys.current.set(item.id, draftKey(item));
-        return cached?.get(item.id) ?? item;
+        const draft = cached?.get(item.id);
+        return draft ? { ...item, draft: draft.draft, repeat_group_id: draft.repeat_group_id, reference_row_id: draft.reference_row_id } : item;
       });
       let selected = items.find((item) => item.id === response.selected_layout_id) ?? items[0];
       if (!selected) {

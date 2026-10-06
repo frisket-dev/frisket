@@ -143,3 +143,17 @@ it('flushes a revert on immediate unmount while a different draft is still being
   await waitFor(() => expect(api.save).toHaveBeenCalledTimes(2));
   expect(serverLayout.draft.expand_values).toBe(false);
 });
+
+it('restores fresh applied metadata after a draft was changed and reverted without a write', async () => {
+  const first = renderHook(() => useExtractionLayouts(projectId, '1', 'Document'));
+  await waitFor(() => expect(first.result.current.loading).toBe(false));
+  act(() => first.result.current.change({ draft: { ...EMPTY_EXTRACTION_DRAFT, expand_values: true } }));
+  act(() => first.result.current.change({ draft: structuredClone(EMPTY_EXTRACTION_DRAFT) }));
+  first.unmount();
+  serverLayout.has_applied = true;
+  const second = renderHook(() => useExtractionLayouts(projectId, '1', 'Document'));
+  await waitFor(() => expect(second.result.current.loading).toBe(false));
+  expect(second.result.current.layout?.has_applied).toBe(true);
+  expect(second.result.current.layout?.draft.expand_values).toBe(false);
+  expect(second.result.current.dirty).toBe(false);
+});
