@@ -13,8 +13,8 @@ export function ExtractPreview({ template, preview, onSelect }: {
         const warnings = document.result.diagnostics;
         const warningRows = warnings.length || document.result.records.length === 0
           ? [<tr key={`${document.row_id}-status`}><td><button type="button" onClick={() => onSelect(document, null)}>{document.filename}</button></td>
-            <td colSpan={Math.max(1, template.fields.length)} className={document.result.outcome === 'alignment_failed' ? styles.unclear : styles.empty}>
-              {warnings.join(' · ') || 'No repeated records found'}
+            <td colSpan={Math.max(1, template.fields.length)} className={document.result.outcome === 'error' ? styles.unclear : styles.empty}>
+              {document.result.outcome === 'zero_records' ? `No matching records${warnings.length ? ` · ${warnings.join(' · ')}` : ''}` : warnings.join(' · ') || (document.result.outcome === 'error' ? 'Could not extract this document' : 'No matching records')}
             </td></tr>] : [];
         return [...document.result.records.map((record, index) => <tr key={`${document.row_id}-${index}`}>
           <td><button type="button" onClick={() => onSelect(document, null)}>{index === 0 ? document.filename : `↳ Record ${index + 1}`}</button></td>

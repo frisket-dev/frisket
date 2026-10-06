@@ -2,12 +2,13 @@
 
 from typing import Any, ClassVar, Protocol
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 
 from frisket.actions.document_extraction_types import (
     Box,
     ExtractionField,
     ExtractionTemplate,
+    ExtractionScope,
     PageRegion,
 )
 from frisket.actions.types import (
@@ -27,9 +28,17 @@ class DocumentExtractParams(ActionParams):
     source: DocumentColumn
     template: ExtractionTemplate
     repeat_group_id: str | None = None
+    layout_id: int | None = Field(default=None, gt=0)
+    extraction_scope: ExtractionScope | None = None
 
     @model_validator(mode="after")
     def selected_group(self):
+        if self.extraction_scope is not None:
+            selected_layout = self.extraction_scope.layout_id
+            if selected_layout is not None and selected_layout != self.layout_id:
+                raise ValueError("Scope must use the selected layout")
+            if self.extraction_scope.kind == "layout" and self.layout_id is None:
+                raise ValueError("Choose a saved layout for its document scope")
         groups = {group.id for group in self.template.sections}
         if self.repeat_group_id is not None and self.repeat_group_id not in groups:
             raise ValueError("Unknown repeated section")

@@ -15,6 +15,7 @@ from frisket.engine.store.scalar_storage_migration import (
     SCALAR_CURRENT_VALUES_FROM_DIGEST,
 )
 from helpers import write_claimed_test_results
+from tests.engine.test_bundle_schema_fence import _remove_extraction_layouts
 
 
 def _review_run(tmp_path: Path) -> tuple[Project, int, list[int], int, int]:
@@ -132,6 +133,7 @@ def test_prior_review_schema_adds_confidence_ordering_index_on_open(
     path = tmp_path / "prior.frisket"
     Project.create(path).close()
     with sqlite3.connect(path / "project.db") as db:
+        _remove_extraction_layouts(db)
         index_rows = db.execute("PRAGMA index_list(results)").fetchall()
         confidence_index = next(
             str(row[1])

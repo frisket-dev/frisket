@@ -145,10 +145,13 @@ def test_known_bundle_upgrade_preserves_ledgers_reopen_and_export(tmp_path) -> N
     db.close()
 
     migrated = Project(path)
-    assert (
-        _index_names(migrated.db)
-        == (before_indexes - _REDUNDANT_INDEXES) | _REVIEW_STATS_INDEXES
-    )
+    assert _index_names(migrated.db) == (
+        before_indexes - _REDUNDANT_INDEXES
+    ) | _REVIEW_STATS_INDEXES | {
+        "sqlite_autoindex_extraction_layouts_1",
+        "sqlite_autoindex_extraction_layouts_2",
+        "idx_extraction_layout_documents_layout",
+    }
     assert migrated.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
     assert [
         tuple(row)

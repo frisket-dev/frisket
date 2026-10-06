@@ -20,6 +20,7 @@ from frisket.engine.store.review_stats_migration import REVIEW_STATS_FROM_DIGEST
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.schema import SCHEMA_DIGEST_META_KEY
 from frisket.engine.store.value_codec import encode_stored_value
+from tests.engine.test_bundle_schema_fence import _remove_extraction_layouts
 
 
 def _managed_run(
@@ -467,6 +468,7 @@ def test_primary_membership_and_totals_survive_rename_and_partial_replacement(
 def _downgrade_review_stats_schema(path: Path) -> None:
     db = sqlite3.connect(path / "project.db")
     db.execute("PRAGMA foreign_keys=OFF")
+    _remove_extraction_layouts(db)
     db.execute("DROP TABLE run_review_fields")
     db.execute("DROP INDEX idx_cell_result_heads_run")
     db.execute("DROP INDEX idx_columns_current_run")

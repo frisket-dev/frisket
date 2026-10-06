@@ -772,9 +772,27 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "tenant.extraction_layout_select.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/document-extraction/selection",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "tenant.extraction_preview.post",
       "method": "POST",
       "path": "/api/projects/{pid}/document-extraction/preview",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.extraction_scope_counts.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/document-extraction/scope-counts",
       "request": {
         "mediaType": "application/json",
         "required": true
@@ -4750,6 +4768,12 @@ export type HttpExtractionDocumentResponse = ({
   "row_id": (number);
 });
 
+export type HttpExtractionLayoutSelection = ({
+  "layout_id": (number);
+  "sheet_id": (number);
+  "source": (string);
+});
+
 type HttpExtractionPreviewRequest_Box = ({
   "x0": (number);
   "x1": (number);
@@ -4763,6 +4787,17 @@ type HttpExtractionPreviewRequest_ExtractionField = ({
   "name": (string);
   "section_id"?: (((string)) | ((null)));
   "value": (HttpExtractionPreviewRequest_PageRegion);
+});
+
+type HttpExtractionPreviewRequest_ExtractionScope = ({
+  "filter"?: ((({
+  [key: string]: JsonValue;
+})) | ((null)));
+  "kind": ("this" | "filter" | "all" | "layout") & (string);
+  "layout_id"?: (((number)) | ((null)));
+  "parent_row_id"?: (((number)) | ((null)));
+  "row_id"?: (((number)) | ((null)));
+  "scope_row_ids"?: (((Array<(number)>)) | ((null)));
 });
 
 type HttpExtractionPreviewRequest_ExtractionTemplate = ({
@@ -4804,8 +4839,9 @@ type HttpExtractionPreviewRequest_RepeatedSection = ({
 });
 
 export type HttpExtractionPreviewRequest = ({
+  "layout_id"?: (((number)) | ((null)));
   "repeat_group_id"?: (((string)) | ((null)));
-  "row_ids"?: (((Array<(number)>)) | ((null)));
+  "scope": (HttpExtractionPreviewRequest_ExtractionScope);
   "sheet_id": (number);
   "source": (string);
   "template": (HttpExtractionPreviewRequest_ExtractionTemplate);
@@ -4820,7 +4856,8 @@ type HttpExtractionPreviewResponse_Box = ({
 
 type HttpExtractionPreviewResponse_DocumentExtraction = ({
   "diagnostics"?: (Array<(string)>);
-  "outcome": ("extracted" | "zero_records" | "alignment_failed") & (string);
+  "error_code"?: (((string)) | ((null)));
+  "outcome": ("extracted" | "zero_records" | "error") & (string);
   "records": (Array<(HttpExtractionPreviewResponse_ExtractedRecord)>);
 });
 
@@ -4854,81 +4891,94 @@ export type HttpExtractionPreviewResponse = ({
   "truncated"?: (boolean);
 });
 
-type HttpExtractionSavedTemplate_Box = ({
+type HttpExtractionSavedLayout_Box = ({
   "x0": (number);
   "x1": (number);
   "y0": (number);
   "y1": (number);
 });
 
-type HttpExtractionSavedTemplate_DocumentColumn = (string);
-
-type HttpExtractionSavedTemplate_DocumentExtractParams = ({
-  "repeat_group_id"?: (((string)) | ((null)));
-  "source": (HttpExtractionSavedTemplate_DocumentColumn);
-  "template": (HttpExtractionSavedTemplate_ExtractionTemplate);
-});
-
-type HttpExtractionSavedTemplate_ExtractionField = ({
+type HttpExtractionSavedLayout_ExtractionDraftField = ({
   "id": (string);
-  "key": (HttpExtractionSavedTemplate_PageRegion);
-  "name": (string);
+  "key": (HttpExtractionSavedLayout_PageRegion);
+  "name"?: (string);
   "section_id"?: (((string)) | ((null)));
-  "value": (HttpExtractionSavedTemplate_PageRegion);
+  "value": (HttpExtractionSavedLayout_PageRegion);
 });
 
-type HttpExtractionSavedTemplate_ExtractionSavedSpec = ({
-  "action_kind": ("media.extract_document") & (string);
-  "params": (HttpExtractionSavedTemplate_DocumentExtractParams);
-  "project_id": (string);
-  "reference_row_id": (number);
-  "sheet_id": (number);
+type HttpExtractionSavedLayout_ExtractionDraftPending = ({
+  "region": (HttpExtractionSavedLayout_PageRegion);
+  "tool": ("key" | "repeat") & (string);
 });
 
-type HttpExtractionSavedTemplate_ExtractionTemplate = ({
+type HttpExtractionSavedLayout_ExtractionLayoutDraft = ({
   "continue_across_pages"?: (boolean);
   "expand_values"?: (boolean);
-  "fields": (Array<(HttpExtractionSavedTemplate_ExtractionField)>);
-  "ignore_bands"?: (Array<(HttpExtractionSavedTemplate_IgnoreBand)>);
+  "fields"?: (Array<(HttpExtractionSavedLayout_ExtractionDraftField)>);
+  "ignore_bands"?: (Array<(HttpExtractionSavedLayout_IgnoreBand)>);
   "look_every_page"?: (boolean);
-  "reference_blob_id": (string);
-  "reference_fingerprint": (string);
+  "pending"?: (((HttpExtractionSavedLayout_ExtractionDraftPending)) | ((null)));
+  "reference_blob_id"?: (string);
+  "reference_fingerprint"?: (string);
   "reference_page"?: (((number)) | ((null)));
-  "sections"?: (Array<(HttpExtractionSavedTemplate_RepeatedSection)>);
+  "sections"?: (Array<(HttpExtractionSavedLayout_RepeatedSection)>);
 });
 
-type HttpExtractionSavedTemplate_IgnoreBand = ({
-  "box": (HttpExtractionSavedTemplate_Box);
+type HttpExtractionSavedLayout_IgnoreBand = ({
+  "box": (HttpExtractionSavedLayout_Box);
 });
 
-type HttpExtractionSavedTemplate_PagePosition = ({
+type HttpExtractionSavedLayout_PagePosition = ({
   "page": (number);
   "y": (number);
 });
 
-type HttpExtractionSavedTemplate_PageRegion = ({
-  "box": (HttpExtractionSavedTemplate_Box);
+type HttpExtractionSavedLayout_PageRegion = ({
+  "box": (HttpExtractionSavedLayout_Box);
   "page": (number);
 });
 
-type HttpExtractionSavedTemplate_PageSpan = ({
-  "end": (HttpExtractionSavedTemplate_PagePosition);
-  "start": (HttpExtractionSavedTemplate_PagePosition);
+type HttpExtractionSavedLayout_PageSpan = ({
+  "end": (HttpExtractionSavedLayout_PagePosition);
+  "start": (HttpExtractionSavedLayout_PagePosition);
 });
 
-type HttpExtractionSavedTemplate_RepeatedSection = ({
-  "first": (HttpExtractionSavedTemplate_PageSpan);
+type HttpExtractionSavedLayout_RepeatedSection = ({
+  "first": (HttpExtractionSavedLayout_PageSpan);
   "id": (string);
   "name"?: (string);
-  "rest": (HttpExtractionSavedTemplate_PageSpan);
+  "rest": (HttpExtractionSavedLayout_PageSpan);
 });
 
-export type HttpExtractionSavedTemplate = ({
+export type HttpExtractionSavedLayout = ({
+  "draft": (HttpExtractionSavedLayout_ExtractionLayoutDraft);
+  "has_applied": (boolean);
   "id": (number);
   "name": (string);
-  "reference_row_id": (number);
+  "reference_row_id"?: (((number)) | ((null)));
+  "repeat_group_id"?: (((string)) | ((null)));
   "sheet_id": (number);
-  "spec": (HttpExtractionSavedTemplate_ExtractionSavedSpec);
+  "source": (string);
+  "source_column_id": (number);
+});
+
+export type HttpExtractionScopeCountsRequest = ({
+  "filter"?: ((({
+  [key: string]: JsonValue;
+})) | ((null)));
+  "layout_id"?: (((number)) | ((null)));
+  "parent_row_id"?: (((number)) | ((null)));
+  "row_id"?: (((number)) | ((null)));
+  "scope_row_ids"?: (((Array<(number)>)) | ((null)));
+  "sheet_id": (number);
+  "source": (string);
+});
+
+export type HttpExtractionScopeCountsResponse = ({
+  "all": (number);
+  "filter": (number);
+  "layout": (number);
+  "this": (number);
 });
 
 type HttpExtractionTemplateSave_Box = ({
@@ -4938,22 +4988,28 @@ type HttpExtractionTemplateSave_Box = ({
   "y1": (number);
 });
 
-type HttpExtractionTemplateSave_ExtractionField = ({
+type HttpExtractionTemplateSave_ExtractionDraftField = ({
   "id": (string);
   "key": (HttpExtractionTemplateSave_PageRegion);
-  "name": (string);
+  "name"?: (string);
   "section_id"?: (((string)) | ((null)));
   "value": (HttpExtractionTemplateSave_PageRegion);
 });
 
-type HttpExtractionTemplateSave_ExtractionTemplate = ({
+type HttpExtractionTemplateSave_ExtractionDraftPending = ({
+  "region": (HttpExtractionTemplateSave_PageRegion);
+  "tool": ("key" | "repeat") & (string);
+});
+
+type HttpExtractionTemplateSave_ExtractionLayoutDraft = ({
   "continue_across_pages"?: (boolean);
   "expand_values"?: (boolean);
-  "fields": (Array<(HttpExtractionTemplateSave_ExtractionField)>);
+  "fields"?: (Array<(HttpExtractionTemplateSave_ExtractionDraftField)>);
   "ignore_bands"?: (Array<(HttpExtractionTemplateSave_IgnoreBand)>);
   "look_every_page"?: (boolean);
-  "reference_blob_id": (string);
-  "reference_fingerprint": (string);
+  "pending"?: (((HttpExtractionTemplateSave_ExtractionDraftPending)) | ((null)));
+  "reference_blob_id"?: (string);
+  "reference_fingerprint"?: (string);
   "reference_page"?: (((number)) | ((null)));
   "sections"?: (Array<(HttpExtractionTemplateSave_RepeatedSection)>);
 });
@@ -4985,13 +5041,12 @@ type HttpExtractionTemplateSave_RepeatedSection = ({
 });
 
 export type HttpExtractionTemplateSave = ({
+  "draft": (HttpExtractionTemplateSave_ExtractionLayoutDraft);
   "id"?: (((number)) | ((null)));
-  "name": (string);
-  "reference_row_id": (number);
+  "reference_row_id"?: (((number)) | ((null)));
   "repeat_group_id"?: (((string)) | ((null)));
   "sheet_id": (number);
   "source": (string);
-  "template": (HttpExtractionTemplateSave_ExtractionTemplate);
 });
 
 type HttpExtractionTemplatesResponse_Box = ({
@@ -5001,48 +5056,42 @@ type HttpExtractionTemplatesResponse_Box = ({
   "y1": (number);
 });
 
-type HttpExtractionTemplatesResponse_DocumentColumn = (string);
-
-type HttpExtractionTemplatesResponse_DocumentExtractParams = ({
-  "repeat_group_id"?: (((string)) | ((null)));
-  "source": (HttpExtractionTemplatesResponse_DocumentColumn);
-  "template": (HttpExtractionTemplatesResponse_ExtractionTemplate);
-});
-
-type HttpExtractionTemplatesResponse_ExtractionField = ({
+type HttpExtractionTemplatesResponse_ExtractionDraftField = ({
   "id": (string);
   "key": (HttpExtractionTemplatesResponse_PageRegion);
-  "name": (string);
+  "name"?: (string);
   "section_id"?: (((string)) | ((null)));
   "value": (HttpExtractionTemplatesResponse_PageRegion);
 });
 
-type HttpExtractionTemplatesResponse_ExtractionSavedSpec = ({
-  "action_kind": ("media.extract_document") & (string);
-  "params": (HttpExtractionTemplatesResponse_DocumentExtractParams);
-  "project_id": (string);
-  "reference_row_id": (number);
-  "sheet_id": (number);
+type HttpExtractionTemplatesResponse_ExtractionDraftPending = ({
+  "region": (HttpExtractionTemplatesResponse_PageRegion);
+  "tool": ("key" | "repeat") & (string);
 });
 
-type HttpExtractionTemplatesResponse_ExtractionSavedTemplate = ({
-  "id": (number);
-  "name": (string);
-  "reference_row_id": (number);
-  "sheet_id": (number);
-  "spec": (HttpExtractionTemplatesResponse_ExtractionSavedSpec);
-});
-
-type HttpExtractionTemplatesResponse_ExtractionTemplate = ({
+type HttpExtractionTemplatesResponse_ExtractionLayoutDraft = ({
   "continue_across_pages"?: (boolean);
   "expand_values"?: (boolean);
-  "fields": (Array<(HttpExtractionTemplatesResponse_ExtractionField)>);
+  "fields"?: (Array<(HttpExtractionTemplatesResponse_ExtractionDraftField)>);
   "ignore_bands"?: (Array<(HttpExtractionTemplatesResponse_IgnoreBand)>);
   "look_every_page"?: (boolean);
-  "reference_blob_id": (string);
-  "reference_fingerprint": (string);
+  "pending"?: (((HttpExtractionTemplatesResponse_ExtractionDraftPending)) | ((null)));
+  "reference_blob_id"?: (string);
+  "reference_fingerprint"?: (string);
   "reference_page"?: (((number)) | ((null)));
   "sections"?: (Array<(HttpExtractionTemplatesResponse_RepeatedSection)>);
+});
+
+type HttpExtractionTemplatesResponse_ExtractionSavedLayout = ({
+  "draft": (HttpExtractionTemplatesResponse_ExtractionLayoutDraft);
+  "has_applied": (boolean);
+  "id": (number);
+  "name": (string);
+  "reference_row_id"?: (((number)) | ((null)));
+  "repeat_group_id"?: (((string)) | ((null)));
+  "sheet_id": (number);
+  "source": (string);
+  "source_column_id": (number);
 });
 
 type HttpExtractionTemplatesResponse_IgnoreBand = ({
@@ -5072,7 +5121,8 @@ type HttpExtractionTemplatesResponse_RepeatedSection = ({
 });
 
 export type HttpExtractionTemplatesResponse = ({
-  "templates": (Array<(HttpExtractionTemplatesResponse_ExtractionSavedTemplate)>);
+  "selected_layout_id"?: (((number)) | ((null)));
+  "templates": (Array<(HttpExtractionTemplatesResponse_ExtractionSavedLayout)>);
 });
 
 type HttpHTTPValidationError_ValidationError = ({
@@ -5525,10 +5575,6 @@ export type HttpInline_0b832ccbfe473119 = ({
 export type HttpInline_0c9cd7bcf35ce8b1 = ({
   "limit"?: (number);
   "status"?: (string);
-});
-
-export type HttpInline_0f64b6890a30596c = ({
-  "sheet_id": (number);
 });
 
 type HttpInline_1137e1194abf7002_ActionError = ({
@@ -6799,6 +6845,11 @@ export type HttpInline_df89fa766b1ef309 = ({
 export type HttpInline_e581724f37bc5d5c = ({
   "channel_id": (number);
   "pid": (string);
+});
+
+export type HttpInline_e86ab013105d5d96 = ({
+  "sheet_id": (number);
+  "source": (string);
 });
 
 export type HttpInline_e8aaad66d2736f22 = ({
@@ -11921,6 +11972,19 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.extraction_layout_select.post": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpExtractionLayoutSelection;
+    readonly responses: {
+      readonly "200": HttpExtractionSavedLayout;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
   readonly "tenant.extraction_preview.post": {
     readonly pathParams: HttpInline_87cacc773db826e7;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -11934,12 +11998,25 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.extraction_scope_counts.post": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpExtractionScopeCountsRequest;
+    readonly responses: {
+      readonly "200": HttpExtractionScopeCountsResponse;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
   readonly "tenant.extraction_template_save.post": {
     readonly pathParams: HttpInline_87cacc773db826e7;
     readonly query: HttpInline_d746974fa9afd5e9;
     readonly request: HttpExtractionTemplateSave;
     readonly responses: {
-      readonly "200": HttpExtractionSavedTemplate;
+      readonly "200": HttpExtractionSavedLayout;
       readonly "401": HttpError;
       readonly "403": HttpError;
       readonly "404": HttpError;
@@ -11949,7 +12026,7 @@ export type HttpContractOperationMap = {
   };
   readonly "tenant.extraction_templates_list.get": {
     readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_0f64b6890a30596c;
+    readonly query: HttpInline_e86ab013105d5d96;
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpExtractionTemplatesResponse;
