@@ -182,6 +182,9 @@ export function DocumentReader({
     typeof initialPage === 'number' && initialPage > 0 ? initialPage : 1,
   );
   const setCurrentPage = useCallback((page: number) => { setCurrentPageValue(page); onPageChange?.(page); }, [onPageChange]);
+  const pageBound = pageImages
+    ? Math.max(totalPageCount ?? 0, pageImages.reduce((highest, image) => Math.max(highest, image.page), 0), 1)
+    : Math.max(pageCount, 1);
   const [zoom, setZoom] = useState(1);
   // `videoFit`/`onVideoFitChange` are lifted to the caller as chrome state —
   // sticky across this component's per-document remount and across reload —
@@ -198,9 +201,9 @@ export function DocumentReader({
 
   const goToPage = useCallback(
     (next: number) => {
-      setCurrentPage(Math.min(Math.max(next, 1), Math.max(pageCount, 1)));
+      setCurrentPage(Math.min(Math.max(next, 1), pageBound));
     },
-    [pageCount, setCurrentPage],
+    [pageBound, setCurrentPage],
   );
   const currentPageImageIndex = pageImages?.findIndex(
     (image) => image.page === currentPage,
@@ -277,7 +280,7 @@ export function DocumentReader({
                   <ChevronLeft size={15} />
                 </button>
                 <span className="document-page-indicator mono" data-testid="document-page-indicator">
-                  {currentPage} / {Math.max(pageCount, 1)}
+                  {currentPage} / {pageBound}
                 </span>
                 <button
                   type="button"

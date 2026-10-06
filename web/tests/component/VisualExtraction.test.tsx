@@ -88,12 +88,13 @@ describe('annotation interactions', () => {
       layout="single" fit="width" videoFit="full" onVideoFitChange={() => undefined} textLayer={false} onPageCount={() => undefined}
       rowKey="1" onOpenDetail={() => undefined} canOpenDetail={false} optionsOpen={false} onToggleOptions={() => undefined}
       optionsPopover={null} selectionCount={0} pageImages={pages} renderPageOverlay={(page) => <div data-testid="annotation-page">{page}</div>} />);
-    expect(await screen.findByRole('img', { name: 'Page 1' })).toHaveAttribute('src', pages[0].url);
-    expect(screen.getByRole('img', { name: 'Page 1' })).toHaveStyle({ width: '800px', height: '1000px' });
-    expect(pdfjsLib.getDocument).not.toHaveBeenCalled();
+    // Navigation is usable before the lazy PDF renderer reports its page count.
     fireEvent.click(screen.getByTestId('document-page-next'));
+    expect(screen.getByTestId('document-page-indicator')).toHaveTextContent('2 / 2');
     expect(await screen.findByRole('img', { name: 'Page 2' })).toHaveAttribute('src', pages[1].url);
+    expect(screen.getByRole('img', { name: 'Page 2' })).toHaveStyle({ width: '800px', height: '1000px' });
     expect(screen.getByTestId('annotation-page')).toHaveTextContent('2');
+    expect(pdfjsLib.getDocument).not.toHaveBeenCalled();
   });
   it('offers keyboard selection, bounded movement and deletion for the selected region', () => {
     const onChange = vi.fn(); const onDelete = vi.fn(); const onSelect = vi.fn();
