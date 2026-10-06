@@ -63,11 +63,12 @@ async function ready() {
 }
 
 it('renders octet-stream PDFs with server geometry used for annotation', async () => {
-  mocks.document.mockResolvedValue({ row_id: 1, blob_id: 'example', reference_page: 2, filename: 'cropped.pdf', mime: 'application/octet-stream',
+  mocks.document.mockResolvedValue({ row_id: 1, blob_id: 'example', reference_page: 2, page_count: 10, filename: 'cropped.pdf', mime: 'application/octet-stream',
     document: { source_fingerprint: 'native:example:page:2', pages: [{ page: 2, width: 800, height: 1000, tokens: [] }] } });
   render(<ExtractView {...props()} />); await ready();
   const reader = mocks.reader.mock.lastCall![0];
   expect(reader.pageImages).toEqual([{ page: 2, width: 800, height: 1000, url: `/api/projects/${projectId}/blobs/example/pages/2/image` }]);
+  expect(reader.totalPageCount).toBe(10);
   expect(reader.mediaKind).toBe('pdf'); expect(reader.initialPage).toBe(2);
   expect(reader.renderPageOverlay(2)).not.toBeNull();
   expect(reader.renderPageOverlay(1)).toBeNull();
@@ -143,6 +144,27 @@ it('keeps a newly selected saved reference read-only until that identity is veri
   await act(async () => { resolveHealthy(healthy); await healthyRequest; });
   await waitFor(() => expect(screen.getByTestId('extract-options-button')).toBeEnabled());
   expect(screen.getByLabelText('Column name for Name')).toBeEnabled();
+});
+
+it('clears a stale reference error after switching to a healthy layout', async () => {
+  const stale = { ...emptyDraft, reference_blob_id: 'example', reference_page: 2,
+    reference_fingerprint: 'native:example:stale' };
+  const healthy = { ...stale, reference_fingerprint: 'native:example:page:2' };
+  saved = [{ ...newLayout(1, stale), reference_row_id: 1 }, { ...newLayout(2, healthy), reference_row_id: 1 }];
+  selectedId = 1;
+  mocks.document.mockResolvedValue({ row_id: 1, blob_id: 'example', reference_page: 2, page_count: 10,
+    filename: 'cropped.pdf', mime: 'application/octet-stream', document: { source_fingerprint: 'native:example:page:2',
+      pages: [{ page: 2, width: 800, height: 1000, tokens: [] }] } });
+
+  render(<ExtractView {...props()} />);
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('saved reference document has changed or is unavailable'));
+  fireEvent.change(screen.getByTestId('extract-layout-selector'), { target: { value: 'new' } });
+  await waitFor(() => expect(screen.getByTestId('extract-layout-selector')).toHaveValue('3'));
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByTestId('extract-layout-selector'), { target: { value: '2' } });
+  await waitFor(() => expect(screen.getByTestId('extract-layout-selector')).toHaveValue('2'));
+  await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+  expect(screen.getByRole('button', { name: 'Key / value' })).toBeEnabled();
 });
 
 it('keeps tools and options inside Extract and leaves reader View options independent', async () => {

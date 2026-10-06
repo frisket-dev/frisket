@@ -21,6 +21,7 @@ class ExtractionDocumentResponse(WireModel):
     row_id: int
     blob_id: str
     reference_page: int | None = None
+    page_count: int = Field(ge=1)
     filename: str
     mime: str
     document: PositionedDocument

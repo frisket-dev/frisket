@@ -27,6 +27,7 @@ export interface PdfViewerProps {
   onCurrentPageChange(page: number): void;
   renderPageOverlay?(page: number): ReactNode;
   pageImages?: readonly DocumentPageImage[];
+  totalPageCount?: number;
   pageId?(page: number): string | undefined;
   className?: string;
 }
@@ -43,6 +44,7 @@ export function PdfViewer({
   onCurrentPageChange,
   renderPageOverlay,
   pageImages,
+  totalPageCount,
   pageId,
   className,
 }: PdfViewerProps) {
@@ -57,7 +59,7 @@ export function PdfViewer({
 
   useEffect(() => {
     if (pageImages) {
-      onLoaded(pageImages.length);
+      onLoaded(totalPageCount ?? pageImages.length);
       return;
     }
     let cancelled = false;
@@ -79,7 +81,7 @@ export function PdfViewer({
       cancelled = true;
       void task.destroy();
     };
-  }, [url, onLoaded, pageImages]);
+  }, [url, onLoaded, pageImages, totalPageCount]);
 
   useLayoutEffect(() => {
     const node = containerRef.current;
@@ -145,7 +147,7 @@ export function PdfViewer({
     <div
       className={`document-pdf document-pdf-${layout}${className ? ` ${className}` : ''}`}
       data-testid="document-pdf"
-      data-page-count={pageImages ? String(pageImages.length) : doc ? String(doc.numPages) : ''}
+      data-page-count={pageImages ? String(totalPageCount ?? pageImages.length) : doc ? String(doc.numPages) : ''}
       data-layout={layout}
       ref={containerRef}
       onScroll={onScroll}

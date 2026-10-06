@@ -4764,6 +4764,7 @@ export type HttpExtractionDocumentResponse = ({
   "document": (HttpExtractionDocumentResponse_PositionedDocument);
   "filename": (string);
   "mime": (string);
+  "page_count": (number);
   "reference_page"?: (((number)) | ((null)));
   "row_id": (number);
 });

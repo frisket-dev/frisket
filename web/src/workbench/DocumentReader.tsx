@@ -118,6 +118,8 @@ interface DocumentReaderProps {
   /** Use server-rendered geometry when extraction coordinates use MediaBox,
    * rather than PDF.js's default CropBox viewport. */
   pageImages?: readonly DocumentPageImage[];
+  /** Original document total when pageImages intentionally contains a subset. */
+  totalPageCount?: number;
 }
 
 /** The center reader. A thin header (title + media-type chip + PDF page
@@ -149,6 +151,7 @@ export function DocumentReader({
   onPageChange,
   renderPageOverlay,
   pageImages,
+  totalPageCount,
 }: DocumentReaderProps) {
   // The view-options popover (Document view only; the OCR compare host passes
   // optionsOpen=false so the hook is inert there, and optionsPopover=null).
@@ -195,6 +198,25 @@ export function DocumentReader({
     },
     [pageCount, setCurrentPage],
   );
+  const currentPageImageIndex = pageImages?.findIndex(
+    (image) => image.page === currentPage,
+  );
+  const previousPage = pageImages
+    ? currentPageImageIndex !== undefined && currentPageImageIndex > 0
+      ? pageImages[currentPageImageIndex - 1].page
+      : null
+    : currentPage > 1
+      ? currentPage - 1
+      : null;
+  const nextPage = pageImages
+    ? currentPageImageIndex !== undefined &&
+      currentPageImageIndex >= 0 &&
+      currentPageImageIndex + 1 < pageImages.length
+      ? pageImages[currentPageImageIndex + 1].page
+      : null
+    : currentPage < pageCount
+      ? currentPage + 1
+      : null;
 
   const isPdf = mediaKind === 'pdf' && media !== null;
   const isVideo = mediaKind === 'video' && media !== null;
@@ -245,8 +267,8 @@ export function DocumentReader({
                   data-testid="document-page-prev"
                   aria-label="Previous page"
                   title="Previous page"
-                  disabled={currentPage <= 1}
-                  onClick={() => goToPage(currentPage - 1)}
+                  disabled={previousPage === null}
+                  onClick={() => previousPage !== null && goToPage(previousPage)}
                 >
                   <ChevronLeft size={15} />
                 </button>
@@ -259,8 +281,8 @@ export function DocumentReader({
                   data-testid="document-page-next"
                   aria-label="Next page"
                   title="Next page"
-                  disabled={currentPage >= pageCount}
-                  onClick={() => goToPage(currentPage + 1)}
+                  disabled={nextPage === null}
+                  onClick={() => nextPage !== null && goToPage(nextPage)}
                 >
                   <ChevronRight size={15} />
                 </button>
@@ -355,6 +377,7 @@ export function DocumentReader({
             onCurrentPageChange={goToPage}
             renderPageOverlay={renderPageOverlay}
             pageImages={pageImages}
+            totalPageCount={totalPageCount}
           />
         )}
         {media && mediaKind === 'image' && (

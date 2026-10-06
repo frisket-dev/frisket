@@ -160,6 +160,7 @@ def seed_page_scoped_pdf(project):
         artifact_kind="file",
         blob_hash=blob,
         media_type="application/pdf",
+        page_count=10,
         metadata={
             "engine": "tesseract",
             "page_images": {
@@ -241,6 +242,7 @@ def test_page_scoped_pdf_geometry_and_run_only_read_selected_page(tmp_path):
     geometry = service.document("p", sheet_id=sheet, column_id=column, row_id=rows[1])
     assert geometry.blob_id == blob
     assert geometry.reference_page == 2
+    assert geometry.page_count == 10
     assert [page.page for page in geometry.document.pages] == [2]
     assert [token.text for token in geometry.document.pages[0].tokens] == [
         "VALUE",
@@ -294,7 +296,7 @@ def test_page_scoped_pdf_geometry_and_run_only_read_selected_page(tmp_path):
         "WHERE el.sheet_id=? AND el.column_id=?",
         (output["sheet_id"], output["columns"]["Value"]),
     ).fetchone()
-    assert (citation["page_start"], citation["page_count"]) == (2, 2)
+    assert (citation["page_start"], citation["page_count"]) == (2, 10)
     assert json.loads(citation["metadata"])["source_page"] == 2
     project.apply_edits(
         [

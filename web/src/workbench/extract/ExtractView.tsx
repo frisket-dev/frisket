@@ -87,7 +87,7 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
   const [selected, setSelected] = useState<AnnotationTarget | null>(null);
   const [geometry, setGeometry] = useState<{ key: string; value: ExtractionDocument | null; error: string | null }>({ key: '', value: null, error: null });
   const [reference, setReference] = useState<ExtractionDocument | null>(null);
-  const [referenceVerification, setReferenceVerification] = useState<{ key: string; status: 'ready' | 'stale' } | null>(null);
+  const [referenceVerification, setReferenceVerification] = useState<{ key: string; status: 'ready' | 'stale'; error?: string } | null>(null);
   const [preview, setPreview] = useState<ExtractionPreview | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [busy, setBusy] = useState<'preview' | 'run' | null>(null);
@@ -119,9 +119,10 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
   const referencePage = template.reference_page;
   const referenceFingerprint = template.reference_fingerprint;
   const referenceKey = referenceRowId === null ? null
-    : JSON.stringify([layout?.id, referenceRowId, referenceBlobId, referencePage, referenceFingerprint]);
+    : JSON.stringify([projectId, sheet.id, sourceColumn?.id, layout?.id, referenceRowId, referenceBlobId, referencePage, referenceFingerprint]);
   const referenceStatus = referenceKey === null ? 'ready'
     : referenceVerification?.key === referenceKey ? referenceVerification.status : 'loading';
+  const referenceError = referenceVerification?.key === referenceKey ? referenceVerification.error : null;
   const geometryMatchesReference = matchesReference(currentGeometry, referenceBlobId, referencePage, referenceFingerprint);
   const referenceDocument = geometryMatchesReference ? currentGeometry : reference;
   const isReference = !template.reference_blob_id || geometryMatchesReference;
@@ -161,8 +162,8 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
       .then((value) => { if (!controller.signal.aborted) {
         if (!matchesReference(value, referenceBlobId, referencePage, referenceFingerprint)) {
           setReference(null);
-          setReferenceVerification({ key: referenceKey!, status: 'stale' });
-          setError('The saved reference document has changed or is unavailable. The layout was kept unchanged.');
+          setReferenceVerification({ key: referenceKey!, status: 'stale',
+            error: 'The saved reference document has changed or is unavailable. The layout was kept unchanged.' });
           return;
         }
         setReference(value);
@@ -170,8 +171,8 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
         setJumpRow({ row_id: value.row_id, blob_id: value.blob_id, filename: value.filename, result: { records: [], diagnostics: [], outcome: 'extracted' } });
       } }).catch((cause) => { if (!controller.signal.aborted) {
         setReference(null);
-        setReferenceVerification({ key: referenceKey!, status: 'stale' });
-        setError(`The saved reference document is unavailable: ${errorText(cause)}`);
+        setReferenceVerification({ key: referenceKey!, status: 'stale',
+          error: `The saved reference document is unavailable: ${errorText(cause)}` });
       } });
     return () => controller.abort();
   }, [projectId, sheet.id, sourceId, referenceRowId, referenceKey, referenceBlobId, referencePage, referenceFingerprint]);
@@ -345,7 +346,7 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
       }}>{sources.map(({ column }) => <option key={column.id} value={column.id}>{column.name}</option>)}</PanelSelect></label>}
     </div>
     {toolbar}
-    {(error || persistence.saveError || persistence.error || geometryError) && <div className={styles.error} role="alert">{error || persistence.saveError || persistence.error || geometryError}</div>}
+    {(error || referenceError || persistence.saveError || persistence.error || geometryError) && <div className={styles.error} role="alert">{error || referenceError || persistence.saveError || persistence.error || geometryError}</div>}
     {validationIssue && <div className={styles.validation} role="status">{validationIssue}</div>}
     <div className={styles.body}>
       <aside className="document-list" aria-label="Documents">
@@ -381,7 +382,7 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
           layout="single" fit="width" videoFit="full" onVideoFitChange={() => undefined} textLayer={false}
           onPageCount={recordPageCount} rowKey={currentRowId ?? ''} onOpenDetail={() => undefined} canOpenDetail={false}
           optionsOpen={false} onToggleOptions={() => undefined} optionsPopover={null} selectionCount={0} initialPage={readerPage}
-          pageImages={pageImages}
+          pageImages={pageImages} totalPageCount={currentGeometry?.page_count}
           renderPageOverlay={(page) => currentGeometry && (activeKind === 'pdf' ? pageImages?.some((image) => image.page === page) : activeKind === 'image') ? <ExtractPageOverlay page={page} template={template}
             tool={tool} selected={selected} muted={!isReference || templateReadOnly} focusRegions={focusRegions} pending={pending}
             onSelect={select} onDraw={draw} onChange={(target, region) => update(changeRegion(template, target, region))} onDelete={remove} /> : null} />

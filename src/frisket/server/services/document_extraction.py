@@ -41,6 +41,7 @@ class DocumentExtractionService:
             row_id=row_id,
             blob_id=source.blob_id,
             reference_page=source.page,
+            page_count=loaded.page_count,
             filename=loaded.filename,
             mime=loaded.mime,
             document=loaded.document,
