@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import tempfile
 from dataclasses import dataclass
 from itertools import islice
 from pathlib import Path
@@ -19,6 +20,10 @@ from frisket.actions.document_extraction_types import (
 from frisket.actions.types import DynamicOutput, TableError, TableResult, TableRow
 from frisket.contracts.action import ReceiptEvidence
 from frisket.engine.executor.sheet_rows_read import AdmittedSheetRowsReader
+from frisket.engine.executor.pdf_page_source import (
+    PdfPageSourceError,
+    materialize_pdf_page,
+)
 from frisket.engine.sandbox.media_sync import run_media_sync
 from frisket.engine.store.blob_backend import BlobStoreError, validate_blob_digest
 from frisket.engine.store.ocr_word_stream import iter_ocr_word_streams
@@ -38,12 +43,24 @@ def _hash(value):
 
 
 @dataclass(frozen=True)
+class DocumentCell:
+    blob_id: str
+    page: int | None = None
+
+
+@dataclass(frozen=True)
 class LoadedDocument:
     blob_id: str
     filename: str
     mime: str
     document: PositionedDocument
     artifact_id: int | None = None
+    page: int | None = None
+    page_count: int = 1
+
+    @property
+    def selector(self) -> tuple[str, int | None]:
+        return self.blob_id, self.page
 
 
 @dataclass(frozen=True)
@@ -54,6 +71,7 @@ class DocumentIdentity:
     fingerprint: str
     page_count: int
     artifact_id: int | None
+    page: int | None
 
     @classmethod
     def from_loaded(cls, loaded):
@@ -62,8 +80,9 @@ class DocumentIdentity:
             loaded.filename,
             loaded.mime,
             loaded.document.source_fingerprint,
-            len(loaded.document.pages),
+            loaded.page_count,
             loaded.artifact_id,
+            loaded.page,
         )
 
 
@@ -117,7 +136,7 @@ def _ocr_pages(project, blob_id):
 
 
 def load_positioned_document(
-    project, blob_id: str, *, cancelled=None
+    project, blob_id: str, *, page: int | None = None, cancelled=None
 ) -> LoadedDocument:
     if cancelled is not None and cancelled():
         raise TableError("action_cancelled", "Document reading was cancelled")
@@ -132,7 +151,18 @@ def load_positioned_document(
         raise TableError("invalid_input_ref", "Document is not present in this project")
     filename = str(blob["filename"] or "Document")
     mime = str(blob["mime"] or "application/octet-stream")
+    if page is not None and (type(page) is not int or page < 1):
+        raise TableError(
+            "invalid_input_ref", "Document page selector must be a positive integer"
+        )
     pages, artifact_id = _ocr_pages(project, blob_id)
+    artifact_page_count = None
+    if artifact_id is not None:
+        artifact = project.db.execute(
+            "SELECT page_count FROM source_artifacts WHERE id=?", (artifact_id,)
+        ).fetchone()
+        if artifact is not None and type(artifact["page_count"]) is int:
+            artifact_page_count = int(artifact["page_count"])
     if not pages and (mime == "application/pdf" or filename.lower().endswith(".pdf")):
         from frisket.engine.pdf_text import (
             extract_pdf_text,
@@ -141,13 +171,39 @@ def load_positioned_document(
         )
 
         try:
-            with project.materialize_blob(blob_id) as path:
+            with (
+                project.materialize_blob(blob_id) as path,
+                tempfile.TemporaryDirectory(prefix="frisket-extract-page-") as scratch,
+            ):
+                source_path = Path(path)
+                if page is not None:
+                    try:
+                        from pypdf import PdfReader
+
+                        artifact_page_count = len(PdfReader(source_path).pages)
+                        source_path = materialize_pdf_page(
+                            source_path,
+                            page=page,
+                            destination=Path(scratch) / "selected-page.pdf",
+                        )
+                    except PdfPageSourceError as exc:
+                        raise TableError("invalid_input_ref", str(exc)) from exc
+                    except Exception as exc:  # noqa: BLE001 - hostile PDF boundary
+                        raise TableError(
+                            "document_geometry_unavailable",
+                            "Document page count could not be read",
+                        ) from exc
                 pages = run_media_sync(
                     lambda should_cancel: extract_pdf_text(
-                        Path(path), should_cancel=should_cancel
+                        source_path, should_cancel=should_cancel
                     ),
                     cancelled=cancelled,
                 )
+                if page is not None:
+                    pages = [
+                        positioned.model_copy(update={"page": page})
+                        for positioned in pages
+                    ]
         except PdfTextCancelled as exc:
             raise TableError(
                 "action_cancelled", "Document reading was cancelled"
@@ -158,28 +214,56 @@ def load_positioned_document(
             raise TableError(
                 "document_geometry_unavailable", "Document bytes could not be read"
             ) from exc
-    if not pages or not any(page.tokens for page in pages):
+    page_count = max(
+        artifact_page_count or 0,
+        max((positioned.page for positioned in pages), default=0),
+    )
+    if page is not None:
+        pages = [positioned for positioned in pages if positioned.page == page]
+        if not pages:
+            raise TableError(
+                "invalid_input_ref",
+                f"Document page selector {page} is outside the document",
+            )
+    if not pages or not any(positioned.tokens for positioned in pages):
         raise TableError(
             "document_geometry_unavailable",
             "This document needs positioned text. Run OCR with a geometry-bearing engine first.",
         )
-    fingerprint = _hash(
-        {
-            "blob": blob_id,
-            "artifact": artifact_id,
-            "pages": [page.model_dump(mode="json") for page in pages],
-        }
-    )
+    fingerprint_source = {
+        "blob": blob_id,
+        "artifact": artifact_id,
+        "pages": [positioned.model_dump(mode="json") for positioned in pages],
+    }
+    if page is not None:
+        fingerprint_source["selected_page"] = page
+    fingerprint = _hash(fingerprint_source)
     return LoadedDocument(
         blob_id,
         filename,
         mime,
         PositionedDocument(source_fingerprint=fingerprint, pages=pages),
         artifact_id,
+        page,
+        page_count,
     )
 
 
-def document_cell(project, *, sheet_id, column_id, row_id):
+def _document_cell_value(value, *, column_type: str) -> DocumentCell:
+    if not isinstance(value, dict) or not isinstance(value.get("blob"), str):
+        raise TableError("invalid_input_ref", "The selected cell has no document")
+    page = value.get("page")
+    if page is not None and (
+        type(page) is not int or page < 1 or column_type != "file"
+    ):
+        raise TableError(
+            "invalid_input_ref",
+            "A document page selector requires a positive integer file page",
+        )
+    return DocumentCell(str(value["blob"]), page)
+
+
+def document_cell(project, *, sheet_id, column_id, row_id) -> DocumentCell:
     column = project.db.execute(
         "SELECT name,type FROM columns WHERE id=? AND sheet_id=? AND active=1",
         (column_id, sheet_id),
@@ -191,9 +275,7 @@ def document_cell(project, *, sheet_id, column_id, row_id):
     ):
         raise TableError("invalid_input_ref", "Choose a visible document cell")
     value = project.get_values(sheet_id, column_id, row_ids=[row_id]).get(row_id)
-    if not isinstance(value, dict) or not isinstance(value.get("blob"), str):
-        raise TableError("invalid_input_ref", "The selected cell has no document")
-    return value["blob"]
+    return _document_cell_value(value, column_type=str(column["type"]))
 
 
 class AdmittedPositionedDocumentReader:
@@ -213,17 +295,24 @@ class AdmittedPositionedDocumentReader:
         self.unresolved_fields = 0
         self.field_warnings = 0
         self.identities = {}
-        self.source_blobs = {}
+        self.source_cells = {}
         self.reference = None
         self.final_names = {}
 
     def close(self):
         self.rows.close()
 
-    def _load(self, blob_id):
-        if self.reference is not None and blob_id == self.reference.blob_id:
+    def _load(self, source: DocumentCell):
+        if self.reference is not None and source == DocumentCell(
+            self.reference.blob_id, self.reference.page
+        ):
             return self.reference
-        return load_positioned_document(self.project, blob_id, cancelled=self.cancelled)
+        return load_positioned_document(
+            self.project,
+            source.blob_id,
+            page=source.page,
+            cancelled=self.cancelled,
+        )
 
     def document_results(self, params):
         from frisket.engine.document_extraction import (
@@ -231,9 +320,12 @@ class AdmittedPositionedDocumentReader:
             extract_document,
         )
 
-        reference = self._load(params.template.reference_blob_id)
+        reference_source = DocumentCell(
+            params.template.reference_blob_id, params.template.reference_page
+        )
+        reference = self._load(reference_source)
         self.reference = reference
-        self.identities[reference.blob_id] = DocumentIdentity.from_loaded(reference)
+        self.identities[reference.selector] = DocumentIdentity.from_loaded(reference)
         try:
             compiled = compile_template(params.template, reference.document)
         except ValueError as exc:
@@ -241,6 +333,13 @@ class AdmittedPositionedDocumentReader:
         fields = extraction_fields(params)
         if not fields:
             raise TableError("invalid_params", "Select at least one field")
+        source_column_id = self.rows._column_ids[params.source.name]
+        source_column = self.project.db.execute(
+            "SELECT type FROM columns WHERE id=?", (source_column_id,)
+        ).fetchone()
+        if source_column is None:
+            raise TableError("invalid_input_ref", "Source document column is missing")
+        source_column_type = str(source_column["type"])
         inputs = self.rows.read()
         if self.document_limit is not None:
             inputs = islice(inputs, self.document_limit)
@@ -252,15 +351,17 @@ class AdmittedPositionedDocumentReader:
             value = params.source.read(item.row)
             blob_id = value.get("blob") if isinstance(value, dict) else None
             try:
-                if not isinstance(blob_id, str):
-                    raise TableError("invalid_input_ref", "Source cell has no document")
-                loaded = self._load(blob_id)
+                source_cell = _document_cell_value(
+                    value,
+                    column_type=source_column_type,
+                )
+                loaded = self._load(source_cell)
                 result = extract_document(
                     compiled, loaded.document, params.repeat_group_id
                 )
                 loaded = DocumentIdentity.from_loaded(loaded)
-                self.identities[blob_id] = loaded
-                self.source_blobs[item.source.row_id] = blob_id
+                self.identities[source_cell.blob_id, source_cell.page] = loaded
+                self.source_cells[item.source.row_id] = source_cell
             except TableError as exc:
                 if exc.code == "action_cancelled":
                     raise
@@ -304,6 +405,7 @@ class AdmittedPositionedDocumentReader:
                     "kind": "document_extraction_input",
                     "row_id": item.source.row_id,
                     "blob": blob_id,
+                    "page": loaded.page if loaded else None,
                     "fingerprint": loaded.fingerprint if loaded else None,
                     "artifact_id": loaded.artifact_id if loaded else None,
                     "outcome": result.outcome,
@@ -366,7 +468,7 @@ class AdmittedPositionedDocumentReader:
     def revalidate(self):
         # Blob bytes are content-addressed; OCR artifact identity must still be the
         # one selected for this run. Never silently publish against a later OCR.
-        for blob_id, loaded in self.identities.items():
+        for (blob_id, _page), loaded in self.identities.items():
             if loaded.artifact_id is not None:
                 # Use the same admissibility predicate as the original read:
                 # a newer unusable artifact does not make an older one stale.
@@ -377,17 +479,22 @@ class AdmittedPositionedDocumentReader:
                         "Document text changed during extraction; preview again",
                     )
         column_id = self.rows._column_ids[self.params.source.name]
-        ids = list(self.source_blobs)
+        ids = list(self.source_cells)
+        column = self.project.db.execute(
+            "SELECT type FROM columns WHERE id=?", (column_id,)
+        ).fetchone()
+        column_type = str(column["type"]) if column is not None else ""
         for offset in range(0, len(ids), 500):
             values = self.project.get_values(
                 self.scope.sheet_id, column_id, row_ids=ids[offset : offset + 500]
             )
             for row_id in ids[offset : offset + 500]:
                 value = values.get(row_id)
-                if (
-                    not isinstance(value, dict)
-                    or value.get("blob") != self.source_blobs[row_id]
-                ):
+                try:
+                    current = _document_cell_value(value, column_type=column_type)
+                except TableError:
+                    current = None
+                if current != self.source_cells[row_id]:
                     raise TableError(
                         "stale_input",
                         "Source document changed during extraction; preview again",
@@ -406,8 +513,8 @@ class AdmittedPositionedDocumentReader:
         for (source, loaded, record), output_row_id in zip(
             self.occurrences, write.row_ids, strict=True
         ):
-            if loaded.blob_id not in artifacts:
-                artifacts[loaded.blob_id] = record_source_artifact(
+            if (loaded.blob_id, loaded.page) not in artifacts:
+                artifacts[loaded.blob_id, loaded.page] = record_source_artifact(
                     self.project,
                     artifact_kind="file",
                     media_type=loaded.mime,
@@ -419,9 +526,14 @@ class AdmittedPositionedDocumentReader:
                     metadata={
                         "positioned_source_fingerprint": loaded.fingerprint,
                         "positioned_source_artifact_id": loaded.artifact_id,
+                        **(
+                            {"source_page": loaded.page}
+                            if loaded.page is not None
+                            else {}
+                        ),
                     },
                 )
-            artifact = artifacts[loaded.blob_id]
+            artifact = artifacts[loaded.blob_id, loaded.page]
             for field in fields:
                 cell = record.cells[field.id]
                 if not cell.regions:

@@ -5,19 +5,22 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ExtractPageOverlay } from '../../src/workbench/extract/ExtractPageOverlay';
 import { ExtractFields } from '../../src/workbench/extract/ExtractFields';
 import { ExtractPreview } from '../../src/workbench/extract/ExtractPreview';
-import { assignUnclaimedFields, changeRegion, normalizeBox, previewOutcome, regionInsideSpan, removeAnnotation, spanOnPage, templateIssue, textInRegion, type ExtractionTemplate } from '../../src/workbench/extract/types';
+import { assignUnclaimedFields, changeRegion, normalizeBox, previewOutcome, regionInsideSpan, removeAnnotation, spanOnPage, templateDefaults, templateIssue, textInRegion, type ExtractionTemplate } from '../../src/workbench/extract/types';
 vi.mock('../../src/media/pdfjsSetup', () => ({ pdfjsLib: { getDocument: vi.fn(), TextLayer: class {} } }));
 import { DocumentReader } from '../../src/workbench/DocumentReader';
 import { pdfjsLib } from '../../src/media/pdfjsSetup';
 
 const template: ExtractionTemplate = {
-  reference_blob_id: 'example', reference_fingerprint: 'fingerprint', fields: [
+  reference_blob_id: 'example', reference_page: null, reference_fingerprint: 'fingerprint', fields: [
     { id: 'name', name: 'Name', key: { page: 1, box: { x0: .1, x1: .2, y0: .1, y1: .15 } }, value: { page: 1, box: { x0: .3, x1: .6, y0: .1, y1: .15 } }, section_id: null },
   ], sections: [], ignore_bands: [], expand_values: false, look_every_page: true, continue_across_pages: false,
 };
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('visual extraction geometry', () => {
+  it('retains the selected reference page when hydrating a template', () => {
+    expect(templateDefaults({ ...template, reference_page: 2 }).reference_page).toBe(2);
+  });
   it('does not steal assigned fields, and requires both boxes inside the first record', () => {
     const section = { id: 'new', name: 'New records', first: { start: { page: 1, y: .05 }, end: { page: 1, y: .2 } },
       rest: { start: { page: 1, y: .2 }, end: { page: 1, y: .9 } } };

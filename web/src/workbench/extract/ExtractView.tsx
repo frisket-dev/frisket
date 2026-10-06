@@ -31,7 +31,7 @@ export interface ExtractViewProps {
   scopeLabel?: string;
 }
 
-const EMPTY_TEMPLATE: ExtractionTemplate = { reference_blob_id: '', reference_fingerprint: '', fields: [], sections: [], ignore_bands: [], expand_values: false, look_every_page: true, continue_across_pages: false };
+const EMPTY_TEMPLATE: ExtractionTemplate = { reference_blob_id: '', reference_page: null, reference_fingerprint: '', fields: [], sections: [], ignore_bands: [], expand_values: false, look_every_page: true, continue_across_pages: false };
 const TOOLS = [
   { id: 'select', label: 'Select', Icon: MousePointer2 },
   { id: 'key', label: 'Key / value', Icon: ScanLine },
@@ -94,8 +94,10 @@ function ExtractWorkspace({ toolbarTargetId, onExtract, ...props }: ExtractViewP
     page: page.page, width: page.width, height: page.height,
     url: `/api/projects/${encodeURIComponent(projectId)}/blobs/${encodeURIComponent(currentGeometry.blob_id)}/pages/${page.page}/image`,
   })) : undefined, [currentGeometry, activeKind, projectId]);
-  const referenceDocument = currentGeometry?.blob_id === template.reference_blob_id ? currentGeometry : reference;
-  const isReference = !template.reference_blob_id || currentGeometry?.blob_id === template.reference_blob_id;
+  const geometryMatchesReference = currentGeometry?.blob_id === template.reference_blob_id
+    && (currentGeometry.reference_page ?? null) === template.reference_page;
+  const referenceDocument = geometryMatchesReference ? currentGeometry : reference;
+  const isReference = !template.reference_blob_id || geometryMatchesReference;
   const templateKey = JSON.stringify({ template, repeatGroupId, templateName });
 
   useEffect(() => {
@@ -136,7 +138,10 @@ function ExtractWorkspace({ toolbarTargetId, onExtract, ...props }: ExtractViewP
     if (!currentRowId || !sourceColumn) return;
     const controller = new AbortController();
     void documentExtractionApi.document(projectId, sheet.id, String(sourceColumn.id), currentRowId, controller.signal)
-      .then((value) => { if (!controller.signal.aborted) setGeometry({ key: geometryKey, value, error: null }); })
+      .then((value) => { if (!controller.signal.aborted) {
+        setGeometry({ key: geometryKey, value, error: null });
+        setReaderPage(value.reference_page ?? 1);
+      } })
       .catch((cause) => { if (!controller.signal.aborted) setGeometry({ key: geometryKey, value: null, error: errorText(cause) }); });
     return () => controller.abort();
   }, [projectId, sheet.id, sourceColumn, currentRowId, geometryKey]);
@@ -171,6 +176,7 @@ function ExtractWorkspace({ toolbarTargetId, onExtract, ...props }: ExtractViewP
   const draw = (region: PageRegion) => {
     if (!currentGeometry || !loadedTemplates || !isReference) return;
     const base = template.reference_blob_id ? template : { ...template, reference_blob_id: currentGeometry.blob_id,
+      reference_page: currentGeometry.reference_page ?? null,
       reference_fingerprint: currentGeometry.document.source_fingerprint };
     setReference(currentGeometry);
     if (referenceRowId === null) setReferenceRowId(currentGeometry.row_id);

@@ -100,6 +100,7 @@ class IgnoreBand(ExtractionModel):
 
 class ExtractionTemplate(ExtractionModel):
     reference_blob_id: str = Field(min_length=1)
+    reference_page: int | None = Field(default=None, ge=1)
     reference_fingerprint: str = Field(min_length=1)
     fields: list[ExtractionField] = Field(min_length=1, max_length=200)
     sections: list[RepeatedSection] = Field(default_factory=list, max_length=20)

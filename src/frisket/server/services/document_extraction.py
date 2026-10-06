@@ -11,6 +11,7 @@ from frisket.contracts.http.document_extraction import (
 )
 from frisket.engine.executor.document_extraction_read import (
     AdmittedPositionedDocumentReader,
+    DocumentCell,
     document_cell,
     load_positioned_document,
 )
@@ -23,13 +24,16 @@ class DocumentExtractionService:
 
     def document(self, pid, *, sheet_id, column_id, row_id, cancelled=None):
         project = self.workspace.get(pid)
-        blob_id = document_cell(
+        source = document_cell(
             project, sheet_id=sheet_id, column_id=column_id, row_id=row_id
         )
-        loaded = load_positioned_document(project, blob_id, cancelled=cancelled)
+        loaded = load_positioned_document(
+            project, source.blob_id, page=source.page, cancelled=cancelled
+        )
         return ExtractionDocumentResponse(
             row_id=row_id,
-            blob_id=blob_id,
+            blob_id=source.blob_id,
+            reference_page=source.page,
             filename=loaded.filename,
             mime=loaded.mime,
             document=loaded.document,
@@ -106,15 +110,18 @@ class DocumentExtractionService:
             "SELECT id FROM columns WHERE sheet_id=? AND name=? AND active=1",
             (body.sheet_id, body.source),
         ).fetchone()
-        if (
-            column is None
-            or document_cell(
+        reference = (
+            None
+            if column is None
+            else document_cell(
                 project,
                 sheet_id=body.sheet_id,
                 column_id=column["id"],
                 row_id=body.reference_row_id,
             )
-            != body.template.reference_blob_id
+        )
+        if reference is None or reference != DocumentCell(
+            body.template.reference_blob_id, body.template.reference_page
         ):
             raise TableError(
                 "invalid_input_ref",
@@ -125,7 +132,10 @@ class DocumentExtractionService:
         compile_template(
             body.template,
             load_positioned_document(
-                project, body.template.reference_blob_id, cancelled=cancelled
+                project,
+                body.template.reference_blob_id,
+                page=body.template.reference_page,
+                cancelled=cancelled,
             ).document,
         )
         if body.id is not None:

@@ -17,6 +17,7 @@ from frisket.contracts.http.models import WireModel
 class ExtractionDocumentResponse(WireModel):
     row_id: int
     blob_id: str
+    reference_page: int | None = None
     filename: str
     mime: str
     document: PositionedDocument

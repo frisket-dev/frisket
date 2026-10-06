@@ -26,15 +26,16 @@ it('renders octet-stream .pdf sources with the same server geometry used for ann
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => window.setTimeout(() => callback(0), 0));
   vi.stubGlobal('cancelAnimationFrame', (id: number) => window.clearTimeout(id));
   mocks.templates.mockResolvedValue({ templates: [] });
-  mocks.document.mockResolvedValue({ row_id: 1, blob_id: 'example', filename: 'cropped.pdf', mime: 'application/octet-stream',
-    document: { source_fingerprint: 'native:example', pages: [{ page: 1, width: 800, height: 1000, tokens: [] }] } });
+  mocks.document.mockResolvedValue({ row_id: 1, blob_id: 'example', reference_page: 2, filename: 'cropped.pdf', mime: 'application/octet-stream',
+    document: { source_fingerprint: 'native:example:page:2', pages: [{ page: 2, width: 800, height: 1000, tokens: [] }] } });
   render(<ExtractView projectId="p" sheet={{ id: '1', columns: [mocks.browse.sourceColumn] } as SheetMeta}
     state={{ sheetId: '1', sourceColumnId: '1', activeRowId: '1' } as DocumentViewState} onChangeState={vi.fn()}
     onDocumentFocus={vi.fn()} queryDocuments={vi.fn()} hydrateRow={vi.fn()} orderKey="" />);
   await waitFor(() => expect(mocks.reader.mock.lastCall?.[0].pageImages).toEqual([
-    { page: 1, width: 800, height: 1000, url: '/api/projects/p/blobs/example/pages/1/image' },
+    { page: 2, width: 800, height: 1000, url: '/api/projects/p/blobs/example/pages/2/image' },
   ]));
   const props = mocks.reader.mock.lastCall![0];
   expect(props.mediaKind).toBe('pdf');
-  expect(props.renderPageOverlay(1)).not.toBeNull();
+  expect(props.initialPage).toBe(2);
+  expect(props.renderPageOverlay(2)).not.toBeNull();
 });

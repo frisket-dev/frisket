@@ -1,6 +1,7 @@
 """Visual extraction admission, preview and table publication share one matcher."""
 
 from contextlib import closing
+import json
 
 import pytest
 from fastapi import FastAPI
@@ -146,6 +147,241 @@ def request(sheet, template, *, rows=None, key="visual", rename=None):
         "sheet_name": key,
         "idempotency_key": key,
     }
+
+
+def seed_page_scoped_pdf(project):
+    sheet = project.add_sheet("PDF pages")
+    column = project.add_column(sheet, "document", "file")
+    blob = project.add_blob(
+        b"page-scoped fixture", filename="report.pdf", mime="application/pdf"
+    )
+    artifact = record_source_artifact(
+        project,
+        artifact_kind="file",
+        blob_hash=blob,
+        media_type="application/pdf",
+        metadata={
+            "engine": "tesseract",
+            "page_images": {
+                "1": {"source_width": 100, "source_height": 100},
+                "2": {"source_width": 100, "source_height": 100},
+            },
+        },
+    )
+    for page, value in ((1, "FIRST-PAGE"), (2, "SECOND-PAGE")):
+        for text, x0 in (("VALUE", 0.1), (value, 0.4)):
+            record_source_span(
+                project,
+                artifact_id=artifact["id"],
+                span_kind="region",
+                page_start=page,
+                page_end=page,
+                bbox=[
+                    {
+                        "x0": x0,
+                        "y0": 0.1,
+                        "x1": x0 + 0.2,
+                        "y1": 0.15,
+                        "space": "page_normalized",
+                    }
+                ],
+                quote=text,
+            )
+    rows = project.add_rows(
+        sheet,
+        [
+            {
+                "document": {
+                    "blob": blob,
+                    "filename": "report.pdf",
+                    "mime": "application/pdf",
+                    "page": page,
+                }
+            }
+            for page in (1, 2)
+        ],
+        {"document": column},
+    )
+    reference = load_positioned_document(project, blob, page=2)
+    template = ExtractionTemplate(
+        reference_blob_id=blob,
+        reference_page=2,
+        reference_fingerprint=reference.document.source_fingerprint,
+        fields=[
+            {
+                "id": "value",
+                "name": "Value",
+                "key": {
+                    "page": 2,
+                    "box": {"x0": 0.09, "y0": 0.09, "x1": 0.31, "y1": 0.16},
+                },
+                "value": {
+                    "page": 2,
+                    "box": {"x0": 0.39, "y0": 0.09, "x1": 0.7, "y1": 0.16},
+                },
+            }
+        ],
+    )
+    return sheet, column, rows, blob, template
+
+
+def test_page_scoped_pdf_geometry_and_run_only_read_selected_page(tmp_path):
+    from frisket.actions.types import TableError
+    from frisket.contracts.http.document_extraction import ExtractionTemplateSave
+
+    workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
+    workspace.create("Test", project_id="p")
+    project = workspace.get("p")
+    sheet, column, rows, blob, template = seed_page_scoped_pdf(project)
+    service = DocumentExtractionService(workspace)
+
+    geometry = service.document("p", sheet_id=sheet, column_id=column, row_id=rows[1])
+    assert geometry.blob_id == blob
+    assert geometry.reference_page == 2
+    assert [page.page for page in geometry.document.pages] == [2]
+    assert [token.text for token in geometry.document.pages[0].tokens] == [
+        "VALUE",
+        "SECOND-PAGE",
+    ]
+    saved = service.save(
+        "p",
+        ExtractionTemplateSave(
+            sheet_id=sheet,
+            source="document",
+            reference_row_id=rows[1],
+            template=template,
+            name="Second page",
+        ),
+    )
+    assert saved.spec.params.template.reference_page == 2
+    with pytest.raises(TableError, match="Reference document no longer matches"):
+        service.save(
+            "p",
+            ExtractionTemplateSave(
+                sheet_id=sheet,
+                source="document",
+                reference_row_id=rows[0],
+                template=template,
+                name="Wrong page",
+            ),
+        )
+
+    result = run_typed_create_sheet_action(
+        project,
+        "p",
+        typed_action_for_request(
+            request(sheet, template, rows=[rows[1]], key="page-two")
+        ),
+    )
+    assert result.status == "completed", result.errors
+    output = result.outputs[0].ref
+    assert list(
+        project.get_values(output["sheet_id"], output["columns"]["Value"]).values()
+    ) == ["SECOND-PAGE"]
+    assert "FIRST-PAGE" not in str(result.model_dump(mode="json"))
+    citation = project.db.execute(
+        "SELECT sp.page_start,sa.page_count,sa.metadata FROM evidence_links el "
+        "JOIN evidence_link_spans els ON els.link_id=el.id "
+        "JOIN source_spans sp ON sp.id=els.span_id "
+        "JOIN source_artifacts sa ON sa.id=sp.artifact_id "
+        "WHERE el.sheet_id=? AND el.column_id=?",
+        (output["sheet_id"], output["columns"]["Value"]),
+    ).fetchone()
+    assert (citation["page_start"], citation["page_count"]) == (2, 2)
+    assert json.loads(citation["metadata"])["source_page"] == 2
+
+
+def test_page_scoped_pdf_revalidation_rejects_same_blob_page_change(tmp_path):
+    from frisket.actions.types import SheetRows, TableError
+    from frisket.engine.executor.document_extraction_read import (
+        AdmittedPositionedDocumentReader,
+    )
+
+    with closing(Project.create(tmp_path / "project")) as project:
+        sheet, column, rows, blob, template = seed_page_scoped_pdf(project)
+        params = DocumentExtractParams(source="document", template=template)
+        reader = AdmittedPositionedDocumentReader(
+            project,
+            scope=SheetRows(sheet_id=sheet, row_ids=[rows[1]]),
+            params=params,
+        )
+        try:
+            [(source, _loaded, extracted)] = list(reader.document_results(params))
+            assert extracted.records[0].cells["value"].text == "SECOND-PAGE"
+            project.apply_edits(
+                [
+                    {
+                        "row_id": source.row_id,
+                        "column_id": column,
+                        "value": {
+                            "blob": blob,
+                            "filename": "report.pdf",
+                            "mime": "application/pdf",
+                            "page": 1,
+                        },
+                    }
+                ]
+            )
+            with pytest.raises(TableError, match="Source document changed"):
+                reader.revalidate()
+        finally:
+            reader.close()
+
+
+def test_native_pdf_page_is_selected_before_positioned_text_extraction(
+    tmp_path, monkeypatch
+):
+    import io
+
+    from pypdf import PdfReader, PdfWriter
+
+    from frisket.actions.document_extraction_types import (
+        Box,
+        PositionedPage,
+        PositionedToken,
+    )
+    from frisket.engine import pdf_text
+
+    writer = PdfWriter()
+    writer.add_blank_page(width=111, height=222)
+    writer.add_blank_page(width=333, height=444)
+    raw = io.BytesIO()
+    writer.write(raw)
+    writer.close()
+
+    seen = {}
+
+    async def extract_selected(path, *, should_cancel=None):
+        del should_cancel
+        selected = PdfReader(path)
+        seen["pages"] = len(selected.pages)
+        seen["width"] = float(selected.pages[0].mediabox.width)
+        return [
+            PositionedPage(
+                page=1,
+                width=333,
+                height=444,
+                tokens=[
+                    PositionedToken(
+                        text="SECOND-PAGE",
+                        box=Box(x0=0.1, y0=0.1, x1=0.5, y1=0.2),
+                    )
+                ],
+            )
+        ]
+
+    monkeypatch.setattr(pdf_text, "extract_pdf_text", extract_selected)
+    with closing(Project.create(tmp_path / "project")) as project:
+        blob = project.add_blob(
+            raw.getvalue(), filename="native.pdf", mime="application/pdf"
+        )
+        loaded = load_positioned_document(project, blob, page=2)
+
+    assert seen == {"pages": 1, "width": 333.0}
+    assert loaded.page == 2
+    assert loaded.page_count == 2
+    assert [page.page for page in loaded.document.pages] == [2]
+    assert loaded.document.pages[0].tokens[0].text == "SECOND-PAGE"
 
 
 def test_actual_run_blank_citation_and_replay(tmp_path):
