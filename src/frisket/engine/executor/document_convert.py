@@ -755,9 +755,7 @@ def write_document_convert_evidence(
             producer={"action_kind": spec["action_kind"], "engine": engine},
             metadata={
                 "provenance_for": "row_execution",
-                "grounding_granularity": (
-                    "page" if page_scoped else "whole_document"
-                ),
+                "grounding_granularity": ("page" if page_scoped else "whole_document"),
             },
         )
         store._record_writer_evidence(

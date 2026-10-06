@@ -209,7 +209,9 @@ def test_markitdown_pdf_page_cell_converts_only_selected_page(project, monkeypat
     sheet, _, row_id = _seed(project, value, coltype="file")
     result = _execute(project, sheet, "markitdown")
     assert result.status == "completed", result.errors
-    converted = next(c["id"] for c in project.columns(sheet) if c["name"] == "converted")
+    converted = next(
+        c["id"] for c in project.columns(sheet) if c["name"] == "converted"
+    )
     assert project.get_values(sheet, converted)[row_id] == "Second page"
     assert seen["path"].endswith(".pdf")
     assert _reads(project, result)[0]["document_read"]["page"] == 2

@@ -181,9 +181,12 @@ def test_pdf_publication_retains_pages_original_and_replays_without_source(
             "prepared_content_ref",
             "prepared_content_ref",
         ]
-        assert project.db.execute(
-            "SELECT COUNT(*) FROM prepared_content_sets"
-        ).fetchone()[0] == 1
+        assert (
+            project.db.execute("SELECT COUNT(*) FROM prepared_content_sets").fetchone()[
+                0
+            ]
+            == 1
+        )
         prepared_pages = project.db.execute(
             "SELECT page_number,prepared_text FROM prepared_page_versions "
             "ORDER BY page_number"
@@ -319,9 +322,12 @@ def test_pdf_page_text_failure_keeps_empty_cell_without_prepared_version(
             "prepared_content_ref",
             "text",
         ]
-        assert project.db.execute(
-            "SELECT COUNT(*) FROM prepared_page_versions"
-        ).fetchone()[0] == 1
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM prepared_page_versions"
+            ).fetchone()[0]
+            == 1
+        )
         assert [
             value["page"]
             for value in project.get_values(sheet_id, columns["source"]).values()

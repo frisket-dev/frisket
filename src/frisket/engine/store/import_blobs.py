@@ -15,7 +15,10 @@ from frisket.engine.store.evidence import (
 from frisket.engine.store.blob_backend import BlobIntegrityError, ProjectBlobStore
 from frisket.engine.store.project_blobs import publish_prepared_blob
 from frisket.engine.store.cell_writes import BaseCellWrite, replace_base_cells
-from frisket.engine.store.prepared_content import PreparedContentStore, PreparedPageDraft
+from frisket.engine.store.prepared_content import (
+    PreparedContentStore,
+    PreparedPageDraft,
+)
 from frisket.engine.store.value_codec import PreparedContentRef
 
 
