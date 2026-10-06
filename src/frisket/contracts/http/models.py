@@ -289,6 +289,7 @@ class SheetDataValueRef(WireModel):
     row_id: int
     column_id: int
     run_id: int | None
+    prepared_ref_id: int | None = Field(default=None, gt=0)
 
 
 class SheetDataPendingValue(WireModel):

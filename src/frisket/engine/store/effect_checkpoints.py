@@ -349,7 +349,6 @@ class EffectCheckpointStore:
         ``accounting_persisted`` is set so a later idempotent
         :meth:`account_returned` replays free."""
 
-        encoded = _returned_payload_json(payload)
         with self._txn():
             checkpoint = self._verified_unit(
                 checkpoint_id,
@@ -368,6 +367,7 @@ class EffectCheckpointStore:
                 authorized_attempt_id=checkpoint["authorized_attempt_id"],
             )
             cost = 0.0 if accrue is None else float(accrue(checkpoint))
+            encoded = _returned_payload_json(payload)
             updated = self.db.execute(
                 "UPDATE effect_checkpoints SET state='returned', payload=?, "
                 "accounting_persisted=? WHERE id=? AND state='reserved'",

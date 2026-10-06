@@ -26,7 +26,11 @@ from frisket.engine.store.effect_checkpoints import (
 )
 from frisket.engine.store.import_sessions import require_import_sheet_write
 from frisket.engine.store.prepared_content import decode_logical_value
-from frisket.engine.store.value_codec import encode_stored_value
+from frisket.engine.store.value_codec import PreparedContentRef, encode_stored_value
+from frisket.engine.store.prepared_ocr import (
+    prepare_ocr_results,
+    hydrate_prepared_results,
+)
 from frisket.redaction import redact_text
 
 _RUN_SCOPE_INSERT_CHUNK_SIZE = 1000
@@ -609,13 +613,6 @@ class RunResultStore:
         if requested and requested <= managed:
             return f"{alias}.publication_effect IS NOT NULL"
         return f"{alias}.outcome IN ({_DONE_OUTCOMES_SQL})"
-
-    def result_rows_for_column(self, run_id: int, column_id: int) -> list[sqlite3.Row]:
-        return self.db.execute(
-            "SELECT row_id, value, justification FROM results "
-            "WHERE run_id=? AND column_id=? ORDER BY row_id",
-            (run_id, column_id),
-        ).fetchall()
 
     def decoded_result_rows(
         self,
@@ -1251,6 +1248,8 @@ class RunResultStore:
     def _insert_result_values_uncommitted(
         self, run_id: int, batch: list[dict[str, Any]]
     ) -> tuple[set[int], dict[int, bool]]:
+        prepare_ocr_results(self.project, run_id, batch)
+        hydrate_prepared_results(self.project, batch)
         rows_in_batch = {int(item["row_id"]) for item in batch}
         before_states = self.result_row_failure_states(run_id, rows_in_batch)
         encoded_batch = []
@@ -1261,7 +1260,12 @@ class RunResultStore:
             ):
                 value_kind, value = None, None
             else:
-                value_kind, value = encode_stored_value(result.get("value"))
+                stored_value = (
+                    PreparedContentRef(result["prepared_ref_id"])
+                    if "prepared_ref_id" in result
+                    else result.get("value")
+                )
+                value_kind, value = encode_stored_value(stored_value)
             encoded_batch.append((result, value_kind, value))
         self.db.executemany(
             "INSERT INTO results (run_id, row_id, column_id, value_kind, value, tokens_in, "
@@ -2408,6 +2412,8 @@ class RunResultStore:
         )
         if row is None:
             return None
+        if isinstance(row["payload"], dict):
+            hydrate_prepared_results(self.project, list(row["payload"].values()))
         return {
             "id": row["id"],
             "run_id": int(row["group_key"]),
@@ -2489,6 +2495,9 @@ class RunResultStore:
             )
 
             register_returned_row_files(self.project, replay_response)
+            prepare_ocr_results(
+                self.project, run_id, [*batch, *replay_response.values()]
+            )
             record_row_file_calls(
                 self.project,
                 batch,
@@ -2506,7 +2515,7 @@ class RunResultStore:
                 commit=False,
             )
 
-        return self._effect_store().complete(
+        cost = self._effect_store().complete(
             checkpoint_id,
             family=ROW_EFFECT_CHECKPOINT_FAMILY,
             group_key=str(int(run_id)),
@@ -2520,6 +2529,8 @@ class RunResultStore:
             claim_token=claim_token,
             claimless_direct_effect=claimless_direct_effect,
         )
+        hydrate_prepared_results(self.project, list(replay_response.values()))
+        return cost
 
     def consume_returned_row_effect_checkpoint(
         self,

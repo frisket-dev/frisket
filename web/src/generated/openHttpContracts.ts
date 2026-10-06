@@ -9404,6 +9404,7 @@ type HttpSheetData_SheetDataValueRef = ({
   "column_id": (number);
   "kind": (string);
   "op_id": (((number)) | ((null)));
+  "prepared_ref_id"?: (((number)) | ((null)));
   "row_id": (number);
   "run_id": (((number)) | ((null)));
 });
