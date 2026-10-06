@@ -17,6 +17,10 @@ from frisket.execution.resolver import preview_resolution_in_scope
 from frisket.ai.models.metadata import model_calls_cost_actual
 from frisket.ops import ocr_engines as engines
 from frisket.engine.executor.blob_outputs import RowBlobOutput, RowBlobPlan
+from frisket.engine.executor.pdf_page_source import (
+    PdfPageSourceError,
+    materialize_pdf_page,
+)
 from frisket.engine.executor.visual_cuts_read import _settle
 from frisket.engine.store.artifact_timeline import canonical_json_hash
 from frisket.engine.store.media_blobs import (
@@ -198,7 +202,15 @@ class _BoundOcrReader:
         blob = MediaBlobStore(project).blob_row(value["blob"])
         if blob is None:
             raise RowError("missing_blob", "OCR source blob is missing")
-        return {
+        page = value.get("page")
+        if page is not None and (
+            type(page) is not int or page < 1 or column["type"] != "file"
+        ):
+            raise RowError(
+                "invalid_media_cell",
+                "OCR PDF page selector requires a positive integer file page",
+            )
+        source_ref = {
             "sheet_id": self._sheet_id,
             "row_id": self._row_id,
             "column_id": captured["column_id"],
@@ -212,6 +224,9 @@ class _BoundOcrReader:
             ),
             "size": blob["size"],
         }
+        if page is not None:
+            source_ref["page"] = page
+        return source_ref
 
     async def recognize(self, row, source, *, options):
         owner = self._owner
@@ -236,24 +251,47 @@ class _BoundOcrReader:
         usage = {"calls": 0, "in": 0, "out": 0, "cost": 0.0, "duration_ms": 0}
         pages = []
         with owner._project.materialize_blob(source["blob_hash"]) as raw_path:
-            path = Path(raw_path)
+            original_path = Path(raw_path)
             with tempfile.TemporaryDirectory(prefix="frisket-ocr-") as td:
                 scratch = Path(td)
-                if owner._engines._is_pdf(path, source):
+                is_pdf = owner._engines._is_pdf(original_path, source)
+                selected_page = source.get("page")
+                if selected_page is not None and not is_pdf:
+                    raise RowError(
+                        "invalid_media_cell", "OCR page selector requires a PDF source"
+                    )
+                path = original_path
+                page_count = None
+                if is_pdf:
+                    probe = MediaBlobStore(owner._project).probe_metadata(
+                        source["blob_hash"]
+                    )
+                    page_count = probe.get("pages")
+                    if type(page_count) is not int or page_count <= 0:
+                        page_count = owner._engines._pdf_page_count(
+                            original_path, source["blob_hash"]
+                        )
+                    if selected_page is not None:
+                        try:
+                            path = materialize_pdf_page(
+                                original_path,
+                                page=selected_page,
+                                destination=scratch / "selected-page.pdf",
+                            )
+                        except PdfPageSourceError as exc:
+                            raise RowError("invalid_media_cell", str(exc)) from exc
                     limits = ctx.execution_limits
                     if limits is not None and limits.max_pdf_pages is not None:
-                        probe = MediaBlobStore(owner._project).probe_metadata(
-                            source["blob_hash"]
+                        enforce_pdf_page_limit(
+                            limits.max_pdf_pages,
+                            1 if selected_page is not None else page_count,
                         )
-                        count = probe.get("pages")
-                        if type(count) is not int or count <= 0:
-                            count = owner._engines._pdf_page_count(
-                                path, source["blob_hash"]
-                            )
-                        enforce_pdf_page_limit(limits.max_pdf_pages, count)
                 page_paths = await owner._engines._page_images(
                     path, source, options, scratch
                 )
+                if type(page_count) is not int or page_count <= 0:
+                    page_count = len(page_paths)
+                source["page_count"] = page_count
                 usage["input_pages"] = len(page_paths)
                 returned = False
                 try:
@@ -287,11 +325,28 @@ class _BoundOcrReader:
                                 "model_calls": calls,
                             }
                         )
-                text = "\n\n".join(p["text"] for p in pages if p.get("text")).strip()
-                blocks = [
-                    {"page": i + 1, "engine": engine, "blocks": p.get("blocks", [])}
-                    for i, p in enumerate(pages)
-                ]
+                if selected_page is not None and len(pages) != 1:
+                    raise RuntimeError("page-scoped OCR must return exactly one page")
+                pdf = (
+                    self._searchable_pdf(source, path, pages, engine, scratch)
+                    if options["searchable_pdf"] and not owner._files.preview
+                    else Outcome.ok(None)
+                )
+                fact_pages = []
+                blocks = []
+                for index, page in enumerate(pages, 1):
+                    physical_page = selected_page or index
+                    page_fact = copy.deepcopy(page)
+                    page_fact["page_number"] = physical_page
+                    fact_pages.append(page_fact)
+                    blocks.append(
+                        {
+                            "page": physical_page,
+                            "engine": engine,
+                            "blocks": copy.deepcopy(page.get("blocks", [])),
+                        }
+                    )
+                text = "\n\n".join(str(page.get("text") or "") for page in pages)
                 fact = {
                     "kind": "ocr_read",
                     "call_id": uuid.uuid4().hex,
@@ -300,25 +355,26 @@ class _BoundOcrReader:
                     "source": source,
                     "text": text,
                     "blocks": copy.deepcopy(blocks),
-                    "pages": copy.deepcopy(pages),
-                    "page_images": self._page_images(source, path, page_paths, scratch),
+                    "pages": fact_pages,
+                    "page_images": self._page_images(
+                        source,
+                        path,
+                        page_paths,
+                        scratch,
+                        first_page=selected_page or 1,
+                    ),
                 }
                 owner.calls_by_row[self._row_id] = [copy.deepcopy(fact)]
-                pdf = (
-                    self._searchable_pdf(source, path, pages, engine, scratch)
-                    if options["searchable_pdf"] and not owner._files.preview
-                    else Outcome.ok(None)
-                )
                 return RecognizedDocument(text=OcrText(text), blocks=blocks, pdf=pdf)
 
-    def _page_images(self, source, original, paths, scratch):
+    def _page_images(self, source, original, paths, scratch, *, first_page=1):
         if self._owner._files.preview:
             return {}
         from PIL import Image
 
         images = {}
         is_pdf = self._owner._engines._is_pdf(original, source)
-        for index, path in enumerate(paths, 1):
+        for index, path in enumerate(paths, first_page):
             if is_pdf:
                 with Image.open(path) as image:
                     width, height = image.size

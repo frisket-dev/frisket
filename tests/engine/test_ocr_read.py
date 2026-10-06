@@ -22,6 +22,8 @@ from frisket.engine.executor import run_action_spec
 from frisket.engine.store.runs import RunResultStore
 from frisket.ops.base import OpContext, RecipeInvocationHalt
 
+pypdf = pytest.importorskip("pypdf")
+
 
 def _execute(source, monkeypatch, engine, **options):
     from frisket.actions.core import RegisteredAction
@@ -53,6 +55,16 @@ def _png(width=12, height=8):
     return out.getvalue()
 
 
+def _pdf_bytes(*sizes: tuple[int, int]) -> bytes:
+    writer = pypdf.PdfWriter()
+    for width, height in sizes:
+        writer.add_blank_page(width=width, height=height)
+    output = BytesIO()
+    writer.write(output)
+    writer.close()
+    return output.getvalue()
+
+
 @pytest.fixture
 def source(tmp_path):
     with closing(Project.create(tmp_path / "ocr.frisket")) as project:
@@ -81,7 +93,13 @@ async def _reader(source, *, options=None, preview=False, engine="tesseract"):
             sheet_id=sheet,
             row_id=row_id,
             sources={
-                "scan": {"column_id": column, "column_type": "image", "value": value}
+                "scan": {
+                    "column_id": column,
+                    "column_type": project.db.execute(
+                        "SELECT type FROM columns WHERE id=?", (column,)
+                    ).fetchone()[0],
+                    "value": value,
+                }
             },
             ctx=ctx,
         )
@@ -311,6 +329,102 @@ async def test_pdf_retains_geometry_without_display_blob_and_stages_searchable_p
         assert (
             project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == blob_count
         )
+
+
+@pytest.mark.asyncio
+async def test_pdf_page_source_ocr_remaps_facts_to_original_page(
+    source, recognition, monkeypatch
+):
+    project, sheet, column, row_id, _ = source
+    raw = _pdf_bytes((111, 222), (333, 444))
+    digest = project.add_blob(raw, filename="report.pdf", mime="application/pdf")
+    value = {
+        "blob": digest,
+        "filename": "report.pdf",
+        "mime": "application/pdf",
+        "page": 2,
+    }
+    project.db.execute("UPDATE columns SET type='file' WHERE id=?", (column,))
+    project.db.commit()
+    source = (project, sheet, column, row_id, value)
+
+    async def pages(self, path, media, options, scratch):
+        selected = pypdf.PdfReader(path)
+        assert len(selected.pages) == 1
+        assert float(selected.pages[0].mediabox.width) == 333
+        output = scratch / "page-1.png"
+        output.write_bytes(_png(300, 400))
+        return [output]
+
+    def compose(pdf, pages, **kwargs):
+        assert len(pypdf.PdfReader(BytesIO(pdf)).pages) == 1
+        assert "page_number" not in pages[0]
+        return (
+            b"%PDF-searchable",
+            [SimpleNamespace(index=1, degraded=False, painted_count=1)],
+        )
+
+    monkeypatch.setattr(engines.OcrEngines, "_page_images", pages)
+    monkeypatch.setattr(
+        "frisket.ops.searchable_pdf.compose_searchable_pdf",
+        compose,
+    )
+    async with _reader(source, options=OcrOptions(searchable_pdf=True)) as (
+        owner,
+        reader,
+        row,
+        options,
+    ):
+        result = await reader.recognize(row, ColumnRef("scan"), options=options)
+        assert result.text.root == "Revenue 42"
+        assert result.blocks[0]["page"] == 2
+        assert isinstance(result.pdf.value, StagedFile)
+        (fact,) = owner.calls_by_row[row_id]
+        assert fact["source"]["page"] == 2
+        assert fact["source"]["page_count"] == 2
+        assert fact["pages"][0]["page_number"] == 2
+        assert fact["blocks"][0]["page"] == 2
+        assert list(fact["page_images"]) == ["2"]
+        assert fact["page_images"]["2"]["mime"] == "application/pdf"
+        with project.materialize_blob(digest) as stored:
+            assert stored.read_bytes() == raw
+
+
+@pytest.mark.asyncio
+async def test_pdf_ocr_preserves_blank_page_separators(source, monkeypatch):
+    project, sheet, column, row_id, _ = source
+    raw = _pdf_bytes((100, 100), (100, 100), (100, 100))
+    digest = project.add_blob(raw, filename="three.pdf", mime="application/pdf")
+    value = {"blob": digest, "filename": "three.pdf", "mime": "application/pdf"}
+    project.db.execute("UPDATE columns SET type='file' WHERE id=?", (column,))
+    project.db.commit()
+    source = (project, sheet, column, row_id, value)
+
+    async def page_images(self, path, media, options, scratch):
+        outputs = []
+        for page in range(1, 4):
+            output = scratch / f"page-{page}.png"
+            output.write_bytes(_png())
+            outputs.append(output)
+        return outputs
+
+    async def recognize(self, engine, pages, ctx, **kwargs):
+        return [
+            {"text": "First", "blocks": []},
+            {"text": "", "blocks": []},
+            {"text": "Third", "blocks": []},
+        ]
+
+    monkeypatch.setattr(engines.OcrEngines, "_page_images", page_images)
+    monkeypatch.setattr(engines.OcrEngines, "run_engine_on_pages", recognize)
+    async with _reader(source) as (owner, reader, row, options):
+        result = await reader.recognize(row, ColumnRef("scan"), options=options)
+        assert result.text.root == "First\n\n\n\nThird"
+        (fact,) = owner.calls_by_row[row_id]
+        assert fact["text"] == result.text.root
+        assert fact["source"]["page_count"] == 3
+        assert [page["page_number"] for page in fact["pages"]] == [1, 2, 3]
+        assert list(fact["page_images"]) == ["1", "2", "3"]
 
 
 @pytest.mark.asyncio
