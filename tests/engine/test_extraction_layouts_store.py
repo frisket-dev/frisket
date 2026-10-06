@@ -17,6 +17,7 @@ from frisket.contracts.http.document_extraction import (
 )
 from frisket.engine.store import Project
 from frisket.engine.store import extraction_layouts as layouts
+from frisket.engine.store import extraction_layouts_migration as migration
 from frisket.engine.store.extraction_layouts_migration import (
     EXTRACTION_LAYOUTS_FROM_DIGEST,
     EXTRACTION_LAYOUTS_TO_DIGEST,
@@ -25,6 +26,7 @@ from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
 from frisket.server.services.document_extraction import DocumentExtractionService
 from frisket.server.workspace import Workspace
 from tests.engine.test_visual_document_extraction_action import seed
+from tests.engine.test_bundle_schema_fence import _remove_extraction_layouts
 
 
 def save(project, sheet, template, **kwargs):
@@ -214,6 +216,134 @@ def test_saved_workspace_templates_are_copied_once_without_deleting_originals(tm
         == template.model_dump()["fields"]
     )
     assert workspace.saved_recipe_by_id(original["id"]) == original
+
+
+def test_bad_saved_recipe_does_not_hide_existing_layouts_or_valid_imports(
+    tmp_path, caplog
+):
+    workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
+    workspace.create("Recipes", project_id="p")
+    project = workspace.get("p")
+    sheet, column, rows, template = seed(project)
+    existing = save(project, sheet, template)
+    spec = {
+        "action_kind": "media.extract_document",
+        "project_id": "p",
+        "sheet_id": sheet,
+        "reference_row_id": rows[0],
+        "params": {"source": "document", "template": template.model_dump()},
+    }
+    invalid_template = {
+        **spec,
+        "params": {
+            "source": "document",
+            "template": {"fields": "private-invalid-value"},
+        },
+    }
+    invalid_reference = {**spec, "reference_row_id": {"unexpected": "object"}}
+    workspace.save_recipe("Invalid template", invalid_template)
+    workspace.save_recipe("Invalid reference", invalid_reference)
+    workspace.save_recipe("Valid", spec)
+    originals = workspace.saved_recipes()
+    response = DocumentExtractionService(workspace).templates("p", sheet, "document")
+    assert [item.name for item in response.templates] == ["Layout 1", "Layout 2"]
+    assert response.templates[0].id == existing["id"]
+    assert (
+        response.templates[1].draft.model_dump()["fields"]
+        == template.model_dump()["fields"]
+    )
+    assert workspace.saved_recipes() == originals
+    assert caplog.text.count("Skipped an invalid saved extraction template") == 2
+    assert "private-invalid-value" not in caplog.text
+
+
+def test_saved_template_import_does_not_swallow_database_failure(tmp_path, monkeypatch):
+    workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
+    workspace.create("Recipes", project_id="p")
+    project = workspace.get("p")
+    sheet, column, rows, template = seed(project)
+    workspace.save_recipe(
+        "Valid",
+        {
+            "action_kind": "media.extract_document",
+            "project_id": "p",
+            "sheet_id": sheet,
+            "reference_row_id": rows[0],
+            "params": {"source": "document", "template": template.model_dump()},
+        },
+    )
+
+    def failed_write(*args, **kwargs):
+        raise sqlite3.OperationalError("database write failed")
+
+    monkeypatch.setattr(layouts, "save_layout", failed_write)
+    with pytest.raises(sqlite3.OperationalError, match="database write failed"):
+        DocumentExtractionService(workspace).templates("p", sheet, "document")
+
+
+def _prior_layout_bundle(path):
+    Project.create(path).close()
+    with sqlite3.connect(path / "project.db") as db:
+        _remove_extraction_layouts(db)
+        db.execute(
+            "UPDATE meta SET value=? WHERE key=?",
+            (EXTRACTION_LAYOUTS_FROM_DIGEST, SCHEMA_DIGEST_META_KEY),
+        )
+
+
+def test_layout_migration_refuses_preexisting_tables_without_stamping(tmp_path):
+    path = tmp_path / "project"
+    _prior_layout_bundle(path)
+    with sqlite3.connect(path / "project.db") as db:
+        db.execute("CREATE TABLE extraction_layouts (unexpected TEXT)")
+        db.execute("INSERT INTO extraction_layouts VALUES ('keep')")
+    with pytest.raises(sqlite3.OperationalError, match="already exists"):
+        Project(path)
+    with sqlite3.connect(path / "project.db") as db:
+        assert db.execute("SELECT unexpected FROM extraction_layouts").fetchone() == (
+            "keep",
+        )
+        assert (
+            db.execute(
+                "SELECT value FROM meta WHERE key=?", (SCHEMA_DIGEST_META_KEY,)
+            ).fetchone()[0]
+            == EXTRACTION_LAYOUTS_FROM_DIGEST
+        )
+        assert (
+            db.execute(
+                "SELECT name FROM sqlite_master WHERE name='extraction_layout_selection'"
+            ).fetchone()
+            is None
+        )
+
+
+def test_layout_migration_rejects_unfinished_statement_atomically(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "project"
+    _prior_layout_bundle(path)
+    monkeypatch.setattr(
+        migration,
+        "EXTRACTION_LAYOUTS_SCHEMA_SQL",
+        migration.EXTRACTION_LAYOUTS_SCHEMA_SQL + "\nCREATE TABLE unfinished (",
+    )
+    with pytest.raises(
+        RuntimeError, match="incomplete extraction layouts migration DDL"
+    ):
+        Project(path)
+    with sqlite3.connect(path / "project.db") as db:
+        assert (
+            db.execute(
+                "SELECT value FROM meta WHERE key=?", (SCHEMA_DIGEST_META_KEY,)
+            ).fetchone()[0]
+            == EXTRACTION_LAYOUTS_FROM_DIGEST
+        )
+        assert (
+            db.execute(
+                "SELECT name FROM sqlite_master WHERE name LIKE 'extraction_layout%'"
+            ).fetchall()
+            == []
+        )
 
 
 def test_prior_bundle_upgrade_preserves_source_cells_and_op_history(tmp_path):

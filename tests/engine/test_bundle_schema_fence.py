@@ -304,9 +304,19 @@ def _legacy_json(value_kind: str | None, value: object) -> str | None:
     return json.dumps(decode_stored_value(value_kind, value), allow_nan=False)
 
 
+def _remove_extraction_layouts(db: sqlite3.Connection) -> None:
+    for table in (
+        "extraction_layout_documents",
+        "extraction_layout_selection",
+        "extraction_layouts",
+    ):
+        db.execute(f"DROP TABLE IF EXISTS {table}")
+
+
 def _restore_legacy_authorities(db: sqlite3.Connection) -> None:
     """Downgrade fresh typed fixtures before exercising historical upgrades."""
 
+    _remove_extraction_layouts(db)
     db.execute("DROP TABLE run_review_fields")
     db.execute("DROP INDEX idx_cell_result_heads_run")
     db.execute("DROP INDEX idx_columns_current_run")

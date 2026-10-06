@@ -27,10 +27,14 @@ def migrate_extraction_layouts(db: sqlite3.Connection) -> None:
         if row is not None and row[0] == EXTRACTION_LAYOUTS_FROM_DIGEST:
             statement = ""
             for line in EXTRACTION_LAYOUTS_SCHEMA_SQL.splitlines(keepends=True):
+                if line.lstrip().startswith("--"):
+                    continue
                 statement += line
                 if sqlite3.complete_statement(statement):
-                    db.execute(statement)
+                    db.execute(statement.replace(" IF NOT EXISTS", ""))
                     statement = ""
+            if statement.strip():
+                raise RuntimeError("incomplete extraction layouts migration DDL")
             db.execute(
                 "UPDATE meta SET value=? WHERE key=?",
                 (EXTRACTION_LAYOUTS_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
