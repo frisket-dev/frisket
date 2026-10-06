@@ -384,6 +384,100 @@ def test_native_pdf_page_is_selected_before_positioned_text_extraction(
     assert loaded.document.pages[0].tokens[0].text == "SECOND-PAGE"
 
 
+def test_page_scoped_ocr_only_suppresses_native_fallback_for_its_page(
+    tmp_path, monkeypatch
+):
+    import io
+
+    from pypdf import PdfReader, PdfWriter
+
+    from frisket.actions.document_extraction_types import (
+        Box,
+        PositionedPage,
+        PositionedToken,
+    )
+    from frisket.engine import pdf_text
+
+    writer = PdfWriter()
+    writer.add_blank_page(width=111, height=222)
+    writer.add_blank_page(width=333, height=444)
+    raw = io.BytesIO()
+    writer.write(raw)
+    writer.close()
+    native_calls = []
+
+    async def extract_selected(path, *, should_cancel=None):
+        del should_cancel
+        page_count = len(PdfReader(path).pages)
+        native_calls.append(page_count)
+        return [
+            PositionedPage(
+                page=page,
+                width=111 if page == 1 else 333,
+                height=222 if page == 1 else 444,
+                tokens=[
+                    PositionedToken(
+                        text=f"NATIVE-PAGE{page}",
+                        box=Box(x0=0.1, y0=0.1, x1=0.5, y1=0.2),
+                    )
+                ],
+            )
+            for page in range(1, page_count + 1)
+        ]
+
+    monkeypatch.setattr(pdf_text, "extract_pdf_text", extract_selected)
+    with closing(Project.create(tmp_path / "project")) as project:
+        blob = project.add_blob(
+            raw.getvalue(), filename="mixed.pdf", mime="application/pdf"
+        )
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            blob_hash=blob,
+            media_type="application/pdf",
+            page_count=2,
+            metadata={
+                "engine": "tesseract",
+                "page_images": {"2": {"source_width": 333, "source_height": 444}},
+            },
+        )
+        record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="region",
+            page_start=2,
+            page_end=2,
+            bbox=[
+                {
+                    "x0": 0.1,
+                    "y0": 0.1,
+                    "x1": 0.5,
+                    "y1": 0.2,
+                    "space": "page_normalized",
+                }
+            ],
+            quote="OCR-PAGE2",
+        )
+
+        ocr = load_positioned_document(project, blob, page=2)
+        native = load_positioned_document(project, blob, page=1)
+        whole = load_positioned_document(project, blob)
+
+    assert native_calls == [1, 2]
+    assert ocr.artifact_id == artifact["id"]
+    assert ocr.document.pages[0].page == 2
+    assert ocr.document.pages[0].tokens[0].text == "OCR-PAGE2"
+    assert native.artifact_id is None
+    assert native.document.pages[0].page == 1
+    assert native.document.pages[0].tokens[0].text == "NATIVE-PAGE1"
+    assert whole.artifact_id is None
+    assert [page.page for page in whole.document.pages] == [1, 2]
+    assert [page.tokens[0].text for page in whole.document.pages] == [
+        "NATIVE-PAGE1",
+        "NATIVE-PAGE2",
+    ]
+
+
 def test_actual_run_blank_citation_and_replay(tmp_path):
     with closing(Project.create(tmp_path / "project")) as project:
         sheet, column, row_ids, template = seed(project)

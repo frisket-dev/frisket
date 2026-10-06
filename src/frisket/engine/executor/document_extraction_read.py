@@ -86,7 +86,13 @@ class DocumentIdentity:
         )
 
 
-def _ocr_pages(project, blob_id):
+def _ocr_pages(
+    project,
+    blob_id,
+    *,
+    page: int | None = None,
+    require_complete: bool = False,
+):
     """Keep actual OCR geometry, including line/block granularity and blank pages."""
     for resolved in iter_ocr_word_streams(project, blob_id):
         tokens = {}
@@ -131,6 +137,23 @@ def _ocr_pages(project, blob_id):
             and any(page.tokens for page in pages)
             and set(tokens) <= {page.page for page in pages}
         ):
+            if page is not None:
+                pages = [positioned for positioned in pages if positioned.page == page]
+                if not pages or not any(positioned.tokens for positioned in pages):
+                    continue
+            elif require_complete:
+                artifact = project.db.execute(
+                    "SELECT page_count FROM source_artifacts WHERE id=?",
+                    (resolved.artifact_id,),
+                ).fetchone()
+                page_count = artifact["page_count"] if artifact is not None else None
+                if (
+                    type(page_count) is not int
+                    or page_count < 1
+                    or {positioned.page for positioned in pages}
+                    != set(range(1, page_count + 1))
+                ):
+                    continue
             return pages, resolved.artifact_id
     return [], None
 
@@ -155,7 +178,13 @@ def load_positioned_document(
         raise TableError(
             "invalid_input_ref", "Document page selector must be a positive integer"
         )
-    pages, artifact_id = _ocr_pages(project, blob_id)
+    is_pdf = mime == "application/pdf" or filename.lower().endswith(".pdf")
+    pages, artifact_id = _ocr_pages(
+        project,
+        blob_id,
+        page=page,
+        require_complete=is_pdf and page is None,
+    )
     artifact_page_count = None
     if artifact_id is not None:
         artifact = project.db.execute(
@@ -163,7 +192,7 @@ def load_positioned_document(
         ).fetchone()
         if artifact is not None and type(artifact["page_count"]) is int:
             artifact_page_count = int(artifact["page_count"])
-    if not pages and (mime == "application/pdf" or filename.lower().endswith(".pdf")):
+    if not pages and is_pdf:
         from frisket.engine.pdf_text import (
             extract_pdf_text,
             PdfTextError,
@@ -472,7 +501,18 @@ class AdmittedPositionedDocumentReader:
             if loaded.artifact_id is not None:
                 # Use the same admissibility predicate as the original read:
                 # a newer unusable artifact does not make an older one stale.
-                _pages, artifact_id = _ocr_pages(self.project, blob_id)
+                _pages, artifact_id = _ocr_pages(
+                    self.project,
+                    blob_id,
+                    page=loaded.page,
+                    require_complete=(
+                        loaded.page is None
+                        and (
+                            loaded.mime == "application/pdf"
+                            or loaded.filename.lower().endswith(".pdf")
+                        )
+                    ),
+                )
                 if artifact_id != loaded.artifact_id:
                     raise TableError(
                         "stale_input",
