@@ -28,6 +28,7 @@ from frisket.engine.store.current_cells import (
     decoded_cell_validity,
     refresh_current_cells,
 )
+from frisket.engine.store.prepared_content import decode_logical_value
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.value_codec import decode_stored_value
 
@@ -116,7 +117,7 @@ def replay_generated_snapshot(
     ).fetchone()
     if row is None:
         return {"run_id": run_id}
-    value = decode_stored_value(row["value_kind"], row["value"])
+    value = decode_logical_value(project.db, row["value_kind"], row["value"])
     return {
         "run_id": run_id,
         "value": value,
@@ -560,7 +561,7 @@ def _current_cell_rows(
     )
     fields = "r.id, c.value_kind, c.value, COALESCE(c.validity, 'missing') AS validity"
     if with_refs:
-        fields += ", c.origin_kind, c.origin_op_id, c.origin_run_id"
+        fields += ", c.origin_kind, c.origin_op_id, c.origin_run_id, c.prepared_ref_id"
     for chunk in chunks:
         params: list[Any] = [column_id, sheet_id]
         row_filter = ""
@@ -628,6 +629,11 @@ def get_values_with_refs(
                 "row_id": row_id,
                 "column_id": column_id,
                 "run_id": row["origin_run_id"],
+                **(
+                    {"prepared_ref_id": int(row["prepared_ref_id"])}
+                    if row["prepared_ref_id"] is not None
+                    else {}
+                ),
                 **({"validity": row["validity"]} if include_validity else {}),
             }
         return values, refs
@@ -674,8 +680,11 @@ def get_values_with_refs(
         f"WHERE r.sheet_id=? AND r.hidden=0{row_filter}",
         params,
     ):
-        out[r["id"]] = decode_stored_value(
-            r["value_kind"], r["value"], tolerate_errors=tolerate_decode_errors
+        out[r["id"]] = decode_logical_value(
+            project.db,
+            r["value_kind"],
+            r["value"],
+            tolerate_errors=tolerate_decode_errors,
         )
         if r["source_row_id"] is not None:
             refs[r["id"]] = {
@@ -684,6 +693,11 @@ def get_values_with_refs(
                 "row_id": r["id"],
                 "column_id": column_id,
                 "run_id": None,
+                **(
+                    {"prepared_ref_id": int(r["value"])}
+                    if r["value_kind"] == "prepared_content_ref"
+                    else {}
+                ),
             }
     # 2) exact active heads for generated columns. Head existence is
     # authoritative even when the published effect is null or error: the head
@@ -703,6 +717,11 @@ def get_values_with_refs(
                 "row_id": row_id,
                 "column_id": column_id,
                 "run_id": head.run_id,
+                **(
+                    {"prepared_ref_id": head.prepared_ref_id}
+                    if head.prepared_ref_id is not None
+                    else {}
+                ),
             }
     for rid in out:
         validity = decoded_cell_validity(column_type, out[rid])
@@ -951,8 +970,12 @@ def _replay_pending_candidates(
     }
     candidates: list[dict[str, Any]] = []
     for row in rows:
-        fresh = decode_stored_value(row["result_value_kind"], row["result_value"])
-        edit_value = decode_stored_value(row["edit_value_kind"], row["edit_value"])
+        fresh = decode_logical_value(
+            project.db, row["result_value_kind"], row["result_value"]
+        )
+        edit_value = decode_logical_value(
+            project.db, row["edit_value_kind"], row["edit_value"]
+        )
         if fresh == edit_value:
             continue  # edit matches the fresh value -> nothing to surface
         value_hash = replay_generated_value_hash(fresh)

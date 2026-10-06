@@ -25,7 +25,8 @@ from frisket.engine.store.effect_checkpoints import (
     require_model_call_ids,
 )
 from frisket.engine.store.import_sessions import require_import_sheet_write
-from frisket.engine.store.value_codec import decode_stored_value, encode_stored_value
+from frisket.engine.store.prepared_content import decode_logical_value
+from frisket.engine.store.value_codec import encode_stored_value
 from frisket.redaction import redact_text
 
 _RUN_SCOPE_INSERT_CHUNK_SIZE = 1000
@@ -650,28 +651,38 @@ class RunResultStore:
             ).fetchall()
             for row in rows:
                 result = dict(row)
+                stored_value_kind = result["value_kind"]
+                stored_value = result["value"]
+                prepared_ref_id = (
+                    int(stored_value)
+                    if stored_value_kind == "prepared_content_ref"
+                    else None
+                )
                 key = (
                     int(result["run_id"]),
                     int(result["row_id"]),
                     int(result["column_id"]),
                 )
-                if tolerate_decode_errors and result["value_kind"] == "legacy_invalid":
-                    raw_value = result["value"]
+                if tolerate_decode_errors and stored_value_kind == "legacy_invalid":
                     try:
-                        result["value"] = decode_stored_value(
-                            result["value_kind"], raw_value
+                        result["value"] = decode_logical_value(
+                            self.db, stored_value_kind, stored_value
                         )
                     except (TypeError, ValueError, OverflowError, RecursionError):
                         # Historical displays preserve malformed payload bytes,
                         # but a valid legacy JSON scalar still has its original
                         # decoded meaning.
-                        result["value"] = raw_value
+                        result["value"] = stored_value
                 else:
-                    result["value"] = decode_stored_value(
-                        result["value_kind"],
-                        result["value"],
+                    result["value"] = decode_logical_value(
+                        self.db,
+                        stored_value_kind,
+                        stored_value,
                         tolerate_errors=tolerate_decode_errors,
                     )
+                if prepared_ref_id is not None:
+                    result["value_kind"] = "text"
+                    result["prepared_ref_id"] = prepared_ref_id
                 decoded[key] = result
         return decoded
 

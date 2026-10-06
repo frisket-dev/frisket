@@ -16,7 +16,7 @@ from frisket.engine.store.current_cells import (
     refresh_current_cells_from_key_table,
 )
 from frisket.engine.store.search_index_work import enqueue_dirty_scope
-from frisket.engine.store.value_codec import decode_stored_value
+from frisket.engine.store.prepared_content import decode_logical_value
 
 PUBLICATION_EFFECTS = frozenset({"publish_value", "publish_null", "publish_error"})
 WRITE_MODES = frozenset({"create", "replace_scope"})
@@ -79,10 +79,14 @@ class PublishedCellHead:
     confidence: float | None
     justification: str | None
     op_id: int
+    prepared_ref_id: int | None
 
 
 def decode_published_result_value(
-    publication_effect: str, value_kind: str | None, stored_value: object
+    db: sqlite3.Connection,
+    publication_effect: str,
+    value_kind: str | None,
+    stored_value: object,
 ) -> Any:
     """Decode one exact result without null/error fallback semantics."""
 
@@ -92,7 +96,7 @@ def decode_published_result_value(
         return None
     if value_kind is None:
         raise ValueError("publish_value result has no stored value kind")
-    return decode_stored_value(value_kind, stored_value)
+    return decode_logical_value(db, value_kind, stored_value)
 
 
 def _chunks(
@@ -1145,7 +1149,7 @@ class ResultGenerationStore:
                     column_id=int(row["column_id"]),
                     publication_effect=effect,
                     value=decode_published_result_value(
-                        effect, row["value_kind"], row["value"]
+                        self.db, effect, row["value_kind"], row["value"]
                     ),
                     error=None if row["error"] is None else str(row["error"]),
                     error_code=(
@@ -1162,6 +1166,12 @@ class ResultGenerationStore:
                         else str(row["justification"])
                     ),
                     op_id=int(row["op_id"]),
+                    prepared_ref_id=(
+                        int(row["value"])
+                        if effect == "publish_value"
+                        and row["value_kind"] == "prepared_content_ref"
+                        else None
+                    ),
                 )
         return heads
 
