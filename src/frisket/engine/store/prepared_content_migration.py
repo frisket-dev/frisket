@@ -12,7 +12,7 @@ from .scalar_storage_migration import SCALAR_CURRENT_VALUES_TO_DIGEST
 
 PREPARED_CONTENT_FROM_DIGEST = SCALAR_CURRENT_VALUES_TO_DIGEST
 # Pinned to this migration's fresh-schema DDL.
-PREPARED_CONTENT_TO_DIGEST = "frisket.schema.v1:f5b6fd072b2d3b5a45b88e3017a1e806"
+PREPARED_CONTENT_TO_DIGEST = "frisket.schema.v1:06ac9904c47e80559033f8faddc6ae10"
 
 
 def _fresh_schema_statement(prefix: str) -> str:

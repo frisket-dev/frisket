@@ -86,7 +86,12 @@ class PreparedContentStore:
 
     def __init__(self, project: Any):
         self.project = project
-        self.db: sqlite3.Connection = project.db
+
+    @property
+    def db(self) -> sqlite3.Connection:
+        """Return the calling thread's project connection."""
+
+        return self.project.db
 
     def _require_transaction(self) -> None:
         if not self.db.in_transaction:

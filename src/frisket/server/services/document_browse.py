@@ -108,6 +108,13 @@ def _descriptor_sql(
         else "NULL"
     )
     sql = f"""
+        WITH descriptor_values AS MATERIALIZED (
+            SELECT r.id AS row_id,r.position,{source_value} AS sv,
+                {source_kind} AS sk,{title_value} AS tv,{title_kind} AS tk
+            FROM rows r {source_join}
+            LEFT JOIN current_cell_values t ON t.row_id=r.id AND t.column_id=?
+            WHERE r.id={row_id_sql}
+        )
         SELECT *, CASE WHEN raw_title IS NOT NULL AND trim(CAST(raw_title AS TEXT))<>''
             AND substr(CAST(raw_title AS TEXT),1,1)<>'{{' THEN CAST(raw_title AS TEXT)
             ELSE label END AS display_title
@@ -117,13 +124,7 @@ def _descriptor_sql(
                 WHEN tk IN ('text','integer','real','bigint','json') THEN tv END AS raw_title,
                 CASE WHEN json_type(envelope,'$.mime')='text' THEN json_extract(envelope,'$.mime') END AS mime
             FROM (
-                SELECT *, {envelope} AS envelope FROM (
-                    SELECT r.id AS row_id,r.position,{source_value} AS sv,
-                        {source_kind} AS sk,{title_value} AS tv,{title_kind} AS tk
-                    FROM rows r {source_join}
-                    LEFT JOIN current_cell_values t ON t.row_id=r.id AND t.column_id=?
-                    WHERE r.id={row_id_sql}
-                )
+                SELECT *, {envelope} AS envelope FROM descriptor_values
             )
         )
     """

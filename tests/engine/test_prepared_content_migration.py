@@ -21,6 +21,62 @@ _REF_PAYLOAD_CHECK = (
     "AND typeof(value)='integer' AND value>0)"
 )
 
+_PREDECESSOR_CURRENT_CELL_VALUES = """
+CREATE VIEW current_cell_values AS
+SELECT head.column_id,head.row_id,
+       CASE WHEN head.inline_value_kind IS NOT NULL
+       THEN head.inline_value_kind ELSE CASE head.origin_kind
+         WHEN 'source_cell' THEN (
+           SELECT source.value_kind FROM cells AS source
+           WHERE source.row_id=head.row_id
+             AND source.column_id=head.column_id
+             AND source.producer_id IS head.base_producer_id
+         )
+         WHEN 'run_result' THEN (
+           SELECT CASE result.publication_effect
+             WHEN 'publish_value' THEN result.value_kind
+             WHEN 'publish_null' THEN 'null'
+           END
+           FROM results AS result
+           WHERE result.run_id=head.origin_run_id
+             AND result.row_id=head.row_id
+             AND result.column_id=head.column_id
+         )
+         WHEN 'manual_edit' THEN (
+           SELECT edit.value_kind FROM edits AS edit
+           WHERE edit.op_id=head.origin_op_id
+             AND edit.row_id=head.row_id
+             AND edit.column_id=head.column_id
+         )
+       END END AS value_kind,
+       CASE WHEN head.inline_value_kind IS NOT NULL
+       THEN head.inline_value ELSE CASE head.origin_kind
+         WHEN 'source_cell' THEN (
+           SELECT source.value FROM cells AS source
+           WHERE source.row_id=head.row_id
+             AND source.column_id=head.column_id
+             AND source.producer_id IS head.base_producer_id
+         )
+         WHEN 'run_result' THEN (
+           SELECT CASE WHEN result.publication_effect='publish_value'
+             THEN result.value END
+           FROM results AS result
+           WHERE result.run_id=head.origin_run_id
+             AND result.row_id=head.row_id
+             AND result.column_id=head.column_id
+         )
+         WHEN 'manual_edit' THEN (
+           SELECT edit.value FROM edits AS edit
+           WHERE edit.op_id=head.origin_op_id
+             AND edit.row_id=head.row_id
+             AND edit.column_id=head.column_id
+         )
+       END END AS value,
+       head.origin_kind,head.origin_op_id,head.origin_run_id,
+       head.base_producer_id,head.validity
+FROM current_cells AS head INDEXED BY idx_current_cells_column_row
+"""
+
 
 def _downgrade_to_exact_prepared_content_predecessor(path: Path) -> None:
     """Remove exactly the objects added by the prepared-content migration."""
@@ -29,20 +85,6 @@ def _downgrade_to_exact_prepared_content_predecessor(path: Path) -> None:
         db.execute("PRAGMA foreign_keys=OFF")
         db.execute("PRAGMA legacy_alter_table=ON")
         db.execute("BEGIN IMMEDIATE")
-        current_view = str(
-            db.execute(
-                "SELECT sql FROM sqlite_master "
-                "WHERE type='view' AND name='current_cell_values'"
-            ).fetchone()[0]
-        )
-        prefix = "CREATE VIEW current_cell_values AS\nWITH raw_current_values AS (\n"
-        suffix = "\n)\nSELECT raw.column_id"
-        assert current_view.startswith(prefix)
-        assert suffix in current_view
-        predecessor_view = (
-            "CREATE VIEW current_cell_values AS\n"
-            + current_view.removeprefix(prefix).split(suffix, 1)[0]
-        )
         db.execute("DROP VIEW current_cell_values")
 
         authority_objects = db.execute(
@@ -91,7 +133,7 @@ def _downgrade_to_exact_prepared_content_predecessor(path: Path) -> None:
             "prepared_page_versions",
         ):
             db.execute(f"DROP TABLE {table}")
-        db.execute(predecessor_view)
+        db.execute(_PREDECESSOR_CURRENT_CELL_VALUES)
         db.execute(
             "UPDATE meta SET value=? WHERE key=?",
             (PREPARED_CONTENT_FROM_DIGEST, SCHEMA_DIGEST_META_KEY),
