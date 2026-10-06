@@ -4746,6 +4746,7 @@ export type HttpExtractionDocumentResponse = ({
   "document": (HttpExtractionDocumentResponse_PositionedDocument);
   "filename": (string);
   "mime": (string);
+  "reference_page"?: (((number)) | ((null)));
   "row_id": (number);
 });
 
@@ -4772,6 +4773,7 @@ type HttpExtractionPreviewRequest_ExtractionTemplate = ({
   "look_every_page"?: (boolean);
   "reference_blob_id": (string);
   "reference_fingerprint": (string);
+  "reference_page"?: (((number)) | ((null)));
   "sections"?: (Array<(HttpExtractionPreviewRequest_RepeatedSection)>);
 });
 
@@ -4891,6 +4893,7 @@ type HttpExtractionSavedTemplate_ExtractionTemplate = ({
   "look_every_page"?: (boolean);
   "reference_blob_id": (string);
   "reference_fingerprint": (string);
+  "reference_page"?: (((number)) | ((null)));
   "sections"?: (Array<(HttpExtractionSavedTemplate_RepeatedSection)>);
 });
 
@@ -4951,6 +4954,7 @@ type HttpExtractionTemplateSave_ExtractionTemplate = ({
   "look_every_page"?: (boolean);
   "reference_blob_id": (string);
   "reference_fingerprint": (string);
+  "reference_page"?: (((number)) | ((null)));
   "sections"?: (Array<(HttpExtractionTemplateSave_RepeatedSection)>);
 });
 
@@ -5037,6 +5041,7 @@ type HttpExtractionTemplatesResponse_ExtractionTemplate = ({
   "look_every_page"?: (boolean);
   "reference_blob_id": (string);
   "reference_fingerprint": (string);
+  "reference_page"?: (((number)) | ((null)));
   "sections"?: (Array<(HttpExtractionTemplatesResponse_RepeatedSection)>);
 });
 

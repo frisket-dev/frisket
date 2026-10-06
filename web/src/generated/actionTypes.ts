@@ -1105,6 +1105,7 @@ type DocumentExtractParams_ExtractionField = ({
 
 type DocumentExtractParams_ExtractionTemplate = ({
   "reference_blob_id": (string);
+  "reference_page"?: (((number)) | ((null)));
   "reference_fingerprint": (string);
   "fields": (Array<(DocumentExtractParams_ExtractionField)>);
   "sections"?: (Array<(DocumentExtractParams_RepeatedSection)>);
