@@ -190,6 +190,93 @@ def test_repetition_one_aggregate_table(tmp_path):
         assert project.db.execute("SELECT count(*) FROM sheets").fetchone()[0] == 2
 
 
+def test_rerun_creates_fresh_sheet_and_leaves_manual_corrections(tmp_path):
+    with closing(Project.create(tmp_path / "project")) as project:
+        sheet, _column, _rows, template = seed(project)
+        first = run_typed_create_sheet_action(
+            project,
+            "p",
+            typed_action_for_request(request(sheet, template, key="first")),
+        )
+        assert first.status == "completed", first.errors
+        original = first.outputs[0].ref
+        original_values = project.get_values(
+            original["sheet_id"], original["columns"]["Name"]
+        )
+        corrected_row = next(iter(original_values))
+        project.apply_edits(
+            [
+                {
+                    "row_id": corrected_row,
+                    "column_id": original["columns"]["Name"],
+                    "value": "Corrected",
+                }
+            ]
+        )
+        second = run_typed_create_sheet_action(
+            project,
+            "p",
+            typed_action_for_request(request(sheet, template, key="second")),
+        )
+        assert second.status == "completed", second.errors
+        fresh = second.outputs[0].ref
+        assert fresh["sheet_id"] != original["sheet_id"]
+        assert project.get_values(
+            original["sheet_id"], original["columns"]["Name"]
+        ) == {**original_values, corrected_row: "Corrected"}
+        assert list(
+            project.get_values(fresh["sheet_id"], fresh["columns"]["Name"]).values()
+        ) == list(original_values.values())
+
+
+def test_successful_input_membership_includes_zero_records_and_excludes_errors(
+    tmp_path,
+):
+    from frisket.actions.types import SheetRows
+    from frisket.engine.executor.document_extraction_read import (
+        AdmittedPositionedDocumentReader,
+    )
+
+    with closing(Project.create(tmp_path / "project")) as project:
+        sheet, column, rows, template = seed(project, count=3, repeats=True)
+        values = project.get_values(sheet, column)
+        zero_blob = values[rows[1]]["blob"]
+        failed_blob = values[rows[2]]["blob"]
+        project.db.execute(
+            "DELETE FROM source_spans WHERE quote IN ('NAME','ARRESTED') AND artifact_id IN "
+            "(SELECT id FROM source_artifacts WHERE blob_hash=?)",
+            (zero_blob,),
+        )
+        project.db.execute(
+            "DELETE FROM source_spans WHERE artifact_id IN "
+            "(SELECT id FROM source_artifacts WHERE blob_hash=?)",
+            (failed_blob,),
+        )
+        project.db.commit()
+        params = DocumentExtractParams(
+            source="document", template=template, repeat_group_id="people"
+        )
+        reader = AdmittedPositionedDocumentReader(
+            project, scope=SheetRows(sheet_id=sheet), params=params
+        )
+        try:
+            results = list(reader.document_results(params))
+            assert [result.outcome for _source, _loaded, result in results] == [
+                "extracted",
+                "zero_records",
+                "error",
+            ]
+            assert reader.successful_row_ids == rows[:2]
+            assert reader.outcome_counts == {
+                "extracted": 1,
+                "zero_records": 1,
+                "alignment_failed": 0,
+                "error": 1,
+            }
+        finally:
+            reader.close()
+
+
 def test_api_preview_bounded_parity_persistence_and_stale_reference(tmp_path):
     workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
     workspace.create("Test", project_id="p")
@@ -324,8 +411,7 @@ def test_one_corrupt_document_does_not_discard_other_documents(tmp_path):
         assert result.status == "completed", result.errors
         assert result.outputs[0].ref["row_count"] == 1
         assert any(
-            f"Document row {rows[1]}: alignment_failed" in warning
-            for warning in result.warnings
+            f"Document row {rows[1]}: error" in warning for warning in result.warnings
         )
 
 
@@ -384,7 +470,7 @@ def test_missing_pdf_bytes_is_a_document_failure_not_a_batch_failure(
         assert result.status == "completed", result.errors
         assert result.outputs[0].ref["row_count"] == 1
         assert any(
-            f"Document row {missing_row}: alignment_failed" in warning
+            f"Document row {missing_row}: error" in warning
             for warning in result.warnings
         )
 
@@ -408,7 +494,8 @@ def test_missing_geometry_is_not_an_empty_success(tmp_path):
         )
         try:
             results = list(reader.document_results(params))
-            assert results[1][2].outcome == "alignment_failed"
+            assert results[1][2].outcome == "error"
+            assert results[1][2].error_code == "document_geometry_unavailable"
             assert results[1][2].records == []
         finally:
             reader.close()
