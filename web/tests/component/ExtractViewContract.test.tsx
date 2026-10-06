@@ -181,8 +181,11 @@ it('keeps tools and options inside Extract and leaves reader View options indepe
   render(<><div data-testid="old-toolbar-host" /><ExtractView {...props()} /></>); await ready();
   const toolbar = within(screen.getByTestId('extract-view')).getByTestId('extract-toolbar');
   expect(within(screen.getByTestId('old-toolbar-host')).queryByRole('button')).not.toBeInTheDocument();
+  expect(within(toolbar).getByTestId('extract-layout-selector')).toBeInTheDocument();
   expect(within(toolbar).getByRole('group', { name: 'Annotation tools' })).toHaveClass('segmented-toolbar');
-  expect(within(toolbar).getByLabelText('Result sheet name')).toHaveValue('Layout 1 results');
+  expect(within(toolbar).getByTestId('extract-scope-selector')).toBeInTheDocument();
+  expect(within(toolbar).getByTestId('extract-options-button')).toBeInTheDocument();
+  expect(within(toolbar).queryByLabelText('Result sheet name')).not.toBeInTheDocument();
   expect(within(toolbar).getByRole('button', { name: 'Preview' })).toHaveAttribute('title', 'Preview on up to 12 documents in this scope');
   fireEvent.click(screen.getByRole('button', { name: 'View options' }));
   expect(screen.queryByLabelText('Expand value areas')).not.toBeInTheDocument();
@@ -192,9 +195,23 @@ it('keeps tools and options inside Extract and leaves reader View options indepe
   expect(screen.getByLabelText('Result rows')).toHaveValue('');
   fireEvent.click(screen.getByLabelText('Expand value areas')); fireEvent.click(screen.getByLabelText('Continue across pages'));
   fireEvent.click(screen.getByTestId('extract-options-button'));
-  expect(screen.getByText(/Expanded areas follow matched field boundaries/)).toBeInTheDocument();
+  expect(screen.queryByText(/Expanded areas follow matched field boundaries/)).not.toBeInTheDocument();
   fireEvent.click(screen.getByTestId('extract-options-button'));
   expect(screen.getByLabelText('Expand value areas')).toBeChecked(); expect(screen.getByLabelText('Continue across pages')).toBeChecked();
+});
+
+it('opens compact tool help and keeps pending cancellation in the toolbar', async () => {
+  render(<ExtractView {...props()} />); await ready();
+  expect(screen.queryByText('Draw a box around a key, then its value.')).not.toBeInTheDocument();
+  expect(screen.queryByText('Add at least one field.')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Extraction tool help' }));
+  expect(screen.getByText(/draw the label, then draw its value/i)).toBeInTheDocument();
+  expect(screen.getByText(/fixed page and position/i)).toBeInTheDocument();
+  act(() => mocks.reader.mock.lastCall![0].renderPageOverlay(1).props.onDraw(region));
+  expect(screen.getByRole('button', { name: 'Cancel drawing' })).toBeInTheDocument();
+  expect(screen.queryByText('Finish or cancel the current drawing before extracting.')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel drawing' }));
+  expect(screen.queryByRole('button', { name: 'Cancel drawing' })).not.toBeInTheDocument();
 });
 
 it('autosaves a half-drawn pair before switching layouts and preserves it through filter changes', async () => {
@@ -212,6 +229,66 @@ it('autosaves a half-drawn pair before switching layouts and preserves it throug
   await waitFor(() => expect(screen.getByTestId('extract-layout-selector')).toHaveValue('1'));
   expect(screen.getByRole('button', { name: 'Cancel drawing' })).toBeInTheDocument(); expect(screen.getByTestId('extract-new-sheet')).toBeDisabled();
   expect(mocks.select).toHaveBeenLastCalledWith(projectId, { sheet_id: 1, source: 'Document', layout_id: 1 });
+});
+
+it('creates one fixed-position field with a single Value only gesture', async () => {
+  render(<ExtractView {...props()} />); await ready();
+  fireEvent.click(screen.getByRole('button', { name: 'Value only' }));
+  act(() => mocks.reader.mock.lastCall![0].renderPageOverlay(1).props.onDraw(region));
+  await waitFor(() => expect(saved[0].draft.fields).toHaveLength(1));
+  expect(saved[0].draft.fields?.[0]).toMatchObject({ kind: 'value_only', key: null, value: region, section_id: null });
+  expect(screen.queryByRole('button', { name: 'Cancel drawing' })).not.toBeInTheDocument();
+});
+
+it('inspects actual preview geometry and values independently from reference editing', async () => {
+  saved = [{ ...newLayout(1, { ...emptyDraft, reference_blob_id: 'example', reference_fingerprint: 'native:example',
+    fields: [{ id: 'name', name: 'Name', key: region, value: { ...region, box: { ...region.box, x0: .3, x1: .6 } }, section_id: null }] }), reference_row_id: 1 }];
+  const targetRegion = { page: 2, box: { x0: .55, x1: .85, y0: .7, y1: .8 } };
+  const referenceRegion = { page: 2, box: { x0: .4, x1: .7, y0: .5, y1: .6 } };
+  const result = (text: string, actual: PageRegion) => ({ records: [{ cells: { name: {
+    text, status: 'extracted' as const, regions: [actual], diagnostic: null,
+  } } }], diagnostics: [], outcome: 'extracted' as const });
+  mocks.preview.mockResolvedValue({ documents: [
+    { row_id: 2, blob_id: 'target', filename: 'target.pdf', result: result('Target Alice', targetRegion) },
+    { row_id: 1, blob_id: 'example', filename: 'cropped.pdf', result: result('Reference Alice', referenceRegion) },
+  ], truncated: false });
+  mocks.document.mockImplementation(async (...args: unknown[]) => {
+    const rowId = String(args[3]);
+    return rowId === '2'
+      ? { row_id: 2, blob_id: 'target', page_count: 2, filename: 'target.pdf', mime: 'application/pdf',
+        document: { source_fingerprint: 'native:target', pages: [
+          { page: 1, width: 800, height: 1000, tokens: [] }, { page: 2, width: 800, height: 1000, tokens: [] },
+        ] } }
+      : { row_id: 1, blob_id: 'example', page_count: 2, filename: 'cropped.pdf', mime: 'application/pdf',
+        document: { source_fingerprint: 'native:example', pages: [
+          { page: 1, width: 800, height: 1000, tokens: [{ text: 'NAME', box: region.box, granularity: 'word' }] },
+          { page: 2, width: 800, height: 1000, tokens: [] },
+        ] } };
+  });
+
+  render(<ExtractView {...props()} />); await ready();
+  fireEvent.click(screen.getByTestId('extract-preview-button'));
+  fireEvent.click(await screen.findByRole('button', { name: 'Target Alice' }));
+  await waitFor(() => expect(screen.getByLabelText('Preview values')).toBeInTheDocument());
+  expect(within(screen.getByLabelText('Preview values')).getByText('Target Alice')).toBeInTheDocument();
+  await waitFor(() => expect(mocks.reader.mock.lastCall![0].rowKey).toBe('2'));
+  let reader = mocks.reader.mock.lastCall![0];
+  expect(reader.initialPage).toBe(2);
+  expect(reader.renderPageOverlay(2).props.showTemplate).toBe(false);
+  expect(reader.renderPageOverlay(2).props.resultFields[0].regions).toEqual([targetRegion]);
+  act(() => reader.onPageChange(1));
+  reader = mocks.reader.mock.lastCall![0];
+  expect(reader.renderPageOverlay(1).props.showTemplate).toBe(false);
+  expect(screen.getByRole('button', { name: 'Back to example' })).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Back to example' }));
+  await waitFor(() => expect(screen.getByLabelText('Extraction fields')).toBeInTheDocument());
+  await waitFor(() => expect(mocks.reader.mock.lastCall![0].rowKey).toBe('1'));
+  expect(mocks.reader.mock.lastCall![0].renderPageOverlay(1).props.showTemplate).toBe(true);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Reference Alice' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Back to example' })).toBeInTheDocument());
+  expect(mocks.reader.mock.lastCall![0].renderPageOverlay(2).props.showTemplate).toBe(false);
 });
 
 it('restores an applied layout with an empty cohort without falling back to all documents', async () => {
@@ -238,8 +315,17 @@ it('saves the latest draft before submitting one layout and a server-resolved fi
   render(<ExtractView {...props({ onExtract, filterScope: { filter, parent_row_id: 4, scope_row_ids: [1, 2] } })} />); await ready();
   fireEvent.change(screen.getByLabelText('Column name for Name'), { target: { value: 'Person' } });
   fireEvent.change(screen.getByTestId('extract-scope-selector'), { target: { value: 'filter' } }); fireEvent.click(screen.getByTestId('extract-new-sheet'));
+  expect(screen.getByLabelText('Result sheet name')).toHaveValue('Layout 1 results');
+  fireEvent.change(screen.getByLabelText('Result sheet name'), { target: { value: 'People' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(onExtract).not.toHaveBeenCalled();
+  expect(screen.queryByLabelText('Result sheet name')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByTestId('extract-new-sheet'));
+  expect(screen.getByLabelText('Result sheet name')).toHaveValue('Layout 1 results');
+  fireEvent.change(screen.getByLabelText('Result sheet name'), { target: { value: 'People' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Extract' }));
   await waitFor(() => expect(onExtract).toHaveBeenCalledTimes(1)); const request = onExtract.mock.lastCall![0];
-  expect(request).toMatchObject({ source: 'Document', layout_id: 1, sheet_name: 'Layout 1 results',
+  expect(request).toMatchObject({ source: 'Document', layout_id: 1, sheet_name: 'People',
     extraction_scope: { kind: 'filter', filter, parent_row_id: 4, scope_row_ids: [1, 2] }, template: { fields: [{ name: 'Person' }] } });
   expect(request).not.toHaveProperty('row_ids'); expect(request.template).not.toHaveProperty('pending'); expect(saved[0].draft.fields?.[0].name).toBe('Person');
 });

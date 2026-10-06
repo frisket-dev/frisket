@@ -11,7 +11,9 @@ export interface ExtractPageOverlayProps {
   tool: ExtractTool;
   selected: AnnotationTarget | null;
   muted?: boolean;
-  focusRegions?: PageRegion[];
+  showTemplate?: boolean;
+  resultFields?: Array<{ id: string; name: string; regions: PageRegion[] }>;
+  focusedResultFieldId?: string | null;
   pending?: PageRegion | null;
   onSelect(target: AnnotationTarget): void;
   onDraw(region: PageRegion): void;
@@ -20,19 +22,24 @@ export interface ExtractPageOverlayProps {
 }
 const same = (a: AnnotationTarget | null, b: AnnotationTarget) => a?.kind === b.kind && a.id === b.id;
 
-export function ExtractPageOverlay({ page, template, tool, selected, muted = false, focusRegions = [], pending,
+export function ExtractPageOverlay({ page, template, tool, selected, muted = false, showTemplate = true,
+  resultFields = [], focusedResultFieldId = null, pending,
   onSelect, onDraw, onChange, onDelete }: ExtractPageOverlayProps) {
   const drag = useRef<Drag | null>(null);
   const [draft, setDraft] = useState<Box | null>(null);
-  const regions: DrawnRegion[] = [
+  const regions: DrawnRegion[] = showTemplate ? [
     ...template.ignore_bands.map(({ box }, i): DrawnRegion => ({ target: { kind: 'ignore', id: String(i) }, box, label: 'Ignored region', band: true })),
     ...template.sections.flatMap((section) => (['first', 'rest'] as const).flatMap((kind) => {
       const box = spanOnPage(section[kind], page);
       return box ? [{ target: { kind, id: section.id }, box, label: kind === 'first' ? `${section.name}: record 1` : `${section.name}: records 2–end`, band: true, repeated: true }] : [];
     })),
-    ...template.fields.flatMap((field) => (['key', 'value'] as const).filter((kind) => field[kind].page === page)
-      .map((kind): DrawnRegion => ({ target: { kind, id: field.id }, box: field[kind].box, label: `${field.name} ${kind}`, repeated: field.section_id !== null }))),
-  ];
+    ...template.fields.flatMap((field) => (['key', 'value'] as const).flatMap((kind) => {
+      const fieldRegion = field[kind];
+      return fieldRegion?.page === page
+        ? [{ target: { kind, id: field.id }, box: fieldRegion.box, label: `${field.name} ${kind}`, repeated: field.section_id !== null }]
+        : [];
+    })),
+  ] : [];
   const point = (event: PointerEvent<HTMLDivElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect();
     return { x: Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width)),
@@ -41,7 +48,7 @@ export function ExtractPageOverlay({ page, template, tool, selected, muted = fal
   return <div className={`${styles.overlay} ${muted ? styles.mutedOverlay : ''}`} data-extract-page={page}
     style={{ cursor: !muted && tool !== 'select' ? 'crosshair' : undefined }}
     onPointerDown={(event) => {
-      if (muted || event.button !== 0 || tool === 'select') return;
+      if (!showTemplate || muted || event.button !== 0 || tool === 'select') return;
       event.preventDefault();
       event.currentTarget.setPointerCapture(event.pointerId);
       drag.current = { start: point(event), band: tool === 'repeat' || tool === 'ignore', pointerId: event.pointerId };
@@ -59,7 +66,7 @@ export function ExtractPageOverlay({ page, template, tool, selected, muted = fal
     }}
     onPointerCancel={() => { drag.current = null; setDraft(null); }}>
     <svg className={styles.connectors} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden>
-      {template.fields.filter((field) => field.key.page === page && field.value.page === page).map((field) =>
+      {showTemplate && template.fields.filter((field) => field.key?.page === page && field.value.page === page).map((field) => field.key &&
         <line key={field.id} x1={field.key.box.x1} y1={(field.key.box.y0 + field.key.box.y1) / 2}
           x2={field.value.box.x0} y2={(field.value.box.y0 + field.value.box.y1) / 2}
           stroke={field.section_id ? '#1F7A5A' : '#4B4DDB'} strokeWidth="1" vectorEffect="non-scaling-stroke" />)}
@@ -72,8 +79,10 @@ export function ExtractPageOverlay({ page, template, tool, selected, muted = fal
       onChange={(box) => onChange(region.target, { page, box })} onDelete={() => onDelete(region.target)}>
       {!muted && region.target.kind !== 'key' && <span className={styles.regionLabel}>{region.label.replace(/ value$/, '')}</span>}
     </Region>)}
-    {pending?.page === page && <Region box={pending.box} className={`${styles.region} ${styles.draft}`} />}
-    {draft && <Region box={draft} className={`${styles.region} ${styles.draft}`} />}
-    {focusRegions.filter((region) => region.page === page).map((region, index) => <Region key={index} box={region.box} className={`${styles.region} ${styles.focusRegion}`} />)}
+    {showTemplate && pending?.page === page && <Region box={pending.box} className={`${styles.region} ${styles.draft}`} />}
+    {showTemplate && draft && <Region box={draft} className={`${styles.region} ${styles.draft}`} />}
+    {resultFields.flatMap((field) => field.regions.filter((region) => region.page === page).map((region, index) =>
+      <Region key={`${field.id}:${index}`} box={region.box} disabled aria-label={`${field.name} extracted value`}
+        className={`${styles.region} ${styles.resultRegion} ${field.id === focusedResultFieldId ? styles.focusRegion : ''}`} />))}
   </div>;
 }

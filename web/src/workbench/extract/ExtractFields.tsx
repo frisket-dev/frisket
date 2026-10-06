@@ -1,27 +1,48 @@
-import { Trash2 } from 'lucide-react';
-import type { ExtractionPreview } from '../../api/documentExtraction';
+import { LocateFixed, Trash2 } from 'lucide-react';
+import type { ExtractionPreview, ExtractionPreviewDocument } from '../../api/documentExtraction';
 import { textInRegion, type AnnotationTarget, type ExtractionTemplate, type PositionedDocument } from './types';
 import styles from './ExtractView.module.css';
 
-export function ExtractFields({ template, reference, selected, preview, onChange, onSelect, onDelete, disabled = false }: {
+export function ExtractFields({ template, reference, selected, preview, onChange, onSelect, onDelete,
+  inspection = null, onInspectField, disabled = false }: {
   template: ExtractionTemplate; reference: PositionedDocument | null; selected: AnnotationTarget | null;
   preview: ExtractionPreview | null; onChange(template: ExtractionTemplate): void;
   onSelect(target: AnnotationTarget): void; onDelete(target: AnnotationTarget): void;
+  inspection?: { document: ExtractionPreviewDocument; recordIndex: number | null; fieldId: string | null } | null;
+  onInspectField?(fieldId: string): void;
   disabled?: boolean;
 }) {
+  if (inspection) {
+    const record = inspection.recordIndex === null ? null : inspection.document.result.records[inspection.recordIndex] ?? null;
+    return <aside className={styles.fields} aria-label="Preview values">
+      <header><h3>Preview values</h3><span className="muted">{inspection.recordIndex === null ? inspection.document.filename : `Record ${inspection.recordIndex + 1}`}</span></header>
+      {!record && <p className={styles.empty}>This preview row has no extracted record.</p>}
+      {record && template.fields.map((item) => {
+        const cell = record.cells[item.id];
+        const text = !cell || cell.status === 'not_found' ? 'Not found' : cell.status === 'empty' ? 'Empty' : cell.text;
+        return <button key={item.id} type="button" className={`${styles.previewField} ${inspection.fieldId === item.id ? styles.activeField : ''}`}
+          onClick={() => onInspectField?.(item.id)}>
+          <strong>{item.name}</strong><span>{text}</span>
+          {cell?.diagnostic && <small className={styles.warning}>{cell.diagnostic}</small>}
+        </button>;
+      })}
+    </aside>;
+  }
   const field = (id: string) => {
     const item = template.fields.find((candidate) => candidate.id === id)!;
-    const key = textInRegion(reference, item.key);
+    const key = item.key ? textInRegion(reference, item.key) : '';
     const value = textInRegion(reference, item.value);
     return <div key={id} className={`${styles.field} ${selected?.id === id ? styles.activeField : ''}`}>
       <div className={styles.fieldHeading}>
-        <button type="button" disabled={disabled} className="icon-btn" aria-label={`Locate ${item.name}`} onClick={() => onSelect({ kind: 'value', id })}>⌁</button>
+        <button type="button" disabled={disabled} className="icon-btn" aria-label={`Locate ${item.name}`} onClick={() => onSelect({ kind: 'value', id })}><LocateFixed size={13} /></button>
         <input disabled={disabled} aria-label={`Column name for ${item.name}`} className={`form-input ${styles.fieldName}`} value={item.name}
           onChange={(event) => onChange({ ...template, fields: template.fields.map((entry) => entry.id === id ? { ...entry, name: event.target.value } : entry) })} />
         <button type="button" disabled={disabled} className="icon-btn" aria-label={`Delete ${item.name}`} onClick={() => onDelete({ kind: 'value', id })}><Trash2 size={13} /></button>
       </div>
       <button type="button" disabled={disabled} className={styles.fieldExample} onClick={() => onSelect({ kind: 'value', id })}>
-        <span>{key || '(key)'}</span><span aria-hidden> → </span>{value || <em>empty in this example</em>}
+        {item.kind === 'value_only' ? <><span>Fixed position · page {item.value.page}</span><br /></>
+          : <><span>Key: {key || '(key)'}</span><br /></>}
+        <span>Example: </span>{value || <em>empty in this example</em>}
       </button>
       {preview?.documents.flatMap((document) => document.result.records.flatMap((record, index) => {
         const cell = record.cells[id];
@@ -31,7 +52,7 @@ export function ExtractFields({ template, reference, selected, preview, onChange
   };
   return <aside className={styles.fields} aria-label="Extraction fields">
     <header><h3>Fields</h3><span className="muted">{template.fields.length} columns</span></header>
-    {template.fields.length === 0 && <p className={styles.empty}>Draw a box around a key, then its value. These pairs become columns.</p>}
+    {template.fields.length === 0 && <p className={styles.empty}>No fields yet.</p>}
     {template.fields.filter((item) => !item.section_id).map((item) => field(item.id))}
     {template.sections.map((section) => <section key={section.id} className={styles.sectionFields}>
       <div className={styles.fieldHeading}>
