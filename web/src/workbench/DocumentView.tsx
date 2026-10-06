@@ -17,6 +17,16 @@ import { PanelLoading } from '../components/PanelPrimitives';
 import { PanelSelect } from '../components/PanelSelect';
 import { mediaFilename } from '../media/resolveMediaValue';
 
+function filePage(value: unknown): number {
+  if (typeof value !== 'string' || value[0] !== '{') return 1;
+  try {
+    const page = (JSON.parse(value) as { page?: unknown }).page;
+    return typeof page === 'number' && Number.isInteger(page) && page >= 1 ? page : 1;
+  } catch {
+    return 1;
+  }
+}
+
 interface DocumentViewProps {
   projectId: string;
   sheet: SheetMeta;
@@ -445,7 +455,11 @@ export function DocumentView({
           onVideoFitChange={(videoFit) => setState({ videoFit })}
           textLayer={state.textLayer}
           onPageCount={recordPageCount}
-          initialPage={state.readerPage?.rowId === activeRowId ? state.readerPage.page : 1}
+          initialPage={state.readerPage?.rowId === activeRowId
+            ? state.readerPage.page
+            : filePage(sourceColumn && activeRow
+              ? activeRow.cells[String(sourceColumn.id)]
+              : null)}
           onPageChange={(page) => { if (activeRowId && (state.readerPage?.rowId !== activeRowId || state.readerPage.page !== page)) setState({ readerPage: { rowId: activeRowId, page } }); }}
           rowKey={activeRowId ?? 'none'}
           onOpenDetail={() => {

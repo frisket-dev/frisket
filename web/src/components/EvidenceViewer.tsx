@@ -1,5 +1,5 @@
 import { Check, Copy, Download, ExternalLink, FileText, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type RefObject } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type RefObject } from 'react';
 import {
   type EvidenceArtifact,
   type EvidenceCitationRun,
@@ -15,6 +15,11 @@ import { SavedTextContext } from './EvidenceTextContext';
 import { textSegments, type TextSegment } from './evidenceTextSegments';
 import { PageRegion } from './PageRegion';
 import { normalizeRegion } from './regionGeometry';
+
+const PdfViewer = lazy(async () => {
+  const module = await import('../media/PdfViewer');
+  return { default: module.PdfViewer };
+});
 
 export interface EvidenceViewerProps {
   evidenceLinkId: string | number;
@@ -37,6 +42,9 @@ type RecoveryState =
   | { phase: 'idle' }
   | { phase: 'loading' }
   | { phase: 'error'; message: string };
+
+const ignorePdfPageCount = () => undefined;
+const ignorePdfPageChange = () => undefined;
 
 export function EvidenceViewer({
   evidenceLinkId,
@@ -402,6 +410,7 @@ export function ArtifactSource({
   onLocateCurrent?: () => void;
 }) {
   const blob = artifact.artifact_ref.blob;
+  const selectedPdfPage = evidencePdfPage(artifact, scopeSpanId, emphasizedSpanIds);
   return (
     <section className="evidence-source-section" data-testid="evidence-artifact">
       <header className="evidence-artifact-title">
@@ -421,7 +430,41 @@ export function ArtifactSource({
         recovery={recovery}
         onLocateCurrent={onLocateCurrent}
       />
-      {artifact.pages.length > 0 ? (
+      {artifact.media_type === 'application/pdf' && blob ? (
+        <div
+          id={pageAnchorId(artifact.stable_id, selectedPdfPage)}
+          data-testid="evidence-pdf"
+          role="document"
+          aria-label={`Evidence PDF: ${artifact.title || artifact.filename || artifact.media_type}`}
+        >
+          <Suspense fallback={<PanelLoading label="Loading PDF…" />}>
+            <PdfViewer
+              key={blob.url}
+              url={blob.url}
+              layout="continuous"
+              fit="width"
+              zoom={1}
+              textLayer
+              currentPage={selectedPdfPage}
+              onLoaded={ignorePdfPageCount}
+              onCurrentPageChange={ignorePdfPageChange}
+              className="evidence-pdf"
+              pageId={(page) => page === selectedPdfPage
+                ? undefined
+                : pageAnchorId(artifact.stable_id, page)}
+              renderPageOverlay={(page) => artifact.pages
+                .find((item) => item.page === page)
+                ?.regions.map((region) => (
+                  <RegionOverlay
+                    key={region.stable_id}
+                    region={region}
+                    emphasized={emphasizedSpanIds.includes(region.stable_id)}
+                  />
+                ))}
+            />
+          </Suspense>
+        </div>
+      ) : artifact.pages.length > 0 ? (
         artifact.pages.map((page) => (
           <EvidencePageView key={page.page} page={page} artifactStableId={artifact.stable_id} emphasizedSpanIds={emphasizedSpanIds} />
         ))
@@ -434,18 +477,30 @@ export function ArtifactSource({
             region={{ id: span.id, stable_id: span.stable_id, bbox: (jsonRecord(span.selector)?.bbox ?? null) as EvidenceRegion['bbox'], snippet: span.quote || span.snippet, raw: span.raw }}
             emphasized={emphasizedSpanIds.includes(span.stable_id)} />)}
         </div>
-      ) : artifact.media_type === 'application/pdf' && blob ? (
-        <iframe
-          className="evidence-pdf"
-          data-testid="evidence-pdf"
-          src={blob.url}
-          title={`Evidence PDF: ${artifact.title || artifact.filename || artifact.media_type}`}
-        />
       ) : (
         <MediaOrFallback key={artifact.stable_id} artifact={artifact} emphasizedSpanIds={emphasizedSpanIds} />
       )}
     </section>
   );
+}
+
+function evidencePdfPage(
+  artifact: EvidenceArtifact,
+  scopeSpanId: string | undefined,
+  emphasizedSpanIds: readonly string[],
+): number {
+  const focusedSpan = artifact.spans.find((span) => span.stable_id === scopeSpanId)
+    ?? artifact.spans.find((span) => emphasizedSpanIds.includes(span.stable_id));
+  const spanPage = focusedSpan
+    ? selectorNumber(focusedSpan, 'page_start') ?? selectorNumber(focusedSpan, 'page')
+    : null;
+  if (spanPage !== null && spanPage >= 1) return Math.floor(spanPage);
+  const emphasizedPage = artifact.pages.find((page) =>
+    page.regions.some((region) => emphasizedSpanIds.includes(region.stable_id)),
+  )?.page;
+  if (typeof emphasizedPage === 'number' && emphasizedPage >= 1) return emphasizedPage;
+  const firstPage = artifact.pages[0]?.page;
+  return typeof firstPage === 'number' && firstPage >= 1 ? firstPage : 1;
 }
 
 function TextPassageRecovery({
