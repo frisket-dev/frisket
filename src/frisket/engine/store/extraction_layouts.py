@@ -129,8 +129,17 @@ def save_layout(
     ):
         raise ValueError("Reference document is not in the source sheet")
     db = project.db
+    creating = layout_id is None
     db.execute("BEGIN IMMEDIATE")
     try:
+        if imported_recipe_id is not None:
+            existing = db.execute(
+                "SELECT id FROM extraction_layouts WHERE imported_recipe_id=?",
+                (imported_recipe_id,),
+            ).fetchone()
+            if existing is not None:
+                db.commit()
+                return get_layout(project, existing["id"])
         if layout_id is None:
             ordinal = db.execute(
                 "SELECT COALESCE(MAX(ordinal),0)+1 FROM extraction_layouts "
@@ -163,9 +172,14 @@ def save_layout(
                     layout_id,
                 ),
             )
-        select_layout(
-            project, sheet_id=sheet_id, source=source, layout_id=layout_id, commit=False
-        )
+        if creating:
+            select_layout(
+                project,
+                sheet_id=sheet_id,
+                source=source,
+                layout_id=layout_id,
+                commit=False,
+            )
         db.commit()
     except BaseException:
         db.rollback()

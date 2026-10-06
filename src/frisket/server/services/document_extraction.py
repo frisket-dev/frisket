@@ -194,15 +194,13 @@ class DocumentExtractionService:
         project = self.workspace.get(pid)
         common = {"sheet_id": body.sheet_id, "source": body.source}
         # One snapshot makes the displayed scope alternatives consistent.
-        db = project.db
-        db.execute("BEGIN")
-        try:
+        with project.read_snapshot() as snapshot:
             counts = {
                 "all": extraction_layouts.count_document_scope(
-                    project, **common, scope={"kind": "all"}
+                    snapshot, **common, scope={"kind": "all"}
                 ),
                 "filter": extraction_layouts.count_document_scope(
-                    project,
+                    snapshot,
                     **common,
                     scope={
                         "kind": "filter",
@@ -212,7 +210,7 @@ class DocumentExtractionService:
                     },
                 ),
                 "layout": extraction_layouts.count_document_scope(
-                    project,
+                    snapshot,
                     **common,
                     scope={
                         "kind": "layout",
@@ -222,7 +220,7 @@ class DocumentExtractionService:
                 if body.layout_id is not None
                 else 0,
                 "this": extraction_layouts.count_document_scope(
-                    project,
+                    snapshot,
                     **common,
                     scope={
                         "kind": "this",
@@ -233,5 +231,3 @@ class DocumentExtractionService:
                 else 0,
             }
             return ExtractionScopeCountsResponse(**counts)
-        finally:
-            db.rollback()

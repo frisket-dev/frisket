@@ -51,12 +51,16 @@ class ExtractionDraftPending(WireModel):
     region: PageRegion
 
 
+class ExtractionDraftField(ExtractionField):
+    name: str = ""
+
+
 class ExtractionLayoutDraft(WireModel):
     """Editable state, deliberately less strict than an executable template."""
 
     reference_blob_id: str = ""
     reference_fingerprint: str = ""
-    fields: list[ExtractionField] = Field(default_factory=list, max_length=200)
+    fields: list[ExtractionDraftField] = Field(default_factory=list, max_length=200)
     sections: list[RepeatedSection] = Field(default_factory=list, max_length=20)
     ignore_bands: list[IgnoreBand] = Field(default_factory=list, max_length=20)
     expand_values: bool = False
