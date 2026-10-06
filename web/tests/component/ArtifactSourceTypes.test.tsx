@@ -65,9 +65,10 @@ describe('ArtifactSource media coverage', () => {
     expect(screen.queryByRole('link', { name: 'Open source' })).not.toBeInTheDocument();
   });
 
-  it('keeps native PDF preview when no rendered pages were saved', () => {
+  it('keeps a PDF viewer and source link when no rendered pages were saved', () => {
     render(<ArtifactSource artifact={mediaArtifact('application/pdf')} />);
-    expect(screen.getByTitle('Evidence PDF: Source')).toHaveAttribute('src', '/source');
+    expect(screen.getByRole('document', { name: 'Evidence PDF: Source' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'source' })).toHaveAttribute('href', '/source');
   });
 
   it('shows source text around a highlighted citation instead of only the quote', () => {

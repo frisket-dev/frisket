@@ -20,6 +20,8 @@ from frisket.contracts.http.models import WireModel
 class ExtractionDocumentResponse(WireModel):
     row_id: int
     blob_id: str
+    reference_page: int | None = None
+    page_count: int = Field(ge=1)
     filename: str
     mime: str
     document: PositionedDocument
@@ -59,6 +61,7 @@ class ExtractionLayoutDraft(WireModel):
     """Editable state, deliberately less strict than an executable template."""
 
     reference_blob_id: str = ""
+    reference_page: int | None = Field(default=None, ge=1)
     reference_fingerprint: str = ""
     fields: list[ExtractionDraftField] = Field(default_factory=list, max_length=200)
     sections: list[RepeatedSection] = Field(default_factory=list, max_length=20)

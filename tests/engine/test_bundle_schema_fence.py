@@ -139,6 +139,10 @@ def _without_typed_values(schema: str) -> str:
     """Restore the exact logical JSON authority layout before typed storage."""
 
     schema = _without_review_stats(schema)
+    prepared = schema.find("CREATE TABLE IF NOT EXISTS prepared_page_versions")
+    if prepared >= 0:
+        edits = schema.index("CREATE TABLE IF NOT EXISTS edits", prepared)
+        schema = schema[:prepared] + schema[edits:]
     citation = schema.find("CREATE TABLE IF NOT EXISTS citation_texts")
     if citation >= 0:
         schema = schema[:citation]
@@ -313,6 +317,17 @@ def _remove_extraction_layouts(db: sqlite3.Connection) -> None:
         db.execute(f"DROP TABLE IF EXISTS {table}")
 
 
+def _remove_prepared_content(db: sqlite3.Connection) -> None:
+    db.execute("DROP VIEW IF EXISTS prepared_content_ref_values")
+    for table in (
+        "prepared_content_refs",
+        "prepared_content_set_pages",
+        "prepared_content_sets",
+        "prepared_page_versions",
+    ):
+        db.execute(f"DROP TABLE IF EXISTS {table}")
+
+
 def _restore_legacy_authorities(db: sqlite3.Connection) -> None:
     """Downgrade fresh typed fixtures before exercising historical upgrades."""
 
@@ -351,6 +366,7 @@ def _restore_legacy_authorities(db: sqlite3.Connection) -> None:
         )
 
     db.execute("DROP VIEW current_cell_values")
+    _remove_prepared_content(db)
     db.execute("DROP TABLE citation_texts")
     db.execute("DROP TABLE current_cells")
     for table in ("cells", "results", "edits"):

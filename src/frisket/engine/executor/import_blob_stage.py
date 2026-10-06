@@ -140,7 +140,40 @@ class AdmittedImportBlobStager:
 
     def lower(self, file: StagedFile) -> dict[str, Any]:
         blob = self._admitted(file)
-        return media_cell(blob.digest, mime=blob.mime, filename=blob.filename)
+        cell = media_cell(blob.digest, mime=blob.mime, filename=blob.filename)
+        if blob.role == "document_page":
+            cell["page"] = blob.page
+        return cell
+
+    def reference_pdf_page(
+        self,
+        document: StagedFile,
+        *,
+        page: int,
+        text: str | None = None,
+    ) -> StagedFile:
+        """Create a page-scoped cell backed by the original admitted PDF."""
+        source = self._admitted(document)
+        if source.role != "document" or type(page) is not int or page < 1:
+            raise ValueError("PDF page requires an admitted document and positive page")
+        if text is not None and not isinstance(text, str):
+            raise ValueError("prepared PDF page text must be a string or None")
+        file = StagedFile(size=source.size)
+        self._manifest[file] = ImportBlob(
+            occurrence_id=len(self._manifest),
+            path=None,
+            digest=source.digest,
+            size=source.size,
+            filename=source.filename,
+            mime=source.mime,
+            metadata={},
+            role="document_page",
+            document_id=source.occurrence_id,
+            page=page,
+            prepared_text=text,
+            prepared_column_name="text",
+        )
+        return file
 
     def admit_owned(
         self,

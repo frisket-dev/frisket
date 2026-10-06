@@ -18,7 +18,7 @@ from frisket.engine.store.media_blobs import MediaBlobStore
 MEDIA_COLUMN_TYPES = frozenset({"image", "audio", "video", "file"})
 
 # Fixed sibling suffixes appended after the base media display column, in order.
-# ``media`` (base display) + these nine produce the contract's stable schema.
+# ``media`` (base display) + these siblings produce a stable schema.
 MEDIA_SIBLING_FIELDS: tuple[str, ...] = (
     "blob",
     "mime_type",
@@ -29,6 +29,7 @@ MEDIA_SIBLING_FIELDS: tuple[str, ...] = (
     "width",
     "height",
     "pages",
+    "page",
 )
 
 _SIBLING_TYPE = {
@@ -41,6 +42,7 @@ _SIBLING_TYPE = {
     "width": "integer",
     "height": "integer",
     "pages": "integer",
+    "page": "integer",
 }
 
 
@@ -170,6 +172,7 @@ def resolve_media_reference(project: Project, value: Any) -> dict[str, Any]:
         "width": width,
         "height": height,
         "pages": pages,
+        "page": envelope.get("page"),
     }
 
 

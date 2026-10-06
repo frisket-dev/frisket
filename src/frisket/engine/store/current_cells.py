@@ -77,6 +77,19 @@ def cell_validity(
 ) -> str:
     """Classify one native stored value against its column descriptor."""
 
+    # Prepared-content references are physically positive integer ids but are
+    # logically text.  Projection refresh cannot query through the same SQLite
+    # connection from this UDF, so validate the storage shape and the only
+    # supported logical column type without resolving the body here.
+    if value_kind == "prepared_content_ref":
+        return (
+            "valid"
+            if column_type == "text"
+            and isinstance(stored_value, int)
+            and not isinstance(stored_value, bool)
+            and stored_value > 0
+            else "invalid"
+        )
     try:
         value = decode_stored_value(value_kind, stored_value)
     except (TypeError, ValueError, RecursionError):

@@ -243,6 +243,32 @@ def resolve_artifact_texts(
             else:
                 stale.add(artifact_id)
 
+    prepared_artifacts: dict[int, list[int]] = {}
+    for artifact in artifacts:
+        metadata = artifact.get("metadata") or {}
+        prepared = metadata.get("prepared_source") or {}
+        ref_id = prepared.get("prepared_ref_id")
+        if type(ref_id) is int and ref_id > 0:
+            prepared_artifacts.setdefault(ref_id, []).append(int(artifact["id"]))
+    refs = list(prepared_artifacts)
+    for offset in range(0, len(refs), _READ_BATCH_SIZE):
+        batch = refs[offset : offset + _READ_BATCH_SIZE]
+        placeholders = ",".join("?" for _ in batch)
+        texts = dict(
+            db.execute(
+                "SELECT ref_id,value FROM prepared_content_ref_values "
+                f"WHERE ref_id IN ({placeholders})",
+                batch,
+            )
+        )
+        for ref_id in batch:
+            for artifact_id in prepared_artifacts[ref_id]:
+                text = texts.get(ref_id)
+                if isinstance(text, str):
+                    available[artifact_id] = text
+                else:
+                    stale.add(artifact_id)
+
     current_native = resolve_current_native_texts(db, artifacts)
     for artifact_id, content_hash in native_hashes.items():
         text = current_native.get(artifact_id)

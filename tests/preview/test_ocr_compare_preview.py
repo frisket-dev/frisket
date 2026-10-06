@@ -3,7 +3,9 @@ from __future__ import annotations
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
 import asyncio
+import io
 import inspect
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +39,7 @@ def _add_pdf_row(
     filename: str = "docket.pdf",
     mime: str = "application/pdf",
     page_count: int = 4,
+    page: int | None = None,
     cell_value: Any | None = None,
     data: bytes = PDF_BYTES,
 ) -> tuple[int, int, int, str]:
@@ -59,6 +62,8 @@ def _add_pdf_row(
             mime=mime,
             filename=filename,
         )
+        if page is not None:
+            cell_value["page"] = page
     row_id = project.add_rows(
         sheet_id,
         [{"title": "Docket", "pdf": cell_value}],
@@ -241,6 +246,71 @@ def test_ocr_compare_preview_http_route_is_read_only_and_returns_contract(
             "language": "en",
         },
     ]
+
+
+def test_page_scoped_pdf_preview_materializes_only_its_physical_page(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pypdf = pytest.importorskip("pypdf")
+    writer = pypdf.PdfWriter()
+    writer.add_blank_page(width=111, height=222)
+    writer.add_blank_page(width=333, height=444)
+    output = io.BytesIO()
+    writer.write(output)
+    writer.close()
+
+    project = Project.create(tmp_path / "page-preview.frisket")
+    try:
+        sheet_id, row_id, _column_id, digest = _add_pdf_row(
+            project,
+            page_count=2,
+            page=2,
+            data=output.getvalue(),
+        )
+        source = ocr_compare.resolve_ocr_compare_source(
+            project,
+            ocr_compare.OcrComparePreviewRequest(
+                sheet_id=sheet_id,
+                row_id=row_id,
+                input_column="pdf",
+                pages=[2],
+                engines=["rapidocr", "dots.mocr"],
+            ),
+        )
+        assert source.page == 2
+
+        async def page_images(self, path, media, options, scratch):
+            del self, media
+            selected = pypdf.PdfReader(path)
+            assert len(selected.pages) == 1
+            assert float(selected.pages[0].mediabox.width) == 333
+            assert options["_selected_pages"] == [1]
+            rendered = scratch / "page-1.png"
+            rendered.write_bytes(b"rendered")
+            return [rendered]
+
+        monkeypatch.setattr(ocr_compare.OcrEngines, "_page_images", page_images)
+        monkeypatch.setattr(ocr_compare, "_image_size", lambda _path: (300, 400))
+        scratch = tmp_path / "scratch"
+        scratch.mkdir()
+        with project.materialize_blob(digest) as path:
+            rendered = asyncio.run(
+                ocr_compare.render_selected_pdf_pages(
+                    replace(source, path=Path(path)),
+                    [2],
+                    dpi=180,
+                    scratch=scratch,
+                    max_pdf_pages=1,
+                )
+            )
+
+        assert rendered.page_count == 2
+        assert [(page.page, page.width, page.height) for page in rendered.pages] == [
+            (2, 300, 400)
+        ]
+    finally:
+        project.close()
 
 
 def test_ocr_compare_preview_refuses_billable_engines(

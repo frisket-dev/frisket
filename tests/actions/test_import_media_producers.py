@@ -22,6 +22,7 @@ class _Stager:
         self.files = {}
         self.roles = {}
         self.names = {}
+        self.page_references = {}
 
     def stage(self, stream, *, filename, mime, role=None):
         data = b"".join(iter(lambda: stream.read(64 * 1024), b""))
@@ -33,8 +34,16 @@ class _Stager:
 
     @contextmanager
     def open_binary(self, file):
-        with io.BytesIO(self.files[file]) as stream:
+        document = self.page_references.get(file, (file, None, None))[0]
+        with io.BytesIO(self.files[document]) as stream:
             yield stream
+
+    def reference_pdf_page(self, document, *, page, text=None):
+        file = StagedFile(size=document.size)
+        self.page_references[file] = (document, page, text)
+        self.roles[file] = PdfPage(document=document, page=page)
+        self.names[file] = self.names[document]
+        return file
 
 
 class _Renderer:
@@ -153,20 +162,22 @@ def test_pdf_extraction_failure_keeps_row_and_original_document(tmp_path, monkey
             "source",
             "page_image",
         ]
-        assert [row.output.root for row in table.rows] == [
-            {
-                "page": 1,
-                "text": "first page",
-                "source": "document.pdf",
-                "page_image": None,
-            },
-            {"page": 2, "text": "", "source": "document.pdf", "page_image": None},
+        rows = [row.output.root for row in table.rows]
+        assert [
+            {key: row[key] for key in ("page", "text", "page_image")} for row in rows
+        ] == [
+            {"page": 1, "text": "first page", "page_image": None},
+            {"page": 2, "text": "", "page_image": None},
         ]
         assert len(table.warnings) == 1
         assert len(blobs.files) == 1
         document = next(iter(blobs.files))
         assert isinstance(blobs.roles[document], PdfDocument)
         assert blobs.files[document] == b"test PDF input"
+        assert [blobs.page_references[row["source"]] for row in rows] == [
+            (document, 1, "first page"),
+            (document, 2, None),
+        ]
     finally:
         reader.close()
 

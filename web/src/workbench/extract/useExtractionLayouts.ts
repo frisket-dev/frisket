@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { documentExtractionApi, type SavedExtractionTemplate } from '../../api/documentExtraction';
 
 export const EMPTY_EXTRACTION_DRAFT = {
-  reference_blob_id: '', reference_fingerprint: '', fields: [], sections: [], ignore_bands: [],
+  reference_blob_id: '', reference_page: null, reference_fingerprint: '', fields: [], sections: [], ignore_bands: [],
   expand_values: false, look_every_page: true, continue_across_pages: false, pending: null,
 };
 

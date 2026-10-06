@@ -48,6 +48,83 @@ def _normalized_bbox(value: Any) -> dict[str, Any] | None:
     return normalize_bbox(value, frame="page")
 
 
+def _prepared_ref_id(source: dict[str, Any]) -> int | None:
+    ref = source.get("value_ref")
+    value = ref.get("prepared_ref_id") if isinstance(ref, dict) else None
+    if isinstance(value, bool):
+        return None
+    try:
+        ref_id = int(value)
+    except (TypeError, ValueError):
+        return None
+    return ref_id if ref_id > 0 else None
+
+
+def _resolve_prepared_text(project: Any, source: dict[str, Any]) -> Any | None:
+    ref_id = _prepared_ref_id(source)
+    if ref_id is None:
+        return None
+    from frisket.engine.store.prepared_content import PreparedContentStore
+
+    return PreparedContentStore(project).resolve(ref_id)
+
+
+def _prepared_selector(prepared: Any, *, page: int | None = None) -> dict[str, Any]:
+    selector: dict[str, Any] = {
+        "prepared_ref_id": int(prepared.ref_id),
+        "prepared_set_id": int(prepared.set_id),
+    }
+    selected_page = page if page is not None else prepared.page_number
+    if selected_page is not None:
+        selector["page_number"] = int(selected_page)
+        pin = next(
+            (pin for pin in prepared.pins if pin.page_number == selected_page), None
+        )
+        if pin is not None:
+            selector["prepared_version_id"] = int(pin.version_id)
+    return selector
+
+
+def _prepared_word_stream(
+    project: Any, source: dict[str, Any]
+) -> tuple[Any, Any] | None:
+    prepared = _resolve_prepared_text(project, source)
+    if prepared is None:
+        return None
+
+    from frisket.engine.store.grounding import normalize_bbox
+    from frisket.engine.store.grounding_contract import WordStream, WordToken
+
+    tokens: list[WordToken] = []
+    for pin in prepared.pins:
+        positions = pin.positions
+        if not isinstance(positions, dict):
+            continue
+        blocks = positions.get("blocks")
+        if not isinstance(blocks, list):
+            continue
+        width = positions.get("width")
+        height = positions.get("height")
+        for block in blocks:
+            if not isinstance(block, dict):
+                continue
+            text = str(block.get("text") or "").strip()
+            bbox = normalize_bbox(
+                block.get("bbox"), frame="page", width=width, height=height
+            )
+            if not text or bbox is None:
+                continue
+            tokens.append(
+                WordToken(
+                    text=text,
+                    box=tuple(float(bbox[key]) for key in ("x0", "y0", "x1", "y1")),
+                    page=int(pin.page_number),
+                    source="ocr",
+                )
+            )
+    return prepared, WordStream(tokens=tokens)
+
+
 def _source_artifact(
     project: Any,
     *,
@@ -77,6 +154,26 @@ def _source_artifact(
         captured_text = captured.get("captured_text")
         if not isinstance(captured_text, str) and captured.get("model_visible"):
             captured_text = value if isinstance(value, str) else None
+        prepared = _resolve_prepared_text(project, captured)
+        if prepared is not None:
+            cache_key = (row_id, column_id or 0, f"prepared:{prepared.ref_id}")
+            if cache_key in artifact_cache:
+                return artifact_cache[cache_key]
+            artifact = record_source_artifact(
+                project,
+                artifact_kind="text",
+                media_type="text/plain",
+                title=source_label or name,
+                source_sheet_id=sheet_id if column_id is not None else None,
+                source_row_id=row_id if column_id is not None else None,
+                source_column_id=column_id,
+                metadata={
+                    "source_label": name,
+                    "prepared_source": _prepared_selector(prepared),
+                },
+            )
+            artifact_cache[cache_key] = artifact
+            return artifact
         if isinstance(captured_text, str):
             captured_text = repair_unicode_text(captured_text)
             cache_key = (row_id, column_id or 0, _text_hash(captured_text))
@@ -224,6 +321,8 @@ def _captured_text_spans(
         "source": source_label,
         "warnings": [],
     }
+    prepared = _resolve_prepared_text(project, source)
+    selector = _prepared_selector(prepared) if prepared is not None else None
     return [
         record_source_span(
             project,
@@ -235,6 +334,7 @@ def _captured_text_spans(
             snippet=text[start:end],
             text_layer_hash=content_hash,
             text_surface_id=int(surface["id"]),
+            selector=selector,
             metadata=metadata,
         )
         for start, end in ranges
@@ -282,6 +382,7 @@ def _region_spans_from_matches(
     snippet: str | None,
     base_meta: dict[str, Any],
     alignment_meta: dict[str, Any],
+    prepared: Any | None = None,
 ) -> list[dict[str, Any]]:
     """Persist a strategy result's region spans onto the extract artifact,
     borrowing the sibling OCR artifact's ``page_images`` so they render (W2.1)."""
@@ -291,7 +392,10 @@ def _region_spans_from_matches(
         record_source_span,
     )
 
-    merge_artifact_metadata(project, int(artifact["id"]), {"page_images": page_images})
+    if page_images:
+        merge_artifact_metadata(
+            project, int(artifact["id"]), {"page_images": page_images}
+        )
     spans: list[dict[str, Any]] = []
     for match in matches:
         for spec in match.spans:
@@ -310,10 +414,70 @@ def _region_spans_from_matches(
                     bbox=spec.bbox,
                     quote=spec.quote,
                     snippet=snippet,
+                    selector=(
+                        _prepared_selector(prepared, page=spec.page_start)
+                        if prepared is not None
+                        else None
+                    ),
                     metadata=meta,
                 )
             )
     return spans
+
+
+def _prepared_aligned_quote_spans(
+    project: Any,
+    *,
+    artifact: dict[str, Any],
+    source: dict[str, Any],
+    quote: str,
+    snippet: str | None,
+    base_meta: dict[str, Any],
+    page: int | None = None,
+    page_end: int | None = None,
+) -> list[dict[str, Any]] | None:
+    resolved = _prepared_word_stream(project, source)
+    if resolved is None:
+        return None
+    prepared, stream = resolved
+    tokens = stream.tokens
+    if page is not None:
+        hi = page_end if page_end is not None else page
+        lo, hi = min(page, hi), max(page, hi)
+        tokens = [
+            token
+            for token in tokens
+            if token.page is not None and lo <= token.page <= hi
+        ]
+    if not tokens:
+        return None
+
+    from frisket.engine.store.grounding_contract import TextTarget, WordStream, ground
+    from frisket.engine.store.quote_align import exact_matches
+
+    target = TextTarget(text=quote)
+    scoped_stream = WordStream(tokens=tokens)
+    matches = exact_matches(target, scoped_stream)
+    if not matches:
+        fuzzy = ground(target, scoped_stream, threshold=0.8)
+        if not fuzzy:
+            return None
+        if len(fuzzy) > 1 and abs(fuzzy[0].score - fuzzy[1].score) <= 1e-6:
+            return None
+        matches = fuzzy[:1]
+    return (
+        _region_spans_from_matches(
+            project,
+            artifact=artifact,
+            matches=matches,
+            page_images={},
+            snippet=snippet,
+            base_meta=base_meta,
+            alignment_meta={"alignment": "aligned"},
+            prepared=prepared,
+        )
+        or None
+    )
 
 
 def _model_bbox_spans(
@@ -718,6 +882,56 @@ def _resolve_evidence_entry_spans(
             rank=rank,
             transcript_stream=transcript_stream,
         )
+    prepared_source = captured_source or {}
+    prepared_ref_id = _prepared_ref_id(prepared_source)
+    quote = _optional_string(entry.get("quote"))
+    if entry_spans is None and prepared_ref_id is not None:
+        metadata = {
+            "raw": entry,
+            "grounding_method": _optional_string(entry.get("grounding_method")),
+            "rank": rank,
+            "warnings": [],
+        }
+        # Cite the actual text input; the original PDF is an additional locator.
+        # Separate ref-only text artifacts also keep independent OCR outputs
+        # over one PDF from collapsing into a single viewer context.
+        entry_spans = (
+            _captured_text_spans(
+                project,
+                artifact=artifact,
+                source=prepared_source,
+                source_label=source_label or "input",
+                sheet_id=sheet_id,
+                row_id=row_id,
+                entry=entry,
+                rank=rank,
+            )
+            or []
+        )
+        prepared = _resolve_prepared_text(project, prepared_source)
+        if prepared.source_artifact_id is not None:
+            from frisket.engine.store.evidence import get_source_artifact
+
+            pdf_artifact = get_source_artifact(project, prepared.source_artifact_id)
+            if pdf_artifact is not None:
+                if quote is None:
+                    return _source_spans(
+                        project, artifact=pdf_artifact, item=entry, rank=rank
+                    )
+                entry_spans.extend(
+                    _prepared_aligned_quote_spans(
+                        project,
+                        artifact=pdf_artifact,
+                        source=prepared_source,
+                        quote=quote,
+                        snippet=_optional_string(entry.get("snippet")),
+                        base_meta=metadata,
+                        page=_int_or_none(entry.get("page") or entry.get("page_start")),
+                        page_end=_int_or_none(entry.get("page_end")),
+                    )
+                    or []
+                )
+        return entry_spans
     if entry_spans is None and artifact.get("blob_hash"):
         entry_spans = _source_spans(project, artifact=artifact, item=entry, rank=rank)
     if entry_spans is None:

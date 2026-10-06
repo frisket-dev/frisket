@@ -288,7 +288,9 @@ def _root_texts(db: sqlite3.Connection):
         "UNION ALL SELECT metadata FROM source_artifacts "
         "UNION ALL SELECT selector_json FROM source_spans "
         "UNION ALL SELECT preview_json FROM source_spans "
-        "UNION ALL SELECT metadata FROM source_spans"
+        "UNION ALL SELECT metadata FROM source_spans "
+        "UNION ALL SELECT prepared_text FROM prepared_page_versions "
+        "UNION ALL SELECT positions_json FROM prepared_page_versions"
     )
     for row in db.execute(query):
         if row[0]:

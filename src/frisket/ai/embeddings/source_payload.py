@@ -39,25 +39,35 @@ def source_hash(policy_hash: str | None, pairs: list[list[Any]]) -> str:
 
 
 def _media_source_ref(
-    project: Project, column: str, value: Any
+    project: Project, column: str, column_type: str, value: Any
 ) -> dict[str, Any] | None:
     """Resolve a media cell to a blob-backed ref. The hash basis is the blob CONTENT
     digest (envelope ``blob``) or the URI — NOT the stringified envelope — so editing
-    the underlying bytes (a new blob hash) is detected as a content change."""
+    the underlying bytes (a new blob hash) is detected as a content change. A file
+    page selector joins that identity because two rows can share one PDF blob."""
     if isinstance(value, dict) and value.get("blob"):
         blob_hash = str(value["blob"])
+        page = value.get("page") if column_type == "file" else None
+        selected_page = page if type(page) is int and page > 0 else None
         # Persist only the immutable content identity. Consumers materialize the
         # blob for their own call lifetime; a host temp path is never durable data.
         valid_digest = _VALID_BLOB_DIGEST.fullmatch(blob_hash) is not None
-        return {
+        ref = {
             "kind": "media_blob",
             "column": column,
             "blob_hash": blob_hash,
-            "content_id": blob_hash,
+            "content_id": (
+                f"{blob_hash}#page={selected_page}"
+                if selected_page is not None
+                else blob_hash
+            ),
             "mime": value.get("mime"),
             "filename": value.get("filename"),
             "materializable": valid_digest,
         }
+        if selected_page is not None:
+            ref["page"] = selected_page
+        return ref
     if isinstance(value, str) and value.strip():
         return {
             "kind": "media_uri",
@@ -105,7 +115,7 @@ def build_source_payloads(
             col_id, col_type = meta
             value = values.get(col_id, {}).get(row_id)
             if col_type in _MEDIA_COLUMN_TYPES:
-                ref = _media_source_ref(project, name, value)
+                ref = _media_source_ref(project, name, col_type, value)
                 if ref is not None:
                     media_refs.append(ref)
                     # hash over the blob content id / URI, not the envelope repr

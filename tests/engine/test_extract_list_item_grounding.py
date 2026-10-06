@@ -325,7 +325,13 @@ def test_ocr_sourced_three_item_list_writes_three_item_scoped_links(
             viewer = resolve_evidence_viewer(
                 project, link_summary["stable_id"], project_id=PROJECT_ID
             )
-            spans = viewer["artifacts"][0]["spans"]
+            assert viewer["artifacts"][0]["text_context"]
+            pdf_artifact = next(
+                artifact
+                for artifact in viewer["artifacts"]
+                if artifact["media_type"] == "application/pdf"
+            )
+            spans = pdf_artifact["spans"]
             assert spans, "each item's link must carry its own span(s)"
             assert all(span["span_kind"] == "region" for span in spans)
             quotes_by_link.append({span["quote"] for span in spans})

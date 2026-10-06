@@ -49,6 +49,14 @@ If a model-row action also references grounding-only columns, use
 All typed references still participate in validation and source snapshots;
 grounding-only values do not enter the model prompt.
 
+PDF file cells may include a 1-based `page` selector while retaining the original
+PDF blob. Actions must process that page, include it in input identity checks,
+and report evidence using the original document's page numbers. Reuse
+`engine.pdf_page_source.materialize_pdf_page` when a reader needs a
+standalone PDF. Blob metadata and original-document viewing still describe the
+whole PDF. Prepared native/OCR text resolves through the ordinary value readers;
+consumers should not decode its internal storage reference themselves.
+
 Plugin actions are ordinary actions: an installed `action(...)` declares its
 source columns in its own typed Params, exactly as a built-in one does, and
 runs on the same native hosts. Internal `frisket.sdk` operations still use

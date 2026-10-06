@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 
 from frisket.engine.store.evidence import (
+    get_source_artifact,
     mark_evidence_stale_for_cell_refs,
+    merge_artifact_metadata,
     record_evidence_link,
     record_source_artifact,
     record_source_span,
@@ -47,13 +49,16 @@ def _register_page_images(project, page_images):
         blobs.merge_metadata(image["blob_hash"], metadata)
 
 
-def _page_spans(entry, page_images, engine):
+def _page_spans(entry, page_images, engine, *, prepared_selector=None):
     page = entry["page"]
     blocks = entry.get("blocks") or []
     image = page_images.get(str(page)) or {}
+    positions = entry.get("positions") or {}
     # Stored display PNGs may be capped; engine coordinates use the original raster.
-    width = image.get("source_width") or image.get("width")
-    height = image.get("source_height") or image.get("height")
+    width = image.get("source_width") or image.get("width") or positions.get("width")
+    height = (
+        image.get("source_height") or image.get("height") or positions.get("height")
+    )
     text = " ".join(
         str(block.get("text") or "") for block in blocks if isinstance(block, dict)
     ).strip()
@@ -62,6 +67,7 @@ def _page_spans(entry, page_images, engine):
         "page_start": page,
         "page_end": page,
         "snippet": text or f"Page {page}",
+        "selector": prepared_selector,
         "metadata": {"engine": engine},
     }
     for block in blocks:
@@ -81,9 +87,17 @@ def _page_spans(entry, page_images, engine):
                     "page_end": page,
                     "quote": text,
                     "snippet": text,
-                    "metadata": {"raw": block},
+                    "selector": prepared_selector,
+                    "metadata": {} if prepared_selector else {"raw": block},
                 }
         else:
+            selector = {
+                "polygon": block.get("bbox"),
+                "engine": engine,
+                "score": block.get("score"),
+            }
+            if prepared_selector:
+                selector.update(prepared_selector)
             yield {
                 "span_kind": "region",
                 "page_start": page,
@@ -91,12 +105,8 @@ def _page_spans(entry, page_images, engine):
                 "bbox": [bbox],
                 "quote": text or None,
                 "snippet": text or None,
-                "selector": {
-                    "polygon": block.get("bbox"),
-                    "engine": engine,
-                    "score": block.get("score"),
-                },
-                "metadata": {"raw": block},
+                "selector": selector,
+                "metadata": {} if prepared_selector else {"raw": block},
             }
 
 
@@ -141,12 +151,21 @@ def write_ocr_evidence(
     for item in batch:
         row_id, column_id = int(item["row_id"]), int(item["column_id"])
         read, value = reads.get(row_id), item.get("value")
+        prepared = None
+        prepared_ref_id = read.get("prepared_ref_id") if read is not None else None
+        if type(prepared_ref_id) is int and prepared_ref_id > 0:
+            from frisket.engine.store.prepared_content import PreparedContentStore
+
+            prepared = PreparedContentStore(project).resolve(prepared_ref_id)
+        expected_text = (
+            prepared.text if prepared is not None else (read or {}).get("text")
+        )
         if (
             column_id not in ocr_columns
             or item.get("error") is not None
             or read is None
             or not isinstance(value, str)
-            or value != read["text"]
+            or value != expected_text
         ):
             continue
         if (
@@ -158,42 +177,95 @@ def write_ocr_evidence(
             is not None
         ):
             continue
-        pages = [
-            entry
-            for entry in read["blocks"]
-            if isinstance(entry, dict)
-            and type(entry.get("page")) is int
-            and entry["page"] > 0
-        ]
+        if prepared is None:
+            pages = [
+                entry
+                for entry in read.get("blocks") or []
+                if isinstance(entry, dict)
+                and type(entry.get("page")) is int
+                and entry["page"] > 0
+            ]
+        else:
+            pages = [
+                {
+                    "page": int(pin.page_number),
+                    "blocks": (
+                        pin.positions.get("blocks")
+                        if isinstance(pin.positions, dict)
+                        and isinstance(pin.positions.get("blocks"), list)
+                        else []
+                    ),
+                    "positions": pin.positions,
+                    "version_id": int(pin.version_id),
+                }
+                for pin in prepared.pins
+            ]
         if not pages:
             continue
-        source, engine, page_images = (
-            read["source"],
-            read["engine"],
-            read["page_images"],
-        )
+        source = read["source"]
+        engine = str(read.get("engine") or "")
+        page_images = read.get("page_images") or {}
         if not source.get("blob_hash"):
             continue
         _register_page_images(project, page_images)
-        artifact = record_source_artifact(
-            project,
-            artifact_kind="file",
-            media_type=source.get("mime") or "application/octet-stream",
-            blob_hash=source["blob_hash"],
-            filename=source.get("filename"),
-            page_count=len({entry["page"] for entry in pages}),
-            source_sheet_id=source["sheet_id"],
-            source_row_id=row_id,
-            source_column_id=source["column_id"],
-            metadata={
-                "engine": engine,
-                "dpi": read["options"].get("dpi", 200),
-                "page_images": page_images,
-            },
-        )
+        if prepared is None:
+            artifact = record_source_artifact(
+                project,
+                artifact_kind="file",
+                media_type=source.get("mime") or "application/octet-stream",
+                blob_hash=source["blob_hash"],
+                filename=source.get("filename"),
+                page_count=len({entry["page"] for entry in pages}),
+                source_sheet_id=source["sheet_id"],
+                source_row_id=row_id,
+                source_column_id=source["column_id"],
+                metadata={
+                    "engine": engine,
+                    "dpi": read["options"].get("dpi", 200),
+                    "page_images": page_images,
+                },
+            )
+        else:
+            artifact = (
+                get_source_artifact(project, prepared.source_artifact_id)
+                if prepared.source_artifact_id is not None
+                else None
+            )
+            if artifact is None:
+                continue
+            artifact = merge_artifact_metadata(
+                project,
+                artifact["id"],
+                {
+                    "engine": engine,
+                    "dpi": (read.get("options") or {}).get("dpi", 200),
+                    "page_images": page_images,
+                },
+            )
         spans = []
         for page in pages:
-            for descriptor in _page_spans(page, page_images, engine):
+            positions = page.get("positions")
+            page_engine = (
+                str(positions.get("engine") or engine)
+                if isinstance(positions, dict)
+                else engine
+            )
+            prepared_selector = (
+                {
+                    "prepared_ref_id": int(prepared.ref_id),
+                    "prepared_set_id": int(prepared.set_id),
+                    "prepared_version_id": int(page["version_id"]),
+                    "page_number": int(page["page"]),
+                }
+                if prepared is not None
+                else None
+            )
+            for descriptor in _page_spans(
+                page,
+                page_images,
+                page_engine,
+                prepared_selector=prepared_selector,
+            ):
                 span = record_source_span(
                     project, artifact_id=artifact["id"], **descriptor
                 )
@@ -212,6 +284,11 @@ def write_ocr_evidence(
                 "op_id": op_id,
                 "row_id": row_id,
                 "column_id": column_id,
+                **(
+                    {"prepared_ref_id": int(prepared.ref_id)}
+                    if prepared is not None
+                    else {}
+                ),
             },
             spans=spans,
             sheet_id=source["sheet_id"],

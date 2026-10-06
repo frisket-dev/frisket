@@ -2,7 +2,24 @@
 
 import '@testing-library/jest-dom/vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const pdfViewer = vi.hoisted(() => vi.fn());
+vi.mock('../../src/media/PdfViewer', () => ({
+  PdfViewer: (props: {
+    currentPage: number;
+    url: string;
+    renderPageOverlay?(page: number): ReactNode;
+  }) => {
+    pdfViewer(props);
+    return (
+      <div data-testid="native-pdf-viewer" data-url={props.url} data-current-page={props.currentPage}>
+        {props.renderPageOverlay?.(props.currentPage)}
+      </div>
+    );
+  },
+}));
 
 import { ArtifactSource } from '../../src/components/EvidenceViewer';
 import type { EvidenceArtifact } from '../../src/api/types';
@@ -10,6 +27,7 @@ import { artifactRef, blobRef, evidenceArtifact } from '../support/evidenceFixtu
 
 afterEach(() => {
   cleanup();
+  vi.clearAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -111,7 +129,7 @@ describe('evidence PDF renderer', () => {
     expect(await screen.findByTestId('evidence-page-image')).toHaveAttribute('src', '/page.png');
   });
 
-  it('renders the original PDF blob instead of the unsupported-artifact fallback', () => {
+  it('renders the original PDF blob with pdf.js instead of its raster page', async () => {
     const artifact = evidenceArtifact({
       artifact_kind: 'file',
       media_type: 'application/pdf',
@@ -121,14 +139,32 @@ describe('evidence PDF renderer', () => {
         media_type: 'application/pdf',
         blob: blobRef('/api/projects/p/blobs/pdf', { filename: 'filing.pdf' }),
       }),
+      spans: [{
+        id: 22,
+        stable_id: 'span-page-2',
+        selector: { page_start: 2, page_end: 2 },
+      }] as EvidenceArtifact['spans'],
+      pages: [{
+        page: 2,
+        image: { blob_hash: 'raster', url: '/page-2.png', width: 10, height: 10 },
+        text: null,
+        regions: [{
+          id: 22,
+          stable_id: 'span-page-2',
+          bbox: [{ space: 'page_normalized', x0: 0.1, y0: 0.2, x1: 0.4, y1: 0.5 }],
+          snippet: 'Selected text',
+          raw: {},
+        }],
+      }] as EvidenceArtifact['pages'],
     });
 
-    render(<ArtifactSource artifact={artifact} />);
+    render(<ArtifactSource artifact={artifact} scopeSpanId="span-page-2" />);
 
-    expect(screen.getByTestId('evidence-pdf')).toHaveAttribute(
-      'src',
-      '/api/projects/p/blobs/pdf',
-    );
+    expect(await screen.findByTestId('native-pdf-viewer')).toHaveAttribute('data-url', '/api/projects/p/blobs/pdf');
+    expect(screen.getByTestId('native-pdf-viewer')).toHaveAttribute('data-current-page', '2');
+    expect(screen.getByTestId('evidence-pdf')).toHaveAttribute('id', `evidence-page-${artifact.stable_id}-2`);
+    expect(screen.getByTestId('evidence-region-highlight')).toBeInTheDocument();
+    expect(screen.queryByTestId('evidence-page-image')).toBeNull();
     expect(screen.queryByTestId('evidence-artifact-fallback')).toBeNull();
   });
 });

@@ -137,6 +137,62 @@ def test_real_image_embedding_end_to_end(tmp_path):
     assert score is not None and 0.0 < score <= 1.0
 
 
+def test_page_scoped_pdf_is_refused_before_image_gateway_dispatch(tmp_path):
+    project = Project.create(tmp_path / "pdf.frisket", name="pdf")
+    sheet = project.add_sheet("pages")
+    column = project.add_column(sheet, "pic", type="file")
+    blob = project.add_blob(
+        b"%PDF-1.4\n% whole document must not reach the image embedder\n",
+        mime="application/octet-stream",
+        filename="unknown.bin",
+    )
+    project.add_rows(
+        sheet,
+        [
+            {
+                "pic": {
+                    "blob": blob,
+                    "mime": "application/octet-stream",
+                    "filename": "unknown.bin",
+                    "page": 2,
+                }
+            }
+        ],
+        {"pic": column},
+    )
+    created = _create_image_index(project, sheet)
+    assert created.status == "completed", created.errors
+
+    class NeverCalledGateway:
+        def __init__(self):
+            self.calls = []
+
+        def embed(self, inputs, **kwargs):
+            self.calls.append((inputs, kwargs))
+            raise AssertionError("PDF bytes reached the image gateway")
+
+    gateway = NeverCalledGateway()
+    refreshed = run_action_spec(
+        project,
+        {
+            "action_id": "embedding.index_refresh",
+            "scope": {"kind": "project"},
+            "params": {
+                "index_id": created.outputs[0].ref["index_id"],
+                "mode": "full",
+            },
+            "idempotency_key": "pdf-refresh@1",
+        },
+        project_id="p",
+        deps=ExecutorDeps(embedding_gateway=gateway),
+    )
+
+    assert refreshed.status == "failed"
+    assert refreshed.errors[0].code == "embedding_source_unsupported"
+    assert "PDF" in refreshed.errors[0].message
+    assert gateway.calls == []
+
+
 def _create_media_index(project, sheet, modality, model):
     return run_action_spec(
         project,

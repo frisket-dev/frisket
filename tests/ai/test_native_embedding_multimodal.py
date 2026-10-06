@@ -9,7 +9,6 @@ un-refreshable image index is minted), media source payloads hash the BLOB CONTE
 
 from __future__ import annotations
 
-
 from frisket.ai.embeddings import EmbeddingBackendUnavailable, EmbeddingGateway
 from frisket.ai.embeddings.source_payload import build_source_payloads, source_hash
 from frisket.engine.executor import run_action_spec
@@ -90,6 +89,53 @@ def test_build_source_payloads_image_column_uses_blob_hash_not_repr(tmp_path):
     )
     out2 = build_source_payloads(project, index, ["pic"], [rid])
     assert out2[0]["source_hash"] != entry["source_hash"]
+
+
+def test_file_page_participates_in_embedding_content_identity(tmp_path):
+    project = Project.create(tmp_path / "pages.frisket", name="pages")
+    sheet = project.add_sheet("pages")
+    column = project.add_column(sheet, "page", type="file")
+    blob = project.add_blob(
+        b"%PDF-1.4\n% same immutable document\n",
+        mime="application/pdf",
+        filename="document.pdf",
+    )
+    rows = project.add_rows(
+        sheet,
+        [
+            {
+                "page": {
+                    "blob": blob,
+                    "mime": "application/pdf",
+                    "filename": "document.pdf",
+                    "page": 1,
+                }
+            },
+            {
+                "page": {
+                    "blob": blob,
+                    "mime": "application/pdf",
+                    "filename": "document.pdf",
+                    "page": 2,
+                }
+            },
+        ],
+        {"page": column},
+    )
+
+    first, second = build_source_payloads(
+        project,
+        {"sheet_id": sheet, "source_policy_hash": "sha256:policy"},
+        ["page"],
+        rows,
+    )
+
+    first_media = first["source_ref"]["media"][0]
+    second_media = second["source_ref"]["media"][0]
+    assert first_media["page"] == 1
+    assert second_media["page"] == 2
+    assert first_media["content_id"] != second_media["content_id"]
+    assert first["source_hash"] != second["source_hash"]
 
 
 def test_embedding_payload_repairs_malformed_unicode_and_hashes_it(tmp_path):

@@ -19,7 +19,8 @@ export type ExtractionTemplate = Omit<Required<WireTemplate>, 'fields' | 'sectio
 export type PositionedDocument = ExtractionDocument['document'];
 
 export function templateDefaults(template: WireTemplate | SavedExtractionTemplate['draft']): ExtractionTemplate {
-  return { reference_blob_id: template.reference_blob_id ?? '', reference_fingerprint: template.reference_fingerprint ?? '',
+  return { reference_blob_id: template.reference_blob_id ?? '', reference_page: template.reference_page ?? null,
+    reference_fingerprint: template.reference_fingerprint ?? '',
     expand_values: template.expand_values ?? false, look_every_page: template.look_every_page ?? true,
     continue_across_pages: template.continue_across_pages ?? false, ignore_bands: template.ignore_bands ?? [],
     sections: (template.sections ?? []).map((section) => ({ ...section, name: section.name ?? 'Repeated section' })),

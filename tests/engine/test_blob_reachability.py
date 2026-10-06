@@ -7,8 +7,13 @@ import pytest
 
 from frisket.engine.store import Project
 from frisket.engine.store import project_blobs
+from frisket.engine.store.evidence import record_source_artifact
 from frisket.engine.store.import_intake import ImportIntakeHeader, write_import_header
 from frisket.engine.store.import_inventory import ImportInventory
+from frisket.engine.store.prepared_content import (
+    PreparedContentStore,
+    PreparedPageDraft,
+)
 
 
 @pytest.fixture
@@ -35,6 +40,45 @@ def test_redoable_manual_blob_edit_remains_reachable(project):
     assert project.gc_blobs()["hashes"] == []
     project.redo()
     assert project.get_values(sheet, column)[row] == {"blob": digest}
+
+
+def test_prepared_page_text_and_positions_remain_roots_after_undo(project):
+    text_blob = project.add_blob(b"linked from prepared text")
+    positions_blob = project.add_blob(b"linked from prepared positions")
+    orphan = project.add_blob(b"unrelated orphan")
+    artifact_id = int(
+        record_source_artifact(
+            project,
+            artifact_kind="document",
+            media_type="application/pdf",
+            filename="source.pdf",
+            page_count=1,
+        )["id"]
+    )
+    sheet = project.add_sheet("prepared")
+    column = project.add_column(sheet, "text", type="text")
+
+    project.db.execute("BEGIN IMMEDIATE")
+    producing_op_id = project.append_op("prepare.test", commit=False)
+    prepared = PreparedContentStore(project).stage_reference(
+        source_artifact_id=artifact_id,
+        producing_op_id=producing_op_id,
+        pages=[
+            PreparedPageDraft(
+                1,
+                f"download blob:{text_blob}",
+                positions={"page_image": {"blob": positions_blob}},
+            )
+        ],
+    )
+    project.db.commit()
+    project.add_rows(sheet, [{"text": prepared}], {"text": column})
+
+    project.undo()
+    assert project.undo() == producing_op_id
+
+    assert project.gc_blobs()["hashes"] == [orphan]
+    assert project._referenced_blob_hashes() == {text_blob, positions_blob}
 
 
 def test_transitive_ancestry_is_live_and_dead_edges_are_collectable(project):

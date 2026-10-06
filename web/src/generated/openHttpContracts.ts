@@ -4764,6 +4764,8 @@ export type HttpExtractionDocumentResponse = ({
   "document": (HttpExtractionDocumentResponse_PositionedDocument);
   "filename": (string);
   "mime": (string);
+  "page_count": (number);
+  "reference_page"?: (((number)) | ((null)));
   "row_id": (number);
 });
 
@@ -4807,6 +4809,7 @@ type HttpExtractionPreviewRequest_ExtractionTemplate = ({
   "look_every_page"?: (boolean);
   "reference_blob_id": (string);
   "reference_fingerprint": (string);
+  "reference_page"?: (((number)) | ((null)));
   "sections"?: (Array<(HttpExtractionPreviewRequest_RepeatedSection)>);
 });
 
@@ -4918,6 +4921,7 @@ type HttpExtractionSavedLayout_ExtractionLayoutDraft = ({
   "pending"?: (((HttpExtractionSavedLayout_ExtractionDraftPending)) | ((null)));
   "reference_blob_id"?: (string);
   "reference_fingerprint"?: (string);
+  "reference_page"?: (((number)) | ((null)));
   "sections"?: (Array<(HttpExtractionSavedLayout_RepeatedSection)>);
 });
 
@@ -5007,6 +5011,7 @@ type HttpExtractionTemplateSave_ExtractionLayoutDraft = ({
   "pending"?: (((HttpExtractionTemplateSave_ExtractionDraftPending)) | ((null)));
   "reference_blob_id"?: (string);
   "reference_fingerprint"?: (string);
+  "reference_page"?: (((number)) | ((null)));
   "sections"?: (Array<(HttpExtractionTemplateSave_RepeatedSection)>);
 });
 
@@ -5074,6 +5079,7 @@ type HttpExtractionTemplatesResponse_ExtractionLayoutDraft = ({
   "pending"?: (((HttpExtractionTemplatesResponse_ExtractionDraftPending)) | ((null)));
   "reference_blob_id"?: (string);
   "reference_fingerprint"?: (string);
+  "reference_page"?: (((number)) | ((null)));
   "sections"?: (Array<(HttpExtractionTemplatesResponse_RepeatedSection)>);
 });
 
@@ -9455,6 +9461,7 @@ type HttpSheetData_SheetDataValueRef = ({
   "column_id": (number);
   "kind": (string);
   "op_id": (((number)) | ((null)));
+  "prepared_ref_id"?: (((number)) | ((null)));
   "row_id": (number);
   "run_id": (((number)) | ((null)));
 });

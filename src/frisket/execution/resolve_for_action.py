@@ -245,8 +245,9 @@ def _document_quantity_pages(
     copies would be two answers to one question the moment either learned a new
     media shape.
 
-    A stored image is one page; document page counts come from ingest-owned
-    blob metadata. Inline content and paths have no pre-run page measurement.
+    A stored image is one page; a page-scoped PDF cell is the one selected
+    page; whole-document counts come from ingest-owned blob metadata. Inline
+    content and paths have no pre-run page measurement.
     Multiple nonempty sources are also unknown: a typed handler may choose
     any of them, so the first cell cannot stand in for its actual arguments.
     One unknown row makes the total unknown, never a smaller number than the
@@ -280,6 +281,25 @@ def _document_quantity_pages(
         except Exception:  # noqa: BLE001 - estimates fall back to unknown
             return None
         pages = probe.get("pages")
+        selected_page = media.get("page")
+        if selected_page is not None:
+            if type(selected_page) is not int or selected_page <= 0:
+                return None
+            if probe.get("kind") == "image" or (
+                not probe.get("kind") and str(blob["mime"]).startswith("image/")
+            ):
+                return None
+            if pages is not None and (
+                type(pages) is not int or pages <= 0 or selected_page > pages
+            ):
+                return None
+            if pages is None and not (
+                probe.get("kind") in {"document", "pdf"}
+                or str(blob["mime"]) == "application/pdf"
+            ):
+                return None
+            total += 1
+            continue
         if pages is None:
             # Use stored facts, not an authored cell's MIME declaration.
             if probe.get("kind") == "image" or (

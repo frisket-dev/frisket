@@ -28,6 +28,7 @@ MEDIA_SIBLINGS = [
     "media.width",
     "media.height",
     "media.pages",
+    "media.page",
 ]
 
 
@@ -100,6 +101,34 @@ def test_sparse_media_cell_enriches_from_blobs(tmp_path: Path) -> None:
     assert row["media.filename"] == "clip.mp3"
     assert row["media.size_bytes"] == len(data)
     assert row["media.source_url"] == "https://example.org/clip.mp3"
+
+
+def test_pdf_page_references_remain_distinct_in_exports(tmp_path: Path) -> None:
+    project = _project(tmp_path)
+    sheet_id = project.add_sheet("pages")
+    cols = {"media": project.add_column(sheet_id, "media", type="file")}
+    digest = project.add_blob(
+        b"pdf reference fixture",
+        filename="document.pdf",
+        mime="application/pdf",
+        metadata=owned_media_metadata_document(probe={"kind": "pdf", "pages": 2}),
+    )
+    document = media_cell(digest, mime="application/pdf", filename="document.pdf")
+    project.add_rows(
+        sheet_id,
+        [{"media": document}, *({"media": {**document, "page": n}} for n in (1, 2))],
+        cols,
+    )
+
+    plan = build_sheet_export_plan(project, sheet_id)
+    rows = [
+        dict(zip(plan.column_names, row))
+        for batch in iter_export_row_batches(project, plan)
+        for row in batch.rows
+    ]
+    assert [row["media.page"] for row in rows] == [None, 1, 2]
+    assert {row["media.blob"] for row in rows} == {digest}
+    assert {row["media.pages"] for row in rows} == {2}
 
 
 def test_url_string_media_cell_uses_source_url(tmp_path: Path) -> None:

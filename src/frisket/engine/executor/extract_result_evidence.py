@@ -13,6 +13,7 @@ from frisket.engine.executor.extract_evidence import (
     _CONFIDENT_ALIGNMENTS,
     _first_grounding_method,
     _is_missing_value,
+    _prepared_ref_id,
     _resolve_evidence_entry_spans,
     _source_artifact,
     _span_is_usable,
@@ -163,6 +164,8 @@ def _grounding_artifact_source(
     """Keep established PDF/OCR grounding without making the file model-visible."""
 
     source = sources[source_label]
+    if _prepared_ref_id(source) is not None:
+        return source_label
     is_ocr_source = source.get("producer_action_kind") == "media.ocr"
     has_document_locator = any(
         entry.get(key) is not None for key in ("bbox", "page", "page_start", "page_end")

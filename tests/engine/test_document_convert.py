@@ -8,6 +8,7 @@ only the sandbox worker, sidecar POST, and Datalab client are stubbed.
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 from contextlib import closing
 from pathlib import Path
@@ -149,6 +150,17 @@ def _stub_markitdown(monkeypatch, markdown="# Quarterly Report\n"):
     return seen
 
 
+def _two_page_pdf() -> bytes:
+    pypdf = pytest.importorskip("pypdf")
+    writer = pypdf.PdfWriter()
+    writer.add_blank_page(width=111, height=222)
+    writer.add_blank_page(width=333, height=444)
+    output = io.BytesIO()
+    writer.write(output)
+    writer.close()
+    return output.getvalue()
+
+
 def test_markitdown_local_produces_markdown_no_ocr(project, monkeypatch):
     seen = _stub_markitdown(monkeypatch)
     sheet, cid, row_id = _seed(project, HTML)
@@ -169,6 +181,46 @@ def test_markitdown_local_produces_markdown_no_ocr(project, monkeypatch):
     assert fact["document_read"]["kind"] == "text"
     # The sandbox is fenced to the one document + static mime table.
     assert "/etc/mime.types" in seen["read"]
+
+
+def test_markitdown_pdf_page_cell_converts_only_selected_page(project, monkeypatch):
+    pypdf = pytest.importorskip("pypdf")
+    raw = _two_page_pdf()
+    digest = project.add_blob(raw, filename="report.pdf", mime="application/pdf")
+    value = {
+        "blob": digest,
+        "mime": "application/pdf",
+        "filename": "report.pdf",
+        "page": 2,
+    }
+    seen = {}
+
+    async def fake_sandbox(argv, *, policy, stdin_data=None, should_cancel=None):
+        payload = json.loads(stdin_data)
+        converted = pypdf.PdfReader(payload["path"])
+        assert len(converted.pages) == 1
+        assert float(converted.pages[0].mediabox.width) == 333
+        assert float(converted.pages[0].mediabox.height) == 444
+        seen["path"] = payload["path"]
+        Path(payload["out"]).write_text(json.dumps({"markdown": "Second page"}))
+        return SandboxResult(0, "", "")
+
+    monkeypatch.setattr(module, "run_sandboxed", fake_sandbox)
+    sheet, _, row_id = _seed(project, value, coltype="file")
+    result = _execute(project, sheet, "markitdown")
+    assert result.status == "completed", result.errors
+    converted = next(
+        c["id"] for c in project.columns(sheet) if c["name"] == "converted"
+    )
+    assert project.get_values(sheet, converted)[row_id] == "Second page"
+    assert seen["path"].endswith(".pdf")
+    assert _reads(project, result)[0]["document_read"]["page"] == 2
+    span = project.db.execute(
+        "SELECT span_kind,page_start,page_end FROM source_spans ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert tuple(span) == ("page", 2, 2)
+    with project.materialize_blob(digest) as stored:
+        assert stored.read_bytes() == raw
 
 
 def test_trafilatura_html_local_produces_markdown_no_ocr(project, monkeypatch):

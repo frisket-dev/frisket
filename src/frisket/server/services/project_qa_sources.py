@@ -55,7 +55,8 @@ def _read(project: Project, cancel: threading.Event | None):
 def _metadata(db: sqlite3.Connection, cell: tuple[int, int, int]) -> dict[str, Any]:
     row = db.execute(
         f"SELECT length({_TEXT}) AS length, c.origin_kind,c.origin_op_id,"
-        "c.origin_run_id,c.base_producer_id,c.validity,col.type AS column_type" + _FROM,
+        "c.origin_run_id,c.base_producer_id,c.validity,c.prepared_ref_id,"
+        "col.type AS column_type" + _FROM,
         cell,
     ).fetchone()
     if row is None:
@@ -67,6 +68,11 @@ def _metadata(db: sqlite3.Connection, cell: tuple[int, int, int]) -> dict[str, A
         "column_id": cell[2],
         "run_id": row["origin_run_id"],
         "validity": row["validity"],
+        **(
+            {"prepared_ref_id": int(row["prepared_ref_id"])}
+            if row["prepared_ref_id"] is not None
+            else {}
+        ),
     }
     return {
         "length": row["length"] or 0,

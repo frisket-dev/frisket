@@ -19,10 +19,6 @@ _REDUNDANT_INDEXES = {
     "idx_source_items_source_dedupe",
     "idx_source_runs_source",
 }
-_REVIEW_STATS_INDEXES = {
-    "idx_cell_result_heads_run",
-    "idx_columns_current_run",
-}
 
 
 def _seed_ledgers(project: Project) -> None:
@@ -130,6 +126,7 @@ def test_known_bundle_upgrade_preserves_ledgers_reopen_and_export(tmp_path) -> N
     path = tmp_path / "prior.frisket"
     project = Project.create(path, name="Prior")
     _seed_ledgers(project)
+    fresh_indexes = _index_names(project.db)
     project.close()
 
     db = sqlite3.connect(path / "project.db")
@@ -145,13 +142,8 @@ def test_known_bundle_upgrade_preserves_ledgers_reopen_and_export(tmp_path) -> N
     db.close()
 
     migrated = Project(path)
-    assert _index_names(migrated.db) == (
-        before_indexes - _REDUNDANT_INDEXES
-    ) | _REVIEW_STATS_INDEXES | {
-        "sqlite_autoindex_extraction_layouts_1",
-        "sqlite_autoindex_extraction_layouts_2",
-        "idx_extraction_layout_documents_layout",
-    }
+    assert _REDUNDANT_INDEXES <= before_indexes
+    assert _index_names(migrated.db) == fresh_indexes
     assert migrated.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
     assert [
         tuple(row)

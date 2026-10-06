@@ -139,7 +139,52 @@ def setup(tmp_path, monkeypatch):
                 current_project, spec, *, batch, run_id, output_columns, **writer_kwargs
             ):
                 writes.append(run_id)
-                batch[0]["row_file_calls"] = [copy.deepcopy(read)]
+                published_read = copy.deepcopy(read)
+                prepared_pages = published_read.pop("prepared_pages", None)
+                if prepared_pages is not None:
+                    from frisket.engine.store.evidence import record_source_artifact
+                    from frisket.engine.store.prepared_content import (
+                        PreparedContentStore,
+                        PreparedPageDraft,
+                    )
+
+                    artifact = record_source_artifact(
+                        current_project,
+                        artifact_kind="file",
+                        media_type=published_read["source"]["mime"],
+                        blob_hash=published_read["source"]["blob_hash"],
+                        filename=published_read["source"]["filename"],
+                        page_count=len(prepared_pages),
+                        source_sheet_id=published_read["source"]["sheet_id"],
+                        source_row_id=published_read["source"]["row_id"],
+                        source_column_id=published_read["source"]["column_id"],
+                    )
+                    ref = PreparedContentStore(current_project).stage_reference(
+                        source_artifact_id=artifact["id"],
+                        producing_op_id=writer_kwargs["op_id"],
+                        pages=[
+                            PreparedPageDraft(
+                                page_number=index,
+                                text=page["text"],
+                                positions=page["positions"],
+                            )
+                            for index, page in enumerate(prepared_pages, 1)
+                        ],
+                    )
+                    read["last_prepared_ref_id"] = ref.ref_id
+                    published_read = {
+                        key: published_read[key]
+                        for key in (
+                            "kind",
+                            "call_id",
+                            "engine",
+                            "options",
+                            "source",
+                            "page_images",
+                        )
+                    }
+                    published_read["prepared_ref_id"] = ref.ref_id
+                batch[0]["row_file_calls"] = [published_read]
                 writer = current_project.db.execute(
                     "SELECT current_attempt_id FROM runs WHERE id=?", (run_id,)
                 ).fetchone()[0]
@@ -230,6 +275,42 @@ def test_exact_text_only_custom_output_publishes_original_geometry_and_page_imag
     )
     assert run().receipt_id == result.receipt_id
     assert len(writes) == 1
+
+
+def test_compact_prepared_ref_reconstructs_ocr_geometry_without_raw_fact_bodies(setup):
+    project, sheet, row_id, read, writes, run = setup
+    read["prepared_pages"] = [
+        {
+            "text": "Hello world",
+            "positions": {
+                "engine": "rapidocr",
+                "width": 1200,
+                "height": 1200,
+                "blocks": copy.deepcopy(read["blocks"][0]["blocks"]),
+            },
+        }
+    ]
+
+    result = run()
+
+    assert result.status == "completed", result.errors
+    assert read["last_prepared_ref_id"] > 0
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM source_artifacts").fetchone()[0] == 1
+    )
+    spans = project.db.execute(
+        "SELECT span_kind,selector_json,metadata FROM source_spans ORDER BY id"
+    ).fetchall()
+    assert [span["span_kind"] for span in spans] == [
+        "page_range",
+        "region",
+        "page_range",
+    ]
+    for span in spans:
+        selector = json.loads(span["selector_json"])
+        assert selector["prepared_ref_id"] == read["last_prepared_ref_id"]
+        assert selector["prepared_version_id"] > 0
+        assert json.loads(span["metadata"]).get("raw") is None
 
 
 def test_missing_dimensions_keep_quoted_page_fallback_not_invented_regions(setup):

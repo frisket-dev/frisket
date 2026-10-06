@@ -1858,6 +1858,16 @@ class ImportBlobStager(Protocol):
         """Copy a stream to invocation-owned staging; None is an ordinary attachment."""
         ...
 
+    def reference_pdf_page(
+        self,
+        document: StagedFile,
+        *,
+        page: int,
+        text: str | None = None,
+    ) -> StagedFile:
+        """Reference one page of an admitted PDF without copying its bytes."""
+        ...
+
     def open_binary(self, file: StagedFile) -> ContextManager[BinaryIO]:
         """Borrow a read-only seekable stream for a file admitted by this invocation."""
         ...

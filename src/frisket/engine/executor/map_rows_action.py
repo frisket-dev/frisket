@@ -1018,6 +1018,18 @@ class _TypedMapRowsProgram(Recipe):
             calls.extend(self._file_stager.observations(row_id))
         if calls:
             next(iter(publication.cells.values()))["row_file_calls"] = calls
+            for field in self._resolved_output_fields:
+                if _without_none(_value_annotation(field.annotation)) != (OcrText,):
+                    continue
+                cell = publication.cells.get(self._output_names[field.key])
+                if cell is None or cell.get("error") is not None:
+                    continue
+                for call in calls:
+                    if call.get("kind") == "ocr_read" and cell.get("value") == call.get(
+                        "text"
+                    ):
+                        cell["prepared_ocr_call_id"] = call["call_id"]
+                        break
         if Researcher in getattr(self._terminal, "capabilities", ()) and any(
             call.get("kind") == "research_answer" and call.get("unverified_memory")
             for call in calls

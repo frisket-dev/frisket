@@ -15,6 +15,7 @@ from frisket.contracts.http.document_extraction import (
 )
 from frisket.engine.executor.document_extraction_read import (
     AdmittedPositionedDocumentReader,
+    DocumentCell,
     document_cell,
     load_positioned_document,
 )
@@ -30,13 +31,17 @@ class DocumentExtractionService:
 
     def document(self, pid, *, sheet_id, column_id, row_id, cancelled=None):
         project = self.workspace.get(pid)
-        blob_id = document_cell(
+        source = document_cell(
             project, sheet_id=sheet_id, column_id=column_id, row_id=row_id
         )
-        loaded = load_positioned_document(project, blob_id, cancelled=cancelled)
+        loaded = load_positioned_document(
+            project, source.blob_id, page=source.page, cancelled=cancelled
+        )
         return ExtractionDocumentResponse(
             row_id=row_id,
-            blob_id=blob_id,
+            blob_id=source.blob_id,
+            reference_page=source.page,
+            page_count=loaded.page_count,
             filename=loaded.filename,
             mime=loaded.mime,
             document=loaded.document,
@@ -197,6 +202,23 @@ class DocumentExtractionService:
                 raise RouteError(404, "Extraction layout not found")
         if cancelled is not None and cancelled():
             raise TableError("action_cancelled", "Layout saving was cancelled")
+        if body.reference_row_id is not None and body.draft.reference_blob_id:
+            column = extraction_layouts.source_column(
+                project, body.sheet_id, body.source
+            )
+            reference = document_cell(
+                project,
+                sheet_id=body.sheet_id,
+                column_id=column["id"],
+                row_id=body.reference_row_id,
+            )
+            if reference != DocumentCell(
+                body.draft.reference_blob_id, body.draft.reference_page
+            ):
+                raise TableError(
+                    "invalid_input_ref",
+                    "Reference document no longer matches the selected cell",
+                )
         entry = extraction_layouts.save_layout(
             project,
             sheet_id=body.sheet_id,

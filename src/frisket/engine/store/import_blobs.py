@@ -14,6 +14,12 @@ from frisket.engine.store.evidence import (
 )
 from frisket.engine.store.blob_backend import BlobIntegrityError, ProjectBlobStore
 from frisket.engine.store.project_blobs import publish_prepared_blob
+from frisket.engine.store.cell_writes import BaseCellWrite, replace_base_cells
+from frisket.engine.store.prepared_content import (
+    PreparedContentStore,
+    PreparedPageDraft,
+)
+from frisket.engine.store.value_codec import PreparedContentRef
 
 
 @dataclass(frozen=True)
@@ -25,11 +31,13 @@ class ImportBlob:
     filename: str
     mime: str
     metadata: dict[str, Any]
-    role: Literal["attachment", "document", "page"]
+    role: Literal["attachment", "document", "page", "document_page"]
     source_url: str | None = None
     provider: str | None = None
     document_id: int | None = None
     page: int | None = None
+    prepared_text: str | None = None
+    prepared_column_name: str | None = None
     # Host-admitted inventory may already own canonical bytes. Never deserialize
     # this authority from action params or infer it from a digest supplied there.
     owner: ProjectBlobStore | None = field(default=None, repr=False, compare=False)
@@ -73,7 +81,7 @@ def _blob_records(plan: ImportBlobPlan) -> dict[int, ImportBlob]:
     if len(records) != len(plan.blobs):
         raise ValueError("duplicate staged import identity")
     for blob in plan.blobs:
-        if blob.role == "page":
+        if blob.role in ("page", "document_page"):
             document = records.get(blob.document_id)
             if (
                 document is None
@@ -82,6 +90,8 @@ def _blob_records(plan: ImportBlobPlan) -> dict[int, ImportBlob]:
                 or blob.page < 1
             ):
                 raise ValueError("invalid staged PDF page association")
+            if blob.role == "document_page" and blob.path is not None:
+                raise ValueError("native PDF page reference must not duplicate bytes")
     return records
 
 
@@ -100,6 +110,8 @@ def prepare_import_blobs(project: Any, plan: ImportBlobPlan) -> PreparedImportBl
     _blob_records(plan)
     project._assert_blob_write_open()
     for blob in plan.blobs:
+        if blob.role == "document_page":
+            continue
         if blob.owner is not None:
             if blob.owner is not project.blob_store or blob.path is not None:
                 raise ValueError("owned import blob belongs to another blob store")
@@ -154,6 +166,8 @@ def publish_import_blobs(
             raise ValueError("staged import row is not in the materialized sheet")
         positions[cell.row_id] = row["position"]
     for blob in plan.blobs:
+        if blob.role == "document_page":
+            continue
         publish_prepared_blob(
             project,
             digest=blob.digest,
@@ -163,6 +177,12 @@ def publish_import_blobs(
             source_url=blob.source_url,
             metadata=blob.metadata,
         )
+
+    document_pages: dict[int, list[int]] = {}
+    for blob in plan.blobs:
+        if blob.role == "document_page":
+            assert blob.document_id is not None and blob.page is not None
+            document_pages.setdefault(blob.document_id, []).append(blob.page)
 
     artifacts: dict[int, dict[str, Any]] = {}
     # Documents are roots even if rendering failed and no cell contains them.
@@ -174,8 +194,78 @@ def publish_import_blobs(
                 media_type=blob.mime,
                 blob_hash=blob.digest,
                 filename=blob.filename,
+                page_count=(
+                    max(document_pages[blob.occurrence_id])
+                    if blob.occurrence_id in document_pages
+                    else None
+                ),
                 source_sheet_id=sheet_id,
             )
+
+    prepared_refs: dict[int, PreparedContentRef] = {}
+    prepared_store = PreparedContentStore(project)
+    for document_id, artifact in artifacts.items():
+        pages = sorted(
+            (
+                blob
+                for blob in plan.blobs
+                if blob.role == "document_page"
+                and blob.document_id == document_id
+                and blob.prepared_text is not None
+            ),
+            key=lambda blob: int(blob.page or 0),
+        )
+        if not pages:
+            continue
+        first = pages[0]
+        first_ref = prepared_store.stage_reference(
+            source_artifact_id=int(artifact["id"]),
+            producing_op_id=op_id,
+            pages=[
+                PreparedPageDraft(
+                    page_number=int(blob.page),
+                    text=str(blob.prepared_text),
+                )
+                for blob in pages
+            ],
+            page_number=int(first.page),
+        )
+        prepared_refs[first.occurrence_id] = first_ref
+        set_id = prepared_store.resolve(first_ref.ref_id).set_id
+        for blob in pages[1:]:
+            prepared_refs[blob.occurrence_id] = prepared_store.stage_selector(
+                set_id=set_id,
+                page_number=int(blob.page),
+            )
+
+    replacements: dict[tuple[int, int], list[BaseCellWrite]] = {}
+    for cell in plan.cells:
+        blob = records[cell.occurrence_id]
+        prepared_ref = prepared_refs.get(blob.occurrence_id)
+        if prepared_ref is None:
+            continue
+        column_name = blob.prepared_column_name
+        if column_name is None or column_name not in column_ids:
+            raise ValueError("prepared PDF page has no admitted text output column")
+        column_id = int(column_ids[column_name])
+        existing = project.db.execute(
+            "SELECT producer_id FROM cells WHERE row_id=? AND column_id=?",
+            (cell.row_id, column_id),
+        ).fetchone()
+        if existing is None:
+            raise ValueError("prepared PDF page text cell was not materialized")
+        key = (int(existing["producer_id"]), column_id)
+        replacements.setdefault(key, []).append(
+            BaseCellWrite(cell.row_id, column_id, prepared_ref)
+        )
+    for (producer_id, column_id), cells in replacements.items():
+        replace_base_cells(
+            project.db,
+            producer_id=producer_id,
+            column_ids=[column_id],
+            cells=cells,
+            row_ids=[cell.row_id for cell in cells],
+        )
 
     refs: list[dict[str, Any]] = []
     for blob in plan.blobs:
@@ -196,9 +286,13 @@ def publish_import_blobs(
         blob = records[cell.occurrence_id]
         column_id = column_ids[cell.column_name]
         ref = {
-            "kind": "imported_pdf_page_image"
-            if blob.role == "page"
-            else "imported_blob",
+            "kind": (
+                "imported_pdf_page_image"
+                if blob.role == "page"
+                else "imported_pdf_page"
+                if blob.role == "document_page"
+                else "imported_blob"
+            ),
             "hash": blob.digest,
             "filename": blob.filename,
             "mime": blob.mime,
@@ -226,7 +320,7 @@ def publish_import_blobs(
                 external_ref=blob.occurrence_ref,
             )
             ref["artifact_id"] = artifact["id"]
-        if blob.role == "page":
+        if blob.role in ("page", "document_page"):
             artifact = artifacts[blob.document_id]
             span = record_source_span(
                 project,
@@ -234,7 +328,11 @@ def publish_import_blobs(
                 span_kind="page",
                 page_start=blob.page,
                 page_end=blob.page,
-                preview={"blob_hash": blob.digest, "mime": blob.mime},
+                preview=(
+                    {"blob_hash": blob.digest, "mime": blob.mime}
+                    if blob.role == "page"
+                    else None
+                ),
             )
             link = record_evidence_link(
                 project,

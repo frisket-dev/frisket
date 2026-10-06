@@ -201,10 +201,27 @@ def _downgrade_to_scalar_predecessor(path: Path) -> None:
             "ON current_cells(column_id,row_id)"
         )
         db.execute(_PREDECESSOR_CURRENT_CELL_VALUES)
+        _drop_post_scalar_objects(db)
         db.execute(
             "UPDATE meta SET value=? WHERE key=?",
             (SCALAR_CURRENT_VALUES_FROM_DIGEST, SCHEMA_DIGEST_META_KEY),
         )
+
+
+def _drop_post_scalar_objects(db: sqlite3.Connection) -> None:
+    """Make a current fixture represent a bundle from before later migrations."""
+
+    db.execute("DROP VIEW IF EXISTS prepared_content_ref_values")
+    for table in (
+        "prepared_content_refs",
+        "prepared_content_set_pages",
+        "prepared_content_sets",
+        "prepared_page_versions",
+        "extraction_layout_selection",
+        "extraction_layout_documents",
+        "extraction_layouts",
+    ):
+        db.execute(f"DROP TABLE IF EXISTS {table}")
 
 
 def _current_values(
@@ -333,6 +350,8 @@ def test_scalar_migration_rolls_back_and_retries_after_interrupted_stamp(
 
 def test_supported_older_bundle_chains_through_scalar_migration(tmp_path: Path) -> None:
     path = _prior_bundle(tmp_path)
+    with sqlite3.connect(path / "project.db") as db:
+        _drop_post_scalar_objects(db)
 
     project = Project(path)
 
