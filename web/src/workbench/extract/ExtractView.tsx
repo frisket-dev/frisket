@@ -303,15 +303,16 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
         {persistence.layouts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         <option value="new">+ New layout</option>
       </PanelSelect></label>
-      <span className="muted" role="status" data-testid="extract-save-status">{persistence.loading ? 'Loading layouts…' : persistence.switching ? 'Changing layout…' : persistence.saving ? 'Saving layout…' : persistence.error ? 'Layout could not be saved' : persistence.dirty ? 'Unsaved changes' : layout ? 'Layout saved' : 'No layout available'}</span>
-      {persistence.error && layout && <button type="button" className="mini-btn" disabled={persistence.saving} onClick={() => void persistence.flush().catch(() => undefined)}>Retry saving</button>}
+      <span className="muted" role="status" data-testid="extract-save-status">{persistence.loading ? 'Loading layouts…' : persistence.switching ? 'Changing layout…' : persistence.saving ? 'Saving layout…' : persistence.saveError ? 'Layout could not be saved' : persistence.dirty ? 'Unsaved changes' : layout ? 'Layout saved' : 'No layout available'}</span>
+      {persistence.saveError && layout && <button type="button" className="mini-btn" disabled={persistence.saving} onClick={() => void persistence.flush().catch(() => undefined)}>Retry saving</button>}
+      {persistence.error && !layout && <button type="button" className="mini-btn" disabled={persistence.loading} onClick={persistence.retryLoad}>Retry loading layouts</button>}
       {sources.length > 1 && <label className={styles.sourcePicker}>Source <PanelSelect className="row-height-select" aria-label="Document source" value={sourceColumn?.id ?? ''} disabled={busy !== null || persistence.switching} onValueChange={(value) => {
         onChangeState({ ...state, sourceColumnId: value, activeRowId: null });
         setJumpRow(null); setReference(null);
       }}>{sources.map(({ column }) => <option key={column.id} value={column.id}>{column.name}</option>)}</PanelSelect></label>}
     </div>
     {toolbar}
-    {(error || persistence.error || geometryError) && <div className={styles.error} role="alert">{error || persistence.error || geometryError}</div>}
+    {(error || persistence.saveError || persistence.error || geometryError) && <div className={styles.error} role="alert">{error || persistence.saveError || persistence.error || geometryError}</div>}
     {validationIssue && <div className={styles.validation} role="status">{validationIssue}</div>}
     <div className={styles.body}>
       <aside className="document-list" aria-label="Documents">

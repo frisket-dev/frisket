@@ -2,11 +2,11 @@ import type { ExtractionDocument, ExtractionRequest, ExtractionPreviewDocument, 
 import { normalizeRegion } from '../../components/regionGeometry';
 
 export function previewOutcome(result: ExtractionPreviewDocument['result']): { warning: boolean; text: string } {
+  if (result.outcome === 'zero_records') return { warning: false, text: 'No matching records' };
   const warnedCell = result.records.flatMap((record) => Object.values(record.cells)).find((cell) => cell.status === 'not_found' || Boolean(cell.diagnostic));
-  return { warning: result.outcome === 'alignment_failed' || result.outcome === 'error' || result.diagnostics.length > 0 || Boolean(warnedCell),
+  return { warning: result.outcome === 'error' || result.diagnostics.length > 0 || Boolean(warnedCell),
     text: result.diagnostics[0] ?? warnedCell?.diagnostic ?? (warnedCell ? 'Some fields were not found'
-      : result.outcome === 'alignment_failed' ? 'Could not align this document' : result.outcome === 'error' ? 'Could not extract this document'
-      : result.outcome === 'zero_records' ? 'No repeated records found' : `${result.records.length} records`) };
+      : result.outcome === 'error' ? 'Could not extract this document' : `${result.records.length} records`) };
 }
 
 type WireTemplate = ExtractionRequest['template'];

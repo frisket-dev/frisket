@@ -56,7 +56,7 @@ beforeEach(() => {
   mocks.document.mockResolvedValue({ row_id: 1, blob_id: 'example', filename: 'cropped.pdf', mime: 'application/octet-stream',
     document: { source_fingerprint: 'native:example', pages: [{ page: 1, width: 800, height: 1000, tokens: [{ text: 'NAME', box: region.box, granularity: 'word' }] }] } });
 });
-afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
+afterEach(async () => { cleanup(); await act(async () => {}); vi.clearAllMocks(); vi.unstubAllGlobals(); });
 async function ready() {
   await waitFor(() => expect(screen.getByRole('button', { name: 'Key / value' })).toBeEnabled());
   await waitFor(() => expect(screen.getByRole('option', { name: 'All (3 documents)' })).toBeInTheDocument());
@@ -142,4 +142,33 @@ it('refreshes cohort counts after ordinary sheet inventory changes without reset
   rerender(<ExtractView {...initialProps} refreshKey={2} />);
   await waitFor(() => expect(screen.getByRole('option', { name: 'Documents using this layout (2 documents)' })).toBeInTheDocument());
   expect(screen.getByLabelText('Continue across pages')).toBeChecked(); expect(screen.getByTestId('extract-scope-selector')).toHaveValue('all');
+});
+
+it('reports a layout load failure as a load error and retries listing instead of saving', async () => {
+  mocks.templates.mockRejectedValueOnce(new Error('Temporary connection failure'));
+  render(<ExtractView {...props()} />);
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Could not load layouts: Temporary connection failure'));
+  expect(screen.getByTestId('extract-save-status')).toHaveTextContent('No layout available');
+  expect(screen.queryByRole('button', { name: 'Retry saving' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Retry loading layouts' }));
+  await ready();
+  expect(screen.getByTestId('extract-save-status')).toHaveTextContent('Layout saved');
+  expect(mocks.save).not.toHaveBeenCalled();
+});
+
+it('does not describe a metadata refresh or selection failure as a failed save', async () => {
+  saved.push(newLayout(2));
+  const initialProps = props({ refreshKey: 1 });
+  const { rerender } = render(<ExtractView {...initialProps} />); await ready();
+  mocks.templates.mockRejectedValueOnce(new Error('Refresh unavailable'));
+  rerender(<ExtractView {...initialProps} refreshKey={2} />);
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Could not refresh layout documents: Refresh unavailable'));
+  expect(screen.getByTestId('extract-save-status')).toHaveTextContent('Layout saved');
+  expect(screen.queryByRole('button', { name: 'Retry saving' })).not.toBeInTheDocument();
+  mocks.select.mockRejectedValueOnce(new Error('Selection unavailable'));
+  fireEvent.change(screen.getByTestId('extract-layout-selector'), { target: { value: '2' } });
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Could not select layout: Selection unavailable'));
+  expect(screen.getByTestId('extract-save-status')).toHaveTextContent('Layout saved');
+  expect(screen.queryByRole('button', { name: 'Retry saving' })).not.toBeInTheDocument();
+  expect(mocks.save).not.toHaveBeenCalled();
 });

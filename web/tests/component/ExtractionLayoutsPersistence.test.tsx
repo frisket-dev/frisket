@@ -27,7 +27,7 @@ beforeEach(() => {
   api.templates.mockImplementation(async () => ({ templates: [structuredClone(serverLayout)], selected_layout_id: 1 }));
   api.save.mockImplementation(saveDraft); api.select.mockResolvedValue(serverLayout);
 });
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+afterEach(async () => { cleanup(); await act(async () => {}); vi.clearAllMocks(); });
 
 it('flushes on leaving Extract and waits for that write before restoring the same source', async () => {
   const first = renderHook(() => useExtractionLayouts(projectId, '1', 'Document'));
@@ -57,7 +57,7 @@ it('keeps a failed draft through a view switch and retries without replacing it 
   act(() => first.result.current.change({ draft: { ...EMPTY_EXTRACTION_DRAFT, continue_across_pages: true } }));
   api.save.mockRejectedValue(new Error('Disk full'));
   await act(async () => { await expect(first.result.current.flush()).rejects.toThrow('Disk full'); });
-  expect(first.result.current.error).toBe('Disk full');
+  expect(first.result.current.saveError).toBe('Disk full');
   first.unmount();
   const second = renderHook(() => useExtractionLayouts(projectId, '1', 'Document'));
   await waitFor(() => expect(second.result.current.loading).toBe(false));
@@ -65,7 +65,7 @@ it('keeps a failed draft through a view switch and retries without replacing it 
   expect(second.result.current.dirty).toBe(true);
   api.save.mockImplementation(saveDraft);
   await act(async () => { await second.result.current.flush(); });
-  expect(second.result.current.error).toBeNull(); expect(second.result.current.dirty).toBe(false);
+  expect(second.result.current.saveError).toBeNull(); expect(second.result.current.dirty).toBe(false);
   expect(serverLayout.draft.continue_across_pages).toBe(true);
 });
 
@@ -86,7 +86,7 @@ it('serializes newer saves after a rejected earlier save and ignores that obsole
   expect(api.save).toHaveBeenCalledTimes(2);
   expect(serverLayout.draft.expand_values).toBe(true);
   expect(hook.result.current.layout?.draft.expand_values).toBe(true);
-  expect(hook.result.current.error).toBeNull(); expect(hook.result.current.dirty).toBe(false);
+  expect(hook.result.current.saveError).toBeNull(); expect(hook.result.current.dirty).toBe(false);
 });
 
 it('autosaves a revert after the in-flight change succeeds instead of leaving the server on that change', async () => {
@@ -155,5 +155,27 @@ it('restores fresh applied metadata after a draft was changed and reverted witho
   await waitFor(() => expect(second.result.current.loading).toBe(false));
   expect(second.result.current.layout?.has_applied).toBe(true);
   expect(second.result.current.layout?.draft.expand_values).toBe(false);
+  expect(second.result.current.dirty).toBe(false);
+});
+
+it('does not acknowledge a cached unsaved draft when selecting it from another layout', async () => {
+  const first = renderHook(() => useExtractionLayouts(projectId, '1', 'Document'));
+  await waitFor(() => expect(first.result.current.loading).toBe(false));
+  act(() => first.result.current.change({ draft: { ...EMPTY_EXTRACTION_DRAFT, expand_values: true } }));
+  api.save.mockRejectedValue(new Error('Disk full'));
+  await act(async () => { await expect(first.result.current.flush()).rejects.toThrow('Disk full'); });
+  first.unmount();
+  const secondLayout = { ...serverLayout, id: 2, name: 'Layout 2' };
+  api.templates.mockImplementation(async () => ({ templates: [structuredClone(serverLayout), secondLayout], selected_layout_id: 2 }));
+  const second = renderHook(() => useExtractionLayouts(projectId, '1', 'Document'));
+  await waitFor(() => expect(second.result.current.loading).toBe(false));
+  expect(second.result.current.layout?.id).toBe(2);
+  expect(second.result.current.dirty).toBe(false);
+  api.save.mockImplementation(saveDraft);
+  await act(async () => { await second.result.current.choose(1); });
+  expect(second.result.current.layout?.draft.expand_values).toBe(true);
+  expect(second.result.current.dirty).toBe(true);
+  await act(async () => { await second.result.current.flush(); });
+  expect(serverLayout.draft.expand_values).toBe(true);
   expect(second.result.current.dirty).toBe(false);
 });

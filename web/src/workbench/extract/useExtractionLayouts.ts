@@ -23,6 +23,8 @@ export function useExtractionLayouts(projectId: string, sheetId: string, source:
   const [saving, setSaving] = useState(false);
   const [acknowledged, setAcknowledged] = useState<Record<number, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const current = useRef<Layout | null>(null);
   const activeContext = useRef(context);
   const mounted = useRef(false);
@@ -35,6 +37,7 @@ export function useExtractionLayouts(projectId: string, sheetId: string, source:
     current.current = next;
     setLayout(next);
     setError(null);
+    setSaveError(null);
   }, []);
 
   const save = useCallback((snapshot: Layout): Promise<Layout> => {
@@ -45,10 +48,11 @@ export function useExtractionLayouts(projectId: string, sheetId: string, source:
     if (last?.key === requestKey && pendingWrites.get(context) === last.work) return last.work;
     if (savedKeys.current.get(snapshot.id) === key && !pendingWrites.has(context)) {
       unsavedDrafts.get(context)?.delete(snapshot.id);
+      if (mounted.current && activeContext.current === context) setSaveError(null);
       return Promise.resolve(snapshot);
     }
     const active = () => mounted.current && activeContext.current === context;
-    if (active()) { setSaving(true); setError(null); }
+    if (active()) { setSaving(true); setSaveError(null); }
     const work = (pendingWrites.get(context) ?? queue.current).catch(() => undefined).then(() => documentExtractionApi.save(projectId, {
       id: snapshot.id, sheet_id: Number(sheetId), source, draft: snapshot.draft,
       repeat_group_id: snapshot.repeat_group_id, reference_row_id: snapshot.reference_row_id,
@@ -60,11 +64,11 @@ export function useExtractionLayouts(projectId: string, sheetId: string, source:
       if (active()) {
         setLayouts((items) => items.map((item) => item.id === saved.id ? saved : item));
         setAcknowledged((previous) => ({ ...previous, [snapshot.id]: key }));
-        if (current.current?.id === snapshot.id && draftKey(current.current) === key) setError(null);
+        if (current.current?.id === snapshot.id && draftKey(current.current) === key) setSaveError(null);
       }
       return saved;
     }).catch((cause: unknown) => {
-      if (active() && current.current?.id === snapshot.id && draftKey(current.current) === key) setError(message(cause));
+      if (active() && current.current?.id === snapshot.id && draftKey(current.current) === key) setSaveError(message(cause));
       throw cause;
     }).finally(() => {
       inFlight.current.delete(work);
@@ -86,7 +90,7 @@ export function useExtractionLayouts(projectId: string, sheetId: string, source:
     if (!source) return () => { controller.abort(); mounted.current = false; };
     void (pendingWrites.get(context) ?? Promise.resolve()).catch(() => undefined).then(() => {
       if (controller.signal.aborted) return null;
-      setLayout(null); setLayouts([]); setLoading(true); setError(null);
+      setLayout(null); setLayouts([]); setLoading(true); setError(null); setSaveError(null);
       return documentExtractionApi.templates(projectId, sheetId, source, controller.signal);
     }).then(async (response) => {
       if (!response) return;
@@ -107,7 +111,7 @@ export function useExtractionLayouts(projectId: string, sheetId: string, source:
       setAcknowledged(Object.fromEntries(savedKeys.current));
       setLayouts(items); activate(selected);
       if (response.selected_layout_id !== selected.id) await documentExtractionApi.select(projectId, { sheet_id: Number(sheetId), source, layout_id: selected.id });
-    }).catch((cause: unknown) => { if (!controller.signal.aborted) setError(message(cause)); })
+    }).catch((cause: unknown) => { if (!controller.signal.aborted) setError(`Could not load layouts: ${message(cause)}`); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => {
       controller.abort();
@@ -116,7 +120,7 @@ export function useExtractionLayouts(projectId: string, sheetId: string, source:
       const snapshot = current.current;
       if (snapshot) void save(snapshot).catch(() => undefined);
     };
-  }, [context, projectId, sheetId, source, activate, save]);
+  }, [context, projectId, sheetId, source, activate, save, loadAttempt]);
 
   const change = useCallback((changes: LayoutChanges | ((previous: Layout) => LayoutChanges)) => {
     const previous = current.current;
@@ -142,7 +146,7 @@ export function useExtractionLayouts(projectId: string, sheetId: string, source:
         current.current = next;
         setLayout(next);
       }
-    }).catch((cause: unknown) => { if (!controller.signal.aborted) setError(message(cause)); });
+    }).catch((cause: unknown) => { if (!controller.signal.aborted) setError(`Could not refresh layout documents: ${message(cause)}`); });
     return () => controller.abort();
   }, [context, projectId, sheetId, source, refreshKey]);
 
@@ -160,19 +164,22 @@ export function useExtractionLayouts(projectId: string, sheetId: string, source:
 
   const choose = async (id: number | null) => {
     setSwitching(true); setError(null);
+    try { await flush(); }
+    catch { if (mounted.current) setSwitching(false); return; }
     try {
-      await flush();
       const next = id === null
         ? await documentExtractionApi.save(projectId, { sheet_id: Number(sheetId), source, draft: EMPTY_EXTRACTION_DRAFT })
         : layouts.find((item) => item.id === id);
       if (!next) throw new Error('This layout is unavailable. Reload Extract and try again.');
       await documentExtractionApi.select(projectId, { sheet_id: Number(sheetId), source, layout_id: next.id });
       if (!mounted.current || activeContext.current !== context) return;
-      savedKeys.current.set(next.id, draftKey(next));
-      setAcknowledged((previous) => ({ ...previous, [next.id]: draftKey(next) }));
+      if (id === null) {
+        savedKeys.current.set(next.id, draftKey(next));
+        setAcknowledged((previous) => ({ ...previous, [next.id]: draftKey(next) }));
+      }
       setLayouts((items) => id === null ? [...items, next] : items);
       activate(next);
-    } catch (cause) { if (mounted.current) setError(message(cause)); }
+    } catch (cause) { if (mounted.current) setError(`Could not ${id === null ? 'create' : 'select'} layout: ${message(cause)}`); }
     finally { if (mounted.current) setSwitching(false); }
   };
 
@@ -184,5 +191,6 @@ export function useExtractionLayouts(projectId: string, sheetId: string, source:
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty, saving]);
 
-  return { layouts, layout, loading, switching, saving, error, change, choose, flush, dirty };
+  const retryLoad = () => setLoadAttempt((attempt) => attempt + 1);
+  return { layouts, layout, loading, switching, saving, error, saveError, change, choose, flush, retryLoad, dirty };
 }
