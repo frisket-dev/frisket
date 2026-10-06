@@ -13,11 +13,18 @@ from frisket.actions.document_extract import extraction_fields
 from frisket.actions.document_extraction_types import (
     Box,
     DocumentExtraction,
+    ExtractionTemplate,
     PositionedDocument,
     PositionedPage,
     PositionedToken,
 )
-from frisket.actions.types import DynamicOutput, TableError, TableResult, TableRow
+from frisket.actions.types import (
+    DynamicOutput,
+    SheetRows,
+    TableError,
+    TableResult,
+    TableRow,
+)
 from frisket.contracts.action import ReceiptEvidence
 from frisket.engine.executor.sheet_rows_read import AdmittedSheetRowsReader
 from frisket.engine.executor.pdf_page_source import (
@@ -40,6 +47,13 @@ def _hash(value):
             value, sort_keys=True, separators=(",", ":"), allow_nan=False
         ).encode()
     ).hexdigest()
+
+
+def _layout_execution_snapshot(layout):
+    draft = dict(layout["draft"])
+    draft.pop("pending", None)
+    template = ExtractionTemplate.model_validate(draft)
+    return template.model_dump(mode="json"), layout["repeat_group_id"]
 
 
 @dataclass(frozen=True)
@@ -310,17 +324,84 @@ def document_cell(project, *, sheet_id, column_id, row_id) -> DocumentCell:
 class AdmittedPositionedDocumentReader:
     def __init__(self, project, *, scope, params, row_limit=None, cancelled=None):
         self.project, self.params = project, params
+        selection = params.extraction_scope
+        layout_snapshot = None
+        if params.layout_id is not None or selection is not None:
+            from frisket.engine.store.extraction_layouts import (
+                resolve_document_scope,
+                validate_layout_scope,
+            )
+
+            try:
+                with project.read_snapshot() as snapshot:
+                    if params.layout_id is not None:
+                        layout = validate_layout_scope(
+                            snapshot,
+                            params.layout_id,
+                            scope.sheet_id,
+                            params.source.name,
+                        )
+                        layout_snapshot = _layout_execution_snapshot(layout)
+                        submitted = (
+                            params.template.model_dump(mode="json"),
+                            params.repeat_group_id,
+                        )
+                        if layout_snapshot != submitted:
+                            raise TableError(
+                                "invalid_input_ref",
+                                "Run settings do not match the saved extraction layout",
+                            )
+                    if selection is not None:
+                        selection = selection.model_copy(
+                            update={"layout_id": params.layout_id}
+                        )
+                        if scope.row_ids is not None:
+                            raise ValueError("Use one document scope selection")
+                        row_ids = resolve_document_scope(
+                            snapshot,
+                            sheet_id=scope.sheet_id,
+                            source=params.source.name,
+                            scope=selection,
+                        )
+                        if not row_ids:
+                            raise TableError(
+                                "invalid_input_ref",
+                                "The selected document scope is empty",
+                            )
+                        scope = SheetRows(
+                            sheet_id=scope.sheet_id, row_ids=tuple(row_ids)
+                        )
+            except ValueError as exc:
+                raise TableError("invalid_input_ref", str(exc)) from exc
         self.scope = scope
         self.rows = AdmittedSheetRowsReader(project, scope=scope, params=params)
         self.parent_sheet_id = scope.sheet_id
         self.sources = self.rows.sources
         self.facts = self.rows.facts
+        if selection is not None or params.layout_id is not None:
+            self.facts.append(
+                {
+                    "kind": "document_extraction_scope",
+                    "sheet_id": scope.sheet_id,
+                    "source": params.source.name,
+                    "layout_id": params.layout_id,
+                    "selection": selection.model_dump(mode="json")
+                    if selection is not None
+                    else {"kind": "sheet_rows"},
+                }
+            )
         self.cancelled = cancelled or (lambda: False)
         self.document_limit = 12 if row_limit is not None else None
         self.occurrences = []
         self.documents = []
         self.warnings = []
-        self.outcome_counts = {"extracted": 0, "zero_records": 0, "alignment_failed": 0}
+        self.outcome_counts = {
+            "extracted": 0,
+            "zero_records": 0,
+            "error": 0,
+        }
+        self.successful_row_ids = []
+        self.layout_snapshot = layout_snapshot
         self.unresolved_fields = 0
         self.field_warnings = 0
         self.identities = {}
@@ -396,8 +477,13 @@ class AdmittedPositionedDocumentReader:
                     raise
                 loaded = None
                 result = DocumentExtraction(
-                    records=[], diagnostics=[str(exc)], outcome="alignment_failed"
+                    records=[],
+                    diagnostics=[str(exc)],
+                    outcome="error",
+                    error_code=exc.code,
                 )
+            if result.outcome != "error":
+                self.successful_row_ids.append(item.source.row_id)
             outcome = {
                 "row_id": item.source.row_id,
                 "blob_id": blob_id or "",
@@ -438,6 +524,7 @@ class AdmittedPositionedDocumentReader:
                     "fingerprint": loaded.fingerprint if loaded else None,
                     "artifact_id": loaded.artifact_id if loaded else None,
                     "outcome": result.outcome,
+                    "error_code": result.error_code,
                     "record_count": len(result.records),
                     "unresolved_fields": unresolved,
                     "field_warnings": field_warning_count,
@@ -472,7 +559,7 @@ class AdmittedPositionedDocumentReader:
             finally:
                 if (
                     self.outcome_counts["zero_records"]
-                    or self.outcome_counts["alignment_failed"]
+                    or self.outcome_counts["error"]
                     or self.unresolved_fields
                     or self.field_warnings
                 ):
@@ -495,6 +582,25 @@ class AdmittedPositionedDocumentReader:
         return values
 
     def revalidate(self):
+        if self.params.layout_id is not None:
+            from frisket.engine.store.extraction_layouts import validate_layout_scope
+
+            try:
+                layout = validate_layout_scope(
+                    self.project,
+                    self.params.layout_id,
+                    self.scope.sheet_id,
+                    self.params.source.name,
+                )
+                current_layout_snapshot = _layout_execution_snapshot(layout)
+            except ValueError as exc:
+                raise TableError(
+                    "stale_input", "The selected layout changed during extraction"
+                ) from exc
+            if current_layout_snapshot != self.layout_snapshot:
+                raise TableError(
+                    "stale_input", "The selected layout changed during extraction"
+                )
         # Blob bytes are content-addressed; OCR artifact identity must still be the
         # one selected for this run. Never silently publish against a later OCR.
         for (blob_id, _page), loaded in self.identities.items():
@@ -619,4 +725,13 @@ class AdmittedPositionedDocumentReader:
                         }
                     )
                 )
+        if self.params.layout_id is not None and self.successful_row_ids:
+            from frisket.engine.store.extraction_layouts import remember_success
+
+            remember_success(
+                self.project,
+                self.params.layout_id,
+                self.successful_row_ids,
+                commit=False,
+            )
         return evidence
