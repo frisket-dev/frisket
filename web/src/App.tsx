@@ -3479,6 +3479,10 @@ const NO_DISABLED_TOGGLE_KEYS: readonly string[] = [];
 function WorkspacePrimarySurface() {
   const { projectApi } = useWorkspaceStores();
   const { sheets } = useCurrentSheet();
+  const jobs = useJobsHandle();
+  const extractionRunning = useSelector(jobs.store, (state) => (
+    state.run?.actionKind === 'media.extract_document' && isRunActionBlockedStatus(state.run.status)
+  ));
   const actionCatalog = useActionCatalogHandle();
   const nerCatalogEntry = useSelector(actionCatalog.store, (state) => (
     state.status === 'ready'
@@ -3638,6 +3642,7 @@ function WorkspacePrimarySurface() {
         orderKey={orderKey}
         titleColumnOrder={titleColumnOrder}
         refreshKey={sheets}
+        extractionRunning={extractionRunning}
         filterScope={{ filter: extractionFilter, parent_row_id: activeChildFilter?.parentRowId ? Number(activeChildFilter.parentRowId) : null, scope_row_ids: scopeRowIds }}
         onExtract={({ template, source, repeat_group_id, sheet_name, layout_id, extraction_scope }) => {
           const usedNames = new Set(sheets.map((entry) => entry.name));

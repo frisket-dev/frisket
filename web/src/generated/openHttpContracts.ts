@@ -4855,7 +4855,7 @@ type HttpExtractionPreviewResponse_Box = ({
 type HttpExtractionPreviewResponse_DocumentExtraction = ({
   "diagnostics"?: (Array<(string)>);
   "error_code"?: (((string)) | ((null)));
-  "outcome": ("extracted" | "zero_records" | "alignment_failed" | "error") & (string);
+  "outcome": ("extracted" | "zero_records" | "error") & (string);
   "records": (Array<(HttpExtractionPreviewResponse_ExtractedRecord)>);
 });
 

@@ -32,6 +32,7 @@ export interface ExtractViewProps {
   onExtract?(request: ExtractRunRequest): Promise<void> | void;
   filterScope?: ExtractionScopeFilter;
   refreshKey?: unknown;
+  extractionRunning?: boolean;
 }
 
 const TOOLS = [
@@ -273,7 +274,7 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
       </PanelSelect></label>
       <label>New sheet <input className="form-input" aria-label="Result sheet name" value={outputName} disabled={unavailable} onChange={(event) => setOutputName(event.target.value)} /></label>
       <button type="button" className="mini-btn" data-testid="extract-preview-button" title="Preview on up to 12 documents in this scope" disabled={!valid || unavailable || busy !== null || scopeCount === null || scopeCount === 0} onClick={() => void runPreview()}><Play size={13} />{busy === 'preview' ? 'Previewing…' : 'Preview'}</button>
-      <button type="button" className="mini-btn" data-testid="extract-new-sheet" disabled={!valid || unavailable || busy !== null || !onExtract || !outputName.trim() || scopeCount === null || scopeCount === 0} onClick={async () => {
+      <button type="button" className="mini-btn" data-testid="extract-new-sheet" disabled={!valid || unavailable || busy !== null || props.extractionRunning || !onExtract || !outputName.trim() || scopeCount === null || scopeCount === 0} onClick={async () => {
         const snapshot = request();
         const editVersion = edits.current;
         setBusy('run'); setError(null);
@@ -284,7 +285,7 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
             layout_id: saved.id, extraction_scope: snapshot.scope, sheet_name: outputName.trim() }); }
         catch (cause) { if (mounted.current) setError(errorText(cause)); }
         finally { if (mounted.current) setBusy(null); }
-      }}>{busy === 'run' ? 'Starting extraction…' : 'Extract to new sheet'}</button>
+      }}>{busy === 'run' ? 'Starting extraction…' : props.extractionRunning ? 'Extracting…' : 'Extract to new sheet'}</button>
     </div>
   </div>;
   return <section className={styles.workspace} data-testid="extract-view" aria-label="Extract structured data"

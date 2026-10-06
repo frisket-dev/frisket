@@ -135,6 +135,20 @@ it('saves the latest draft before submitting one layout and a server-resolved fi
   expect(request).not.toHaveProperty('row_ids'); expect(request.template).not.toHaveProperty('pending'); expect(saved[0].draft.fields?.[0].name).toBe('Person');
 });
 
+it('blocks repeat submission while the ordinary job controller is extracting', async () => {
+  saved = [newLayout(1, { ...emptyDraft, reference_blob_id: 'example', reference_fingerprint: 'native:example',
+    fields: [{ id: 'name', name: 'Name', key: region, value: { ...region, box: { ...region.box, x0: .3, x1: .6 } }, section_id: null }] })];
+  const onExtract = vi.fn();
+  const initialProps = props({ onExtract, extractionRunning: true });
+  const { rerender } = render(<ExtractView {...initialProps} />); await ready();
+  expect(screen.getByTestId('extract-new-sheet')).toBeDisabled();
+  expect(screen.getByTestId('extract-new-sheet')).toHaveTextContent('Extracting…');
+  fireEvent.click(screen.getByTestId('extract-new-sheet'));
+  expect(onExtract).not.toHaveBeenCalled();
+  rerender(<ExtractView {...initialProps} extractionRunning={false} />);
+  expect(screen.getByTestId('extract-new-sheet')).toBeEnabled();
+});
+
 it('refreshes cohort counts after ordinary sheet inventory changes without resetting a draft', async () => {
   const initialProps = props({ refreshKey: 1 }); const { rerender } = render(<ExtractView {...initialProps} />); await ready();
   fireEvent.click(screen.getByTestId('extract-options-button')); fireEvent.click(screen.getByLabelText('Continue across pages'));
