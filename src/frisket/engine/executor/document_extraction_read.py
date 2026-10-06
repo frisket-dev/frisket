@@ -256,7 +256,6 @@ class AdmittedPositionedDocumentReader:
                     "source": params.source.name,
                     "layout_id": params.layout_id,
                     "selection": selection.model_dump(mode="json"),
-                    "row_ids": list(scope.row_ids),
                 }
             )
         self.cancelled = cancelled or (lambda: False)
@@ -319,6 +318,17 @@ class AdmittedPositionedDocumentReader:
                 result = extract_document(
                     compiled, loaded.document, params.repeat_group_id
                 )
+                if result.outcome == "alignment_failed" and result.records:
+                    # An unmatched document has no record to publish. Keep
+                    # matcher diagnostics while withholding its missing cells.
+                    if all(
+                        cell.status == "not_found"
+                        for record in result.records
+                        for cell in record.cells.values()
+                    ):
+                        result = result.model_copy(
+                            update={"records": [], "outcome": "zero_records"}
+                        )
                 loaded = DocumentIdentity.from_loaded(loaded)
                 self.identities[blob_id] = loaded
                 self.source_blobs[item.source.row_id] = blob_id
@@ -332,7 +342,7 @@ class AdmittedPositionedDocumentReader:
                     outcome="error",
                     error_code=exc.code,
                 )
-            if result.outcome in {"extracted", "zero_records"}:
+            if result.outcome != "error":
                 self.successful_row_ids.append(item.source.row_id)
             outcome = {
                 "row_id": item.source.row_id,
