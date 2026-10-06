@@ -9,6 +9,26 @@ class ExtractionModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
+class ExtractionScope(ExtractionModel):
+    kind: Literal["this", "filter", "all", "layout"]
+    row_id: int | None = Field(default=None, gt=0)
+    filter: dict | None = None
+    parent_row_id: int | None = Field(default=None, gt=0)
+    scope_row_ids: list[int] | None = None
+    layout_id: int | None = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def selected_document(self) -> "ExtractionScope":
+        if self.kind == "this" and self.row_id is None:
+            raise ValueError("Choose the document to extract")
+        if self.scope_row_ids is not None and (
+            any(row_id <= 0 for row_id in self.scope_row_ids)
+            or len(self.scope_row_ids) != len(set(self.scope_row_ids))
+        ):
+            raise ValueError("Scope row ids must be positive and unique")
+        return self
+
+
 class Box(ExtractionModel):
     x0: float = Field(ge=0, le=1, allow_inf_nan=False)
     y0: float = Field(ge=0, le=1, allow_inf_nan=False)
@@ -140,4 +160,5 @@ class ExtractedRecord(ExtractionModel):
 class DocumentExtraction(ExtractionModel):
     records: list[ExtractedRecord]
     diagnostics: list[str] = Field(default_factory=list)
-    outcome: Literal["extracted", "zero_records", "alignment_failed"]
+    outcome: Literal["extracted", "zero_records", "alignment_failed", "error"]
+    error_code: str | None = None
