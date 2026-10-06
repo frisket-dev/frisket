@@ -992,9 +992,7 @@ class ProjectLifecycleService:
             entry["refreshable"] = sheet_id in refreshable_sheet_ids
             entry["columns"] = sheet_columns_payload(project, sheet_id)
             state = (
-                sync_states.get(sheet_id)
-                if sheet_id in refreshable_sheet_ids
-                else None
+                sync_states.get(sheet_id) if sheet_id in refreshable_sheet_ids else None
             )
             if state is not None:
                 entry["syncState"] = state["sync_state"]
@@ -1055,7 +1053,5 @@ class ProjectLifecycleService:
         }
         return {
             "project_id": project_id,
-            **build_lineage_dag(
-                project, refreshable_sheet_ids=refreshable_sheet_ids
-            ),
+            **build_lineage_dag(project, refreshable_sheet_ids=refreshable_sheet_ids),
         }

@@ -116,7 +116,10 @@ def test_lineage_endpoint_returns_sheet_tier_and_derive_edge(tmp_path: Path) -> 
     assert derive_edge["kind"] == "derive"
     assert derive_edge["stale"] is False
     sheets = client.get(f"/api/projects/{pid}/sheets").json()
-    assert next(sheet for sheet in sheets if sheet["id"] == vendors_id)["refreshable"] is True
+    assert (
+        next(sheet for sheet in sheets if sheet["id"] == vendors_id)["refreshable"]
+        is True
+    )
 
 
 def test_lineage_endpoint_does_not_project_sync_for_one_time_outputs(

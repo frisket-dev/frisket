@@ -44,10 +44,7 @@ def build_lineage_dag(
     generations = ResultGenerationStore(project)
 
     def _sync_state(sheet_id: int) -> dict[str, str | None] | None:
-        if (
-            refreshable_sheet_ids is not None
-            and sheet_id not in refreshable_sheet_ids
-        ):
+        if refreshable_sheet_ids is not None and sheet_id not in refreshable_sheet_ids:
             return None
         return sync_states.get(sheet_id)
 

@@ -147,12 +147,15 @@ def sheet_supports_refresh(project: Project, sheet_id: int) -> bool:
         if sheet["parent_op_id"] is not None
         else None
     )
-    return _sheet_refresh_plan(
-        project,
-        sheet,
-        parent_op,
-        idempotency_key="sheet-refresh-support-probe",
-    ) is not None
+    return (
+        _sheet_refresh_plan(
+            project,
+            sheet,
+            parent_op,
+            idempotency_key="sheet-refresh-support-probe",
+        )
+        is not None
+    )
 
 
 def _fail(
