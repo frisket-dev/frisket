@@ -1,12 +1,12 @@
-import type { ExtractionDocument, ExtractionRequest, ExtractionPreviewDocument } from '../../api/documentExtraction';
+import type { ExtractionDocument, ExtractionRequest, ExtractionPreviewDocument, SavedExtractionTemplate } from '../../api/documentExtraction';
 import { normalizeRegion } from '../../components/regionGeometry';
 
 export function previewOutcome(result: ExtractionPreviewDocument['result']): { warning: boolean; text: string } {
+  if (result.outcome === 'zero_records') return { warning: false, text: 'No matching records' };
   const warnedCell = result.records.flatMap((record) => Object.values(record.cells)).find((cell) => cell.status === 'not_found' || Boolean(cell.diagnostic));
-  return { warning: result.outcome === 'alignment_failed' || result.diagnostics.length > 0 || Boolean(warnedCell),
+  return { warning: result.outcome === 'error' || result.diagnostics.length > 0 || Boolean(warnedCell),
     text: result.diagnostics[0] ?? warnedCell?.diagnostic ?? (warnedCell ? 'Some fields were not found'
-      : result.outcome === 'alignment_failed' ? 'Could not align this document'
-      : result.outcome === 'zero_records' ? 'No repeated records found' : `${result.records.length} records`) };
+      : result.outcome === 'error' ? 'Could not extract this document' : `${result.records.length} records`) };
 }
 
 type WireTemplate = ExtractionRequest['template'];
@@ -18,11 +18,12 @@ export type PageSpan = RepeatedSection['first'];
 export type ExtractionTemplate = Omit<Required<WireTemplate>, 'fields' | 'sections'> & { fields: ExtractionField[]; sections: RepeatedSection[] };
 export type PositionedDocument = ExtractionDocument['document'];
 
-export function templateDefaults(template: WireTemplate): ExtractionTemplate {
-  return { ...template, expand_values: template.expand_values ?? false, look_every_page: template.look_every_page ?? true,
+export function templateDefaults(template: WireTemplate | SavedExtractionTemplate['draft']): ExtractionTemplate {
+  return { reference_blob_id: template.reference_blob_id ?? '', reference_fingerprint: template.reference_fingerprint ?? '',
+    expand_values: template.expand_values ?? false, look_every_page: template.look_every_page ?? true,
     continue_across_pages: template.continue_across_pages ?? false, ignore_bands: template.ignore_bands ?? [],
     sections: (template.sections ?? []).map((section) => ({ ...section, name: section.name ?? 'Repeated section' })),
-    fields: template.fields.map((field) => ({ ...field, section_id: field.section_id ?? null })) };
+    fields: (template.fields ?? []).map((field) => ({ ...field, name: field.name ?? '', section_id: field.section_id ?? null })) };
 }
 
 export function regionInsideSpan(region: PageRegion, span: PageSpan): boolean {

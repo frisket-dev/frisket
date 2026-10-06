@@ -11,11 +11,11 @@ from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.scalar_storage_migration import (
     SCALAR_CURRENT_VALUES_FROM_DIGEST,
-    SCALAR_CURRENT_VALUES_TO_DIGEST,
 )
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
 from helpers import run_writer_authority_fixture
 from tests.engine.test_current_cells_migration import _prior_bundle
+from tests.engine.test_bundle_schema_fence import _remove_extraction_layouts
 
 
 _PREDECESSOR_CURRENT_CELLS = """
@@ -181,6 +181,7 @@ def _seed_mixed_origins(path: Path) -> tuple[int, int, int, list[int]]:
 def _downgrade_to_scalar_predecessor(path: Path) -> None:
     with sqlite3.connect(path / "project.db") as db:
         db.execute("PRAGMA foreign_keys=OFF")
+        _remove_extraction_layouts(db)
         db.execute("DROP VIEW current_cell_values")
         db.execute("ALTER TABLE current_cells RENAME TO projected_current_cells")
         db.execute(_PREDECESSOR_CURRENT_CELLS)
@@ -228,8 +229,7 @@ def test_scalar_migration_preserves_authority_values_history_and_reopen(
 
     project = Project(path)
 
-    assert project.get_meta(SCHEMA_DIGEST_META_KEY) == SCALAR_CURRENT_VALUES_TO_DIGEST
-    assert SCALAR_CURRENT_VALUES_TO_DIGEST == SCHEMA_DIGEST
+    assert project.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
     assert project.get_values(sheet_id=sheet_id, column_id=source_column_id) == {
         row_ids[0]: 10,
         row_ids[1]: 20,
@@ -336,7 +336,7 @@ def test_supported_older_bundle_chains_through_scalar_migration(tmp_path: Path) 
 
     project = Project(path)
 
-    assert project.get_meta(SCHEMA_DIGEST_META_KEY) == SCALAR_CURRENT_VALUES_TO_DIGEST
+    assert project.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
     projected = project.db.execute(
         "SELECT row_id,inline_value_kind,inline_value FROM current_cells "
         "WHERE column_id=10 ORDER BY row_id"

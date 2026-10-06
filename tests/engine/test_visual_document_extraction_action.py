@@ -190,6 +190,472 @@ def test_repetition_one_aggregate_table(tmp_path):
         assert project.db.execute("SELECT count(*) FROM sheets").fetchone()[0] == 2
 
 
+def test_rerun_creates_fresh_sheet_and_leaves_manual_corrections(tmp_path):
+    with closing(Project.create(tmp_path / "project")) as project:
+        sheet, _column, _rows, template = seed(project)
+        first = run_typed_create_sheet_action(
+            project,
+            "p",
+            typed_action_for_request(request(sheet, template, key="first")),
+        )
+        assert first.status == "completed", first.errors
+        original = first.outputs[0].ref
+        original_values = project.get_values(
+            original["sheet_id"], original["columns"]["Name"]
+        )
+        corrected_row = next(iter(original_values))
+        project.apply_edits(
+            [
+                {
+                    "row_id": corrected_row,
+                    "column_id": original["columns"]["Name"],
+                    "value": "Corrected",
+                }
+            ]
+        )
+        second = run_typed_create_sheet_action(
+            project,
+            "p",
+            typed_action_for_request(request(sheet, template, key="second")),
+        )
+        assert second.status == "completed", second.errors
+        fresh = second.outputs[0].ref
+        assert fresh["sheet_id"] != original["sheet_id"]
+        assert project.get_values(
+            original["sheet_id"], original["columns"]["Name"]
+        ) == {**original_values, corrected_row: "Corrected"}
+        assert list(
+            project.get_values(fresh["sheet_id"], fresh["columns"]["Name"]).values()
+        ) == list(original_values.values())
+
+
+def test_successful_input_membership_includes_zero_records_and_excludes_errors(
+    tmp_path,
+):
+    from frisket.actions.types import SheetRows
+    from frisket.engine.executor.document_extraction_read import (
+        AdmittedPositionedDocumentReader,
+    )
+
+    with closing(Project.create(tmp_path / "project")) as project:
+        sheet, column, rows, template = seed(project, count=3, repeats=True)
+        values = project.get_values(sheet, column)
+        zero_blob = values[rows[1]]["blob"]
+        failed_blob = values[rows[2]]["blob"]
+        project.db.execute(
+            "DELETE FROM source_spans WHERE quote IN ('NAME','ARRESTED') AND artifact_id IN "
+            "(SELECT id FROM source_artifacts WHERE blob_hash=?)",
+            (zero_blob,),
+        )
+        project.db.execute(
+            "DELETE FROM source_spans WHERE artifact_id IN "
+            "(SELECT id FROM source_artifacts WHERE blob_hash=?)",
+            (failed_blob,),
+        )
+        project.db.commit()
+        params = DocumentExtractParams(
+            source="document", template=template, repeat_group_id="people"
+        )
+        reader = AdmittedPositionedDocumentReader(
+            project, scope=SheetRows(sheet_id=sheet), params=params
+        )
+        try:
+            results = list(reader.document_results(params))
+            assert [result.outcome for _source, _loaded, result in results] == [
+                "extracted",
+                "zero_records",
+                "error",
+            ]
+            assert reader.successful_row_ids == rows[:2]
+            assert reader.outcome_counts == {
+                "extracted": 1,
+                "zero_records": 1,
+                "error": 1,
+            }
+        finally:
+            reader.close()
+
+
+def save_layout(project, sheet, rows, template):
+    from frisket.engine.store.extraction_layouts import save_layout as save
+
+    return save(
+        project,
+        sheet_id=sheet,
+        source="document",
+        reference_row_id=rows[0],
+        draft=template.model_dump(mode="json"),
+        repeat_group_id="people" if template.sections else None,
+    )["id"]
+
+
+def layout_request(sheet, template, layout_id, *, selection, key):
+    body = request(sheet, template, key=key)
+    body["params"].update(layout_id=layout_id, extraction_scope=selection)
+    return typed_action_for_request(body)
+
+
+def layout_rows(project, sheet, layout_id):
+    from frisket.actions.document_extraction_types import ExtractionScope
+    from frisket.engine.store.extraction_layouts import resolve_document_scope
+
+    return resolve_document_scope(
+        project,
+        sheet_id=sheet,
+        source="document",
+        scope=ExtractionScope(kind="layout", layout_id=layout_id),
+    )
+
+
+def test_layout_run_remembers_zero_output_and_moves_only_applied_documents(tmp_path):
+    from frisket.engine.store.extraction_layouts import get_layout
+
+    with closing(Project.create(tmp_path / "project")) as project:
+        sheet, column, rows, template = seed(project, count=3, repeats=True)
+        values = project.get_values(sheet, column)
+        project.db.execute(
+            "DELETE FROM source_spans WHERE quote IN ('NAME','ARRESTED') AND artifact_id IN "
+            "(SELECT id FROM source_artifacts WHERE blob_hash=?)",
+            (values[rows[1]]["blob"],),
+        )
+        project.db.execute(
+            "DELETE FROM source_spans WHERE artifact_id IN "
+            "(SELECT id FROM source_artifacts WHERE blob_hash=?)",
+            (values[rows[2]]["blob"],),
+        )
+        project.db.commit()
+        first_layout = save_layout(project, sheet, rows, template)
+        second_layout = save_layout(project, sheet, rows, template)
+        first = run_typed_create_sheet_action(
+            project,
+            "p",
+            layout_request(
+                sheet,
+                template,
+                first_layout,
+                selection={"kind": "all"},
+                key="Layout 1 results",
+            ),
+        )
+        assert first.status == "completed", first.errors
+        original = first.outputs[0].ref
+        assert original["row_count"] == 2
+        assert layout_rows(project, sheet, first_layout) == rows[:2]
+        assert get_layout(project, first_layout)["has_applied"]
+        assert not get_layout(project, second_layout)["has_applied"]
+        original_values = project.get_values(
+            original["sheet_id"], original["columns"]["Name"]
+        )
+        corrected_row = next(iter(original_values))
+        project.apply_edits(
+            [
+                {
+                    "row_id": corrected_row,
+                    "column_id": original["columns"]["Name"],
+                    "value": "Corrected",
+                }
+            ]
+        )
+        moved = run_typed_create_sheet_action(
+            project,
+            "p",
+            layout_request(
+                sheet,
+                template,
+                second_layout,
+                selection={"kind": "this", "row_id": rows[0]},
+                key="Layout 2 results",
+            ),
+        )
+        assert moved.status == "completed", moved.errors
+        assert layout_rows(project, sheet, first_layout) == [rows[1]]
+        assert layout_rows(project, sheet, second_layout) == [rows[0]]
+        rerun = layout_request(
+            sheet,
+            template,
+            first_layout,
+            selection={"kind": "layout"},
+            key="Layout 1 results (2)",
+        )
+        fresh = run_typed_create_sheet_action(project, "p", rerun)
+        assert fresh.status == "completed", fresh.errors
+        assert fresh.outputs[0].ref["row_count"] == 0
+        assert fresh.outputs[0].ref["sheet_id"] != original["sheet_id"]
+        assert project.get_values(
+            original["sheet_id"], original["columns"]["Name"]
+        ) == {**original_values, corrected_row: "Corrected"}
+        assert layout_rows(project, sheet, first_layout) == [rows[1]]
+        replay = run_typed_create_sheet_action(project, "p", rerun)
+        assert replay.receipt_id == fresh.receipt_id
+        assert project.db.execute("SELECT count(*) FROM sheets").fetchone()[0] == 4
+
+
+def test_filter_scope_is_resolved_once_and_frozen_at_reader_admission(tmp_path):
+    from frisket.actions.types import SheetRows
+    from frisket.engine.executor.document_extraction_read import (
+        AdmittedPositionedDocumentReader,
+    )
+
+    with closing(Project.create(tmp_path / "project")) as project:
+        sheet, _column, rows, template = seed(project)
+        selected_column = project.add_column(sheet, "selected", "text")
+        project.apply_edits(
+            [
+                {"row_id": row, "column_id": selected_column, "value": value}
+                for row, value in zip(rows, ["yes", "no"], strict=True)
+            ]
+        )
+        layout_id = save_layout(project, sheet, rows, template)
+        params = DocumentExtractParams(
+            source="document",
+            template=template,
+            layout_id=layout_id,
+            extraction_scope={"kind": "filter", "filter": {"selected": {"eq": "yes"}}},
+        )
+        reader = AdmittedPositionedDocumentReader(
+            project, scope=SheetRows(sheet_id=sheet), params=params
+        )
+        project.apply_edits(
+            [
+                {"row_id": row, "column_id": selected_column, "value": value}
+                for row, value in zip(rows, ["no", "yes"], strict=True)
+            ]
+        )
+        try:
+            results = list(reader.document_results(params))
+            assert [source.row_id for source, _loaded, _result in results] == rows[:1]
+            selection_fact = next(
+                fact
+                for fact in reader.facts
+                if fact["kind"] == "document_extraction_scope"
+            )
+            assert selection_fact["selection"]["filter"] == {"selected": {"eq": "yes"}}
+            read_fact = next(
+                fact for fact in reader.facts if fact["kind"] == "sheet_rows_read"
+            )
+            assert read_fact["row_ids"] == rows[:1]
+        finally:
+            reader.close()
+        assert layout_rows(project, sheet, layout_id) == []
+        result = run_typed_create_sheet_action(
+            project,
+            "p",
+            layout_request(
+                sheet,
+                template,
+                layout_id,
+                selection={"kind": "filter", "filter": {"selected": {"eq": "yes"}}},
+                key="Filtered results",
+            ),
+        )
+        assert result.status == "completed", result.errors
+        assert result.outputs[0].ref["row_count"] == 1
+        assert layout_rows(project, sheet, layout_id) == rows[1:]
+
+
+def test_empty_layout_scope_refuses_without_expanding_to_all(tmp_path):
+    from frisket.engine.store.extraction_layouts import get_layout
+
+    with closing(Project.create(tmp_path / "project")) as project:
+        sheet, _column, rows, template = seed(project)
+        layout_id = save_layout(project, sheet, rows, template)
+        result = run_typed_create_sheet_action(
+            project,
+            "p",
+            layout_request(
+                sheet,
+                template,
+                layout_id,
+                selection={"kind": "layout"},
+                key="Empty scope",
+            ),
+        )
+        assert result.status == "failed"
+        assert result.errors[0].code == "invalid_input_ref"
+        assert project.db.execute("SELECT count(*) FROM sheets").fetchone()[0] == 1
+        assert not get_layout(project, layout_id)["has_applied"]
+        assert layout_rows(project, sheet, layout_id) == []
+
+
+def test_preview_and_all_document_errors_never_assign_layout(tmp_path):
+    from frisket.contracts.http.document_extraction import ExtractionPreviewRequest
+    from frisket.engine.store.extraction_layouts import get_layout
+
+    workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
+    workspace.create("Test", project_id="p")
+    project = workspace.get("p")
+    sheet, column, rows, template = seed(project)
+    layout_id = save_layout(project, sheet, rows, template)
+    preview = DocumentExtractionService(workspace).preview(
+        "p",
+        ExtractionPreviewRequest(
+            sheet_id=sheet,
+            source="document",
+            template=template,
+            layout_id=layout_id,
+            scope={"kind": "all"},
+        ),
+    )
+    assert len(preview.documents) == 2
+    assert project.db.execute("SELECT count(*) FROM sheets").fetchone()[0] == 1
+    assert layout_rows(project, sheet, layout_id) == []
+    assert not get_layout(project, layout_id)["has_applied"]
+    failed_blob = project.get_values(sheet, column)[rows[1]]["blob"]
+    project.db.execute(
+        "DELETE FROM source_spans WHERE artifact_id IN (SELECT id FROM source_artifacts WHERE blob_hash=?)",
+        (failed_blob,),
+    )
+    project.db.commit()
+    failed = run_typed_create_sheet_action(
+        project,
+        "p",
+        layout_request(
+            sheet,
+            template,
+            layout_id,
+            selection={"kind": "this", "row_id": rows[1]},
+            key="Unreadable document",
+        ),
+    )
+    assert failed.status == "completed", failed.errors
+    assert failed.outputs[0].ref["row_count"] == 0
+    assert any(
+        f"Document row {rows[1]}: error" in warning for warning in failed.warnings
+    )
+    assert layout_rows(project, sheet, layout_id) == []
+    assert not get_layout(project, layout_id)["has_applied"]
+
+
+def test_unmatched_document_publishes_zero_rows_and_remains_in_layout_cohort(tmp_path):
+    with closing(Project.create(tmp_path / "project")) as project:
+        sheet, column, rows, template = seed(project)
+        blob = project.get_values(sheet, column)[rows[1]]["blob"]
+        project.db.execute(
+            "DELETE FROM source_spans WHERE quote IN ('NAME','ARRESTED') AND artifact_id IN (SELECT id FROM source_artifacts WHERE blob_hash=?)",
+            (blob,),
+        )
+        project.db.commit()
+        layout_id = save_layout(project, sheet, rows, template)
+        result = run_typed_create_sheet_action(
+            project,
+            "p",
+            layout_request(
+                sheet,
+                template,
+                layout_id,
+                selection={"kind": "this", "row_id": rows[1]},
+                key="No matches",
+            ),
+        )
+        assert result.status == "completed", result.errors
+        assert result.outputs[0].ref["row_count"] == 0
+        assert layout_rows(project, sheet, layout_id) == [rows[1]]
+        rerun = run_typed_create_sheet_action(
+            project,
+            "p",
+            layout_request(
+                sheet,
+                template,
+                layout_id,
+                selection={"kind": "layout"},
+                key="No matches (2)",
+            ),
+        )
+        assert rerun.status == "completed", rerun.errors
+        assert rerun.outputs[0].ref["row_count"] == 0
+        assert layout_rows(project, sheet, layout_id) == [rows[1]]
+
+
+def test_repeated_layout_mismatch_is_zero_output_with_diagnostic_and_cohort(tmp_path):
+    from frisket.contracts.http.document_extraction import ExtractionPreviewRequest
+
+    workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
+    workspace.create("Test", project_id="p")
+    project = workspace.get("p")
+    sheet, column, rows, template = seed(project, repeats=True)
+    blob = project.get_values(sheet, column)[rows[1]]["blob"]
+    project.db.execute(
+        "DELETE FROM source_spans WHERE quote='NAME' AND artifact_id IN "
+        "(SELECT id FROM source_artifacts WHERE blob_hash=?)",
+        (blob,),
+    )
+    project.db.commit()
+    layout_id = save_layout(project, sheet, rows, template)
+    preview = DocumentExtractionService(workspace).preview(
+        "p",
+        ExtractionPreviewRequest(
+            sheet_id=sheet,
+            source="document",
+            template=template,
+            repeat_group_id="people",
+            layout_id=layout_id,
+            scope={"kind": "this", "row_id": rows[1]},
+        ),
+    )
+    assert preview.documents[0].result.outcome == "zero_records"
+    assert preview.documents[0].result.records == []
+    assert preview.documents[0].result.diagnostics == [
+        "Repeated section start is missing, but later keys were found"
+    ]
+    assert layout_rows(project, sheet, layout_id) == []
+    result = run_typed_create_sheet_action(
+        project,
+        "p",
+        layout_request(
+            sheet,
+            template,
+            layout_id,
+            selection={"kind": "this", "row_id": rows[1]},
+            key="Partial layout match",
+        ),
+    )
+    assert result.status == "completed", result.errors
+    assert result.outputs[0].ref["row_count"] == 0
+    assert layout_rows(project, sheet, layout_id) == [rows[1]]
+    assert any("later keys were found" in warning for warning in result.warnings)
+    rerun = run_typed_create_sheet_action(
+        project,
+        "p",
+        layout_request(
+            sheet,
+            template,
+            layout_id,
+            selection={"kind": "layout"},
+            key="Partial layout match (2)",
+        ),
+    )
+    assert rerun.status == "completed", rerun.errors
+    assert rerun.outputs[0].ref["row_count"] == 0
+    assert layout_rows(project, sheet, layout_id) == [rows[1]]
+
+
+def test_layout_with_explicit_sheet_rows_records_its_scope_and_membership(tmp_path):
+    with closing(Project.create(tmp_path / "project")) as project:
+        sheet, _column, rows, template = seed(project)
+        layout_id = save_layout(project, sheet, rows, template)
+        body = request(sheet, template, rows=rows[1:])
+        body["params"]["layout_id"] = layout_id
+        result = run_typed_create_sheet_action(
+            project, "p", typed_action_for_request(body)
+        )
+        assert result.status == "completed", result.errors
+        assert layout_rows(project, sheet, layout_id) == rows[1:]
+        reads = result.outputs[0].ref["reads"]
+        assert next(
+            fact for fact in reads if fact["kind"] == "document_extraction_scope"
+        ) == {
+            "kind": "document_extraction_scope",
+            "sheet_id": sheet,
+            "source": "document",
+            "layout_id": layout_id,
+            "selection": {"kind": "sheet_rows"},
+        }
+        assert (
+            next(fact for fact in reads if fact["kind"] == "sheet_rows_read")["row_ids"]
+            == rows[1:]
+        )
+
+
 def test_api_preview_bounded_parity_persistence_and_stale_reference(tmp_path):
     workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
     workspace.create("Test", project_id="p")
@@ -216,12 +682,16 @@ def test_api_preview_bounded_parity_persistence_and_stale_reference(tmp_path):
             "sheet_id": sheet,
             "source": "document",
             "template": template.model_dump(mode="json"),
+            "scope": {"kind": "all"},
         }
         preview = client.post(f"{prefix}/preview", json=body)
         assert preview.status_code == 200, preview.text
         assert len(preview.json()["documents"]) == 12
         assert preview.json()["truncated"] is True
-        selected = client.post(f"{prefix}/preview", json={**body, "row_ids": rows[:2]})
+        selected = client.post(
+            f"{prefix}/preview",
+            json={**body, "scope": {"kind": "filter", "scope_row_ids": rows[:2]}},
+        )
         assert selected.json()["truncated"] is False
         assert (
             preview.json()["documents"][1]["result"]["records"][0]["cells"]["arrested"][
@@ -230,28 +700,32 @@ def test_api_preview_bounded_parity_persistence_and_stale_reference(tmp_path):
             == "empty"
         )
         assert project.db.execute("SELECT count(*) FROM sheets").fetchone()[0] == 1
+        save_body = {
+            "sheet_id": sheet,
+            "source": "document",
+            "draft": body["template"],
+            "reference_row_id": rows[0],
+        }
         save = client.post(
             f"{prefix}/templates",
-            json={**body, "name": "Forms", "reference_row_id": rows[0]},
+            json=save_body,
         )
         assert save.status_code == 200, save.text
         updated = client.post(
             f"{prefix}/templates",
             json={
-                **body,
-                "name": "Forms revised",
-                "reference_row_id": rows[0],
+                **save_body,
                 "id": save.json()["id"],
             },
         )
         assert updated.status_code == 200, updated.text
-        saved = client.get(f"{prefix}/templates", params={"sheet_id": sheet}).json()[
-            "templates"
-        ]
-        assert len(saved) == 1 and saved[0]["name"] == "Forms revised"
+        saved = client.get(
+            f"{prefix}/templates", params={"sheet_id": sheet, "source": "document"}
+        ).json()["templates"]
+        assert len(saved) == 1 and saved[0]["name"] == "Layout 1"
         missing = client.post(
             f"{prefix}/templates",
-            json={**body, "name": "Missing", "reference_row_id": rows[0], "id": 9999},
+            json={**save_body, "id": 9999},
         )
         assert missing.status_code == 404, missing.text
         body["template"]["reference_fingerprint"] = "stale"
@@ -324,8 +798,7 @@ def test_one_corrupt_document_does_not_discard_other_documents(tmp_path):
         assert result.status == "completed", result.errors
         assert result.outputs[0].ref["row_count"] == 1
         assert any(
-            f"Document row {rows[1]}: alignment_failed" in warning
-            for warning in result.warnings
+            f"Document row {rows[1]}: error" in warning for warning in result.warnings
         )
 
 
@@ -341,8 +814,7 @@ def test_cancelled_template_save_does_not_persist(tmp_path):
         sheet_id=sheet,
         source="document",
         reference_row_id=rows[0],
-        template=template,
-        name="Cancelled",
+        draft=template.model_dump(),
     )
     with pytest.raises(TableError, match="cancelled"):
         service.save("p", body, cancelled=lambda: True)
@@ -384,7 +856,7 @@ def test_missing_pdf_bytes_is_a_document_failure_not_a_batch_failure(
         assert result.status == "completed", result.errors
         assert result.outputs[0].ref["row_count"] == 1
         assert any(
-            f"Document row {missing_row}: alignment_failed" in warning
+            f"Document row {missing_row}: error" in warning
             for warning in result.warnings
         )
 
@@ -408,7 +880,8 @@ def test_missing_geometry_is_not_an_empty_success(tmp_path):
         )
         try:
             results = list(reader.document_results(params))
-            assert results[1][2].outcome == "alignment_failed"
+            assert results[1][2].outcome == "error"
+            assert results[1][2].error_code == "document_geometry_unavailable"
             assert results[1][2].records == []
         finally:
             reader.close()
@@ -429,17 +902,21 @@ def test_public_queued_run_and_empty_scope(tmp_path):
             json={
                 "sheet_id": sheet,
                 "source": "document",
-                "row_ids": [],
+                "scope": {"kind": "filter", "scope_row_ids": []},
                 "template": template.model_dump(mode="json"),
             },
         )
         assert empty.status_code == 200, empty.text
         assert empty.json()["documents"] == []
-        launched = client.post(
-            f"/api/projects/{pid}/actions/v1/run", json=request(sheet, template)
-        )
+        layout_id = save_layout(project, sheet, rows, template)
+        run = request(sheet, template)
+        run["params"].update(layout_id=layout_id, extraction_scope={"kind": "all"})
+        launched = client.post(f"/api/projects/{pid}/actions/v1/run", json=run)
         assert launched.status_code == 200, launched.text
         assert launched.json()["status"] == "queued", launched.text
+        from frisket.engine.store.extraction_layouts import save_layout as save
+
+        save(project, sheet_id=sheet, source="document", layout_id=layout_id, draft={})
         worker = Worker(
             workspace.queue, workspace.registry, worker_id="visual-extraction-test"
         )
@@ -450,6 +927,7 @@ def test_public_queued_run_and_empty_scope(tmp_path):
         assert receipt.status_code == 200, receipt.text
         assert receipt.json()["status"] == "completed", receipt.text
         assert receipt.json()["outputs"][0]["ref"]["row_count"] == 2
+        assert layout_rows(project, sheet, layout_id) == rows
 
 
 def test_partial_field_failure_warns_without_discarding_valid_fields(tmp_path):

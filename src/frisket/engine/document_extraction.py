@@ -717,13 +717,18 @@ def extract_document(
         if not document_fields:
             raise ValueError("Choose a repeated section to extract its fields")
         cells = list(document_cells.values())
-        outcome = (
-            "alignment_failed"
-            if all(cell.status == "not_found" for cell in cells)
-            else "extracted"
-        )
+        if all(cell.status == "not_found" for cell in cells):
+            return DocumentExtraction(
+                records=[],
+                outcome="zero_records",
+                diagnostics=list(
+                    dict.fromkeys(cell.diagnostic for cell in cells if cell.diagnostic)
+                )
+                if any(hits[field.anchor.id] for field in document_fields)
+                else [],
+            )
         return DocumentExtraction(
-            records=[ExtractedRecord(cells=document_cells)], outcome=outcome
+            records=[ExtractedRecord(cells=document_cells)], outcome="extracted"
         )
     fields = sorted(
         (
@@ -751,7 +756,7 @@ def extract_document(
     ):
         return DocumentExtraction(
             records=[],
-            outcome="alignment_failed",
+            outcome="zero_records",
             diagnostics=[
                 "Repeated section's surrounding labels could not be matched unambiguously"
             ],
@@ -761,7 +766,7 @@ def extract_document(
     if scope_start >= scope_end:
         return DocumentExtraction(
             records=[],
-            outcome="alignment_failed",
+            outcome="zero_records",
             diagnostics=["Repeated section's surrounding labels are out of order"],
         )
     closing_hits = hits[closing.id] if closing is not None else []
@@ -774,7 +779,7 @@ def extract_document(
         partial = any(hits[field.anchor.id] for field in fields[1:])
         return DocumentExtraction(
             records=[],
-            outcome="alignment_failed" if partial else "zero_records",
+            outcome="zero_records",
             diagnostics=["Repeated section start is missing, but later keys were found"]
             if partial
             else [],
@@ -811,7 +816,7 @@ def extract_document(
         if ambiguous:
             return DocumentExtraction(
                 records=[],
-                outcome="alignment_failed",
+                outcome="zero_records",
                 diagnostics=[
                     "Repeated section boundaries are ambiguous; no rows were guessed"
                 ],

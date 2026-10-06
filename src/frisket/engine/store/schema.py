@@ -17,6 +17,7 @@ import sqlite3
 from pathlib import Path
 
 from .citation_text import CITATION_TEXT_SCHEMA_SQL
+from .extraction_layouts import EXTRACTION_LAYOUTS_SCHEMA_SQL
 
 FORMAT_VERSION = 1
 
@@ -2289,6 +2290,7 @@ CREATE INDEX IF NOT EXISTS idx_project_qa_research_operations_unsettled
 # Citation fallback DDL is owned beside its resolver/triggers, but remains part
 # of the one authoritative fresh-bundle schema and therefore of its digest.
 SCHEMA += "\n" + CITATION_TEXT_SCHEMA_SQL + "\n"
+SCHEMA += "\n" + EXTRACTION_LAYOUTS_SCHEMA_SQL + "\n"
 
 # The run queue (jobs + worker_heartbeats) lives in its OWN database, never a
 # project bundle: `<workspace>/.queue.db` locally, the hosted run-queue Postgres

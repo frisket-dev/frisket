@@ -1103,6 +1103,17 @@ type DocumentExtractParams_ExtractionField = ({
   "section_id"?: (((string)) | ((null)));
 });
 
+type DocumentExtractParams_ExtractionScope = ({
+  "kind": ("this" | "filter" | "all" | "layout") & (string);
+  "row_id"?: (((number)) | ((null)));
+  "filter"?: ((({
+  [key: string]: JsonValue;
+})) | ((null)));
+  "parent_row_id"?: (((number)) | ((null)));
+  "scope_row_ids"?: (((Array<(number)>)) | ((null)));
+  "layout_id"?: (((number)) | ((null)));
+});
+
 type DocumentExtractParams_ExtractionTemplate = ({
   "reference_blob_id": (string);
   "reference_fingerprint": (string);
@@ -1144,6 +1155,8 @@ export type DocumentExtractParams = ({
   "source": (DocumentExtractParams_DocumentColumn);
   "template": (DocumentExtractParams_ExtractionTemplate);
   "repeat_group_id"?: (((string)) | ((null)));
+  "layout_id"?: (((number)) | ((null)));
+  "extraction_scope"?: (((DocumentExtractParams_ExtractionScope)) | ((null)));
 });
 
 type ExtractFacesParams_ImageColumn = (string);
