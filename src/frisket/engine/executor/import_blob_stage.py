@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import tempfile
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import ExitStack, contextmanager
 from dataclasses import replace
 from pathlib import Path
@@ -261,7 +261,10 @@ class AdmittedImportBlobStager:
             yield cast(BinaryIO, reader)
 
     def publication_plan(
-        self, occurrences: Iterable[tuple[int, str, StagedFile]]
+        self,
+        occurrences: Iterable[tuple[int, str, StagedFile]],
+        *,
+        output_names: Mapping[str, str] | None = None,
     ) -> ImportBlobPlan:
         self._require_open()
         cells = []
@@ -283,14 +286,22 @@ class AdmittedImportBlobStager:
             included.add(blob.occurrence_id)
             if blob.document_id is not None:
                 included.add(blob.document_id)
-        return ImportBlobPlan(
-            blobs=tuple(
-                blob
-                for blob in self._manifest.values()
-                if blob.occurrence_id in included
-            ),
-            cells=tuple(cells),
-        )
+        blobs = []
+        for blob in self._manifest.values():
+            if blob.occurrence_id not in included:
+                continue
+            prepared_column_name = blob.prepared_column_name
+            if prepared_column_name is not None and output_names is not None:
+                if prepared_column_name not in output_names:
+                    raise ValueError(
+                        "prepared import output has no resolved column name"
+                    )
+                blob = replace(
+                    blob,
+                    prepared_column_name=output_names[prepared_column_name],
+                )
+            blobs.append(blob)
+        return ImportBlobPlan(blobs=tuple(blobs), cells=tuple(cells))
 
     def finish_reads(self) -> None:
         """Close scratch readers before publication may unlink their files."""

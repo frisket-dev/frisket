@@ -251,6 +251,34 @@ def test_pdf_publication_retains_pages_original_and_replays_without_source(
         project.close()
 
 
+def test_pdf_prepared_text_uses_renamed_output_column(tmp_path: Path) -> None:
+    source = tmp_path / "renamed.pdf"
+    source.write_bytes(_pdf_bytes())
+    project = Project.create(tmp_path / "renamed.frisket", name="PDF")
+    try:
+        action = _action(source, render_pages=False)
+        action["output_names"] = {"text": "body"}
+
+        result = run_action_spec(project, action, project_id="pdf")
+
+        assert result.status == "completed", result.errors
+        sheet_id = result.outputs[0].sheet_id
+        columns = result.outputs[0].ref["columns"]
+        assert list(columns) == ["page", "body", "source"]
+        assert [
+            value.strip()
+            for value in project.get_values(sheet_id, columns["body"]).values()
+        ] == ["First page", "Second page"]
+        assert {
+            row["value_kind"]
+            for row in project.db.execute(
+                "SELECT value_kind FROM cells WHERE column_id=?", (columns["body"],)
+            )
+        } == {"prepared_content_ref"}
+    finally:
+        project.close()
+
+
 @pytest.mark.parametrize("dpi", [49, 601])
 def test_pdf_invalid_dpi_refuses_before_source_or_publication(
     tmp_path: Path, dpi: int
