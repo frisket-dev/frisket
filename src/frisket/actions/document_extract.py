@@ -55,9 +55,24 @@ def extraction_fields(params: DocumentExtractParams):
     )
 
 
+def source_document_column_name(params: DocumentExtractParams) -> str:
+    base = "Source document"
+    used = {field.name for field in extraction_fields(params)}
+    candidate = base
+    suffix = 2
+    while candidate in used:
+        candidate = f"{base} {suffix}"
+        suffix += 1
+    return candidate
+
+
 def extraction_columns(params: DocumentExtractParams):
-    return tuple(
-        TableColumn(key=field.name, type="text") for field in extraction_fields(params)
+    return (
+        *(
+            TableColumn(key=field.name, type="text")
+            for field in extraction_fields(params)
+        ),
+        TableColumn(key=source_document_column_name(params), type="file"),
     )
 
 
