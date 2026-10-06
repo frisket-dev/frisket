@@ -27,6 +27,10 @@ from frisket.runtime.launch import worker_argv
 from frisket.engine.store.artifact_timeline import canonical_json_hash
 from frisket.engine.store.blob_backend import BlobNotFoundError
 from frisket.engine.store.media_blobs import MediaBlobStore, update_blob_metadata
+from frisket.engine.executor.pdf_page_source import (
+    PdfPageSourceError,
+    materialize_pdf_page,
+)
 from frisket.execution.attempt import routed_admission_in_scope
 from frisket.execution.provider import enforce_pdf_page_limit
 from frisket.execution.runtime_binding import ROUTE_OBSERVATION_KEY, bind_fact_to_route
@@ -306,12 +310,23 @@ class _BoundDocumentConverter:
                 raise RowError(
                     "missing_blob", "Document source blob bytes are missing."
                 ) from None
-            return target, {
+            read = {
                 "kind": "blob",
                 "blob_hash": str(doc["blob"]),
                 "mime": doc.get("mime"),
                 "filename": doc.get("filename"),
             }
+            if "page" in doc:
+                try:
+                    target = materialize_pdf_page(
+                        target,
+                        page=doc["page"],
+                        destination=scratch / "doc-page.pdf",
+                    )
+                except PdfPageSourceError as exc:
+                    raise RowError("invalid_input_ref", str(exc)) from exc
+                read["page"] = doc["page"]
+            return target, read
         if isinstance(doc, str):
             if doc.startswith(("http://", "https://")):
                 raise RowError(
@@ -349,6 +364,9 @@ class _BoundDocumentConverter:
         except OSError:
             is_pdf = False
         if not is_pdf:
+            return
+        if isinstance(doc, dict) and "page" in doc:
+            enforce_pdf_page_limit(limits.max_pdf_pages, 1)
             return
         digest = doc.get("blob") if isinstance(doc, dict) else None
         probe = (
@@ -698,12 +716,16 @@ def write_document_convert_evidence(
             source_column_id=int(input_ref["column_id"]),
             metadata={"engine": engine},
         )
+        selected_page = input_ref.get("page")
+        page_scoped = type(selected_page) is int and selected_page > 0
         span = record_source_span(
             project,
             artifact_id=artifact["id"],
-            span_kind="whole",
+            span_kind="page" if page_scoped else "whole",
+            page_start=selected_page if page_scoped else None,
+            page_end=selected_page if page_scoped else None,
             metadata={
-                "granularity": "whole_document",
+                "granularity": "page" if page_scoped else "whole_document",
                 "evidence_semantics": "source_provenance",
             },
         )
@@ -733,7 +755,9 @@ def write_document_convert_evidence(
             producer={"action_kind": spec["action_kind"], "engine": engine},
             metadata={
                 "provenance_for": "row_execution",
-                "grounding_granularity": "whole_document",
+                "grounding_granularity": (
+                    "page" if page_scoped else "whole_document"
+                ),
             },
         )
         store._record_writer_evidence(

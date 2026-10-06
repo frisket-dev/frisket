@@ -119,16 +119,21 @@ def test_pdf_publication_retains_pages_original_and_replays_without_source(
             value.strip()
             for value in project.get_values(sheet_id, columns["text"]).values()
         ] == ["First page", "Second page"]
+        digest = hashlib.sha256(raw).hexdigest()
         assert list(project.get_values(sheet_id, columns["source"]).values()) == [
-            "docket.pdf",
-            "docket.pdf",
+            {
+                "blob": digest,
+                "filename": "docket.pdf",
+                "mime": "application/pdf",
+                "page": page,
+            }
+            for page in (1, 2)
         ]
         assert calls == ([] if render == "disabled" else [200])
         if render == "fallback":
             assert list(
                 project.get_values(sheet_id, columns["page_image"]).values()
             ) == [None, None]
-        digest = hashlib.sha256(raw).hexdigest()
         artifact = project.db.execute(
             "SELECT * FROM source_artifacts WHERE blob_hash=?", (digest,)
         ).fetchone()
@@ -153,6 +158,15 @@ def test_pdf_publication_retains_pages_original_and_replays_without_source(
         assert document["hash"] == digest
         assert document["artifact_id"] == artifact["id"]
         assert document["size"] == len(raw)
+        native_pages = [
+            item.ref
+            for item in receipt.evidence
+            if item.ref["kind"] == "imported_pdf_page"
+        ]
+        assert [ref["page"] for ref in native_pages] == [1, 2]
+        assert all(ref["hash"] == digest for ref in native_pages)
+        assert all(ref["artifact_id"] == artifact["id"] for ref in native_pages)
+        assert len({ref["evidence_link_id"] for ref in native_pages}) == 2
         file_read = next(
             item.ref for item in receipt.inputs if item.ref["kind"] == "local_file_read"
         )

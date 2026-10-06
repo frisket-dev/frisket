@@ -127,7 +127,7 @@ def import_pdf(
     columns = [
         TableColumn(key="page", type="integer"),
         TableColumn(key="text", type="text"),
-        TableColumn(key="source", type="text"),
+        TableColumn(key="source", type="file"),
     ]
     if params.render_pages:
         columns.append(TableColumn(key="page_image", type="image"))
@@ -166,10 +166,19 @@ def import_pdf(
             )
             for index, page in enumerate(chain((first,), pages), start=1):
                 try:
-                    text = page.extract_text() or ""
+                    prepared_text = page.extract_text()
                 except Exception:  # noqa: BLE001 - text extraction is best effort per page
-                    text = ""
-                values = {"page": index, "text": text, "source": filename}
+                    prepared_text = None
+                text = prepared_text or ""
+                values = {
+                    "page": index,
+                    "text": text,
+                    "source": blobs.reference_pdf_page(
+                        document,
+                        page=index,
+                        text=prepared_text,
+                    ),
+                }
                 if params.render_pages:
                     values["page_image"] = images.get(index)
                     if index not in images and not warnings:
