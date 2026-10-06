@@ -61,6 +61,17 @@ describe('visual extraction geometry', () => {
 });
 
 describe('annotation interactions', () => {
+  it('shows layout mismatches as neutral zero results and technical failures as errors', () => {
+    const mismatch = { row_id: 1, blob_id: 'other-format', filename: 'other.pdf',
+      result: { records: [], diagnostics: ['The reference labels did not match'], outcome: 'zero_records' as const } };
+    const failure = { row_id: 2, blob_id: 'broken', filename: 'broken.pdf',
+      result: { records: [], diagnostics: ['Document text could not be read'], outcome: 'error' as const } };
+    expect(previewOutcome(mismatch.result)).toEqual({ warning: false, text: 'No matching records' });
+    expect(previewOutcome(failure.result)).toEqual({ warning: true, text: 'Document text could not be read' });
+    render(<ExtractPreview template={template} preview={{ documents: [mismatch, failure], truncated: false }} onSelect={vi.fn()} />);
+    expect(screen.getByText('No matching records · The reference labels did not match')).toBeInTheDocument();
+    expect(screen.getByText('Document text could not be read')).toBeInTheDocument();
+  });
   it('uses server page images and dimensions rather than PDF.js CropBox geometry in extraction mode', async () => {
     vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
     vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(832);
@@ -128,11 +139,11 @@ describe('annotation interactions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'empty' }));
     expect(onSelect).toHaveBeenCalledWith(documents[0], empty);
     expect(screen.getByText('⚠ not found')).toBeInTheDocument();
-    expect(screen.getByText('No repeated records found')).toBeInTheDocument();
+    expect(screen.getByText('No matching records')).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('Preview sample: 3 documents.');
     expect(previewOutcome(documents[1].result)).toEqual({ warning: true, text: 'Missing label' });
     expect(previewOutcome(documents[0].result)).toEqual({ warning: false, text: '1 records' });
-    expect(previewOutcome(documents[2].result)).toEqual({ warning: false, text: 'No repeated records found' });
+    expect(previewOutcome(documents[2].result)).toEqual({ warning: false, text: 'No matching records' });
     rerender(<ExtractPreview template={template} preview={{ documents, truncated: true }} onSelect={onSelect} />);
     expect(screen.getByRole('status')).toHaveTextContent('Not all selected documents or rows are shown.');
     const warned = { ...documents[0], result: { ...documents[0].result, records: [{ cells: {

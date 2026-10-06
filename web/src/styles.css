@@ -5754,7 +5754,7 @@ video.evidence-media {
 audio.evidence-media {
   background: transparent;
 }
-.evidence-pdf {
+.document-pdf.evidence-pdf {
   width: 100%;
   min-height: 70vh;
   border: 1px solid var(--border);
