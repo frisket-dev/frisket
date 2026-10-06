@@ -6,12 +6,22 @@ from pathlib import Path
 import pytest
 
 from frisket.engine.store import Project
+from frisket.engine.store.extraction_layouts import (
+    get_layout,
+    remember_success,
+    save_layout,
+    selected_layout_id,
+)
 from frisket.engine.store.prepared_content_migration import (
     PREPARED_CONTENT_FROM_DIGEST,
     PREPARED_CONTENT_TO_DIGEST,
     migrate_prepared_content,
 )
-from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
+from frisket.engine.store.schema import (
+    SCALAR_CURRENT_CELL_VALUES_SQL,
+    SCHEMA_DIGEST,
+    SCHEMA_DIGEST_META_KEY,
+)
 from tests.engine.test_scalar_storage_migration import _seed_mixed_origins
 
 
@@ -21,61 +31,24 @@ _REF_PAYLOAD_CHECK = (
     "AND typeof(value)='integer' AND value>0)"
 )
 
-_PREDECESSOR_CURRENT_CELL_VALUES = """
-CREATE VIEW current_cell_values AS
-SELECT head.column_id,head.row_id,
-       CASE WHEN head.inline_value_kind IS NOT NULL
-       THEN head.inline_value_kind ELSE CASE head.origin_kind
-         WHEN 'source_cell' THEN (
-           SELECT source.value_kind FROM cells AS source
-           WHERE source.row_id=head.row_id
-             AND source.column_id=head.column_id
-             AND source.producer_id IS head.base_producer_id
-         )
-         WHEN 'run_result' THEN (
-           SELECT CASE result.publication_effect
-             WHEN 'publish_value' THEN result.value_kind
-             WHEN 'publish_null' THEN 'null'
-           END
-           FROM results AS result
-           WHERE result.run_id=head.origin_run_id
-             AND result.row_id=head.row_id
-             AND result.column_id=head.column_id
-         )
-         WHEN 'manual_edit' THEN (
-           SELECT edit.value_kind FROM edits AS edit
-           WHERE edit.op_id=head.origin_op_id
-             AND edit.row_id=head.row_id
-             AND edit.column_id=head.column_id
-         )
-       END END AS value_kind,
-       CASE WHEN head.inline_value_kind IS NOT NULL
-       THEN head.inline_value ELSE CASE head.origin_kind
-         WHEN 'source_cell' THEN (
-           SELECT source.value FROM cells AS source
-           WHERE source.row_id=head.row_id
-             AND source.column_id=head.column_id
-             AND source.producer_id IS head.base_producer_id
-         )
-         WHEN 'run_result' THEN (
-           SELECT CASE WHEN result.publication_effect='publish_value'
-             THEN result.value END
-           FROM results AS result
-           WHERE result.run_id=head.origin_run_id
-             AND result.row_id=head.row_id
-             AND result.column_id=head.column_id
-         )
-         WHEN 'manual_edit' THEN (
-           SELECT edit.value FROM edits AS edit
-           WHERE edit.op_id=head.origin_op_id
-             AND edit.row_id=head.row_id
-             AND edit.column_id=head.column_id
-         )
-       END END AS value,
-       head.origin_kind,head.origin_op_id,head.origin_run_id,
-       head.base_producer_id,head.validity
-FROM current_cells AS head INDEXED BY idx_current_cells_column_row
-"""
+
+def _seed_extraction_layout(
+    path: Path, *, sheet_id: int, row_id: int
+) -> tuple[int, int]:
+    project = Project(path)
+    source_column_id = project.add_column(sheet_id, "PDF", type="file")
+    layout = save_layout(
+        project,
+        sheet_id=sheet_id,
+        source="PDF",
+        draft={"fields": [{"name": "Total", "type": "currency"}]},
+        reference_row_id=row_id,
+        repeat_group_id="line_items",
+    )
+    layout_id = int(layout["id"])
+    remember_success(project, layout_id, [row_id], commit=True)
+    project.close()
+    return source_column_id, layout_id
 
 
 def _downgrade_to_exact_prepared_content_predecessor(path: Path) -> None:
@@ -133,7 +106,7 @@ def _downgrade_to_exact_prepared_content_predecessor(path: Path) -> None:
             "prepared_page_versions",
         ):
             db.execute(f"DROP TABLE {table}")
-        db.execute(_PREDECESSOR_CURRENT_CELL_VALUES)
+        db.execute(SCALAR_CURRENT_CELL_VALUES_SQL)
         db.execute(
             "UPDATE meta SET value=? WHERE key=?",
             (PREPARED_CONTENT_FROM_DIGEST, SCHEMA_DIGEST_META_KEY),
@@ -179,6 +152,9 @@ def test_exact_prior_schema_preserves_values_history_undo_and_reopen(
 ) -> None:
     path = tmp_path / "prior.frisket"
     sheet_id, source_column_id, output_column_id, row_ids = _seed_mixed_origins(path)
+    layout_source_id, layout_id = _seed_extraction_layout(
+        path, sheet_id=sheet_id, row_id=row_ids[0]
+    )
     _downgrade_to_exact_prepared_content_predecessor(path)
     with sqlite3.connect(path / "project.db") as db:
         _assert_exact_predecessor(db)
@@ -198,6 +174,19 @@ def test_exact_prior_schema_preserves_values_history_undo_and_reopen(
     }
     assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 3
     assert project.db.execute("SELECT COUNT(*) FROM edits").fetchone()[0] == 1
+    layout = get_layout(project, layout_id)
+    assert layout is not None
+    assert layout["draft"] == {"fields": [{"name": "Total", "type": "currency"}]}
+    assert layout["has_applied"] is True
+    assert selected_layout_id(project, sheet_id, layout_source_id) == layout_id
+    assert (
+        project.db.execute(
+            "SELECT layout_id FROM extraction_layout_documents "
+            "WHERE source_column_id=? AND row_id=?",
+            (layout_source_id, row_ids[0]),
+        ).fetchone()[0]
+        == layout_id
+    )
     history = project.history()
     assert [str(row["kind"]) for row in history] == [
         "add_rows",

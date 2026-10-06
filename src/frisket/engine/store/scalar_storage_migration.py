@@ -6,25 +6,17 @@ import sqlite3
 
 from .current_cells import backfill_inline_scalar_values
 from .review_confidence_migration import REVIEW_CONFIDENCE_TO_DIGEST
-from .schema import BundleSchemaMismatch, SCHEMA_DIGEST_META_KEY
+from .schema import (
+    BundleSchemaMismatch,
+    SCALAR_CURRENT_CELL_VALUES_SQL,
+    SCHEMA_DIGEST_META_KEY,
+)
 
 
 SCALAR_CURRENT_VALUES_FROM_DIGEST = REVIEW_CONFIDENCE_TO_DIGEST
 # Pinned to the fresh-schema DDL installed by this migration. A later schema
 # edit must add its own ordered endpoint instead of silently moving this one.
 SCALAR_CURRENT_VALUES_TO_DIGEST = "frisket.schema.v1:0cafff8434fb9d00fb3c069601b5eab5"
-
-
-def _fresh_schema_statement(prefix: str) -> str:
-    from .schema import SCHEMA
-
-    start = SCHEMA.index(prefix)
-    statement = ""
-    for line in SCHEMA[start:].splitlines(keepends=True):
-        statement += line
-        if sqlite3.complete_statement(statement):
-            return statement.strip()
-    raise RuntimeError(f"incomplete schema statement starting with {prefix!r}")
 
 
 def _ensure_inline_columns(db: sqlite3.Connection) -> None:
@@ -67,7 +59,7 @@ def _apply_scalar_current_values(db: sqlite3.Connection) -> None:
     _ensure_inline_columns(db)
     backfill_inline_scalar_values(db)
     db.execute("DROP VIEW current_cell_values")
-    db.execute(_fresh_schema_statement("CREATE VIEW IF NOT EXISTS current_cell_values"))
+    db.execute(SCALAR_CURRENT_CELL_VALUES_SQL)
     after = int(db.execute("SELECT COUNT(*) FROM current_cell_values").fetchone()[0])
     if after != before:
         raise BundleSchemaMismatch(
@@ -105,5 +97,6 @@ def migrate_scalar_current_values(db: sqlite3.Connection) -> None:
 __all__ = [
     "SCALAR_CURRENT_VALUES_FROM_DIGEST",
     "SCALAR_CURRENT_VALUES_TO_DIGEST",
+    "SCALAR_CURRENT_CELL_VALUES_SQL",
     "migrate_scalar_current_values",
 ]

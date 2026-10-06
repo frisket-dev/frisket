@@ -34,6 +34,10 @@ _REVIEW_METADATA_DDL = (
 def _without_review_stats(schema: str) -> str:
     """Restore the exact typed schema before compact review summaries."""
 
+    if "-- EXTRACTION_LAYOUTS_BEGIN" in schema:
+        before, marked = schema.split("-- EXTRACTION_LAYOUTS_BEGIN", 1)
+        _removed, after = marked.split("-- EXTRACTION_LAYOUTS_END", 1)
+        schema = before + after
     for begin, end in (
         (
             "-- RUN_REVIEW_CURRENT_COLUMN_INDEX_BEGIN",
@@ -135,6 +139,10 @@ def _without_typed_values(schema: str) -> str:
     """Restore the exact logical JSON authority layout before typed storage."""
 
     schema = _without_review_stats(schema)
+    prepared = schema.find("CREATE TABLE IF NOT EXISTS prepared_page_versions")
+    if prepared >= 0:
+        edits = schema.index("CREATE TABLE IF NOT EXISTS edits", prepared)
+        schema = schema[:prepared] + schema[edits:]
     citation = schema.find("CREATE TABLE IF NOT EXISTS citation_texts")
     if citation >= 0:
         schema = schema[:citation]
@@ -300,9 +308,30 @@ def _legacy_json(value_kind: str | None, value: object) -> str | None:
     return json.dumps(decode_stored_value(value_kind, value), allow_nan=False)
 
 
+def _remove_extraction_layouts(db: sqlite3.Connection) -> None:
+    for table in (
+        "extraction_layout_documents",
+        "extraction_layout_selection",
+        "extraction_layouts",
+    ):
+        db.execute(f"DROP TABLE IF EXISTS {table}")
+
+
+def _remove_prepared_content(db: sqlite3.Connection) -> None:
+    db.execute("DROP VIEW IF EXISTS prepared_content_ref_values")
+    for table in (
+        "prepared_content_refs",
+        "prepared_content_set_pages",
+        "prepared_content_sets",
+        "prepared_page_versions",
+    ):
+        db.execute(f"DROP TABLE IF EXISTS {table}")
+
+
 def _restore_legacy_authorities(db: sqlite3.Connection) -> None:
     """Downgrade fresh typed fixtures before exercising historical upgrades."""
 
+    _remove_extraction_layouts(db)
     db.execute("DROP TABLE run_review_fields")
     db.execute("DROP INDEX idx_cell_result_heads_run")
     db.execute("DROP INDEX idx_columns_current_run")
@@ -337,6 +366,7 @@ def _restore_legacy_authorities(db: sqlite3.Connection) -> None:
         )
 
     db.execute("DROP VIEW current_cell_values")
+    _remove_prepared_content(db)
     db.execute("DROP TABLE citation_texts")
     db.execute("DROP TABLE current_cells")
     for table in ("cells", "results", "edits"):

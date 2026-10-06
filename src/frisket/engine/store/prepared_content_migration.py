@@ -7,12 +7,12 @@ from pathlib import Path
 
 from .disk_capacity import require_disk_headroom
 from .schema import BundleSchemaMismatch, SCHEMA_DIGEST_META_KEY
-from .scalar_storage_migration import SCALAR_CURRENT_VALUES_TO_DIGEST
+from .extraction_layouts_migration import EXTRACTION_LAYOUTS_TO_DIGEST
 
 
-PREPARED_CONTENT_FROM_DIGEST = SCALAR_CURRENT_VALUES_TO_DIGEST
+PREPARED_CONTENT_FROM_DIGEST = EXTRACTION_LAYOUTS_TO_DIGEST
 # Pinned to this migration's fresh-schema DDL.
-PREPARED_CONTENT_TO_DIGEST = "frisket.schema.v1:06ac9904c47e80559033f8faddc6ae10"
+PREPARED_CONTENT_TO_DIGEST = "frisket.schema.v1:59e024b9950ba4cc2232bd1bc42ae688"
 
 
 def _fresh_schema_statement(prefix: str) -> str:

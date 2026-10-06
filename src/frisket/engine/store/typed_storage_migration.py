@@ -7,7 +7,11 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from .disk_capacity import require_disk_headroom
-from .schema import BundleSchemaMismatch, SCHEMA_DIGEST_META_KEY
+from .schema import (
+    BundleSchemaMismatch,
+    SCALAR_CURRENT_CELL_VALUES_SQL,
+    SCHEMA_DIGEST_META_KEY,
+)
 from .value_codec import migrate_legacy_json_value
 
 TYPED_VALUES_TO_DIGEST = "frisket.schema.v1:529f5f4e750711b310535f6ed083c331"
@@ -169,9 +173,7 @@ def migrate_typed_values(
                     "typed storage migration rebuilt a different number of current "
                     f"cells ({rebuilt}, expected {current_count})"
                 )
-            db.execute(
-                _fresh_schema_statement("CREATE VIEW IF NOT EXISTS current_cell_values")
-            )
+            db.execute(SCALAR_CURRENT_CELL_VALUES_SQL)
             from .citation_text import (
                 install_citation_text_schema,
                 migrate_legacy_citation_texts,

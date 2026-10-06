@@ -25,6 +25,7 @@ from .review_confidence_migration import (
 from .scalar_storage_migration import (
     migrate_scalar_current_values as _migrate_scalar_current_values,
 )
+from .extraction_layouts_migration import migrate_extraction_layouts
 from .prepared_content_migration import (
     migrate_prepared_content as _migrate_prepared_content,
 )
@@ -138,6 +139,7 @@ def open_bundle(project: Any) -> None:
         _migrate_review_stats(project.db)
         _migrate_review_confidence(project.db)
         _migrate_scalar_current_values(project.db)
+        migrate_extraction_layouts(project.db)
         _migrate_prepared_content(project.db, bundle_path=project.db_path)
         require_current_schema(project.db, bundle_path=project.path)
         _reconcile_open_time_policy(project)
