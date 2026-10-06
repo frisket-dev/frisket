@@ -1,7 +1,9 @@
 from contextlib import closing
 from copy import deepcopy
+from dataclasses import replace
 from typing import Any
 import asyncio
+import io
 from threading import Event
 from contextlib import contextmanager
 
@@ -10,7 +12,7 @@ from pydantic import BaseModel
 
 from frisket.actions.core import ActionCategory, RegisteredAction, action, map_rows
 from frisket.actions.pdf_table_types import PdfTableRows, PdfTablesReader
-from frisket.actions.types import ActionParams, ColumnRef, Row, RowResult
+from frisket.actions.types import ActionParams, ColumnRef, Row, RowError, RowResult
 from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.types import ActionRequest
 from frisket.engine.executor.actions import _default_map_runner_factory
@@ -104,6 +106,127 @@ def test_typed_pdf_read_publishes_host_schema_and_replays(tmp_path, monkeypatch)
         replay = run_action_spec(project, request, project_id="p")
         assert replay.receipt_id == result.receipt_id
         assert len(calls) == 1
+
+
+def test_page_scoped_pdf_read_extracts_one_page_and_reports_physical_page(
+    tmp_path, monkeypatch
+):
+    from pypdf import PdfReader, PdfWriter
+
+    from frisket.ai.llm import ModelRouter
+    from frisket.engine.executor import ExecutorDeps
+    from frisket.engine.executor import pdf_tables_read
+    from frisket.engine.executor.pdf_tables_read import AdmittedPdfTablesReader
+    from frisket.execution.provider import (
+        ExecutionCompositionContext,
+        ExecutionLimits,
+        open_execution_composition,
+    )
+
+    writer = PdfWriter()
+    writer.add_blank_page(width=111, height=100)
+    writer.add_blank_page(width=222, height=100)
+    source = io.BytesIO()
+    writer.write(source)
+    writer.close()
+
+    observed_widths = []
+
+    def extract(request):
+        selected = PdfReader(request.path)
+        assert len(selected.pages) == 1
+        observed_widths.append(float(selected.pages[0].mediabox.width))
+        return [
+            natural_pdf.PdfTable(
+                page_start=1,
+                page_end=1,
+                table_index=0,
+                header=["vendor"],
+                rows=[["page two"]],
+                raw_cells=[["page two"]],
+            )
+        ]
+
+    measured_pages = []
+    enforce_limit = pdf_tables_read.enforce_pdf_page_limit
+
+    def capture_limit(maximum, measured):
+        measured_pages.append((maximum, measured))
+        enforce_limit(maximum, measured)
+
+    monkeypatch.setattr(natural_pdf, "extract_pdf_tables", extract)
+    monkeypatch.setattr(pdf_tables_read, "enforce_pdf_page_limit", capture_limit)
+    with closing(Project.create(tmp_path / "selected-page.frisket")) as project:
+        sheet = project.add_sheet("Pages")
+        column = project.add_column(sheet, "pdf", "file")
+        digest = project.add_blob(
+            source.getvalue(),
+            filename="two-pages.pdf",
+            mime="application/pdf",
+            metadata=owned_media_metadata_document(probe={"kind": "pdf", "pages": 2}),
+        )
+        cell = media_cell(digest, mime="application/pdf", filename="two-pages.pdf")
+        cell["page"] = 2
+        [row_id] = project.add_rows(sheet, [{"pdf": cell}], {"pdf": column})
+
+        router = ModelRouter(cache=None, cache_mode="off")
+        composition = replace(
+            open_execution_composition(
+                project,
+                router,
+                ExecutionCompositionContext.direct(),
+                include_managed_local_models=False,
+            ),
+            limits=ExecutionLimits(max_pdf_pages=1),
+        )
+        result = run_action_spec(
+            project,
+            _extract_pdf_tables_action(
+                sheet,
+                row_ids=[row_id],
+                key="page-scoped-pdf-table",
+            ),
+            project_id="p",
+            router=router,
+            deps=ExecutorDeps(execution_composition=composition),
+        )
+
+        assert result.status == "completed", result.errors
+        assert observed_widths == [222.0]
+        assert measured_pages == [(1, 1)]
+        output = next(
+            item.ref
+            for item in result.outputs
+            if item.ref.get("kind") == "map_result_column"
+        )
+        [record] = project.get_values(
+            sheet, int(output["column_id"]), row_ids=[row_id]
+        )[row_id]
+        assert (record["page_start"], record["page_end"]) == (2, 2)
+        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+        read = next(
+            item.ref
+            for item in receipt.evidence
+            if item.ref.get("kind") == "pdf_table_read"
+        )
+        assert read["input"]["page"] == 2
+
+        admitted = project.get_values(sheet, column, row_ids=[row_id])[row_id]
+        changed = deepcopy(admitted)
+        changed["page"] = 1
+        stale_row = Row({"pdf": changed})
+        reader = AdmittedPdfTablesReader(project)
+        bound = reader.bind_row(
+            stale_row,
+            sheet_id=sheet,
+            row_id=row_id,
+            sources={"pdf": {"column_id": column, "value": admitted}},
+        )
+        with pytest.raises(RowError) as stale:
+            asyncio.run(bound.read(stale_row, ColumnRef("pdf")))
+        assert stale.value.code == "stale_input"
+        asyncio.run(reader.aclose())
+        assert observed_widths == [222.0]
 
 
 @pytest.fixture

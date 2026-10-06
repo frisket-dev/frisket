@@ -5,10 +5,16 @@ from __future__ import annotations
 import asyncio
 import copy
 import mimetypes
+import tempfile
+from dataclasses import replace
 from pathlib import Path
 
 from frisket.actions.pdf_table_types import PdfTableOptions, PdfTableRows
 from frisket.actions.types import ColumnRef, DynamicOutput, Outcome, RowError
+from frisket.engine.executor.pdf_page_source import (
+    PdfPageSourceError,
+    materialize_pdf_page,
+)
 from frisket.engine.executor.visual_cuts_read import _settle
 from frisket.engine.store.artifact_timeline import canonical_json_hash
 from frisket.engine.store.blob_backend import BlobNotFoundError
@@ -35,8 +41,13 @@ def pdf_source_ref(project, *, sheet_id, row_id, column_id, name, value):
     )
     if mime != "application/pdf" and not filename.lower().endswith(".pdf"):
         raise RowError("invalid_pdf_cell", "Source blob is not a PDF.")
+    page = value.get("page")
+    if page is not None and (type(page) is not int or page < 1):
+        raise RowError(
+            "invalid_pdf_cell", "PDF page selector must be a positive integer."
+        )
     source_url = str(blob["source_url"] or "")
-    return {
+    ref = {
         "kind": "media_extract_pdf_tables_blob_input",
         "sheet_id": sheet_id,
         "row_id": row_id,
@@ -48,6 +59,9 @@ def pdf_source_ref(project, *, sheet_id, row_id, column_id, name, value):
         "size": blob["size"],
         "source_url_hash": media_text_hash(source_url) if source_url else None,
     }
+    if page is not None:
+        ref["page"] = page
+    return ref
 
 
 class AdmittedPdfTablesReader:
@@ -136,28 +150,54 @@ class _BoundPdfTablesReader:
                 else None
             )
             if maximum is not None:
-                metadata = MediaBlobStore(project).probe_metadata(ref["blob_hash"])
-                pages = metadata.get("pages")
-                if type(pages) is not int or pages <= 0:
-                    metadata = update_blob_metadata(project, ref["blob_hash"])
+                if "page" in ref:
+                    pages = 1
+                else:
+                    metadata = MediaBlobStore(project).probe_metadata(ref["blob_hash"])
                     pages = metadata.get("pages")
-                if type(pages) is not int or pages <= 0:
-                    pages = None
+                    if type(pages) is not int or pages <= 0:
+                        metadata = update_blob_metadata(project, ref["blob_hash"])
+                        pages = metadata.get("pages")
+                    if type(pages) is not int or pages <= 0:
+                        pages = None
                 enforce_pdf_page_limit(maximum, pages)
             with project.materialize_blob(ref["blob_hash"]) as path:
                 with open(path, "rb") as handle:
                     if handle.read(5) != b"%PDF-":
                         raise RowError("invalid_pdf_cell", "Source has no PDF header.")
-                tables = natural_pdf.extract_pdf_tables(
-                    natural_pdf.PdfTableExtractRequest(
-                        path=Path(path),
-                        filename=ref["filename"],
-                        source_row_id=self._row_id,
-                        source_blob_hash=ref["blob_hash"],
-                        mode=options.mode,
-                        options=_pdf_table_extract_options(options.model_dump()),
+
+                def extract_tables(source_path: Path):
+                    return natural_pdf.extract_pdf_tables(
+                        natural_pdf.PdfTableExtractRequest(
+                            path=source_path,
+                            filename=ref["filename"],
+                            source_row_id=self._row_id,
+                            source_blob_hash=ref["blob_hash"],
+                            mode=options.mode,
+                            options=_pdf_table_extract_options(options.model_dump()),
+                        )
                     )
-                )
+
+                selected_page = ref.get("page")
+                if selected_page is None:
+                    tables = extract_tables(Path(path))
+                else:
+                    with tempfile.TemporaryDirectory(
+                        prefix="frisket-pdf-tables-"
+                    ) as temporary:
+                        selected_path = materialize_pdf_page(
+                            Path(path),
+                            page=selected_page,
+                            destination=Path(temporary) / "selected-page.pdf",
+                        )
+                        tables = [
+                            replace(
+                                table,
+                                page_start=selected_page,
+                                page_end=selected_page,
+                            )
+                            for table in extract_tables(selected_path)
+                        ]
                 return _pdf_table_records(tables, source_row=ref)
 
         task = asyncio.create_task(asyncio.to_thread(extract))
@@ -186,6 +226,8 @@ class _BoundPdfTablesReader:
             raise RowError(
                 "pdf_table_extract_failed", "Natural PDF table extraction failed."
             ) from None
+        except PdfPageSourceError as error:
+            raise RowError("invalid_pdf_cell", str(error)) from None
         except ExecutionLimitExceeded:
             raise
         except ValueError as error:
