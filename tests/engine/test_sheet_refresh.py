@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 
 from frisket.engine.executor.actions import run_action_spec
+from frisket.engine.executor.sheet_refresh_action import sheet_supports_refresh
 from frisket.engine.store import Project
 from frisket.engine.store.staleness import compute_sync_states
 
@@ -274,6 +275,27 @@ def test_refresh_of_root_sheet_is_unsupported(tmp_path: Path) -> None:
         )
         assert result.status == "failed"
         assert result.errors[0].code == "refresh_root_sheet_unsupported"
+    finally:
+        project.close()
+
+
+def test_refresh_support_matches_the_runtime_admission(tmp_path: Path) -> None:
+    project, parent_id, _, child_id, _ = _build(tmp_path)
+    try:
+        unsupported_op = project.append_op(
+            "media.extract_document",
+            {"action_id": "media.extract_document"},
+        )
+        snapshot_id = project.add_sheet(
+            "Extracted once",
+            parent_sheet_id=parent_id,
+            parent_op_id=unsupported_op,
+        )
+        project.db.commit()
+
+        assert sheet_supports_refresh(project, parent_id) is False
+        assert sheet_supports_refresh(project, child_id) is True
+        assert sheet_supports_refresh(project, snapshot_id) is False
     finally:
         project.close()
 

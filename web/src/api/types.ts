@@ -579,6 +579,8 @@ export interface SheetMeta {
    */
   syncState?: 'synced' | 'stale';
   staleReason?: string | null;
+  /** The host can rebuild this materialized sheet in place from saved authoring. */
+  refreshable?: boolean;
   /**
    * Sheet-shape graph-availability signal. Present only when this sheet IS a
    * materialized edge/join table (its rows carry two-sided membership);

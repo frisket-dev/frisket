@@ -12,7 +12,7 @@ import logging
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, NoReturn
+from typing import Any, Literal, NoReturn
 
 from frisket.actions.core import CreateSheet, _ProjectAction
 from frisket.actions.join_types import JoinedTablesReader
@@ -74,6 +74,85 @@ class _RefreshFacts:
     row_count: int
     match_stats: dict[str, Any] | None = None
     reads: tuple[dict[str, Any], ...] = ()
+
+
+@dataclass(frozen=True)
+class _SheetRefreshPlan:
+    kind: Literal["list", "join"]
+    request: ActionRequest
+
+
+def _sheet_refresh_plan(
+    project: Project,
+    sheet: Any,
+    parent_op: Any,
+    *,
+    idempotency_key: str,
+) -> _SheetRefreshPlan | None:
+    """Classify the same refresh families that `_refresh_sheet` can execute."""
+    if sheet["parent_sheet_id"] is None or sheet["parent_op_id"] is None:
+        return None
+    managed_column = project.db.execute(
+        "SELECT generation.column_id FROM run_output_generations generation "
+        "JOIN columns column ON column.id=generation.column_id "
+        "WHERE column.sheet_id=? ORDER BY generation.column_id LIMIT 1",
+        (int(sheet["id"]),),
+    ).fetchone()
+    if managed_column is not None:
+        return None
+
+    derive_request = _reconstruct_derive_request(parent_op, idempotency_key)
+    saved_action = (
+        ACTION_REGISTRY.get(derive_request.action_id)
+        if derive_request is not None
+        else None
+    )
+    if (
+        saved_action is not None
+        and isinstance(saved_action.definition.run, CreateSheet)
+        and JoinedTablesReader in saved_action.definition.run.capabilities
+    ):
+        return _SheetRefreshPlan("join", derive_request)
+
+    has_multiple_parents = (
+        project.db.execute(
+            "SELECT 1 FROM materialized_row_sources mrs "
+            "JOIN rows r ON mrs.materialized_row_id = r.id "
+            "WHERE r.sheet_id=? LIMIT 1",
+            (int(sheet["id"]),),
+        ).fetchone()
+        is not None
+    )
+    if (
+        has_multiple_parents
+        or parent_op is None
+        or parent_op["kind"] != "derive.table_from_list"
+        or derive_request is None
+    ):
+        return None
+    return _SheetRefreshPlan("list", derive_request)
+
+
+def sheet_supports_refresh(project: Project, sheet_id: int) -> bool:
+    """Whether the host can currently rebuild this sheet in place."""
+    sheet = project.db.execute(
+        "SELECT * FROM sheets WHERE id=? AND hidden=0", (sheet_id,)
+    ).fetchone()
+    if sheet is None:
+        return False
+    parent_op = (
+        project.db.execute(
+            "SELECT * FROM ops WHERE id=?", (int(sheet["parent_op_id"]),)
+        ).fetchone()
+        if sheet["parent_op_id"] is not None
+        else None
+    )
+    return _sheet_refresh_plan(
+        project,
+        sheet,
+        parent_op,
+        idempotency_key="sheet-refresh-support-probe",
+    ) is not None
 
 
 def _fail(
@@ -336,23 +415,19 @@ def _refresh_sheet(
 
     # Saved canonical authoring determines refresh support even for an empty
     # join. Membership rows describe outputs, not the operation that made them.
-    derive_request = _reconstruct_derive_request(parent_op, bound.request)
-    saved_action = (
-        ACTION_REGISTRY.get(derive_request.action_id)
-        if derive_request is not None
-        else None
+    refresh_plan = _sheet_refresh_plan(
+        project,
+        sheet,
+        parent_op,
+        idempotency_key=bound.request.idempotency_key,
     )
-    if (
-        saved_action is not None
-        and isinstance(saved_action.definition.run, CreateSheet)
-        and JoinedTablesReader in saved_action.definition.run.capabilities
-    ):
+    if refresh_plan is not None and refresh_plan.kind == "join":
         return _refresh_join(
             project,
             cur,
             sheet,
             parent_op,
-            derive_request,
+            refresh_plan.request,
             bound,
             params_hash,
             project_id,
@@ -383,7 +458,7 @@ def _refresh_sheet(
             },
         )
 
-    if parent_op is None or parent_op_kind != "derive.table_from_list":
+    if refresh_plan is None:
         return _fail(
             project_id=project_id,
             code="refresh_unsupported",
@@ -395,13 +470,7 @@ def _refresh_sheet(
             },
         )
 
-    if derive_request is None:
-        return _fail(
-            project_id=project_id,
-            code="refresh_unsupported",
-            message="stored derive request could not be reconstructed",
-            field="sheet_id",
-        )
+    derive_request = refresh_plan.request
     from frisket.engine.executor.table_action import prepare_table_producer
 
     bound = BoundTypedActionRequest.bind(
@@ -551,7 +620,7 @@ def _refresh_join(
 
 
 def _reconstruct_derive_request(
-    parent_op: Any, refresh_request: ActionRequest
+    parent_op: Any, idempotency_key: str
 ) -> ActionRequest | None:
     if parent_op is None:
         return None
@@ -571,7 +640,7 @@ def _reconstruct_derive_request(
                     and key
                     not in {"idempotency_key", "confirmation", "replace_existing"}
                 },
-                "idempotency_key": refresh_request.idempotency_key,
+                "idempotency_key": idempotency_key,
             }
         )
     except (KeyError, ValueError, TypeError):

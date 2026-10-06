@@ -31,6 +31,7 @@ from frisket.engine.store.evidence import sheet_cited_column_ids
 from frisket.engine.store.lineage import build_lineage_dag
 from frisket.engine.store.text_annotations import annotated_text_column_ids
 from frisket.engine.store.staleness import compute_sync_states
+from frisket.engine.executor.sheet_refresh_action import sheet_supports_refresh
 from frisket.server.workspace import Workspace
 from frisket.server.services.sheet_grid import (
     require_visible_sheet,
@@ -942,6 +943,11 @@ class ProjectLifecycleService:
         ops_by_id = project.ops_meta(
             [int(s["parent_op_id"]) for s in sheets if s["parent_op_id"] is not None]
         )
+        refreshable_sheet_ids = {
+            int(sheet["id"])
+            for sheet in sheets
+            if sheet_supports_refresh(project, int(sheet["id"]))
+        }
         out: list[dict[str, Any]] = []
         for sheet in sheets:
             sheet_id = int(sheet["id"])
@@ -983,8 +989,13 @@ class ProjectLifecycleService:
             entry["dependent_sheet_ids"] = [
                 item["id"] for item in project.dependent_sheets(sheet_id)
             ]
+            entry["refreshable"] = sheet_id in refreshable_sheet_ids
             entry["columns"] = sheet_columns_payload(project, sheet_id)
-            state = sync_states.get(sheet_id)
+            state = (
+                sync_states.get(sheet_id)
+                if sheet_id in refreshable_sheet_ids
+                else None
+            )
             if state is not None:
                 entry["syncState"] = state["sync_state"]
                 entry["stale_reason"] = state["stale_reason"]
@@ -1037,4 +1048,14 @@ class ProjectLifecycleService:
         """
         self._ensure_exists(project_id)
         project = self._workspace.get(project_id)
-        return {"project_id": project_id, **build_lineage_dag(project)}
+        refreshable_sheet_ids = {
+            int(sheet["id"])
+            for sheet in project.sheets()
+            if sheet_supports_refresh(project, int(sheet["id"]))
+        }
+        return {
+            "project_id": project_id,
+            **build_lineage_dag(
+                project, refreshable_sheet_ids=refreshable_sheet_ids
+            ),
+        }

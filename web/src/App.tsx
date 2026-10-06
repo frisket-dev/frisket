@@ -2055,7 +2055,9 @@ const WorkspaceMainViewTabs = memo(function WorkspaceMainViewTabs() {
                 <span key={tabSheet.id} className={`workbench-mainView-tab${tabSheet.id === sheet?.id && hasActiveSheet ? ' active' : ''}`}>
                   {tabSheet.parent ? <GitFork size={13} className="workbench-mainView-tab-glyph" /> : <SheetGlyph size={13} className="workbench-mainView-tab-glyph" />}
                   <span className="workbench-mainView-tab-name">{tabSheet.name}</span>
-                  {tabSheet.parent && tabSheet.syncState && <span className="workbench-mainView-tab-syncDot" />}
+                  {tabSheet.parent && tabSheet.refreshable && tabSheet.syncState && (
+                    <span className="workbench-mainView-tab-syncDot" />
+                  )}
                   {tabSheet.id === sheet?.id && hasActiveSheet && <>
                     <span className="workbench-mainView-tab-rowcount">{tabSheet.rowCount.toLocaleString()}</span>
                     {tabSheet.parent && <span className="workbench-mainView-tab-info"><Info size={12} /></span>}
@@ -2101,20 +2103,20 @@ const WorkspaceMainViewTabs = memo(function WorkspaceMainViewTabs() {
                   <SheetGlyph size={13} className="workbench-mainView-tab-glyph" aria-hidden />
                 )}
                 <span className="workbench-mainView-tab-name">{tabSheet.name}</span>
-                {derived && tabSheet.syncState && (
+                {derived && tabSheet.refreshable && tabSheet.syncState && (
                   <span
                     className="workbench-mainView-tab-syncDot"
                     data-sync-state={tabSheet.syncState}
                     data-testid={`workbench-mainView-tab-syncDot-${tabSheet.id}`}
                     aria-label={
                       tabSheet.syncState === 'stale'
-                        ? 'Stale — parent changed'
-                        : 'Live · in sync'
+                        ? 'Source changed'
+                        : 'Up to date'
                     }
                     title={
                       tabSheet.syncState === 'stale'
-                        ? 'Stale — parent changed'
-                        : 'Live · in sync'
+                        ? 'Source changed'
+                        : 'Up to date'
                     }
                   />
                 )}
@@ -2519,7 +2521,7 @@ function SheetStalePill({
   );
 }
 
-function SheetInfoPopover({
+export function SheetInfoPopover({
   sheet,
   onClose,
   onNavigateParent,
@@ -2541,6 +2543,7 @@ function SheetInfoPopover({
     estimate: RunEstimate;
   } | null>(null);
   const sheetRefreshQuote = quotedCost(costGate?.estimate);
+  const refreshable = sheet.refreshable === true;
   const stale = sheet.syncState === 'stale';
   const parent = sheet.parent;
 
@@ -2588,8 +2591,12 @@ function SheetInfoPopover({
       >
         <div className="sheet-info-head">
           <span className="sheet-info-name">{sheet.name}</span>
-          <StatusChip tone={stale ? 'warning' : 'success'} size="md" testId="sheet-info-badge">
-            {stale ? 'Stale' : 'Live · in sync'}
+          <StatusChip
+            tone={refreshable ? (stale ? 'warning' : 'success') : 'neutral'}
+            size="md"
+            testId="sheet-info-badge"
+          >
+            {refreshable ? (stale ? 'Source changed' : 'Up to date') : 'Run once'}
           </StatusChip>
         </div>
         <div className="sheet-info-section">
@@ -2610,14 +2617,16 @@ function SheetInfoPopover({
           </button>
         </div>
 
-        <p className="muted" data-testid="sheet-info-rerun-scope">
-          Re-running rebuilds this sheet from{' '}
-          {parent?.sheetName ?? 'its parent'} — every row is replaced, not just
-          the changed ones. That makes it a new run, not a resume: every
-          derived row is charged again.
-        </p>
-        {error && <div className="sheet-info-error">{error}</div>}
-        {costGate && (
+        {refreshable && (
+          <p className="muted" data-testid="sheet-info-rerun-scope">
+            Re-running rebuilds this sheet from{' '}
+            {parent?.sheetName ?? 'its parent'} — every row is replaced, not just
+            the changed ones. That makes it a new run, not a resume: every
+            derived row is charged again.
+          </p>
+        )}
+        {refreshable && error && <div className="sheet-info-error">{error}</div>}
+        {refreshable && costGate && (
           <div className="sheet-info-costGate" data-testid="sheet-info-cost-confirm">
             <div className="sheet-info-costGate-message">
               This re-run calls a model
@@ -2650,15 +2659,17 @@ function SheetInfoPopover({
           >
             View lineage
           </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            data-testid="sheet-info-rerun"
-            disabled={busy || costGate != null}
-            onClick={() => void runReRun()}
-          >
-            {busy ? 'Re-running…' : 'Re-run now'}
-          </button>
+          {refreshable && (
+            <button
+              type="button"
+              className="btn btn-primary"
+              data-testid="sheet-info-rerun"
+              disabled={busy || costGate != null}
+              onClick={() => void runReRun()}
+            >
+              {busy ? 'Re-running…' : 'Re-run now'}
+            </button>
+          )}
         </div>
       </dialog>
     </div>

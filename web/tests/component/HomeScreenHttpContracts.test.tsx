@@ -23,6 +23,7 @@ const SHEETS = [
     syncState: null,
     stale_reason: null,
     materialized_kind: null,
+    refreshable: false,
     columns: [],
   },
   {
@@ -38,6 +39,7 @@ const SHEETS = [
     syncState: null,
     stale_reason: null,
     materialized_kind: null,
+    refreshable: false,
     columns: [],
   },
 ];

@@ -31,6 +31,36 @@ afterEach(() => {
 });
 
 describe('remaining action-run callers', () => {
+  it('preserves a completed run-backed materialized sheet in the launch result', async () => {
+    httpContractMock.mockImplementation(async (
+      _operationId: unknown,
+      _options: unknown,
+      mapResponse?: (wire: unknown) => unknown,
+    ) => {
+      const result = {
+        ...completedActionResult(),
+        run_id: 88,
+        receipt_id: 'receipt-88',
+      };
+      return mapResponse ? mapResponse(result) : result;
+    });
+
+    await expect(realApi.runAction({
+      action_id: 'derive.test',
+      scope: { kind: 'project' },
+      params: {},
+      output_names: {},
+      sheet_name: 'Result',
+      idempotency_key: 'materialized-run-88',
+    })).resolves.toEqual({
+      runId: '88',
+      jobId: null,
+      receiptId: 'receipt-88',
+      status: 'completed',
+      outputSheetId: '17',
+    });
+  });
+
   it('routes import confirmation and actions through their generated operations', async () => {
     const calls: Array<{ operationId: unknown; options: unknown }> = [];
     httpContractMock.mockImplementation(async (

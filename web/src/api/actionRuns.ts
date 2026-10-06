@@ -236,7 +236,13 @@ export class ActionRunsApi {
     this.v1ActionSession.clearV1ActionIdempotencyKey(spec, invocation.projectId);
     const runId = String(out.run_id);
     this.rememberRunActionContext(invocation.projectId, runId, req, invocation.signal);
-    return { runId, jobId, receiptId };
+    return {
+      runId,
+      jobId,
+      receiptId,
+      status: out.status,
+      outputSheetId: firstOutputSheetId(out.outputs),
+    };
   }
 
   /** Compose map.extract + derive.table_from_list for the one-click

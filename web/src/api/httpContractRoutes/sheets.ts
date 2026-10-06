@@ -60,8 +60,9 @@ function mapSheetList(wire: SheetListWire): SheetMeta[] {
       citedColumnIds: sheet.cited_column_ids.map(String),
       annotatedTextColumnIds: sheet.annotated_text_column_ids.map(String),
       dependentSheetIds: (sheet.dependent_sheet_ids ?? []).map(String),
+      refreshable: sheet.refreshable,
     };
-    if (sheet.syncState === 'synced' || sheet.syncState === 'stale') {
+    if (sheet.refreshable && (sheet.syncState === 'synced' || sheet.syncState === 'stale')) {
       meta.syncState = sheet.syncState;
       meta.staleReason = sheet.stale_reason ?? null;
     }

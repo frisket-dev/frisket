@@ -115,6 +115,36 @@ def test_lineage_endpoint_returns_sheet_tier_and_derive_edge(tmp_path: Path) -> 
     )
     assert derive_edge["kind"] == "derive"
     assert derive_edge["stale"] is False
+    sheets = client.get(f"/api/projects/{pid}/sheets").json()
+    assert next(sheet for sheet in sheets if sheet["id"] == vendors_id)["refreshable"] is True
+
+
+def test_lineage_endpoint_does_not_project_sync_for_one_time_outputs(
+    tmp_path: Path,
+) -> None:
+    client = TestClient(create_app(tmp_path / "workspace"))
+    pid, parent_id, _, _ = _build(client)
+    project = client.app.state.workspace.get(pid)
+    op_id = project.append_op(
+        "media.extract_document", {"action_id": "media.extract_document"}
+    )
+    snapshot_id = project.add_sheet(
+        "Extracted once", parent_sheet_id=parent_id, parent_op_id=op_id
+    )
+    project.db.commit()
+
+    body = client.get(f"/api/projects/{pid}/lineage").json()
+    snapshot = next(
+        node for node in body["nodes"] if node["id"] == f"sheet:{snapshot_id}"
+    )
+    assert snapshot["derived"] is True
+    assert snapshot["syncState"] is None
+    edge = next(edge for edge in body["edges"] if edge["to"] == snapshot["id"])
+    assert edge["stale"] is False
+    listed = client.get(f"/api/projects/{pid}/sheets").json()
+    listed_snapshot = next(sheet for sheet in listed if sheet["id"] == snapshot_id)
+    assert listed_snapshot["refreshable"] is False
+    assert "syncState" not in listed_snapshot
 
 
 def test_lineage_endpoint_flags_stale_node_and_edge_amber(tmp_path: Path) -> None:

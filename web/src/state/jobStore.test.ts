@@ -2268,6 +2268,32 @@ describe('createJobStore — startRun / cost gate (parity with the pre-migration
     expect(deps.onMaterializedSheetCreated).toHaveBeenCalledWith('42');
   });
 
+  it('opens a completed run-backed materialization after its inventory refresh', async () => {
+    const jobs = createJobStore('test-project', projectPort());
+    const refresh = deferred<void>();
+    const deps = {
+      ...noopDeps(),
+      refreshSheets: vi.fn(() => refresh.promise),
+      onMaterializedSheetCreated: vi.fn(),
+    };
+    vi.spyOn(api, 'runAction').mockResolvedValueOnce({
+      runId: 'run-42',
+      status: 'completed',
+      outputSheetId: '42',
+    });
+    vi.spyOn(api, 'listActionJobs').mockResolvedValue({ jobs: [] } as never);
+    jobs.start(deps);
+
+    jobs.startRun(runRequest(), { id: '11', rowCount: 5 } as never);
+    await flushMicrotasks();
+    expect(jobs.store.get().run?.runId).toBe('run-42');
+    expect(deps.onMaterializedSheetCreated).not.toHaveBeenCalled();
+
+    refresh.resolve();
+    await flushMicrotasks();
+    expect(deps.onMaterializedSheetCreated).toHaveBeenCalledWith('42');
+  });
+
   it('startRun sets an optimistic run, then owns the run lane for a runId result', async () => {
     const jobs = createJobStore('test-project', projectPort());
     const deps = noopDeps();
