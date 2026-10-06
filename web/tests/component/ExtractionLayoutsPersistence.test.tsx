@@ -217,3 +217,40 @@ it('does not publish a failed selection after switching extraction contexts', as
   expect(hook.result.current.error).toBeNull();
   expect(hook.result.current.switching).toBe(false);
 });
+
+it('does not queue the previous source layout while waiting for a pending destination write', async () => {
+  const delayed = deferred<SavedExtractionTemplate>();
+  api.save.mockImplementationOnce(() => delayed.promise);
+  api.templates.mockImplementation(async (_pid, _sheetId, requestedSource) => ({
+    templates: [{
+      ...structuredClone(serverLayout),
+      draft: requestedSource === 'Source A'
+        ? { ...structuredClone(EMPTY_EXTRACTION_DRAFT), continue_across_pages: true }
+        : structuredClone(serverLayout.draft),
+    }],
+    selected_layout_id: 1,
+  }));
+  const hook = renderHook(
+    ({ source }) => useExtractionLayouts(layoutStore, '1', source),
+    { initialProps: { source: 'Source B' } },
+  );
+  await waitFor(() => expect(hook.result.current.loading).toBe(false));
+  act(() => hook.result.current.change({
+    draft: { ...EMPTY_EXTRACTION_DRAFT, expand_values: true },
+  }));
+  let writing!: Promise<SavedExtractionTemplate>;
+  act(() => { writing = hook.result.current.flush(); });
+  await waitFor(() => expect(api.save).toHaveBeenCalledTimes(1));
+
+  hook.rerender({ source: 'Source A' });
+  await waitFor(() => expect(api.templates.mock.calls.some((call) => call[2] === 'Source A')).toBe(true));
+  hook.rerender({ source: 'Source B' });
+  await act(async () => { await new Promise((resolve) => window.setTimeout(resolve, 500)); });
+
+  await act(async () => {
+    delayed.resolve(saveDraft(projectId, api.save.mock.calls[0][1]));
+    await writing;
+    await Promise.resolve();
+  });
+  expect(api.save).toHaveBeenCalledTimes(1);
+});

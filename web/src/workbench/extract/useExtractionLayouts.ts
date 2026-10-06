@@ -129,7 +129,10 @@ export function useExtractionLayouts(store: ExtractionLayoutStoreHandle, sheetId
   }, [context, projectId, sheetId, source, refreshKey]);
 
   useEffect(() => {
-    if (!layout || context.savedKey(layout.id) === extractionLayoutDraftKey(layout)) return;
+    const activeLayout = current.current;
+    if (!layout || !activeLayout || activeLayout.id !== layout.id
+      || extractionLayoutDraftKey(activeLayout) !== extractionLayoutDraftKey(layout)
+      || context.savedKey(layout.id) === extractionLayoutDraftKey(layout)) return;
     const timer = window.setTimeout(() => { void save(layout).catch(() => undefined); }, 450);
     return () => window.clearTimeout(timer);
   }, [layout, acknowledged, context, save]);
