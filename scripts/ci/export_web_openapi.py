@@ -124,6 +124,8 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
             "extraction_template_save",
             "POST",
         ): "tenant.extraction_template_save.post",
+        ("tenant", "extraction_layout_select", "POST"): "tenant.extraction_layout_select.post",
+        ("tenant", "extraction_scope_counts", "POST"): "tenant.extraction_scope_counts.post",
         (
             "tenant",
             "cell_text_annotations",
