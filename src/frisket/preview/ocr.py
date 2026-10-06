@@ -94,6 +94,7 @@ class OcrCompareSource:
     page_count: int | None
     path: Path | None
     media: dict[str, Any]
+    page: int | None = None
 
 
 @dataclass(frozen=True)
@@ -375,6 +376,14 @@ def resolve_ocr_compare_source(
     media = dict(value)
     media.setdefault("filename", filename)
     media.setdefault("mime", mime)
+    page = value.get("page")
+    if page is not None and (type(page) is not int or page <= 0):
+        raise OcrComparePreviewError(
+            "invalid_input_ref",
+            "OCR preview PDF page selector must be a positive integer",
+            field="input_column",
+            details={"row_id": request.row_id, "column": request.input_column},
+        )
     page_count = _positive_int(metadata.get("pages") or metadata.get("page_count"))
     return OcrCompareSource(
         sheet_id=request.sheet_id,
@@ -389,6 +398,7 @@ def resolve_ocr_compare_source(
         page_count=page_count,
         path=None,
         media=media,
+        page=page,
     )
 
 
@@ -409,20 +419,55 @@ async def render_selected_pdf_pages(
     recipe = OcrEngines()
     page_count = source.page_count
     is_pdf = recipe._is_pdf(source.path, source.media)
+    selected_page = source.page
+    render_path = source.path
+    render_pages = pages
     if is_pdf:
         if page_count is None:
             page_count = _positive_int(
                 recipe._pdf_page_count(source.path, source.blob_hash)
             )
+        if selected_page is not None:
+            if pages != [selected_page]:
+                raise OcrComparePreviewError(
+                    "invalid_page_ref",
+                    "OCR preview page must match the page-scoped PDF cell",
+                    field="pages",
+                    details={"requested_pages": pages, "source_page": selected_page},
+                )
+            if page_count is not None:
+                _reject_pages_past_page_count([selected_page], page_count)
+            from frisket.engine.executor.pdf_page_source import (
+                PdfPageSourceError,
+                materialize_pdf_page,
+            )
+
+            try:
+                render_path = materialize_pdf_page(
+                    source.path,
+                    page=selected_page,
+                    destination=scratch / "selected-page.pdf",
+                )
+            except PdfPageSourceError as exc:
+                raise OcrComparePreviewError(
+                    "invalid_page_ref",
+                    str(exc),
+                    field="pages",
+                    details={"source_page": selected_page},
+                ) from exc
+            render_pages = [1]
         from frisket.execution.provider import enforce_pdf_page_limit
 
-        enforce_pdf_page_limit(max_pdf_pages, page_count)
+        enforce_pdf_page_limit(
+            max_pdf_pages,
+            1 if selected_page is not None else page_count,
+        )
         if page_count is not None:
             _reject_pages_past_page_count(pages, page_count)
     page_paths = await recipe._page_images(
-        source.path,
+        render_path,
         source.media,
-        {"dpi": dpi, **({"_selected_pages": pages} if is_pdf else {})},
+        {"dpi": dpi, **({"_selected_pages": render_pages} if is_pdf else {})},
         scratch,
     )
     if page_count is None and not is_pdf:

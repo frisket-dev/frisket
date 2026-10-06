@@ -108,6 +108,35 @@ def test_single_stored_document_and_image_have_exact_selected_page_quote(
     assert resolved.cost_basis.bound > 0
 
 
+@pytest.mark.parametrize("capability", [CAPABILITY_TO_MARKDOWN, CAPABILITY_OCR])
+def test_page_scoped_pdf_rows_quote_only_the_selected_pages(
+    documents, monkeypatch, capability
+):
+    monkeypatch.setenv("DATALAB_API_KEY", "synthetic-document-quote-key")
+    project = documents[0]
+    first = _document(project, pages=6)
+    first["page"] = 2
+    second = _document(project, pages=9)
+    second["page"] = 7
+    spec = _spec(documents, [{"primary": first}, {"primary": second}])
+
+    resolved = _resolve(project, spec, capability=capability)
+
+    assert isinstance(resolved, ResolvedExecution)
+    assert isinstance(resolved.cost_basis, PricedCostBasis)
+    assert resolved.cost_basis.estimated_quantity == "2"
+    assert resolved.resolution.estimate_basis.quantity_hint == 2
+
+
+@pytest.mark.parametrize("page", [0, True, 4])
+def test_invalid_pdf_page_selector_has_unknown_quantity(documents, page):
+    value = _document(documents[0], pages=3)
+    value["page"] = page
+    spec = _spec(documents, [{"primary": value}])
+
+    assert _document_quantity_pages(documents[0], spec, _DocumentProgram()) is None
+
+
 @pytest.mark.parametrize(
     "value", ["<html>document</html>", "/tmp/source.pdf", 0, False]
 )
