@@ -15,10 +15,23 @@ from __future__ import annotations
 import json
 import math
 import re
+from dataclasses import dataclass
 from typing import Any, TypeAlias
 
 
 SQLiteValue: TypeAlias = str | int | float | None
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedContentRef:
+    """Internal locator for immutable prepared page content."""
+
+    ref_id: int
+
+    def __post_init__(self) -> None:
+        if type(self.ref_id) is not int or self.ref_id <= 0:
+            raise ValueError("prepared content reference id must be a positive integer")
+
 
 VALUE_KINDS = frozenset(
     {
@@ -30,6 +43,7 @@ VALUE_KINDS = frozenset(
         "json",
         "bigint",
         "legacy_invalid",
+        "prepared_content_ref",
     }
 )
 
@@ -82,6 +96,8 @@ def repair_unicode_value(value: Any) -> Any:
 def encode_stored_value(value: Any) -> tuple[str, SQLiteValue]:
     """Encode one decoded cell value using a native SQLite storage class."""
 
+    if isinstance(value, PreparedContentRef):
+        return "prepared_content_ref", value.ref_id
     if value is None:
         return "null", None
     if isinstance(value, bool):
@@ -190,6 +206,12 @@ def decode_stored_value(
             return repair_unicode_value(
                 json.loads(stored_value, parse_constant=_reject_non_json_constant)
             )
+        if value_kind == "prepared_content_ref":
+            if type(stored_value) is not int or stored_value <= 0:
+                raise ValueError(
+                    "prepared content reference is not a positive SQLite integer"
+                )
+            return PreparedContentRef(stored_value)
         raise ValueError(f"unknown stored value kind: {value_kind!r}")
     except (TypeError, ValueError, OverflowError, RecursionError):
         if tolerate_errors:
