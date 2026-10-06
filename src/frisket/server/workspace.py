@@ -801,8 +801,26 @@ class Workspace:
             path = self.root / f"{project_id}.frisket"
             if not path.exists():
                 raise HTTPException(404, f"no project '{project_id}'")
-            self._projects[project_id] = self._open_project(project_id, path)
-            self._attach_project_jobs(project_id, self._projects[project_id])
+            project = self._open_project(project_id, path)
+            try:
+                from frisket.server.extraction_layouts_upgrade import (
+                    LEGACY_EXTRACTION_LAYOUTS_META_KEY,
+                    LEGACY_EXTRACTION_LAYOUTS_VERSION,
+                    upgrade_legacy_extraction_layouts,
+                )
+
+                if (
+                    project.get_meta(LEGACY_EXTRACTION_LAYOUTS_META_KEY)
+                    != LEGACY_EXTRACTION_LAYOUTS_VERSION
+                ):
+                    with self._saved_recipes_lock:
+                        recipes = self._read_saved_recipes()
+                    upgrade_legacy_extraction_layouts(project, project_id, recipes)
+                self._attach_project_jobs(project_id, project)
+            except BaseException:
+                project.close()
+                raise
+            self._projects[project_id] = project
         elif project_id in self._metadata_enqueue_pending:
             self._projects[project_id]._frisket_schedule_blob_metadata()
         return self._projects[project_id]

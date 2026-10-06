@@ -1,7 +1,5 @@
 """Small editor adapters over admitted document reads and the shared matcher."""
 
-import logging
-
 from frisket.actions.document_extract import DocumentExtractParams
 from frisket.actions.types import SheetRows, TableError
 from frisket.contracts.http.document_extraction import (
@@ -11,7 +9,6 @@ from frisket.contracts.http.document_extraction import (
     ExtractionSavedLayout,
     ExtractionScopeCountsResponse,
     ExtractionTemplatesResponse,
-    ExtractionTemplateSave,
 )
 from frisket.engine.executor.document_extraction_read import (
     AdmittedPositionedDocumentReader,
@@ -21,8 +18,6 @@ from frisket.engine.executor.document_extraction_read import (
 )
 from frisket.server.route_errors import RouteError
 from frisket.engine.store import extraction_layouts
-
-_log = logging.getLogger(__name__)
 
 
 class DocumentExtractionService:
@@ -54,15 +49,12 @@ class DocumentExtractionService:
             template=body.template,
             repeat_group_id=body.repeat_group_id,
         )
-        scope = body.scope
-        if scope.kind == "layout" and scope.layout_id is None:
-            scope = scope.model_copy(update={"layout_id": body.layout_id})
-        if body.layout_id is not None:
-            extraction_layouts.validate_layout_scope(
-                project, body.layout_id, body.sheet_id, body.source
-            )
-        row_ids = extraction_layouts.resolve_document_scope(
-            project, sheet_id=body.sheet_id, source=body.source, scope=scope
+        _layout, _scope, row_ids = extraction_layouts.resolve_extraction_request_scope(
+            project,
+            sheet_id=body.sheet_id,
+            source=body.source,
+            layout_id=body.layout_id,
+            scope=body.scope,
         )
         if not row_ids:
             return ExtractionPreviewResponse(documents=[])
@@ -99,66 +91,6 @@ class DocumentExtractionService:
         truncated |= source_count > len(documents)
         return ExtractionPreviewResponse(documents=documents, truncated=truncated)
 
-    def _import_saved_templates(self, project, pid, sheet_id, source):
-        """Copy old editor recipes once without modifying workspace recipes."""
-        for entry in self.workspace.saved_recipes():
-            if not isinstance(entry, dict):
-                continue
-            spec = entry.get("spec", {})
-            if not isinstance(spec, dict):
-                continue
-            params = spec.get("params", {})
-            if (
-                spec.get("action_kind") != "media.extract_document"
-                or spec.get("project_id") != pid
-                or spec.get("sheet_id") != sheet_id
-            ):
-                continue
-            try:
-                if not isinstance(params, dict):
-                    raise ValueError("Invalid saved parameters")
-                if params.get("source") != source:
-                    continue
-                recipe_id = entry["id"]
-                if type(recipe_id) is not int or recipe_id <= 0:
-                    raise ValueError("Invalid saved recipe identity")
-                body = ExtractionTemplateSave(
-                    sheet_id=sheet_id,
-                    source=source,
-                    reference_row_id=spec.get("reference_row_id"),
-                    draft=params["template"],
-                    repeat_group_id=params.get("repeat_group_id"),
-                )
-            except (KeyError, TypeError, ValueError):
-                _log.warning("Skipped an invalid saved extraction template")
-                continue
-            if project.db.execute(
-                "SELECT 1 FROM extraction_layouts WHERE imported_recipe_id=?",
-                (recipe_id,),
-            ).fetchone():
-                continue
-            # The original artifact remains available even if its source row
-            # has since been deleted. A stale reference does not lose boxes.
-            reference_row_id = body.reference_row_id
-            if reference_row_id is not None and not project.visible_row_ids(
-                sheet_id, [reference_row_id]
-            ):
-                reference_row_id = None
-            try:
-                extraction_layouts.save_layout(
-                    project,
-                    sheet_id=sheet_id,
-                    source=source,
-                    draft=body.draft.model_dump(mode="json"),
-                    reference_row_id=reference_row_id,
-                    repeat_group_id=body.repeat_group_id,
-                    imported_recipe_id=recipe_id,
-                )
-            except ValueError:
-                # Source/reference state may change during an import. Database
-                # failures are deliberately not swallowed by this best effort.
-                _log.warning("Skipped an invalid saved extraction template")
-
     @staticmethod
     def _response(layout, source):
         return ExtractionSavedLayout(
@@ -181,7 +113,6 @@ class DocumentExtractionService:
     def templates(self, pid, sheet_id, source):
         project = self.workspace.get(pid)
         column = extraction_layouts.source_column(project, sheet_id, source)
-        self._import_saved_templates(project, pid, sheet_id, source)
         return ExtractionTemplatesResponse(
             templates=[
                 self._response(layout, source)

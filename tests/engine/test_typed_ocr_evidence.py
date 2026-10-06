@@ -27,7 +27,10 @@ from frisket.engine.runner import MapRunner
 from frisket.engine.store import Project
 from frisket.engine.store.evidence import resolve_evidence_viewer
 from frisket.engine.store.media_blobs import MediaBlobStore, media_cell
-from frisket.engine.store.ocr_word_stream import resolve_current_ocr_evidence
+from frisket.engine.store.ocr_word_stream import (
+    resolve_current_ocr_evidence,
+    resolve_ocr_word_stream,
+)
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 
 
@@ -100,6 +103,7 @@ def setup(tmp_path, monkeypatch):
             "kind": "ocr_read",
             "call_id": "ocr-call",
             "engine": "rapidocr",
+            "ocr_token_granularity": "line",
             "options": {"dpi": 200},
             "text": "Hello world",
             "source": {
@@ -178,6 +182,7 @@ def setup(tmp_path, monkeypatch):
                             "kind",
                             "call_id",
                             "engine",
+                            "ocr_token_granularity",
                             "options",
                             "source",
                             "page_images",
@@ -261,6 +266,9 @@ def test_exact_text_only_custom_output_publishes_original_geometry_and_page_imag
     )
     assert spans[2]["quote"] == "world"
     assert MediaBlobStore(project).probe_metadata(image["blob_hash"])["width"] == 600
+    stream = resolve_ocr_word_stream(project, read["source"]["blob_hash"])
+    assert stream is not None
+    assert stream.token_granularity == "line"
     viewer = resolve_evidence_viewer(project, link["id"], project_id="p")
     [page] = viewer["artifacts"][0]["pages"]
     assert page["image"]["blob_hash"] == image["blob_hash"]

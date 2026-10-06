@@ -91,6 +91,28 @@ def validate_layout_scope(project, layout_id, sheet_id, source):
     return layout
 
 
+def resolve_extraction_request_scope(
+    project, *, sheet_id, source, layout_id=None, scope=None
+):
+    """Resolve the layout ownership and optional document scope for one request."""
+    layout = (
+        validate_layout_scope(project, layout_id, sheet_id, source)
+        if layout_id is not None
+        else None
+    )
+    if scope is None:
+        return layout, None, None
+    if scope.kind == "layout":
+        if scope.layout_id is None:
+            scope = scope.model_copy(update={"layout_id": layout_id})
+        elif layout_id is not None and scope.layout_id != layout_id:
+            raise ValueError("Scope must use the selected layout")
+    row_ids = resolve_document_scope(
+        project, sheet_id=sheet_id, source=source, scope=scope
+    )
+    return layout, scope, row_ids
+
+
 def selected_layout_id(project, sheet_id, source_column_id):
     row = project.db.execute(
         "SELECT layout_id FROM extraction_layout_selection "

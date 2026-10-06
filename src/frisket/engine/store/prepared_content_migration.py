@@ -6,6 +6,11 @@ import sqlite3
 from pathlib import Path
 
 from .disk_capacity import require_disk_headroom
+from .prepared_content_migration_schema import (
+    PREPARED_AUTHORITY_TABLE_SQL,
+    PREPARED_CONTENT_SCHEMA_SQL,
+    PREPARED_CURRENT_CELL_VALUES_SQL,
+)
 from .schema import BundleSchemaMismatch, SCHEMA_DIGEST_META_KEY
 from .extraction_layouts_migration import EXTRACTION_LAYOUTS_TO_DIGEST
 
@@ -15,38 +20,9 @@ PREPARED_CONTENT_FROM_DIGEST = EXTRACTION_LAYOUTS_TO_DIGEST
 PREPARED_CONTENT_TO_DIGEST = "frisket.schema.v1:59e024b9950ba4cc2232bd1bc42ae688"
 
 
-def _fresh_schema_statement(prefix: str) -> str:
-    from .schema import SCHEMA
-
-    start = SCHEMA.index(prefix)
-    statement = ""
-    for line in SCHEMA[start:].splitlines(keepends=True):
-        statement += line
-        if sqlite3.complete_statement(statement):
-            return statement.strip()
-    raise RuntimeError(f"incomplete schema statement starting with {prefix!r}")
-
-
-def _replacement_ddl(table: str) -> str:
-    prefix = f"CREATE TABLE IF NOT EXISTS {table}"
-    return _fresh_schema_statement(prefix).replace(
-        prefix, f"CREATE TABLE {table}_prepared_new", 1
-    )
-
-
 def _install_prepared_schema(db: sqlite3.Connection) -> None:
-    for prefix in (
-        "CREATE TABLE IF NOT EXISTS prepared_page_versions",
-        "CREATE INDEX IF NOT EXISTS idx_prepared_page_versions_artifact_page",
-        "CREATE TABLE IF NOT EXISTS prepared_content_sets",
-        "CREATE TABLE IF NOT EXISTS prepared_content_set_pages",
-        "CREATE INDEX IF NOT EXISTS idx_prepared_content_set_pages_version",
-        "CREATE TABLE IF NOT EXISTS prepared_content_refs",
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_prepared_content_refs_document",
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_prepared_content_refs_page",
-        "CREATE VIEW IF NOT EXISTS prepared_content_ref_values",
-    ):
-        db.execute(_fresh_schema_statement(prefix))
+    for statement in PREPARED_CONTENT_SCHEMA_SQL:
+        db.execute(statement)
 
 
 def migrate_prepared_content(
@@ -88,7 +64,7 @@ def migrate_prepared_content(
                 columns = [
                     str(info[1]) for info in db.execute(f"PRAGMA table_info({table})")
                 ]
-                db.execute(_replacement_ddl(table))
+                db.execute(PREPARED_AUTHORITY_TABLE_SQL[table])
                 joined = ",".join(columns)
                 db.execute(
                     f"INSERT INTO {table}_prepared_new({joined}) "
@@ -101,9 +77,7 @@ def migrate_prepared_content(
                 db.execute(str(statement))
 
             _install_prepared_schema(db)
-            db.execute(
-                _fresh_schema_statement("CREATE VIEW IF NOT EXISTS current_cell_values")
-            )
+            db.execute(PREPARED_CURRENT_CELL_VALUES_SQL)
             visible_after = int(
                 db.execute("SELECT COUNT(*) FROM current_cell_values").fetchone()[0]
             )

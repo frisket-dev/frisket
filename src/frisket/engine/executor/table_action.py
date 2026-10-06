@@ -333,12 +333,11 @@ def _admitted_parent_sheet(readers):
     return next(iter(parents), None)
 
 
-def _validated_table_rows(bound, fields, iterator, readers, *, max_rows):
+def _validated_table_rows(
+    bound, fields, iterator, readers, *, max_rows, resolved_output_names
+):
     terminal = bound.action.definition.run
     logical_names = tuple(field.key for field in fields)
-    final_names = {
-        name: bound.request.output_names.get(name, name) for name in logical_names
-    }
     validator = SchemaValidator(
         _publication_return_schema(terminal.output_model.__pydantic_core_schema__),
         _use_prebuilt=False,
@@ -458,10 +457,10 @@ def _validated_table_rows(bound, fields, iterator, readers, *, max_rows):
                 continue
             validate_import_value(field.column_type, row[field.key])
         yield (
-            {final_names[name]: row[name] for name in logical_names},
+            {resolved_output_names[name]: row[name] for name in logical_names},
             _TableLineage(raw.sources, raw.parent),
             tuple(
-                (final_names[key], handle)
+                (resolved_output_names[key], handle)
                 for key, handles in files.items()
                 for handle in handles
             ),
@@ -475,6 +474,7 @@ class _PreparedTable:
     produced: Any
     readers: dict[type, Any]
     parent_sheet_id: int | None
+    resolved_output_names: dict[str, str]
     output_fields: tuple[OutputField, ...] = ()
     buffered: bool = False
     row_count: int = 0
@@ -764,6 +764,10 @@ def prepare_table_producer(
             produced, DynamicTableResult
         ):
             raise TypeError("known-schema table producer must return TableResult")
+        resolved_output_names = {
+            field.key: bound.request.output_names.get(field.key, field.key)
+            for field in fields
+        }
         if schema_only:
             assert table is not None
             yield _PreparedTable(
@@ -772,6 +776,7 @@ def prepare_table_producer(
                 produced,
                 readers,
                 _admitted_parent_sheet(readers),
+                resolved_output_names,
                 output_fields=fields,
             )
             return
@@ -783,6 +788,7 @@ def prepare_table_producer(
                 original,
                 readers,
                 max_rows=limits.max_rows if limits else None,
+                resolved_output_names=resolved_output_names,
             )
         )
         first = next(validated, None)
@@ -811,6 +817,7 @@ def prepare_table_producer(
             produced,
             readers,
             parent,
+            resolved_output_names,
             output_fields=fields,
         )
         # A lazy producer can admit another source even after its last emitted row.
@@ -990,7 +997,11 @@ def run_inventory_table_page(
         stager.finish_reads()
         if batch:
             blob_plan = prepare_import_blobs(
-                project, stager.publication_plan(occurrences)
+                project,
+                stager.publication_plan(
+                    occurrences,
+                    output_names=prepared.resolved_output_names,
+                ),
             )
             writer.append_page(
                 batch,
@@ -1153,7 +1164,13 @@ def run_table_source(
             # unlike POSIX, refuses that removal while readers remain open.
             stager.finish_reads()
         blob_plan = (
-            prepare_import_blobs(project, stager.publication_plan(occurrences))
+            prepare_import_blobs(
+                project,
+                stager.publication_plan(
+                    occurrences,
+                    output_names=prepared.resolved_output_names,
+                ),
+            )
             if stager is not None
             else None
         )

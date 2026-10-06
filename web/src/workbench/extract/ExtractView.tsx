@@ -4,6 +4,7 @@ import { MenuPop } from '../../components/MenuPop';
 import { PanelSelect } from '../../components/PanelSelect';
 import { useAnchoredPosition } from '../../hooks/useAnchoredPosition';
 import { useNativePopover } from '../../hooks/useNativePopover';
+import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 import type { DocumentListPage, Row, SheetMeta } from '../../api/types';
 import { documentExtractionApi, type ExtractionDocument, type ExtractionPreview, type ExtractionPreviewDocument, type ExtractedCell, type ExtractionScope, type ExtractionScopeFilter } from '../../api/documentExtraction';
 import type { DocumentViewState } from '../../workspace/useWorkspaceChromeState';
@@ -64,8 +65,9 @@ export function ExtractView(props: ExtractViewProps) {
 }
 
 function ExtractWorkspace(props: ExtractViewProps) {
+  const { extractionLayouts } = useWorkspaceStores();
   const browse = useDocumentView({ ...props, annotatedTextColumnIds: NO_TEXT_SOURCES, sourceColumnTypes: EXTRACTION_SOURCE_TYPES });
-  const persistence = useExtractionLayouts(props.projectId, props.sheet.id, browse.sourceColumn?.name ?? '', props.refreshKey);
+  const persistence = useExtractionLayouts(extractionLayouts, props.sheet.id, browse.sourceColumn?.name ?? '', props.refreshKey);
   return <ExtractEditor key={`${browse.sourceColumn?.id ?? ''}:${persistence.layout?.id ?? ''}`} {...props} browse={browse} persistence={persistence} />;
 }
 

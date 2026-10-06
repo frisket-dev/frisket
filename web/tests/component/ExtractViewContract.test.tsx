@@ -6,8 +6,10 @@ import type { SheetMeta } from '../../src/api/types';
 import type { DocumentViewState } from '../../src/workspace/useWorkspaceChromeState';
 import type { SavedExtractionTemplate } from '../../src/api/documentExtraction';
 import type { HttpExtractionTemplateSave } from '../../src/generated/openHttpContracts';
+import { createExtractionLayoutStore, type ExtractionLayoutStoreHandle } from '../../src/state/extractionLayoutStore';
 import type { PageRegion } from '../../src/workbench/extract/types';
 
+const workspace = vi.hoisted(() => ({ extractionLayouts: undefined as unknown }));
 const mocks = vi.hoisted(() => {
   const sourceColumn = { id: '1', name: 'Document', type: 'file' };
   return { reader: vi.fn(), document: vi.fn(), templates: vi.fn(), save: vi.fn(), select: vi.fn(), counts: vi.fn(), preview: vi.fn(),
@@ -16,6 +18,7 @@ const mocks = vi.hoisted(() => {
       items: [], listBodyRef: { current: null }, onListScroll: vi.fn(), onListKeyDown: vi.fn(), windowRows: [], startIndex: 0,
       loadMore: vi.fn(), selectDocument: vi.fn(), recordPageCount: vi.fn() } };
 });
+vi.mock('../../src/bind/useWorkspaceStores', () => ({ useWorkspaceStores: () => workspace }));
 vi.mock('../../src/workbench/useDocumentView', () => ({ useDocumentView: () => mocks.browse }));
 vi.mock('../../src/workbench/DocumentReader', () => ({ DocumentReader: (props: { onToggleOptions(): void }) => {
   mocks.reader(props); return <button onClick={props.onToggleOptions}>View options</button>;
@@ -43,6 +46,7 @@ function props(overrides: Partial<ExtractViewProps> = {}): ExtractViewProps {
 }
 beforeEach(() => {
   projectId = `extraction-test-${++projectSequence}`; saved = [newLayout(1)]; selectedId = 1;
+  workspace.extractionLayouts = createExtractionLayoutStore(projectId);
   mocks.templates.mockImplementation(async () => ({ templates: structuredClone(saved), selected_layout_id: selectedId }));
   mocks.save.mockImplementation(async (pid: string, value: HttpExtractionTemplateSave) => {
     const existing = saved.find((item) => item.id === value.id);
@@ -56,7 +60,13 @@ beforeEach(() => {
   mocks.document.mockResolvedValue({ row_id: 1, blob_id: 'example', filename: 'cropped.pdf', mime: 'application/octet-stream',
     document: { source_fingerprint: 'native:example', pages: [{ page: 1, width: 800, height: 1000, tokens: [{ text: 'NAME', box: region.box, granularity: 'word' }] }] } });
 });
-afterEach(async () => { cleanup(); await act(async () => {}); vi.clearAllMocks(); vi.unstubAllGlobals(); });
+afterEach(async () => {
+  cleanup();
+  await act(async () => {});
+  (workspace.extractionLayouts as ExtractionLayoutStoreHandle).dispose();
+  vi.clearAllMocks();
+  vi.unstubAllGlobals();
+});
 async function ready() {
   await waitFor(() => expect(screen.getByRole('button', { name: 'Key / value' })).toBeEnabled());
   await waitFor(() => expect(screen.getByRole('option', { name: 'All (3 documents)' })).toBeInTheDocument());

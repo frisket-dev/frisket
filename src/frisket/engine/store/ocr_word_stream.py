@@ -16,6 +16,7 @@ class ResolvedWordStream:
     page_images: dict[str, Any]
     artifact_id: int
     engine: str = ""
+    token_granularity: str = "word"
 
 
 @dataclass(frozen=True)
@@ -71,6 +72,17 @@ def iter_ocr_word_streams(project: Any, blob_hash: str | None):
         # image hash: the original PDF renders lazily; old PNG entries still work.
         if not isinstance(page_images, dict) or not metadata.get("engine"):
             continue
+        engine = str(metadata["engine"])
+        if "ocr_token_granularity" in metadata:
+            token_granularity = metadata["ocr_token_granularity"]
+            if token_granularity not in {"word", "line", "block"}:
+                continue
+        else:
+            # Compatibility for artifacts written before producers recorded the
+            # geometry contract. Do not extend this inference to new artifacts.
+            token_granularity = "word" if engine == "tesseract" else "block"
+            if engine in {"rapidocr", "pp-ocrv6", "paddleocr", "datalab"}:
+                token_granularity = "line"
         artifact_id = int(row["id"])
         tokens = _tokens_from_region_spans(project, artifact_id)
         if not tokens:
@@ -79,7 +91,8 @@ def iter_ocr_word_streams(project: Any, blob_hash: str | None):
             stream=WordStream(tokens=tokens),
             page_images=page_images,
             artifact_id=artifact_id,
-            engine=str(metadata["engine"]),
+            engine=engine,
+            token_granularity=token_granularity,
         )
 
 

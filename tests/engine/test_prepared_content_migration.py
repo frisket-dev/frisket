@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import importlib
 import sqlite3
 from pathlib import Path
 
 import pytest
 
 from frisket.engine.store import Project
+from frisket.engine.store import extraction_layouts as live_extraction_layouts
+from frisket.engine.store import extraction_layouts_migration
+from frisket.engine.store import prepared_content_migration
+from frisket.engine.store import schema as live_schema
 from frisket.engine.store.extraction_layouts import (
     get_layout,
     remember_success,
@@ -16,6 +21,10 @@ from frisket.engine.store.prepared_content_migration import (
     PREPARED_CONTENT_FROM_DIGEST,
     PREPARED_CONTENT_TO_DIGEST,
     migrate_prepared_content,
+)
+from frisket.engine.store.extraction_layouts_migration import (
+    EXTRACTION_LAYOUTS_FROM_DIGEST,
+    EXTRACTION_LAYOUTS_TO_DIGEST,
 )
 from frisket.engine.store.schema import (
     SCALAR_CURRENT_CELL_VALUES_SQL,
@@ -147,6 +156,25 @@ def _assert_exact_predecessor(db: sqlite3.Connection) -> None:
     assert "prepared_content_ref" not in current_view
 
 
+def _downgrade_to_exact_extraction_layouts_predecessor(path: Path) -> None:
+    _downgrade_to_exact_prepared_content_predecessor(path)
+    with sqlite3.connect(path / "project.db") as db:
+        db.execute("PRAGMA foreign_keys=OFF")
+        db.execute("BEGIN IMMEDIATE")
+        for table in (
+            "extraction_layout_selection",
+            "extraction_layout_documents",
+            "extraction_layouts",
+        ):
+            db.execute(f"DROP TABLE {table}")
+        db.execute(
+            "UPDATE meta SET value=? WHERE key=?",
+            (EXTRACTION_LAYOUTS_FROM_DIGEST, SCHEMA_DIGEST_META_KEY),
+        )
+        assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+        db.commit()
+
+
 def test_exact_prior_schema_preserves_values_history_undo_and_reopen(
     tmp_path: Path,
 ) -> None:
@@ -245,3 +273,103 @@ def test_exact_prior_schema_rolls_back_and_retries_after_interrupted_stamp(
     assert migrated.get_values(sheet_id, output_column_id)[row_ids[2]] == "manual"
     assert migrated.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
     migrated.close()
+
+
+def test_historical_migrations_ignore_later_live_schema_definitions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "live-schema-drift.frisket"
+    sheet_id, source_column_id, output_column_id, row_ids = _seed_mixed_origins(path)
+    _downgrade_to_exact_extraction_layouts_predecessor(path)
+
+    try:
+        with monkeypatch.context() as drift:
+            drift.setattr(
+                live_extraction_layouts,
+                "EXTRACTION_LAYOUTS_SCHEMA_SQL",
+                "CREATE TABLE later_extraction_layout_object (id INTEGER);",
+            )
+            drift.setattr(
+                live_schema,
+                "SCHEMA",
+                "CREATE TABLE later_fresh_schema_object (id INTEGER);",
+            )
+            importlib.reload(extraction_layouts_migration)
+            importlib.reload(prepared_content_migration)
+
+            with sqlite3.connect(path / "project.db") as db:
+                extraction_layouts_migration.migrate_extraction_layouts(db)
+                assert (
+                    db.execute(
+                        "SELECT value FROM meta WHERE key=?",
+                        (SCHEMA_DIGEST_META_KEY,),
+                    ).fetchone()[0]
+                    == EXTRACTION_LAYOUTS_TO_DIGEST
+                )
+                prepared_content_migration.migrate_prepared_content(
+                    db, bundle_path=path / "project.db"
+                )
+                assert (
+                    db.execute(
+                        "SELECT value FROM meta WHERE key=?",
+                        (SCHEMA_DIGEST_META_KEY,),
+                    ).fetchone()[0]
+                    == PREPARED_CONTENT_TO_DIGEST
+                )
+                installed = {
+                    str(row[0])
+                    for row in db.execute(
+                        "SELECT name FROM sqlite_master WHERE name IN ("
+                        "'extraction_layouts','extraction_layout_selection',"
+                        "'extraction_layout_documents',"
+                        "'idx_extraction_layout_documents_layout',"
+                        "'prepared_page_versions',"
+                        "'idx_prepared_page_versions_artifact_page',"
+                        "'prepared_content_sets','prepared_content_set_pages',"
+                        "'idx_prepared_content_set_pages_version',"
+                        "'prepared_content_refs',"
+                        "'uq_prepared_content_refs_document',"
+                        "'uq_prepared_content_refs_page',"
+                        "'prepared_content_ref_values',"
+                        "'later_extraction_layout_object',"
+                        "'later_fresh_schema_object')"
+                    )
+                }
+                assert installed == {
+                    "extraction_layouts",
+                    "extraction_layout_selection",
+                    "extraction_layout_documents",
+                    "idx_extraction_layout_documents_layout",
+                    "prepared_page_versions",
+                    "idx_prepared_page_versions_artifact_page",
+                    "prepared_content_sets",
+                    "prepared_content_set_pages",
+                    "idx_prepared_content_set_pages_version",
+                    "prepared_content_refs",
+                    "uq_prepared_content_refs_document",
+                    "uq_prepared_content_refs_page",
+                    "prepared_content_ref_values",
+                }
+                assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+    finally:
+        importlib.reload(extraction_layouts_migration)
+        importlib.reload(prepared_content_migration)
+
+    project = Project(path)
+    assert project.get_values(sheet_id, source_column_id) == {
+        row_ids[0]: 10,
+        row_ids[1]: 20,
+        row_ids[2]: 30,
+    }
+    assert project.get_values(sheet_id, output_column_id) == {
+        row_ids[0]: "generated",
+        row_ids[1]: None,
+        row_ids[2]: "manual",
+    }
+    assert [str(row["kind"]) for row in project.history()] == [
+        "add_rows",
+        "map.regex_extract",
+        "edit",
+    ]
+    assert project.db.execute("PRAGMA foreign_key_check").fetchall() == []
+    project.close()
