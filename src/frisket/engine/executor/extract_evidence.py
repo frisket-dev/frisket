@@ -137,10 +137,7 @@ def _source_artifact(
     captured_sources: dict[str, Any] | None = None,
     source_label: str | None = None,
 ) -> dict[str, Any]:
-    from frisket.engine.store.evidence import (
-        get_source_artifact,
-        record_source_artifact,
-    )
+    from frisket.engine.store.evidence import record_source_artifact
     from frisket.engine.store.media_blobs import MediaBlobStore
 
     for name in source_columns:
@@ -159,22 +156,14 @@ def _source_artifact(
         if not isinstance(captured_text, str) and captured.get("model_visible"):
             captured_text = value if isinstance(value, str) else None
         prepared = _resolve_prepared_text(project, captured)
-        if prepared is not None and prepared.source_artifact_id is not None:
-            cache_key = (row_id, column_id or 0, f"prepared:{prepared.ref_id}")
-            if cache_key in artifact_cache:
-                return artifact_cache[cache_key]
-            artifact = get_source_artifact(project, prepared.source_artifact_id)
-            if artifact is not None:
-                artifact_cache[cache_key] = artifact
-                return artifact
         if prepared is not None:
-            cache_key = (row_id, column_id or 0, f"prepared:{prepared.ref_id}:orphan")
+            cache_key = (row_id, column_id or 0, f"prepared:{prepared.ref_id}")
             if cache_key in artifact_cache:
                 return artifact_cache[cache_key]
             artifact = record_source_artifact(
                 project,
-                artifact_kind="row",
-                media_type="application/vnd.frisket.prepared-content-ref+json",
+                artifact_kind="text",
+                media_type="text/plain",
                 title=source_label or name,
                 source_sheet_id=sheet_id if column_id is not None else None,
                 source_row_id=row_id if column_id is not None else None,
@@ -904,21 +893,11 @@ def _resolve_evidence_entry_spans(
             "rank": rank,
             "warnings": [],
         }
-        entry_spans = _prepared_aligned_quote_spans(
-            project,
-            artifact=artifact,
-            source=prepared_source,
-            quote=quote,
-            snippet=_optional_string(entry.get("snippet")),
-            base_meta=metadata,
-            page=_int_or_none(entry.get("page") or entry.get("page_start")),
-            page_end=_int_or_none(entry.get("page_end")),
-        )
-        if entry_spans is None:
-            # The prepared ref remains the exact text authority even when it has
-            # no usable PDF positions. Preserve its ordinary text citation and
-            # document provenance; never jump to a newer sibling OCR stream.
-            entry_spans = _captured_text_spans(
+        # Cite the actual text input; the original PDF is an additional locator.
+        # Separate ref-only text artifacts also keep independent OCR outputs
+        # over one PDF from collapsing into a single viewer context.
+        entry_spans = (
+            _captured_text_spans(
                 project,
                 artifact=artifact,
                 source=prepared_source,
@@ -928,6 +907,27 @@ def _resolve_evidence_entry_spans(
                 entry=entry,
                 rank=rank,
             )
+            or []
+        )
+        prepared = _resolve_prepared_text(project, prepared_source)
+        if prepared.source_artifact_id is not None:
+            from frisket.engine.store.evidence import get_source_artifact
+
+            pdf_artifact = get_source_artifact(project, prepared.source_artifact_id)
+            if pdf_artifact is not None:
+                entry_spans.extend(
+                    _prepared_aligned_quote_spans(
+                        project,
+                        artifact=pdf_artifact,
+                        source=prepared_source,
+                        quote=quote,
+                        snippet=_optional_string(entry.get("snippet")),
+                        base_meta=metadata,
+                        page=_int_or_none(entry.get("page") or entry.get("page_start")),
+                        page_end=_int_or_none(entry.get("page_end")),
+                    )
+                    or []
+                )
         return entry_spans
     if entry_spans is None and artifact.get("blob_hash"):
         entry_spans = _source_spans(project, artifact=artifact, item=entry, rank=rank)

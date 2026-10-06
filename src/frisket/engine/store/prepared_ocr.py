@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .prepared_content import PreparedContentStore, PreparedPageDraft
+from .value_codec import repair_unicode_text
 
 
 def prepare_ocr_results(project, run_id: int, results: list[dict[str, Any]]) -> None:
@@ -107,7 +108,11 @@ def prepare_ocr_results(project, run_id: int, results: list[dict[str, Any]]) -> 
         call_id = result.pop("prepared_ocr_call_id", None)
         ref_id = refs.get(call_id)
         if ref_id is not None and result.get("error") is None:
-            if result.get("value") != resolved[ref_id].text:
+            value = result.get("value")
+            if (
+                not isinstance(value, str)
+                or repair_unicode_text(value) != resolved[ref_id].text
+            ):
                 raise ValueError("OCR output does not match its prepared text")
             result["prepared_ref_id"] = ref_id
             result["value"] = None

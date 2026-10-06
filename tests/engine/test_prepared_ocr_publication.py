@@ -113,3 +113,18 @@ def test_failed_checkpoint_rolls_back_prepared_pages(tmp_path):
             ).fetchone()[0]
             == 0
         )
+
+
+def test_ocr_uses_the_ordinary_unicode_repair_boundary(tmp_path):
+    with closing(Project.create(tmp_path / "unicode.frisket")) as project:
+        run, result = _setup(project)
+        result["value"] = "Broken \ud800 text"
+        call = result["row_file_calls"][0]
+        call["source"]["page_count"] = 1
+        call["text"] = result["value"]
+        call["pages"] = [{"text": result["value"], "blocks": []}]
+        project.db.execute("BEGIN IMMEDIATE")
+        prepare_ocr_results(project, run, [result])
+        hydrate_prepared_results(project, [result])
+        project.db.commit()
+        assert result["value"] == "Broken \ufffd text"

@@ -402,7 +402,6 @@ class EffectCheckpointStore:
         the payload (the caller passes its zero-cost replay); replays return
         ``0.0`` without re-running ``accrue``."""
 
-        encoded = _returned_payload_json(payload)
         with self._txn():
             checkpoint = self._verified_unit(
                 checkpoint_id,
@@ -423,6 +422,7 @@ class EffectCheckpointStore:
             if checkpoint["accounting_persisted"]:
                 return 0.0
             cost = float(accrue(checkpoint))
+            encoded = _returned_payload_json(payload)
             updated = self.db.execute(
                 "UPDATE effect_checkpoints SET payload=?, accounting_persisted=1 "
                 "WHERE id=? AND state='returned' AND accounting_persisted=0",

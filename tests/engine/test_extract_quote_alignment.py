@@ -135,6 +135,13 @@ def _run_ocr_pages(
     pages: list[list[dict[str, Any]]],
 ) -> None:
     project: Project = seeded["project"]
+    from frisket.engine.store.media_blobs import MediaBlobStore
+
+    MediaBlobStore(project).merge_metadata(
+        seeded["blob"],
+        owned_media_metadata_document(probe={"pages": len(pages), "kind": "pdf"}),
+    )
+    project.db.commit()
     fake_pages, fake_ocr = _fake_multi_page_engine(pages)
     monkeypatch.setattr(OcrEngines, "_page_images", fake_pages)
     monkeypatch.setattr(OcrEngines, "_ocr_rapidocr", fake_ocr)
@@ -528,10 +535,13 @@ def test_prepared_quote_uses_exact_ref_and_retains_all_exact_repeats(
             source_label="prepared",
         )
 
-        assert selected_artifact["id"] == artifact["id"]
-        assert len(spans or []) == 4
-        assert {span["page_start"] for span in spans or []} == {1}
-        assert all(span["span_kind"] == "region" for span in spans or [])
+        assert selected_artifact["id"] != artifact["id"]
+        assert "captured_text" not in selected_artifact["metadata"]
+        text_spans = [span for span in spans or [] if span["span_kind"] == "text"]
+        region_spans = [span for span in spans or [] if span["span_kind"] == "region"]
+        assert len(text_spans) == len(region_spans) == 4
+        assert {span["page_start"] for span in region_spans} == {1}
+        assert {span["artifact_id"] for span in region_spans} == {artifact["id"]}
         assert all(
             span["selector"]["prepared_ref_id"] == selected_ref_id
             for span in spans or []
@@ -540,13 +550,14 @@ def test_prepared_quote_uses_exact_ref_and_retains_all_exact_repeats(
             len(
                 {
                     tuple(span["bbox"][0][key] for key in ("x0", "y0", "x1", "y1"))
-                    for span in spans or []
+                    for span in region_spans
                 }
             )
             == 4
         )
         viewer = _link_and_resolve(seeded, spans or [])
-        viewer_artifact = viewer["artifacts"][0]
+        assert viewer["artifacts"][0]["text_context"]["text"] == source["captured_text"]
+        viewer_artifact = viewer["artifacts"][1]
         assert viewer_artifact["artifact_ref"]["blob"]["url"].endswith(
             f"/blobs/{seeded['blob']}"
         )
@@ -608,8 +619,9 @@ def test_prepared_cross_page_quote_pins_each_page_version(
             source_label="prepared",
         )
 
-        assert {span["page_start"] for span in spans or []} == {1, 2}
-        selectors = {span["page_start"]: span["selector"] for span in spans or []}
+        regions = [span for span in spans or [] if span["span_kind"] == "region"]
+        assert {span["page_start"] for span in regions} == {1, 2}
+        selectors = {span["page_start"]: span["selector"] for span in regions}
         assert selectors[1]["prepared_ref_id"] == ref_id
         assert selectors[2]["prepared_ref_id"] == ref_id
         assert (
@@ -669,7 +681,7 @@ def test_deleted_prepared_source_keeps_text_citation_without_copying_full_body(
             source_label="prepared",
         )
 
-        assert fallback_artifact["artifact_kind"] == "row"
+        assert fallback_artifact["artifact_kind"] == "text"
         assert "captured_text_hash" not in fallback_artifact["metadata"]
         assert (
             project.db.execute("SELECT COUNT(*) FROM citation_texts").fetchone()[0] == 0
@@ -677,5 +689,67 @@ def test_deleted_prepared_source_keeps_text_citation_without_copying_full_body(
         assert len(spans or []) == 1
         assert spans[0]["span_kind"] == "text"
         assert spans[0]["selector"]["prepared_ref_id"] == ref_id
+        viewer = _link_and_resolve(seeded, spans)
+        assert viewer["artifacts"][0]["text_context"]["text"] == text
+    finally:
+        project.close()
+
+
+def test_two_prepared_outputs_keep_distinct_text_contexts_for_one_pdf(tmp_path):
+    seeded = _seed_pdf_project(tmp_path)
+    project = seeded["project"]
+    try:
+        original = record_source_artifact(
+            project,
+            artifact_kind="file",
+            media_type="application/pdf",
+            blob_hash=seeded["blob"],
+            page_count=1,
+        )
+        refs = [
+            _stage_prepared_reference(
+                project, artifact_id=original["id"], pages=[(text, None)]
+            )
+            for text in ("First OCR: budget approved", "Second OCR: budget rejected")
+        ]
+        spans = []
+        cache = {}
+        for ref_id, text in zip(
+            refs,
+            ("First OCR: budget approved", "Second OCR: budget rejected"),
+            strict=True,
+        ):
+            source = _prepared_source(ref_id, text, column_id=2)
+            artifact = _source_artifact(
+                project,
+                sheet_id=seeded["sheet_id"],
+                row_id=seeded["row_ids"][0],
+                source_columns=["prepared"],
+                input_column_ids={"prepared": 2},
+                artifact_cache=cache,
+                captured_sources={"prepared": source},
+            )
+            spans.extend(
+                _resolve_evidence_entry_spans(
+                    project,
+                    artifact=artifact,
+                    sheet_id=seeded["sheet_id"],
+                    row_id=seeded["row_ids"][0],
+                    entry={"quote": text},
+                    rank=0,
+                    captured_source=source,
+                    source_label="prepared",
+                )
+            )
+        viewer = _link_and_resolve(seeded, spans)
+        assert {
+            artifact["text_context"]["text"] for artifact in viewer["artifacts"]
+        } == {
+            "First OCR: budget approved",
+            "Second OCR: budget rejected",
+        }
+        assert (
+            project.db.execute("SELECT COUNT(*) FROM citation_texts").fetchone()[0] == 0
+        )
     finally:
         project.close()
