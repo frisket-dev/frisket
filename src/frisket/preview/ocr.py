@@ -437,7 +437,7 @@ async def render_selected_pdf_pages(
                 )
             if page_count is not None:
                 _reject_pages_past_page_count([selected_page], page_count)
-            from frisket.engine.executor.pdf_page_source import (
+            from frisket.engine.pdf_page_source import (
                 PdfPageSourceError,
                 materialize_pdf_page,
             )

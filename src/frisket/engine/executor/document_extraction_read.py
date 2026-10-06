@@ -27,7 +27,7 @@ from frisket.actions.types import (
 )
 from frisket.contracts.action import ReceiptEvidence
 from frisket.engine.executor.sheet_rows_read import AdmittedSheetRowsReader
-from frisket.engine.executor.pdf_page_source import (
+from frisket.engine.pdf_page_source import (
     PdfPageSourceError,
     materialize_pdf_page,
 )

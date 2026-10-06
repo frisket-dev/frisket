@@ -11,7 +11,7 @@ from pathlib import Path
 
 from frisket.actions.pdf_table_types import PdfTableOptions, PdfTableRows
 from frisket.actions.types import ColumnRef, DynamicOutput, Outcome, RowError
-from frisket.engine.executor.pdf_page_source import (
+from frisket.engine.pdf_page_source import (
     PdfPageSourceError,
     materialize_pdf_page,
 )

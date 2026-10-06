@@ -17,7 +17,7 @@ from frisket.execution.resolver import preview_resolution_in_scope
 from frisket.ai.models.metadata import model_calls_cost_actual
 from frisket.ops import ocr_engines as engines
 from frisket.engine.executor.blob_outputs import RowBlobOutput, RowBlobPlan
-from frisket.engine.executor.pdf_page_source import (
+from frisket.engine.pdf_page_source import (
     PdfPageSourceError,
     materialize_pdf_page,
 )

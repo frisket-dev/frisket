@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from frisket.engine.executor.pdf_page_source import (
+from frisket.engine.pdf_page_source import (
     PdfPageSourceError,
     materialize_pdf_page,
 )

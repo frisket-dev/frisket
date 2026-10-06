@@ -27,7 +27,7 @@ from frisket.runtime.launch import worker_argv
 from frisket.engine.store.artifact_timeline import canonical_json_hash
 from frisket.engine.store.blob_backend import BlobNotFoundError
 from frisket.engine.store.media_blobs import MediaBlobStore, update_blob_metadata
-from frisket.engine.executor.pdf_page_source import (
+from frisket.engine.pdf_page_source import (
     PdfPageSourceError,
     materialize_pdf_page,
 )
