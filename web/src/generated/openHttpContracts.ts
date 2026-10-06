@@ -4896,23 +4896,23 @@ type HttpExtractionSavedLayout_Box = ({
   "y1": (number);
 });
 
+type HttpExtractionSavedLayout_ExtractionDraftField = ({
+  "id": (string);
+  "key": (HttpExtractionSavedLayout_PageRegion);
+  "name"?: (string);
+  "section_id"?: (((string)) | ((null)));
+  "value": (HttpExtractionSavedLayout_PageRegion);
+});
+
 type HttpExtractionSavedLayout_ExtractionDraftPending = ({
   "region": (HttpExtractionSavedLayout_PageRegion);
   "tool": ("key" | "repeat") & (string);
 });
 
-type HttpExtractionSavedLayout_ExtractionField = ({
-  "id": (string);
-  "key": (HttpExtractionSavedLayout_PageRegion);
-  "name": (string);
-  "section_id"?: (((string)) | ((null)));
-  "value": (HttpExtractionSavedLayout_PageRegion);
-});
-
 type HttpExtractionSavedLayout_ExtractionLayoutDraft = ({
   "continue_across_pages"?: (boolean);
   "expand_values"?: (boolean);
-  "fields"?: (Array<(HttpExtractionSavedLayout_ExtractionField)>);
+  "fields"?: (Array<(HttpExtractionSavedLayout_ExtractionDraftField)>);
   "ignore_bands"?: (Array<(HttpExtractionSavedLayout_IgnoreBand)>);
   "look_every_page"?: (boolean);
   "pending"?: (((HttpExtractionSavedLayout_ExtractionDraftPending)) | ((null)));
@@ -4985,23 +4985,23 @@ type HttpExtractionTemplateSave_Box = ({
   "y1": (number);
 });
 
+type HttpExtractionTemplateSave_ExtractionDraftField = ({
+  "id": (string);
+  "key": (HttpExtractionTemplateSave_PageRegion);
+  "name"?: (string);
+  "section_id"?: (((string)) | ((null)));
+  "value": (HttpExtractionTemplateSave_PageRegion);
+});
+
 type HttpExtractionTemplateSave_ExtractionDraftPending = ({
   "region": (HttpExtractionTemplateSave_PageRegion);
   "tool": ("key" | "repeat") & (string);
 });
 
-type HttpExtractionTemplateSave_ExtractionField = ({
-  "id": (string);
-  "key": (HttpExtractionTemplateSave_PageRegion);
-  "name": (string);
-  "section_id"?: (((string)) | ((null)));
-  "value": (HttpExtractionTemplateSave_PageRegion);
-});
-
 type HttpExtractionTemplateSave_ExtractionLayoutDraft = ({
   "continue_across_pages"?: (boolean);
   "expand_values"?: (boolean);
-  "fields"?: (Array<(HttpExtractionTemplateSave_ExtractionField)>);
+  "fields"?: (Array<(HttpExtractionTemplateSave_ExtractionDraftField)>);
   "ignore_bands"?: (Array<(HttpExtractionTemplateSave_IgnoreBand)>);
   "look_every_page"?: (boolean);
   "pending"?: (((HttpExtractionTemplateSave_ExtractionDraftPending)) | ((null)));
@@ -5052,23 +5052,23 @@ type HttpExtractionTemplatesResponse_Box = ({
   "y1": (number);
 });
 
+type HttpExtractionTemplatesResponse_ExtractionDraftField = ({
+  "id": (string);
+  "key": (HttpExtractionTemplatesResponse_PageRegion);
+  "name"?: (string);
+  "section_id"?: (((string)) | ((null)));
+  "value": (HttpExtractionTemplatesResponse_PageRegion);
+});
+
 type HttpExtractionTemplatesResponse_ExtractionDraftPending = ({
   "region": (HttpExtractionTemplatesResponse_PageRegion);
   "tool": ("key" | "repeat") & (string);
 });
 
-type HttpExtractionTemplatesResponse_ExtractionField = ({
-  "id": (string);
-  "key": (HttpExtractionTemplatesResponse_PageRegion);
-  "name": (string);
-  "section_id"?: (((string)) | ((null)));
-  "value": (HttpExtractionTemplatesResponse_PageRegion);
-});
-
 type HttpExtractionTemplatesResponse_ExtractionLayoutDraft = ({
   "continue_across_pages"?: (boolean);
   "expand_values"?: (boolean);
-  "fields"?: (Array<(HttpExtractionTemplatesResponse_ExtractionField)>);
+  "fields"?: (Array<(HttpExtractionTemplatesResponse_ExtractionDraftField)>);
   "ignore_bands"?: (Array<(HttpExtractionTemplatesResponse_IgnoreBand)>);
   "look_every_page"?: (boolean);
   "pending"?: (((HttpExtractionTemplatesResponse_ExtractionDraftPending)) | ((null)));
