@@ -555,7 +555,9 @@ def _image_input_for(item: dict[str, Any], project: Project, leases: ExitStack) 
 
     Source payloads hold only immutable content identity. ``leases`` keeps the
     first media blob alive through the gateway call; missing or malformed bytes
-    are an honest error, never a silent text fallback.
+    are an honest error, never a silent text fallback. PDF bytes are refused here:
+    the document embedding modality is unavailable, and the image backend must not
+    receive the whole document for a page-scoped file row.
     """
     media = (item.get("source_ref") or {}).get("media") or []
     blob_hash = media[0].get("blob_hash") if media else None
@@ -573,6 +575,27 @@ def _image_input_for(item: dict[str, Any], project: Project, leases: ExitStack) 
             f"(source_key={item['source_key']!r}); re-import the image",
             source_key=str(item["source_key"]),
         ) from exc
+    mime = media[0].get("mime")
+    declared_pdf = (
+        isinstance(mime, str)
+        and mime.partition(";")[0].strip().lower() == "application/pdf"
+    )
+    try:
+        with path.open("rb") as source:
+            pdf_bytes = source.read(5) == b"%PDF-"
+    except OSError as exc:
+        raise _ImageSourceError(
+            "image row blob could not be inspected before embedding "
+            f"(source_key={item['source_key']!r})",
+            source_key=str(item["source_key"]),
+        ) from exc
+    if declared_pdf or pdf_bytes:
+        raise _ImageSourceError(
+            "image embeddings do not accept PDF sources; file/PDF embeddings "
+            "are unavailable in this build "
+            f"(source_key={item['source_key']!r})",
+            source_key=str(item["source_key"]),
+        )
     return str(path)
 
 
