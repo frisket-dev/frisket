@@ -73,6 +73,9 @@ def _counts(project: Project) -> dict[str, int]:
             "source_artifacts",
             "source_spans",
             "evidence_links",
+            "prepared_page_versions",
+            "prepared_content_sets",
+            "prepared_content_refs",
         )
     }
 
@@ -141,6 +144,7 @@ def test_pdf_publication_retains_pages_original_and_replays_without_source(
         assert artifact["artifact_kind"] == "file"
         assert artifact["media_type"] == "application/pdf"
         assert artifact["filename"] == "docket.pdf"
+        assert artifact["page_count"] == 2
         assert artifact["source_sheet_id"] == sheet_id
         receipt = Receipt.model_validate(
             json.loads(
@@ -167,6 +171,27 @@ def test_pdf_publication_retains_pages_original_and_replays_without_source(
         assert all(ref["hash"] == digest for ref in native_pages)
         assert all(ref["artifact_id"] == artifact["id"] for ref in native_pages)
         assert len({ref["evidence_link_id"] for ref in native_pages}) == 2
+        stored_text = project.db.execute(
+            "SELECT cell.value_kind,cell.value FROM cells AS cell "
+            "JOIN rows AS row ON row.id=cell.row_id "
+            "WHERE row.sheet_id=? AND cell.column_id=? ORDER BY row.position",
+            (sheet_id, columns["text"]),
+        ).fetchall()
+        assert [row["value_kind"] for row in stored_text] == [
+            "prepared_content_ref",
+            "prepared_content_ref",
+        ]
+        assert project.db.execute(
+            "SELECT COUNT(*) FROM prepared_content_sets"
+        ).fetchone()[0] == 1
+        prepared_pages = project.db.execute(
+            "SELECT page_number,prepared_text FROM prepared_page_versions "
+            "ORDER BY page_number"
+        ).fetchall()
+        assert [tuple(row) for row in prepared_pages] == [
+            (1, "First page"),
+            (2, "Second page"),
+        ]
         file_read = next(
             item.ref for item in receipt.inputs if item.ref["kind"] == "local_file_read"
         )
@@ -206,6 +231,19 @@ def test_pdf_publication_retains_pages_original_and_replays_without_source(
         assert replay.receipt_id == result.receipt_id
         assert replay.op_ids == result.op_ids
         assert _counts(project) == before
+        bundle_path = project.path
+        project.close()
+        project = Project(bundle_path)
+        assert [
+            value.strip()
+            for value in project.get_values(sheet_id, columns["text"]).values()
+        ] == ["First page", "Second page"]
+        assert project.undo() == result.op_ids[0]
+        assert project.redo() == result.op_ids[0]
+        assert [
+            value.strip()
+            for value in project.get_values(sheet_id, columns["text"]).values()
+        ] == ["First page", "Second page"]
     finally:
         project.close()
 
@@ -237,6 +275,57 @@ def test_pdf_parse_failure_leaves_no_published_blob_or_hidden_sheet(
         assert result.status == "failed"
         assert result.errors[0].code == "pdf_parse_failed"
         assert not any(_counts(project).values())
+    finally:
+        project.close()
+
+
+def test_pdf_page_text_failure_keeps_empty_cell_without_prepared_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source.pdf"
+    source.write_bytes(_pdf_bytes())
+    original = pypdf._page.PageObject.extract_text
+    calls = 0
+
+    def extract_text(page, *args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise ValueError("synthetic extraction failure")
+        return original(page, *args, **kwargs)
+
+    monkeypatch.setattr(pypdf._page.PageObject, "extract_text", extract_text)
+    project = Project.create(tmp_path / "partial.frisket", name="PDF")
+    try:
+        result = run_action_spec(
+            project,
+            _action(source, render_pages=False),
+            project_id="pdf",
+        )
+        assert result.status == "completed", result.errors
+        sheet_id = result.outputs[0].sheet_id
+        columns = result.outputs[0].ref["columns"]
+        assert list(project.get_values(sheet_id, columns["text"]).values()) == [
+            "First page",
+            "",
+        ]
+        stored = project.db.execute(
+            "SELECT cell.value_kind FROM cells AS cell "
+            "JOIN rows AS row ON row.id=cell.row_id "
+            "WHERE row.sheet_id=? AND cell.column_id=? ORDER BY row.position",
+            (sheet_id, columns["text"]),
+        ).fetchall()
+        assert [row["value_kind"] for row in stored] == [
+            "prepared_content_ref",
+            "text",
+        ]
+        assert project.db.execute(
+            "SELECT COUNT(*) FROM prepared_page_versions"
+        ).fetchone()[0] == 1
+        assert [
+            value["page"]
+            for value in project.get_values(sheet_id, columns["source"]).values()
+        ] == [1, 2]
     finally:
         project.close()
 
