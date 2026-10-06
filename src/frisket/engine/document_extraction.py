@@ -33,7 +33,7 @@ class Anchor:
 @dataclass(frozen=True)
 class CompiledField:
     field: ExtractionField
-    anchor: Anchor
+    anchor: Anchor | None
     bottom: Anchor | None
     right: Anchor | None
 
@@ -161,6 +161,7 @@ def _annotated(region: PageRegion, template: ExtractionTemplate) -> bool:
         marked.page == region.page and _overlap(marked.box, region.box)
         for field in template.fields
         for marked in (field.key, field.value)
+        if marked is not None
     )
 
 
@@ -210,7 +211,11 @@ def compile_template(
             )
     field_anchors: list[Anchor] = []
     for field in template.fields:
-        if field.key.page not in pages or field.value.page not in pages:
+        if field.value.page not in pages:
+            raise ValueError(f"Field {field.name!r} references a missing page")
+        if field.key is None:
+            continue
+        if field.key.page not in pages:
             raise ValueError(f"Field {field.name!r} references a missing page")
         if field.key.page != field.value.page:
             raise ValueError("Draw each example key and value on the same page")
@@ -269,8 +274,15 @@ def compile_template(
                 )
             )
     anchors = [*field_anchors, *boundary_anchors]
+    anchors_by_field = {anchor.id: anchor for anchor in field_anchors}
     compiled: list[CompiledField] = []
-    for field, own in zip(template.fields, field_anchors, strict=True):
+    for field in template.fields:
+        if field.kind == "value_only":
+            compiled.append(
+                CompiledField(field=field, anchor=None, bottom=None, right=None)
+            )
+            continue
+        own = anchors_by_field[field.id]
         candidates = [
             anchor
             for anchor in anchors
@@ -328,6 +340,7 @@ def compile_template(
         if not group_fields:
             raise ValueError("Each repeated section needs at least one annotated field")
         first = group_fields[0].anchor
+        assert first is not None
         reference_hits = _find_hits(first, reference, template)
         if not any(_inside_span(hit.region, section.rest) for hit in reference_hits):
             raise ValueError(
@@ -546,6 +559,73 @@ def _regions(
     return regions
 
 
+def _read_regions(
+    document: PositionedDocument,
+    template: ExtractionTemplate,
+    regions: list[PageRegion],
+    *,
+    expand_hint: bool,
+) -> ExtractedCell:
+    pieces: list[str] = []
+    warnings: list[str] = []
+    for region in regions:
+        tokens, coarse = _region_tokens(document, region, template)
+        if coarse:
+            return _missing("Positioned text is too coarse to isolate the value region")
+        if any(
+            token.granularity == "word"
+            and _overlap(token.box, region.box)
+            and not _contains(region.box, token.box)
+            for token in _tokens(document, region.page, template)
+        ):
+            warning = "Value region intersects a word; resize the region"
+            if expand_hint:
+                warning += " or enable Expand value areas"
+            warnings.append(warning)
+        text = _text(tokens)
+        if text:
+            pieces.append(text)
+    text = "\n".join(pieces)
+    return ExtractedCell(
+        text=text,
+        status="extracted" if text else "empty",
+        regions=regions,
+        diagnostic="; ".join(dict.fromkeys(warnings)) or None,
+    )
+
+
+def _position_cell(
+    compiled: CompiledTemplate,
+    field: CompiledField,
+    document: PositionedDocument,
+) -> ExtractedCell:
+    value = field.field.value
+    if not any(page.page == value.page for page in document.pages):
+        return _missing(f"Fixed value page {value.page} is unavailable")
+    ignored = any(
+        band.box.x0 <= value.box.x0
+        and band.box.x1 >= value.box.x1
+        and band.box.y0 < value.box.y1
+        and band.box.y1 > value.box.y0
+        for band in compiled.template.ignore_bands
+    )
+    regions = (
+        _regions(
+            document,
+            compiled.template,
+            value.box.x0,
+            value.box.x1,
+            value.page - 1 + value.box.y0,
+            value.page - 1 + value.box.y1,
+        )
+        if ignored
+        else [value]
+    )
+    if not regions:
+        return _missing("Fixed value region is unavailable after ignored areas")
+    return _read_regions(document, compiled.template, regions, expand_hint=False)
+
+
 def _cell(
     compiled: CompiledTemplate,
     field: CompiledField,
@@ -554,6 +634,9 @@ def _cell(
     bounds: tuple[float, float] | None = None,
     missing_final_boundary: str | None = None,
 ) -> ExtractedCell:
+    if field.field.kind == "value_only":
+        return _position_cell(compiled, field, document)
+    assert field.anchor is not None
     hit = matched.get(field.anchor.id)
     if hit is None:
         return _missing("Key was not found unambiguously")
@@ -606,30 +689,16 @@ def _cell(
         return _missing(
             "Matched value region is outside the page or has inconsistent boundaries"
         )
-    pieces: list[str] = []
-    for region in regions:
-        tokens, coarse = _region_tokens(document, region, compiled.template)
-        if coarse:
-            return _missing("Positioned text is too coarse to isolate the value region")
-        if any(
-            token.granularity == "word"
-            and _overlap(token.box, region.box)
-            and not _contains(region.box, token.box)
-            for token in _tokens(document, region.page, compiled.template)
-        ):
-            warnings.append(
-                "Value region intersects a word; resize the region or enable Expand value areas"
-            )
-        text = _text(tokens)
-        if text:
-            pieces.append(text)
-    text = "\n".join(pieces)
-    return ExtractedCell(
-        text=text,
-        status="extracted" if text else "empty",
-        regions=regions,
-        diagnostic="; ".join(dict.fromkeys(warnings)) or None,
+    extracted = _read_regions(document, compiled.template, regions, expand_hint=True)
+    diagnostic = "; ".join(
+        dict.fromkeys(
+            [
+                *warnings,
+                *([extracted.diagnostic] if extracted.diagnostic else []),
+            ]
+        )
     )
+    return extracted.model_copy(update={"diagnostic": diagnostic or None})
 
 
 def _unique(
@@ -724,7 +793,10 @@ def extract_document(
                 diagnostics=list(
                     dict.fromkeys(cell.diagnostic for cell in cells if cell.diagnostic)
                 )
-                if any(hits[field.anchor.id] for field in document_fields)
+                if any(
+                    field.anchor is None or hits[field.anchor.id]
+                    for field in document_fields
+                )
                 else [],
             )
         return DocumentExtraction(
@@ -748,6 +820,7 @@ def extract_document(
         section for section in template.sections if section.id == repeat_group_id
     )
     first = fields[0]
+    assert first.anchor is not None
     _, before, after, closing = next(
         item for item in compiled.section_limits if item[0] == repeat_group_id
     )
@@ -776,7 +849,9 @@ def extract_document(
     }
     starts = hits[first.anchor.id]
     if not starts:
-        partial = any(hits[field.anchor.id] for field in fields[1:])
+        partial = any(
+            field.anchor is not None and hits[field.anchor.id] for field in fields[1:]
+        )
         return DocumentExtraction(
             records=[],
             outcome="zero_records",
@@ -812,6 +887,7 @@ def extract_document(
             )
             > 1
             for field in fields[1:]
+            if field.anchor is not None
         )
         if ambiguous:
             return DocumentExtraction(
@@ -835,9 +911,14 @@ def extract_document(
             upper = next_hit.start - offset
         else:
             last_matched = next(
-                (field for field in reversed(fields) if field.anchor.id in matches),
+                (
+                    field
+                    for field in reversed(fields)
+                    if field.anchor is not None and field.anchor.id in matches
+                ),
                 first,
             )
+            assert last_matched.anchor is not None
             last_hit = matches.get(last_matched.anchor.id, start_hit)
             tail = (
                 section.first.end.page
