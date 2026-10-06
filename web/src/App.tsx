@@ -16,6 +16,7 @@ import {
 } from 'react';
 import { PanelSelect } from './components/PanelSelect';
 import { MenuPop } from './components/MenuPop';
+import { toWireJsonObject } from './api/viewsLenses';
 import {
   AtSign,
   Bell,
@@ -1005,19 +1006,9 @@ const WorkspaceActRegion = memo(function WorkspaceActRegion() {
     setActiveRibbonTab,
   } = useWorkspaceShell();
   const { actRibbonTabs, launchActionFromSurface, runActionFromSurface } = useWorkspaceAct();
-  const { extractViewShowing } = useMainViewModel();
-  const [extractionToolsChoice, setExtractionToolsChoice] = useState({ active: extractViewShowing, selected: true });
-  if (extractionToolsChoice.active !== extractViewShowing) {
-    setExtractionToolsChoice({ active: extractViewShowing, selected: true });
-  }
-  const extractionToolsSelected = extractionToolsChoice.active !== extractViewShowing || extractionToolsChoice.selected;
   const chrome = useChromeHandle();
   const ribbonMode = useSelector(chrome.store, (s) => s.ribbonMode);
   const activeRibbonTab = useSelector(chrome.store, (s) => s.activeRibbonTab);
-  const showExtractionTools = extractViewShowing && (ribbonMode === 'menu' || extractionToolsSelected);
-  const ribbonTabs = extractViewShowing
-    ? [...actRibbonTabs, { id: 'extract-pdf-tools', label: 'PDF tools', contextual: true, accent: 'file' as const, groups: [] }]
-    : actRibbonTabs;
   const actSurface = useActSurfaceHandle();
   const actionCatalog = useActionCatalogHandle();
   const catalogStatus = useSelector(actionCatalog.store, (state) => state.status);
@@ -1055,13 +1046,9 @@ const WorkspaceActRegion = memo(function WorkspaceActRegion() {
     >
       {ribbonMode === 'ribbon' ? (
         <ActRibbon
-          tabs={ribbonTabs}
-          activeTabId={showExtractionTools ? 'extract-pdf-tools' : activeRibbonTab}
-          onSelectTab={(tabId) => {
-            setExtractionToolsChoice({ active: extractViewShowing, selected: tabId === 'extract-pdf-tools' });
-            if (tabId !== 'extract-pdf-tools') setActiveRibbonTab(tabId);
-          }}
-          hideBand={showExtractionTools}
+          tabs={actRibbonTabs}
+          activeTabId={activeRibbonTab}
+          onSelectTab={setActiveRibbonTab}
           onRunAction={launchActionFromSurface}
           onCommand={runActCommand}
           onLaunchContribution={revealPluginLauncher}
@@ -1076,7 +1063,6 @@ const WorkspaceActRegion = memo(function WorkspaceActRegion() {
           onExpandRibbon={() => setRibbonMode('ribbon')}
         />
       )}
-      <div id="extract-toolbar-host" hidden={!showExtractionTools} />
       <ImportWorkspaceDialog
         open={importDialogOpen}
         entryMode={importDialogEntryMode}
@@ -3492,6 +3478,7 @@ const NO_DISABLED_TOGGLE_KEYS: readonly string[] = [];
 
 function WorkspacePrimarySurface() {
   const { projectApi } = useWorkspaceStores();
+  const { sheets } = useCurrentSheet();
   const actionCatalog = useActionCatalogHandle();
   const nerCatalogEntry = useSelector(actionCatalog.store, (state) => (
     state.status === 'ready'
@@ -3572,6 +3559,7 @@ function WorkspacePrimarySurface() {
   const activeGridFilter = useSelector(gridView.store, (s) => s.applied.filter);
   const scopeRowIds = useSelector(gridView.store, (s) => s.applied.scopeRowIds ?? null);
   const activeGridSort = useSelector(gridView.store, (s) => s.applied.sort);
+  const extractionFilter = useMemo(() => activeGridFilter ? toWireJsonObject(activeGridFilter) : null, [activeGridFilter]);
   const splitResize = useResizable({
     storageKey: `frisket:work-split-w:${project.id}`,
     minWidth: 280,
@@ -3638,9 +3626,8 @@ function WorkspacePrimarySurface() {
       return page.rows[0] ?? null;
     };
     if (extractViewShowing) {
-      const filtered = Boolean(activeChildFilter || activeGridFilter || scopeRowIds !== null);
       return <ExtractView
-        key={`${sheet.id}:${orderKey}`}
+        key={sheet.id}
         projectId={project.id}
         sheet={sheet}
         state={documentView}
@@ -3650,26 +3637,16 @@ function WorkspacePrimarySurface() {
         hydrateRow={hydrateDocumentRow}
         orderKey={orderKey}
         titleColumnOrder={titleColumnOrder}
-        toolbarTargetId="extract-toolbar-host"
-        scopeLabel={filtered ? 'filtered documents' : 'all'}
-        resolveRowIds={async (sourceColumnId, limit) => {
-          if (!filtered) return undefined;
-          const ids: number[] = [];
-          let cursor: string | undefined;
-          do {
-            const page = await queryDocuments({ sourceColumnId, titleColumnId: null, query: '',
-              cursor, limit: Math.min(limit ? limit - ids.length : 100, 100) });
-            ids.push(...page.items.map((item) => Number(item.rowId)));
-            cursor = page.nextCursor ?? undefined;
-          } while (cursor && (!limit || ids.length < limit));
-          if (!ids.length) throw new Error('No documents match the current view.');
-          return ids;
-        }}
-        onExtract={({ template, source, repeat_group_id, sheet_name, row_ids }) => {
+        refreshKey={sheets}
+        filterScope={{ filter: extractionFilter, parent_row_id: activeChildFilter?.parentRowId ? Number(activeChildFilter.parentRowId) : null, scope_row_ids: scopeRowIds }}
+        onExtract={({ template, source, repeat_group_id, sheet_name, layout_id, extraction_scope }) => {
+          const usedNames = new Set(sheets.map((entry) => entry.name));
+          let uniqueName = sheet_name;
+          for (let suffix = 2; usedNames.has(uniqueName); suffix++) uniqueName = `${sheet_name} (${suffix})`;
           startRun({ action_id: 'media.extract_document',
-            scope: { kind: 'sheet_rows', sheet_id: Number(sheet.id), ...(row_ids ? { row_ids } : {}) },
-            params: { source, template, repeat_group_id },
-            output_names: {}, sheet_name, idempotency_key: `extract-document:${crypto.randomUUID()}` });
+            scope: { kind: 'sheet_rows', sheet_id: Number(sheet.id) },
+            params: { source, template, repeat_group_id, layout_id, extraction_scope },
+            output_names: {}, sheet_name: uniqueName, idempotency_key: `extract-document:${crypto.randomUUID()}` });
         }}
       />;
     }
