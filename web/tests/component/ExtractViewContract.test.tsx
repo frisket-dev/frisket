@@ -81,8 +81,10 @@ it.each([
   ['another physical page', { reference_page: 1, fingerprint: 'native:example:page:2' }],
   ['newer positioned content', { reference_page: 2, fingerprint: 'native:example:page:2:new' }],
 ])('keeps a saved layout read-only when its reference row resolves to %s', async (_label, resolved) => {
+  const pageTwoRegion = { ...region, page: 2 };
   saved = [{ ...newLayout(1, { ...emptyDraft, reference_blob_id: 'example', reference_page: 2,
-    reference_fingerprint: 'native:example:page:2' }), reference_row_id: 1 }];
+    reference_fingerprint: 'native:example:page:2', fields: [{ id: 'name', name: 'Name', key: pageTwoRegion,
+      value: { ...pageTwoRegion, box: { ...pageTwoRegion.box, x0: .3, x1: .6 } }, section_id: null }] }), reference_row_id: 1 }];
   mocks.document.mockResolvedValue({ row_id: 1, blob_id: 'example', reference_page: resolved.reference_page,
     filename: 'cropped.pdf', mime: 'application/octet-stream', document: { source_fingerprint: resolved.fingerprint,
       pages: [{ page: resolved.reference_page, width: 800, height: 1000, tokens: [] }] } });
@@ -91,9 +93,29 @@ it.each([
   await waitFor(() => expect(mocks.reader).toHaveBeenCalled());
   const reader = mocks.reader.mock.lastCall![0];
   expect(reader.renderPageOverlay(resolved.reference_page).props.muted).toBe(true);
+  expect(screen.getByTestId('extract-options-button')).toBeDisabled();
+  expect(screen.getByLabelText('Column name for Name')).toBeDisabled();
+  expect(screen.getByTestId('extract-preview-button')).toBeDisabled();
+  expect(screen.getByTestId('extract-new-sheet')).toBeDisabled();
+  expect(screen.getByTestId('extract-layout-selector')).toBeEnabled();
   expect(screen.queryByRole('button', { name: 'Back to example' })).not.toBeInTheDocument();
   expect(saved[0].draft.reference_page).toBe(2);
   expect(saved[0].draft.reference_fingerprint).toBe('native:example:page:2');
+  expect(mocks.save).not.toHaveBeenCalled();
+});
+
+it('keeps a layout selectable but read-only when its saved reference is unavailable', async () => {
+  const pageTwoRegion = { ...region, page: 2 };
+  saved = [{ ...newLayout(1, { ...emptyDraft, reference_blob_id: 'missing', reference_page: 2,
+    reference_fingerprint: 'native:missing:page:2', fields: [{ id: 'name', name: 'Name', key: pageTwoRegion,
+      value: pageTwoRegion, section_id: null }] }), reference_row_id: 1 }];
+  mocks.document.mockRejectedValue(new Error('Not found'));
+  render(<ExtractView {...props()} />);
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('saved reference document is unavailable'));
+  expect(screen.getByTestId('extract-options-button')).toBeDisabled();
+  expect(screen.getByLabelText('Column name for Name')).toBeDisabled();
+  expect(screen.getByTestId('extract-layout-selector')).toBeEnabled();
+  expect(mocks.save).not.toHaveBeenCalled();
 });
 
 it('keeps tools and options inside Extract and leaves reader View options independent', async () => {

@@ -87,6 +87,7 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
   const [selected, setSelected] = useState<AnnotationTarget | null>(null);
   const [geometry, setGeometry] = useState<{ key: string; value: ExtractionDocument | null; error: string | null }>({ key: '', value: null, error: null });
   const [reference, setReference] = useState<ExtractionDocument | null>(null);
+  const [referenceStatus, setReferenceStatus] = useState<'ready' | 'loading' | 'stale'>(referenceRowId === null ? 'ready' : 'loading');
   const [preview, setPreview] = useState<ExtractionPreview | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [busy, setBusy] = useState<'preview' | 'run' | null>(null);
@@ -120,6 +121,7 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
   const geometryMatchesReference = matchesReference(currentGeometry, referenceBlobId, referencePage, referenceFingerprint);
   const referenceDocument = geometryMatchesReference ? currentGeometry : reference;
   const isReference = !template.reference_blob_id || geometryMatchesReference;
+  const templateReadOnly = unavailable || referenceStatus !== 'ready';
   const setPending = useCallback((region: PageRegion | null) => changeLayout((current) => ({ draft: { ...current.draft,
     pending: region ? { tool: tool === 'repeat' ? 'repeat' : 'key', region } : null } })), [changeLayout, tool]);
   const setRepeatGroupId = (id: string | null) => changeLayout({ repeat_group_id: id });
@@ -155,13 +157,16 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
       .then((value) => { if (!controller.signal.aborted) {
         if (!matchesReference(value, referenceBlobId, referencePage, referenceFingerprint)) {
           setReference(null);
+          setReferenceStatus('stale');
           setError('The saved reference document has changed or is unavailable. The layout was kept unchanged.');
           return;
         }
         setReference(value);
+        setReferenceStatus('ready');
         setJumpRow({ row_id: value.row_id, blob_id: value.blob_id, filename: value.filename, result: { records: [], diagnostics: [], outcome: 'extracted' } });
       } }).catch((cause) => { if (!controller.signal.aborted) {
         setReference(null);
+        setReferenceStatus('stale');
         setError(`The saved reference document is unavailable: ${errorText(cause)}`);
       } });
     return () => controller.abort();
@@ -207,12 +212,15 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
     if (section && (target.kind === 'first' || target.kind === 'rest')) setReaderPage(section[target.kind].start.page);
   };
   const draw = (region: PageRegion) => {
-    if (!currentGeometry || unavailable || !isReference) return;
+    if (!currentGeometry || templateReadOnly || !isReference) return;
     const base = template.reference_blob_id ? template : { ...template, reference_blob_id: currentGeometry.blob_id,
       reference_page: currentGeometry.reference_page ?? null,
       reference_fingerprint: currentGeometry.document.source_fingerprint };
     setReference(currentGeometry);
-    if (referenceRowId === null) changeLayout({ reference_row_id: currentGeometry.row_id });
+    if (referenceRowId === null) {
+      setReferenceStatus('loading');
+      changeLayout({ reference_row_id: currentGeometry.row_id });
+    }
     if (tool === 'ignore') { update({ ...base, ignore_bands: [...base.ignore_bands, { box: region.box }] }); return; }
     if (!pending) { update(base); setPending(region); return; }
     if (tool === 'repeat') {
@@ -268,11 +276,11 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
   const optionsPopover = optionsOpen && <MenuPop ref={optionsPopoverRef} style={optionsPosition
     ? { position: 'fixed', inset: 'auto', margin: 0, ...optionsPosition } : { position: 'fixed', visibility: 'hidden' }}
     className="document-options" role="dialog" aria-label="Extraction options">
-      <label className="document-option-row document-option-check"><input disabled={unavailable} type="checkbox" aria-describedby="extract-area-help" checked={template.expand_values} onChange={(event) => update({ ...template, expand_values: event.target.checked })} />Expand value areas</label>
+      <label className="document-option-row document-option-check"><input disabled={templateReadOnly} type="checkbox" aria-describedby="extract-area-help" checked={template.expand_values} onChange={(event) => update({ ...template, expand_values: event.target.checked })} />Expand value areas</label>
       <p id="extract-area-help" className={styles.areaHelp}>{areaHelp}</p>
-      <label className="document-option-row document-option-check"><input disabled={unavailable} type="checkbox" checked={template.look_every_page} onChange={(event) => update({ ...template, look_every_page: event.target.checked })} />Look on every page</label>
-      <label className="document-option-row document-option-check"><input disabled={unavailable} type="checkbox" checked={template.continue_across_pages} onChange={(event) => update({ ...template, continue_across_pages: event.target.checked })} />Continue across pages</label>
-      <label className="document-option-row">Rows <PanelSelect disabled={unavailable} className="row-height-select" topLayer menuRef={rowsMenuRef} aria-label="Result rows" value={repeatGroupId ?? ''} onChange={(event) => { update(template); setRepeatGroupId(event.target.value || null); }}>
+      <label className="document-option-row document-option-check"><input disabled={templateReadOnly} type="checkbox" checked={template.look_every_page} onChange={(event) => update({ ...template, look_every_page: event.target.checked })} />Look on every page</label>
+      <label className="document-option-row document-option-check"><input disabled={templateReadOnly} type="checkbox" checked={template.continue_across_pages} onChange={(event) => update({ ...template, continue_across_pages: event.target.checked })} />Continue across pages</label>
+      <label className="document-option-row">Rows <PanelSelect disabled={templateReadOnly} className="row-height-select" topLayer menuRef={rowsMenuRef} aria-label="Result rows" value={repeatGroupId ?? ''} onChange={(event) => { update(template); setRepeatGroupId(event.target.value || null); }}>
         {template.sections.length === 0 ? <option value="">One per document</option> : <option value="" disabled>Choose repeated section</option>}
         {template.sections.map((section) => <option key={section.id} value={section.id}>One per {section.name}</option>)}
       </PanelSelect></label>
@@ -280,9 +288,9 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
   const scopeCount = counts?.[scopeKind] ?? null;
   const toolbar = <div className={styles.toolbar} aria-label="PDF extraction tools" data-testid="extract-toolbar">
     <div className={`segmented segmented-toolbar ${styles.tools}`} role="group" aria-label="Annotation tools">{TOOLS.map(({ id, label, Icon }) => <button key={id} type="button"
-      className={tool === id ? 'active' : ''} aria-pressed={tool === id} disabled={!isReference || !currentGeometry || unavailable}
+      className={tool === id ? 'active' : ''} aria-pressed={tool === id} disabled={!isReference || !currentGeometry || templateReadOnly}
       onClick={() => { setTool(id); setPending(null); }}><Icon size={14} /><span>{label}</span></button>)}</div>
-    <button type="button" ref={optionsTrigger} className={`icon-btn${optionsOpen ? ' active' : ''}`} data-testid="extract-options-button" aria-label="Extraction options" title="Extraction options" aria-expanded={optionsOpen} disabled={unavailable} onClick={() => setOptionsOpen((open) => !open)}><Settings2 size={15} /></button>
+    <button type="button" ref={optionsTrigger} className={`icon-btn${optionsOpen ? ' active' : ''}`} data-testid="extract-options-button" aria-label="Extraction options" title="Extraction options" aria-expanded={optionsOpen} disabled={templateReadOnly} onClick={() => setOptionsOpen((open) => !open)}><Settings2 size={15} /></button>
     {optionsPopover}
     <div className={styles.runButtons} role="group" aria-label="Extract to a new sheet">
       <label>Scope <PanelSelect className="row-height-select" data-testid="extract-scope-selector" aria-label="Extraction scope" value={scopeKind} disabled={unavailable} onValueChange={(value) => {
@@ -294,8 +302,8 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
         <option value="layout">Documents using this layout ({counts?.layout ?? '…'} documents)</option>
       </PanelSelect></label>
       <label>New sheet <input className="form-input" aria-label="Result sheet name" value={outputName} disabled={unavailable} onChange={(event) => setOutputName(event.target.value)} /></label>
-      <button type="button" className="mini-btn" data-testid="extract-preview-button" title="Preview on up to 12 documents in this scope" disabled={!valid || unavailable || busy !== null || scopeCount === null || scopeCount === 0} onClick={() => void runPreview()}><Play size={13} />{busy === 'preview' ? 'Previewing…' : 'Preview'}</button>
-      <button type="button" className="mini-btn" data-testid="extract-new-sheet" disabled={!valid || unavailable || busy !== null || props.extractionRunning || !onExtract || !outputName.trim() || scopeCount === null || scopeCount === 0} onClick={async () => {
+      <button type="button" className="mini-btn" data-testid="extract-preview-button" title="Preview on up to 12 documents in this scope" disabled={!valid || templateReadOnly || busy !== null || scopeCount === null || scopeCount === 0} onClick={() => void runPreview()}><Play size={13} />{busy === 'preview' ? 'Previewing…' : 'Preview'}</button>
+      <button type="button" className="mini-btn" data-testid="extract-new-sheet" disabled={!valid || templateReadOnly || busy !== null || props.extractionRunning || !onExtract || !outputName.trim() || scopeCount === null || scopeCount === 0} onClick={async () => {
         const snapshot = request();
         const editVersion = edits.current;
         setBusy('run'); setError(null);
@@ -311,7 +319,7 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
   </div>;
   return <section className={styles.workspace} data-testid="extract-view" aria-label="Extract structured data"
     onKeyDown={(event) => {
-      if (optionsOpen || unavailable || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey
+      if (optionsOpen || templateReadOnly || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey
         || (event.target instanceof HTMLElement && event.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])'))) return;
       if (event.key === 'Escape' && pending) { event.preventDefault(); event.stopPropagation(); setPending(null); return; }
       if (!isReference || !currentGeometry || !loadedTemplates) return;
@@ -361,7 +369,7 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
         <div className={styles.instruction} role="status">
           {!isReference ? 'Preview document · annotations are read-only' : pending ? tool === 'repeat' ? 'Now mark all remaining records together.' : 'Now draw the value box. An empty value is valid.' : tool === 'key' ? 'Draw a box around a key, then its value.' : tool === 'repeat' ? 'Mark the first record with a full-width band.' : tool === 'ignore' ? 'Mark a header or footer to ignore on every page.' : 'Select a box to move, resize or delete it.'}
           {isReference && tool === 'key' && <span className={styles.drawingHelp}>{areaHelp}</span>}
-          {pending && <button type="button" className="icon-btn" aria-label="Cancel drawing" onClick={() => setPending(null)}><X size={13} /></button>}
+          {pending && <button type="button" className="icon-btn" aria-label="Cancel drawing" disabled={templateReadOnly} onClick={() => setPending(null)}><X size={13} /></button>}
           {!isReference && reference && <button type="button" className="mini-btn" onClick={() => {
             setJumpRow({ row_id: reference.row_id, blob_id: reference.blob_id, filename: reference.filename, result: { records: [], diagnostics: [], outcome: 'extracted' } }); setReaderPage(template.reference_page ?? 1); setFocusRegions([]);
           }}>Back to example</button>}
@@ -372,14 +380,14 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
           optionsOpen={false} onToggleOptions={() => undefined} optionsPopover={null} selectionCount={0} initialPage={readerPage}
           pageImages={pageImages}
           renderPageOverlay={(page) => currentGeometry && (activeKind === 'pdf' ? pageImages?.some((image) => image.page === page) : activeKind === 'image') ? <ExtractPageOverlay page={page} template={template}
-            tool={tool} selected={selected} muted={!isReference || unavailable} focusRegions={focusRegions} pending={pending}
+            tool={tool} selected={selected} muted={!isReference || templateReadOnly} focusRegions={focusRegions} pending={pending}
             onSelect={select} onDraw={draw} onChange={(target, region) => update(changeRegion(template, target, region))} onDelete={remove} /> : null} />
         <button type="button" className={styles.previewToggle} aria-expanded={previewOpen} onClick={() => setPreviewOpen((open) => !open)}>
           <strong>Preview</strong><span>{preview ? `${preview.documents.length}-document sample · ${preview.documents.reduce((count, doc) => count + doc.result.records.length, 0)} rows` : 'Add fields, then preview on a sample of documents'}</span><span>{previewOpen ? '▾' : '▴'}</span>
         </button>
         {previewOpen && <div className={styles.previewPane}>{busy === 'preview' ? <p role="status">Extracting sample documents…</p> : preview ? <ExtractPreview template={previewTemplate} preview={preview} onSelect={choosePreview} /> : <p>Run Preview to inspect extracted values and their source regions.</p>}</div>}
       </div>
-      <ExtractFields disabled={unavailable} template={template} reference={referenceDocument?.document ?? null} selected={selected} preview={preview} onChange={update} onSelect={select} onDelete={remove} />
+      <ExtractFields disabled={templateReadOnly} template={template} reference={referenceDocument?.document ?? null} selected={selected} preview={preview} onChange={update} onSelect={select} onDelete={remove} />
     </div>
   </section>;
 }
