@@ -77,6 +77,7 @@ export interface ActionJobsState {
 interface QueuedJobTarget {
   jobId: number | null;
   receiptId: string | null;
+  navigationEpoch: number;
 }
 
 export interface JobState {
@@ -691,7 +692,11 @@ export function createJobStore(
     if ((jobId != null || receiptId) && (status === 'queued' || status === 'running')) {
       handleQueuedActionJobStarted(
         launch,
-        { jobId: jobId ?? null, receiptId: receiptId ?? null },
+        {
+          jobId: jobId ?? null,
+          receiptId: receiptId ?? null,
+          navigationEpoch: actionLaunchEpoch,
+        },
         deps,
       );
       return;
@@ -1183,7 +1188,7 @@ export function createJobStore(
       && queuedTarget === target
       && queuedLane.isCurrent(epochJob)
     );
-    const { jobId, receiptId } = target;
+    const { jobId, receiptId, navigationEpoch } = target;
     try {
       let terminal = false;
       let terminalStatus: string | null = null;
@@ -1234,9 +1239,8 @@ export function createJobStore(
         if (!stillTerminal()) return;
         deps.invalidateProjectData();
         if (!stillTerminal()) return;
-        const navigationEpoch = actionLaunchEpoch;
         const sheetRefresh = deps.refreshSheets();
-        if (!stillTerminal() || actionLaunchEpoch !== navigationEpoch) return;
+        if (!stillTerminal()) return;
         openMaterializedSheetAfterRefresh(
           generation,
           navigationEpoch,

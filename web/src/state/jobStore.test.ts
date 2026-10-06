@@ -116,6 +116,27 @@ function actionJob(overrides: Partial<ActionJob> = {}): ActionJob {
   };
 }
 
+function actionReceipt(overrides: Partial<V1Receipt> = {}): V1Receipt {
+  return {
+    schemaVersion: 'frisket.receipt.v1',
+    receiptId: 'receipt-7',
+    projectId: 'project-a',
+    actionId: 'action-7',
+    actionKind: 'media.extract_document',
+    runId: '88',
+    opIds: [9],
+    idempotencyKey: 'queued-action-7',
+    paramsHash: 'sha256:queued-action-7',
+    status: 'completed',
+    inputs: [],
+    outputs: [],
+    providerUse: [],
+    evidence: [],
+    errors: [],
+    ...overrides,
+  };
+}
+
 function projectPort(overrides: Partial<ProjectApiPort> = {}): ProjectApiPort {
   return new Proxy(api as ProjectApiPort, {
     get(target, property) {
@@ -1215,26 +1236,12 @@ describe('createJobStore — complete 4B cadence, fencing, and transport pins', 
       refreshSheets: vi.fn(() => sheetRefresh.promise),
       onMaterializedSheetCreated: vi.fn(),
     };
-    const completedReceipt: V1Receipt = {
-      schemaVersion: 'frisket.receipt.v1',
-      receiptId: 'receipt-7',
-      projectId: 'project-a',
-      actionId: 'extract-action-7',
-      actionKind: 'media.extract_document',
-      runId: '88',
-      opIds: [9],
-      idempotencyKey: 'queued-extract-7',
-      paramsHash: 'sha256:queued-extract-7',
-      status: 'completed',
-      inputs: [],
+    const completedReceipt = actionReceipt({
       outputs: [{
         name: 'Extracted records',
         ref: { kind: 'materialized_sheet', sheet_id: 42, row_count: 3 },
       }],
-      providerUse: [],
-      evidence: [],
-      errors: [],
-    };
+    });
     const getReceipt = vi.fn().mockResolvedValue(completedReceipt);
     const jobs = createJobStore('project-a', projectPort({
       listActionJobs: vi.fn().mockResolvedValue({ jobs: [] }),
@@ -1267,6 +1274,59 @@ describe('createJobStore — complete 4B cadence, fencing, and transport pins', 
     sheetRefresh.resolve();
     await flushMicrotasks();
     expect(deps.onMaterializedSheetCreated).toHaveBeenCalledWith('42');
+  });
+
+  it('does not let an old queued receipt navigate over a newer direct launch', async () => {
+    vi.useFakeTimers();
+    setDocumentHidden(false);
+    const oldTerminalJob = deferred<ActionJob>();
+    const oldSheetRefresh = deferred<void>();
+    const deps = {
+      ...noopDeps(),
+      refreshSheets: vi.fn()
+        .mockResolvedValueOnce(undefined)
+        .mockReturnValueOnce(oldSheetRefresh.promise),
+      onMaterializedSheetCreated: vi.fn(),
+    };
+    const runAction = vi.fn()
+      .mockResolvedValueOnce({
+        runId: null, jobId: 7, receiptId: 'receipt-7', status: 'queued',
+      })
+      .mockResolvedValueOnce({ runId: 'new-run', status: 'running' });
+    const jobs = createJobStore('project-a', projectPort({
+      listActionJobs: vi.fn().mockResolvedValue({ jobs: [] }),
+      getActionJob: vi.fn().mockReturnValue(oldTerminalJob.promise),
+      getReceipt: vi.fn().mockResolvedValue(actionReceipt({
+        outputs: [{
+          name: 'Old output',
+          ref: { kind: 'materialized_sheet', sheet_id: 42 },
+        }],
+      })),
+      runAction,
+    }));
+    jobs.start(deps);
+    await vi.advanceTimersByTimeAsync(0);
+    jobs.startRun(runRequest({ actionKind: 'media.extract_document' }), {
+      id: 'sheet-1', rowCount: 1,
+    } as never);
+    await flushMicrotasks();
+
+    jobs.startRun(runRequest({ targetColumnId: 'new-result' }), {
+      id: 'sheet-1', rowCount: 1,
+    } as never);
+    await flushMicrotasks();
+    expect(jobs.store.get().run?.runId).toBe('new-run');
+
+    oldTerminalJob.resolve(actionJob({
+      jobId: 7, runId: '88', receiptId: 'receipt-7', status: 'completed',
+    }));
+    await flushMicrotasks();
+    oldSheetRefresh.resolve();
+    await flushMicrotasks();
+
+    expect(deps.onMaterializedSheetCreated).not.toHaveBeenCalled();
+    expect(deps.refreshHistory).toHaveBeenCalled();
+    expect(deps.refreshReviewCount).toHaveBeenCalled();
   });
 
   it('drops stale cancel and backfill continuations after dispose/restart', async () => {
