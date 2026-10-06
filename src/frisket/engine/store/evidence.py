@@ -112,6 +112,17 @@ def record_source_artifact(
     return _artifact_row(project, int(cur.lastrowid))
 
 
+def get_source_artifact(project: Project, artifact_id: int) -> dict[str, Any] | None:
+    """Return one existing artifact in the same shape as the artifact writer."""
+
+    row = project.db.execute(
+        "SELECT id FROM source_artifacts WHERE id=?", (int(artifact_id),)
+    ).fetchone()
+    if row is None:
+        return None
+    return _artifact_row(project, int(row["id"]))
+
+
 def record_source_span(
     project: Project,
     *,

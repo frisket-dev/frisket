@@ -8,6 +8,12 @@ from fastapi.testclient import TestClient
 from frisket.server.app import create_app
 from frisket.engine.runner.review import queue_count, review_bundle_page
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.prepared_content import (
+    PreparedContentStore,
+    PreparedPageDraft,
+)
+from frisket.engine.store.value_codec import PreparedContentRef
 from helpers import write_claimed_test_results
 
 
@@ -145,6 +151,77 @@ def test_review_bundles_return_bounded_pages_with_action_metadata(
     assert tail_body["has_more"] is False
     assert tail_body["next_offset"] is None
     assert [bundle["row_id"] for bundle in tail_body["bundles"]] == row_ids[60:]
+
+
+def test_review_bundle_hydrates_prepared_result_to_ordinary_text(
+    tmp_path: Path,
+) -> None:
+    client = TestClient(create_app(tmp_path / "prepared-review-ws"))
+    project_id = client.post("/api/projects", json={"name": "Prepared review"}).json()[
+        "id"
+    ]
+    project = client.app.state.workspace.get(project_id)
+    sheet_id = project.add_sheet("documents")
+    source_col = project.add_column(sheet_id, "document")
+    output_col = project.add_column(sheet_id, "prepared", ai_generated=True)
+    [row_id] = project.add_rows(
+        sheet_id, [{"document": "source.pdf"}], {"document": source_col}
+    )
+    artifact = record_source_artifact(
+        project,
+        artifact_kind="file",
+        media_type="application/pdf",
+        page_count=1,
+    )
+    op_id = project.append_op(
+        "map", {"action_kind": "media.ocr"}, label="Prepare document"
+    )
+    project.db.execute("BEGIN IMMEDIATE")
+    ref = PreparedContentStore(project).stage_reference(
+        source_artifact_id=artifact["id"],
+        producing_op_id=op_id,
+        pages=[PreparedPageDraft(page_number=1, text="ordinary review text")],
+    )
+    project.db.commit()
+    run_id = RunResultStore(project).start_run(
+        op_id,
+        sheet_id,
+        "media.ocr",
+        params={"input_columns": ["document"], "fields": [{"name": "prepared"}]},
+        total_rows=1,
+        row_ids=[row_id],
+    )
+    write_claimed_test_results(
+        project,
+        run_id,
+        [
+            {
+                "row_id": row_id,
+                "column_id": output_col,
+                "value": PreparedContentRef(ref.ref_id),
+                "confidence": 0.9,
+            }
+        ],
+    )
+    RunResultStore(project).point_column_at_run(op_id, output_col, run_id)
+    RunResultStore(project).finish_run(run_id, "completed")
+
+    stored = project.db.execute(
+        "SELECT value_kind,value FROM results WHERE run_id=?", (run_id,)
+    ).fetchone()
+    assert (stored["value_kind"], stored["value"]) == (
+        "prepared_content_ref",
+        ref.ref_id,
+    )
+    response = client.get(
+        f"/api/projects/{project_id}/review/bundles", params={"run_id": run_id}
+    )
+
+    assert response.status_code == 200, response.text
+    [bundle] = response.json()["bundles"]
+    [field] = bundle["fields"]
+    assert field["value"] == "ordinary review text"
+    assert isinstance(field["value"], str)
 
 
 def test_review_bundle_page_batches_source_reads_for_all_rows(

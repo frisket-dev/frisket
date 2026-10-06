@@ -11,7 +11,11 @@ from PIL import Image
 from frisket.engine.executor import run_action_spec
 from frisket.engine.store.media_blobs import media_cell
 from frisket.ops.ocr_engines import OcrEngines
-from frisket.engine.executor.extract_evidence import _source_spans
+from frisket.engine.executor.extract_evidence import (
+    _resolve_evidence_entry_spans,
+    _source_artifact,
+    _source_spans,
+)
 from frisket.engine.store import Project
 from frisket.engine.store.evidence import (
     record_evidence_link,
@@ -383,5 +387,295 @@ def test_below_threshold_quote_degrades_not_fabricates(
         assert len(spans) == 1
         assert spans[0]["span_kind"] == "text"
         assert spans[0]["metadata"]["alignment"] == "below_threshold"
+    finally:
+        project.close()
+
+
+def _prepared_positions(*blocks: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "engine": "rapidocr",
+        "width": 1000,
+        "height": 1000,
+        "blocks": list(blocks),
+    }
+
+
+def _stage_prepared_reference(
+    project: Project,
+    *,
+    artifact_id: int,
+    pages: list[tuple[str, dict[str, Any] | None]],
+) -> int:
+    from frisket.engine.store.prepared_content import (
+        PreparedContentStore,
+        PreparedPageDraft,
+    )
+
+    op_id = project.append_op("media.ocr", {}, label="prepare exact OCR")
+    project.db.execute("BEGIN IMMEDIATE")
+    try:
+        ref = PreparedContentStore(project).stage_reference(
+            source_artifact_id=artifact_id,
+            producing_op_id=op_id,
+            pages=[
+                PreparedPageDraft(
+                    page_number=page_number,
+                    text=text,
+                    positions=positions,
+                )
+                for page_number, (text, positions) in enumerate(pages, 1)
+            ],
+        )
+        project.db.commit()
+    except BaseException:
+        project.db.rollback()
+        raise
+    return ref.ref_id
+
+
+def _prepared_source(ref_id: int, text: str, *, column_id: int) -> dict[str, Any]:
+    return {
+        "column_id": column_id,
+        "column_type": "text",
+        "value": text,
+        "captured_text": text,
+        "model_visible": True,
+        "value_ref": {
+            "kind": "run_result",
+            "run_id": 41,
+            "row_id": 1,
+            "column_id": column_id,
+            "prepared_ref_id": ref_id,
+        },
+    }
+
+
+def test_prepared_quote_uses_exact_ref_and_retains_all_exact_repeats(
+    tmp_path: Path,
+) -> None:
+    seeded = _seed_pdf_project(tmp_path)
+    project: Project = seeded["project"]
+    try:
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            media_type="application/pdf",
+            blob_hash=seeded["blob"],
+            filename="doc.pdf",
+            page_count=2,
+            source_sheet_id=seeded["sheet_id"],
+            source_row_id=seeded["row_ids"][0],
+            source_column_id=2,
+        )
+        repeated = "the budget passed"
+        selected_ref_id = _stage_prepared_reference(
+            project,
+            artifact_id=artifact["id"],
+            pages=[
+                (
+                    f"{repeated} one {repeated} two {repeated} three {repeated}",
+                    _prepared_positions(
+                        _block(repeated, (100, 100, 400, 150)),
+                        _block("one", (450, 100, 500, 150)),
+                        _block(repeated, (600, 100, 900, 150)),
+                        _block("two", (100, 200, 180, 250)),
+                        _block(repeated, (200, 200, 500, 250)),
+                        _block("three", (550, 200, 650, 250)),
+                        _block(repeated, (100, 300, 400, 350)),
+                    ),
+                ),
+                ("unrelated second page", None),
+            ],
+        )
+        # A later independent preparation for the same artifact puts the quote
+        # on page 2. Evidence must still follow the captured reference above.
+        _stage_prepared_reference(
+            project,
+            artifact_id=artifact["id"],
+            pages=[
+                ("unrelated first page", None),
+                (
+                    repeated,
+                    _prepared_positions(_block(repeated, (100, 700, 400, 750))),
+                ),
+            ],
+        )
+        source = _prepared_source(
+            selected_ref_id,
+            f"{repeated} one {repeated} two {repeated} three {repeated}"
+            "\n\nunrelated second page",
+            column_id=2,
+        )
+        selected_artifact = _source_artifact(
+            project,
+            sheet_id=seeded["sheet_id"],
+            row_id=seeded["row_ids"][0],
+            source_columns=["prepared"],
+            input_column_ids={"prepared": 2},
+            artifact_cache={},
+            captured_sources={"prepared": source},
+            source_label="prepared",
+        )
+
+        spans = _resolve_evidence_entry_spans(
+            project,
+            artifact=selected_artifact,
+            sheet_id=seeded["sheet_id"],
+            row_id=seeded["row_ids"][0],
+            entry={"quote": repeated, "grounding_method": "quote"},
+            rank=0,
+            captured_source=source,
+            source_label="prepared",
+        )
+
+        assert selected_artifact["id"] == artifact["id"]
+        assert len(spans or []) == 4
+        assert {span["page_start"] for span in spans or []} == {1}
+        assert all(span["span_kind"] == "region" for span in spans or [])
+        assert all(
+            span["selector"]["prepared_ref_id"] == selected_ref_id
+            for span in spans or []
+        )
+        assert (
+            len(
+                {
+                    tuple(span["bbox"][0][key] for key in ("x0", "y0", "x1", "y1"))
+                    for span in spans or []
+                }
+            )
+            == 4
+        )
+        viewer = _link_and_resolve(seeded, spans or [])
+        viewer_artifact = viewer["artifacts"][0]
+        assert viewer_artifact["artifact_ref"]["blob"]["url"].endswith(
+            f"/blobs/{seeded['blob']}"
+        )
+        assert viewer_artifact["pages"][0]["page"] == 1
+        assert viewer_artifact["pages"][0]["render_url"].endswith("/pages/1/image")
+        assert all(
+            span["selector"]["data"]["prepared_ref_id"] == selected_ref_id
+            for span in viewer_artifact["spans"]
+        )
+    finally:
+        project.close()
+
+
+def test_prepared_cross_page_quote_pins_each_page_version(
+    tmp_path: Path,
+) -> None:
+    seeded = _seed_pdf_project(tmp_path)
+    project: Project = seeded["project"]
+    try:
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            media_type="application/pdf",
+            blob_hash=seeded["blob"],
+            filename="doc.pdf",
+            page_count=2,
+        )
+        ref_id = _stage_prepared_reference(
+            project,
+            artifact_id=artifact["id"],
+            pages=[
+                (
+                    "sentence crosses",
+                    _prepared_positions(
+                        _block("sentence crosses", (100, 850, 500, 900))
+                    ),
+                ),
+                (
+                    "the page boundary",
+                    _prepared_positions(
+                        _block("the page boundary", (100, 100, 500, 150))
+                    ),
+                ),
+            ],
+        )
+        source = _prepared_source(
+            ref_id,
+            "sentence crosses\n\nthe page boundary",
+            column_id=2,
+        )
+        spans = _resolve_evidence_entry_spans(
+            project,
+            artifact=artifact,
+            sheet_id=seeded["sheet_id"],
+            row_id=seeded["row_ids"][0],
+            entry={"quote": "crosses the page", "grounding_method": "quote"},
+            rank=0,
+            captured_source=source,
+            source_label="prepared",
+        )
+
+        assert {span["page_start"] for span in spans or []} == {1, 2}
+        selectors = {span["page_start"]: span["selector"] for span in spans or []}
+        assert selectors[1]["prepared_ref_id"] == ref_id
+        assert selectors[2]["prepared_ref_id"] == ref_id
+        assert (
+            selectors[1]["prepared_version_id"] != selectors[2]["prepared_version_id"]
+        )
+    finally:
+        project.close()
+
+
+def test_deleted_prepared_source_keeps_text_citation_without_copying_full_body(
+    tmp_path: Path,
+) -> None:
+    from frisket.engine.store.prepared_content import PreparedContentStore
+
+    seeded = _seed_pdf_project(tmp_path)
+    project: Project = seeded["project"]
+    try:
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            media_type="application/pdf",
+            blob_hash=seeded["blob"],
+            filename="doc.pdf",
+            page_count=1,
+        )
+        text = "citation survives its original source deletion"
+        ref_id = _stage_prepared_reference(
+            project,
+            artifact_id=artifact["id"],
+            pages=[(text, None)],
+        )
+        project.db.execute("DELETE FROM source_artifacts WHERE id=?", (artifact["id"],))
+        project.db.commit()
+
+        prepared = PreparedContentStore(project).resolve(ref_id)
+        assert prepared.text == text
+        assert prepared.source_artifact_id is None
+        source = _prepared_source(ref_id, text, column_id=2)
+        fallback_artifact = _source_artifact(
+            project,
+            sheet_id=seeded["sheet_id"],
+            row_id=seeded["row_ids"][0],
+            source_columns=["prepared"],
+            input_column_ids={"prepared": 2},
+            artifact_cache={},
+            captured_sources={"prepared": source},
+            source_label="prepared",
+        )
+        spans = _resolve_evidence_entry_spans(
+            project,
+            artifact=fallback_artifact,
+            sheet_id=seeded["sheet_id"],
+            row_id=seeded["row_ids"][0],
+            entry={"quote": "original source deletion"},
+            rank=0,
+            captured_source=source,
+            source_label="prepared",
+        )
+
+        assert fallback_artifact["artifact_kind"] == "row"
+        assert "captured_text_hash" not in fallback_artifact["metadata"]
+        assert (
+            project.db.execute("SELECT COUNT(*) FROM citation_texts").fetchone()[0] == 0
+        )
+        assert len(spans or []) == 1
+        assert spans[0]["span_kind"] == "text"
+        assert spans[0]["selector"]["prepared_ref_id"] == ref_id
     finally:
         project.close()

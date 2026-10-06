@@ -526,6 +526,34 @@ def align_quote_to_tokens(
     )
 
 
+def _all_exact_results(quote: str, tokens: Sequence[Token]) -> list[AlignResult]:
+    """Return every trustworthy exact occurrence, without expanding fuzzy work."""
+
+    q_norm = _normalize_quote(quote)
+    if len(q_norm) <= 3 or not tokens:
+        return []
+    effective = _effective_tokens(tokens)
+    if not effective:
+        return []
+    concat, char_token = _build_char_map(effective)
+    result_builder = _temporal_result if _is_temporal(tokens) else _spatial_result
+    results: list[AlignResult] = []
+    for match in re.finditer(re.escape(q_norm), concat):
+        covered = _covered_from_char_span(char_token, match.start(), match.end())
+        if covered:
+            results.append(
+                result_builder(
+                    tokens,
+                    covered,
+                    score=1.0,
+                    method="exact",
+                    char_start=match.start(),
+                    char_end=match.end(),
+                )
+            )
+    return results
+
+
 def _eff_range_to_char_span(
     char_token: list[int], covered: list[int]
 ) -> tuple[int | None, int | None]:
@@ -618,6 +646,64 @@ def _line_box_to_bbox_dict(lb: LineBox) -> dict[str, object]:
     }
 
 
+def _contract_matches(
+    target: TextTarget, results: Sequence[AlignResult]
+) -> list[Match]:
+    matches: list[Match] = []
+    for res in results:
+        if res.line_boxes:
+            spans = [
+                SpanSpec(
+                    span_kind="region",
+                    page_start=lb.page,
+                    page_end=lb.page,
+                    char_start=res.char_start,
+                    char_end=res.char_end,
+                    bbox=[_line_box_to_bbox_dict(lb)],
+                    quote=target.text,
+                    metadata={
+                        **({"grouping": res.grouping} if res.grouping else {}),
+                        "covered_token_indices": list(lb.token_indices),
+                    },
+                )
+                for lb in res.line_boxes
+            ]
+        elif res.start_ms is not None or res.end_ms is not None:
+            spans = [
+                SpanSpec(
+                    span_kind="temporal",
+                    start_ms=res.start_ms,
+                    end_ms=res.end_ms,
+                    quote=target.text,
+                    metadata={"segment_indices": res.segment_indices},
+                )
+            ]
+        else:
+            spans = [
+                SpanSpec(
+                    span_kind="text",
+                    char_start=res.char_start,
+                    char_end=res.char_end,
+                    quote=target.text,
+                )
+            ]
+        matches.append(Match(spans=spans, score=res.score, method="align"))
+    return matches
+
+
+def exact_matches(target: TextTarget, source: WordStream) -> list[Match]:
+    """Adapt all exact normalized occurrences to the grounding contract.
+
+    This deliberately has no fuzzy fallback. Callers can retain every definite
+    repeated location, then use the ordinary bounded aligner only when there is
+    no exact occurrence.
+    """
+
+    return _contract_matches(
+        target, _all_exact_results(target.text, _tokens_from_source(source))
+    )
+
+
 def align(
     target: GroundTarget,
     source: Source,
@@ -637,52 +723,7 @@ def align(
         threshold=threshold,
         context_before=target.context,
     )
-    matches: list[Match] = []
-    for res in results:
-        if res.line_boxes:
-            spans = [
-                SpanSpec(
-                    span_kind="region",
-                    page_start=lb.page,
-                    page_end=lb.page,
-                    char_start=res.char_start,
-                    char_end=res.char_end,
-                    bbox=[_line_box_to_bbox_dict(lb)],
-                    quote=target.text,
-                    # covered_token_indices: the EXACT source-token indices this
-                    # line unions (Token.index machinery). A caller whose
-                    # source stream is parallel to its own refs maps covered
-                    # geometry back to refs BY INDEX -- no box-center containment,
-                    # so a decoy that merely overlaps the line box is never picked.
-                    metadata={
-                        **({"grouping": res.grouping} if res.grouping else {}),
-                        "covered_token_indices": list(lb.token_indices),
-                    },
-                )
-                for lb in res.line_boxes
-            ]
-        elif res.start_ms is not None or res.end_ms is not None:
-            spans = [
-                SpanSpec(
-                    span_kind="temporal",
-                    start_ms=res.start_ms,
-                    end_ms=res.end_ms,
-                    quote=target.text,
-                    metadata={"segment_indices": res.segment_indices},
-                )
-            ]
-        else:
-            # Matched, but no positional selector available -> floor rung.
-            spans = [
-                SpanSpec(
-                    span_kind="text",
-                    char_start=res.char_start,
-                    char_end=res.char_end,
-                    quote=target.text,
-                )
-            ]
-        matches.append(Match(spans=spans, score=res.score, method="align"))
-    return matches
+    return _contract_matches(target, results)
 
 
 # Register strategy A in the contract's dict. Importing this module wires
