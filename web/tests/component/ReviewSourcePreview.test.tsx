@@ -85,6 +85,20 @@ describe('ReviewSourcePreview', () => {
     vi.stubGlobal('ResizeObserver', ResizeObserver);
   });
 
+  it('focuses an initially selected item after the source renderer loads', async () => {
+    const field = { ...fieldOne, columnType: 'json', value: '["first","second"]' } as ReviewBundleField;
+    projectApi.getCellEvidence.mockResolvedValue(cellEvidence(['link:b']));
+    const payload = viewer('link:b', 'source:b', 'span:b', 'Recording');
+    payload.link.item_index = 1;
+    projectApi.getEvidenceViewer.mockResolvedValue(payload);
+
+    render(<ReviewSourcePreview bundle={{ ...bundle, fields: [field] }} activeField={field} sourceEntries={[]}
+      selectedItem={{ fieldId: field.id, index: 1 }} />);
+
+    expect(await screen.findByTestId('artifact-source')).toHaveAttribute('data-source-id', 'source:b');
+    await waitFor(() => expect(seeks).toHaveBeenCalledWith('source:b'));
+  });
+
   it('keeps declared null inputs visible alongside saved citations', async () => {
     projectApi.getCellEvidence.mockResolvedValue(cellEvidence(['link:a']));
     projectApi.getEvidenceViewer.mockResolvedValue(viewer('link:a', 'source:a', 'span:a', 'Notes'));

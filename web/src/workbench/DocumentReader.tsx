@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useMemo,
   useState,
@@ -18,7 +20,7 @@ import {
   ZoomOut,
 } from 'lucide-react';
 import type { ResolvedMediaValue } from '../media/resolveMediaValue';
-import { PdfViewer, type DocumentPageImage } from '../media/PdfViewer';
+import type { DocumentPageImage } from '../media/PdfViewer';
 import type {
   DocumentViewFit,
   DocumentViewLayout,
@@ -27,12 +29,14 @@ import type {
 import type { DocumentMediaKind } from './documentMedia';
 import { TextFileViewer } from './TextFileViewer';
 import { useOptionsPopover } from './useOptionsPopover';
-import { PanelHeader } from '../components/PanelPrimitives';
+import { PanelHeader, PanelLoading } from '../components/PanelPrimitives';
 import { TimedTranscript } from './TimedTranscript';
 import {
   hasTimedTranscript,
   type TimedTranscriptDocument,
 } from './timedTranscriptModel';
+
+const PdfViewer = lazy(() => import('../media/PdfViewer').then(({ PdfViewer }) => ({ default: PdfViewer })));
 
 const MEDIA_CHIP_LABEL: Record<DocumentMediaKind, string> = {
   pdf: 'PDF',
@@ -365,20 +369,22 @@ export function DocumentReader({
           </div>
         )}
         {isPdf && media && (
-          <PdfViewer
-            key={media.url}
-            url={media.url}
-            layout={layout}
-            fit={fit}
-            zoom={zoom}
-            textLayer={textLayer}
-            currentPage={currentPage}
-            onLoaded={handleLoaded}
-            onCurrentPageChange={goToPage}
-            renderPageOverlay={renderPageOverlay}
-            pageImages={pageImages}
-            totalPageCount={totalPageCount}
-          />
+          <Suspense fallback={<PanelLoading label="Loading PDF…" />}>
+            <PdfViewer
+              key={media.url}
+              url={media.url}
+              layout={layout}
+              fit={fit}
+              zoom={zoom}
+              textLayer={textLayer}
+              currentPage={currentPage}
+              onLoaded={handleLoaded}
+              onCurrentPageChange={goToPage}
+              renderPageOverlay={renderPageOverlay}
+              pageImages={pageImages}
+              totalPageCount={totalPageCount}
+            />
+          </Suspense>
         )}
         {media && mediaKind === 'image' && (
           <div className="document-native document-native-image" data-testid="document-image"

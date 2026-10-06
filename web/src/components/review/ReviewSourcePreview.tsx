@@ -1,14 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { X } from 'lucide-react';
 import { type CellEvidencePayload, type CellValue, type ReviewBundle, type ReviewBundleField } from '../../api/open';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
-import { ArtifactSource } from '../EvidenceViewer';
+import { PanelLoading } from '../PanelPrimitives';
 import { ReviewInputSources } from './ReviewInputSources';
 import { FieldValue } from '../RowDrawer';
 import { reviewItemLocations, type ReviewItemLocation, type ReviewItemSelection } from './reviewItemLocations';
 import { OverflowRow } from '../OverflowRow';
 import { reviewCitationSources, sourceLocation, sourcesForField, type ReviewCitationPayload } from './reviewCitationSources';
 import styles from './ReviewSourcePreview.module.css';
+
+const LazyArtifactSource = lazy(() => import('../EvidenceViewer').then(({ ArtifactSource }) => ({ default: ArtifactSource })));
 
 type LoadState =
   | { key: string; phase: 'ready'; payloads: ReviewCitationPayload[] }
@@ -86,30 +88,6 @@ export function ReviewSourcePreview({
   // instead of resurrecting a tab that was no longer available.
   if (activeSource && activeSource.id !== activeSourceId) setActiveSourceId(activeSource.id);
 
-  // ArtifactSource owns text/media scrolling. PDF source pages expose stable
-  // anchors, so the review host can target a page without cloning its renderer.
-  useEffect(() => {
-    const activeFieldId = activeField?.id;
-    if (!activeSource || !activeFieldId) return;
-    // A new item can switch source tabs. Never seek the old recording while
-    // that tab transition is pending, or an unrelated tab chosen by the user.
-    if (selectedItem && focusedSpanIds.length === 0) return;
-    const viewer = viewerRef.current;
-    if (!viewer) return;
-    const page = selectedPage(activeSource, activeFieldId, focusedSpanIds);
-    if (page !== null) {
-      viewer.querySelector<HTMLElement>(`#evidence-page-${CSS.escape(activeSource.id)}-${page}`)
-        ?.scrollIntoView({ block: 'start' });
-    }
-    const emphasized = viewer.querySelector<HTMLElement>('[data-emphasized="true"]');
-    emphasized?.scrollIntoView({ block: 'center' });
-    if (selectedItem) emphasized?.closest('.evidence-transcript-line')?.querySelector<HTMLButtonElement>('button')?.click();
-    // The canonical temporal segment button owns media readiness, seeking and
-    // the autoplay-rejection guard. Reuse that behavior when a shared source
-    // remains selected while the reviewer moves to a different field.
-    viewer.querySelector<HTMLButtonElement>('.evidence-temporal-segment-emphasized')?.click();
-  }, [activeField?.id, activeSource, focusedSpanIds, selectedItem]);
-
   if (currentState?.phase === 'ready' && tabs.length === 0 && bundle?.sources?.length) {
     return <ReviewInputSources bundle={bundle} />;
   }
@@ -144,13 +122,52 @@ export function ReviewSourcePreview({
       <div className={styles.viewer} ref={viewerRef}>
         {currentState === null && <p className={styles.empty}>Loading cited sources…</p>}
         {currentState?.phase === 'error' && <p className={styles.empty} role="status">Citations could not be loaded for this result.</p>}
-        {currentState?.phase === 'ready' && activeSource && <ArtifactSource artifact={activeSource.artifact}
-          emphasizedSpanIds={focusedSpanIds.length ? focusedSpanIds : selectedSpanIds(activeSource, activeField?.id)} />}
+        {currentState?.phase === 'ready' && activeSource && (
+          <Suspense fallback={<PanelLoading label="Loading cited source…" />}>
+            <FocusedArtifactSource activeSource={activeSource} activeFieldId={activeField?.id}
+              focusedSpanIds={focusedSpanIds} selectedItem={selectedItem} viewerRef={viewerRef} />
+          </Suspense>
+        )}
         {currentState?.phase === 'ready' && !activeSource && <p className={styles.empty}>No cited sources are recorded for this field.</p>}
       </div>
       {showRowFields && <RowFieldsDrawer entries={inputEntries} bundle={bundle} onClose={() => setShowRowFields(false)} />}
     </section>
   );
+}
+
+/** Keep focus effects inside Suspense so they run after the source mounts. */
+function FocusedArtifactSource({ activeSource, activeFieldId, focusedSpanIds, selectedItem, viewerRef }: {
+  activeSource: ReturnType<typeof reviewCitationSources>[number];
+  activeFieldId: string | undefined;
+  focusedSpanIds: readonly string[];
+  selectedItem: ReviewItemSelection | null | undefined;
+  viewerRef: RefObject<HTMLDivElement | null>;
+}) {
+  // ArtifactSource owns text/media scrolling. PDF source pages expose stable
+  // anchors, so the review host can target a page without cloning its renderer.
+  useEffect(() => {
+    if (!activeFieldId) return;
+    // A new item can switch source tabs. Never seek the old recording while
+    // that tab transition is pending, or an unrelated tab chosen by the user.
+    if (selectedItem && focusedSpanIds.length === 0) return;
+    const viewer = viewerRef.current;
+    if (!viewer) return;
+    const page = selectedPage(activeSource, activeFieldId, focusedSpanIds);
+    if (page !== null) {
+      viewer.querySelector<HTMLElement>(`#evidence-page-${CSS.escape(activeSource.id)}-${page}`)
+        ?.scrollIntoView({ block: 'start' });
+    }
+    const emphasized = viewer.querySelector<HTMLElement>('[data-emphasized="true"]');
+    emphasized?.scrollIntoView({ block: 'center' });
+    if (selectedItem) emphasized?.closest('.evidence-transcript-line')?.querySelector<HTMLButtonElement>('button')?.click();
+    // The canonical temporal segment button owns media readiness, seeking and
+    // the autoplay-rejection guard. Reuse that behavior when a shared source
+    // remains selected while the reviewer moves to a different field.
+    viewer.querySelector<HTMLButtonElement>('.evidence-temporal-segment-emphasized')?.click();
+  }, [activeFieldId, activeSource, focusedSpanIds, selectedItem, viewerRef]);
+
+  return <LazyArtifactSource artifact={activeSource.artifact}
+    emphasizedSpanIds={focusedSpanIds.length ? focusedSpanIds : selectedSpanIds(activeSource, activeFieldId)} />;
 }
 
 function CitationTab({ source, activeField, selected, onChoose }: {
