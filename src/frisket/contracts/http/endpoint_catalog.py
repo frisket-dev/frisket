@@ -596,6 +596,8 @@ _TENANT_SKILLS: tuple[RouteSpec, ...] = (
 _TENANT_EDITOR: tuple[RouteSpec, ...] = (
     ("extraction_preview", "POST"),
     ("extraction_template_save", "POST"),
+    ("extraction_layout_select", "POST"),
+    ("extraction_scope_counts", "POST"),
     ("qa_create_thread", "POST"),
     ("qa_update_thread", "PATCH"),
     ("qa_delete_thread", "DELETE"),
@@ -752,6 +754,8 @@ _BROWSER_CLIENT_IDS = (
             "tenant.extraction_templates_list.get",
             "tenant.extraction_preview.post",
             "tenant.extraction_template_save.post",
+            "tenant.extraction_layout_select.post",
+            "tenant.extraction_scope_counts.post",
             "tenant.ack_notification.post",
             "tenant.action_job_detail.get",
             "tenant.action_jobs.get",

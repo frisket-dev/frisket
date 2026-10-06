@@ -12,7 +12,10 @@ from frisket.contracts.http.document_extraction import (
     ExtractionPreviewRequest,
     ExtractionPreviewResponse,
     ExtractionTemplateSave,
-    ExtractionSavedTemplate,
+    ExtractionSavedLayout,
+    ExtractionLayoutSelection,
+    ExtractionScopeCountsRequest,
+    ExtractionScopeCountsResponse,
     ExtractionTemplatesResponse,
 )
 from frisket.server.services.document_extraction import DocumentExtractionService
@@ -87,15 +90,31 @@ def register_document_extraction_routes(
         response_model=ExtractionTemplatesResponse,
         responses=http_error_responses(401, 403, 404, 422, 500),
     )
-    def extraction_templates_list(pid: str, sheet_id: int):
-        return call(service.templates, pid, sheet_id)
+    def extraction_templates_list(pid: str, sheet_id: int, source: str):
+        return call(service.templates, pid, sheet_id, source)
 
     @app.post(
         "/api/projects/{pid}/document-extraction/templates",
-        response_model=ExtractionSavedTemplate,
+        response_model=ExtractionSavedLayout,
         responses=http_error_responses(401, 403, 404, 422, 500),
     )
     async def extraction_template_save(
         request: Request, pid: str, body: ExtractionTemplateSave
     ):
         return await read(request, service.save, pid, body)
+
+    @app.post(
+        "/api/projects/{pid}/document-extraction/selection",
+        response_model=ExtractionSavedLayout,
+        responses=http_error_responses(401, 403, 404, 422, 500),
+    )
+    def extraction_layout_select(pid: str, body: ExtractionLayoutSelection):
+        return call(service.select, pid, body)
+
+    @app.post(
+        "/api/projects/{pid}/document-extraction/scope-counts",
+        response_model=ExtractionScopeCountsResponse,
+        responses=http_error_responses(401, 403, 404, 422, 500),
+    )
+    def extraction_scope_counts(pid: str, body: ExtractionScopeCountsRequest):
+        return call(service.counts, pid, body)

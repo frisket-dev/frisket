@@ -6,7 +6,9 @@ from frisket.contracts.http.document_extraction import (
     ExtractionDocumentResponse,
     ExtractionPreviewResponse,
     ExtractionPreviewDocument,
-    ExtractionSavedTemplate,
+    ExtractionLayoutDraft,
+    ExtractionSavedLayout,
+    ExtractionScopeCountsResponse,
     ExtractionTemplatesResponse,
 )
 from frisket.engine.executor.document_extraction_read import (
@@ -15,6 +17,7 @@ from frisket.engine.executor.document_extraction_read import (
     load_positioned_document,
 )
 from frisket.server.route_errors import RouteError
+from frisket.engine.store import extraction_layouts
 
 
 class DocumentExtractionService:
@@ -42,9 +45,19 @@ class DocumentExtractionService:
             template=body.template,
             repeat_group_id=body.repeat_group_id,
         )
-        if body.row_ids == []:
+        scope = body.scope
+        if scope.kind == "layout" and scope.layout_id is None:
+            scope = scope.model_copy(update={"layout_id": body.layout_id})
+        if body.layout_id is not None:
+            extraction_layouts.validate_layout_scope(
+                project, body.layout_id, body.sheet_id, body.source
+            )
+        row_ids = extraction_layouts.resolve_document_scope(
+            project, sheet_id=body.sheet_id, source=body.source, scope=scope
+        )
+        if not row_ids:
             return ExtractionPreviewResponse(documents=[])
-        scope = SheetRows(sheet_id=body.sheet_id, row_ids=body.row_ids)
+        scope = SheetRows(sheet_id=body.sheet_id, row_ids=row_ids)
         reader = AdmittedPositionedDocumentReader(
             project, scope=scope, params=params, row_limit=12, cancelled=cancelled
         )
@@ -77,80 +90,148 @@ class DocumentExtractionService:
         truncated |= source_count > len(documents)
         return ExtractionPreviewResponse(documents=documents, truncated=truncated)
 
-    def templates(self, pid, sheet_id):
-        self.workspace.get(pid)
+    def _import_saved_templates(self, project, pid, sheet_id, source):
+        """Copy old editor recipes once without modifying workspace recipes."""
+        for entry in self.workspace.saved_recipes():
+            spec = entry.get("spec", {})
+            params = spec.get("params", {})
+            if (
+                spec.get("action_kind") != "media.extract_document"
+                or spec.get("project_id") != pid
+                or spec.get("sheet_id") != sheet_id
+                or params.get("source") != source
+                or project.db.execute(
+                    "SELECT 1 FROM extraction_layouts WHERE imported_recipe_id=?",
+                    (entry["id"],),
+                ).fetchone()
+            ):
+                continue
+            # The original artifact remains available even if its source row
+            # has since been deleted. A stale reference does not lose boxes.
+            draft = ExtractionLayoutDraft.model_validate(params["template"])
+            reference_row_id = spec.get("reference_row_id")
+            if reference_row_id is not None and not project.visible_row_ids(
+                sheet_id, [reference_row_id]
+            ):
+                reference_row_id = None
+            extraction_layouts.save_layout(
+                project,
+                sheet_id=sheet_id,
+                source=source,
+                draft=draft.model_dump(mode="json"),
+                reference_row_id=reference_row_id,
+                repeat_group_id=params.get("repeat_group_id"),
+                imported_recipe_id=entry["id"],
+            )
+
+    @staticmethod
+    def _response(layout, source):
+        return ExtractionSavedLayout(
+            **{
+                key: layout[key]
+                for key in (
+                    "id",
+                    "name",
+                    "sheet_id",
+                    "source_column_id",
+                    "reference_row_id",
+                    "draft",
+                    "repeat_group_id",
+                    "has_applied",
+                )
+            },
+            source=source,
+        )
+
+    def templates(self, pid, sheet_id, source):
+        project = self.workspace.get(pid)
+        column = extraction_layouts.source_column(project, sheet_id, source)
+        self._import_saved_templates(project, pid, sheet_id, source)
         return ExtractionTemplatesResponse(
             templates=[
-                ExtractionSavedTemplate(
-                    id=entry["id"],
-                    name=entry["name"],
-                    sheet_id=sheet_id,
-                    reference_row_id=entry["spec"]["reference_row_id"],
-                    spec=entry["spec"],
+                self._response(layout, source)
+                for layout in extraction_layouts.list_layouts(
+                    project, sheet_id, column["id"]
                 )
-                for entry in self.workspace.saved_recipes()
-                if entry.get("spec", {}).get("action_kind") == "media.extract_document"
-                and entry["spec"].get("project_id") == pid
-                and entry["spec"].get("sheet_id") == sheet_id
-            ]
+            ],
+            selected_layout_id=extraction_layouts.selected_layout_id(
+                project, sheet_id, column["id"]
+            ),
         )
 
     def save(self, pid, body, *, cancelled=None):
         project = self.workspace.get(pid)
-        params = DocumentExtractParams(
-            source=body.source,
-            template=body.template,
-            repeat_group_id=body.repeat_group_id,
-        )
-        column = project.db.execute(
-            "SELECT id FROM columns WHERE sheet_id=? AND name=? AND active=1",
-            (body.sheet_id, body.source),
-        ).fetchone()
-        if (
-            column is None
-            or document_cell(
-                project,
-                sheet_id=body.sheet_id,
-                column_id=column["id"],
-                row_id=body.reference_row_id,
-            )
-            != body.template.reference_blob_id
-        ):
-            raise TableError(
-                "invalid_input_ref",
-                "Reference document no longer matches the selected cell",
-            )
-        from frisket.engine.document_extraction import compile_template
-
-        compile_template(
-            body.template,
-            load_positioned_document(
-                project, body.template.reference_blob_id, cancelled=cancelled
-            ).document,
-        )
         if body.id is not None:
-            existing = self.workspace.saved_recipe_by_id(body.id)
-            if (
-                existing is None
-                or existing["spec"].get("project_id") != pid
-                or existing["spec"].get("sheet_id") != body.sheet_id
-                or existing["spec"].get("action_kind") != "media.extract_document"
-            ):
-                raise RouteError(404, "Extraction template not found")
-        spec = {
-            "action_kind": "media.extract_document",
-            "project_id": pid,
-            "sheet_id": body.sheet_id,
-            "reference_row_id": body.reference_row_id,
-            "params": params.model_dump(mode="json"),
-        }
+            existing = extraction_layouts.get_layout(project, body.id)
+            if existing is None:
+                raise RouteError(404, "Extraction layout not found")
         if cancelled is not None and cancelled():
-            raise TableError("action_cancelled", "Template saving was cancelled")
-        entry = self.workspace.save_recipe(body.name, spec, recipe_id=body.id)
-        return ExtractionSavedTemplate(
-            id=entry["id"],
-            name=entry["name"],
+            raise TableError("action_cancelled", "Layout saving was cancelled")
+        entry = extraction_layouts.save_layout(
+            project,
             sheet_id=body.sheet_id,
+            source=body.source,
+            draft=body.draft.model_dump(mode="json"),
             reference_row_id=body.reference_row_id,
-            spec=spec,
+            repeat_group_id=body.repeat_group_id,
+            layout_id=body.id,
         )
+        return self._response(entry, body.source)
+
+    def select(self, pid, body):
+        project = self.workspace.get(pid)
+        extraction_layouts.select_layout(
+            project,
+            sheet_id=body.sheet_id,
+            source=body.source,
+            layout_id=body.layout_id,
+        )
+        return self._response(
+            extraction_layouts.get_layout(project, body.layout_id), body.source
+        )
+
+    def counts(self, pid, body):
+        project = self.workspace.get(pid)
+        common = {"sheet_id": body.sheet_id, "source": body.source}
+        # One snapshot makes the displayed scope alternatives consistent.
+        db = project.db
+        db.execute("BEGIN")
+        try:
+            counts = {
+                "all": extraction_layouts.count_document_scope(
+                    project, **common, scope={"kind": "all"}
+                ),
+                "filter": extraction_layouts.count_document_scope(
+                    project,
+                    **common,
+                    scope={
+                        "kind": "filter",
+                        "filter": body.filter,
+                        "parent_row_id": body.parent_row_id,
+                        "scope_row_ids": body.scope_row_ids,
+                    },
+                ),
+                "layout": extraction_layouts.count_document_scope(
+                    project,
+                    **common,
+                    scope={
+                        "kind": "layout",
+                        "layout_id": body.layout_id,
+                    },
+                )
+                if body.layout_id is not None
+                else 0,
+                "this": extraction_layouts.count_document_scope(
+                    project,
+                    **common,
+                    scope={
+                        "kind": "this",
+                        "row_id": body.row_id,
+                    },
+                )
+                if body.row_id is not None
+                else 0,
+            }
+            return ExtractionScopeCountsResponse(**counts)
+        finally:
+            db.rollback()

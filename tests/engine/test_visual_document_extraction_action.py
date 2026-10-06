@@ -303,12 +303,16 @@ def test_api_preview_bounded_parity_persistence_and_stale_reference(tmp_path):
             "sheet_id": sheet,
             "source": "document",
             "template": template.model_dump(mode="json"),
+            "scope": {"kind": "all"},
         }
         preview = client.post(f"{prefix}/preview", json=body)
         assert preview.status_code == 200, preview.text
         assert len(preview.json()["documents"]) == 12
         assert preview.json()["truncated"] is True
-        selected = client.post(f"{prefix}/preview", json={**body, "row_ids": rows[:2]})
+        selected = client.post(
+            f"{prefix}/preview",
+            json={**body, "scope": {"kind": "filter", "scope_row_ids": rows[:2]}},
+        )
         assert selected.json()["truncated"] is False
         assert (
             preview.json()["documents"][1]["result"]["records"][0]["cells"]["arrested"][
@@ -317,28 +321,32 @@ def test_api_preview_bounded_parity_persistence_and_stale_reference(tmp_path):
             == "empty"
         )
         assert project.db.execute("SELECT count(*) FROM sheets").fetchone()[0] == 1
+        save_body = {
+            "sheet_id": sheet,
+            "source": "document",
+            "draft": body["template"],
+            "reference_row_id": rows[0],
+        }
         save = client.post(
             f"{prefix}/templates",
-            json={**body, "name": "Forms", "reference_row_id": rows[0]},
+            json=save_body,
         )
         assert save.status_code == 200, save.text
         updated = client.post(
             f"{prefix}/templates",
             json={
-                **body,
-                "name": "Forms revised",
-                "reference_row_id": rows[0],
+                **save_body,
                 "id": save.json()["id"],
             },
         )
         assert updated.status_code == 200, updated.text
-        saved = client.get(f"{prefix}/templates", params={"sheet_id": sheet}).json()[
-            "templates"
-        ]
-        assert len(saved) == 1 and saved[0]["name"] == "Forms revised"
+        saved = client.get(
+            f"{prefix}/templates", params={"sheet_id": sheet, "source": "document"}
+        ).json()["templates"]
+        assert len(saved) == 1 and saved[0]["name"] == "Layout 1"
         missing = client.post(
             f"{prefix}/templates",
-            json={**body, "name": "Missing", "reference_row_id": rows[0], "id": 9999},
+            json={**save_body, "id": 9999},
         )
         assert missing.status_code == 404, missing.text
         body["template"]["reference_fingerprint"] = "stale"
@@ -427,8 +435,7 @@ def test_cancelled_template_save_does_not_persist(tmp_path):
         sheet_id=sheet,
         source="document",
         reference_row_id=rows[0],
-        template=template,
-        name="Cancelled",
+        draft=template.model_dump(),
     )
     with pytest.raises(TableError, match="cancelled"):
         service.save("p", body, cancelled=lambda: True)
@@ -516,7 +523,7 @@ def test_public_queued_run_and_empty_scope(tmp_path):
             json={
                 "sheet_id": sheet,
                 "source": "document",
-                "row_ids": [],
+                "scope": {"kind": "filter", "scope_row_ids": []},
                 "template": template.model_dump(mode="json"),
             },
         )

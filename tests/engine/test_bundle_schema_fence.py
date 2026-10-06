@@ -34,6 +34,10 @@ _REVIEW_METADATA_DDL = (
 def _without_review_stats(schema: str) -> str:
     """Restore the exact typed schema before compact review summaries."""
 
+    if "-- EXTRACTION_LAYOUTS_BEGIN" in schema:
+        before, marked = schema.split("-- EXTRACTION_LAYOUTS_BEGIN", 1)
+        _removed, after = marked.split("-- EXTRACTION_LAYOUTS_END", 1)
+        schema = before + after
     for begin, end in (
         (
             "-- RUN_REVIEW_CURRENT_COLUMN_INDEX_BEGIN",
