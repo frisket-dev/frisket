@@ -102,12 +102,11 @@ def test_fixed_literal_and_blank_keep_region(value, expected, status):
     assert cell.regions[0].box.y0 == pytest.approx(0.4)
 
 
-def test_missing_key_is_not_a_successful_blank():
+def test_missing_key_produces_zero_records_not_a_blank_record():
     compiled = compile_template(template(field()), document([token("ARRESTED")]))
     result = extract_document(compiled, document([token("UNRELATED")]))
-    assert result.outcome == "alignment_failed"
-    assert result.records[0].cells["ARRESTED"].text is None
-    assert result.records[0].cells["ARRESTED"].status == "not_found"
+    assert result.outcome == "zero_records"
+    assert result.records == []
 
 
 def test_reference_fingerprint_is_checked():
@@ -201,15 +200,12 @@ def test_missing_expected_boundary_does_not_choose_a_later_key():
         ]
     )
     target = document([token("Description"), token("one", 0.14), token("LATER:", 0.5)])
-    cell = (
-        extract_document(
-            compile_template(template(item, expand_values=True), reference), target
-        )
-        .records[0]
-        .cells["Description"]
+    result = extract_document(
+        compile_template(template(item, expand_values=True), reference), target
     )
-    assert cell.status == "not_found"
-    assert "stop" in cell.diagnostic
+    assert result.outcome == "zero_records"
+    assert result.records == []
+    assert any("stop" in diagnostic for diagnostic in result.diagnostics)
 
 
 def test_right_neighbor_bounds_name():
@@ -269,11 +265,14 @@ def test_zero_repeats_has_no_synthetic_document_row():
     assert result.outcome == "zero_records"
 
 
-def test_repeated_keys_without_record_starts_are_not_zero_records():
+def test_repeated_keys_without_record_starts_yield_zero_records_with_diagnostic():
     compiled = compile_template(repeat_template(), repeat_reference())
     result = extract_document(compiled, document([token("Age")]), "people")
     assert result.records == []
-    assert result.outcome == "alignment_failed"
+    assert result.outcome == "zero_records"
+    assert result.diagnostics == [
+        "Repeated section start is missing, but later keys were found"
+    ]
 
 
 def test_ambiguous_record_segmentation_withholds_group():
@@ -284,7 +283,10 @@ def test_ambiguous_record_segmentation_withholds_group():
         "people",
     )
     assert result.records == []
-    assert result.outcome == "alignment_failed"
+    assert result.outcome == "zero_records"
+    assert result.diagnostics == [
+        "Repeated section boundaries are ambiguous; no rows were guessed"
+    ]
 
 
 def test_records_on_separate_pages_work_without_continuation():
@@ -360,10 +362,12 @@ def test_whole_line_value_can_be_extracted_but_partial_line_warns():
             token("long text outside", x0=0.35, x1=0.9, granularity="line"),
         ]
     )
-    assert (
-        extract_document(compiled, target).records[0].cells["ARRESTED"].status
-        == "not_found"
-    )
+    result = extract_document(compiled, target)
+    assert result.outcome == "zero_records"
+    assert result.records == []
+    assert result.diagnostics == [
+        "Positioned text is too coarse to isolate the value region"
+    ]
 
 
 def test_field_identity_and_output_name_are_unique():
@@ -478,7 +482,10 @@ def test_same_named_fields_in_two_groups_do_not_cross_contaminate():
         ]
     )
     result = extract_document(compile_template(annotation, source), changed, "people")
-    assert result.outcome == "alignment_failed"
+    assert result.outcome == "zero_records"
+    assert result.diagnostics == [
+        "Repeated section's surrounding labels could not be matched unambiguously"
+    ]
     assert result.records == []
 
 
@@ -518,7 +525,8 @@ def test_look_every_page_false_only_searches_reference_page():
         compile_template(annotation, source),
         document([], [token("ARRESTED"), token("X", x0=0.35)]),
     )
-    assert result.records[0].cells["ARRESTED"].status == "not_found"
+    assert result.outcome == "zero_records"
+    assert result.records == []
 
 
 def test_multiline_key_matches_wrapped_and_single_line_labels():

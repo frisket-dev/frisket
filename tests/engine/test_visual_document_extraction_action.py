@@ -270,7 +270,6 @@ def test_successful_input_membership_includes_zero_records_and_excludes_errors(
             assert reader.outcome_counts == {
                 "extracted": 1,
                 "zero_records": 1,
-                "alignment_failed": 0,
                 "error": 1,
             }
         finally:
@@ -565,6 +564,96 @@ def test_unmatched_document_publishes_zero_rows_and_remains_in_layout_cohort(tmp
         assert rerun.status == "completed", rerun.errors
         assert rerun.outputs[0].ref["row_count"] == 0
         assert layout_rows(project, sheet, layout_id) == [rows[1]]
+
+
+def test_repeated_layout_mismatch_is_zero_output_with_diagnostic_and_cohort(tmp_path):
+    from frisket.contracts.http.document_extraction import ExtractionPreviewRequest
+
+    workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
+    workspace.create("Test", project_id="p")
+    project = workspace.get("p")
+    sheet, column, rows, template = seed(project, repeats=True)
+    blob = project.get_values(sheet, column)[rows[1]]["blob"]
+    project.db.execute(
+        "DELETE FROM source_spans WHERE quote='NAME' AND artifact_id IN "
+        "(SELECT id FROM source_artifacts WHERE blob_hash=?)",
+        (blob,),
+    )
+    project.db.commit()
+    layout_id = save_layout(project, sheet, rows, template)
+    preview = DocumentExtractionService(workspace).preview(
+        "p",
+        ExtractionPreviewRequest(
+            sheet_id=sheet,
+            source="document",
+            template=template,
+            repeat_group_id="people",
+            layout_id=layout_id,
+            scope={"kind": "this", "row_id": rows[1]},
+        ),
+    )
+    assert preview.documents[0].result.outcome == "zero_records"
+    assert preview.documents[0].result.records == []
+    assert preview.documents[0].result.diagnostics == [
+        "Repeated section start is missing, but later keys were found"
+    ]
+    assert layout_rows(project, sheet, layout_id) == []
+    result = run_typed_create_sheet_action(
+        project,
+        "p",
+        layout_request(
+            sheet,
+            template,
+            layout_id,
+            selection={"kind": "this", "row_id": rows[1]},
+            key="Partial layout match",
+        ),
+    )
+    assert result.status == "completed", result.errors
+    assert result.outputs[0].ref["row_count"] == 0
+    assert layout_rows(project, sheet, layout_id) == [rows[1]]
+    assert any("later keys were found" in warning for warning in result.warnings)
+    rerun = run_typed_create_sheet_action(
+        project,
+        "p",
+        layout_request(
+            sheet,
+            template,
+            layout_id,
+            selection={"kind": "layout"},
+            key="Partial layout match (2)",
+        ),
+    )
+    assert rerun.status == "completed", rerun.errors
+    assert rerun.outputs[0].ref["row_count"] == 0
+    assert layout_rows(project, sheet, layout_id) == [rows[1]]
+
+
+def test_layout_with_explicit_sheet_rows_records_its_scope_and_membership(tmp_path):
+    with closing(Project.create(tmp_path / "project")) as project:
+        sheet, _column, rows, template = seed(project)
+        layout_id = save_layout(project, sheet, rows, template)
+        body = request(sheet, template, rows=rows[1:])
+        body["params"]["layout_id"] = layout_id
+        result = run_typed_create_sheet_action(
+            project, "p", typed_action_for_request(body)
+        )
+        assert result.status == "completed", result.errors
+        assert layout_rows(project, sheet, layout_id) == rows[1:]
+        reads = result.outputs[0].ref["reads"]
+        assert next(
+            fact for fact in reads if fact["kind"] == "document_extraction_scope"
+        ) == {
+            "kind": "document_extraction_scope",
+            "sheet_id": sheet,
+            "source": "document",
+            "layout_id": layout_id,
+            "selection": {"kind": "sheet_rows"},
+        }
+        assert (
+            next(fact for fact in reads if fact["kind"] == "sheet_rows_read")["row_ids"]
+            == rows[1:]
+        )
 
 
 def test_api_preview_bounded_parity_persistence_and_stale_reference(tmp_path):

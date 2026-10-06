@@ -160,5 +160,5 @@ class ExtractedRecord(ExtractionModel):
 class DocumentExtraction(ExtractionModel):
     records: list[ExtractedRecord]
     diagnostics: list[str] = Field(default_factory=list)
-    outcome: Literal["extracted", "zero_records", "alignment_failed", "error"]
+    outcome: Literal["extracted", "zero_records", "error"]
     error_code: str | None = None

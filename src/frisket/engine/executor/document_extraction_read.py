@@ -248,14 +248,16 @@ class AdmittedPositionedDocumentReader:
         self.parent_sheet_id = scope.sheet_id
         self.sources = self.rows.sources
         self.facts = self.rows.facts
-        if selection is not None:
+        if selection is not None or params.layout_id is not None:
             self.facts.append(
                 {
                     "kind": "document_extraction_scope",
                     "sheet_id": scope.sheet_id,
                     "source": params.source.name,
                     "layout_id": params.layout_id,
-                    "selection": selection.model_dump(mode="json"),
+                    "selection": selection.model_dump(mode="json")
+                    if selection is not None
+                    else {"kind": "sheet_rows"},
                 }
             )
         self.cancelled = cancelled or (lambda: False)
@@ -266,7 +268,6 @@ class AdmittedPositionedDocumentReader:
         self.outcome_counts = {
             "extracted": 0,
             "zero_records": 0,
-            "alignment_failed": 0,
             "error": 0,
         }
         self.successful_row_ids = []
@@ -318,17 +319,6 @@ class AdmittedPositionedDocumentReader:
                 result = extract_document(
                     compiled, loaded.document, params.repeat_group_id
                 )
-                if result.outcome == "alignment_failed" and result.records:
-                    # An unmatched document has no record to publish. Keep
-                    # matcher diagnostics while withholding its missing cells.
-                    if all(
-                        cell.status == "not_found"
-                        for record in result.records
-                        for cell in record.cells.values()
-                    ):
-                        result = result.model_copy(
-                            update={"records": [], "outcome": "zero_records"}
-                        )
                 loaded = DocumentIdentity.from_loaded(loaded)
                 self.identities[blob_id] = loaded
                 self.source_blobs[item.source.row_id] = blob_id
@@ -418,7 +408,6 @@ class AdmittedPositionedDocumentReader:
             finally:
                 if (
                     self.outcome_counts["zero_records"]
-                    or self.outcome_counts["alignment_failed"]
                     or self.outcome_counts["error"]
                     or self.unresolved_fields
                     or self.field_warnings
