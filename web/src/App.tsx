@@ -101,6 +101,7 @@ import { useSheetTabsOverflow } from './workbench/useSheetTabsOverflow';
 import { nerReplayPlan } from './workbench/nerReplayModel';
 import { DocumentView } from './workbench/DocumentView';
 import { ExtractView } from './workbench/extract/ExtractView';
+import { isExtractionRunning } from './workbench/extract/extractionRunning';
 import { AnswersView } from './workbench/AnswersView';
 import { resolveTitleColumn } from './workbench/rowTitle';
 import {
@@ -3480,9 +3481,7 @@ function WorkspacePrimarySurface() {
   const { projectApi } = useWorkspaceStores();
   const { sheets } = useCurrentSheet();
   const jobs = useJobsHandle();
-  const extractionRunning = useSelector(jobs.store, (state) => (
-    state.run?.actionKind === 'media.extract_document' && isRunActionBlockedStatus(state.run.status)
-  ));
+  const extractionRunning = useSelector(jobs.store, isExtractionRunning);
   const actionCatalog = useActionCatalogHandle();
   const nerCatalogEntry = useSelector(actionCatalog.store, (state) => (
     state.status === 'ready'
