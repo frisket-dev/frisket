@@ -470,6 +470,7 @@ def _project_execution_composition_engines(
     capability: str | None,
     composition: ExecutionComposition | None,
     declared_gateway_fallback: bool = False,
+    hybrid_model_rows: bool = False,
 ) -> list[dict[str, Any]]:
     """Constrain a project engine roster to its request composition.
 
@@ -487,6 +488,12 @@ def _project_execution_composition_engines(
     for original in engines:
         engine_id = original.get("id")
         if not isinstance(engine_id, str):
+            continue
+        # A hybrid ModelRows action has two independent branches. Its direct
+        # engines resolve through this execution capability, while ``llm``
+        # runs through the model router and its model-call billing policy.
+        if hybrid_model_rows and engine_id == "llm":
+            projected.append(dict(original))
             continue
         candidates = _composition_targets_for_engine(
             composition,
@@ -1720,6 +1727,14 @@ def project_action_catalog_launcher_hints(
     from frisket.actions.core import ModelRows, ROUTED_CAPABILITIES, routed_capability
     from frisket.actions.media_download_types import MediaDownloader
 
+    hybrid_routed_model_actions = {
+        registered.action_id
+        for registered in ACTION_REGISTRY.actions
+        if isinstance(registered.definition.run, ModelRows)
+        and registered.definition.run.direct is not None
+        and routed_capability(registered.definition.run.direct) is not None
+    }
+
     providers = [
         (
             spec.action_kind,
@@ -1797,6 +1812,7 @@ def project_action_catalog_launcher_hints(
                 sidecar_capabilities.get("transient_failure")
                 or sidecar_capabilities.get("catalog_from_composition")
             ),
+            hybrid_model_rows=action_kind in hybrid_routed_model_actions,
         )
         if engines:
             if network_off:
