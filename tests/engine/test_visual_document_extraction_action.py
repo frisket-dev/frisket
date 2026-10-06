@@ -768,8 +768,30 @@ def test_result_undo_keeps_last_successful_layout_affinity(tmp_path):
             ),
         )
         assert result.status == "completed", result.errors
+        result_sheet_id = result.outputs[0].ref["sheet_id"]
+        assert (
+            project.db.execute(
+                "SELECT hidden FROM sheets WHERE id=?", (result_sheet_id,)
+            ).fetchone()[0]
+            == 0
+        )
         assert layout_rows(project, sheet, layout_id) == [rows[1]]
-        assert project.undo() in result.op_ids
+        result_op_id = project.undo()
+        assert result_op_id in result.op_ids
+        assert (
+            project.db.execute(
+                "SELECT hidden FROM sheets WHERE id=?", (result_sheet_id,)
+            ).fetchone()[0]
+            == 1
+        )
+        assert layout_rows(project, sheet, layout_id) == [rows[1]]
+        assert project.redo() == result_op_id
+        assert (
+            project.db.execute(
+                "SELECT hidden FROM sheets WHERE id=?", (result_sheet_id,)
+            ).fetchone()[0]
+            == 0
+        )
         assert layout_rows(project, sheet, layout_id) == [rows[1]]
 
 
