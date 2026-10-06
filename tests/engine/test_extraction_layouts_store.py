@@ -27,6 +27,10 @@ from frisket.engine.store.schema import (
     SCHEMA_DIGEST_META_KEY,
 )
 from frisket.server.services.document_extraction import DocumentExtractionService
+from frisket.server.extraction_layouts_upgrade import (
+    LEGACY_EXTRACTION_LAYOUTS_META_KEY,
+    LEGACY_EXTRACTION_LAYOUTS_VERSION,
+)
 from frisket.server.workspace import Workspace
 from tests.engine.test_visual_document_extraction_action import seed
 from tests.engine.test_bundle_schema_fence import (
@@ -197,11 +201,13 @@ def test_layouts_are_scoped_by_column_identity(tmp_path):
         assert layouts.list_layouts(project, sheet, other) == []
 
 
-def test_saved_workspace_templates_are_copied_once_without_deleting_originals(tmp_path):
+def test_saved_workspace_templates_are_copied_once_without_deleting_originals(
+    tmp_path, monkeypatch
+):
     workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
     workspace.create("Recipes", project_id="p")
-    project = workspace.get("p")
-    sheet, column, rows, template = seed(project)
+    with closing(Project(workspace.root / "p.frisket")) as setup_project:
+        sheet, column, rows, template = seed(setup_project)
     original = workspace.save_recipe(
         "My old form",
         {
@@ -212,9 +218,16 @@ def test_saved_workspace_templates_are_copied_once_without_deleting_originals(tm
             "params": {"source": "document", "template": template.model_dump()},
         },
     )
+    project = workspace.get("p")
+    assert (
+        project.get_meta(LEGACY_EXTRACTION_LAYOUTS_META_KEY)
+        == LEGACY_EXTRACTION_LAYOUTS_VERSION
+    )
     service = DocumentExtractionService(workspace)
+    changes = project.db.total_changes
     first = service.templates("p", sheet, "document")
     second = service.templates("p", sheet, "document")
+    assert project.db.total_changes == changes
     assert first == second
     assert len(first.templates) == 1
     assert (
@@ -222,6 +235,16 @@ def test_saved_workspace_templates_are_copied_once_without_deleting_originals(tm
         == template.model_dump()["fields"]
     )
     assert workspace.saved_recipe_by_id(original["id"]) == original
+    workspace._projects.pop("p").close()
+    monkeypatch.setattr(
+        workspace,
+        "_read_saved_recipes",
+        lambda: pytest.fail("completed legacy upgrade rescanned workspace recipes"),
+    )
+    assert (
+        workspace.get("p").get_meta(LEGACY_EXTRACTION_LAYOUTS_META_KEY)
+        == LEGACY_EXTRACTION_LAYOUTS_VERSION
+    )
 
 
 def test_bad_saved_recipe_does_not_hide_existing_layouts_or_valid_imports(
@@ -229,9 +252,9 @@ def test_bad_saved_recipe_does_not_hide_existing_layouts_or_valid_imports(
 ):
     workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
     workspace.create("Recipes", project_id="p")
-    project = workspace.get("p")
-    sheet, column, rows, template = seed(project)
-    existing = save(project, sheet, template)
+    with closing(Project(workspace.root / "p.frisket")) as setup_project:
+        sheet, column, rows, template = seed(setup_project)
+        existing = save(setup_project, sheet, template)
     spec = {
         "action_kind": "media.extract_document",
         "project_id": "p",
@@ -251,6 +274,7 @@ def test_bad_saved_recipe_does_not_hide_existing_layouts_or_valid_imports(
     workspace.save_recipe("Invalid reference", invalid_reference)
     workspace.save_recipe("Valid", spec)
     originals = workspace.saved_recipes()
+    workspace.get("p")
     response = DocumentExtractionService(workspace).templates("p", sheet, "document")
     assert [item.name for item in response.templates] == ["Layout 1", "Layout 2"]
     assert response.templates[0].id == existing["id"]
@@ -266,8 +290,8 @@ def test_bad_saved_recipe_does_not_hide_existing_layouts_or_valid_imports(
 def test_saved_template_import_does_not_swallow_database_failure(tmp_path, monkeypatch):
     workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
     workspace.create("Recipes", project_id="p")
-    project = workspace.get("p")
-    sheet, column, rows, template = seed(project)
+    with closing(Project(workspace.root / "p.frisket")) as setup_project:
+        sheet, column, rows, template = seed(setup_project)
     workspace.save_recipe(
         "Valid",
         {
@@ -282,9 +306,52 @@ def test_saved_template_import_does_not_swallow_database_failure(tmp_path, monke
     def failed_write(*args, **kwargs):
         raise sqlite3.OperationalError("database write failed")
 
+    original_save = layouts.save_layout
     monkeypatch.setattr(layouts, "save_layout", failed_write)
     with pytest.raises(sqlite3.OperationalError, match="database write failed"):
-        DocumentExtractionService(workspace).templates("p", sheet, "document")
+        workspace.get("p")
+    with closing(Project(workspace.root / "p.frisket")) as failed:
+        assert failed.get_meta(LEGACY_EXTRACTION_LAYOUTS_META_KEY) is None
+    monkeypatch.setattr(layouts, "save_layout", original_save)
+    project = workspace.get("p")
+    assert len(layouts.list_layouts(project, sheet, column)) == 1
+    assert (
+        project.get_meta(LEGACY_EXTRACTION_LAYOUTS_META_KEY)
+        == LEGACY_EXTRACTION_LAYOUTS_VERSION
+    )
+
+
+def test_hidden_legacy_source_keeps_upgrade_pending_until_next_open(tmp_path):
+    workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
+    workspace.create("Recipes", project_id="p")
+    with closing(Project(workspace.root / "p.frisket")) as setup_project:
+        sheet, column, rows, template = seed(setup_project)
+        setup_project.db.execute("UPDATE sheets SET hidden=1 WHERE id=?", (sheet,))
+        setup_project.db.commit()
+    workspace.save_recipe(
+        "Temporarily hidden",
+        {
+            "action_kind": "media.extract_document",
+            "project_id": "p",
+            "sheet_id": sheet,
+            "reference_row_id": rows[0],
+            "params": {"source": "document", "template": template.model_dump()},
+        },
+    )
+
+    hidden = workspace.get("p")
+    assert hidden.get_meta(LEGACY_EXTRACTION_LAYOUTS_META_KEY) is None
+    assert layouts.list_layouts(hidden, sheet, column) == []
+    hidden.db.execute("UPDATE sheets SET hidden=0 WHERE id=?", (sheet,))
+    hidden.db.commit()
+    workspace._projects.pop("p").close()
+
+    restored = workspace.get("p")
+    assert len(layouts.list_layouts(restored, sheet, column)) == 1
+    assert (
+        restored.get_meta(LEGACY_EXTRACTION_LAYOUTS_META_KEY)
+        == LEGACY_EXTRACTION_LAYOUTS_VERSION
+    )
 
 
 def _restore_layout_predecessor(db):
