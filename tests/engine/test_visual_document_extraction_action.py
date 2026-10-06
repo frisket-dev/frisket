@@ -261,6 +261,7 @@ def test_page_scoped_pdf_geometry_and_run_only_read_selected_page(tmp_path):
     [reloaded] = service.templates("p", sheet, "document").templates
     assert reloaded.id == saved.id
     assert reloaded.draft.reference_page == 2
+    unsaved_draft = template.model_copy(update={"expand_values": True})
     preview = service.preview(
         "p",
         ExtractionPreviewRequest(
@@ -268,7 +269,7 @@ def test_page_scoped_pdf_geometry_and_run_only_read_selected_page(tmp_path):
             source="document",
             scope={"kind": "this", "row_id": rows[1]},
             layout_id=saved.id,
-            template=template,
+            template=unsaved_draft,
         ),
     )
     assert preview.documents[0].result.records[0].cells["value"].text == "SECOND-PAGE"

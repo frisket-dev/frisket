@@ -328,19 +328,21 @@ class AdmittedPositionedDocumentReader:
         layout_snapshot = None
         if params.layout_id is not None or selection is not None:
             from frisket.engine.store.extraction_layouts import (
-                resolve_document_scope,
-                validate_layout_scope,
+                resolve_extraction_request_scope,
             )
 
             try:
                 with project.read_snapshot() as snapshot:
-                    if params.layout_id is not None:
-                        layout = validate_layout_scope(
-                            snapshot,
-                            params.layout_id,
-                            scope.sheet_id,
-                            params.source.name,
-                        )
+                    if selection is not None and scope.row_ids is not None:
+                        raise ValueError("Use one document scope selection")
+                    layout, selection, row_ids = resolve_extraction_request_scope(
+                        snapshot,
+                        sheet_id=scope.sheet_id,
+                        source=params.source.name,
+                        layout_id=params.layout_id,
+                        scope=selection,
+                    )
+                    if layout is not None:
                         layout_snapshot = _layout_execution_snapshot(layout)
                         submitted = (
                             params.template.model_dump(mode="json"),
@@ -352,17 +354,6 @@ class AdmittedPositionedDocumentReader:
                                 "Run settings do not match the saved extraction layout",
                             )
                     if selection is not None:
-                        selection = selection.model_copy(
-                            update={"layout_id": params.layout_id}
-                        )
-                        if scope.row_ids is not None:
-                            raise ValueError("Use one document scope selection")
-                        row_ids = resolve_document_scope(
-                            snapshot,
-                            sheet_id=scope.sheet_id,
-                            source=params.source.name,
-                            scope=selection,
-                        )
                         if not row_ids:
                             raise TableError(
                                 "invalid_input_ref",

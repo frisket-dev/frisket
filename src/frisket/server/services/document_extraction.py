@@ -49,15 +49,12 @@ class DocumentExtractionService:
             template=body.template,
             repeat_group_id=body.repeat_group_id,
         )
-        scope = body.scope
-        if scope.kind == "layout" and scope.layout_id is None:
-            scope = scope.model_copy(update={"layout_id": body.layout_id})
-        if body.layout_id is not None:
-            extraction_layouts.validate_layout_scope(
-                project, body.layout_id, body.sheet_id, body.source
-            )
-        row_ids = extraction_layouts.resolve_document_scope(
-            project, sheet_id=body.sheet_id, source=body.source, scope=scope
+        _layout, _scope, row_ids = extraction_layouts.resolve_extraction_request_scope(
+            project,
+            sheet_id=body.sheet_id,
+            source=body.source,
+            layout_id=body.layout_id,
+            scope=body.scope,
         )
         if not row_ids:
             return ExtractionPreviewResponse(documents=[])

@@ -208,7 +208,7 @@ def compile_template(
             raise ValueError(
                 "Enable Continue across pages for a reference instance spanning pages"
             )
-    anchors: list[Anchor] = []
+    field_anchors: list[Anchor] = []
     for field in template.fields:
         if field.key.page not in pages or field.value.page not in pages:
             raise ValueError(f"Field {field.name!r} references a missing page")
@@ -229,7 +229,7 @@ def compile_template(
             )
         if not tokens:
             raise ValueError(f"Key {field.name!r} contains no positioned text")
-        anchors.append(
+        field_anchors.append(
             Anchor(
                 field.id,
                 _normalized(_text(tokens)),
@@ -239,6 +239,7 @@ def compile_template(
         )
     # Only explicit colon-terminated reference labels qualify as unselected
     # boundaries. Never train on selected values or arbitrary target prose.
+    boundary_anchors: list[Anchor] = []
     for page in reference.pages:
         page_tokens = _tokens(reference, page.page, template)
         for index, token in enumerate(page_tokens):
@@ -258,7 +259,7 @@ def compile_template(
                 ),
                 None,
             )
-            anchors.append(
+            boundary_anchors.append(
                 Anchor(
                     f"boundary:{page.page}:{index}",
                     _normalized(" ".join(item.text for item in label)),
@@ -267,10 +268,9 @@ def compile_template(
                     requires_colon=True,
                 )
             )
+    anchors = [*field_anchors, *boundary_anchors]
     compiled: list[CompiledField] = []
-    for field, own in zip(
-        template.fields, anchors[: len(template.fields)], strict=True
-    ):
+    for field, own in zip(template.fields, field_anchors, strict=True):
         candidates = [
             anchor
             for anchor in anchors
