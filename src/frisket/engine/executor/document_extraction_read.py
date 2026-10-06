@@ -119,11 +119,12 @@ def _ocr_pages(
                 )
             except (KeyError, ValueError, TypeError):
                 continue
-            granularity = "word" if resolved.engine == "tesseract" else "block"
-            if resolved.engine in {"rapidocr", "pp-ocrv6", "paddleocr", "datalab"}:
-                granularity = "line"
             tokens.setdefault(token.page, []).append(
-                PositionedToken(text=token.text, box=region, granularity=granularity)
+                PositionedToken(
+                    text=token.text,
+                    box=region,
+                    granularity=resolved.token_granularity,
+                )
             )
         if not tokens:
             continue

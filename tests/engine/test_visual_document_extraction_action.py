@@ -26,7 +26,7 @@ from frisket.server.services.document_extraction import DocumentExtractionServic
 from frisket.server.workspace import Workspace
 
 
-def seed(project, count=2, *, repeats=False, engine="tesseract"):
+def seed(project, count=2, *, repeats=False, engine="tesseract", granularity=None):
     sheet = project.add_sheet("Documents")
     column = project.add_column(sheet, "document", "file")
     blobs = []
@@ -42,6 +42,11 @@ def seed(project, count=2, *, repeats=False, engine="tesseract"):
             media_type="image/png",
             metadata={
                 "engine": engine,
+                **(
+                    {"ocr_token_granularity": granularity}
+                    if granularity is not None
+                    else {}
+                ),
                 "page_images": {"1": {"source_width": 100, "source_height": 100}},
             },
         )
@@ -417,6 +422,30 @@ def test_native_pdf_page_is_selected_before_positioned_text_extraction(
     assert loaded.page_count == 2
     assert [page.page for page in loaded.document.pages] == [2]
     assert loaded.document.pages[0].tokens[0].text == "SECOND-PAGE"
+
+
+def test_ocr_geometry_uses_producer_contract_with_legacy_fallback(tmp_path):
+    with closing(Project.create(tmp_path / "project")) as project:
+        sheet, column, rows, _template = seed(
+            project, count=2, engine="rapidocr", granularity="block"
+        )
+        values = project.get_values(sheet, column)
+        explicit = load_positioned_document(project, values[rows[0]]["blob"])
+        assert {token.granularity for token in explicit.document.pages[0].tokens} == {
+            "block"
+        }
+
+        legacy_blob = values[rows[1]]["blob"]
+        project.db.execute(
+            "UPDATE source_artifacts SET metadata=json_remove(metadata, "
+            "'$.ocr_token_granularity') WHERE blob_hash=?",
+            (legacy_blob,),
+        )
+        project.db.commit()
+        legacy = load_positioned_document(project, legacy_blob)
+        assert {token.granularity for token in legacy.document.pages[0].tokens} == {
+            "line"
+        }
 
 
 def test_page_scoped_ocr_only_suppresses_native_fallback_for_its_page(

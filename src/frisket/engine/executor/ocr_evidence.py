@@ -21,6 +21,15 @@ from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 
 
+def _ocr_token_granularity_metadata(read):
+    if "ocr_token_granularity" not in read:
+        return {}
+    value = read["ocr_token_granularity"]
+    if value not in {"word", "line", "block"}:
+        raise ValueError("OCR evidence has invalid token granularity")
+    return {"ocr_token_granularity": value}
+
+
 def _register_page_images(project, page_images):
     """The reader promotes CAS bytes; only the accepted writer registers them."""
     blobs = MediaBlobStore(project)
@@ -221,6 +230,7 @@ def write_ocr_evidence(
                 source_column_id=source["column_id"],
                 metadata={
                     "engine": engine,
+                    **_ocr_token_granularity_metadata(read),
                     "dpi": read["options"].get("dpi", 200),
                     "page_images": page_images,
                 },
@@ -238,6 +248,7 @@ def write_ocr_evidence(
                 artifact["id"],
                 {
                     "engine": engine,
+                    **_ocr_token_granularity_metadata(read),
                     "dpi": (read.get("options") or {}).get("dpi", 200),
                     "page_images": page_images,
                 },
