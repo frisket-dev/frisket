@@ -20,13 +20,19 @@ from frisket.engine.store import extraction_layouts as layouts
 from frisket.engine.store import extraction_layouts_migration as migration
 from frisket.engine.store.extraction_layouts_migration import (
     EXTRACTION_LAYOUTS_FROM_DIGEST,
-    EXTRACTION_LAYOUTS_TO_DIGEST,
 )
-from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
+from frisket.engine.store.schema import (
+    SCALAR_CURRENT_CELL_VALUES_SQL,
+    SCHEMA_DIGEST,
+    SCHEMA_DIGEST_META_KEY,
+)
 from frisket.server.services.document_extraction import DocumentExtractionService
 from frisket.server.workspace import Workspace
 from tests.engine.test_visual_document_extraction_action import seed
-from tests.engine.test_bundle_schema_fence import _remove_extraction_layouts
+from tests.engine.test_bundle_schema_fence import (
+    _remove_extraction_layouts,
+    _remove_prepared_content,
+)
 
 
 def save(project, sheet, template, **kwargs):
@@ -281,10 +287,17 @@ def test_saved_template_import_does_not_swallow_database_failure(tmp_path, monke
         DocumentExtractionService(workspace).templates("p", sheet, "document")
 
 
+def _restore_layout_predecessor(db):
+    _remove_extraction_layouts(db)
+    db.execute("DROP VIEW current_cell_values")
+    _remove_prepared_content(db)
+    db.execute(SCALAR_CURRENT_CELL_VALUES_SQL)
+
+
 def _prior_layout_bundle(path):
     Project.create(path).close()
     with sqlite3.connect(path / "project.db") as db:
-        _remove_extraction_layouts(db)
+        _restore_layout_predecessor(db)
         db.execute(
             "UPDATE meta SET value=? WHERE key=?",
             (EXTRACTION_LAYOUTS_FROM_DIGEST, SCHEMA_DIGEST_META_KEY),
@@ -355,22 +368,13 @@ def test_prior_bundle_upgrade_preserves_source_cells_and_op_history(tmp_path):
             tuple(row) for row in project.db.execute("SELECT * FROM ops ORDER BY id")
         ]
     with sqlite3.connect(path / "project.db") as db:
-        for table in (
-            "extraction_layout_documents",
-            "extraction_layout_selection",
-            "extraction_layouts",
-        ):
-            db.execute(f"DROP TABLE {table}")
+        _restore_layout_predecessor(db)
         db.execute(
             "UPDATE meta SET value=? WHERE key=?",
             (EXTRACTION_LAYOUTS_FROM_DIGEST, SCHEMA_DIGEST_META_KEY),
         )
     with closing(Project(path)) as upgraded:
-        assert (
-            upgraded.get_meta(SCHEMA_DIGEST_META_KEY)
-            == EXTRACTION_LAYOUTS_TO_DIGEST
-            == SCHEMA_DIGEST
-        )
+        assert upgraded.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
         assert upgraded.get_values(sheet, column) == values
         assert [
             tuple(row) for row in upgraded.db.execute("SELECT * FROM ops ORDER BY id")
