@@ -113,7 +113,7 @@ def _markdown_to_plain_text(markdown: str) -> str:
     ).strip()
 
 
-def _parse_bbox(raw: str) -> list[list[int]] | None:
+def _parse_bbox(raw: str, *, width: int, height: int) -> list[list[int]] | None:
     fields = [field.strip() for field in raw.split(",")]
     if len(fields) != 4:
         return None
@@ -126,16 +126,33 @@ def _parse_bbox(raw: str) -> list[list[int]] | None:
         return None
     if x2 <= x1 or y2 <= y1:
         return None
-    return [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
+    scaled_x1 = round(x1 * width / 1000)
+    scaled_y1 = round(y1 * height / 1000)
+    scaled_x2 = round(x2 * width / 1000)
+    scaled_y2 = round(y2 * height / 1000)
+    if scaled_x2 <= scaled_x1 or scaled_y2 <= scaled_y1:
+        return None
+    return [
+        [scaled_x1, scaled_y1],
+        [scaled_x2, scaled_y1],
+        [scaled_x2, scaled_y2],
+        [scaled_x1, scaled_y2],
+    ]
 
 
-def parse_grounding(raw: str) -> dict[str, Any]:
+def parse_grounding(
+    raw: str, *, width: int = 1000, height: int = 1000
+) -> dict[str, Any]:
     """Convert LightOnOCR grounding markers to the shared OCR page shape.
 
-    Geometry is accepted only when all four normalized coordinates are valid.
-    Image and chart blocks contain generated descriptions or inferred data, not
-    recognized page text, and are therefore excluded from OCR output.
+    Geometry is accepted only when all four normalized coordinates are valid,
+    then projected into the original input image's pixel dimensions. Image and
+    chart blocks contain generated descriptions or inferred data, not recognized
+    page text, and are therefore excluded from OCR output.
     """
+
+    if width <= 0 or height <= 0:
+        raise ValueError("Grounding image dimensions must be positive")
 
     matches = list(_GROUNDING_MARKER.finditer(raw))
     blocks: list[dict[str, Any]] = []
@@ -155,7 +172,7 @@ def parse_grounding(raw: str) -> dict[str, Any]:
         if not text:
             continue
         block: dict[str, Any] = {"text": text, "type": label}
-        if bbox := _parse_bbox(marker.group(2)):
+        if bbox := _parse_bbox(marker.group(2), width=width, height=height):
             block["bbox"] = bbox
         blocks.append(block)
 
@@ -240,13 +257,14 @@ class LightOnOCRAdapter:
         converted.thumbnail((MAX_IMAGE_EDGE, MAX_IMAGE_EDGE))
         return converted
 
-    def _decode_image(self, data: bytes) -> Any:
+    def _decode_image(self, data: bytes) -> tuple[Any, tuple[int, int]]:
         from PIL import Image
 
         image = Image.open(io.BytesIO(data))
         try:
             image.load()
-            return self._prepare_image(image)
+            original_size = tuple(image.size)
+            return self._prepare_image(image), original_size
         except BaseException:
             _close(image)
             raise
@@ -290,9 +308,15 @@ class LightOnOCRAdapter:
     def ocr(self, images: list[bytes]) -> list[dict[str, Any]]:
         pages: list[dict[str, Any]] = []
         for data in images:
-            image = self._decode_image(data)
+            image, (width, height) = self._decode_image(data)
             try:
-                pages.append(parse_grounding(self._generate(image, "grounding")))
+                pages.append(
+                    parse_grounding(
+                        self._generate(image, "grounding"),
+                        width=width,
+                        height=height,
+                    )
+                )
             finally:
                 _close(image)
         return pages
@@ -309,7 +333,15 @@ class LightOnOCRAdapter:
                 bitmap = None
                 image = None
                 try:
-                    bitmap = page.render(scale=PDF_RENDER_DPI / 72)
+                    page_width, page_height = page.get_size()
+                    longest_edge = max(float(page_width), float(page_height))
+                    if longest_edge <= 0:
+                        raise ValueError("PDF page dimensions must be positive")
+                    scale = min(
+                        PDF_RENDER_DPI / 72,
+                        MAX_IMAGE_EDGE / longest_edge,
+                    )
+                    bitmap = page.render(scale=scale)
                     image = self._prepare_image(bitmap.to_pil())
                     markdown_pages.append(self._generate(image, None))
                     ocr_used.append(True)
@@ -328,7 +360,7 @@ class LightOnOCRAdapter:
         if _looks_like_pdf(data):
             markdown_pages, ocr_used = self._markdown_from_pdf(data)
         else:
-            image = self._decode_image(data)
+            image, _original_size = self._decode_image(data)
             try:
                 markdown_pages = [self._generate(image, None)]
                 ocr_used = [True]
@@ -364,6 +396,7 @@ def load_lightonocr(engine: str) -> LightOnOCRAdapter:
     processor = AutoProcessor.from_pretrained(
         profile.model_id,
         revision=profile.revision,
+        backend="pil",
     )
     return LightOnOCRAdapter(
         engine=engine,

@@ -59,9 +59,15 @@ class _Model:
 
 
 class _Image:
-    def __init__(self, name: str, events: list[object]) -> None:
+    def __init__(
+        self,
+        name: str,
+        events: list[object],
+        size: tuple[int, int] = (1000, 1000),
+    ) -> None:
         self.name = name
         self.events = events
+        self.size = size
 
     def load(self) -> None:
         self.events.append(("load", self.name))
@@ -72,6 +78,8 @@ class _Image:
 
     def thumbnail(self, size: tuple[int, int]) -> None:
         self.events.append(("thumbnail", self.name, size))
+        ratio = min(1, size[0] / self.size[0], size[1] / self.size[1])
+        self.size = (round(self.size[0] * ratio), round(self.size[1] * ratio))
 
     def close(self) -> None:
         self.events.append(("image-close", self.name))
@@ -147,7 +155,7 @@ def test_load_uses_pinned_native_qwen_profiles(
     )
     assert calls["processor_load"] == (
         model_id,
-        {"revision": revision},
+        {"revision": revision, "backend": "pil"},
     )
     assert "trust_remote_code" not in calls["model_load"][1]
     assert calls["model_device"] == "cpu"
@@ -233,6 +241,19 @@ def test_grounding_parser_never_invents_invalid_geometry() -> None:
     assert all("bbox" not in block for block in page["blocks"])
 
 
+def test_grounding_parser_scales_to_original_non_square_image() -> None:
+    page = lightonocr.parse_grounding(
+        "![text](100,200,900,800)\nScaled", width=2000, height=500
+    )
+
+    assert page["blocks"][0]["bbox"] == [
+        [200, 100],
+        [1800, 100],
+        [1800, 400],
+        [200, 400],
+    ]
+
+
 def test_public_methods_use_grounding_for_ocr_and_image_only_for_markdown(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -241,7 +262,7 @@ def test_public_methods_use_grounding_for_ocr_and_image_only_for_markdown(
     processor = _Processor(
         calls,
         [
-            "![text](1,2,30,40)\n**First** page",
+            "![text](100,200,900,800)\n**First** page",
             "# Plain page",
         ],
     )
@@ -257,7 +278,7 @@ def test_public_methods_use_grounding_for_ocr_and_image_only_for_markdown(
         @staticmethod
         def open(stream: object) -> _Image:
             events.append(("open", stream.read()))
-            return _Image("input", events)
+            return _Image("input", events, size=(4000, 2000))
 
     monkeypatch.setitem(sys.modules, "PIL", SimpleNamespace(Image=ImageModule))
 
@@ -268,7 +289,12 @@ def test_public_methods_use_grounding_for_ocr_and_image_only_for_markdown(
                 {
                     "text": "First page",
                     "type": "text",
-                    "bbox": [[1, 2], [30, 2], [30, 40], [1, 40]],
+                    "bbox": [
+                        [400, 400],
+                        [3600, 400],
+                        [3600, 1600],
+                        [400, 1600],
+                    ],
                 }
             ],
         }
@@ -294,6 +320,7 @@ def test_public_methods_use_grounding_for_ocr_and_image_only_for_markdown(
     )
     assert all(options["do_sample"] is False for options in calls["generate_options"])
     assert events.count(("thumbnail", "input", (2048, 2048))) == 2
+    assert conversations[0][0]["content"][0]["image"].size == (2048, 1024)
 
 
 def test_pdf_pages_render_and_generate_one_at_a_time(
@@ -330,6 +357,9 @@ def test_pdf_pages_render_and_generate_one_at_a_time(
             events.append(("render", self.index, scale))
             return Bitmap(_Image(f"page-{self.index}", events))
 
+        def get_size(self) -> tuple[int, int]:
+            return (1000, 2000)
+
         def close(self) -> None:
             events.append(("page-close", self.index))
 
@@ -362,8 +392,8 @@ def test_pdf_pages_render_and_generate_one_at_a_time(
     assert [
         event for event in events if isinstance(event, tuple) and event[0] == "render"
     ] == [
-        ("render", 0, pytest.approx(400 / 72)),
-        ("render", 1, pytest.approx(400 / 72)),
+        ("render", 0, pytest.approx(2048 / 2000)),
+        ("render", 1, pytest.approx(2048 / 2000)),
     ]
     assert events[-1] == "pdf-close"
 
