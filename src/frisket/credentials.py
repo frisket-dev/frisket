@@ -56,11 +56,15 @@ def resolve_credential_with_source(
     env_value = (os.environ if env is None else env).get(name)
     if env_value:
         return ResolvedCredential(env_value, "local")
-    if name == "DATALAB_API_KEY":
-        # Inline Datalab setup uses the existing encrypted provider-key store.
+    provider = {
+        "DATALAB_API_KEY": "datalab",
+        "OPEN_DOC_ROUTER_API_KEY": "opendocrouter",
+    }.get(name)
+    if provider is not None:
+        # Document-provider setup uses the encrypted provider-key store.
         # Preserve environment precedence and existing project-secret keys.
         provider_keys = getattr(project, "provider_model_keys", None)
-        value = provider_keys().get("datalab") if callable(provider_keys) else None
+        value = provider_keys().get(provider) if callable(provider_keys) else None
         if value:
             return ResolvedCredential(value, "project_key")
     secret_plaintext = getattr(project, "secret_plaintext", None)

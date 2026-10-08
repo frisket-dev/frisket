@@ -29,6 +29,7 @@ from frisket.execution.promise_compiler import (
     OperatorBorneZeroCost,
     PricedCostBasis,
     UnpriceableCost,
+    ProviderUsageCost,
 )
 from frisket.execution.targets import (
     CAPABILITY_CENSUS,
@@ -311,6 +312,8 @@ def sku_for(*, capability: str, target_id: str, engine: str) -> str | None:
     credential/funding marker.  ``None`` is the honest absence of a provider
     cost meter (local compute, Nominatim, and US Census).
     """
+    if target_id == "opendocrouter":
+        return f"{engine}.parse_page"
     if capability in _PHASE_4_CAPABILITIES:
         # The engine is not part of the key for these: every venue
         # serves exactly one engine for its capability (Datalab's 'datalab'
@@ -602,6 +605,8 @@ def quote_ocr(
         # pp-ocrv6/paddleocr-vl: operator
         # already owns that compute and no per-request meter exists.
         return OperatorBorneZeroCost()
+    if target_id == "opendocrouter":
+        return ProviderUsageCost(pricing_key=sku)
     if pages is None:
         return UnpriceableCost()
     terms = _provider_direct_terms(CAPABILITY_OCR, sku)
@@ -659,6 +664,8 @@ def _quote_catalog_sku(
     sku = sku_for(capability=capability, target_id=target_id, engine=engine)
     if sku is None:
         return OperatorBorneZeroCost()
+    if target_id == "opendocrouter":
+        return ProviderUsageCost(pricing_key=sku)
     if quantity is None:
         return UnpriceableCost()
     rate = catalog_list_price(sku)
@@ -837,6 +844,8 @@ def live_cost_fact(
         fact["hardware_class"] = hardware
     if sku is None:
         return fact
+    if target_id == "opendocrouter":
+        return {**fact, "charge_authority": "provider_usage"}
     fact.update(_provider_direct_terms(capability, sku))
     if sku == SKU_DATALAB_OCR_PAGE:
         # The provider's own list price, observed live: an operator who edits
@@ -872,6 +881,29 @@ def live_cost_fact(
 # ---------------------------------------------------------------------------
 # settlement: "what did it cost"
 # ---------------------------------------------------------------------------
+
+
+def _settle_provider_usage(
+    *, pricing_key, price_card_version, terminal_status, metered_units, provider_costs
+):
+    from frisket.ai.models.metadata import provider_cost_value, provider_cost_total
+
+    costs = (
+        list(provider_costs)
+        if provider_costs is not None and len(provider_costs) == len(metered_units)
+        else [None] * len(metered_units)
+    )
+    known = sum(provider_cost_value(value) is not None for value in costs)
+    total = provider_cost_total(costs)
+    return {
+        "price_card_version": price_card_version,
+        "terminal_status": terminal_status,
+        "pricing_key": pricing_key,
+        "charge_authority": "provider_usage",
+        "charge_usd": decimal_str(total) if total is not None else None,
+        "rated_calls": known,
+        "unmetered_calls": len(metered_units) - known,
+    }
 
 
 def settle(
@@ -912,6 +944,33 @@ def settle(
             "rated_calls": 0,
             "unmetered_calls": 0,
         }
+    if kind == "provider_usage":
+        key = cost_basis.get("pricing_key")
+        if (
+            not isinstance(key, str)
+            or not key.strip()
+            or key != key.strip()
+            or not metered_units
+        ):
+            return {
+                "price_card_version": price_card_version,
+                "terminal_status": terminal_status,
+                "pricing_key": key,
+                "charge_authority": "provider_usage",
+                "charge_usd": None,
+                "rated_calls": 0,
+                "unmetered_calls": len(metered_units),
+                "unsettleable": "unmetered"
+                if not metered_units
+                else "settlement_terms_invalid",
+            }
+        return _settle_provider_usage(
+            pricing_key=key,
+            price_card_version=price_card_version,
+            terminal_status=terminal_status,
+            metered_units=metered_units,
+            provider_costs=provider_costs,
+        )
     if kind != "priced":
         # Unpriceable, or an attempt with no cost basis at all: an honest
         # "cannot say", never a fabricated total.
@@ -1086,29 +1145,13 @@ def settle(
         }
 
     if charge_authority == "provider_usage":
-        # A page-based token allowance is useful before execution, but is
-        # not a tariff. Never turn the estimate into a purported actual bill.
-        total = Decimal(0)
-        known = 0
-        if provider_costs is not None and len(provider_costs) == len(metered_units):
-            for raw_cost in provider_costs:
-                try:
-                    amount = _to_decimal(raw_cost)
-                except (InvalidOperation, TypeError, ValueError):
-                    continue
-                if amount < 0:
-                    continue
-                total += amount
-                known += 1
-        return {
-            "price_card_version": price_card_version,
-            "terminal_status": terminal_status,
-            "pricing_key": pricing_key,
-            "charge_authority": charge_authority,
-            "charge_usd": decimal_str(total) if known == len(metered_units) else None,
-            "rated_calls": known,
-            "unmetered_calls": len(metered_units) - known,
-        }
+        return _settle_provider_usage(
+            pricing_key=pricing_key,
+            price_card_version=price_card_version,
+            terminal_status=terminal_status,
+            metered_units=metered_units,
+            provider_costs=provider_costs,
+        )
 
     metered = Decimal(0)
     rated = 0

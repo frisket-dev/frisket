@@ -1,4 +1,4 @@
-"""Shared acceptance-boundary accounting for Datalab-backed recipes."""
+"""Shared acceptance-boundary accounting for hosted document providers."""
 
 from __future__ import annotations
 
@@ -11,25 +11,16 @@ from frisket.ops.base import OpContext
 from frisket.engine.store.runs import RunResultStore
 
 
-def persist_datalab_accepted_accounting(
+def persist_hosted_accepted_accounting(
     ctx: OpContext,
     accounting: dict[str, Any],
 ) -> None:
     """Persist the provider's accepted job before its first poll.
 
-    Direct client/recipe calls have no run ledger; MapRunner contexts always
-    carry the run and row ids. A ROUTED capability additionally owns a routed
-    execution epoch, so bind the acceptance fact at the same observation seam
-    as the completed fact (``bind_fact_to_route`` is capability-neutral —
-    every field it derives comes from the route row, not the fact's own
-    capability). Gated on ``RunResultStore._ROUTED_FACT_CAPABILITIES`` — the
-    same ground truth the epoch invariant checks at write time — rather than
-    a single hardcoded capability, so a second Datalab-backed capability
-    (document.convert, alongside OCR) binds here too instead of writing a
-    silent unbound fact under a routed run. The writer receives a deep copy
-    because it consumes the transient route-observation payload; the live
-    envelope must retain it for the later completed/error row write of the
-    same fact id.
+    Direct calls may have no run ledger. Routed calls bind the fact to their
+    execution epoch before writing it. The writer consumes transient route
+    observations, so pass a deep copy and retain the original envelope for the
+    later returned-row write that attaches its final charge and output column.
     """
     run_id = (ctx.extras or {}).get("run_id")
     row_id = (ctx.extras or {}).get("row_id")
@@ -39,7 +30,7 @@ def persist_datalab_accepted_accounting(
         return
     calls = accounting.get("model_calls")
     if not isinstance(calls, list) or len(calls) != 1 or not isinstance(calls[0], dict):
-        raise RuntimeError("Datalab acceptance accounting requires one provider fact")
+        raise RuntimeError("Hosted acceptance accounting requires one provider fact")
 
     admission = routed_admission_in_scope(ctx.extras)
     if admission is not None and (

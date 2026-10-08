@@ -1,0 +1,376 @@
+"""OpenDocRouter's document API, shared by conversion and OCR.
+
+Official wire contract: https://www.opendocrouter.ai/docs.md (2026-10-08).
+No billable submission is automatically retried. Async jobs require encrypted
+24-hour result storage; delete it after retrieval, failure or cancellation.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import base64
+import time
+from collections.abc import Callable
+from pathlib import Path
+from urllib.parse import urlsplit
+from uuid import UUID
+
+import httpx
+
+from frisket.ai.models.metadata import ModelCallMeta, provider_cost_value
+from frisket.ops.integrations.hosted_error import HostedEngineError
+from frisket.ops.netguard import safe_request, EgressRefused, ResponseTooLarge
+
+BASE_URL = "https://www.opendocrouter.ai/v1"
+MAX_BYTES = 50 * 1024 * 1024
+INLINE_BYTES = 2 * 1024 * 1024
+POLL_SECONDS = 5.0
+TIMEOUT_SECONDS = 3600.0
+
+
+def input_details(path: Path) -> tuple[str, int]:
+    """Identify supported bytes before any upload; a filename isn't authority."""
+    if path.stat().st_size > MAX_BYTES:
+        raise HostedEngineError(
+            "bad_request", "OpenDocRouter accepts files up to 50 MB."
+        )
+    with path.open("rb") as source:
+        header = source.read(1024)
+    if header.startswith(b"%PDF-"):
+        try:
+            from pypdf import PdfReader
+
+            with path.open("rb") as source:
+                pages = len(PdfReader(source).pages)
+        except Exception as exc:
+            raise HostedEngineError(
+                "bad_request", "This PDF could not be read."
+            ) from exc
+        if not 1 <= pages <= 500:
+            raise HostedEngineError(
+                "bad_request", "OpenDocRouter accepts PDFs with 1–500 pages."
+            )
+        return "application/pdf", pages
+    if header.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png", 1
+    if header.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg", 1
+    raise HostedEngineError(
+        "bad_request",
+        "OpenDocRouter accepts PDF, PNG and JPEG files. Choose another engine for this file.",
+    )
+
+
+async def _request(client: httpx.AsyncClient, method: str, url: str, **kwargs) -> dict:
+    try:
+        response = await client.request(method, url, follow_redirects=False, **kwargs)
+    except httpx.HTTPError:
+        # URLs may contain signed credentials; provider text may echo input.
+        raise HostedEngineError(
+            "transport",
+            "Could not reach OpenDocRouter. The request may have been processed; check your provider usage before retrying.",
+        ) from None
+    if response.is_error or response.is_redirect:
+        code, message = {
+            401: ("auth", "Check your OpenDocRouter API key."),
+            402: ("quota", "Your OpenDocRouter account needs more credits."),
+            403: ("permission", "Your OpenDocRouter account cannot run this request."),
+            413: ("bad_request", "The document exceeds OpenDocRouter's size limit."),
+            415: ("bad_request", "OpenDocRouter could not recognize this file type."),
+            422: ("bad_request", "OpenDocRouter could not read this document."),
+            429: ("quota", "OpenDocRouter is busy. Try again later."),
+        }.get(
+            response.status_code,
+            ("http", f"OpenDocRouter returned HTTP {response.status_code}."),
+        )
+        raise HostedEngineError(code, message)
+    if method == "PUT" or method == "DELETE":
+        return {}
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        raise HostedEngineError(
+            "http", "OpenDocRouter returned an unreadable response."
+        )
+    return body
+
+
+def _job_id(body: dict) -> str:
+    try:
+        return str(UUID(body["id"]))
+    except (KeyError, ValueError, TypeError, AttributeError):
+        raise HostedEngineError(
+            "http", "OpenDocRouter did not return a valid request ID."
+        ) from None
+
+
+def _accounting(
+    body: dict, engine: str, capability: str, credential_source: str
+) -> dict:
+    job_id = _job_id(body)
+    fact = ModelCallMeta.provider_call(
+        capability=capability,
+        engine=engine,
+        provider="opendocrouter",
+        provider_kind="platform_api",
+        model_ids=[engine.removeprefix("opendocrouter/")],
+        credential_source=credential_source,
+        provider_reported_cost_usd=None,
+        provider_cost_usd=None,
+        cost_source="unknown",
+        units={"requests": 1},
+        request_id=job_id,
+        duration_ms=None,
+    ).as_dict()
+    fact["id"] = f"opendocrouter_{job_id}"
+    return {"tokens_in": None, "tokens_out": None, "cost": None, "model_calls": [fact]}
+
+
+def _enrich(accounting: dict, body: dict, started: float) -> None:
+    fact = accounting["model_calls"][0]
+    settled = body.get("status") in {
+        "completed",
+        "partial",
+        "failed",
+        "expired",
+        "rejected",
+    }
+    cost = provider_cost_value(body.get("charge_usd")) if settled else None
+    accounting["cost"] = fact["provider_cost_usd"] = fact[
+        "provider_reported_cost_usd"
+    ] = cost
+    fact["cost_source"] = "provider_reported" if cost is not None else "unknown"
+    fact["duration_ms"] = int((time.monotonic() - started) * 1000) if settled else None
+    units = fact["units"]
+    if type(body.get("page_count")) is int:
+        units["pages"] = body["page_count"]
+    for name in ("model_version", "price_version"):
+        if isinstance(body.get(name), str):
+            units[name] = body[name]
+    usage = body.get("usage") or {}
+    for name, key in (("input_tokens", "tokens_in"), ("output_tokens", "tokens_out")):
+        value = usage.get(name)
+        if type(value) is int and value >= 0:
+            accounting[key] = units[name] = value
+
+
+async def parse_document(
+    client: httpx.AsyncClient,
+    *,
+    path: Path,
+    engine: str,
+    api_key: str,
+    capability: str,
+    credential_source: str,
+    layout: bool = False,
+    should_cancel: Callable[[], bool] | None = None,
+    on_accounting: Callable[[dict], None] | None = None,
+) -> tuple[list[dict], dict]:
+    mime, count = input_details(path)
+    headers = {"Authorization": f"Bearer {api_key}"}
+    asynchronous = count > 50
+    started = time.monotonic()
+    accounting = None
+    job_url = None
+
+    def check_cancel():
+        if should_cancel and should_cancel():
+            raise HostedEngineError(
+                "cancelled", "OpenDocRouter processing was stopped."
+            )
+        if time.monotonic() - started > TIMEOUT_SECONDS:
+            raise HostedEngineError("timeout", "OpenDocRouter processing timed out.")
+
+    def notify_accounting():
+        if on_accounting:
+            try:
+                on_accounting(accounting)
+            except Exception as exc:
+                raise HostedEngineError(
+                    "accounting",
+                    "OpenDocRouter processed the request, but its accounting could not be saved. Check provider usage before retrying.",
+                ) from exc
+
+    def record(body):
+        _enrich(accounting, body, started)
+        notify_accounting()
+
+    check_cancel()
+    if path.stat().st_size <= INLINE_BYTES:
+        document = {
+            "data": base64.b64encode(path.read_bytes()).decode("ascii"),
+            "mime_type": mime,
+        }
+    else:
+        upload = await _request(
+            client, "POST", f"{BASE_URL}/uploads", headers=headers, timeout=30
+        )
+        url = upload.get("upload_url", "")
+        parsed = urlsplit(url)
+        # Presigned storage URLs originate at the fixed, authenticated provider.
+        # Never send our provider credential or client defaults to that origin.
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.port not in (None, 443)
+        ):
+            raise HostedEngineError(
+                "http", "OpenDocRouter returned an invalid upload destination."
+            )
+        if path.stat().st_size > upload.get("max_bytes", 0):
+            raise HostedEngineError(
+                "bad_request", "The file exceeds OpenDocRouter's upload limit."
+            )
+        check_cancel()
+        try:
+            response = await safe_request(
+                client,
+                "PUT",
+                url,
+                content=path.read_bytes(),
+                headers={"Content-Type": mime},
+                timeout=120,
+                max_bytes=65536,
+                follow_redirects=False,
+            )
+        except (httpx.HTTPError, EgressRefused, ResponseTooLarge, TimeoutError):
+            raise HostedEngineError(
+                "transport", "Could not upload the document to OpenDocRouter."
+            ) from None
+        if not 200 <= response.status_code < 300:
+            raise HostedEngineError("http", "OpenDocRouter's document upload failed.")
+        document = {"upload_id": str(UUID(upload["upload_id"]))}
+    check_cancel()
+    try:
+        submit = asyncio.create_task(
+            _request(
+                client,
+                "POST",
+                f"{BASE_URL}/parse",
+                headers=headers,
+                timeout=600,
+                json={
+                    "model": engine.removeprefix("opendocrouter/"),
+                    "document": document,
+                    "layout": layout,
+                    "mode": "async" if asynchronous else "sync",
+                    "cache": asynchronous,
+                },
+            )
+        )
+        interrupted = False
+        try:
+            body = await asyncio.shield(submit)
+        except asyncio.CancelledError:
+            # A submitted synchronous request can still incur a charge. Drain
+            # it and record the provider response before honoring cancellation.
+            body = await submit
+            interrupted = True
+        accounting = _accounting(body, engine, capability, credential_source)
+        job_url = f"{BASE_URL}/parse/{accounting['model_calls'][0]['request_id']}"
+        # Acceptance is durable with unknown meters. The normal returned-row
+        # writer later enriches that same fact and attaches its output column.
+        notify_accounting()
+        record(body)
+        if interrupted:
+            raise HostedEngineError(
+                "cancelled", "OpenDocRouter processing was stopped."
+            )
+        check_cancel()
+        while body.get("status") == "processing":
+            check_cancel()
+            await asyncio.sleep(POLL_SECONDS)
+            check_cancel()
+            body = await _request(client, "GET", job_url, headers=headers, timeout=30)
+            record(body)
+        if asynchronous:
+            check_cancel()
+            body = await _request(
+                client,
+                "GET",
+                job_url,
+                headers=headers,
+                timeout=30,
+                params={"expand": "markdown,layout" if layout else "markdown"},
+            )
+            record(body)
+        pages = list(body.get("pages") or [])
+        cursor = None
+        while body.get("has_more"):
+            check_cancel()
+            next_cursor = body.get("next_cursor")
+            if (
+                type(next_cursor) is not int
+                or next_cursor < 0
+                or (cursor is not None and next_cursor <= cursor)
+            ):
+                raise HostedEngineError(
+                    "http", "OpenDocRouter returned invalid page pagination."
+                )
+            cursor = next_cursor
+            body = await _request(
+                client,
+                "GET",
+                job_url,
+                headers=headers,
+                timeout=30,
+                params={
+                    "expand": "markdown,layout" if layout else "markdown",
+                    "cursor": cursor,
+                },
+            )
+            pages.extend(body.get("pages") or [])
+            if len(pages) > count:
+                raise HostedEngineError(
+                    "http", "OpenDocRouter returned too many pages."
+                )
+        if (
+            body.get("status") != "completed"
+            or len(pages) != count
+            or any(p.get("status") != "ok" for p in pages)
+        ):
+            failed = [str(p.get("page")) for p in pages if p.get("status") != "ok"]
+            suffix = f" Failed pages: {', '.join(failed[:20])}." if failed else ""
+            raise HostedEngineError(
+                "http",
+                "OpenDocRouter could not convert every page. Successful pages may still be charged."
+                + suffix,
+            )
+        pages.sort(key=lambda p: p.get("page", 0))
+        if [p.get("page") for p in pages] != list(range(1, count + 1)) or any(
+            not isinstance(p.get("markdown"), str) for p in pages
+        ):
+            raise HostedEngineError(
+                "http", "OpenDocRouter returned incomplete page text."
+            )
+        return pages, accounting
+    except (HostedEngineError, asyncio.CancelledError) as error:
+        exc = (
+            error
+            if isinstance(error, HostedEngineError)
+            else HostedEngineError("cancelled", "OpenDocRouter processing was stopped.")
+        )
+        exc.accounting = accounting
+        exc.provider_job_accepted = accounting is not None and (
+            exc.code == "accounting"
+            or (asynchronous and body.get("status") == "processing")
+        )
+        raise exc
+    finally:
+        if asynchronous and job_url:
+            try:
+                await _request(client, "DELETE", job_url, headers=headers, timeout=10)
+                if accounting and accounting["cost"] is None:
+                    status = await _request(
+                        client, "GET", job_url, headers=headers, timeout=10
+                    )
+                    record(status)
+            except HostedEngineError:
+                if accounting:
+                    accounting["model_calls"][0]["warnings"].append(
+                        "Temporary OpenDocRouter results could not be deleted; the provider retains them for up to 24 hours."
+                    )

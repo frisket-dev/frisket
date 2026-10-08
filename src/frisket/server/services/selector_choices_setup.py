@@ -47,7 +47,9 @@ class SelectorSetupService:
             row["id"]: row for row in provider_key_status(self._workspace.root)
         }
         workspace_status = status_rows.get(provider, {})
-        if provider == "datalab" and os.environ.get(ENV_VAR[provider]):
+        if provider in {"datalab", "opendocrouter"} and os.environ.get(
+            ENV_VAR[provider]
+        ):
             workspace_status = {"source": "env"}
         project_row = project.provider_key_catalog_rows().get(provider)
         source = _credential_source(router, provider, raw_source=credential_source)

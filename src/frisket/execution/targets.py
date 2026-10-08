@@ -99,6 +99,7 @@ REMOTE_API_TARGET_ID_PREFIX = "remote-api:"
 #: invert the definitions -> resolver -> price-book import order, and a second
 #: spelling is one typo away from a venue pricing as another.
 DATALAB_TARGET_ID = "datalab"
+OPENDOCROUTER_TARGET_ID = "opendocrouter"
 #: The third-party venues, each its own family for the same reason
 #: Datalab is: the price book classifies a venue by its id, one target per
 #: provider, and a second spelling is one typo away from a venue pricing as

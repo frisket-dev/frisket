@@ -11,6 +11,7 @@ from frisket.contracts.actions.schemas._base import StrictPositiveInt, StrictStr
 from frisket.contracts.actions.schemas._engines import (
     OCR_DEAD_ENGINE_REPLACEMENTS,
     OCR_ENGINE_TABLE,
+    ocr_engine_has_geometry,
     TRANSCRIBE_DEAD_ENGINE_REPLACEMENTS,
     TRANSCRIBE_ENGINE_TABLE,
     alias_map,
@@ -46,7 +47,7 @@ class OcrOptions(ActionParams):
             engine, OCR_ENGINE_TABLE, OCR_DEAD_ENGINE_REPLACEMENTS, "invalid_ocr_engine"
         )
         options = type(self).model_validate(self.model_dump())
-        if options.searchable_pdf and "/" in engine:
+        if options.searchable_pdf and not ocr_engine_has_geometry(engine):
             raise ValueError("searchable_pdf_unsupported_engine")
         normalized: dict[str, Any] = {
             "dpi": options.dpi,

@@ -533,7 +533,7 @@ def preferred_static_choice(
     targets simply do not declare (callers keep their own fallbacks/
     messages for those)."""
     engine_id = _canonical_engine(raw_engine, capability)
-    if engine_id is None or "/" in engine_id:
+    if engine_id is None:
         return None
     candidates = [
         (target, support)
@@ -740,7 +740,10 @@ def resolve(
         )
 
     targets = list(provider.targets())
-    if "/" in engine_id:
+    static_choice = preferred_static_choice(
+        request.engine, request.options, targets, capability=capability
+    )
+    if "/" in engine_id and static_choice is None:
         provider_name = engine_id.partition("/")[0]
         target = next(
             (t for t in targets if t.id == _REMOTE_API_PREFIX + provider_name), None

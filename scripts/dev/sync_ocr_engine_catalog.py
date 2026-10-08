@@ -23,7 +23,10 @@ import argparse
 import json
 from pathlib import Path
 
-from frisket.contracts.actions.schemas._engines import OCR_ENGINE_TABLE
+from frisket.contracts.actions.schemas._engines import (
+    OCR_ENGINE_TABLE,
+    OPENDOCROUTER_ENGINES,
+)
 from frisket.server.action_catalog_hints import OCR_VISION_ENGINES
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -41,6 +44,7 @@ ROSTER_ORDER = [
     "gemini/gemini-3.5-flash",
     "openrouter/minimax/minimax-m3",
     "datalab",
+    *(entry.id for entry in OPENDOCROUTER_ENGINES),
 ]
 
 PRE_CATALOG_ERROR = "Action catalog unavailable"

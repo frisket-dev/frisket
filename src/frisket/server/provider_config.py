@@ -66,9 +66,17 @@ WORKSPACE_KEY_PROVIDERS: tuple[str, ...] = (
     *MODEL_KEY_PROVIDERS,
     *SEARCH_KEY_PROVIDERS,
 )
-# Datalab supports project keys, without a workspace key resolver or LLM models.
-PROJECT_KEY_PROVIDERS: tuple[str, ...] = (*MODEL_KEY_PROVIDERS, "datalab")
-VALIDATION_KEY_PROVIDERS: tuple[str, ...] = (*WORKSPACE_KEY_PROVIDERS, "datalab")
+# Document providers support project keys without workspace keys or LLM models.
+PROJECT_KEY_PROVIDERS: tuple[str, ...] = (
+    *MODEL_KEY_PROVIDERS,
+    "datalab",
+    "opendocrouter",
+)
+VALIDATION_KEY_PROVIDERS: tuple[str, ...] = (
+    *WORKSPACE_KEY_PROVIDERS,
+    "datalab",
+    "opendocrouter",
+)
 
 PROVIDER_ORDER: tuple[str, ...] = (*WORKSPACE_KEY_PROVIDERS, "ollama")
 
@@ -80,6 +88,7 @@ PROVIDER_LABELS: dict[str, str] = {
     "exa": "Exa",
     "tavily": "Tavily",
     "datalab": "Datalab",
+    "opendocrouter": "OpenDocRouter",
     # Qualified model IDs retain the ``ollama`` provider segment, while each
     # endpoint has its own ordinary endpoint_id. The slot supports any
     # OpenAI-compatible local server — Ollama, LM Studio, llama.cpp, or vLLM.
@@ -95,6 +104,7 @@ ENV_VAR: dict[str, str] = {
     "exa": "EXA_API_KEY",
     "tavily": "TAVILY_API_KEY",
     "datalab": "DATALAB_API_KEY",
+    "opendocrouter": "OPEN_DOC_ROUTER_API_KEY",
 }
 
 # Capability-contract provider_kind (mirrors models/metadata.py PROVIDER_KIND):
@@ -121,6 +131,7 @@ _PROBE_BASE: dict[str, str] = {
 _SEARCH_PROBE: dict[str, str] = {
     "exa": "https://api.exa.ai/v0/teams/me",
     "tavily": "https://api.tavily.com/usage",
+    "opendocrouter": "https://www.opendocrouter.ai/v1/credits",
 }
 
 VALIDATION_TOKEN_TTL_SECONDS = 10 * 60

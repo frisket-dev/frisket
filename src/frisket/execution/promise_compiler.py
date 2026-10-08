@@ -227,6 +227,21 @@ class UnpriceableCost:
 
 
 @dataclass(frozen=True)
+class ProviderUsageCost(UnpriceableCost):
+    """Unknown estimate, with actual cost supplied by the provider after use."""
+
+    pricing_key: str
+
+    def __post_init__(self):
+        if (
+            not isinstance(self.pricing_key, str)
+            or not self.pricing_key
+            or self.pricing_key != self.pricing_key.strip()
+        ):
+            raise ValueError("provider usage requires a clean pricing key")
+
+
+@dataclass(frozen=True)
 class OperatorBorneZeroCost:
     """Genuinely zero user cost (operator-borne local work): compiles NO
     cost row — absence of a claim, not a claim of zero."""
@@ -342,6 +357,16 @@ def compile_route_promises(
                 # ``cost le 0`` scored SATISFIED as a system detail while
                 # settlement metered the real work. A ceiling of zero is the
                 # STRONGEST claim in the set, not an absent one.
+                audience="user_claim",
+            )
+        )
+    elif isinstance(cost, ProviderUsageCost):
+        rows.append(
+            Promise.make(
+                "cost",
+                "unbounded",
+                None,
+                basis={"kind": "provider_usage", "pricing_key": cost.pricing_key},
                 audience="user_claim",
             )
         )

@@ -60,14 +60,18 @@ TranscriptionTransport = Literal[
 #:   transcription v1;
 #: - ``datalab.convert``  — Datalab's hosted /convert(output_format=json) API;
 #: - ``remote``           — a router-served ``provider/model`` VLM.
-OcrTransport = Literal["local", "sidecar.ocr", "datalab.convert", "remote"]
+OcrTransport = Literal[
+    "local", "sidecar.ocr", "datalab.convert", "opendocrouter.parse", "remote"
+]
 
 #: The wires a to_markdown engine is spoken to over. ``datalab.convert`` is
 #: spelled the same as OCR's because it IS the same endpoint — Datalab's
 #: /convert — asked for a different output format. The two capabilities share a
 #: venue and a wire and differ in the SKU they meter, which is why transport is
 #: a target-row field and the capability is a separate declaration beside it.
-ToMarkdownTransport = Literal["local", "sidecar.convert", "datalab.convert"]
+ToMarkdownTransport = Literal[
+    "local", "sidecar.convert", "datalab.convert", "opendocrouter.parse"
+]
 
 #: The wires a translate engine is spoken to over. ``local`` covers both local
 #: builds (opus_mt's CTranslate2 per-pair artifact and hy_mt2's GGUF); the two
@@ -194,13 +198,44 @@ class EngineDeclaration:
     run_scoped: bool = False
     listed: bool = True
     resolves_to: str | None = None
+    ocr_geometry: bool = False
     transcription: TranscriptionEngineCapabilities | None = None
 
 
+# Explicit product roster; opening the picker never performs a network request.
+# Source: https://www.opendocrouter.ai/v1/models, retrieved 2026-10-08.
+OPENDOCROUTER_MODELS = (
+    ("anthropic/claude-opus-5-5", "Claude Opus 5.5"),
+    ("anthropic/claude-haiku-5-5", "Claude Haiku 5.5"),
+    ("google/gemini-3-flash", "Gemini 3 Flash"),
+    ("google/gemini-3.8-flash-low", "Gemini 3.8 Flash"),
+    ("openai/gpt-5.6-terra", "GPT-5.6 Terra"),
+    ("openai/gpt-6-luna", "GPT-6 Luna"),
+    ("infly/infinity-parser2-flash", "Infinity-Parser2-Flash"),
+    ("opendatalab/mineru2.5-pro", "MinerU2.5-Pro"),
+    ("xingchen-agi/teleocr", "TeleOCR"),
+    ("rednote-hilab/dots.mocr", "dots.mocr"),
+    ("paddlepaddle/paddleocr-vl-1.6", "PaddleOCR-VL-1.6"),
+)
+OPENDOCROUTER_ENGINES = tuple(
+    EngineDeclaration(
+        id=f"opendocrouter/{model}",
+        label=f"{label} · OpenDocRouter",
+        ocr_geometry=True,
+        tier="hosted",
+        provider="opendocrouter",
+        billable=True,
+    )
+    for model, label in OPENDOCROUTER_MODELS
+)
+
+
 OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
+    *OPENDOCROUTER_ENGINES,
     EngineDeclaration(
         id="rapidocr",
         label="RapidOCR (local, default)",
+        ocr_geometry=True,
         tier="local",
         provider="local",
         # Retired venue/tier words ("light"/"local") are listed in
@@ -210,6 +245,7 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     EngineDeclaration(
         id="tesseract",
         label="Tesseract OCR (local, system binary)",
+        ocr_geometry=True,
         tier="local",
         provider="local",
         aliases=("tess",),
@@ -217,6 +253,7 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     EngineDeclaration(
         id="paddleocr-vl",
         label="PaddleOCR-VL document VLM (sidecar)",
+        ocr_geometry=True,
         tier="sidecar",
         provider="frisket-sidecar",
         aliases=("paddle", "paddleocr"),
@@ -224,6 +261,7 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     EngineDeclaration(
         id="dots.mocr",
         label="dots.mocr multilingual document parser (sidecar)",
+        ocr_geometry=True,
         tier="sidecar",
         provider="frisket-sidecar",
         # Retired venue/tier words ("quality"/"sidecar") are listed in
@@ -232,24 +270,28 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     EngineDeclaration(
         id="pp-ocrv6",
         label="PP-OCRv6 fast text OCR (sidecar)",
+        ocr_geometry=True,
         tier="sidecar",
         provider="frisket-sidecar",
     ),
     EngineDeclaration(
         id="glm-ocr",
         label="GLM-OCR 0.9B multilingual OCR (sidecar)",
+        ocr_geometry=False,
         tier="sidecar",
         provider="frisket-sidecar",
     ),
     EngineDeclaration(
         id="surya2",
         label="Surya 2 document OCR (local sidecar)",
+        ocr_geometry=True,
         tier="sidecar",
         provider="frisket-sidecar",
     ),
     EngineDeclaration(
         id="datalab",
         label="Datalab hosted OCR (hosted, pay-per-call)",
+        ocr_geometry=True,
         tier="hosted",
         provider="datalab",
         # Its old ``not_comparable`` reason ("bills per page; run it through
@@ -499,6 +541,7 @@ CLASSIFY_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
 
 
 TO_MARKDOWN_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
+    *OPENDOCROUTER_ENGINES,
     EngineDeclaration(
         id="markitdown",
         label="MarkItDown (local, default)",
@@ -819,3 +862,9 @@ def is_billable_engine(table: tuple[EngineDeclaration, ...], engine: str) -> boo
     if entry is not None:
         return entry.billable
     return "/" in engine
+
+
+def ocr_engine_has_geometry(engine: str) -> bool:
+    """Positioned text comes from the engine contract, never its ID syntax."""
+    declaration = find_engine(OCR_ENGINE_TABLE, engine)
+    return declaration is not None and declaration.ocr_geometry

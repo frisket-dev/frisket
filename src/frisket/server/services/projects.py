@@ -140,6 +140,13 @@ PROVIDER_CATALOG: list[dict[str, Any]] = [
         "policy_fields": ["spend_cap_usd"],
     },
     {
+        "id": "opendocrouter",
+        "label": "OpenDocRouter",
+        "secret_name": "OPEN_DOC_ROUTER_API_KEY",
+        "kind": "document",
+        "policy_fields": [],
+    },
+    {
         "id": "datalab",
         "label": "Datalab",
         "secret_name": "DATALAB_API_KEY",
@@ -610,9 +617,12 @@ class ProjectLifecycleService:
     ) -> dict[str, Any]:
         self._ensure_exists(project_id)
         normalized_provider = _normalize_provider(provider)
-        if normalized_provider == "datalab" and spend_cap_usd is not None:
+        if (
+            normalized_provider in {"datalab", "opendocrouter"}
+            and spend_cap_usd is not None
+        ):
             raise ProjectRetentionError(
-                "Datalab provider keys do not support spend caps"
+                "Document provider keys do not support spend caps"
             )
         if not key:
             raise ProjectRetentionError("provider key is required")

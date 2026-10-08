@@ -428,8 +428,15 @@ def test_remote_ocr_engines_consult_project_keys_not_just_env(monkeypatch, tmp_p
 
 def _ops_declared_engines():
     from frisket.ops.ocr_engines import DATALAB_ENGINE
+    from frisket.contracts.actions.schemas._engines import OPENDOCROUTER_ENGINES
 
-    return LOCAL_ENGINES | SIDECAR_ENGINES | {DATALAB_ENGINE} | set(ENGINE_ALIASES)
+    return (
+        LOCAL_ENGINES
+        | SIDECAR_ENGINES
+        | {DATALAB_ENGINE}
+        | set(ENGINE_ALIASES)
+        | {entry.id for entry in OPENDOCROUTER_ENGINES}
+    )
 
 
 def test_ops_engine_roster_equals_the_contract_symbolic_set():

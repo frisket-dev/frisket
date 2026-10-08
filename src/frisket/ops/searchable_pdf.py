@@ -265,6 +265,15 @@ def compose_searchable_pdf(
     for index, page in enumerate(reader.pages):
         blocks = _page_blocks(pages[index]) if index < len(pages) else []
         block_count = sum(1 for b in blocks if str(b.get("text", "") or "").strip())
+        source_page = pages[index] if index < len(pages) else None
+        if (
+            isinstance(source_page, Mapping)
+            and str(source_page.get("text") or "").strip()
+            and not any(_bbox_extent(b.get("bbox")) for b in blocks)
+        ):
+            raise ValueError(
+                f"Page {index + 1} has recognized text but no usable text positions; a searchable PDF could not be generated."
+            )
 
         mediabox = page.mediabox
         w_pt = float(mediabox.width)

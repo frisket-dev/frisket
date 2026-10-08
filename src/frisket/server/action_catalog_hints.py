@@ -1434,6 +1434,7 @@ def _recipe_engines(
                 ),
                 pricing=external_pricing_entry(DATALAB_OCR_PAGE),
             ),
+            *_opendocrouter_choices(project),
         ]
     if action_kind == "media.to_markdown":
         from frisket.credentials import resolve_credential
@@ -1510,6 +1511,7 @@ def _recipe_engines(
                 ),
                 pricing=external_pricing_entry(DATALAB_CONVERT_PAGE),
             ),
+            *_opendocrouter_choices(project),
         ]
     if action_kind == "map.ner":
         # local import (launcher-safe): spacy_available() is a cheap presence
@@ -2086,3 +2088,27 @@ def _string_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item) for item in value if isinstance(item, str)]
+
+
+def _opendocrouter_choices(project):
+    from frisket.contracts.actions.schemas._engines import OPENDOCROUTER_ENGINES
+    from frisket.credentials import resolve_credential
+
+    available = bool(resolve_credential(project, "OPEN_DOC_ROUTER_API_KEY"))
+    return [
+        {
+            **_declared_engine(
+                declaration,
+                available=available,
+                error=None
+                if available
+                else "Add an OpenDocRouter API key to use this engine.",
+            ),
+            "description": (
+                "PDF, PNG or JPEG to Markdown. Charged by OpenDocRouter. "
+                "PDFs over 50 pages use encrypted temporary storage (up to 24 hours); "
+                "Frisket requests deletion after retrieval."
+            ),
+        }
+        for declaration in OPENDOCROUTER_ENGINES
+    ]
