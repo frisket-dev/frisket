@@ -11,6 +11,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
+from frisket.opendocrouter_catalog import catalog_document, current_catalog
+
 from .pricing import install_pricing_data
 
 PRICING_URL = (
@@ -84,7 +86,8 @@ def refresh_pricing_once(
         if not isinstance(data, dict):
             raise ValueError("pricing catalog must be an object")
         install_pricing_data(data)
-        _atomic_write(catalog_path, payload)
+        data["opendocrouter"] = catalog_document(current_catalog())
+        _atomic_write(catalog_path, json.dumps(data).encode())
         return True
     except Exception:
         return False

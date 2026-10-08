@@ -107,6 +107,32 @@ def test_invalid_provider_refresh_preserves_installed_catalog(
     ] == [7.0, 8.0]
 
 
+def test_invalid_provider_refresh_caches_last_good_catalog_for_reload(
+    document, tmp_path
+):
+    baseline = copy.deepcopy(document)
+    engine = future_model(document)
+    pricing.install_pricing_data(document)
+    last_good = catalog_document(current_catalog())
+
+    fetched = copy.deepcopy(document)
+    fetched["opendocrouter"]["data"].append({"id": "example/incomplete"})
+    fetched["text"]["fresh-text-model"] = [7.0, 8.0]
+    assert refresh_pricing_once(
+        cache_dir=tmp_path, now=200000, fetch=lambda _: json.dumps(fetched).encode()
+    )
+
+    cached = json.loads((tmp_path / "pricing_data.json").read_text())
+    assert cached["opendocrouter"] == last_good
+    assert cached["text"]["fresh-text-model"] == [7.0, 8.0]
+
+    pricing.install_pricing_data(baseline)
+    assert find_model(engine) is None
+    _load_cached_pricing(tmp_path)
+    assert find_model(engine).name == "New parser"
+    assert pricing.PRICES["fresh-text-model"] == (7.0, 8.0)
+
+
 def test_missing_price_is_unknown_and_catalog_removal_stops_new_admission(document):
     engine = future_model(document)
     document["opendocrouter"]["data"][-1]["max_charge_per_page_usd"] = None
