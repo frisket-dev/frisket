@@ -10,7 +10,7 @@ self-hosted/ops-managed deploys) wins, falling back to the project-scoped
 secrets store (`Project.secret_plaintext`, store/project.py:1565 — the same
 store the Settings -> Secrets panel writes, web/src/settings/
 SettingsSections.tsx `ProjectSecretsSettings`).
-For Datalab, an inline-setup provider key precedes the legacy project secret;
+For document providers, an inline-setup provider key precedes the legacy project secret;
 the process environment still wins. Catalog, target and dispatch read that
 same resolver.
 
@@ -27,6 +27,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from frisket.provider_definitions import providers_for
 from frisket.ai.llm.types import CredentialSource
 from frisket.execution.credential_use import (
     CredentialOwner,
@@ -56,10 +57,9 @@ def resolve_credential_with_source(
     env_value = (os.environ if env is None else env).get(name)
     if env_value:
         return ResolvedCredential(env_value, "local")
-    provider = {
-        "DATALAB_API_KEY": "datalab",
-        "OPEN_DOC_ROUTER_API_KEY": "opendocrouter",
-    }.get(name)
+    provider = next(
+        (p.id for p in providers_for(category="document") if p.env_var == name), None
+    )
     if provider is not None:
         # Document-provider setup uses the encrypted provider-key store.
         # Preserve environment precedence and existing project-secret keys.

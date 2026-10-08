@@ -59,6 +59,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from frisket.provider_definitions import providers_for
 from frisket.contracts.actions.schemas._engines import (
     OCR_ENGINE_TABLE,
     opendocrouter_engines,
@@ -109,15 +110,10 @@ DEFAULT_MODELS_GATEWAY_TIMEOUT_SECONDS = 3600.0
 MODELS_GATEWAY_CONNECT_TIMEOUT_SECONDS = 10.0
 
 ROUTER_PROVIDER_KEY_ENV: Mapping[str, str] = {
-    "anthropic": "ANTHROPIC_API_KEY",
-    "openai": "OPENAI_API_KEY",
-    "gemini": "GEMINI_API_KEY",
-    "openrouter": "OPENROUTER_API_KEY",
+    p.id: p.env_var for p in providers_for(category="llm")
 }
-
-
-DATALAB_API_KEY_ENV = "DATALAB_API_KEY"
-OPENDOCROUTER_API_KEY_ENV = "OPEN_DOC_ROUTER_API_KEY"
+_DOCUMENT_PROVIDERS = {p.id: p for p in providers_for(category="document")}
+DATALAB_API_KEY_ENV = _DOCUMENT_PROVIDERS[DATALAB_TARGET_ID].env_var
 
 DEEPL_API_KEY_ENV = "DEEPL_API_KEY"
 GOOGLE_TRANSLATE_API_KEY_ENV = "GOOGLE_TRANSLATE_API_KEY"
@@ -694,14 +690,10 @@ class StaticExecutionTargetProvider:
             return self._models_gateway_connection()
         if target_id == LOCAL_MODELS_TARGET_ID:
             return self._managed_local_models_connection()
-        if target_id in {DATALAB_TARGET_ID, OPENDOCROUTER_TARGET_ID}:
+        if target_id in _DOCUMENT_PROVIDERS:
             from frisket.credentials import resolve_credential_with_source
 
-            name = (
-                DATALAB_API_KEY_ENV
-                if target_id == DATALAB_TARGET_ID
-                else OPENDOCROUTER_API_KEY_ENV
-            )
+            name = _DOCUMENT_PROVIDERS[target_id].env_var
             credential = resolve_credential_with_source(
                 self._secrets, name, env=self._env_override
             )
@@ -752,12 +744,10 @@ class StaticExecutionTargetProvider:
                 f"Set {CLOUDFLARE_ACCOUNT_ID_ENV} and {CLOUDFLARE_API_TOKEN_ENV} "
                 "to enable Cloudflare Clef classification."
             )
-        if target_id == OPENDOCROUTER_TARGET_ID:
-            return "Add an OpenDocRouter API key to use this engine."
-        if target_id == DATALAB_TARGET_ID:
+        if target_id in _DOCUMENT_PROVIDERS:
+            label = _DOCUMENT_PROVIDERS[target_id].label
             return (
-                f"Set {DATALAB_API_KEY_ENV} (or add it under Settings > "
-                "Secrets) to enable hosted Datalab OCR."
+                f"Add your {label} API key in the engine selector to use this engine."
             )
         if target_id in _API_KEY_VENUES:
             env_name, _provider = _API_KEY_VENUES[target_id]

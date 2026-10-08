@@ -46,93 +46,25 @@ from frisket.ai.models.gateway_config import (
     resolve_models_gateway_env,
 )
 from frisket.local_model_ids import format_local_model_id, validate_local_endpoint_id
+from frisket.provider_definitions import PROVIDERS, provider_definition, providers_for
 from frisket.redaction import redact_text
 from frisket.team.security.secrets import key_hint
 
 # Env parsing and origin validation live in the LLM layer so server, worker,
 # and team composition share one canonical endpoint record and model grammar.
 
-# Providers that take an API key the local UI can manage.
-MODEL_KEY_PROVIDERS: tuple[str, ...] = (
-    "anthropic",
-    "openai",
-    "gemini",
-    "openrouter",
-)
-SEARCH_KEY_PROVIDERS: tuple[str, ...] = ("exa", "tavily")
-# Existing model selection/admission imports use this model-only name.
-KEY_PROVIDERS: tuple[str, ...] = MODEL_KEY_PROVIDERS
-WORKSPACE_KEY_PROVIDERS: tuple[str, ...] = (
-    *MODEL_KEY_PROVIDERS,
-    *SEARCH_KEY_PROVIDERS,
-)
-# Document providers support project keys without workspace keys or LLM models.
-PROJECT_KEY_PROVIDERS: tuple[str, ...] = (
-    *MODEL_KEY_PROVIDERS,
-    "datalab",
-    "opendocrouter",
-)
-VALIDATION_KEY_PROVIDERS: tuple[str, ...] = (
-    *WORKSPACE_KEY_PROVIDERS,
-    "datalab",
-    "opendocrouter",
-)
-
-PROVIDER_ORDER: tuple[str, ...] = (*WORKSPACE_KEY_PROVIDERS, "ollama")
-
-PROVIDER_LABELS: dict[str, str] = {
-    "anthropic": "Anthropic",
-    "openai": "OpenAI",
-    "gemini": "Gemini",
-    "openrouter": "OpenRouter",
-    "exa": "Exa",
-    "tavily": "Tavily",
-    "datalab": "Datalab",
-    "opendocrouter": "OpenDocRouter",
-    # Qualified model IDs retain the ``ollama`` provider segment, while each
-    # endpoint has its own ordinary endpoint_id. The slot supports any
-    # OpenAI-compatible local server — Ollama, LM Studio, llama.cpp, or vLLM.
-    "ollama": "Local server",
-}
-
-# API-key env var per provider — the source that wins over the file layer.
-ENV_VAR: dict[str, str] = {
-    "anthropic": "ANTHROPIC_API_KEY",
-    "openai": "OPENAI_API_KEY",
-    "gemini": "GEMINI_API_KEY",
-    "openrouter": "OPENROUTER_API_KEY",
-    "exa": "EXA_API_KEY",
-    "tavily": "TAVILY_API_KEY",
-    "datalab": "DATALAB_API_KEY",
-    "opendocrouter": "OPEN_DOC_ROUTER_API_KEY",
-}
-
-# Capability-contract provider_kind (mirrors models/metadata.py PROVIDER_KIND):
-# remote hosted APIs are platform_api; ollama is an operator-local HTTP server.
-PROVIDER_KIND: dict[str, str] = {
-    "anthropic": "platform_api",
-    "openai": "platform_api",
-    "gemini": "platform_api",
-    "openrouter": "platform_api",
-    "exa": "platform_api",
-    "tavily": "platform_api",
-    "ollama": "local_http",
-}
-
-# Probe endpoints: base URLs the router's adapters talk to. A models listing is
-# the cheapest authenticated request each API offers (no tokens billed).
-_PROBE_BASE: dict[str, str] = {
-    "openai": "https://api.openai.com/v1",
-    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
-    "openrouter": "https://openrouter.ai/api/v1",
-    "anthropic": "https://api.anthropic.com/v1",
-}
-
-_SEARCH_PROBE: dict[str, str] = {
-    "exa": "https://api.exa.ai/v0/teams/me",
-    "tavily": "https://api.tavily.com/usage",
-    "opendocrouter": "https://www.opendocrouter.ai/v1/credits",
-}
+# Projections retain their narrow meanings: LLM routing never receives search
+# or document credentials merely because settings can configure those providers.
+MODEL_KEY_PROVIDERS = tuple(p.id for p in providers_for(category="llm"))
+SEARCH_KEY_PROVIDERS = tuple(p.id for p in providers_for(category="search"))
+KEY_PROVIDERS = MODEL_KEY_PROVIDERS
+WORKSPACE_KEY_PROVIDERS = tuple(p.id for p in providers_for(scope="workspace"))
+PROJECT_KEY_PROVIDERS = tuple(p.id for p in providers_for(scope="project"))
+VALIDATION_KEY_PROVIDERS = tuple(p.id for p in PROVIDERS)
+PROVIDER_ORDER = (*WORKSPACE_KEY_PROVIDERS, "ollama")
+PROVIDER_LABELS = {p.id: p.label for p in PROVIDERS} | {"ollama": "Local server"}
+ENV_VAR = {p.id: p.env_var for p in PROVIDERS}
+PROVIDER_KIND = {p.id: "platform_api" for p in PROVIDERS} | {"ollama": "local_http"}
 
 VALIDATION_TOKEN_TTL_SECONDS = 10 * 60
 _VALIDATION_TOKEN_SECRET = secrets.token_bytes(32)
@@ -1053,8 +985,8 @@ def probe_provider(
     or document processing. Never includes the key value.
     """
     provider = (provider or "").strip().lower()
-    base = _PROBE_BASE.get(provider)
-    if base is None and provider != "datalab" and provider not in _SEARCH_PROBE:
+    definition = provider_definition(provider)
+    if definition is None:
         return {
             "provider": provider,
             "reachable": False,
@@ -1062,38 +994,26 @@ def probe_provider(
             "status": None,
             "detail": f"unsupported provider: {provider}",
         }
-    # Official authenticated health probe; never submit a billable document.
-    # https://documentation.datalab.to/api-reference/api-health
-    url = (
-        "https://www.datalab.to/api/v1/user_health"
-        if provider == "datalab"
-        else _SEARCH_PROBE.get(provider, f"{base}/models")
-    )
-    if provider == "datalab":
-        headers = {"X-API-Key": key}
-    elif provider == "anthropic":
-        headers = {"x-api-key": key, "anthropic-version": "2023-06-01"}
-    elif provider == "exa":
-        headers = {"x-api-key": key}
-    else:
-        headers = {"Authorization": f"Bearer {key}"}
+    probe = definition.probe
+    headers = dict(probe.headers)
+    headers[probe.key_header] = probe.key_prefix + key
 
     own = client is None
     http_client = client or httpx.Client()
     try:
-        resp = http_client.get(url, headers=headers, timeout=timeout)
+        resp = http_client.get(
+            probe.url, headers=headers, timeout=timeout, follow_redirects=False
+        )
         detail = None
         ok = resp.status_code == 200
-        if ok and provider == "datalab":
+        if ok and probe.validate_body is not None:
             try:
                 body = resp.json()
             except ValueError:
                 body = None
-            ok = isinstance(body, dict) and body.get("status") == "ok"
+            ok = probe.validate_body(body)
             if not ok:
-                detail = (
-                    "Datalab did not return a successful authenticated health check."
-                )
+                detail = f"{definition.label} did not return a successful authenticated health check."
         if resp.status_code != 200:
             label = PROVIDER_LABELS.get(provider, provider)
             detail = (
