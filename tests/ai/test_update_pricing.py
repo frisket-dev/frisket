@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import importlib.util
+import io
+import json
 from datetime import date
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -74,3 +78,93 @@ def test_token_billed_audio_model_prefers_returned_usage_units() -> None:
         "input_per_token": 2.5e-6,
         "output_per_token": 1e-5,
     }
+
+
+def _opendocrouter_model(model_id: str, *, rate: float) -> dict:
+    return {
+        "id": model_id,
+        "name": model_id,
+        "version": "1",
+        "max_sync_pages": 50,
+        "max_charge_per_page_usd": None,
+        "avg_charge_per_page_usd": rate,
+        "price_per_million_tokens": {
+            "input": rate,
+            "cached_input": rate,
+            "output": rate,
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    "opendocrouter_result",
+    [
+        OSError("provider unavailable"),
+        json.dumps(
+            {
+                "price_version": "new-but-invalid",
+                "data": [
+                    _opendocrouter_model("vendor/new-model", rate=2.0),
+                    {"id": "vendor/incomplete-model"},
+                ],
+            }
+        ).encode(),
+    ],
+    ids=["fetch-failure", "invalid-whole-snapshot"],
+)
+def test_refresh_preserves_last_good_opendocrouter_section(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    opendocrouter_result: bytes | OSError,
+) -> None:
+    updater = _pricing_updater()
+    previous_opendocrouter = {
+        "price_version": "last-good",
+        "data": [_opendocrouter_model("vendor/previous-model", rate=1.0)],
+    }
+    output_path = tmp_path / "pricing_data.json"
+    output_path.write_text(
+        json.dumps(
+            {
+                "sources": {"opendocrouter": updater.OPENDOCROUTER_SOURCE},
+                "updated": "2026-10-07",
+                "text": {"model-a": [1.0, 1.0]},
+                "audio": {},
+                "opendocrouter": previous_opendocrouter,
+            }
+        )
+    )
+    monkeypatch.setattr(updater, "OUT", output_path)
+
+    def fake_urlopen(target, timeout: int):
+        url = target.full_url if hasattr(target, "full_url") else target
+        if url == updater.LITELLM_SOURCE:
+            return io.BytesIO(
+                json.dumps(
+                    {
+                        "claude-haiku-4-5": {
+                            "input_cost_per_token": 0.000002,
+                            "output_cost_per_token": 0.000004,
+                        }
+                    }
+                ).encode()
+            )
+        if url == updater.OPENROUTER_SOURCE:
+            return io.BytesIO(b'{"data": []}')
+        assert url == updater.OPENDOCROUTER_SOURCE
+        if isinstance(opendocrouter_result, OSError):
+            raise opendocrouter_result
+        return io.BytesIO(opendocrouter_result)
+
+    monkeypatch.setattr(updater.urllib.request, "urlopen", fake_urlopen)
+
+    updater.main()
+
+    refreshed = json.loads(output_path.read_text())
+    assert refreshed["text"]["claude-haiku-4-5"] == [2.0, 4.0]
+    assert refreshed["opendocrouter"] == previous_opendocrouter
+    warning = capsys.readouterr().err
+    assert "WARNING" in warning
+    assert "OpenDocRouter" in warning
+    assert "preserving the previous complete snapshot" in warning

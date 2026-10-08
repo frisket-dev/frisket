@@ -16,6 +16,7 @@ concern, not a provider-pricing guess.
 from __future__ import annotations
 
 import json
+import logging
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +24,8 @@ from typing import Any, Literal
 
 from frisket.opendocrouter_catalog import parse_catalog, install_catalog
 from frisket.local_model_ids import bare_model_name, parse_local_model_id
+
+logger = logging.getLogger(__name__)
 
 _data = json.loads((Path(__file__).parent / "pricing_data.json").read_text())
 
@@ -37,7 +40,7 @@ AUDIO_PRICES: dict[str, dict] = _data["audio"]
 
 
 def install_pricing_data(data: dict[str, Any]) -> None:
-    """Atomically replace the process's normalized text and audio catalogs."""
+    """Replace normalized prices, retaining the last valid document catalog."""
     text = data.get("text")
     audio = data.get("audio")
     if not isinstance(text, dict) or not isinstance(audio, dict):
@@ -67,9 +70,16 @@ def install_pricing_data(data: dict[str, Any]) -> None:
         if any(not math.isfinite(rate) or rate < 0 for rate in parsed.values()):
             raise ValueError("pricing rates must be non-negative and finite")
         parsed_audio[model] = parsed
-    documents = (
-        parse_catalog(data["opendocrouter"]) if "opendocrouter" in data else None
-    )
+    documents = None
+    if "opendocrouter" in data:
+        try:
+            documents = parse_catalog(data["opendocrouter"])
+        except ValueError as exc:
+            logger.warning(
+                "OpenDocRouter pricing validation failed (%s); preserving the "
+                "previous complete snapshot",
+                exc,
+            )
     global PRICES, AUDIO_PRICES
     PRICES = parsed_text
     AUDIO_PRICES = parsed_audio

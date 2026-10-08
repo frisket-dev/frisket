@@ -8,6 +8,7 @@ Usage: uv run python scripts/dev/update_pricing.py
 Commit the diff like a dependency bump — these numbers feed cost_actual.
 """
 
+import http.client
 import json
 import sys
 import urllib.request
@@ -126,6 +127,29 @@ def build_price_table(
     return result
 
 
+def _fetch_opendocrouter_snapshot() -> dict[str, Any]:
+    try:
+        candidate = json.loads(
+            urllib.request.urlopen(OPENDOCROUTER_SOURCE, timeout=30).read()
+        )
+        return catalog_document(parse_catalog(candidate))
+    except (OSError, ValueError, http.client.HTTPException) as exc:
+        try:
+            previous = json.loads(OUT.read_text())
+            snapshot = catalog_document(parse_catalog(previous["opendocrouter"]))
+        except (OSError, KeyError, TypeError, ValueError) as previous_exc:
+            raise RuntimeError(
+                "OpenDocRouter pricing refresh failed and no valid previous "
+                "snapshot is available"
+            ) from previous_exc
+        print(
+            "WARNING: OpenDocRouter pricing refresh failed "
+            f"({exc}); preserving the previous complete snapshot",
+            file=sys.stderr,
+        )
+        return snapshot
+
+
 def main() -> None:
     litellm = json.loads(urllib.request.urlopen(LITELLM_SOURCE, timeout=30).read())
     request = urllib.request.Request(
@@ -133,9 +157,7 @@ def main() -> None:
         headers={"User-Agent": "frisket-pricing-refresh/1"},
     )
     openrouter = json.loads(urllib.request.urlopen(request, timeout=30).read())
-    opendocrouter = json.loads(
-        urllib.request.urlopen(OPENDOCROUTER_SOURCE, timeout=30).read()
-    )
+    opendocrouter = _fetch_opendocrouter_snapshot()
     output = build_price_table(litellm, openrouter, opendocrouter=opendocrouter)
 
     OUT.write_text(json.dumps(output, indent=2) + "\n")

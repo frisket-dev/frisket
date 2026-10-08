@@ -79,7 +79,7 @@ def test_daily_refresh_updates_existing_provider_and_cached_restart(document, tm
 
 
 @pytest.mark.parametrize("fault", ["negative_price", "bad_id", "duplicate", "empty"])
-def test_invalid_refresh_preserves_installed_and_disk_catalog(
+def test_invalid_provider_refresh_preserves_installed_catalog(
     document, tmp_path, fault
 ):
     valid = copy.deepcopy(document)
@@ -96,11 +96,15 @@ def test_invalid_refresh_preserves_installed_and_disk_catalog(
         document["opendocrouter"]["data"].append(copy.deepcopy(row))
     else:
         document["opendocrouter"]["data"] = []
-    assert not refresh_pricing_once(
+    document["text"]["fresh-text-model"] = [7.0, 8.0]
+    assert refresh_pricing_once(
         cache_dir=tmp_path, now=200000, fetch=lambda _: json.dumps(document).encode()
     )
     assert current_catalog() == old
-    assert json.loads((tmp_path / "pricing_data.json").read_text()) == valid
+    assert pricing.PRICES["fresh-text-model"] == (7.0, 8.0)
+    assert json.loads((tmp_path / "pricing_data.json").read_text())["text"][
+        "fresh-text-model"
+    ] == [7.0, 8.0]
 
 
 def test_missing_price_is_unknown_and_catalog_removal_stops_new_admission(document):
@@ -122,6 +126,23 @@ def test_missing_price_is_unknown_and_catalog_removal_stops_new_admission(docume
     assert find_model(engine) is None
     with pytest.raises(ValueError):
         ToMarkdownParams.model_validate({"source": "document", "engine": engine})
+
+
+def test_malformed_provider_section_keeps_catalog_and_installs_independent_prices(
+    document, caplog
+):
+    previous = current_catalog()
+    rejected_engine = future_model(document)
+    document["opendocrouter"]["data"].append({"id": "example/incomplete"})
+    document["text"]["fresh-text-model"] = [7.0, 8.0]
+
+    with caplog.at_level("WARNING", logger=pricing.__name__):
+        pricing.install_pricing_data(document)
+
+    assert pricing.PRICES["fresh-text-model"] == (7.0, 8.0)
+    assert current_catalog() == previous
+    assert find_model(rejected_engine) is None
+    assert "preserving the previous complete snapshot" in caplog.text
 
 
 def test_quote_and_live_fence_observe_same_refreshed_rate(document):
