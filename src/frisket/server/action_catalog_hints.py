@@ -799,6 +799,7 @@ def _recipe_engines(
     org_provider_keys: Mapping[str, str] | None = None,
     has_local_model_endpoint: bool = False,
     effective_router: Any = None,
+    credential_context: Any = None,
 ) -> list[dict[str, Any]]:
     if action_kind in {"map.classify", "map.extract"}:
         from frisket.contracts.classification import (
@@ -1304,7 +1305,7 @@ def _recipe_engines(
             mai_engine,
         ]
     if action_kind == "media.ocr":
-        from frisket.credentials import resolve_credential
+        from frisket.credentials import resolve_credential_for_use
         from frisket.ops.ocr_engines import (
             rapidocr_available,
             tesseract_available,
@@ -1336,7 +1337,9 @@ def _recipe_engines(
         openai_available = "openai" in ocr_llm_providers
         gemini_available = "gemini" in ocr_llm_providers
         openrouter_available = "openrouter" in ocr_llm_providers
-        datalab_key = resolve_credential(project, "DATALAB_API_KEY")
+        datalab_key = resolve_credential_for_use(
+            project, "DATALAB_API_KEY", context=credential_context
+        )
         decl = _table_decls(OCR_ENGINE_TABLE)
         # Projector parity pins ``dots.mocr`` at index 3.
         return [
@@ -1434,10 +1437,10 @@ def _recipe_engines(
                 ),
                 pricing=external_pricing_entry(DATALAB_OCR_PAGE),
             ),
-            *_opendocrouter_choices(project),
+            *_opendocrouter_choices(project, credential_context),
         ]
     if action_kind == "media.to_markdown":
-        from frisket.credentials import resolve_credential
+        from frisket.credentials import resolve_credential_for_use
 
         ok, err, models = _sidecar_engine(
             sidecar_capabilities, route="/to-markdown", name="docling"
@@ -1450,12 +1453,10 @@ def _recipe_engines(
         chandra_ok, chandra_err, chandra_models = _sidecar_engine(
             sidecar_capabilities, route="/to-markdown", name="chandra"
         )
-        # Datalab's hosted Marker API: a remote, pay-per-call tier
-        # — same vendor as chandra's open weights, now also their paid hosted
-        # product. resolve_credential (env -> project secrets, two sources —
-        # no org-level injection point exists for this credential; see the
-        # longer note on the "ocr" branch's matching datalab_key above).
-        datalab_key = resolve_credential(project, "DATALAB_API_KEY")
+        # Use the same project/organization credential context as dispatch.
+        datalab_key = resolve_credential_for_use(
+            project, "DATALAB_API_KEY", context=credential_context
+        )
         decl = _table_decls(TO_MARKDOWN_ENGINE_TABLE)
         return [
             _declared_engine(decl["markitdown"]),
@@ -1511,7 +1512,7 @@ def _recipe_engines(
                 ),
                 pricing=external_pricing_entry(DATALAB_CONVERT_PAGE),
             ),
-            *_opendocrouter_choices(project),
+            *_opendocrouter_choices(project, credential_context),
         ]
     if action_kind == "map.ner":
         # local import (launcher-safe): spacy_available() is a cheap presence
@@ -1805,6 +1806,9 @@ def project_action_catalog_launcher_hints(
             org_provider_keys=org_provider_keys,
             has_local_model_endpoint=has_local_model_endpoint,
             effective_router=effective_router,
+            credential_context=execution_composition.credential_use_context
+            if execution_composition
+            else None,
         )
         engines = _project_execution_composition_engines(
             engines,
@@ -2090,11 +2094,15 @@ def _string_list(value: Any) -> list[str]:
     return [str(item) for item in value if isinstance(item, str)]
 
 
-def _opendocrouter_choices(project):
+def _opendocrouter_choices(project, credential_context=None):
     from frisket.contracts.actions.schemas._engines import opendocrouter_engines
-    from frisket.credentials import resolve_credential
+    from frisket.credentials import resolve_credential_for_use
 
-    available = bool(resolve_credential(project, "OPEN_DOC_ROUTER_API_KEY"))
+    available = bool(
+        resolve_credential_for_use(
+            project, "OPEN_DOC_ROUTER_API_KEY", context=credential_context
+        )
+    )
     return [
         {
             **_declared_engine(

@@ -84,7 +84,7 @@ PROVIDERS: tuple[ProviderDefinition, ...] = (
         "llm",
         "OPENROUTER_API_KEY",
         _LLM_SCOPES,
-        CredentialProbe("https://openrouter.ai/api/v1/models"),
+        CredentialProbe("https://openrouter.ai/api/v1/key"),
         spend_cap=True,
     ),
     ProviderDefinition(
@@ -92,7 +92,7 @@ PROVIDERS: tuple[ProviderDefinition, ...] = (
         "OpenDocRouter",
         "document",
         "OPEN_DOC_ROUTER_API_KEY",
-        ("project",),
+        ("project", "organization"),
         CredentialProbe("https://www.opendocrouter.ai/v1/credits"),
     ),
     ProviderDefinition(
@@ -100,7 +100,7 @@ PROVIDERS: tuple[ProviderDefinition, ...] = (
         "Datalab",
         "document",
         "DATALAB_API_KEY",
-        ("project",),
+        ("project", "organization"),
         CredentialProbe(
             "https://www.datalab.to/api/v1/user_health",
             "X-API-Key",

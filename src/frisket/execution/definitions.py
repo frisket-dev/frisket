@@ -59,6 +59,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from frisket.execution.credential_use import CredentialUseContext
 from frisket.provider_definitions import providers_for
 from frisket.contracts.actions.schemas._engines import (
     OCR_ENGINE_TABLE,
@@ -641,7 +642,9 @@ class StaticExecutionTargetProvider:
         models_gateway_resolver: Callable[[], ModelsGatewayConnection | None]
         | None = None,
         include_managed_local_models: bool = False,
+        credential_use_context: CredentialUseContext | None = None,
     ) -> None:
+        self._credential_use_context = credential_use_context
         self._env_override = env
         self._secrets = secrets
         # Use the request's effective key overlay when composition provides it.
@@ -691,11 +694,14 @@ class StaticExecutionTargetProvider:
         if target_id == LOCAL_MODELS_TARGET_ID:
             return self._managed_local_models_connection()
         if target_id in _DOCUMENT_PROVIDERS:
-            from frisket.credentials import resolve_credential_with_source
+            from frisket.credentials import resolve_credential_for_use
 
             name = _DOCUMENT_PROVIDERS[target_id].env_var
-            credential = resolve_credential_with_source(
-                self._secrets, name, env=self._env_override
+            credential = resolve_credential_for_use(
+                self._secrets,
+                name,
+                env=self._env_override,
+                context=self._credential_use_context,
             )
             return (
                 ConnectionConfig(token=credential.value, extra={"provider": target_id})

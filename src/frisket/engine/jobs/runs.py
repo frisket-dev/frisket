@@ -52,6 +52,7 @@ from frisket.engine.store.output_claims import ClaimLeaseRenewalFailed
 from frisket.engine.store.receipts import FINISHED_RECEIPT_STATUSES, ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.worker_version import code_version
+from frisket.execution.credential_use import ActionCredentialResolver
 from frisket.execution.attempt_authority import AttemptAuthority
 from frisket.execution.consent_coverage import ConsentCoverage
 from decimal import Decimal
@@ -269,6 +270,23 @@ def resolve_run_local_endpoints(
 
     configs, _notes = resolve_local_endpoints(root, env)
     return configs
+
+
+def resolve_run_action_credentials(
+    *,
+    handler_context: JobHandlerContext,
+    ports: WorkerPorts,
+    control_database_url: str | None,
+) -> ActionCredentialResolver | None:
+    port = ports.action_credential_port
+    if port is None:
+        return None
+    org_id = handler_context.trusted_job_org_id
+    if not isinstance(org_id, int):
+        raise ValueError("Organization action credentials require trusted job identity")
+    return port.action_credential_resolver(
+        org_id=org_id, control_database_url=control_database_url
+    )
 
 
 def resolve_run_models_gateway(
@@ -877,6 +895,11 @@ def register_project_run_handler(
                     project,
                     effective_router,
                     execution_context,
+                    action_credential_resolver=resolve_run_action_credentials(
+                        handler_context=handler_context,
+                        ports=ports,
+                        control_database_url=db_url,
+                    ),
                     models_gateway_resolver=lambda: resolve_run_models_gateway(
                         root,
                         handler_context=handler_context,

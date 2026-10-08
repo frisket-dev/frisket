@@ -113,6 +113,7 @@ def resolve_credential_for_use(
     name: str,
     *,
     context: CredentialUseContext | None,
+    env: Mapping[str, str] | None = None,
 ) -> ResolvedCredential | None:
     """Resolve and normalize one credential for a paid external effect.
 
@@ -124,7 +125,7 @@ def resolve_credential_for_use(
 
     resolver = context.credential_resolver if context is not None else None
     if resolver is None:
-        credential = resolve_credential_with_source(project, name)
+        credential = resolve_credential_with_source(project, name, env=env)
     else:
         credential = resolver.resolve_action_credential(project, name)
         if credential is not None and not isinstance(credential, ResolvedCredential):

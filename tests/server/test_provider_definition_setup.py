@@ -29,7 +29,7 @@ PROBES = [
     ),
     (
         "openrouter",
-        "https://openrouter.ai/api/v1/models",
+        "https://openrouter.ai/api/v1/key",
         "authorization",
         "Bearer ",
         {},
@@ -111,6 +111,8 @@ def test_catalogs_reflect_supported_key_scopes(tmp_path):
             "openai",
             "gemini",
             "openrouter",
+            "opendocrouter",
+            "datalab",
             "exa",
             "tavily",
         ]
@@ -152,3 +154,19 @@ def test_selector_preserves_environment_key_hint(tmp_path, monkeypatch):
     assert environment["configured"] is True
     assert environment["hint"] == "...1234"
     assert "test-secret" not in json.dumps(setup)
+
+
+def test_openrouter_probe_rejects_invalid_key_despite_public_model_listing():
+    def handler(request):
+        if request.url.path == "/api/v1/models":
+            return httpx.Response(200, json={"data": []})
+        assert request.url.path == "/api/v1/key"
+        assert request.headers["authorization"] == "Bearer invalid-key"
+        return httpx.Response(401, json={"error": {"message": "Unauthorized"}})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        result = provider_config.probe_provider(
+            "openrouter", "invalid-key", client=client
+        )
+    assert result["reachable"] and not result["ok"]
+    assert result["status"] == 401

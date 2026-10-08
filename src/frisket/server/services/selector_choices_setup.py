@@ -105,7 +105,8 @@ class SelectorSetupService:
                     "configured": org_configured or platform_configured,
                     "can_mutate": capabilities.configure_organization_credentials
                     and not platform_configured
-                    and provider in KEY_PROVIDERS,
+                    and definition is not None
+                    and "organization" in definition.scopes,
                     "source": "platform"
                     if platform_configured
                     else "organization"

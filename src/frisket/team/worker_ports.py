@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from frisket.engine.jobs.ports import WorkerPorts
+from frisket.team.document_credentials import TeamOrgDocumentCredentialPort
 from frisket.team.config import team_config_from_env
 from frisket.team.control_plane import (
     TeamOrgKeyCredentialPort,
@@ -18,6 +19,7 @@ def team_worker_ports_from_env() -> WorkerPorts:
     secret_box = TeamSecretBox(team_config_from_env())
     return WorkerPorts(
         credential_port=TeamOrgKeyCredentialPort(secret_box.decrypt),
+        action_credential_port=TeamOrgDocumentCredentialPort(secret_box.decrypt),
         search_credential_port=TeamOrgSearchKeyCredentialPort(secret_box.decrypt),
         models_gateway_port=TeamOrgModelsGatewayPort(secret_box.decrypt),
     )
