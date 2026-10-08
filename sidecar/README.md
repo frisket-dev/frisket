@@ -40,6 +40,43 @@ not a new gateway route. Inference reads cached snapshots with networking
 disabled. Upstream Jeff attribution is in
 `src/frisket_models/classification/LICENSE.jeff`.
 
+## Self-hosted LightOnOCR 3
+
+**LightOnOCR 3 0.8B** and **LightOnOCR 3 4B** are available in OCR,
+OCR Compare, and To Markdown. Both use the same optional runtime; only the
+selected model downloads on first use. OCR returns plain text and region
+highlights. To Markdown converts whole PDFs or images to Markdown, processing
+PDF pages sequentially. This integration runs independently of OpenDocRouter.
+
+```sh
+cd sidecar
+uv sync --extra ocr-lighton --torch-backend cpu
+export FRISKET_MODELS_TOKEN=your-shared-secret
+export FRISKET_MODELS_CONCURRENCY=1
+uv run --no-sync uvicorn frisket_models.app:create_app --factory --host 127.0.0.1 --port 8000
+```
+
+For NVIDIA GPUs, use `--torch-backend auto` instead of `cpu`.
+
+Configure Frisket's model server URL as `http://127.0.0.1:8000` and its token
+as the same shared secret (or use `FRISKET_MODELS_URL` and
+`FRISKET_MODELS_TOKEN`). For another machine, use its reachable server address.
+Set `HF_HOME` to a persistent directory if the service runs in a container.
+The model revisions are pinned in the adapter; model repository Python code is
+not executed.
+
+The adapter selects CUDA, then Apple MPS, then CPU. The 0.8B model has about
+1.7 GB of 16-bit weights; 4B has about 9.1 GB. Inference needs additional memory,
+and CPU uses 32-bit weights. Start with 0.8B on smaller machines. Native model
+inference and minimum hardware requirements have not yet been validated by
+Frisket; the adapter and HTTP integration tests use simulated inference.
+
+This is an operator-managed model service option. It is not included in the
+Desktop bundle, the default `all` extra, or the managed CPU Docling installer.
+OCR and Markdown requests for a given model share one resident load. Grounding
+boxes describe regions, not individually aligned words; they support
+highlights but do not enable searchable-PDF generation.
+
 ## Self-hosted Clef-flash classification
 
 Clef-flash is a separate, operator-managed **9B decision model**. It serves
@@ -133,8 +170,8 @@ Design:
 | --- | --- | --- |
 | `GET /health` | — (unauthenticated liveness) | `{ok: true}` |
 | `GET /capabilities` | — | `{service, version, engines: [{name, route, available, loaded, models, error}], concurrency}` |
-| `POST /ocr` | multipart `files` (page images) + form `engine=dots.mocr`\|`glm-ocr`\|`surya2`\|`pp-ocrv6`\|`paddleocr-vl` | `{pages: [{text, blocks: [{text, bbox, score?}]}]}` per part, in order |
-| `POST /to-markdown` | multipart `files` (document blobs) + form `engine=docling`\|`chandra` | `{documents: [{markdown, ocr_used}]}` per part |
+| `POST /ocr` | multipart `files` (page images) + form `engine=dots.mocr`\|`glm-ocr`\|`surya2`\|`pp-ocrv6`\|`paddleocr-vl`\|`lightonocr-3-0.8b`\|`lightonocr-3-4b` | `{pages: [{text, blocks: [{text, bbox, score?}]}]}` per part, in order |
+| `POST /to-markdown` | multipart `files` (document blobs) + form `engine=docling`\|`chandra`\|`lightonocr-3-0.8b`\|`lightonocr-3-4b` | `{documents: [{markdown, ocr_used}]}` per part |
 | `POST /v1/transcribe` | versioned multipart `files`, `engine`, JSON `options` | strict `{contract_version, results}` envelope for resident or isolated engines |
 | `POST /ner` | JSON `{texts, labels, threshold?}` | `{results: [[{text, label, start, end, score}]]}` per text |
 | `POST /classify` | JSON `{engine: "clef-flash", text, questions}` | `{model, answers, usage}` — typed SystemOne decisions |

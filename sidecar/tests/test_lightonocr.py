@@ -151,7 +151,7 @@ def test_load_uses_pinned_native_qwen_profiles(
     assert adapter.engine == engine
     assert calls["model_load"] == (
         model_id,
-        {"revision": revision, "dtype": "float32"},
+        {"revision": revision, "dtype": "float32", "use_safetensors": True},
     )
     assert calls["processor_load"] == (
         model_id,
@@ -420,3 +420,45 @@ def test_generation_at_token_cap_is_reported_as_truncated(
 
     with pytest.raises(RuntimeError, match="token limit"):
         adapter.to_markdown("page.png", b"png")
+
+
+def test_real_image_and_pdf_preprocessing_with_stub_inference(monkeypatch):
+    import io
+
+    image_module = pytest.importorskip("PIL.Image")
+    pytest.importorskip("pypdfium2")
+    pypdf = pytest.importorskip("pypdf")
+    adapter = lightonocr.LightOnOCRAdapter(
+        engine="lightonocr-3-0.8b",
+        model=None,
+        processor=None,
+        torch_module=None,
+        device="cpu",
+    )
+    rendered = []
+
+    def generate(image, prompt):
+        rendered.append((image.size, image.getpixel((0, 0)), prompt))
+        return "![text](0,0,1000,1000)\nHello" if prompt else "# Hello"
+
+    monkeypatch.setattr(adapter, "_generate", generate)
+    image = image_module.new("RGB", (3000, 1500), "white")
+    png = io.BytesIO()
+    image.save(png, format="PNG")
+    image.close()
+    page = adapter.ocr([png.getvalue()])[0]
+    assert page["text"] == "Hello"
+    assert page["blocks"][0]["bbox"] == [[0, 0], [3000, 0], [3000, 1500], [0, 1500]]
+    assert rendered[-1] == ((2048, 1024), (255, 255, 255), "grounding")
+
+    pdf = io.BytesIO()
+    writer = pypdf.PdfWriter()
+    writer.add_blank_page(width=612, height=792)
+    writer.add_blank_page(width=792, height=612)
+    writer.write(pdf)
+    assert adapter.to_markdown("pages.pdf", pdf.getvalue()) == {
+        "markdown": "# Hello\n\n# Hello",
+        "ocr_used": [True, True],
+    }
+    assert len(rendered) == 3
+    assert all(max(size) <= 2048 and prompt is None for size, _, prompt in rendered[1:])

@@ -261,18 +261,13 @@ def create_app(
         """Resolve a route-compatible adapter; return 400 for caller errors
         and 503 for missing or failed engines."""
         try:
-            engine = registry.get(name)
+            engine = registry.get(name, route=route)
         except KeyError:
             options = ", ".join(e.name for e in registry.for_route(route)) or "none"
             raise HTTPException(
                 status_code=400,
                 detail=f"unknown engine '{name}' for {route} (loaded here: {options})",
             ) from None
-        if engine.route != route:
-            raise HTTPException(
-                status_code=400,
-                detail=f"engine '{name}' serves {engine.route}, not {route}",
-            )
         return await _load(engine)
 
     async def _load(engine):

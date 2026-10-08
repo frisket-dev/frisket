@@ -390,6 +390,7 @@ def load_lightonocr(engine: str) -> LightOnOCRAdapter:
         profile.model_id,
         revision=profile.revision,
         dtype=dtype,
+        use_safetensors=True,
     )
     model.to(device)
     model.eval()

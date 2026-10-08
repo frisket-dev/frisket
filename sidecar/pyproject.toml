@@ -45,6 +45,16 @@ classify-clef = [
 ocr = [
     "surya-ocr==0.22.1",
 ]
+# Both LightOnOCR 3 sizes share the Qwen3.5 runtime. Weights download only
+# when selected; keep this optional profile out of the default CPU image.
+ocr-lighton = [
+    "torch>=2.11.0",
+    "transformers>=5.5.4",
+    "pillow>=10",
+    "pypdfium2>=4.30",
+    "markdown-it-py>=3",
+    "safetensors>=0.7",
+]
 # PaddleOCR-VL document VLM and PP-OCRv6 text OCR. Verified install
 # (paddleocr 3.7.0 / paddlex 3.7.2 / paddlepaddle 3.3.1):
 # the `paddleocr` dist alone is NOT enough — PaddleOCR-VL is a paddlex

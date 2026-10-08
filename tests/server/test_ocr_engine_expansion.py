@@ -272,15 +272,18 @@ def _routes_to_sidecar(tmp_path, monkeypatch, engine):
     return prog, captured
 
 
-def test_paddleocr_vl_routes_to_sidecar_ocr(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "engine", ["paddleocr-vl", "lightonocr-3-0.8b", "lightonocr-3-4b"]
+)
+def test_document_models_route_to_sidecar_ocr(tmp_path, monkeypatch, engine):
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models:9000")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "sekrit")
-    prog, captured = _routes_to_sidecar(tmp_path, monkeypatch, "paddleocr-vl")
+    prog, captured = _routes_to_sidecar(tmp_path, monkeypatch, engine)
     assert prog.status == "completed", prog.errors
     assert captured["url"] == "http://models:9000/ocr"
     assert captured["headers"]["Authorization"] == "Bearer sekrit"
     assert captured["follow_redirects"] is True
-    assert captured["data"]["engine"] == "paddleocr-vl"
+    assert captured["data"]["engine"] == engine
 
 
 def test_pp_ocrv6_routes_to_sidecar_ocr(tmp_path, monkeypatch):

@@ -94,7 +94,8 @@ def test_chandra_needs_sidecar_url(tmp_path, monkeypatch):
     p.close()
 
 
-def test_chandra_routes_to_sidecar_to_markdown(tmp_path, monkeypatch):
+@pytest.mark.parametrize("engine", ["chandra", "lightonocr-3-0.8b", "lightonocr-3-4b"])
+def test_document_models_route_to_sidecar_to_markdown(tmp_path, monkeypatch, engine):
     """engine='chandra' speaks the settled /to-markdown contract: POST
     multipart blob bytes + bearer token, same as docling."""
     captured = {}
@@ -137,7 +138,7 @@ def test_chandra_routes_to_sidecar_to_markdown(tmp_path, monkeypatch):
     monkeypatch.setenv("FRISKET_TRANSCRIPTION_SIDECAR_TIMEOUT_SECONDS", "47")
 
     p, sheet = _project(tmp_path, [{"doc": "<html><body>hi</body></html>"}])
-    result = _run_with_exact_confirmation(p, _spec(sheet, "chandra"), StubRouter())
+    result = _run_with_exact_confirmation(p, _spec(sheet, engine), StubRouter())
     assert result.status == "completed", result.errors
     assert captured["url"] == "http://models:9000/to-markdown"
     assert captured["headers"]["Authorization"] == "Bearer sekrit"
@@ -145,7 +146,7 @@ def test_chandra_routes_to_sidecar_to_markdown(tmp_path, monkeypatch):
     assert captured["timeout"].read == 47.0
     assert captured["timeout"].write == 47.0
     assert captured["timeout"].pool == 47.0
-    assert captured["data"]["engine"] == "chandra"
+    assert captured["data"]["engine"] == engine
     assert captured["files"][0][0] == "files"
     (val,) = p.get_values(
         sheet, next(c for c in p.columns(sheet) if c["name"] == "markdown")["id"]

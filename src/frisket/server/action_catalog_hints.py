@@ -14,6 +14,7 @@ from frisket.contracts.actions.schemas._engines import (
     CENSUS_ENGINE_TABLE,
     CLASSIFY_ENGINE_TABLE,
     GEOCODE_ENGINE_TABLE,
+    LIGHTONOCR_ENGINES,
     OCR_ENGINE_TABLE,
     TO_MARKDOWN_ENGINE_TABLE,
     TRANSCRIBE_ENGINE_TABLE,
@@ -87,6 +88,20 @@ def _sidecar_engine(
         else (f"Sidecar engine '{name}' is not advertised by /capabilities."),
         [],
     )
+
+
+def _lightonocr_choices(capabilities: dict[str, Any], *, route: str) -> list[dict]:
+    choices = []
+    for declaration in LIGHTONOCR_ENGINES:
+        available, error, models = _sidecar_engine(
+            capabilities, route=route, name=declaration.id
+        )
+        choices.append(
+            _declared_engine(
+                declaration, available=available, error=error, models=models
+            )
+        )
+    return choices
 
 
 def _sidecar_v1_engine(
@@ -1437,6 +1452,7 @@ def _recipe_engines(
                 ),
                 pricing=external_pricing_entry(DATALAB_OCR_PAGE),
             ),
+            *_lightonocr_choices(sidecar_capabilities, route="/ocr"),
             *_opendocrouter_choices(project, credential_context),
         ]
     if action_kind == "media.to_markdown":
@@ -1512,6 +1528,7 @@ def _recipe_engines(
                 ),
                 pricing=external_pricing_entry(DATALAB_CONVERT_PAGE),
             ),
+            *_lightonocr_choices(sidecar_capabilities, route="/to-markdown"),
             *_opendocrouter_choices(project, credential_context),
         ]
     if action_kind == "map.ner":

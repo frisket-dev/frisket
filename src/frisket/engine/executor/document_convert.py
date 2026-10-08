@@ -53,8 +53,7 @@ ENGINE_ALIASES = execution_alias_map(TO_MARKDOWN_ENGINE_TABLE)
 _EXPECTED_TRANSPORT = {
     LIGHT_ENGINE: "local",
     TRAFILATURA_HTML_ENGINE: "local",
-    "docling": "sidecar.convert",
-    "chandra": "sidecar.convert",
+    **{engine: "sidecar.convert" for engine in SIDECAR_ENGINES},
     DATALAB_ENGINE: "datalab.convert",
 }
 

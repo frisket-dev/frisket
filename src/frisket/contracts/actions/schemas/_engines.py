@@ -199,6 +199,7 @@ class EngineDeclaration:
     listed: bool = True
     resolves_to: str | None = None
     ocr_geometry: bool = False
+    ocr_searchable_pdf: bool = False
     transcription: TranscriptionEngineCapabilities | None = None
 
 
@@ -218,9 +219,22 @@ def opendocrouter_engines() -> tuple[EngineDeclaration, ...]:
             billable=True,
             ocr_geometry=True,
             listed=model.engine in active,
+            ocr_searchable_pdf=True,
         )
         for model in (*catalog.models, *catalog.retired_models)
     )
+
+
+LIGHTONOCR_ENGINES: tuple[EngineDeclaration, ...] = tuple(
+    EngineDeclaration(
+        id=f"lightonocr-3-{size}",
+        label=f"LightOnOCR 3 {label}",
+        tier="sidecar",
+        provider="frisket-sidecar",
+        ocr_geometry=True,
+    )
+    for size, label in (("0.8b", "0.8B"), ("4b", "4B"))
+)
 
 
 OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
@@ -228,6 +242,7 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
         id="rapidocr",
         label="RapidOCR (local, default)",
         ocr_geometry=True,
+        ocr_searchable_pdf=True,
         tier="local",
         provider="local",
         # Retired venue/tier words ("light"/"local") are listed in
@@ -238,6 +253,7 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
         id="tesseract",
         label="Tesseract OCR (local, system binary)",
         ocr_geometry=True,
+        ocr_searchable_pdf=True,
         tier="local",
         provider="local",
         aliases=("tess",),
@@ -246,6 +262,7 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
         id="paddleocr-vl",
         label="PaddleOCR-VL document VLM (sidecar)",
         ocr_geometry=True,
+        ocr_searchable_pdf=True,
         tier="sidecar",
         provider="frisket-sidecar",
         aliases=("paddle", "paddleocr"),
@@ -254,6 +271,7 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
         id="dots.mocr",
         label="dots.mocr multilingual document parser (sidecar)",
         ocr_geometry=True,
+        ocr_searchable_pdf=True,
         tier="sidecar",
         provider="frisket-sidecar",
         # Retired venue/tier words ("quality"/"sidecar") are listed in
@@ -263,6 +281,7 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
         id="pp-ocrv6",
         label="PP-OCRv6 fast text OCR (sidecar)",
         ocr_geometry=True,
+        ocr_searchable_pdf=True,
         tier="sidecar",
         provider="frisket-sidecar",
     ),
@@ -277,6 +296,7 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
         id="surya2",
         label="Surya 2 document OCR (local sidecar)",
         ocr_geometry=True,
+        ocr_searchable_pdf=True,
         tier="sidecar",
         provider="frisket-sidecar",
     ),
@@ -284,6 +304,7 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
         id="datalab",
         label="Datalab hosted OCR (hosted, pay-per-call)",
         ocr_geometry=True,
+        ocr_searchable_pdf=True,
         tier="hosted",
         provider="datalab",
         # Its old ``not_comparable`` reason ("bills per page; run it through
@@ -293,6 +314,7 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
         # so the bespoke field is gone.
         billable=True,
     ),
+    *LIGHTONOCR_ENGINES,
 )
 
 
@@ -561,6 +583,7 @@ TO_MARKDOWN_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
         tier="sidecar",
         provider="frisket-sidecar",
     ),
+    *LIGHTONOCR_ENGINES,
     EngineDeclaration(
         id="datalab",
         label="Datalab Marker (hosted, pay-per-call, PDF/Office/image only)",
@@ -859,6 +882,12 @@ def ocr_engine_has_geometry(engine: str) -> bool:
     """Positioned text comes from the engine contract, never its ID syntax."""
     declaration = find_engine(ocr_engine_table(), engine)
     return declaration is not None and declaration.ocr_geometry
+
+
+def ocr_engine_supports_searchable_pdf(engine: str) -> bool:
+    """Region highlights alone do not imply an aligned PDF text layer."""
+    declaration = find_engine(ocr_engine_table(), engine)
+    return declaration is not None and declaration.ocr_searchable_pdf
 
 
 def ocr_engine_table() -> tuple[EngineDeclaration, ...]:
