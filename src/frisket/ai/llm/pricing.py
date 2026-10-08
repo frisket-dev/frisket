@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from frisket.opendocrouter_catalog import parse_catalog, install_catalog
 from frisket.local_model_ids import bare_model_name, parse_local_model_id
 
 _data = json.loads((Path(__file__).parent / "pricing_data.json").read_text())
@@ -66,9 +67,14 @@ def install_pricing_data(data: dict[str, Any]) -> None:
         if any(not math.isfinite(rate) or rate < 0 for rate in parsed.values()):
             raise ValueError("pricing rates must be non-negative and finite")
         parsed_audio[model] = parsed
+    documents = (
+        parse_catalog(data["opendocrouter"]) if "opendocrouter" in data else None
+    )
     global PRICES, AUDIO_PRICES
     PRICES = parsed_text
     AUDIO_PRICES = parsed_audio
+    if documents is not None:
+        install_catalog(documents)
 
 
 ModelCostSource = Literal["free_local", "pricing_data", "unknown"]

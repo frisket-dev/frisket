@@ -13,10 +13,11 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import urlsplit
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 
+from frisket.opendocrouter_catalog import find_model
 from frisket.ai.models.metadata import ModelCallMeta, provider_cost_value
 from frisket.ops.integrations.hosted_error import HostedEngineError
 from frisket.ops.netguard import safe_request, EgressRefused, ResponseTooLarge
@@ -61,15 +62,43 @@ def input_details(path: Path) -> tuple[str, int]:
     )
 
 
-async def _request(client: httpx.AsyncClient, method: str, url: str, **kwargs) -> dict:
+async def _request(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    *,
+    billable: bool = False,
+    **kwargs,
+) -> dict:
     try:
         response = await client.request(method, url, follow_redirects=False, **kwargs)
-    except httpx.HTTPError:
+    except httpx.HTTPError as error:
         # URLs may contain signed credentials; provider text may echo input.
         raise HostedEngineError(
             "transport",
-            "Could not reach OpenDocRouter. The request may have been processed; check your provider usage before retrying.",
+            "Could not reach OpenDocRouter. Check provider usage before retrying a submitted request.",
+            post_egress_ambiguous=billable
+            and not isinstance(
+                error, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
+            ),
         ) from None
+    if billable and (response.status_code >= 500 or response.is_redirect):
+        # Only documented pre-execution refusals establish that no work ran.
+        try:
+            detail = response.json().get("error", {})
+        except (ValueError, AttributeError):
+            detail = {}
+        refused = (
+            response.status_code == 503
+            and isinstance(detail, dict)
+            and detail.get("code") in {"at_capacity", "model_starting"}
+        )
+        if not refused:
+            raise HostedEngineError(
+                "transport",
+                "OpenDocRouter did not return a conclusive result; check provider usage before retrying.",
+                post_egress_ambiguous=True,
+            )
     if response.is_error or response.is_redirect:
         code, message = {
             401: ("auth", "Check your OpenDocRouter API key."),
@@ -92,7 +121,9 @@ async def _request(client: httpx.AsyncClient, method: str, url: str, **kwargs) -
         body = None
     if not isinstance(body, dict):
         raise HostedEngineError(
-            "http", "OpenDocRouter returned an unreadable response."
+            "http",
+            "OpenDocRouter returned an unreadable response.",
+            post_egress_ambiguous=billable,
         )
     return body
 
@@ -107,9 +138,9 @@ def _job_id(body: dict) -> str:
 
 
 def _accounting(
-    body: dict, engine: str, capability: str, credential_source: str
+    body: dict, engine: str, capability: str, credential_source: str, *, fact_id: str
 ) -> dict:
-    job_id = _job_id(body)
+    job_id = _job_id(body) if body else None
     fact = ModelCallMeta.provider_call(
         capability=capability,
         engine=engine,
@@ -124,7 +155,7 @@ def _accounting(
         request_id=job_id,
         duration_ms=None,
     ).as_dict()
-    fact["id"] = f"opendocrouter_{job_id}"
+    fact["id"] = fact_id
     return {"tokens_in": None, "tokens_out": None, "cost": None, "model_calls": [fact]}
 
 
@@ -170,10 +201,17 @@ async def parse_document(
 ) -> tuple[list[dict], dict]:
     mime, count = input_details(path)
     headers = {"Authorization": f"Bearer {api_key}"}
-    asynchronous = count > 50
+    model = find_model(engine)
+    if model is None:
+        raise HostedEngineError(
+            "bad_request", "This OpenDocRouter model is not in the current catalog."
+        )
+    asynchronous = count > model.max_sync_pages
     started = time.monotonic()
     accounting = None
     job_url = None
+    body = {}
+    fact_id = f"opendocrouter_{uuid4().hex}"
 
     def check_cancel():
         if should_cancel and should_cancel():
@@ -207,8 +245,20 @@ async def parse_document(
         upload = await _request(
             client, "POST", f"{BASE_URL}/uploads", headers=headers, timeout=30
         )
-        url = upload.get("upload_url", "")
-        parsed = urlsplit(url)
+        try:
+            upload_id = str(UUID(upload["upload_id"]))
+            url = upload["upload_url"]
+            if not isinstance(url, str):
+                raise ValueError("invalid URL")
+            parsed = urlsplit(url)
+            port = parsed.port
+            maximum = upload["max_bytes"]
+            if type(maximum) is not int or maximum <= 0:
+                raise ValueError("invalid size")
+        except (KeyError, ValueError, TypeError, AttributeError):
+            raise HostedEngineError(
+                "http", "OpenDocRouter returned invalid upload details."
+            ) from None
         # Presigned storage URLs originate at the fixed, authenticated provider.
         # Never send our provider credential or client defaults to that origin.
         if (
@@ -216,12 +266,12 @@ async def parse_document(
             or not parsed.hostname
             or parsed.username
             or parsed.password
-            or parsed.port not in (None, 443)
+            or port not in (None, 443)
         ):
             raise HostedEngineError(
                 "http", "OpenDocRouter returned an invalid upload destination."
             )
-        if path.stat().st_size > upload.get("max_bytes", 0):
+        if path.stat().st_size > maximum:
             raise HostedEngineError(
                 "bad_request", "The file exceeds OpenDocRouter's upload limit."
             )
@@ -243,7 +293,7 @@ async def parse_document(
             ) from None
         if not 200 <= response.status_code < 300:
             raise HostedEngineError("http", "OpenDocRouter's document upload failed.")
-        document = {"upload_id": str(UUID(upload["upload_id"]))}
+        document = {"upload_id": upload_id}
     check_cancel()
     try:
         submit = asyncio.create_task(
@@ -253,6 +303,7 @@ async def parse_document(
                 f"{BASE_URL}/parse",
                 headers=headers,
                 timeout=600,
+                billable=True,
                 json={
                     "model": engine.removeprefix("opendocrouter/"),
                     "document": document,
@@ -270,7 +321,13 @@ async def parse_document(
             # it and record the provider response before honoring cancellation.
             body = await submit
             interrupted = True
-        accounting = _accounting(body, engine, capability, credential_source)
+        try:
+            accounting = _accounting(
+                body, engine, capability, credential_source, fact_id=fact_id
+            )
+        except HostedEngineError as error:
+            error.post_egress_ambiguous = True
+            raise
         job_url = f"{BASE_URL}/parse/{accounting['model_calls'][0]['request_id']}"
         # Acceptance is durable with unknown meters. The normal returned-row
         # writer later enriches that same fact and attaches its output column.
@@ -354,6 +411,17 @@ async def parse_document(
             if isinstance(error, HostedEngineError)
             else HostedEngineError("cancelled", "OpenDocRouter processing was stopped.")
         )
+        if isinstance(error, asyncio.CancelledError) and accounting is None:
+            exc.post_egress_ambiguous = True
+        if exc.post_egress_ambiguous and accounting is None:
+            accounting = _accounting(
+                {}, engine, capability, credential_source, fact_id=fact_id
+            )
+            try:
+                notify_accounting()
+            except HostedEngineError:
+                # Preserve uncertainty even when the ledger is unavailable.
+                pass
         exc.accounting = accounting
         exc.provider_job_accepted = accounting is not None and (
             exc.code == "accounting"

@@ -256,7 +256,7 @@ def test_layout_lines_and_block_coordinates():
         },
     }
     out = ocr_page(page, (100, 200))
-    assert out["text"] == page["markdown"]
+    assert out["text"] == "Heading\n\nTwo lines\ncontinued"
     assert len(out["blocks"]) == 1
     assert out["blocks"][0] == {
         "text": "Two lines\ncontinued",
@@ -264,7 +264,10 @@ def test_layout_lines_and_block_coordinates():
         "score": 0.9,
     }
     page["layout"] = {"status": "error", "code": "timeout"}
-    assert ocr_page(page, (100, 200)) == {"text": page["markdown"], "blocks": []}
+    assert ocr_page(page, (100, 200)) == {
+        "text": "Heading\n\nTwo lines\ncontinued",
+        "blocks": [],
+    }
 
 
 def test_http_error_never_echoes_credentials_or_provider_text(png):
@@ -358,3 +361,83 @@ def test_native_pdf_live_response_replay(tmp_path):
     assert len(pages) == 2
     assert all("INV-1042" in page["markdown"] for page in pages)
     assert accounting["cost"] == captured["charge_usd"]
+
+
+@pytest.mark.parametrize(
+    "error_type,ambiguous", [(httpx.ReadTimeout, True), (httpx.ConnectError, False)]
+)
+def test_transport_uncertainty_is_recorded_without_resubmitting(
+    png, error_type, ambiguous
+):
+    calls, facts = [], []
+
+    def handler(request):
+        calls.append(request)
+        raise error_type("private response", request=request)
+
+    with pytest.raises(HostedEngineError) as caught:
+        run(png, handler, on_accounting=lambda fact: facts.append(copy.deepcopy(fact)))
+    assert caught.value.post_egress_ambiguous is ambiguous
+    assert len(calls) == 1
+    assert bool(facts) is ambiguous
+    if ambiguous:
+        assert facts[0]["cost"] is None
+        assert facts[0]["model_calls"][0]["request_id"] is None
+    assert "private response" not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        {"upload_id": "bad"},
+        {"upload_url": "https://example.test:bad/"},
+        {"max_bytes": True},
+    ],
+)
+def test_malformed_upload_metadata_refuses_before_put(png, monkeypatch, invalid):
+    monkeypatch.setattr(api, "INLINE_BYTES", 1)
+    calls = []
+
+    def handler(request):
+        calls.append(request.method)
+        return httpx.Response(
+            200,
+            json={
+                "upload_id": JOB,
+                "upload_url": "https://example.test/file",
+                "max_bytes": api.MAX_BYTES,
+                **invalid,
+            },
+        )
+
+    with pytest.raises(HostedEngineError):
+        run(png, handler)
+    assert calls == ["POST"]
+
+
+def test_async_uses_model_specific_page_limit(tmp_path, monkeypatch):
+    from dataclasses import replace
+    from frisket.opendocrouter_catalog import current_catalog, DocumentCatalog
+
+    catalog = current_catalog()
+    monkeypatch.setattr(
+        "frisket.opendocrouter_catalog._catalog",
+        DocumentCatalog(
+            catalog.price_version,
+            tuple(
+                replace(m, max_sync_pages=1) if m.engine == ENGINE else m
+                for m in catalog.models
+            ),
+        ),
+    )
+    calls = []
+
+    def handler(request):
+        calls.append(request.method)
+        if request.method == "POST":
+            assert json.loads(request.content)["mode"] == "async"
+        return httpx.Response(200, json=response(2))
+
+    pages, _ = run(pdf(tmp_path, 2), handler)
+    assert len(pages) == 2
+    assert calls == ["POST", "GET", "DELETE"]

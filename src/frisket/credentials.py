@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from frisket.ai.llm.types import CredentialSource
@@ -38,7 +38,7 @@ from frisket.execution.credential_use import (
 class ResolvedCredential:
     """A credential value plus the non-secret provenance durable facts store."""
 
-    value: str
+    value: str = field(repr=False)
     source: CredentialSource
     owner: CredentialOwner | None = None
 

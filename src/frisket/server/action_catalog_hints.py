@@ -2091,7 +2091,7 @@ def _string_list(value: Any) -> list[str]:
 
 
 def _opendocrouter_choices(project):
-    from frisket.contracts.actions.schemas._engines import OPENDOCROUTER_ENGINES
+    from frisket.contracts.actions.schemas._engines import opendocrouter_engines
     from frisket.credentials import resolve_credential
 
     available = bool(resolve_credential(project, "OPEN_DOC_ROUTER_API_KEY"))
@@ -2104,11 +2104,12 @@ def _opendocrouter_choices(project):
                 if available
                 else "Add an OpenDocRouter API key to use this engine.",
             ),
+            "pricing": external_pricing_entry(declaration.id + ".parse_page"),
             "description": (
                 "PDF, PNG or JPEG to Markdown. Charged by OpenDocRouter. "
-                "PDFs over 50 pages use encrypted temporary storage (up to 24 hours); "
+                "Async processing uses encrypted temporary storage (up to 24 hours); "
                 "Frisket requests deletion after retrieval."
             ),
         }
-        for declaration in OPENDOCROUTER_ENGINES
+        for declaration in opendocrouter_engines()
     ]

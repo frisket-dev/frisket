@@ -16,6 +16,12 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(ROOT / "src"))
+from frisket.opendocrouter_catalog import (  # noqa: E402 -- standalone stdlib-only updater
+    SOURCE_URL as OPENDOCROUTER_SOURCE,
+    parse_catalog,
+    catalog_document,
+)
 
 LITELLM_SOURCE = (
     "https://raw.githubusercontent.com/BerriAI/litellm/main/"
@@ -51,6 +57,7 @@ def build_price_table(
     *,
     catalog: dict[str, Any] = CATALOG,
     updated: date | None = None,
+    opendocrouter: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     text: dict[str, list[float]] = {}
     for provider, entries in catalog["providers"].items():
@@ -103,7 +110,7 @@ def build_price_table(
     for name, override in MAINTAINED_AUDIO_OVERRIDES.items():
         audio[name] = {"per_second": override["per_second"]}
 
-    return {
+    result = {
         "sources": {
             "litellm": LITELLM_SOURCE,
             "openrouter": OPENROUTER_SOURCE,
@@ -113,6 +120,11 @@ def build_price_table(
         "audio": dict(sorted(audio.items())),
     }
 
+    if opendocrouter is not None:
+        result["opendocrouter"] = catalog_document(parse_catalog(opendocrouter))
+        result["sources"]["opendocrouter"] = OPENDOCROUTER_SOURCE
+    return result
+
 
 def main() -> None:
     litellm = json.loads(urllib.request.urlopen(LITELLM_SOURCE, timeout=30).read())
@@ -121,7 +133,10 @@ def main() -> None:
         headers={"User-Agent": "frisket-pricing-refresh/1"},
     )
     openrouter = json.loads(urllib.request.urlopen(request, timeout=30).read())
-    output = build_price_table(litellm, openrouter)
+    opendocrouter = json.loads(
+        urllib.request.urlopen(OPENDOCROUTER_SOURCE, timeout=30).read()
+    )
+    output = build_price_table(litellm, openrouter, opendocrouter=opendocrouter)
 
     OUT.write_text(json.dumps(output, indent=2) + "\n")
     print(

@@ -21,10 +21,41 @@ from tests.ops.test_opendocrouter import ENGINE, response
 
 
 @pytest.mark.parametrize("action", ["media.ocr", "media.to_markdown"])
-@pytest.mark.parametrize("scenario", ["success", "partial", "ledger_failure"])
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "success",
+        "partial",
+        "ledger_failure",
+        "lost_response",
+        "repriced",
+        "new_model",
+        "unknown_price",
+    ],
+)
 def test_paid_document_action(tmp_path, monkeypatch, action, scenario):
     monkeypatch.setenv("OPEN_DOC_ROUTER_API_KEY", "odr-key")
+    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     calls = []
+    engine = ENGINE
+    if scenario in {"new_model", "unknown_price"}:
+        from frisket.opendocrouter_catalog import current_catalog, DocumentCatalog
+        from dataclasses import replace
+
+        catalog = current_catalog()
+        model = replace(
+            catalog.models[0],
+            id="example/future-parser",
+            name="Future parser",
+            max_charge_per_page_usd=None
+            if scenario == "unknown_price"
+            else catalog.models[0].max_charge_per_page_usd,
+        )
+        monkeypatch.setattr(
+            "frisket.opendocrouter_catalog._catalog",
+            DocumentCatalog(catalog.price_version, (*catalog.models, model)),
+        )
+        engine = model.engine
     if scenario == "ledger_failure":
 
         def fail_persist(*args):
@@ -39,7 +70,11 @@ def test_paid_document_action(tmp_path, monkeypatch, action, scenario):
         assert request.url.path == "/v1/parse"
         payload = json.loads(request.content)
         assert payload["layout"] is (action == "media.ocr")
+        assert payload["model"] == engine.removeprefix("opendocrouter/")
+        if scenario == "lost_response":
+            raise httpx.ReadTimeout("response lost", request=request)
         result = response()
+        result["model"] = payload["model"]
         result["pages"][0]["layout"] = {
             "status": "ok",
             "elements": [
@@ -87,7 +122,7 @@ def test_paid_document_action(tmp_path, monkeypatch, action, scenario):
         spec = {
             "action_id": action,
             "scope": {"kind": "sheet_rows", "sheet_id": sheet},
-            "params": {"source": "doc", "engine": ENGINE},
+            "params": {"source": "doc", "engine": engine},
             "idempotency_key": "odr",
             "output_names": {"text": "text", "blocks": "boxes"}
             if action == "media.ocr"
@@ -97,12 +132,34 @@ def test_paid_document_action(tmp_path, monkeypatch, action, scenario):
         assert gate.status == "needs_confirmation", gate.errors
         assert calls == []
         assert any(c["field"] == "cost" for c in gate.errors[0].details["claims"])
+        if scenario == "repriced":
+            from frisket.opendocrouter_catalog import current_catalog, DocumentCatalog
+            from dataclasses import replace
+
+            catalog = current_catalog()
+            monkeypatch.setattr(
+                "frisket.opendocrouter_catalog._catalog",
+                DocumentCatalog(
+                    catalog.price_version,
+                    tuple(
+                        replace(m, max_charge_per_page_usd=0.5)
+                        if m.engine == engine
+                        else m
+                        for m in catalog.models
+                    ),
+                ),
+            )
         result = run_action_spec(
             project,
             {**spec, "confirmation": gate.errors[0].details["promise_set_hash"]},
             router=router,
             project_id="odr",
         )
+        if scenario == "repriced":
+            assert result.status == "needs_confirmation", result.errors
+            assert calls == []
+            asyncio.run(client.aclose())
+            return
         assert result.run_id is not None, result.errors
         assert len(calls) == 1
         if scenario == "ledger_failure":
@@ -111,20 +168,24 @@ def test_paid_document_action(tmp_path, monkeypatch, action, scenario):
             return
         [fact] = RunResultStore(project).model_calls(result.run_id)
         assert fact["provider"] == "opendocrouter"
+        if scenario == "lost_response":
+            assert result.errors[0].code == "external_effect_reconciliation_required"
+            assert fact["provider_cost_usd"] is None
+            asyncio.run(client.aclose())
+            return
         assert fact["provider_cost_usd"] == 0.00397
         assert fact["epoch_id"] is not None
         [attempt] = run_attempt_receipts(project, result.run_id)
         assert attempt["settlement"]["charge_usd"] == "0.00397", attempt
         assert attempt["settlement"]["charge_authority"] == "provider_usage"
-        if scenario == "success":
+        if scenario in {"success", "new_model", "unknown_price"}:
             assert result.status == "completed", result.errors
             name = "text" if action == "media.ocr" else "markdown"
             target = project.db.execute(
                 "SELECT id FROM columns WHERE sheet_id=? AND name=?", (sheet, name)
             ).fetchone()[0]
-            assert (
-                project.get_values(sheet, target, row_ids=[row])[row]
-                == "# Page 1\n\nText"
+            assert project.get_values(sheet, target, row_ids=[row])[row] == (
+                "Page 1\n\nText" if action == "media.ocr" else "# Page 1\n\nText"
             )
             assert fact["column_id"] == target
         else:
@@ -146,6 +207,7 @@ def test_paid_ocr_compare_uses_same_adapter(tmp_path, monkeypatch):
     from tests.preview.test_paid_ocr_scratch import _RunContext
 
     monkeypatch.setenv("OPEN_DOC_ROUTER_API_KEY", "odr-key")
+    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     data = io.BytesIO()
     Image.new("RGB", (100, 200), "white").save(data, format="PNG")
     calls = []
@@ -171,7 +233,7 @@ def test_paid_ocr_compare_uses_same_adapter(tmp_path, monkeypatch):
         )
         context = _RunContext(project, router)
         result = asyncio.run(plan.run(context))
-        assert result.rows[0]["text"]["value"] == "# Page 1\n\nText"
+        assert result.rows[0]["text"]["value"] == "Page 1\n\nText"
         assert len(calls) == 1
         assert context.calls[0]["provider"] == "opendocrouter"
         assert context.calls[0]["provider_cost_usd"] == 0.00397
@@ -184,6 +246,7 @@ def test_searchable_pdf_from_live_layout_response(
 ):
     """Replay the successful real scan, retaining the complete public action path."""
     monkeypatch.setenv("OPEN_DOC_ROUTER_API_KEY", "odr-key")
+    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     captured = json.loads(
         (
             Path(__file__).parents[1] / "fixtures/opendocrouter/ocr_layout.json"

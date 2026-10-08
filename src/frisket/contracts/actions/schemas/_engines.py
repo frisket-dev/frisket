@@ -202,36 +202,24 @@ class EngineDeclaration:
     transcription: TranscriptionEngineCapabilities | None = None
 
 
-# Explicit product roster; opening the picker never performs a network request.
-# Source: https://www.opendocrouter.ai/v1/models, retrieved 2026-10-08.
-OPENDOCROUTER_MODELS = (
-    ("anthropic/claude-opus-5-5", "Claude Opus 5.5"),
-    ("anthropic/claude-haiku-5-5", "Claude Haiku 5.5"),
-    ("google/gemini-3-flash", "Gemini 3 Flash"),
-    ("google/gemini-3.8-flash-low", "Gemini 3.8 Flash"),
-    ("openai/gpt-5.6-terra", "GPT-5.6 Terra"),
-    ("openai/gpt-6-luna", "GPT-6 Luna"),
-    ("infly/infinity-parser2-flash", "Infinity-Parser2-Flash"),
-    ("opendatalab/mineru2.5-pro", "MinerU2.5-Pro"),
-    ("xingchen-agi/teleocr", "TeleOCR"),
-    ("rednote-hilab/dots.mocr", "dots.mocr"),
-    ("paddlepaddle/paddleocr-vl-1.6", "PaddleOCR-VL-1.6"),
-)
-OPENDOCROUTER_ENGINES = tuple(
-    EngineDeclaration(
-        id=f"opendocrouter/{model}",
-        label=f"{label} · OpenDocRouter",
-        ocr_geometry=True,
-        tier="hosted",
-        provider="opendocrouter",
-        billable=True,
+def opendocrouter_engines() -> tuple[EngineDeclaration, ...]:
+    """Provider catalog entries share one fixed, code-owned parsing contract."""
+    from frisket.opendocrouter_catalog import current_catalog
+
+    return tuple(
+        EngineDeclaration(
+            id=model.engine,
+            label=f"{model.name} · OpenDocRouter",
+            tier="hosted",
+            provider="opendocrouter",
+            billable=True,
+            ocr_geometry=True,
+        )
+        for model in current_catalog().models
     )
-    for model, label in OPENDOCROUTER_MODELS
-)
 
 
 OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
-    *OPENDOCROUTER_ENGINES,
     EngineDeclaration(
         id="rapidocr",
         label="RapidOCR (local, default)",
@@ -541,7 +529,6 @@ CLASSIFY_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
 
 
 TO_MARKDOWN_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
-    *OPENDOCROUTER_ENGINES,
     EngineDeclaration(
         id="markitdown",
         label="MarkItDown (local, default)",
@@ -866,5 +853,13 @@ def is_billable_engine(table: tuple[EngineDeclaration, ...], engine: str) -> boo
 
 def ocr_engine_has_geometry(engine: str) -> bool:
     """Positioned text comes from the engine contract, never its ID syntax."""
-    declaration = find_engine(OCR_ENGINE_TABLE, engine)
+    declaration = find_engine(ocr_engine_table(), engine)
     return declaration is not None and declaration.ocr_geometry
+
+
+def ocr_engine_table() -> tuple[EngineDeclaration, ...]:
+    return OCR_ENGINE_TABLE + opendocrouter_engines()
+
+
+def to_markdown_engine_table() -> tuple[EngineDeclaration, ...]:
+    return TO_MARKDOWN_ENGINE_TABLE + opendocrouter_engines()

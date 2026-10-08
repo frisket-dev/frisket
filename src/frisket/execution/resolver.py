@@ -48,8 +48,8 @@ from frisket.contracts.actions.schemas._engines import (
     CENSUS_ENGINE_TABLE,
     CLASSIFY_ENGINE_TABLE,
     GEOCODE_ENGINE_TABLE,
-    OCR_ENGINE_TABLE,
-    TO_MARKDOWN_ENGINE_TABLE,
+    ocr_engine_table,
+    to_markdown_engine_table,
     TRANSCRIBE_ENGINE_TABLE,
     TRANSLATE_ENGINE_TABLE,
     EngineDeclaration,
@@ -499,9 +499,9 @@ def capability_engine_table(capability: str) -> tuple[EngineDeclaration, ...]:
     tables: dict[str, tuple[EngineDeclaration, ...]] = {
         CAPABILITY_CLASSIFY: CLASSIFY_ENGINE_TABLE,
         CAPABILITY_TRANSCRIBE: TRANSCRIBE_ENGINE_TABLE,
-        CAPABILITY_OCR: OCR_ENGINE_TABLE,
+        CAPABILITY_OCR: ocr_engine_table(),
         CAPABILITY_TRANSLATE: TRANSLATE_ENGINE_TABLE,
-        CAPABILITY_TO_MARKDOWN: TO_MARKDOWN_ENGINE_TABLE,
+        CAPABILITY_TO_MARKDOWN: to_markdown_engine_table(),
         CAPABILITY_GEOCODE: GEOCODE_ENGINE_TABLE,
         CAPABILITY_CENSUS: CENSUS_ENGINE_TABLE,
     }

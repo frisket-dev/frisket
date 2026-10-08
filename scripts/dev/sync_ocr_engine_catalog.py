@@ -14,7 +14,8 @@ list exactly (a projector parity test elsewhere pins dots.mocr to index 3).
 Every OCR runtime is optional, so every fallback entry is unavailable until
 the live catalog confirms that runtime — see engineCatalog.ts's
 OCR_ENGINE_FALLBACK doc comment for the "honest pre-catalog placeholder"
-rationale.
+rationale. OpenDocRouter models come from the runtime provider catalog,
+so they have no frozen browser fallback list.
 """
 
 from __future__ import annotations
@@ -25,7 +26,6 @@ from pathlib import Path
 
 from frisket.contracts.actions.schemas._engines import (
     OCR_ENGINE_TABLE,
-    OPENDOCROUTER_ENGINES,
 )
 from frisket.server.action_catalog_hints import OCR_VISION_ENGINES
 
@@ -44,7 +44,6 @@ ROSTER_ORDER = [
     "gemini/gemini-3.5-flash",
     "openrouter/minimax/minimax-m3",
     "datalab",
-    *(entry.id for entry in OPENDOCROUTER_ENGINES),
 ]
 
 PRE_CATALOG_ERROR = "Action catalog unavailable"

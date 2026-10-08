@@ -61,7 +61,7 @@ from typing import Any
 
 from frisket.contracts.actions.schemas._engines import (
     OCR_ENGINE_TABLE,
-    OPENDOCROUTER_ENGINES,
+    opendocrouter_engines,
     ocr_engine_has_geometry,
     TRANSCRIBE_ENGINE_TABLE,
     TranscriptionEngineCapabilities,
@@ -408,6 +408,26 @@ def _gateway_to_markdown_engines() -> tuple[TargetEngineSupport, ...]:
     )
 
 
+def _opendocrouter_target() -> ExecutionTarget:
+    return ExecutionTarget(
+        id=OPENDOCROUTER_TARGET_ID,
+        operator="opendocrouter",
+        egress_class="third_party_api",
+        engines=tuple(
+            support
+            for declaration in opendocrouter_engines()
+            for support in (
+                _ocr_support(
+                    declaration.id,
+                    "opendocrouter.parse",
+                    language=False,
+                ),
+                _to_markdown_support(declaration.id, "opendocrouter.parse"),
+            )
+        ),
+    )
+
+
 def build_static_targets(
     *,
     include_managed_local_models: bool = False,
@@ -506,23 +526,7 @@ def build_static_targets(
             egress_class="third_party_api",
             engines=(_classify_support("clef", "cloudflare.clef"),),
         ),
-        ExecutionTarget(
-            id=OPENDOCROUTER_TARGET_ID,
-            operator="opendocrouter",
-            egress_class="third_party_api",
-            engines=tuple(
-                support
-                for declaration in OPENDOCROUTER_ENGINES
-                for support in (
-                    _ocr_support(
-                        declaration.id,
-                        "opendocrouter.parse",
-                        language=False,
-                    ),
-                    _to_markdown_support(declaration.id, "opendocrouter.parse"),
-                )
-            ),
-        ),
+        _opendocrouter_target(),
         ExecutionTarget(
             id=DATALAB_TARGET_ID,
             operator="datalab",
@@ -669,7 +673,10 @@ class StaticExecutionTargetProvider:
         self.probe_counts: dict[str, int] = {}
 
     def targets(self) -> Sequence[ExecutionTarget]:
-        return self._targets
+        return tuple(
+            _opendocrouter_target() if t.id == OPENDOCROUTER_TARGET_ID else t
+            for t in self._targets
+        )
 
     def connection(self, target_id: str) -> ConnectionConfig | None:
         self.probe_counts[target_id] = self.probe_counts.get(target_id, 0) + 1

@@ -239,7 +239,12 @@ def catalog_list_price(sku: str) -> Decimal | None:
     ``None`` means "don't know" and every caller reports exactly that (an
     unpriceable basis, an absent cost fact). Never a substitute rate.
     """
-    raw = external_unit_price_string(sku)
+    try:
+        raw = external_unit_price_string(sku)
+    except KeyError:
+        if sku.startswith("opendocrouter/"):
+            return None
+        raise
     if raw is None:
         return None
     try:
@@ -558,6 +563,20 @@ def quote_transcription(
         return UnpriceableCost()
 
 
+def _quote_document_usage(capability: str, sku: str, quantity) -> CostBasis:
+    rate = catalog_list_price(sku)
+    if quantity is None or rate is None:
+        return ProviderUsageCost(pricing_key=sku)
+    terms = _provider_direct_terms(capability, sku)
+    terms["charge_authority"] = "provider_usage"
+    return PricedCostBasis(
+        pricing_key=sku,
+        unit_rate=decimal_str(rate),
+        estimated_quantity=decimal_str(quantity),
+        **terms,
+    )
+
+
 def quote_ocr(
     *,
     target_id: str,
@@ -606,7 +625,7 @@ def quote_ocr(
         # already owns that compute and no per-request meter exists.
         return OperatorBorneZeroCost()
     if target_id == "opendocrouter":
-        return ProviderUsageCost(pricing_key=sku)
+        return _quote_document_usage(CAPABILITY_OCR, sku, pages)
     if pages is None:
         return UnpriceableCost()
     terms = _provider_direct_terms(CAPABILITY_OCR, sku)
@@ -665,7 +684,7 @@ def _quote_catalog_sku(
     if sku is None:
         return OperatorBorneZeroCost()
     if target_id == "opendocrouter":
-        return ProviderUsageCost(pricing_key=sku)
+        return _quote_document_usage(capability, sku, quantity)
     if quantity is None:
         return UnpriceableCost()
     rate = catalog_list_price(sku)
@@ -845,7 +864,13 @@ def live_cost_fact(
     if sku is None:
         return fact
     if target_id == "opendocrouter":
-        return {**fact, "charge_authority": "provider_usage"}
+        rate = catalog_list_price(sku)
+        return {
+            **fact,
+            **_provider_direct_terms(capability, sku),
+            "charge_authority": "provider_usage",
+            **({"unit_rate": decimal_str(rate)} if rate is not None else {}),
+        }
     fact.update(_provider_direct_terms(capability, sku))
     if sku == SKU_DATALAB_OCR_PAGE:
         # The provider's own list price, observed live: an operator who edits

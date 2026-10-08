@@ -10,7 +10,7 @@ from frisket.actions.types import ActionParams
 from frisket.contracts.actions.schemas._base import StrictPositiveInt, StrictString
 from frisket.contracts.actions.schemas._engines import (
     OCR_DEAD_ENGINE_REPLACEMENTS,
-    OCR_ENGINE_TABLE,
+    ocr_engine_table,
     ocr_engine_has_geometry,
     TRANSCRIBE_DEAD_ENGINE_REPLACEMENTS,
     TRANSCRIBE_ENGINE_TABLE,
@@ -44,7 +44,10 @@ class OcrOptions(ActionParams):
     def normalize(self, engine: str) -> dict[str, Any]:
         """Validate actual values and return the same options used at admission."""
         engine = _canonical_engine(
-            engine, OCR_ENGINE_TABLE, OCR_DEAD_ENGINE_REPLACEMENTS, "invalid_ocr_engine"
+            engine,
+            ocr_engine_table(),
+            OCR_DEAD_ENGINE_REPLACEMENTS,
+            "invalid_ocr_engine",
         )
         options = type(self).model_validate(self.model_dump())
         if options.searchable_pdf and not ocr_engine_has_geometry(engine):

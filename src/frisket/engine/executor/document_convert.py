@@ -18,7 +18,6 @@ from frisket.actions.document_types import ConvertedDocument
 from frisket.actions.types import ColumnRef, Row, RowError
 from frisket.contracts.actions.schemas._engines import (
     TO_MARKDOWN_ENGINE_TABLE,
-    OPENDOCROUTER_ENGINES,
     engine_ids,
     execution_alias_map,
 )
@@ -57,7 +56,6 @@ _EXPECTED_TRANSPORT = {
     "docling": "sidecar.convert",
     "chandra": "sidecar.convert",
     DATALAB_ENGINE: "datalab.convert",
-    **{entry.id: "opendocrouter.parse" for entry in OPENDOCROUTER_ENGINES},
 }
 
 # Datalab's /convert accepts PDF/Word/PowerPoint/PNG/JPG/WebP — NOT html/text.
@@ -397,7 +395,11 @@ class _BoundDocumentConverter:
         if admission is not None:
             engine = admission.route.engine
             snapshot = admission.route.target_snapshot
-            expected = _EXPECTED_TRANSPORT.get(engine)
+            expected = (
+                "opendocrouter.parse"
+                if engine.startswith("opendocrouter/")
+                else _EXPECTED_TRANSPORT.get(engine)
+            )
             if (
                 snapshot.get("capability") != CAPABILITY_TO_MARKDOWN
                 or expected is None

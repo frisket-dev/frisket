@@ -232,16 +232,19 @@ text to Cloudflare and uses Frisket's external-action cost and consent flow.
 Choose a model and add your API key in the selector, or set
 `OPEN_DOC_ROUTER_API_KEY` on the server. It accepts PDF, PNG, and JPEG files.
 To Markdown sends the original document; OCR and OCR Compare process rendered
-pages and return block-level highlights. OCR also supports searchable PDF output.
+pages and return plain text with block-level highlights. OCR also supports searchable PDF output when the model returns usable layout data.
 Text selection alignment is approximate for paragraph-sized blocks. PDF generation requires
 layout data and uses the existing Latin/Western text-layer composer.
 
 Each provider request accepts up to 50 MB and 500 PDF pages. To Markdown
-requests containing more than 50 pages use
+requests exceeding the selected model’s synchronous page limit (at most 50 pages) use
 OpenDocRouter's encrypted temporary result storage (up to 24 hours); Frisket
 requests deletion when processing finishes or is stopped. Smaller requests do
-not enable caching. Costs require confirmation because they depend on provider
-usage; completed and partially failed calls retain the reported charge.
+not enable caching. Model names and per-page maximum price estimates refresh through
+Frisket’s existing daily pricing feed, with a bundled catalog for offline startup.
+Estimates use the published maximum per page; actual costs use provider-reported
+usage, including partially failed calls. Requests with unknown costs require
+confirmation. Requests whose responses are lost are not automatically resubmitted.
 
 It's easy to set up an API key to talk to AI providers like OpenAI, Anthropic, OpenRouter and Gemini. But! You can also do most everything on the privacy of your own machine.
 

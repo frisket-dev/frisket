@@ -312,12 +312,12 @@ def test_the_to_markdown_seam_roster_is_the_shipped_engine_table():
     second one, which is why a to_markdown engine cannot be servable by the
     picker and unresolvable by the seam."""
     from frisket.contracts.actions.schemas._engines import (
-        TO_MARKDOWN_ENGINE_TABLE,
+        to_markdown_engine_table,
         engine_ids,
     )
     from frisket.execution.definitions import build_static_targets
 
-    rostered = set(engine_ids(TO_MARKDOWN_ENGINE_TABLE))
+    rostered = set(engine_ids(to_markdown_engine_table()))
     served = {
         support.engine
         for target in build_static_targets()

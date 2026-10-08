@@ -15,7 +15,7 @@ def test_unknown_provider_quote_survives_promise_roundtrip():
         engine=ENGINE,
         funding=OperatorBorne(),
         offering=None,
-        pages=1,
+        pages=None,
     )
     assert isinstance(quote, ProviderUsageCost)
     assert isinstance(quote, UnpriceableCost)

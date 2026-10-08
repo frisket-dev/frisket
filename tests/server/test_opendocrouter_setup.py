@@ -84,6 +84,7 @@ def test_catalog_key_setup_and_target(tmp_path, monkeypatch, action):
         assert (
             credential.value == "test-odr-secret" and credential.source == "project_key"
         )
+        assert "test-odr-secret" not in repr(credential)
         target = StaticExecutionTargetProvider(secrets=project, env={})
         assert target.connection("opendocrouter").token == credential.value
         available = choices()
@@ -91,4 +92,21 @@ def test_catalog_key_setup_and_target(tmp_path, monkeypatch, action):
         odr = next(t for t in target.targets() if t.id == "opendocrouter")
         assert len(odr.engines) == 22
         assert {s.transport for s in odr.engines} == {"opendocrouter.parse"}
+        # The already-running app exposes a refreshed model without a restart.
+        from dataclasses import replace
+        from frisket.opendocrouter_catalog import current_catalog, DocumentCatalog
+
+        catalog = current_catalog()
+        model = replace(catalog.models[0], id="example/new-parser", name="New parser")
+        monkeypatch.setattr(
+            "frisket.opendocrouter_catalog._catalog",
+            DocumentCatalog(catalog.price_version, (*catalog.models, model)),
+        )
+        refreshed = choices()
+        added = next(
+            c for c in refreshed if c["authored_selection"]["engine"] == model.engine
+        )
+        assert added["status"] == "ready"
+        assert "New parser" in str(added)
+
     transport.close()

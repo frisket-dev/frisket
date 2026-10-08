@@ -1,0 +1,30 @@
+import pytest
+
+from frisket.ops.markdown_plain import markdown_to_plain_text
+
+
+@pytest.mark.parametrize(
+    "markdown,expected",
+    [
+        ("# Heading", "Heading"),
+        ("**Bold** and *italic*", "Bold and italic"),
+        ("[label](https://example.com/a_(b))", "label"),
+        ("Use `**literal asterisks**`", "Use **literal asterisks**"),
+        ("```html\n<div>hello</div>\n```", "<div>hello</div>"),
+        (r"\*literal\* &amp; text", "*literal* & text"),
+        ("![A diagram](https://example.com/image.png)", "A diagram"),
+        ("<p>One<br>Two</p>", "One\nTwo"),
+    ],
+)
+def test_plain_text_preserves_content(markdown, expected):
+    assert markdown_to_plain_text(markdown) == expected
+
+
+def test_tables_preserve_labels_and_values_without_markup():
+    for markdown in (
+        "| Name | Amount |\n| --- | --- |\n| River Press | 120.00 |",
+        "<table><tr><th>Name</th><th>Amount</th></tr><tr><td>River Press</td><td>120.00</td></tr></table>",
+    ):
+        text = markdown_to_plain_text(markdown)
+        assert text.split() == ["Name", "Amount", "River", "Press", "120.00"]
+        assert "|" not in text and "<" not in text

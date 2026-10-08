@@ -44,6 +44,7 @@ dependencies = [
     # two format adapters that are genuinely extra-gated. This does not
     # download model weights at install time.
     "markitdown[docx,pdf]>=0.1.6",
+    "markdown-it-py>=4.2.0",
     "httpx>=0.28.1",
     "itsdangerous>=2.2.0",
     # Structured-output validation and its conformance oracle.

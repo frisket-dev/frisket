@@ -3026,7 +3026,7 @@ def _typed_receipt(
     if DocumentConverter in getattr(plan.action.definition.run, "capabilities", ()):
         from frisket.engine.store.receipts import ReceiptStore
         from frisket.contracts.actions.schemas._engines import (
-            TO_MARKDOWN_ENGINE_TABLE,
+            to_markdown_engine_table,
             find_engine,
         )
         from frisket.ai.models.metadata import model_calls_cost_actual
@@ -3063,7 +3063,7 @@ def _typed_receipt(
             if item.get("service") != ROUTED_CAPABILITIES[DocumentConverter]
         ]
         for engine, count in grouped.items():
-            declaration = find_engine(TO_MARKDOWN_ENGINE_TABLE, engine)
+            declaration = find_engine(to_markdown_engine_table(), engine)
             calls = [call for call in document_calls if call["engine"] == engine]
             provider_use.append(
                 {

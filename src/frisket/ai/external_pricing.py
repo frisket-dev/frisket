@@ -241,13 +241,43 @@ CATALOG: dict[str, ExternalPricingEntry] = {
 }
 
 
+def _opendocrouter_prices() -> dict[str, ExternalPricingEntry]:
+    from frisket.opendocrouter_catalog import current_catalog
+
+    return {
+        m.engine + ".parse_page": ExternalPricingEntry(
+            key=m.engine + ".parse_page",
+            label=f"{m.name} · OpenDocRouter (per page estimate)",
+            provider="OpenDocRouter",
+            unit="page",
+            default_unit_price_usd=Decimal(str(m.max_charge_per_page_usd))
+            if m.max_charge_per_page_usd is not None
+            else None,
+            env_var=None,
+            billable=True,
+            external_api=True,
+            description="Estimate uses the published maximum per page; actual charges use provider-reported usage.",
+        )
+        for m in current_catalog().models
+    }
+
+
+def _entry(key: str) -> ExternalPricingEntry:
+    if key.startswith("opendocrouter/"):
+        return _opendocrouter_prices()[key]
+    return CATALOG[key]
+
+
 def external_pricing_catalog() -> dict[str, dict[str, Any]]:
-    return {key: external_pricing_entry(key) for key in CATALOG}
+    return {
+        key: entry.as_dict()
+        for key, entry in (CATALOG | _opendocrouter_prices()).items()
+    }
 
 
 def external_pricing_entry(key: str) -> dict[str, Any]:
     try:
-        return CATALOG[key].as_dict()
+        return _entry(key).as_dict()
     except KeyError as e:
         raise KeyError(f"unknown external pricing key: {key}") from e
 
@@ -264,7 +294,7 @@ def external_unit_price_string(key: str) -> str | None:
 
 def _unit_price(key: str) -> Decimal | None:
     """Catalog rate for one key."""
-    return CATALOG[key].unit_price_decimal()
+    return _entry(key).unit_price_decimal()
 
 
 def estimate_external_cost(key: str, quantity: float | int) -> dict[str, Any]:
