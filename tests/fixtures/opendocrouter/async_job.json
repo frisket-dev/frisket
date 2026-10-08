@@ -1,0 +1,232 @@
+{
+  "submit": {
+    "status": 202,
+    "body": {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "status": "processing",
+      "mode": "async",
+      "model": "anthropic/claude-haiku-5-5",
+      "model_version": "2026-10-07",
+      "price_version": "2026-10-06",
+      "created_at": "2026-10-08T14:30:11.395Z",
+      "error_code": null,
+      "page_count": 2,
+      "pages_done": 0,
+      "pages": [],
+      "has_more": false,
+      "next_cursor": null,
+      "usage": null,
+      "charge_usd": null,
+      "results_expire_at": null
+    }
+  },
+  "poll_completed": {
+    "status": 200,
+    "body": {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "status": "completed",
+      "mode": "async",
+      "model": "anthropic/claude-haiku-5-5",
+      "model_version": "2026-10-07",
+      "price_version": "2026-10-06",
+      "created_at": "2026-10-08T14:30:11.395Z",
+      "error_code": null,
+      "page_count": 2,
+      "pages_done": 2,
+      "results_expire_at": "2026-10-09T14:30:14.815Z",
+      "pages": [
+        {
+          "page": 1,
+          "status": "ok",
+          "cached": false,
+          "usage": {
+            "input_tokens": 2061,
+            "output_tokens": 183
+          },
+          "charge_usd": 0.000746
+        },
+        {
+          "page": 2,
+          "status": "ok",
+          "cached": false,
+          "usage": {
+            "input_tokens": 2061,
+            "output_tokens": 46
+          },
+          "charge_usd": 0.000651
+        }
+      ],
+      "has_more": false,
+      "next_cursor": null,
+      "usage": {
+        "input_tokens": 4122,
+        "output_tokens": 229
+      },
+      "charge_usd": 0.001397
+    }
+  },
+  "result_expanded": {
+    "status": 200,
+    "body": {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "status": "completed",
+      "mode": "async",
+      "model": "anthropic/claude-haiku-5-5",
+      "model_version": "2026-10-07",
+      "price_version": "2026-10-06",
+      "created_at": "2026-10-08T14:30:11.395Z",
+      "error_code": null,
+      "page_count": 2,
+      "pages_done": 2,
+      "results_expire_at": "2026-10-09T14:30:14.815Z",
+      "pages": [
+        {
+          "page": 1,
+          "status": "ok",
+          "markdown": "# Riverside Water Board\n\n## Quarterly Report, Q3 2026\n\nLead service lines replaced this quarter rose to 412, up from 268 in Q2.\n\n<table>\n<tr><th>Year</th><th>Lines replaced</th><th>Cost (USD)</th></tr>\n<tr><td>2025</td><td>1,040</td><td>3.1M</td></tr>\n<tr><td>2026</td><td>1,322</td><td>4.4M</td></tr>\n</table>",
+          "layout": {
+            "status": "ok",
+            "width": 612,
+            "height": 792,
+            "elements": [
+              {
+                "type": "title",
+                "lines": [
+                  0,
+                  0
+                ],
+                "confidence": 0.844,
+                "boxes": [
+                  {
+                    "x": 0.0912,
+                    "y": 0.071,
+                    "w": 0.5019,
+                    "h": 0.0445
+                  }
+                ]
+              },
+              {
+                "type": "section_header",
+                "lines": [
+                  2,
+                  2
+                ],
+                "confidence": 0.875,
+                "boxes": [
+                  {
+                    "x": 0.0923,
+                    "y": 0.1411,
+                    "w": 0.3162,
+                    "h": 0.0266
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "lines": [
+                  4,
+                  4
+                ],
+                "confidence": 1,
+                "boxes": [
+                  {
+                    "x": 0.0928,
+                    "y": 0.2122,
+                    "w": 0.4636,
+                    "h": 0.0534
+                  }
+                ]
+              },
+              {
+                "type": "table",
+                "lines": [
+                  6,
+                  10
+                ],
+                "confidence": 0.9,
+                "boxes": [
+                  {
+                    "x": 0.0912,
+                    "y": 0.3153,
+                    "w": 0.3513,
+                    "h": 0.0817
+                  }
+                ]
+              }
+            ]
+          },
+          "cached": false,
+          "usage": {
+            "input_tokens": 2061,
+            "output_tokens": 183
+          },
+          "charge_usd": 0.000746
+        },
+        {
+          "page": 2,
+          "status": "ok",
+          "markdown": "# Appendix A: Method\n\nCounts come from contractor invoices matched to permit records.",
+          "layout": {
+            "status": "ok",
+            "width": 612,
+            "height": 792,
+            "elements": [
+              {
+                "type": "title",
+                "lines": [
+                  0,
+                  0
+                ],
+                "confidence": 0.844,
+                "boxes": [
+                  {
+                    "x": 0.0907,
+                    "y": 0.0742,
+                    "w": 0.3508,
+                    "h": 0.0338
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "lines": [
+                  2,
+                  2
+                ],
+                "confidence": 1,
+                "boxes": [
+                  {
+                    "x": 0.0923,
+                    "y": 0.1248,
+                    "w": 0.4069,
+                    "h": 0.0545
+                  }
+                ]
+              }
+            ]
+          },
+          "cached": false,
+          "usage": {
+            "input_tokens": 2061,
+            "output_tokens": 46
+          },
+          "charge_usd": 0.000651
+        }
+      ],
+      "has_more": false,
+      "next_cursor": null,
+      "usage": {
+        "input_tokens": 4122,
+        "output_tokens": 229
+      },
+      "charge_usd": 0.001397
+    }
+  },
+  "delete": {
+    "status": 200,
+    "body": {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "deleted": true
+    }
+  }
+}

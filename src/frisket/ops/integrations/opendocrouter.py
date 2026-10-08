@@ -2,15 +2,16 @@
 
 Official wire contract: https://www.opendocrouter.ai/docs.md (2026-10-08).
 No billable submission is automatically retried. Async jobs require encrypted
-24-hour result storage; delete it after retrieval, failure or cancellation.
+24-hour result storage; delete only after validated retrieval or cancellation.
 """
 
 from __future__ import annotations
 
 import asyncio
 import base64
+import math
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
@@ -25,8 +26,10 @@ from frisket.ops.netguard import safe_request, EgressRefused, ResponseTooLarge
 BASE_URL = "https://www.opendocrouter.ai/v1"
 MAX_BYTES = 50 * 1024 * 1024
 INLINE_BYTES = 2 * 1024 * 1024
-POLL_SECONDS = 5.0
+POLL_SECONDS = 12.0
+READ_RETRY_SECONDS = 2.0
 TIMEOUT_SECONDS = 3600.0
+TERMINAL_STATUSES = {"completed", "partial", "failed", "expired", "rejected"}
 
 
 def input_details(path: Path) -> tuple[str, int]:
@@ -62,6 +65,46 @@ def input_details(path: Path) -> tuple[str, int]:
     )
 
 
+async def _request_response(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    *,
+    check_cancel: Callable[[], None] | None = None,
+    **kwargs,
+) -> httpx.Response:
+    """Retry only safe reads, at most twice; never repeat a paid submission."""
+    for attempt in range(3):
+        if check_cancel:
+            check_cancel()
+        try:
+            response = await client.request(
+                method, url, follow_redirects=False, **kwargs
+            )
+        except httpx.HTTPError:
+            if method != "GET" or attempt == 2:
+                raise
+            response = None
+        if response is not None and (
+            method != "GET"
+            or attempt == 2
+            or response.status_code not in {408, 429, 500, 502, 503, 504}
+        ):
+            return response
+        delay = READ_RETRY_SECONDS * (2**attempt)
+        if response is not None:
+            try:
+                retry_after = float(response.headers.get("Retry-After", "0"))
+            except ValueError:
+                retry_after = 0
+            # Long provider waits belong to a later attempt, not this read loop.
+            if not math.isfinite(retry_after) or retry_after > 30:
+                return response
+            delay = max(delay, retry_after)
+        await asyncio.sleep(delay)
+    raise AssertionError("request attempts exhausted")
+
+
 async def _request(
     client: httpx.AsyncClient,
     method: str,
@@ -71,7 +114,7 @@ async def _request(
     **kwargs,
 ) -> dict:
     try:
-        response = await client.request(method, url, follow_redirects=False, **kwargs)
+        response = await _request_response(client, method, url, **kwargs)
     except httpx.HTTPError as error:
         # URLs may contain signed credentials; provider text may echo input.
         raise HostedEngineError(
@@ -161,18 +204,14 @@ def _accounting(
 
 def _enrich(accounting: dict, body: dict, started: float) -> None:
     fact = accounting["model_calls"][0]
-    settled = body.get("status") in {
-        "completed",
-        "partial",
-        "failed",
-        "expired",
-        "rejected",
-    }
+    settled = body.get("status") in TERMINAL_STATUSES
     cost = provider_cost_value(body.get("charge_usd")) if settled else None
-    accounting["cost"] = fact["provider_cost_usd"] = fact[
-        "provider_reported_cost_usd"
-    ] = cost
-    fact["cost_source"] = "provider_reported" if cost is not None else "unknown"
+    # Expanded/paginated output may omit meters already learned from status.
+    if cost is not None:
+        accounting["cost"] = fact["provider_cost_usd"] = fact[
+            "provider_reported_cost_usd"
+        ] = cost
+        fact["cost_source"] = "provider_reported"
     fact["duration_ms"] = int((time.monotonic() - started) * 1000) if settled else None
     units = fact["units"]
     if type(body.get("page_count")) is int:
@@ -185,6 +224,50 @@ def _enrich(accounting: dict, body: dict, started: float) -> None:
         value = usage.get(name)
         if type(value) is int and value >= 0:
             accounting[key] = units[name] = value
+
+
+async def _read_pages(
+    body: dict, count: int, read: Callable[..., Awaitable[dict]]
+) -> list[dict]:
+    pages = []
+    cursor = None
+    while True:
+        batch = body.get("pages") or []
+        if not isinstance(batch, list) or any(not isinstance(p, dict) for p in batch):
+            raise HostedEngineError("http", "OpenDocRouter returned invalid page data.")
+        pages.extend(batch)
+        if len(pages) > count:
+            raise HostedEngineError("http", "OpenDocRouter returned too many pages.")
+        if not body.get("has_more"):
+            break
+        next_cursor = body.get("next_cursor")
+        if (
+            type(next_cursor) is not int
+            or next_cursor < 0
+            or (cursor is not None and next_cursor <= cursor)
+        ):
+            raise HostedEngineError(
+                "http", "OpenDocRouter returned invalid page pagination."
+            )
+        cursor = next_cursor
+        body = await read(expand=True, cursor=cursor)
+    if (
+        body.get("status") != "completed"
+        or len(pages) != count
+        or any(p.get("status") != "ok" for p in pages)
+    ):
+        failed = [str(p.get("page")) for p in pages if p.get("status") != "ok"]
+        suffix = f" Failed pages: {', '.join(failed[:20])}." if failed else ""
+        raise HostedEngineError(
+            "http",
+            "OpenDocRouter could not convert every page. Successful pages may still be charged."
+            + suffix,
+        )
+    if sorted(p.get("page") for p in pages if type(p.get("page")) is int) != list(
+        range(1, count + 1)
+    ) or any(not isinstance(p.get("markdown"), str) for p in pages):
+        raise HostedEngineError("http", "OpenDocRouter returned incomplete page text.")
+    return sorted(pages, key=lambda p: p["page"])
 
 
 async def parse_document(
@@ -210,6 +293,7 @@ async def parse_document(
     started = time.monotonic()
     accounting = None
     job_url = None
+    delete_results = False
     body = {}
     fact_id = f"opendocrouter_{uuid4().hex}"
 
@@ -234,6 +318,24 @@ async def parse_document(
     def record(body):
         _enrich(accounting, body, started)
         notify_accounting()
+
+    async def read(*, expand=False, cursor=None):
+        params = {}
+        if expand:
+            params["expand"] = "markdown,layout" if layout else "markdown"
+        if cursor is not None:
+            params["cursor"] = cursor
+        result = await _request(
+            client,
+            "GET",
+            job_url,
+            headers=headers,
+            timeout=30,
+            params=params,
+            check_cancel=check_cancel,
+        )
+        record(result)
+        return result
 
     check_cancel()
     if path.stat().st_size <= INLINE_BYTES:
@@ -338,72 +440,15 @@ async def parse_document(
                 "cancelled", "OpenDocRouter processing was stopped."
             )
         check_cancel()
-        while body.get("status") == "processing":
+        while body.get("status") not in TERMINAL_STATUSES:
             check_cancel()
             await asyncio.sleep(POLL_SECONDS)
             check_cancel()
-            body = await _request(client, "GET", job_url, headers=headers, timeout=30)
-            record(body)
+            body = await read()
         if asynchronous:
-            check_cancel()
-            body = await _request(
-                client,
-                "GET",
-                job_url,
-                headers=headers,
-                timeout=30,
-                params={"expand": "markdown,layout" if layout else "markdown"},
-            )
-            record(body)
-        pages = list(body.get("pages") or [])
-        cursor = None
-        while body.get("has_more"):
-            check_cancel()
-            next_cursor = body.get("next_cursor")
-            if (
-                type(next_cursor) is not int
-                or next_cursor < 0
-                or (cursor is not None and next_cursor <= cursor)
-            ):
-                raise HostedEngineError(
-                    "http", "OpenDocRouter returned invalid page pagination."
-                )
-            cursor = next_cursor
-            body = await _request(
-                client,
-                "GET",
-                job_url,
-                headers=headers,
-                timeout=30,
-                params={
-                    "expand": "markdown,layout" if layout else "markdown",
-                    "cursor": cursor,
-                },
-            )
-            pages.extend(body.get("pages") or [])
-            if len(pages) > count:
-                raise HostedEngineError(
-                    "http", "OpenDocRouter returned too many pages."
-                )
-        if (
-            body.get("status") != "completed"
-            or len(pages) != count
-            or any(p.get("status") != "ok" for p in pages)
-        ):
-            failed = [str(p.get("page")) for p in pages if p.get("status") != "ok"]
-            suffix = f" Failed pages: {', '.join(failed[:20])}." if failed else ""
-            raise HostedEngineError(
-                "http",
-                "OpenDocRouter could not convert every page. Successful pages may still be charged."
-                + suffix,
-            )
-        pages.sort(key=lambda p: p.get("page", 0))
-        if [p.get("page") for p in pages] != list(range(1, count + 1)) or any(
-            not isinstance(p.get("markdown"), str) for p in pages
-        ):
-            raise HostedEngineError(
-                "http", "OpenDocRouter returned incomplete page text."
-            )
+            body = await read(expand=True)
+        pages = await _read_pages(body, count, read)
+        delete_results = True
         return pages, accounting
     except (HostedEngineError, asyncio.CancelledError) as error:
         exc = (
@@ -424,12 +469,14 @@ async def parse_document(
                 pass
         exc.accounting = accounting
         exc.provider_job_accepted = accounting is not None and (
-            exc.code == "accounting"
-            or (asynchronous and body.get("status") == "processing")
+            exc.code == "accounting" or (asynchronous and job_url is not None)
         )
+        delete_results = exc.code == "cancelled"
+        if asynchronous and job_url and not delete_results:
+            exc.message += " Results are retained by OpenDocRouter for up to 24 hours; check the existing job before submitting again."
         raise exc
     finally:
-        if asynchronous and job_url:
+        if asynchronous and job_url and delete_results:
             try:
                 await _request(client, "DELETE", job_url, headers=headers, timeout=10)
                 if accounting and accounting["cost"] is None:

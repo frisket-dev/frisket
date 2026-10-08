@@ -172,6 +172,61 @@ def test_async_cancel_deletes_and_preserves_settled_cost(tmp_path):
     assert error.value.accounting["cost"] == 0.00397
 
 
+def test_async_recorded_job_replay(tmp_path, monkeypatch):
+    from dataclasses import replace
+    from frisket.opendocrouter_catalog import current_catalog, DocumentCatalog
+
+    captured = json.loads(
+        (
+            Path(__file__).parents[1] / "fixtures/opendocrouter/async_job.json"
+        ).read_text()
+    )
+    catalog = current_catalog()
+    # Exercise async on the recorded two-page document without manufacturing
+    # extra provider pages; production chooses async from the model's limit.
+    monkeypatch.setattr(
+        "frisket.opendocrouter_catalog._catalog",
+        DocumentCatalog(
+            catalog.price_version,
+            tuple(replace(m, max_sync_pages=1) for m in catalog.models),
+        ),
+    )
+    monkeypatch.setattr(api, "POLL_SECONDS", 0)
+    steps = []
+
+    def handler(request):
+        if request.method == "POST":
+            assert json.loads(request.content)["mode"] == "async"
+            step = "submit"
+        elif request.method == "DELETE":
+            step = "delete"
+        else:
+            step = (
+                "result_expanded"
+                if request.url.params.get("expand")
+                else "poll_completed"
+            )
+        steps.append(step)
+        return httpx.Response(captured[step]["status"], json=captured[step]["body"])
+
+    async def execute():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await api.parse_document(
+                client,
+                path=pdf(tmp_path, 2),
+                engine="opendocrouter/anthropic/claude-haiku-5-5",
+                api_key="test-secret",
+                capability="ocr",
+                credential_source="project_key",
+                layout=True,
+            )
+
+    pages, accounting = asyncio.run(execute())
+    assert steps == ["submit", "poll_completed", "result_expanded", "delete"]
+    assert pages == captured["result_expanded"]["body"]["pages"]
+    assert accounting["cost"] == captured["poll_completed"]["body"]["charge_usd"]
+
+
 def test_upload_strips_client_secrets_and_blocks_private_destination(png, monkeypatch):
     monkeypatch.setattr(api, "INLINE_BYTES", 1)
     import frisket.ops.netguard as guard
@@ -318,7 +373,7 @@ def test_task_cancellation_drains_sync_response_and_records_charge(png):
     assert recorded[-1]["cost"] == 0.00397
 
 
-def test_async_repeated_cursor_is_refused_and_deleted(tmp_path, monkeypatch):
+def test_async_repeated_cursor_retains_paid_results(tmp_path, monkeypatch):
     monkeypatch.setattr(api, "POLL_SECONDS", 0)
     calls = []
 
@@ -333,9 +388,133 @@ def test_async_repeated_cursor_is_refused_and_deleted(tmp_path, monkeypatch):
             body.update(pages=body["pages"][:1], has_more=True, next_cursor=1)
         return httpx.Response(200, json=body)
 
-    with pytest.raises(HostedEngineError, match="pagination"):
+    with pytest.raises(HostedEngineError, match="pagination") as error:
         run(pdf(tmp_path, 51), handler)
-    assert calls[-1] == "DELETE"
+    assert "DELETE" not in calls
+    assert error.value.provider_job_accepted
+    assert error.value.accounting["cost"] == 0.00397
+
+
+@pytest.mark.parametrize("failure", ["poll", "results", "invalid_pages"])
+def test_async_failure_keeps_job_identity_charge_and_results(
+    tmp_path, monkeypatch, failure
+):
+    monkeypatch.setattr(api, "POLL_SECONDS", 0)
+    monkeypatch.setattr(api, "READ_RETRY_SECONDS", 0, raising=False)
+    calls = []
+
+    def handler(request):
+        calls.append(request.method)
+        if request.method == "POST":
+            return httpx.Response(202, json=response(51, status="processing"))
+        if request.method == "DELETE":
+            return httpx.Response(200, json={})
+        expanded = bool(request.url.params.get("expand"))
+        if failure == "poll" or (failure == "results" and expanded):
+            return httpx.Response(503)
+        body = response(51)
+        body["pages"] = []
+        return httpx.Response(200, json=body)
+
+    with pytest.raises(HostedEngineError) as error:
+        run(pdf(tmp_path, 51), handler)
+    assert calls.count("POST") == 1
+    assert "DELETE" not in calls
+    assert error.value.provider_job_accepted
+    assert error.value.accounting["model_calls"][0]["request_id"] == JOB
+    assert error.value.accounting["cost"] == (None if failure == "poll" else 0.00397)
+
+
+@pytest.mark.parametrize("failure", ["transport", "rate_limit", "unavailable"])
+def test_async_read_retries_do_not_resubmit_paid_work(tmp_path, monkeypatch, failure):
+    monkeypatch.setattr(api, "POLL_SECONDS", 0)
+    monkeypatch.setattr(api, "READ_RETRY_SECONDS", 0, raising=False)
+    calls = []
+    failures = set()
+
+    def handler(request):
+        calls.append(request.method)
+        if request.method == "POST":
+            return httpx.Response(202, json=response(51, status="processing"))
+        if request.method == "DELETE":
+            return httpx.Response(200, json={})
+        phase = "results" if request.url.params.get("expand") else "poll"
+        if phase not in failures:
+            failures.add(phase)
+            if failure == "transport":
+                raise httpx.ReadError("connection interrupted")
+            return httpx.Response(
+                429 if failure == "rate_limit" else 503,
+                headers={"Retry-After": "0"},
+            )
+        body = response(51)
+        if phase == "poll":
+            body["pages"] = []
+        else:
+            # A result page need not repeat the settled job meters.
+            body.pop("charge_usd")
+        return httpx.Response(200, json=body)
+
+    pages, accounting = run(pdf(tmp_path, 51), handler)
+    assert len(pages) == 51
+    assert calls == ["POST", "GET", "GET", "GET", "GET", "DELETE"]
+    assert accounting["cost"] == 0.00397
+
+
+@pytest.mark.parametrize("retry_after,expected_reads", [("7", 2), ("240", 1)])
+def test_read_retry_after_respects_provider_wait(
+    monkeypatch, retry_after, expected_reads
+):
+    waits = []
+    reads = []
+
+    async def sleep(seconds):
+        waits.append(seconds)
+
+    monkeypatch.setattr(api.asyncio, "sleep", sleep)
+
+    def handler(request):
+        reads.append(request.method)
+        if len(reads) == 1:
+            return httpx.Response(429, headers={"Retry-After": retry_after})
+        return httpx.Response(200, json=response())
+
+    async def execute():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await api._request(client, "GET", f"{api.BASE_URL}/parse/{JOB}")
+
+    if expected_reads == 1:
+        with pytest.raises(HostedEngineError):
+            asyncio.run(execute())
+        assert waits == []
+    else:
+        assert asyncio.run(execute())["status"] == "completed"
+        assert waits == [7]
+    assert len(reads) == expected_reads
+
+
+def test_cancel_during_read_retry_stops_job_and_settles(tmp_path, monkeypatch):
+    monkeypatch.setattr(api, "POLL_SECONDS", 0)
+    monkeypatch.setattr(api, "READ_RETRY_SECONDS", 0)
+    cancelled = False
+    calls = []
+
+    def handler(request):
+        nonlocal cancelled
+        calls.append(request.method)
+        if request.method == "POST":
+            return httpx.Response(202, json=response(51, status="processing"))
+        if not cancelled:
+            cancelled = True
+            return httpx.Response(503)
+        return httpx.Response(200, json=response(51, status="partial"))
+
+    with pytest.raises(HostedEngineError) as error:
+        run(pdf(tmp_path, 51), handler, should_cancel=lambda: cancelled)
+    assert error.value.code == "cancelled"
+    assert error.value.provider_job_accepted
+    assert error.value.accounting["cost"] == 0.00397
+    assert calls == ["POST", "GET", "DELETE", "GET"]
 
 
 def test_acceptance_callback_failure_carries_accounting(png):

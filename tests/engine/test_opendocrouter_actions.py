@@ -20,6 +20,70 @@ from frisket.execution.attempt import run_attempt_receipts
 from tests.ops.test_opendocrouter import ENGINE, response
 
 
+def test_paid_async_result_failure_halts_and_keeps_charge(tmp_path, monkeypatch):
+    from frisket.ops.integrations import opendocrouter as api
+
+    monkeypatch.setenv("OPEN_DOC_ROUTER_API_KEY", "odr-key")
+    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
+    monkeypatch.setattr(api, "POLL_SECONDS", 0)
+    monkeypatch.setattr(api, "READ_RETRY_SECONDS", 0)
+    calls = []
+
+    def handler(request):
+        calls.append(request.method)
+        if request.method == "POST":
+            return httpx.Response(202, json=response(51, status="processing"))
+        if request.url.params.get("expand"):
+            return httpx.Response(503)
+        body = response(51)
+        body["pages"] = []
+        return httpx.Response(200, json=body)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    router = SimpleNamespace(client=client)
+    with closing(Project.create(tmp_path / "async.frisket", name="Async")) as project:
+        sheet = project.add_sheet("Sources")
+        column = project.add_column(sheet, "doc", type="file")
+        data = io.BytesIO()
+        writer = PdfWriter()
+        for _ in range(51):
+            writer.add_blank_page(width=100, height=200)
+        writer.write(data)
+        blob = project.add_blob(
+            data.getvalue(),
+            filename="long.pdf",
+            mime="application/pdf",
+            metadata=owned_media_metadata_document(
+                probe={"kind": "document", "pages": 51}
+            ),
+        )
+        project.add_rows(
+            sheet,
+            [{"doc": media_cell(blob, mime="application/pdf", filename="long.pdf")}],
+            {"doc": column},
+        )
+        spec = {
+            "action_id": "media.to_markdown",
+            "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+            "params": {"source": "doc", "engine": ENGINE},
+            "idempotency_key": "async-results",
+            "output_names": {"markdown": "markdown"},
+        }
+        gate = run_action_spec(project, spec, router=router, project_id="odr")
+        assert gate.status == "needs_confirmation", gate.errors
+        result = run_action_spec(
+            project,
+            {**spec, "confirmation": gate.errors[0].details["promise_set_hash"]},
+            router=router,
+            project_id="odr",
+        )
+        assert result.errors[0].code == "external_effect_reconciliation_required"
+        assert calls == ["POST", "GET", "GET", "GET", "GET"]
+        [fact] = RunResultStore(project).model_calls(result.run_id)
+        assert fact["provider_cost_usd"] == 0.00397
+    asyncio.run(client.aclose())
+
+
 @pytest.mark.parametrize("action", ["media.ocr", "media.to_markdown"])
 @pytest.mark.parametrize(
     "scenario",

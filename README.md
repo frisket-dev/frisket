@@ -239,8 +239,11 @@ layout data and uses the existing Latin/Western text-layer composer.
 Each provider request accepts up to 50 MB and 500 PDF pages. To Markdown
 requests exceeding the selected model’s synchronous page limit (at most 50 pages) use
 OpenDocRouter's encrypted temporary result storage (up to 24 hours); Frisket
-requests deletion when processing finishes or is stopped. Smaller requests do
-not enable caching. Model names and per-page maximum price estimates refresh through
+requests deletion after retrieving and validating the result, or when you cancel.
+If polling, retrieval, or validation fails, Frisket leaves the job and its results
+available for reconciliation until the provider's retention window expires, rather
+than submitting another paid job. Smaller requests do not enable caching.
+Model names and per-page maximum price estimates refresh through
 Frisket’s existing daily pricing feed, with a bundled catalog for offline startup.
 Estimates use the published maximum per page; actual costs use provider-reported
 usage, including partially failed calls. Requests with unknown costs require
