@@ -99,6 +99,8 @@ def _blob_records(plan: ImportBlobPlan) -> dict[int, ImportBlob]:
                 or blob.page < 1
             ):
                 raise ValueError("invalid staged PDF page association")
+            if blob.role == "document_page" and blob.path is not None:
+                raise ValueError("native PDF page reference must not duplicate bytes")
         if blob.packet_source_id is not None:
             source = records.get(blob.packet_source_id)
             if (
@@ -113,8 +115,6 @@ def _blob_records(plan: ImportBlobPlan) -> dict[int, ImportBlob]:
                 or blob.packet_page_end > source.page_count
             ):
                 raise ValueError("invalid staged packet split association")
-            if blob.role == "document_page" and blob.path is not None:
-                raise ValueError("native PDF page reference must not duplicate bytes")
     return records
 
 
