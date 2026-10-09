@@ -214,9 +214,10 @@ export function pdfPacketFlowReducer(
         ...state,
         confirmedStarts: sortedUnique([
           ...state.confirmedStarts,
-          ...(state.matches?.suggested_pages ?? []),
+          ...(state.matches?.suggested_pages ?? []).filter((page) => (
+            !state.rejected.includes(page) && !state.confirmedStarts.includes(page)
+          )),
         ]),
-        rejected: state.rejected.filter((page) => !state.matches?.suggested_pages.includes(page)),
         dirty: true,
       };
     case 'ocrEngine':

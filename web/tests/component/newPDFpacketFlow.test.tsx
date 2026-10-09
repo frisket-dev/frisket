@@ -116,6 +116,7 @@ async function choosePacket() {
   fireEvent.change(screen.getByTestId('pdf-packet-input'), {
     target: { files: [new File(['pdf'], 'Records.pdf', { type: 'application/pdf' })] },
   });
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue to check text →' }));
   await screen.findByText('Native text from the packet');
 }
 
@@ -173,6 +174,7 @@ describe('PDF packet import flow boundaries', () => {
       target: { files: [new File(['pdf'], 'Records.pdf', { type: 'application/pdf' })] },
     });
 
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue to check text →' }));
     const continueButton = await screen.findByRole('button', { name: 'Continue without OCR' });
     fireEvent.click(continueButton);
     expect(await screen.findByText('Pages that look like your starts')).toBeInTheDocument();
@@ -201,11 +203,10 @@ describe('PDF packet import flow boundaries', () => {
       target: { files: [new File(['pdf'], 'Records.pdf', { type: 'application/pdf' })] },
     });
 
-    expect(await screen.findByText('Native text on page three')).toBeInTheDocument();
-    expect(screen.getByText('Page 3')).toBeInTheDocument();
-    fireEvent.change(screen.getByRole('spinbutton', { name: 'Sample page number' }), {
-      target: { value: '2' },
-    });
+    expect(await screen.findByText('4 pages · 4 KB · extracted text on 1 page')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select page 3 for text check' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Select page 2 for text check' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue to check text →' }));
     await waitFor(() => expect(api.getPdfPacketPage).toHaveBeenCalledWith(
       'project-1',
       'split-1',
@@ -213,6 +214,25 @@ describe('PDF packet import flow boundaries', () => {
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     ));
     expect(screen.getByText('Page 2')).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Sample page number' }), {
+      target: { value: '4' },
+    });
+    expect(screen.getByText('Page 4')).toBeInTheDocument();
+  });
+
+  it('can leave the packet browser to choose another file', async () => {
+    renderFlow();
+    fireEvent.change(screen.getByTestId('pdf-packet-input'), {
+      target: { files: [new File(['pdf'], 'Records.pdf', { type: 'application/pdf' })] },
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Choose another file' }));
+    expect(await screen.findByTestId('pdf-packet-chooser')).toBeInTheDocument();
+    expect(api.deletePdfPacketSplit).toHaveBeenCalledWith(
+      'project-1',
+      'split-1',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
   });
 
   it('shows phrase evidence clearly and jumps from a suggestion thumbnail to its grid page', async () => {
@@ -244,6 +264,12 @@ describe('PDF packet import flow boundaries', () => {
     expect(pageTwoCell).toHaveFocus();
     expect(screen.getByRole('button', { name: 'Continue with 1 marked start →' })).toBeInTheDocument();
     expect(screen.getByText('1 marked start will be imported · 2 suggestions remain unaccepted')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'No, page 2 does not start a document' }));
+    expect(screen.queryByRole('button', { name: 'Page 2 · Text match' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Accept all 1' }));
+    expect(screen.getByRole('button', { name: 'Continue with 2 marked starts →' })).toBeInTheDocument();
+    expect(pageTwoCell).toHaveTextContent('not a start');
   });
 
   it('selects the completed sample engine before showing its OCR text', async () => {
