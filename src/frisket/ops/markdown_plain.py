@@ -102,8 +102,9 @@ def _preserve_inline_angle_text(children):
 
 
 def _preserve_block_angle_text(token):
-    """Keep a standalone suspicious angle token that CommonMark made HTML."""
-    raw = token.content.strip()
+    """Keep a suspicious first-line angle token that CommonMark made HTML."""
+    first_line, *remaining_lines = token.content.splitlines(keepends=True)
+    raw = first_line.strip()
     match = _START_TAG_NAME.match(raw)
     if match is None or not raw.endswith(">") or raw.find(">") != len(raw) - 1:
         return
@@ -112,8 +113,13 @@ def _preserve_block_angle_text(token):
     if tag not in _HTML_TAGS or (raw_tag != tag and tag not in _VOID_TAGS):
         # Leave the token boundary to MarkdownIt; escaping only prevents the
         # downstream HTML projector from mistaking literal legal prose for a
-        # structural tag. Two line breaks retain the source block boundary.
-        token.content = escape(raw) + "\n\n"
+        # structural tag. Preserve any following block lines verbatim; for a
+        # one-line block, two breaks retain the source block boundary.
+        token.content = (
+            escape(first_line) + "".join(remaining_lines)
+            if remaining_lines
+            else escape(raw) + "\n\n"
+        )
 
 
 class _PlainText(HTMLParser):

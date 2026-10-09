@@ -32,6 +32,7 @@ from frisket.ops.markdown_plain import markdown_to_plain_text
         ("- Total **12**\n  **34** units", "Total 12\n34 units"),
         ("1. **Plaintiff**\n   **Defendant**", "1. Plaintiff\nDefendant"),
         ("<Mark Doe>\n\nDefendant", "<Mark Doe>\n\nDefendant"),
+        ("<Mark Doe>\nv. State of Ohio", "<Mark Doe>\nv. State of Ohio"),
     ],
 )
 def test_plain_text_preserves_content(markdown, expected):
