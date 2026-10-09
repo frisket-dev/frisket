@@ -1,17 +1,50 @@
 """Upload envelopes are bounded before route parsing consumes their bodies."""
 
 import asyncio
+import io
 import threading
 
 import httpx
 import pytest
 from fastapi import FastAPI, Request
+from pypdf import PdfWriter
 from starlette.types import Message
 
 from frisket.server.app import create_app
+from frisket.server.import_admission import ImportAdmissionLease
 from frisket.server.import_bulk_request_limit import BulkImportRequestLimitMiddleware
 from frisket.server.services import import_drafts as import_drafts_service
 from frisket.server.services import import_urls as import_urls_service
+from frisket.server.services.pdf_packet_splits import PdfPacketSplitService
+
+
+def _single_page_pdf() -> bytes:
+    writer = PdfWriter()
+    writer.add_blank_page(width=612, height=792)
+    data = io.BytesIO()
+    writer.write(data)
+    return data.getvalue()
+
+
+def test_import_admission_lease_releases_when_background_start_fails() -> None:
+    releases = 0
+
+    class Permit:
+        def release(self) -> None:
+            nonlocal releases
+            releases += 1
+
+    lease = ImportAdmissionLease(Permit())
+
+    def fail_start(_on_finished):
+        raise RuntimeError("registry is closed")
+
+    with pytest.raises(RuntimeError, match="registry is closed"):
+        lease.start_background(fail_start)
+    lease.release_request()
+
+    assert lease.transferred is True
+    assert releases == 1
 
 
 @pytest.mark.parametrize(
@@ -214,3 +247,85 @@ def test_cancelled_native_sync_import_holds_permit_until_worker_exits(
             assert permit_released.is_set()
 
     asyncio.run(cancel_while_worker_holds_permit())
+
+
+def test_pdf_packet_prepare_holds_native_import_permit_until_worker_exits(
+    tmp_path, monkeypatch
+) -> None:
+    worker_started = threading.Event()
+    release_worker = threading.Event()
+    permit_released = threading.Event()
+    lock = threading.Lock()
+    active = 0
+
+    class Permit:
+        def __init__(self) -> None:
+            self.released = False
+
+        def release(self) -> None:
+            nonlocal active
+            with lock:
+                if self.released:
+                    return
+                self.released = True
+                active -= 1
+                permit_released.set()
+
+    class Admission:
+        def try_acquire(self):
+            nonlocal active
+            with lock:
+                if active:
+                    return None
+                active += 1
+            return Permit()
+
+    calls = 0
+
+    def blocked_prepare(self, split_id, *, progress, cancelled):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            worker_started.set()
+            assert release_worker.wait(5), "test did not release packet preparation"
+        with self._lock:
+            session = self._sessions[split_id]
+            session.status = "ready"
+        progress(1, 1)
+
+    monkeypatch.setattr(PdfPacketSplitService, "_prepare", blocked_prepare)
+    app = create_app(tmp_path / "workspace", import_admission=Admission())
+    pid = app.state.workspace.create("Packet permit")["id"]
+    raw = _single_page_pdf()
+
+    async def exercise() -> None:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            first = await client.post(
+                f"/api/projects/{pid}/import/pdf-packet-splits",
+                files={"file": ("first.pdf", raw, "application/pdf")},
+            )
+            assert first.status_code == 202, first.text
+            assert await asyncio.to_thread(worker_started.wait, 5)
+
+            blocked = await client.post(
+                f"/api/projects/{pid}/import/pdf-packet-splits",
+                files={"file": ("blocked.pdf", raw, "application/pdf")},
+            )
+            assert blocked.status_code == 429, blocked.text
+
+            release_worker.set()
+            assert await asyncio.to_thread(permit_released.wait, 5)
+            resumed = await client.post(
+                f"/api/projects/{pid}/import/pdf-packet-splits",
+                files={"file": ("resumed.pdf", raw, "application/pdf")},
+            )
+            assert resumed.status_code == 202, resumed.text
+
+    try:
+        asyncio.run(exercise())
+    finally:
+        release_worker.set()
+        app.state.pdf_packet_split_service.shutdown()
+        app.state.pdf_packet_job_registry.shutdown()

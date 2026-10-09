@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 from contextlib import closing
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -258,6 +259,32 @@ def test_pdf_pages_bind_distinct_document_handles_with_identical_bytes(tmp_path)
                 project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0]
                 == 2
             )
+
+
+def test_native_pdf_page_reference_refuses_duplicate_staged_bytes(tmp_path):
+    with closing(Project.create(tmp_path / "native-page-reference.frisket")) as project:
+        sheet, columns, row_ids = _sheet(project, rows=1)
+        with AdmittedImportBlobStager() as stager:
+            document = _stage(stager, role=PdfDocument())
+            page = stager.reference_pdf_page(document, page=1, text="Page one")
+            plan = stager.publication_plan([(row_ids[0], "Renamed", page)])
+            document_path = next(
+                blob.path for blob in plan.blobs if blob.role == "document"
+            )
+            malformed = replace(
+                plan,
+                blobs=tuple(
+                    replace(blob, path=document_path)
+                    if blob.role == "document_page"
+                    else blob
+                    for blob in plan.blobs
+                ),
+            )
+
+            with pytest.raises(
+                ValueError, match="native PDF page reference must not duplicate bytes"
+            ):
+                _prepare(project, malformed)
 
 
 def test_stage_mutation_refuses_promotion_and_caller_rolls_back(tmp_path):

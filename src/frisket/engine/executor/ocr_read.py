@@ -35,7 +35,7 @@ from frisket.execution.targets import CAPABILITY_OCR
 from frisket.ops.base import RecipeInvocationHalt
 
 
-def _ocr_token_granularity(engine: str) -> str:
+def ocr_token_granularity(engine: str) -> str:
     """Describe the geometry emitted by the selected OCR adapter."""
     if engine == "tesseract":
         return "word"
@@ -362,7 +362,7 @@ class _BoundOcrReader:
                     "kind": "ocr_read",
                     "call_id": uuid.uuid4().hex,
                     "engine": engine,
-                    "ocr_token_granularity": _ocr_token_granularity(engine),
+                    "ocr_token_granularity": ocr_token_granularity(engine),
                     "options": copy.deepcopy(options),
                     "source": source,
                     "text": text,

@@ -26,6 +26,7 @@ from pathlib import Path
 
 from frisket.contracts.actions.schemas._engines import (
     OCR_ENGINE_TABLE,
+    LIGHTONOCR_ENGINES,
 )
 from frisket.server.action_catalog_hints import OCR_VISION_ENGINES
 
@@ -44,6 +45,7 @@ ROSTER_ORDER = [
     "gemini/gemini-3.5-flash",
     "openrouter/minimax/minimax-m3",
     "datalab",
+    *(engine.id for engine in LIGHTONOCR_ENGINES),
 ]
 
 PRE_CATALOG_ERROR = "Action catalog unavailable"

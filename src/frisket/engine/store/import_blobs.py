@@ -20,6 +20,7 @@ from frisket.engine.store.prepared_content import (
     PreparedPageDraft,
 )
 from frisket.engine.store.value_codec import PreparedContentRef
+from frisket.engine.store.grounding import normalize_bbox
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,14 @@ class ImportBlob:
     # this authority from action params or infer it from a digest supplied there.
     owner: ProjectBlobStore | None = field(default=None, repr=False, compare=False)
     occurrence_ref: dict[str, Any] | None = None
+    page_count: int | None = None
+    packet_source_id: int | None = None
+    packet_page_start: int | None = None
+    packet_page_end: int | None = None
+    packet_sibling_count: int | None = None
+    prepared_pages: tuple[PreparedPageDraft, ...] = ()
+    prepared_engine: str | None = None
+    prepared_token_granularity: str | None = None
 
 
 @dataclass(frozen=True)
@@ -92,6 +101,20 @@ def _blob_records(plan: ImportBlobPlan) -> dict[int, ImportBlob]:
                 raise ValueError("invalid staged PDF page association")
             if blob.role == "document_page" and blob.path is not None:
                 raise ValueError("native PDF page reference must not duplicate bytes")
+        if blob.packet_source_id is not None:
+            source = records.get(blob.packet_source_id)
+            if (
+                source is None
+                or source.role != "document"
+                or blob.role != "attachment"
+                or type(blob.packet_page_start) is not int
+                or type(blob.packet_page_end) is not int
+                or blob.packet_page_start < 1
+                or blob.packet_page_end < blob.packet_page_start
+                or source.page_count is None
+                or blob.packet_page_end > source.page_count
+            ):
+                raise ValueError("invalid staged packet split association")
     return records
 
 
@@ -195,12 +218,47 @@ def publish_import_blobs(
                 blob_hash=blob.digest,
                 filename=blob.filename,
                 page_count=(
-                    max(document_pages[blob.occurrence_id])
+                    blob.page_count
+                    if blob.page_count is not None
+                    else max(document_pages[blob.occurrence_id])
                     if blob.occurrence_id in document_pages
                     else None
                 ),
                 source_sheet_id=sheet_id,
+                external_ref=blob.occurrence_ref,
             )
+
+    packet_artifacts: dict[int, dict[str, Any]] = {}
+    for blob in plan.blobs:
+        if blob.packet_source_id is None:
+            continue
+        cell = next(
+            (cell for cell in plan.cells if cell.occurrence_id == blob.occurrence_id),
+            None,
+        )
+        if cell is None:
+            raise ValueError("packet child has no materialized cell")
+        column_id = int(column_ids[cell.column_name])
+        packet_artifacts[blob.occurrence_id] = record_source_artifact(
+            project,
+            artifact_kind="file",
+            media_type=blob.mime,
+            blob_hash=blob.digest,
+            filename=blob.filename,
+            page_count=int(blob.packet_page_end) - int(blob.packet_page_start) + 1,
+            source_sheet_id=sheet_id,
+            source_row_id=cell.row_id,
+            source_column_id=column_id,
+            metadata=(
+                {
+                    "engine": blob.prepared_engine,
+                    "ocr_token_granularity": blob.prepared_token_granularity,
+                    "page_images": {},
+                }
+                if blob.prepared_engine is not None
+                else None
+            ),
+        )
 
     prepared_refs: dict[int, PreparedContentRef] = {}
     prepared_store = PreparedContentStore(project)
@@ -237,6 +295,17 @@ def publish_import_blobs(
                 set_id=set_id,
                 page_number=int(blob.page),
             )
+    for blob in plan.blobs:
+        if not blob.prepared_pages:
+            continue
+        artifact = packet_artifacts.get(blob.occurrence_id)
+        if artifact is None:
+            raise ValueError("prepared packet OCR has no child artifact")
+        prepared_refs[blob.occurrence_id] = prepared_store.stage_reference(
+            source_artifact_id=int(artifact["id"]),
+            producing_op_id=op_id,
+            pages=blob.prepared_pages,
+        )
 
     replacements: dict[tuple[int, int], list[BaseCellWrite]] = {}
     for cell in plan.cells:
@@ -305,6 +374,66 @@ def publish_import_blobs(
         }
         if blob.source_url is not None:
             ref.update(source_url=blob.source_url, provider=blob.provider)
+        if blob.packet_source_id is not None:
+            source_artifact = artifacts[blob.packet_source_id]
+            page_start = int(blob.packet_page_start)
+            page_end = int(blob.packet_page_end)
+            project.record_blob_derivation(
+                derived_hash=blob.digest,
+                source_hash=records[blob.packet_source_id].digest,
+                op="pdf_packet_split",
+                params={"page_start": page_start, "page_end": page_end},
+                commit=False,
+            )
+            span = record_source_span(
+                project,
+                artifact_id=int(source_artifact["id"]),
+                span_kind="page_range",
+                page_start=page_start,
+                page_end=page_end,
+                selector={
+                    "kind": "page_range",
+                    "page_start": page_start,
+                    "page_end": page_end,
+                },
+                snippet=f"Pages {page_start}\u2013{page_end}",
+            )
+            link = record_evidence_link(
+                project,
+                subject_kind="cell_value",
+                subject_ref={
+                    "kind": "source_cell",
+                    "op_id": None,
+                    "row_id": cell.row_id,
+                    "column_id": column_id,
+                    "run_id": None,
+                },
+                spans=[{"span_id": int(span["id"])}],
+                sheet_id=sheet_id,
+                row_id=cell.row_id,
+                column_id=column_id,
+                op_id=op_id,
+                receipt_id=receipt_id,
+                link_role="source_provenance",
+            )
+            ref.update(
+                artifact_id=packet_artifacts[blob.occurrence_id]["id"],
+                source_artifact_id=source_artifact["id"],
+                evidence_link_id=link["id"],
+            )
+            prepared_ref = prepared_refs.get(blob.occurrence_id)
+            if prepared_ref is not None:
+                _publish_packet_ocr_evidence(
+                    project,
+                    blob=blob,
+                    artifact=packet_artifacts[blob.occurrence_id],
+                    prepared_ref=prepared_ref,
+                    sheet_id=sheet_id,
+                    row_id=cell.row_id,
+                    column_id=int(column_ids[str(blob.prepared_column_name)]),
+                    op_id=op_id,
+                    receipt_id=receipt_id,
+                )
         if blob.occurrence_ref is not None:
             # Paged imports keep occurrence provenance in project data, not an
             # ever-growing receipt or an expiring upload inventory.
@@ -356,3 +485,86 @@ def publish_import_blobs(
             )
         refs.append(ref)
     return tuple(refs)
+
+
+def _publish_packet_ocr_evidence(
+    project: Any,
+    *,
+    blob: ImportBlob,
+    artifact: dict[str, Any],
+    prepared_ref: PreparedContentRef,
+    sheet_id: int,
+    row_id: int,
+    column_id: int,
+    op_id: int,
+    receipt_id: str,
+) -> None:
+    prepared = PreparedContentStore(project).resolve(prepared_ref.ref_id)
+    spans = []
+    for pin in prepared.pins:
+        positions = pin.positions if isinstance(pin.positions, dict) else {}
+        blocks = (
+            positions.get("blocks") if isinstance(positions.get("blocks"), list) else []
+        )
+        engine = str(positions.get("engine") or blob.prepared_engine or "")
+        selector = {
+            "prepared_ref_id": int(prepared.ref_id),
+            "prepared_set_id": int(prepared.set_id),
+            "prepared_version_id": int(pin.version_id),
+            "page_number": int(pin.page_number),
+        }
+        page_span = record_source_span(
+            project,
+            artifact_id=int(artifact["id"]),
+            span_kind="page_range",
+            page_start=int(pin.page_number),
+            page_end=int(pin.page_number),
+            selector=selector,
+            snippet=(
+                " ".join(str(block.get("text") or "") for block in blocks).strip()
+                or f"Page {pin.page_number}"
+            ),
+            metadata={"engine": engine},
+        )
+        spans.append({"span_id": int(page_span["id"]), "rank": len(spans)})
+        for block in blocks:
+            if not isinstance(block, dict):
+                continue
+            text = str(block.get("text") or "").strip()
+            bbox = normalize_bbox(block.get("bbox"), frame="page")
+            descriptor = {
+                "artifact_id": int(artifact["id"]),
+                "page_start": int(pin.page_number),
+                "page_end": int(pin.page_number),
+                "quote": text or None,
+                "snippet": text or None,
+                "selector": {**selector, "engine": engine},
+            }
+            if bbox is not None:
+                descriptor.update(span_kind="region", bbox=[bbox])
+            elif text:
+                descriptor.update(span_kind="page_range")
+            else:
+                continue
+            span = record_source_span(project, **descriptor)
+            spans.append({"span_id": int(span["id"]), "rank": len(spans)})
+    record_evidence_link(
+        project,
+        subject_kind="cell",
+        subject_ref={
+            "kind": "source_cell",
+            "op_id": None,
+            "row_id": row_id,
+            "column_id": column_id,
+            "run_id": None,
+            "prepared_ref_id": int(prepared_ref.ref_id),
+        },
+        spans=spans,
+        sheet_id=sheet_id,
+        row_id=row_id,
+        column_id=column_id,
+        op_id=op_id,
+        receipt_id=receipt_id,
+        link_role="media_ocr_grounding",
+        producer={"action_kind": "media.ocr", "engine": blob.prepared_engine},
+    )

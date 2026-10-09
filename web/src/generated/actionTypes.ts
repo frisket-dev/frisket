@@ -444,6 +444,7 @@ type ImportCsvParams_ImportRowsColumn = ({
   "type": (string);
   "format"?: (((string)) | ((null)));
   "hidden"?: (boolean);
+  "default_hidden"?: (boolean);
 });
 
 export type ImportCsvParams = ({
@@ -458,6 +459,7 @@ type ImportRowsParams_ImportRowsColumn = ({
   "type": (string);
   "format"?: (((string)) | ((null)));
   "hidden"?: (boolean);
+  "default_hidden"?: (boolean);
 });
 
 type ImportRowsParams_ImportRowsSource = ({
@@ -496,6 +498,7 @@ type ImportXlsxParams_ImportRowsColumn = ({
   "type": (string);
   "format"?: (((string)) | ((null)));
   "hidden"?: (boolean);
+  "default_hidden"?: (boolean);
 });
 
 export type ImportXlsxParams = ({
@@ -538,6 +541,7 @@ type ImportGeojsonParams_ImportRowsColumn = ({
   "type": (string);
   "format"?: (((string)) | ((null)));
   "hidden"?: (boolean);
+  "default_hidden"?: (boolean);
 });
 
 export type ImportGeojsonParams = ({
@@ -561,6 +565,7 @@ type ImportKmlParams_ImportRowsColumn = ({
   "type": (string);
   "format"?: (((string)) | ((null)));
   "hidden"?: (boolean);
+  "default_hidden"?: (boolean);
 });
 
 export type ImportKmlParams = ({
@@ -585,12 +590,18 @@ type ImportNdjsonParams_ImportRowsColumn = ({
   "type": (string);
   "format"?: (((string)) | ((null)));
   "hidden"?: (boolean);
+  "default_hidden"?: (boolean);
 });
 
 export type ImportNdjsonParams = ({
   "source": (ImportNdjsonParams_FileSource);
   "columns": (Array<(ImportNdjsonParams_ImportRowsColumn)>);
   "encoding"?: (string);
+});
+
+export type ImportPdfPacketParams = ({
+  "source_ref": (string);
+  "keep_ocr_text"?: (boolean);
 });
 
 type ImportPdfParams_FileSource = ({
@@ -634,6 +645,7 @@ type UpdateCsvParams_ImportRowsColumn = ({
   "type": (string);
   "format"?: (((string)) | ((null)));
   "hidden"?: (boolean);
+  "default_hidden"?: (boolean);
 });
 
 export type UpdateCsvParams = ({
@@ -650,6 +662,7 @@ type UpdateRowsParams_ImportRowsColumn = ({
   "type": (string);
   "format"?: (((string)) | ((null)));
   "hidden"?: (boolean);
+  "default_hidden"?: (boolean);
 });
 
 type UpdateRowsParams_ImportRowsSource = ({
@@ -690,6 +703,7 @@ type UpdateXlsxParams_ImportRowsColumn = ({
   "type": (string);
   "format"?: (((string)) | ((null)));
   "hidden"?: (boolean);
+  "default_hidden"?: (boolean);
 });
 
 export type UpdateXlsxParams = ({
@@ -1590,6 +1604,7 @@ export interface GeneratedActionParams {
   'import.geojson': ImportGeojsonParams;
   'import.kml': ImportKmlParams;
   'import.ndjson': ImportNdjsonParams;
+  'import.packet_split': ImportPdfPacketParams;
   'import.pdf': ImportPdfParams;
   'import.rows': ImportRowsParams;
   'import.runtime': RuntimeImportParams;

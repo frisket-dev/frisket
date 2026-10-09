@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import io
 import json
 import threading
@@ -334,16 +335,40 @@ def test_paid_ocr_confirmation_hash_is_bound_to_page_selection(
         ) != consented_set_hash(second.resolved_execution.promise_set)
 
 
+def test_paid_ocr_borrowed_pdf_accepts_packet_scale_page_selection(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "packet.pdf"
+    source.write_bytes(b"%PDF-1.4\n")
+    pages = list(range(1, 12))
+    with closing(Project.create(tmp_path / "ocr-packet.frisket")) as project:
+        _router, composition = _composition(project)
+        plan, summary = paid_ocr_scratch_plan(
+            project,
+            media_path=source,
+            media_digest=hashlib.sha256(source.read_bytes()).hexdigest(),
+            media_size=source.stat().st_size,
+            payload={"engine": "tesseract", "pages": pages},
+            composition=composition,
+            max_pages=2000,
+        )
+
+        assert summary["pages"] == pages
+        assert plan.work_scope["selection"] == {"pages": pages}
+
+
 def test_paid_ocr_all_page_failures_raise_after_usage_is_retained(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with closing(Project.create(tmp_path / "ocr-failed.frisket")) as project:
         router, composition = _composition(project)
+        cached = []
         plan, _summary = paid_ocr_scratch_plan(
             project,
             media_bytes=_png(),
             payload={"engine": "openai/gpt-4.1-mini", "filename": "blank.png"},
             composition=composition,
+            on_page=cached.append,
         )
 
         async def recognize(self, engine, page_paths, ctx, *, usage, **kwargs):
@@ -356,6 +381,7 @@ def test_paid_ocr_all_page_failures_raise_after_usage_is_retained(
             asyncio.run(plan.run(context))
         assert error.value.code == "ocr_preview_engine_failed"
         assert error.value.details == {"failed_pages": [1]}
+        assert cached == []
         assert context.calls == [{"capability": "ocr", "engine": "openai/gpt-4.1-mini"}]
 
 

@@ -85,5 +85,19 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
     "billable": true,
     "available": false,
     "error": "Action catalog unavailable"
+  },
+  {
+    "id": "lightonocr-3-0.8b",
+    "label": "LightOnOCR 3 0.8B",
+    "tier": "sidecar",
+    "available": false,
+    "error": "Action catalog unavailable"
+  },
+  {
+    "id": "lightonocr-3-4b",
+    "label": "LightOnOCR 3 4B",
+    "tier": "sidecar",
+    "available": false,
+    "error": "Action catalog unavailable"
   }
 ] satisfies EngineOption[];

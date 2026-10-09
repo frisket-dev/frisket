@@ -13,6 +13,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from frisket_models.app import create_app
+from frisket_models.engines import Engine, Registry
+from frisket_models.errors import InvalidDocumentError
 from frisket_models.transcription.contract import CONTRACT_VERSION
 from stub_helpers import AUTH, TOKEN, stub_registry
 
@@ -224,6 +226,24 @@ class TestOcr:
         assert resp.status_code == 503
         assert "not installed" in resp.json()["detail"]
 
+    def test_invalid_image_is_a_bounded_client_error(self):
+        def reject(_images: list[bytes]) -> list[dict]:
+            raise InvalidDocumentError("private decoder details")
+
+        registry = Registry([Engine("lightonocr-3-0.8b", "/ocr", [], lambda: reject)])
+        client = TestClient(create_app(token=TOKEN, registry=registry))
+
+        response = client.post(
+            "/ocr",
+            files=[("files", ("broken.jpg", b"not an image", "image/jpeg"))],
+            data={"engine": "lightonocr-3-0.8b"},
+            headers=AUTH,
+        )
+
+        assert response.status_code == 422
+        assert response.json() == {"detail": "unsupported or invalid image input"}
+        assert "private decoder details" not in response.text
+
 
 # ---------- /to-markdown: ops/convert.py._convert_sidecar's contract ----------
 
@@ -261,6 +281,54 @@ class TestToMarkdown:
         assert len(docs) == 2
         assert "a.pdf" in docs[0]["markdown"]  # aligned to the parts
         assert "b.pdf" in docs[1]["markdown"]
+
+    def test_invalid_document_is_a_bounded_client_error(self):
+        def reject(_name: str, _data: bytes) -> dict:
+            raise InvalidDocumentError("private decoder details")
+
+        registry = Registry(
+            [
+                Engine(
+                    "lightonocr-3-0.8b",
+                    "/to-markdown",
+                    [],
+                    lambda: reject,
+                )
+            ]
+        )
+        client = TestClient(create_app(token=TOKEN, registry=registry))
+
+        response = client.post(
+            "/to-markdown",
+            files=[("files", ("document.docx", b"PK zip", "application/zip"))],
+            data={"engine": "lightonocr-3-0.8b"},
+            headers=AUTH,
+        )
+
+        assert response.status_code == 422
+        assert response.json() == {"detail": "unsupported or invalid document input"}
+        assert "private decoder details" not in response.text
+
+    def test_engine_value_error_remains_a_server_failure(self):
+        def fail(_name: str, _data: bytes) -> dict:
+            raise ValueError("engine invariant failed")
+
+        registry = Registry(
+            [Engine("lightonocr-3-0.8b", "/to-markdown", [], lambda: fail)]
+        )
+        client = TestClient(
+            create_app(token=TOKEN, registry=registry), raise_server_exceptions=False
+        )
+
+        response = client.post(
+            "/to-markdown",
+            files=[("files", ("page.png", PNG, "image/png"))],
+            data={"engine": "lightonocr-3-0.8b"},
+            headers=AUTH,
+        )
+
+        assert response.status_code == 500
+        assert "engine invariant failed" not in response.text
 
 
 # ---------- transcription v1: controls + strict result ----------

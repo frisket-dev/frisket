@@ -53,6 +53,11 @@ import { ImportModeRail } from './importWorkspace/ImportModeRail';
 import { ImportPasteDetectPanel } from './importWorkspace/ImportPasteDetectPanel';
 import { ImportStageStepper } from './importWorkspace/ImportStageStepper';
 import {
+  PdfPacketImportFlow,
+  type PdfPacketShellContext,
+} from './importWorkspace/pdfPacket/PdfPacketImportFlow';
+import { PDF_PACKET_STAGES } from './importWorkspace/pdfPacket/model';
+import {
   IMPORT_MODES,
   IMPORT_WORKSPACE_STAGES,
   type FileImportMode,
@@ -970,6 +975,19 @@ function OpenImportWorkspaceSession({
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const onCloseRef = useRef(onClose);
   const onModeChangeRef = useRef(onModeChange);
+  const pdfPacketCloseGuardRef = useRef<(() => boolean) | null>(null);
+  const [pdfPacketContext, setPdfPacketContext] = useState<PdfPacketShellContext>({
+    active: false,
+    stage: 'check',
+    subtitle: null,
+    busy: false,
+  });
+  const updatePdfPacketContext = useCallback((context: PdfPacketShellContext) => {
+    setPdfPacketContext(context);
+  }, []);
+  const registerPdfPacketCloseGuard = useCallback((guard: (() => boolean) | null) => {
+    pdfPacketCloseGuardRef.current = guard;
+  }, []);
   const [state, dispatch] = useReducer(
     importWorkspaceReducer,
     initialMode,
@@ -1202,9 +1220,10 @@ function OpenImportWorkspaceSession({
     onClose();
   }, [onClose, resetBulkPlan, resetCsvPreview, resetDraft]);
   const closeWorkspaceFromUser = useCallback(() => {
-    if (selectionPreparing || (busy && !sessionBusy) || bulkBusy || draftBusy) return;
+    if (selectionPreparing || (busy && !sessionBusy) || bulkBusy || draftBusy || pdfPacketContext.busy) return;
+    if (mode === 'pdf_split' && pdfPacketCloseGuardRef.current && !pdfPacketCloseGuardRef.current()) return;
     closeWorkspace();
-  }, [bulkBusy, busy, closeWorkspace, draftBusy, selectionPreparing, sessionBusy]);
+  }, [bulkBusy, busy, closeWorkspace, draftBusy, mode, pdfPacketContext.busy, selectionPreparing, sessionBusy]);
 
   // The ONE shared success
   // handler replacing the three independent close-on-success calls
@@ -1252,7 +1271,7 @@ function OpenImportWorkspaceSession({
       }
       closeWorkspace();
     },
-    [closeWorkspace, nerTemplate, onImported],
+    [closeWorkspace, nerTemplate, onImported, projectApi],
   );
 
   useEffect(() => {
@@ -1278,6 +1297,8 @@ function OpenImportWorkspaceSession({
     setSelectionPreparing(false);
     resetCsvPreview();
     resetBulkPlan();
+    setPdfPacketContext({ active: false, stage: 'check', subtitle: null, busy: false });
+    pdfPacketCloseGuardRef.current = null;
     if (nextMode !== 'csv') {
       setSingleFileFormat('csv');
       setFtmDatasetName('');
@@ -1565,7 +1586,7 @@ function OpenImportWorkspaceSession({
         onMouseDown={closeWorkspaceFromUser}
       />
       <section
-        className="import-workspace"
+        className={`import-workspace${pdfPacketContext.active ? ' pdf-packet-workspace' : ''}`}
         data-testid="import-workspace"
         aria-label="Import"
         tabIndex={-1}
@@ -1661,23 +1682,30 @@ function OpenImportWorkspaceSession({
         <header className="import-workspace-header">
           <div>
             <div className="import-workspace-title">Import</div>
-            <div className="import-workspace-kicker">Project data intake</div>
+            <div className="import-workspace-kicker">
+              {pdfPacketContext.active ? pdfPacketContext.subtitle : 'Project data intake'}
+            </div>
           </div>
+          {pdfPacketContext.active ? (
+            <ImportStageStepper stages={[...PDF_PACKET_STAGES]} stage={pdfPacketContext.stage} />
+          ) : null}
           <button
             type="button"
             className="icon-btn"
             aria-label="Close import"
             data-testid="import-workspace-close"
-            disabled={selectionPreparing || (busy && !sessionBusy) || bulkBusy || draftBusy}
+            disabled={selectionPreparing || (busy && !sessionBusy) || bulkBusy || draftBusy || pdfPacketContext.busy}
             onClick={closeWorkspaceFromUser}
           >
             <X size={16} />
           </button>
         </header>
-        <div className="import-workspace-main">
-          <aside className="import-workspace-sidebar">
-            <ImportModeRail modes={IMPORT_MODES} mode={railMode} onSelectMode={selectMode} />
-          </aside>
+        <div className={`import-workspace-main${pdfPacketContext.active ? ' pdf-packet-workspace-main' : ''}`}>
+          {!pdfPacketContext.active ? (
+            <aside className="import-workspace-sidebar">
+              <ImportModeRail modes={IMPORT_MODES} mode={railMode} onSelectMode={selectMode} />
+            </aside>
+          ) : null}
           <main className="import-workspace-content">
             {/* Only the paste path has the numbered `detect → map → confirm`
                 stages. CSV shows its preview and explicit confirmation inline;
@@ -1689,7 +1717,7 @@ function OpenImportWorkspaceSession({
             {mode === 'paste' ? (
               <ImportStageStepper stages={IMPORT_WORKSPACE_STAGES} stage={stage} />
             ) : null}
-            <div className="import-workspace-panel">
+            <div className={`import-workspace-panel${mode === 'pdf_split' ? ' pdf-packet-workspace-panel' : ''}`}>
               {selectionPreparing ? <div role="status">Preparing selected files…</div> : null}
               {downloadPrompt ? (
                 <MediaDownloadPrompt
@@ -1702,6 +1730,17 @@ function OpenImportWorkspaceSession({
                   offer={nerPrompt}
                   onRun={runNerPrompt}
                   onDismiss={dismissNerPrompt}
+                />
+              ) : mode === 'pdf_split' ? (
+                <PdfPacketImportFlow
+                  projectId={projectId}
+                  onContextChange={updatePdfPacketContext}
+                  registerCloseGuard={registerPdfPacketCloseGuard}
+                  onImported={(sheetId) => {
+                    onImported(sheetId);
+                    closeWorkspace();
+                  }}
+                  onError={onError}
                 />
               ) : mode === 'paste' ? (
                 stage === 'map' && draft ? (

@@ -1084,6 +1084,58 @@ def test_preview_registry_serializes_concurrent_same_project_replacements() -> N
     assert all(job.status == "cancelled" for job in jobs)
 
 
+def test_preview_registry_replacement_keys_isolate_same_project_jobs() -> None:
+    registry = ActionPreviewJobRegistry()
+    started = [threading.Event(), threading.Event()]
+    stopped = [threading.Event(), threading.Event()]
+
+    def run_at(index: int):
+        def run(_progress_cb, cancel_event):
+            started[index].set()
+            cancel_event.wait()
+            stopped[index].set()
+
+        return run
+
+    ordinary = registry.start("proj", 1, run_at(0))
+    packet = registry.start(
+        "proj", 1, run_at(1), replacement_key="pdf-packet:split-1:prepare"
+    )
+    assert all(event.wait(_STARTED_WAIT_SECONDS) for event in started)
+    assert ordinary.cancel_event.is_set() is False
+
+    assert registry.release("proj", packet.id) is True
+    assert stopped[1].is_set()
+    assert ordinary.cancel_event.is_set() is False
+    assert registry.get("proj", packet.id) is None
+    assert registry.release("proj", packet.id) is False
+
+    registry.shutdown()
+    assert stopped[0].is_set()
+
+
+def test_preview_registry_scopes_explicit_replacement_key_to_project() -> None:
+    registry = ActionPreviewJobRegistry()
+    started = [threading.Event(), threading.Event()]
+
+    def run_at(index: int):
+        def run(_progress_cb, cancel_event):
+            started[index].set()
+            cancel_event.wait()
+
+        return run
+
+    jobs = [
+        registry.start(
+            f"project-{index}", 1, run_at(index), replacement_key="packet:prepare"
+        )
+        for index in range(2)
+    ]
+    assert all(event.wait(_STARTED_WAIT_SECONDS) for event in started)
+    assert all(not job.cancel_event.is_set() for job in jobs)
+    registry.shutdown()
+
+
 def test_local_app_lifespan_joins_preview_workers(tmp_path: Path) -> None:
     app = create_app(tmp_path / "ws")
     registry = app.state.action_preview_job_registry
@@ -1139,6 +1191,28 @@ def test_registry_closes_result_cancelled_as_worker_returns() -> None:
     assert job.status == "cancelled"
     assert job.result is None
     assert result.closed == 1
+
+
+def test_registry_refuses_cancellation_after_atomic_publication_is_sealed() -> None:
+    registry = ActionPreviewJobRegistry()
+    sealed = threading.Event()
+    release = threading.Event()
+
+    def run(_progress_cb, cancel_event):
+        assert cancel_event.seal() is True
+        sealed.set()
+        release.wait()
+        return {"published": True}
+
+    job = registry.start("proj", 1, run, replacement_key="atomic-import")
+    assert sealed.wait(_STARTED_WAIT_SECONDS)
+    assert registry.cancel("proj", job.id) is False
+    release.set()
+    with controlled_time(timeout=4.0) as t:
+        t.wait_until(lambda: job.finished_at is not None, message="job did not finish")
+    assert job.status == "done"
+    assert job.result == {"published": True}
+    registry.shutdown()
 
 
 def test_replacement_keeps_successful_result_until_registry_cleanup() -> None:

@@ -9,9 +9,12 @@ import tempfile
 import threading
 import time
 from dataclasses import dataclass, field
+from functools import partial
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Callable
+
+from frisket_models import pdfium_lock
 
 from frisket_models.classification.clef import (
     MODEL_ID as CLEF_MODEL_ID,
@@ -60,6 +63,15 @@ PP_OCRV6_WORKER_TOKEN_ENV = "FRISKET_OCR_PP_OCRV6_WORKER_TOKEN"
 
 
 @dataclass
+class ResidentState:
+    """One model load shared by its route-specific adapters."""
+
+    adapter: Any = None
+    error: str | None = None
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
+
+@dataclass
 class Engine:
     """Import-probed engine with a lazy resident adapter."""
 
@@ -70,9 +82,8 @@ class Engine:
     models: list[str] = field(default_factory=list)
     revision: str | None = None
     required_env: tuple[str, ...] = ()
-    _adapter: Any = None
-    _error: str | None = None
-    _lock: threading.Lock = field(default_factory=threading.Lock)
+    state: ResidentState = field(default_factory=ResidentState, repr=False)
+    adapter_method: str | None = None
 
     @property
     def installed(self) -> bool:
@@ -85,16 +96,16 @@ class Engine:
 
     @property
     def loaded(self) -> bool:
-        return self._adapter is not None
+        return self.state.adapter is not None
 
     @property
     def error(self) -> str | None:
-        return self._error
+        return self.state.error
 
     def get(self) -> Any:
         """Return the adapter or raise for a missing/failed engine."""
-        if self._adapter is not None:
-            return self._adapter
+        if self.state.adapter is not None:
+            return self._route_adapter()
         if not self.installed:
             missing_env = [
                 name for name in self.required_env if not os.environ.get(name)
@@ -110,26 +121,33 @@ class Engine:
                 f"install the matching extra (uv pip install "
                 f"'frisket-models[{extra}]')"
             )
-        with self._lock:
-            if self._adapter is None and self._error is None:
+        with self.state.lock:
+            if self.state.adapter is None and self.state.error is None:
                 try:
-                    self._adapter = self.loader()
+                    self.state.adapter = self.loader()
                 except Exception as e:  # Retained so /capabilities reports the failure.
-                    self._error = f"{type(e).__name__}: {e}"
-            if self._error is not None:
+                    self.state.error = f"{type(e).__name__}: {e}"
+            if self.state.error is not None:
                 raise RuntimeError(
-                    f"engine '{self.name}' failed to load: {self._error}"
+                    f"engine '{self.name}' failed to load: {self.state.error}"
                 )
-        return self._adapter
+        return self._route_adapter()
+
+    def _route_adapter(self):
+        return (
+            getattr(self.state.adapter, self.adapter_method)
+            if self.adapter_method is not None
+            else self.state.adapter
+        )
 
     def describe(self) -> dict:
         description = {
             "name": self.name,
             "route": self.route,
-            "available": self.installed and self._error is None,
+            "available": self.installed and self.state.error is None,
             "loaded": self.loaded,
             "models": self.models,
-            "error": self._error,
+            "error": self.state.error,
         }
         if self.revision is not None:
             description["revision"] = self.revision
@@ -143,6 +161,8 @@ EXTRAS = {
     PP_OCRV6_ENGINE: "ocr-paddle",
     "docling": "convert",
     "chandra": "convert-chandra",
+    "lightonocr-3-0.8b": "ocr-lighton",
+    "lightonocr-3-4b": "ocr-lighton",
     "gliner": "ner",
     "whisper-turbo": "transcribe",
     "cross-encoder": "rerank",
@@ -151,16 +171,18 @@ EXTRAS = {
 
 
 class Registry:
-    """Engines keyed by client-visible name."""
+    """Engines keyed by the route and name carried by the public API."""
 
     def __init__(self, engines: list[Engine]) -> None:
-        self._engines = {e.name: e for e in engines}
+        self._engines = {(e.name, e.route): e for e in engines}
 
-    def get(self, name: str) -> Engine:
-        engine = self._engines.get(name)
-        if engine is None:
+    def get(self, name: str, *, route: str | None = None) -> Engine:
+        if route is not None:
+            return self._engines[(name, route)]
+        matches = [e for e in self._engines.values() if e.name == name]
+        if len(matches) != 1:
             raise KeyError(name)
-        return engine
+        return matches[0]
 
     def for_route(self, route: str) -> list[Engine]:
         return [e for e in self._engines.values() if e.route == route]
@@ -503,7 +525,8 @@ def load_docling(*, device: str | None = None) -> Callable[[str, bytes], dict]:
             f.write(data)
             scratch = f.name
         try:
-            result = converter.convert(scratch)
+            with pdfium_lock.PDFIUM_LOCK:
+                result = converter.convert(scratch)
             markdown = result.document.export_to_markdown()
             ocr_used = [
                 _docling_page_used_ocr(page)
@@ -536,7 +559,8 @@ def load_chandra() -> Callable[[str, bytes], dict]:
             f.write(data)
             scratch = f.name
         try:
-            images = load_file(scratch, {})
+            with pdfium_lock.PDFIUM_LOCK:
+                images = load_file(scratch, {})
             batch = [
                 BatchInputItem(image=img, prompt_type="ocr_layout") for img in images
             ]
@@ -690,6 +714,35 @@ def load_fastembed() -> Callable[[list[str]], list[list[float]]]:
     return embed
 
 
+def _lightonocr_engines() -> list[Engine]:
+    from frisket_models.lightonocr import PROFILES, load_lightonocr
+
+    engines = []
+    for name, profile in PROFILES.items():
+        state = ResidentState()
+        for route, method in (("/ocr", "ocr"), ("/to-markdown", "to_markdown")):
+            engines.append(
+                Engine(
+                    name,
+                    route,
+                    [
+                        "torch",
+                        "torchvision",
+                        "transformers",
+                        "PIL",
+                        "pypdfium2",
+                        "markdown_it",
+                    ],
+                    partial(load_lightonocr, name),
+                    models=[profile.model_id],
+                    revision=profile.revision,
+                    state=state,
+                    adapter_method=method,
+                )
+            )
+    return engines
+
+
 def default_registry() -> Registry:
     paddle_worker_configured = bool(
         os.environ.get(PADDLE_WORKER_URL_ENV) or os.environ.get(PADDLE_WORKER_TOKEN_ENV)
@@ -700,6 +753,7 @@ def default_registry() -> Registry:
     )
     return Registry(
         [
+            *_lightonocr_engines(),
             Engine(
                 "clef-flash",
                 "/classify",

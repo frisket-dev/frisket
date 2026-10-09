@@ -1,9 +1,13 @@
 import { CheckCircle2 } from 'lucide-react';
-import type { ImportWorkspaceStage, ImportWorkspaceStageOption } from './model';
+interface ImportStageOption {
+  id: string;
+  label: string;
+  testId: string;
+}
 
 interface ImportStageStepperProps {
-  stages: ImportWorkspaceStageOption[];
-  stage: ImportWorkspaceStage;
+  stages: ImportStageOption[];
+  stage: string;
 }
 
 export function ImportStageStepper({ stages, stage }: ImportStageStepperProps) {
@@ -13,7 +17,7 @@ export function ImportStageStepper({ stages, stage }: ImportStageStepperProps) {
       {stages.map((stageItem, index) => (
         <div
           key={stageItem.id}
-          className={`import-workspace-stage${stageItem.id === stage ? ' import-workspace-stage-active' : ''}`}
+          className={`import-workspace-stage${stageItem.id === stage ? ' import-workspace-stage-active' : ''}${currentStageIndex > index ? ' import-workspace-stage-done' : ''}`}
           data-testid={stageItem.testId}
           aria-current={stageItem.id === stage ? 'step' : undefined}
         >

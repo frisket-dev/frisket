@@ -32,6 +32,7 @@ from frisket_models.engines import (
     Registry,
     default_registry,
 )
+from frisket_models.errors import InvalidDocumentError
 from frisket_models.transcription.config import worker_registry_from_env
 from frisket_models.transcription.gateway import TranscriptionWorkerGateway
 from frisket_models.transcription.gateway import WorkerGatewayError, WorkerRegistry
@@ -261,18 +262,13 @@ def create_app(
         """Resolve a route-compatible adapter; return 400 for caller errors
         and 503 for missing or failed engines."""
         try:
-            engine = registry.get(name)
+            engine = registry.get(name, route=route)
         except KeyError:
             options = ", ".join(e.name for e in registry.for_route(route)) or "none"
             raise HTTPException(
                 status_code=400,
                 detail=f"unknown engine '{name}' for {route} (loaded here: {options})",
             ) from None
-        if engine.route != route:
-            raise HTTPException(
-                status_code=400,
-                detail=f"engine '{name}' serves {engine.route}, not {route}",
-            )
         return await _load(engine)
 
     async def _load(engine):
@@ -314,7 +310,13 @@ def create_app(
         adapter = await _engine("/ocr", engine)
         images = [await f.read() for f in files]
         with _slot(limiter):
-            pages = await run_in_threadpool(adapter, images)
+            try:
+                pages = await run_in_threadpool(adapter, images)
+            except InvalidDocumentError:
+                raise HTTPException(
+                    status_code=422,
+                    detail="unsupported or invalid image input",
+                ) from None
         return {"pages": pages}
 
     @api.post("/to-markdown")
@@ -326,9 +328,15 @@ def create_app(
         adapter = await _engine("/to-markdown", engine)
         blobs = [(f.filename or "doc", await f.read()) for f in files]
         with _slot(limiter):
-            documents = [
-                await run_in_threadpool(adapter, name, data) for name, data in blobs
-            ]
+            try:
+                documents = [
+                    await run_in_threadpool(adapter, name, data) for name, data in blobs
+                ]
+            except InvalidDocumentError:
+                raise HTTPException(
+                    status_code=422,
+                    detail="unsupported or invalid document input",
+                ) from None
         return {"documents": documents}
 
     mount_gateway_transcribe(

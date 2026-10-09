@@ -460,6 +460,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "tenant.cancel_pdf_packet_split_job.delete",
+      "method": "DELETE",
+      "path": "/api/projects/{pid}/import/pdf-packet-splits/{split_id}/jobs/{job_id}",
+      "request": null
+    },
+    {
       "id": "tenant.cancel_run.post",
       "method": "POST",
       "path": "/api/projects/{pid}/actions/runs/{run_id}/cancel",
@@ -508,6 +514,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "id": "tenant.column_values_preview.post",
       "method": "POST",
       "path": "/api/projects/{pid}/column-values/v1/preview",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.commit_pdf_packet_split.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/import/pdf-packet-splits/{split_id}/commit",
       "request": {
         "mediaType": "application/json",
         "required": true
@@ -574,6 +589,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
+      "id": "tenant.create_pdf_packet_split.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/import/pdf-packet-splits",
+      "request": {
+        "mediaType": "multipart/form-data",
+        "required": true
+      }
+    },
+    {
       "id": "tenant.create_project.post",
       "method": "POST",
       "path": "/api/projects",
@@ -619,6 +643,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "id": "tenant.delete_mcp_server.delete",
       "method": "DELETE",
       "path": "/api/projects/{pid}/mcp-servers/{server_id}",
+      "request": null
+    },
+    {
+      "id": "tenant.delete_pdf_packet_split.delete",
+      "method": "DELETE",
+      "path": "/api/projects/{pid}/import/pdf-packet-splits/{split_id}",
       "request": null
     },
     {
@@ -760,6 +790,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
+      "id": "tenant.estimate_pdf_packet_split_ocr.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/import/pdf-packet-splits/{split_id}/ocr/estimate",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "tenant.evidence_viewer.get",
       "method": "GET",
       "path": "/api/projects/{pid}/evidence/links/{evidence_link_id}/viewer",
@@ -829,6 +868,24 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "id": "tenant.get_models_gateway.get",
       "method": "GET",
       "path": "/api/models-gateway",
+      "request": null
+    },
+    {
+      "id": "tenant.get_pdf_packet_split.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/import/pdf-packet-splits/{split_id}",
+      "request": null
+    },
+    {
+      "id": "tenant.get_pdf_packet_split_page.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/import/pdf-packet-splits/{split_id}/pages/{page}",
+      "request": null
+    },
+    {
+      "id": "tenant.get_pdf_packet_split_thumbnail.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/import/pdf-packet-splits/{split_id}/pages/{page}/thumbnail",
       "request": null
     },
     {
@@ -1171,6 +1228,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "id": "tenant.mark_notifications_seen.post",
       "method": "POST",
       "path": "/api/projects/{pid}/notifications/seen",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.match_pdf_packet_split_candidates.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/import/pdf-packet-splits/{split_id}/candidates",
       "request": {
         "mediaType": "application/json",
         "required": true
@@ -1543,6 +1609,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "tenant.select_pdf_packet_split_text_source.put",
+      "method": "PUT",
+      "path": "/api/projects/{pid}/import/pdf-packet-splits/{split_id}/text-source",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "tenant.selector_choices.post",
       "method": "POST",
       "path": "/api/projects/{pid}/selector-choices",
@@ -1622,6 +1697,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "method": "GET",
       "path": "/api/spend",
       "request": null
+    },
+    {
+      "id": "tenant.start_pdf_packet_split_ocr.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/import/pdf-packet-splits/{split_id}/ocr/jobs",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
     },
     {
       "id": "tenant.test_mcp_server.post",
@@ -5611,6 +5695,12 @@ export type HttpInline_1711c9a82655e546 = ({
   "run_id"?: (((number)) | ((null)));
 });
 
+export type HttpInline_17d43befabd8bea4 = ({
+  "job_id": (string);
+  "pid": (string);
+  "split_id": (string);
+});
+
 export type HttpInline_1f4a92d17785b699 = ({
   "citation_id": (string);
   "pid": (string);
@@ -5748,6 +5838,8 @@ export type HttpInline_3eeec944bc84ce8c = ({
   "run_id"?: (((number)) | ((null)));
   "sheet_id"?: (((number)) | ((null)));
 });
+
+export type HttpInline_44136fa355b3678a = JsonValue;
 
 export type HttpInline_4790cdea41e01e69 = ({
   "pid": (string);
@@ -6268,6 +6360,12 @@ export type HttpInline_82725dbbd3ae1c27 = ({
   "limit"?: (number);
   "offset"?: (number);
   "status"?: (string);
+});
+
+export type HttpInline_841202cb833d751b = ({
+  "page": (number);
+  "pid": (string);
+  "split_id": (string);
 });
 
 export type HttpInline_841c7d86b3cf748c = ({
@@ -6845,6 +6943,11 @@ export type HttpInline_de840bf9fe566da1 = ({
 
 export type HttpInline_df89fa766b1ef309 = ({
   "limit"?: (number);
+});
+
+export type HttpInline_e485faf537ea9711 = ({
+  "pid": (string);
+  "split_id": (string);
 });
 
 export type HttpInline_e581724f37bc5d5c = ({
@@ -7962,6 +8065,195 @@ type HttpOrganizationProviderCatalog_OrganizationProvider = ({
 export type HttpOrganizationProviderCatalog = ({
   "providers": (Array<(HttpOrganizationProviderCatalog_OrganizationProvider)>);
   "schemaVersion": ("frisket.provider_catalog.v1") & (string);
+});
+
+type HttpPdfPacketCandidatesRequest_PdfPacketPhraseRequest = ({
+  "enabled"?: (boolean);
+  "fuzzy"?: (boolean);
+  "id": (string);
+  "text": (string);
+});
+
+export type HttpPdfPacketCandidatesRequest = ({
+  "confirmed_starts": (Array<(number)>);
+  "phrases"?: (Array<(HttpPdfPacketCandidatesRequest_PdfPacketPhraseRequest)>);
+  "rejected"?: (Array<(number)>);
+  "threshold_pct"?: (number);
+});
+
+type HttpPdfPacketCandidatesResponse_PdfPacketPageMatch = ({
+  "closest_confirmed_page": (((number)) | ((null)));
+  "kind_id": (((number)) | ((null)));
+  "matched_phrase_ids": (Array<(string)>);
+  "page": (number);
+  "suggested": (boolean);
+  "visual_score": (((number)) | ((null)));
+});
+
+type HttpPdfPacketCandidatesResponse_PdfPacketStartKind = ({
+  "confirmed_pages": (Array<(number)>);
+  "id": (number);
+});
+
+export type HttpPdfPacketCandidatesResponse = ({
+  "accept_all_scope": ("packet") & (string);
+  "analysis_revision": (number);
+  "clusters": (Array<(HttpPdfPacketCandidatesResponse_PdfPacketStartKind)>);
+  "pages": (Array<(HttpPdfPacketCandidatesResponse_PdfPacketPageMatch)>);
+  "phrase_counts": ({
+  [key: string]: (number);
+});
+  "question_pages": (Array<(number)>);
+  "schema_version": ("frisket.pdf_packet_split.v1") & (string);
+  "split_id": (string);
+  "suggested_pages": (Array<(number)>);
+});
+
+type HttpPdfPacketCommitRequest_PdfPacketDestination = ({
+  "kind": ("new_sheet") & (string);
+  "name": (string);
+});
+
+export type HttpPdfPacketCommitRequest = ({
+  "confirmed_starts": (Array<(number)>);
+  "destination": (HttpPdfPacketCommitRequest_PdfPacketDestination);
+  "idempotency_key": (string);
+  "keep_ocr_text"?: (boolean);
+  "name_pattern": (string);
+});
+
+export type HttpPdfPacketJobStartResponse = ({
+  "job_id": (string);
+  "kind": ("ocr_sample" | "ocr_full" | "commit") & (string);
+  "receipt_id": (((string)) | ((null)));
+  "schema_version": ("frisket.pdf_packet_split.v1") & (string);
+  "split_id": (string);
+  "total": (number);
+});
+
+export type HttpPdfPacketOcrEstimateRequest = ({
+  "engine": (string);
+  "pages"?: (((Array<(number)>)) | ((null)));
+  "scope": ("sample" | "all") & (string);
+});
+
+type HttpPdfPacketOcrEstimateResponse_ActionEstimate = ({
+  "audio_seconds"?: (((number)) | ((null)));
+  "avg_input_tokens"?: (((number)) | ((null)));
+  "billed_cost": (((number)) | ((null)));
+  "billing_label"?: (((string)) | ((null)));
+  "claims"?: (((Array<(HttpPdfPacketOcrEstimateResponse_ActionEstimateClaim)>)) | ((null)));
+  "cost": (((number)) | ((null)));
+  "cost_source": (string);
+  "engine"?: (((string)) | ((null)));
+  "policy_id": (string);
+  "pricing_key"?: (((string)) | ((null)));
+  "promise_set_hash"?: (((string)) | ((null)));
+  "remote_capability"?: (((string)) | ((null)));
+  "requires_confirmation"?: (((boolean)) | ((null)));
+  "rows": (number);
+  "venue_label"?: (((string)) | ((null)));
+  "warning"?: (((string)) | ((null)));
+});
+
+type HttpPdfPacketOcrEstimateResponse_ActionEstimateClaim = ({
+  "display": (string);
+  "field": (string);
+});
+
+export type HttpPdfPacketOcrEstimateResponse = ({
+  "cached_pages": (Array<(number)>);
+  "engine": (string);
+  "estimate": (((HttpPdfPacketOcrEstimateResponse_ActionEstimate)) | ((null)));
+  "pages": (Array<(number)>);
+  "schema_version": ("frisket.pdf_packet_split.v1") & (string);
+  "scope": ("sample" | "all") & (string);
+});
+
+export type HttpPdfPacketOcrJobRequest = ({
+  "confirmation"?: (((string)) | ((null)));
+  "engine": (string);
+  "pages"?: (((Array<(number)>)) | ((null)));
+  "scope": ("sample" | "all") & (string);
+});
+
+type HttpPdfPacketPageResponse_JsonValue = JsonValue;
+
+export type HttpPdfPacketPageResponse = ({
+  "native_text": (((string)) | ((null)));
+  "ocr_blocks": (Array<({
+  [key: string]: (HttpPdfPacketPageResponse_JsonValue);
+})>);
+  "ocr_engine": (((string)) | ((null)));
+  "ocr_text": (((string)) | ((null)));
+  "page": (number);
+  "schema_version": ("frisket.pdf_packet_split.v1") & (string);
+  "split_id": (string);
+  "thumbnail_ready": (boolean);
+  "thumbnail_url": (string);
+});
+
+type HttpPdfPacketSplitStatus_JsonValue = JsonValue;
+
+type HttpPdfPacketSplitStatus_PdfPacketCommitResult = ({
+  "document_count": (number);
+  "receipt_id": (((string)) | ((null)));
+  "sheet_id": (number);
+});
+
+type HttpPdfPacketSplitStatus_PdfPacketInfo = ({
+  "blob_hash": (string);
+  "filename": (string);
+  "mime": ("application/pdf") & (string);
+  "page_count": (((number)) | ((null)));
+  "size": (number);
+});
+
+type HttpPdfPacketSplitStatus_PdfPacketJobState = ({
+  "accounting": ((({
+  [key: string]: (HttpPdfPacketSplitStatus_JsonValue);
+})) | ((null)));
+  "engine": (((string)) | ((null)));
+  "job_id": (string);
+  "kind": ("prepare" | "ocr_sample" | "ocr_full" | "commit") & (string);
+  "pages": (Array<(number)>);
+  "progress": (HttpPdfPacketSplitStatus_PdfPacketProgress);
+  "receipt_id": (((string)) | ((null)));
+});
+
+type HttpPdfPacketSplitStatus_PdfPacketPrepareState = ({
+  "job_id": (string);
+  "native_text_pages": (Array<(number)>);
+  "pages_ready": (Array<(number)>);
+  "progress": (HttpPdfPacketSplitStatus_PdfPacketProgress);
+  "visual_pages_ready": (number);
+});
+
+type HttpPdfPacketSplitStatus_PdfPacketProgress = ({
+  "done": (number);
+  "error": (((string)) | ((null)));
+  "status": ("queued" | "running" | "done" | "error" | "cancelled") & (string);
+  "total": (((number)) | ((null)));
+});
+
+export type HttpPdfPacketSplitStatus = ({
+  "analysis_revision": (number);
+  "commit_result": (((HttpPdfPacketSplitStatus_PdfPacketCommitResult)) | ((null)));
+  "expires_at": (string);
+  "jobs": (Array<(HttpPdfPacketSplitStatus_PdfPacketJobState)>);
+  "ocr_engine": (((string)) | ((null)));
+  "ocr_pages": (Array<(number)>);
+  "packet": (HttpPdfPacketSplitStatus_PdfPacketInfo);
+  "prepare": (HttpPdfPacketSplitStatus_PdfPacketPrepareState);
+  "schema_version": ("frisket.pdf_packet_split.v1") & (string);
+  "split_id": (string);
+  "status": ("preparing" | "ready" | "committing" | "completed" | "error" | "cancelled") & (string);
+  "text_source": ("unconfirmed" | "native" | "ocr") & (string);
+});
+
+export type HttpPdfPacketTextSourceRequest = ({
+  "engine"?: (((string)) | ((null)));
+  "kind": ("native" | "ocr") & (string);
 });
 
 export type HttpProductTelemetryRequest = ({
@@ -11409,6 +11701,23 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.cancel_pdf_packet_split_job.delete": {
+    readonly pathParams: HttpInline_17d43befabd8bea4;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpPdfPacketSplitStatus;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
+    };
+  };
   readonly "tenant.cancel_run.post": {
     readonly pathParams: HttpInline_8b265931c6336b68;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -11522,6 +11831,23 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.commit_pdf_packet_split.post": {
+    readonly pathParams: HttpInline_e485faf537ea9711;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpPdfPacketCommitRequest;
+    readonly responses: {
+      readonly "202": HttpPdfPacketJobStartResponse;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
+    };
+  };
   readonly "tenant.compact_project.post": {
     readonly pathParams: HttpInline_87cacc773db826e7;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -11619,6 +11945,23 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.create_pdf_packet_split.post": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: FormData;
+    readonly responses: {
+      readonly "202": HttpPdfPacketSplitStatus;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
+    };
+  };
   readonly "tenant.create_project.post": {
     readonly pathParams: HttpInline_d746974fa9afd5e9;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -11695,6 +12038,23 @@ export type HttpContractOperationMap = {
       readonly "401": HttpError;
       readonly "404": HttpError;
       readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.delete_pdf_packet_split.delete": {
+    readonly pathParams: HttpInline_e485faf537ea9711;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "204": undefined;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
     };
   };
   readonly "tenant.delete_project.delete": {
@@ -11951,6 +12311,23 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.estimate_pdf_packet_split_ocr.post": {
+    readonly pathParams: HttpInline_e485faf537ea9711;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpPdfPacketOcrEstimateRequest;
+    readonly responses: {
+      readonly "200": HttpPdfPacketOcrEstimateResponse;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
+    };
+  };
   readonly "tenant.evidence_viewer.get": {
     readonly pathParams: HttpInline_841c7d86b3cf748c;
     readonly query: HttpInline_0418581d483574b3;
@@ -12078,6 +12455,57 @@ export type HttpContractOperationMap = {
       readonly "200": HttpModelsGatewayStatus;
       readonly "400": HttpError;
       readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.get_pdf_packet_split.get": {
+    readonly pathParams: HttpInline_e485faf537ea9711;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpPdfPacketSplitStatus;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
+    };
+  };
+  readonly "tenant.get_pdf_packet_split_page.get": {
+    readonly pathParams: HttpInline_841202cb833d751b;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpPdfPacketPageResponse;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
+    };
+  };
+  readonly "tenant.get_pdf_packet_split_thumbnail.get": {
+    readonly pathParams: HttpInline_841202cb833d751b;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpInline_44136fa355b3678a;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
     };
   };
   readonly "tenant.get_project.get": {
@@ -12742,6 +13170,23 @@ export type HttpContractOperationMap = {
       readonly "409": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.match_pdf_packet_split_candidates.post": {
+    readonly pathParams: HttpInline_e485faf537ea9711;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpPdfPacketCandidatesRequest;
+    readonly responses: {
+      readonly "200": HttpPdfPacketCandidatesResponse;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
     };
   };
   readonly "tenant.notifications_summary.get": {
@@ -13424,6 +13869,23 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.select_pdf_packet_split_text_source.put": {
+    readonly pathParams: HttpInline_e485faf537ea9711;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpPdfPacketTextSourceRequest;
+    readonly responses: {
+      readonly "200": HttpPdfPacketSplitStatus;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
+    };
+  };
   readonly "tenant.selector_choices.post": {
     readonly pathParams: HttpInline_87cacc773db826e7;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -13553,6 +14015,23 @@ export type HttpContractOperationMap = {
       readonly "401": HttpError;
       readonly "403": HttpError;
       readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.start_pdf_packet_split_ocr.post": {
+    readonly pathParams: HttpInline_e485faf537ea9711;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpPdfPacketOcrJobRequest;
+    readonly responses: {
+      readonly "202": HttpPdfPacketJobStartResponse;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "503": HttpError;
     };
   };
   readonly "tenant.test_mcp_server.post": {

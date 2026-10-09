@@ -187,12 +187,15 @@ def test_glm_ocr_is_a_text_only_gateway_engine() -> None:
     assert glm.options.geometry is False
 
 
-def test_glm_ocr_refuses_searchable_pdf_without_geometry(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize("engine", ["glm-ocr", "lightonocr-3-0.8b", "lightonocr-3-4b"])
+def test_ocr_refuses_searchable_pdf_without_suitable_geometry(
+    monkeypatch, tmp_path, engine
+) -> None:
     _activate_everything(monkeypatch, tmp_path)
 
     result = resolve(
         ResolutionRequest(
-            engine="glm-ocr",
+            engine=engine,
             capability="ocr",
             options={"searchable_pdf": True},
         ),

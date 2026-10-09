@@ -1,10 +1,13 @@
 """Normal preview confirmation and receipt accounting across the real job host."""
 
 import asyncio
+import hashlib
+import io
 import threading
 from dataclasses import replace
 
 import pytest
+from pypdf import PdfWriter
 
 from frisket.ai.llm import ModelRouter
 from frisket.ai.models.metadata import ModelCallMeta
@@ -14,6 +17,7 @@ from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.server.services.action_preview_runs import ActionPreviewRunService
 from frisket.server.workspace import Workspace
+from frisket.preview.ocr import OcrComparePreviewError
 from tests.deterministic_time import controlled_time
 from tests.preview.test_accounted_action_preview import _Adapter, _outputs
 from tests.preview.test_preview_inmemory import _seed, _summarize_action
@@ -53,6 +57,45 @@ def _confirm(service, body):
     details = quote.payload["error"]["details"]
     assert details["estimate"]
     return {**body, "confirmation": details["promise_set_hash"]}
+
+
+def _pdf(page_count: int) -> bytes:
+    writer = PdfWriter()
+    for _index in range(page_count):
+        writer.add_blank_page(width=612, height=792)
+    data = io.BytesIO()
+    writer.write(data)
+    return data.getvalue()
+
+
+def test_compare_keeps_ten_page_cap_while_borrowed_packet_allows_more(tmp_path):
+    service, project, _ = _fixture(tmp_path, _Adapter())
+    packet = _pdf(11)
+    payload = {
+        "engine": "anthropic/claude-haiku-4-5",
+        "filename": "packet.pdf",
+        "mime": "application/pdf",
+        "pages": list(range(1, 12)),
+    }
+    try:
+        with pytest.raises(OcrComparePreviewError, match="1-10 page numbers"):
+            service.prepare_ocr_scratch("paid", packet, payload)
+
+        source = tmp_path / "packet.pdf"
+        source.write_bytes(packet)
+        plan, selected, *_rest = service.prepare_ocr_scratch_path(
+            "paid",
+            source,
+            media_digest=hashlib.sha256(packet).hexdigest(),
+            media_size=len(packet),
+            payload=payload,
+            max_pages=2000,
+        )
+        assert plan.work_scope["selection"]["pages"] == list(range(1, 12))
+        assert selected["pages"] == list(range(1, 12))
+    finally:
+        service._registry.shutdown()
+        project.close()
 
 
 @pytest.mark.parametrize("mode", ["success", "row_error", "terminal_error"])

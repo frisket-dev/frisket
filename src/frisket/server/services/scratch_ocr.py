@@ -9,7 +9,7 @@ import time
 import uuid
 from contextlib import AsyncExitStack
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from frisket.engine.store import Project
 from frisket.ops.ocr_engines import (
@@ -18,10 +18,10 @@ from frisket.ops.ocr_engines import (
     rapidocr_execution_scope,
 )
 from frisket.preview.ocr import (
+    MAX_PREVIEW_PAGES,
     OcrComparePreviewError,
     OcrCompareSource,
     _canonical_engine,
-    _coerce_pages,
     _page_messages,
     _str_or_none,
     normalize_ocr_blocks,
@@ -33,9 +33,14 @@ from frisket.redaction import safe_error
 def paid_ocr_scratch_plan(
     project: Project,
     *,
-    media_bytes: bytes,
+    media_bytes: bytes | None = None,
+    media_path: Path | None = None,
+    media_digest: str | None = None,
+    media_size: int | None = None,
     payload: Mapping[str, Any],
     composition: Any,
+    on_page: Callable[[dict[str, Any]], None] | None = None,
+    max_pages: int = MAX_PREVIEW_PAGES,
 ) -> tuple[Any, dict[str, Any]]:
     """Prepare one accounted OCR candidate over transient image/PDF bytes."""
 
@@ -56,7 +61,7 @@ def paid_ocr_scratch_plan(
         raise OcrComparePreviewError(
             "invalid_params", "OCR compare requires one engine", field="engine"
         )
-    pages = _coerce_pages(payload.get("pages", [1]))
+    pages = _coerce_scratch_pages(payload.get("pages", [1]), max_pages=max_pages)
     params_payload = {
         key: payload[key]
         for key in OcrParams.model_fields
@@ -73,9 +78,31 @@ def paid_ocr_scratch_plan(
 
     filename = _str_or_none(payload.get("filename"))
     mime = _str_or_none(payload.get("mime"))
-    source_kind, source_suffix, source_mime = _ocr_source_type(
-        media_bytes, filename=filename, mime=mime
-    )
+    if (media_bytes is None) == (media_path is None):
+        raise ValueError("scratch OCR requires exactly one byte or path source")
+    if media_path is not None:
+        media_path = media_path.resolve()
+        with media_path.open("rb") as source:
+            header = source.read(5)
+        if header != b"%PDF-":
+            raise OcrComparePreviewError(
+                "invalid_input_ref",
+                "Borrowed OCR sources must be PDF documents.",
+                field="file",
+            )
+        source_kind, source_suffix, source_mime = "pdf", ".pdf", "application/pdf"
+        if not isinstance(media_digest, str) or len(media_digest) != 64:
+            raise ValueError("borrowed OCR source requires its admitted SHA-256")
+        if type(media_size) is not int or media_size < 0:
+            raise ValueError("borrowed OCR source requires its admitted size")
+        digest, source_size = media_digest, media_size
+    else:
+        assert media_bytes is not None
+        source_kind, source_suffix, source_mime = _ocr_source_type(
+            media_bytes, filename=filename, mime=mime
+        )
+        digest = hashlib.sha256(media_bytes).hexdigest()
+        source_size = len(media_bytes)
     if source_kind == "image" and pages != [1]:
         raise OcrComparePreviewError(
             "invalid_page_ref",
@@ -89,9 +116,14 @@ def paid_ocr_scratch_plan(
             "Searchable PDF output requires a PDF upload.",
             field="searchable_pdf",
         )
+    if normalized_options["searchable_pdf"] and media_bytes is None:
+        raise OcrComparePreviewError(
+            "invalid_params",
+            "Borrowed PDF OCR does not produce a searchable PDF preview.",
+            field="searchable_pdf",
+        )
 
     canonical_engine = _canonical_engine(params.engine.root)
-    digest = hashlib.sha256(media_bytes).hexdigest()
     selection = {"pages": list(pages)}
     source_identity = {"sha256": digest, "selection": selection}
     work_scope = {
@@ -137,8 +169,12 @@ def paid_ocr_scratch_plan(
             raise RecipeInvocationHalt("local_session_failed", "Preview was cancelled.")
         with tempfile.TemporaryDirectory(prefix="frisket-ocr-paid-scratch-") as tmp:
             scratch = Path(tmp)
-            source = scratch / f"source{source_suffix}"
-            source.write_bytes(media_bytes)
+            if media_path is None:
+                source = scratch / f"source{source_suffix}"
+                assert media_bytes is not None
+                source.write_bytes(media_bytes)
+            else:
+                source = media_path
             source_media = {
                 "filename": filename or source.name,
                 "mime": source_mime,
@@ -163,7 +199,7 @@ def paid_ocr_scratch_plan(
                         blob_hash=digest,
                         filename=filename,
                         mime=source_mime,
-                        size=len(media_bytes),
+                        size=source_size,
                         page_count=1 if source_kind == "image" else None,
                         path=source,
                         media=source_media,
@@ -238,7 +274,8 @@ def paid_ocr_scratch_plan(
                     page_errors.extend(_page_messages(raw["error"]))
                 if index >= len(output_pages):
                     page_errors.append("OCR engine returned no result for this page.")
-                if page_errors and not text and not blocks:
+                page_failed = bool(page_errors and not text and not blocks)
+                if page_failed:
                     failed_pages += 1
                 warnings.extend(
                     f"Page {page.page}: {message}" for message in page_warnings
@@ -256,6 +293,16 @@ def paid_ocr_scratch_plan(
                         "runtime_ms": {"value": runtime_ms},
                     }
                 )
+                if on_page is not None and not page_failed:
+                    on_page(
+                        {
+                            "page": page.page,
+                            "text": text,
+                            "blocks": blocks,
+                            "warnings": page_warnings,
+                            "errors": page_errors,
+                        }
+                    )
                 context.progress(index + 1, len(rendered))
 
             columns = [
@@ -289,6 +336,7 @@ def paid_ocr_scratch_plan(
                 for page, output in zip(pages, output_pages, strict=False):
                     overlays[page - 1] = output
                 try:
+                    assert media_bytes is not None
                     searchable, composed = compose_searchable_pdf(
                         media_bytes, overlays, dpi=normalized_options["dpi"]
                     )
@@ -350,11 +398,31 @@ def paid_ocr_scratch_plan(
         {
             "filename": filename,
             "mime": mime,
-            "size": len(media_bytes),
+            "size": source_size,
             "kind": source_kind,
             "pages": list(pages),
         },
     )
+
+
+def _coerce_scratch_pages(value: Any, *, max_pages: int) -> list[int]:
+    if not isinstance(value, list) or not value or len(value) > max_pages:
+        raise OcrComparePreviewError(
+            "invalid_page_ref",
+            f"Scratch OCR requires 1-{max_pages} page numbers.",
+            field="pages",
+        )
+    if any(type(page) is not int or page < 1 for page in value):
+        raise OcrComparePreviewError(
+            "invalid_page_ref",
+            "Scratch OCR pages must be positive integers.",
+            field="pages",
+        )
+    if len(value) != len(set(value)):
+        raise OcrComparePreviewError(
+            "invalid_page_ref", "Scratch OCR pages must be distinct.", field="pages"
+        )
+    return value
 
 
 def _ocr_source_type(
