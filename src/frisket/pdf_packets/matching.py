@@ -12,12 +12,16 @@ from dataclasses import dataclass
 import math
 import unicodedata
 
-import numpy as np
 import regex
 
+from frisket.pdf_packets.signatures import signature_similarity
 
-_KIND_SIMILARITY = 0.90
-_NEGATIVE_MARGIN = 0.05
+
+# The packet trial found that whole-packet k-medoids isolated the memo covers,
+# but the global silhouette was weak (0.074).  Grouping only user-confirmed
+# examples at the descriptor's observed family boundary is smaller and avoids
+# turning advisory layout clusters into a classifier.
+_KIND_SIMILARITY = 0.75
 _QUESTION_BAND = 30.0
 _QUESTION_LIMIT = 3
 _NEAR_DUPLICATE_SIMILARITY = 0.98
@@ -68,35 +72,25 @@ def _page_set(values: Collection[int], *, page_count: int, label: str) -> set[in
     return pages
 
 
-def _unit_vectors(
-    vectors: Mapping[int, Sequence[float]], *, page_count: int
-) -> dict[int, np.ndarray]:
-    units: dict[int, np.ndarray] = {}
-    dimension: int | None = None
-    for page in sorted(vectors):
+def _page_signatures(
+    signatures: Mapping[int, int], *, page_count: int
+) -> dict[int, int]:
+    checked: dict[int, int] = {}
+    for page, signature in signatures.items():
         if type(page) is not int or not 1 <= page <= page_count:
-            raise ValueError(f"vectors contains a page outside 1..{page_count}")
+            raise ValueError(f"signatures contains a page outside 1..{page_count}")
         try:
-            vector = np.asarray(vectors[page], dtype=np.float64)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"vector for page {page} must be numeric") from exc
-        if vector.ndim != 1 or vector.size == 0:
-            raise ValueError(f"vector for page {page} must be one-dimensional")
-        if dimension is None:
-            dimension = int(vector.size)
-        elif vector.size != dimension:
-            raise ValueError("all page vectors must have the same dimension")
-        if not np.isfinite(vector).all():
-            raise ValueError(f"vector for page {page} must contain only finite values")
-        norm = float(np.linalg.norm(vector))
-        if not math.isfinite(norm) or norm == 0:
-            raise ValueError(f"vector for page {page} must have a nonzero finite norm")
-        units[page] = vector / norm
-    return units
+            signature_similarity(signature, signature)
+        except ValueError as exc:
+            raise ValueError(
+                f"signature for page {page} must be a 256-bit integer"
+            ) from exc
+        checked[page] = signature
+    return checked
 
 
 def _start_kinds(
-    confirmed: set[int], units: Mapping[int, np.ndarray]
+    confirmed: set[int], signatures: Mapping[int, int]
 ) -> tuple[tuple[StartKind, ...], dict[int, int]]:
     ordered = sorted(confirmed)
     parent = {page: page for page in ordered}
@@ -108,14 +102,17 @@ def _start_kinds(
         return page
 
     for offset, left in enumerate(ordered):
-        left_vector = units.get(left)
-        if left_vector is None:
+        left_signature = signatures.get(left)
+        if left_signature is None:
             continue
         for right in ordered[offset + 1 :]:
-            right_vector = units.get(right)
-            if right_vector is None:
+            right_signature = signatures.get(right)
+            if right_signature is None:
                 continue
-            if float(left_vector @ right_vector) >= _KIND_SIMILARITY:
+            if (
+                signature_similarity(left_signature, right_signature)
+                >= _KIND_SIMILARITY
+            ):
                 left_root = find(left)
                 right_root = find(right)
                 if left_root != right_root:
@@ -194,35 +191,39 @@ def _phrase_matches(text: str, phrases: Sequence[_PreparedPhrase]) -> tuple[str,
 def _visual_match(
     page: int,
     *,
-    units: Mapping[int, np.ndarray],
-    confirmed_vectors: Sequence[tuple[int, np.ndarray]],
-    rejected_vectors: Sequence[np.ndarray],
+    signatures: Mapping[int, int],
+    confirmed_signatures: Sequence[tuple[int, int]],
+    rejected_signatures: Sequence[int],
     kind_by_confirmed_page: Mapping[int, int],
-) -> tuple[float | None, int | None, int | None]:
-    vector = units.get(page)
-    if vector is None or not confirmed_vectors:
-        return None, None, kind_by_confirmed_page.get(page)
+) -> tuple[float | None, int | None, int | None, bool]:
+    signature = signatures.get(page)
+    if signature is None or not confirmed_signatures:
+        return None, None, kind_by_confirmed_page.get(page), False
 
     closest_page, positive = max(
         (
-            (anchor_page, float(vector @ anchor))
-            for anchor_page, anchor in confirmed_vectors
+            (anchor_page, signature_similarity(signature, anchor))
+            for anchor_page, anchor in confirmed_signatures
         ),
         key=lambda item: (item[1], -item[0]),
     )
-    adjusted = positive
-    if rejected_vectors:
-        negative = max(float(vector @ rejected) for rejected in rejected_vectors)
-        adjusted -= max(0.0, negative - positive + _NEGATIVE_MARGIN)
-    score = round(100.0 * min(1.0, max(0.0, adjusted)), 1)
-    return score, closest_page, kind_by_confirmed_page[closest_page]
+    vetoed = (
+        bool(rejected_signatures)
+        and max(
+            signature_similarity(signature, rejected)
+            for rejected in rejected_signatures
+        )
+        >= positive
+    )
+    score = round(100.0 * positive, 1)
+    return score, closest_page, kind_by_confirmed_page[closest_page], vetoed
 
 
 def _question_pages(
     candidates: Sequence[PageMatch],
     *,
     threshold: float,
-    units: Mapping[int, np.ndarray],
+    signatures: Mapping[int, int],
 ) -> tuple[int, ...]:
     def priority(match: PageMatch) -> tuple[float, int]:
         assert match.visual_score is not None
@@ -242,7 +243,9 @@ def _question_pages(
                 match
                 for match in remaining
                 if all(
-                    float(units[match.page] @ units[chosen.page])
+                    signature_similarity(
+                        signatures[match.page], signatures[chosen.page]
+                    )
                     < _NEAR_DUPLICATE_SIMILARITY
                     for chosen in selected
                 )
@@ -258,7 +261,7 @@ def _question_pages(
 def match_packet_pages(
     *,
     page_count: int,
-    vectors: Mapping[int, Sequence[float]],
+    signatures: Mapping[int, int],
     confirmed: Collection[int],
     rejected: Collection[int] = (),
     threshold: float = 80.0,
@@ -267,7 +270,7 @@ def match_packet_pages(
 ) -> PacketMatchResult:
     """Derive page suggestions and questions from one packet-session snapshot.
 
-    Pages are 1-based. ``vectors`` and ``ocr_text`` may be partial while their
+    Pages are 1-based. ``signatures`` and ``ocr_text`` may be partial while their
     background jobs are running. Visual scores and ``threshold`` use the same
     0..100 scale. Text phrase matches and visual matches are OR inputs, while
     explicit labels always remain authoritative.
@@ -288,13 +291,17 @@ def match_packet_pages(
     if confirmed_pages & rejected_pages:
         raise ValueError("confirmed and rejected pages must be disjoint")
 
-    units = _unit_vectors(vectors, page_count=page_count)
-    kinds, kind_by_confirmed_page = _start_kinds(confirmed_pages, units)
-    confirmed_vectors = tuple(
-        (page, units[page]) for page in sorted(confirmed_pages) if page in units
+    checked_signatures = _page_signatures(signatures, page_count=page_count)
+    kinds, kind_by_confirmed_page = _start_kinds(confirmed_pages, checked_signatures)
+    confirmed_signatures = tuple(
+        (page, checked_signatures[page])
+        for page in sorted(confirmed_pages)
+        if page in checked_signatures
     )
-    rejected_vectors = tuple(
-        units[page] for page in sorted(rejected_pages) if page in units
+    rejected_signatures = tuple(
+        checked_signatures[page]
+        for page in sorted(rejected_pages)
+        if page in checked_signatures
     )
 
     texts = {} if ocr_text is None else dict(ocr_text)
@@ -306,20 +313,27 @@ def match_packet_pages(
     prepared_phrases = _prepare_phrases(phrases)
 
     page_matches: list[PageMatch] = []
+    vetoed_pages: set[int] = set()
     for page in range(1, page_count + 1):
-        visual_score, closest_page, kind_id = _visual_match(
+        visual_score, closest_page, kind_id, vetoed = _visual_match(
             page,
-            units=units,
-            confirmed_vectors=confirmed_vectors,
-            rejected_vectors=rejected_vectors,
+            signatures=checked_signatures,
+            confirmed_signatures=confirmed_signatures,
+            rejected_signatures=rejected_signatures,
             kind_by_confirmed_page=kind_by_confirmed_page,
         )
         matched_phrases = _phrase_matches(texts.get(page, ""), prepared_phrases)
         labeled = page in confirmed_pages or page in rejected_pages
-        suggested = not labeled and (
-            (visual_score is not None and visual_score >= threshold)
-            or bool(matched_phrases)
+        suggested = (
+            not labeled
+            and not vetoed
+            and (
+                (visual_score is not None and visual_score >= threshold)
+                or bool(matched_phrases)
+            )
         )
+        if vetoed and not labeled:
+            vetoed_pages.add(page)
         page_matches.append(
             PageMatch(
                 page=page,
@@ -335,12 +349,19 @@ def match_packet_pages(
         match
         for match in page_matches
         if match.visual_score is not None
-        and threshold - _QUESTION_BAND <= match.visual_score < threshold
         and match.page not in confirmed_pages
         and match.page not in rejected_pages
         and not match.suggested
+        and (
+            match.page in vetoed_pages
+            or threshold - _QUESTION_BAND <= match.visual_score < threshold
+        )
     )
-    questions = _question_pages(question_candidates, threshold=threshold, units=units)
+    questions = _question_pages(
+        question_candidates,
+        threshold=threshold,
+        signatures=checked_signatures,
+    )
     suggestions = tuple(match.page for match in page_matches if match.suggested)
     return PacketMatchResult(
         kinds=kinds,

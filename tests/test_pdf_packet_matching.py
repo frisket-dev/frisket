@@ -7,53 +7,73 @@ import pytest
 from frisket.pdf_packets import PhraseRule, match_packet_pages
 
 
-def test_feedback_groups_start_kinds_and_only_demotes_pages_near_a_rejection():
-    vectors = {
-        1: [1.0, 0.0],
-        2: [0.98, 0.20],
-        3: [0.97, 0.24],
-        4: [0.0, 1.0],
-        5: [0.10, 0.99],
+ALL_BITS = (1 << 256) - 1
+
+
+def changed_bits(count: int) -> int:
+    return (1 << count) - 1
+
+
+def test_feedback_groups_start_kinds_and_vetoes_when_a_rejection_is_closer():
+    signatures = {
+        1: 0,
+        2: changed_bits(5),
+        3: changed_bits(6),
+        4: ALL_BITS,
+        5: ALL_BITS ^ changed_bits(2),
     }
 
     learned = match_packet_pages(
         page_count=5,
-        vectors=vectors,
+        signatures=signatures,
         confirmed={1, 4},
         rejected={2},
         threshold=90,
     )
 
     assert [kind.confirmed_pages for kind in learned.kinds] == [(1,), (4,)]
+    assert learned.pages[2].visual_score == 97.7
     assert 3 not in learned.suggested_pages
+    assert 3 in learned.question_pages
     assert 5 in learned.suggested_pages
-    assert learned.pages[2].visual_score < 90
-    assert learned.pages[4].visual_score > 99
+    assert learned.pages[4].visual_score == 99.2
 
     regrouped = match_packet_pages(
         page_count=5,
-        vectors=vectors,
+        signatures=signatures,
         confirmed={1, 2, 4},
         threshold=90,
     )
     assert [kind.confirmed_pages for kind in regrouped.kinds] == [(1, 2), (4,)]
-    assert regrouped.pages[2].kind_id == regrouped.pages[0].kind_id
+    assert regrouped.pages[1].kind_id == regrouped.pages[0].kind_id
+
+
+def test_equal_positive_and_negative_similarity_is_conservatively_a_question():
+    result = match_packet_pages(
+        page_count=3,
+        signatures={1: 0, 2: changed_bits(2), 3: changed_bits(1)},
+        confirmed={1},
+        rejected={2},
+        threshold=90,
+    )
+
+    assert result.pages[2].visual_score == 99.6
+    assert result.pages[2].suggested is False
+    assert result.question_pages == (3,)
 
 
 def test_questions_cover_distinct_start_kinds_before_near_duplicates():
-    a_score = 0.89
-    b_score = 0.87
-    vectors = {
-        1: [1.0, 0.0, 0.0],
-        2: [0.0, 1.0, 0.0],
-        3: [a_score, math.sqrt(1 - a_score**2), 0.0],
-        4: [0.88, math.sqrt(1 - 0.88**2), 0.0],
-        5: [math.sqrt(1 - b_score**2), b_score, 0.0],
+    signatures = {
+        1: 0,
+        2: ALL_BITS,
+        3: changed_bits(29),
+        4: changed_bits(31),
+        5: ALL_BITS ^ changed_bits(33),
     }
 
     result = match_packet_pages(
         page_count=5,
-        vectors=vectors,
+        signatures=signatures,
         confirmed={1, 2},
         threshold=90,
     )
@@ -66,10 +86,15 @@ def test_questions_cover_distinct_start_kinds_before_near_duplicates():
     assert len(result.question_pages) == 3
 
 
-def test_text_phrases_are_or_matches_with_bounded_ocr_error_tolerance():
+def test_text_phrases_converge_with_visual_feedback_and_rejections_win_conflicts():
     result = match_packet_pages(
-        page_count=5,
-        vectors={1: [1.0, 0.0]},
+        page_count=6,
+        signatures={
+            1: 0,
+            2: changed_bits(20) << 100,
+            4: changed_bits(6),
+            5: changed_bits(7),
+        },
         confirmed={1},
         rejected={4},
         threshold=90,
@@ -77,7 +102,8 @@ def test_text_phrases_are_or_matches_with_bounded_ocr_error_tolerance():
             2: "NOTICE OF DETERMLNATION",
             3: "This is the final report.",
             4: "Notice of determination",
-            5: "Agxncy memxrandxm",
+            5: "Notice of determination",
+            6: "Agxncy memxrandxm",
         },
         phrases=(
             PhraseRule("notice of determination", fuzzy=True),
@@ -88,18 +114,22 @@ def test_text_phrases_are_or_matches_with_bounded_ocr_error_tolerance():
     )
 
     assert result.suggested_pages == (2, 3)
-    assert result.pages[1].visual_score is None
+    assert result.pages[1].visual_score == 92.2
     assert result.pages[1].matched_phrases == ("notice of determination",)
+    assert result.pages[2].visual_score is None
     assert result.pages[2].matched_phrases == ("final report",)
     assert result.pages[3].matched_phrases == ("notice of determination",)
     assert result.pages[3].suggested is False
-    assert result.pages[4].matched_phrases == ()
+    assert result.pages[4].matched_phrases == ("notice of determination",)
+    assert result.pages[4].suggested is False
+    assert 5 in result.question_pages
+    assert result.pages[5].matched_phrases == ()
 
 
 def test_suggestions_never_become_training_examples_without_confirmation():
     inputs = dict(
         page_count=3,
-        vectors={1: [1.0, 0.0], 2: [0.98, 0.2], 3: [0.91, 0.41]},
+        signatures={1: 0, 2: changed_bits(5), 3: changed_bits(23)},
         confirmed={1},
         threshold=90,
     )
@@ -116,15 +146,15 @@ def test_suggestions_never_become_training_examples_without_confirmation():
     assert 2 not in accepted.suggested_pages
 
 
-def test_visual_scores_normalize_vectors_and_use_zero_to_100_thresholds():
+def test_visual_scores_use_native_hamming_and_zero_to_100_thresholds():
     result = match_packet_pages(
         page_count=3,
-        vectors={1: [10.0, 0.0], 2: [8.0, 6.0], 3: [-10.0, 0.0]},
+        signatures={1: 0, 2: changed_bits(51), 3: ALL_BITS},
         confirmed={1},
         threshold=80,
     )
 
-    assert result.pages[1].visual_score == 80.0
+    assert result.pages[1].visual_score == 80.1
     assert result.pages[1].suggested is True
     assert result.pages[2].visual_score == 0.0
     assert all(
@@ -133,20 +163,36 @@ def test_visual_scores_normalize_vectors_and_use_zero_to_100_thresholds():
     )
 
 
+def test_identical_empty_signatures_are_valid_and_confirmed_only_is_stable():
+    result = match_packet_pages(
+        page_count=2,
+        signatures={1: 0, 2: 0},
+        confirmed={1, 2},
+        threshold=80,
+    )
+
+    assert result.kinds[0].confirmed_pages == (1, 2)
+    assert result.pages[0].visual_score == 100.0
+    assert result.pages[1].visual_score == 100.0
+    assert result.suggested_pages == ()
+    assert result.question_pages == ()
+
+
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
-        ({"vectors": {1: [1.0, math.inf]}}, "finite"),
-        ({"vectors": {1: [1.0, 0.0], 2: [1.0]}}, "dimension"),
+        ({"signatures": {1: True}}, "256-bit"),
+        ({"signatures": {1: -1}}, "256-bit"),
+        ({"signatures": {1: 1 << 256}}, "256-bit"),
         ({"rejected": {4}}, "page"),
         ({"confirmed": {1, 2}, "rejected": {2}}, "disjoint"),
-        ({"threshold": 101}, "threshold"),
+        ({"threshold": math.inf}, "threshold"),
     ],
 )
 def test_invalid_match_inputs_are_rejected(overrides, message):
     inputs = {
         "page_count": 3,
-        "vectors": {1: [1.0, 0.0]},
+        "signatures": {1: 0},
         "confirmed": {1},
         "rejected": set(),
         "threshold": 80,
