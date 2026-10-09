@@ -59,8 +59,12 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from frisket.execution.credential_use import CredentialUseContext
+from frisket.provider_definitions import providers_for
 from frisket.contracts.actions.schemas._engines import (
     OCR_ENGINE_TABLE,
+    opendocrouter_engines,
+    ocr_engine_has_geometry,
     TRANSCRIBE_ENGINE_TABLE,
     TranscriptionEngineCapabilities,
     find_engine,
@@ -83,6 +87,7 @@ from frisket.execution.targets import (
     CAPABILITY_TRANSCRIBE as CAPABILITY_TRANSCRIBE,
     CAPABILITY_TRANSLATE as CAPABILITY_TRANSLATE,
     DATALAB_TARGET_ID as DATALAB_TARGET_ID,
+    OPENDOCROUTER_TARGET_ID as OPENDOCROUTER_TARGET_ID,
     CLOUDFLARE_CLEF_TARGET_ID as CLOUDFLARE_CLEF_TARGET_ID,
     DEEPL_TARGET_ID as DEEPL_TARGET_ID,
     GOOGLE_TRANSLATE_TARGET_ID as GOOGLE_TRANSLATE_TARGET_ID,
@@ -106,14 +111,10 @@ DEFAULT_MODELS_GATEWAY_TIMEOUT_SECONDS = 3600.0
 MODELS_GATEWAY_CONNECT_TIMEOUT_SECONDS = 10.0
 
 ROUTER_PROVIDER_KEY_ENV: Mapping[str, str] = {
-    "anthropic": "ANTHROPIC_API_KEY",
-    "openai": "OPENAI_API_KEY",
-    "gemini": "GEMINI_API_KEY",
-    "openrouter": "OPENROUTER_API_KEY",
+    p.id: p.env_var for p in providers_for(category="llm")
 }
-
-
-DATALAB_API_KEY_ENV = "DATALAB_API_KEY"
+_DOCUMENT_PROVIDERS = {p.id: p for p in providers_for(category="document")}
+DATALAB_API_KEY_ENV = _DOCUMENT_PROVIDERS[DATALAB_TARGET_ID].env_var
 
 DEEPL_API_KEY_ENV = "DEEPL_API_KEY"
 GOOGLE_TRANSLATE_API_KEY_ENV = "GOOGLE_TRANSLATE_API_KEY"
@@ -249,15 +250,18 @@ def _ocr_support(
     transport: str,
     *,
     language: bool,
-    geometry: bool,
     run_scoped: bool = False,
+    unavailable_reason: str | None = None,
 ) -> TargetEngineSupport:
     return TargetEngineSupport(
         engine=engine,
         transport=transport,  # type: ignore[arg-type]
         capability=CAPABILITY_OCR,
-        options=OcrOptionSupport(language=language, geometry=geometry),
+        options=OcrOptionSupport(
+            language=language, geometry=ocr_engine_has_geometry(engine)
+        ),
         run_scoped=run_scoped,
+        unavailable_reason=unavailable_reason,
     )
 
 
@@ -268,14 +272,12 @@ def _local_ocr_engines() -> tuple[TargetEngineSupport, ...]:
             "rapidocr",
             "local",
             language=True,
-            geometry=True,
             run_scoped=_roster_run_scoped("rapidocr"),
         ),
         _ocr_support(
             "tesseract",
             "local",
             language=True,
-            geometry=True,
             run_scoped=_roster_run_scoped("tesseract"),
         ),
     )
@@ -291,11 +293,11 @@ def _gateway_ocr_engines() -> tuple[TargetEngineSupport, ...]:
     """The gateway's OCR engines over POST /ocr. No language knob: the
     settled contract carries pages + engine only."""
     return (
-        _ocr_support("dots.mocr", "sidecar.ocr", language=False, geometry=True),
-        _ocr_support("glm-ocr", "sidecar.ocr", language=False, geometry=False),
-        _ocr_support("surya2", "sidecar.ocr", language=False, geometry=True),
-        _ocr_support("pp-ocrv6", "sidecar.ocr", language=False, geometry=True),
-        _ocr_support("paddleocr-vl", "sidecar.ocr", language=False, geometry=True),
+        _ocr_support("dots.mocr", "sidecar.ocr", language=False),
+        _ocr_support("glm-ocr", "sidecar.ocr", language=False),
+        _ocr_support("surya2", "sidecar.ocr", language=False),
+        _ocr_support("pp-ocrv6", "sidecar.ocr", language=False),
+        _ocr_support("paddleocr-vl", "sidecar.ocr", language=False),
     )
 
 
@@ -304,7 +306,7 @@ def _remote_ocr_wildcard_support(provider: str) -> TargetEngineSupport:
     image part. It takes a language HINT (it rides the prompt) and returns no
     geometry at all — so ``searchable_pdf`` refuses here rather than painting
     an empty text layer."""
-    return _ocr_support(f"{provider}/*", "remote", language=True, geometry=False)
+    return _ocr_support(f"{provider}/*", "remote", language=True)
 
 
 def _remote_wildcard_support(provider: str) -> TargetEngineSupport:
@@ -357,12 +359,15 @@ def _translate_support(
     )
 
 
-def _to_markdown_support(engine: str, transport: str) -> TargetEngineSupport:
+def _to_markdown_support(
+    engine: str, transport: str, *, unavailable_reason: str | None = None
+) -> TargetEngineSupport:
     return TargetEngineSupport(
         engine=engine,
         transport=transport,  # type: ignore[arg-type]
         capability=CAPABILITY_TO_MARKDOWN,
         options=ToMarkdownOptionSupport(),
+        unavailable_reason=unavailable_reason,
     )
 
 
@@ -402,6 +407,39 @@ def _gateway_to_markdown_engines() -> tuple[TargetEngineSupport, ...]:
     return (
         _to_markdown_support("docling", "sidecar.convert"),
         _to_markdown_support("chandra", "sidecar.convert"),
+    )
+
+
+def _opendocrouter_target() -> ExecutionTarget:
+    return ExecutionTarget(
+        id=OPENDOCROUTER_TARGET_ID,
+        operator="opendocrouter",
+        egress_class="third_party_api",
+        engines=tuple(
+            support
+            for declaration in opendocrouter_engines()
+            for support in (
+                _ocr_support(
+                    declaration.id,
+                    "opendocrouter.parse",
+                    language=False,
+                    unavailable_reason=(
+                        None
+                        if declaration.listed
+                        else "execution because it is no longer offered; choose a current model"
+                    ),
+                ),
+                _to_markdown_support(
+                    declaration.id,
+                    "opendocrouter.parse",
+                    unavailable_reason=(
+                        None
+                        if declaration.listed
+                        else "execution because it is no longer offered; choose a current model"
+                    ),
+                ),
+            )
+        ),
     )
 
 
@@ -503,14 +541,13 @@ def build_static_targets(
             egress_class="third_party_api",
             engines=(_classify_support("clef", "cloudflare.clef"),),
         ),
+        _opendocrouter_target(),
         ExecutionTarget(
             id=DATALAB_TARGET_ID,
             operator="datalab",
             egress_class="third_party_api",
             engines=(
-                _ocr_support(
-                    "datalab", "datalab.convert", language=False, geometry=True
-                ),
+                _ocr_support("datalab", "datalab.convert", language=False),
                 _to_markdown_support("datalab", "datalab.convert"),
             ),
         ),
@@ -623,7 +660,9 @@ class StaticExecutionTargetProvider:
         models_gateway_resolver: Callable[[], ModelsGatewayConnection | None]
         | None = None,
         include_managed_local_models: bool = False,
+        credential_use_context: CredentialUseContext | None = None,
     ) -> None:
+        self._credential_use_context = credential_use_context
         self._env_override = env
         self._secrets = secrets
         # Use the request's effective key overlay when composition provides it.
@@ -651,7 +690,10 @@ class StaticExecutionTargetProvider:
         self.probe_counts: dict[str, int] = {}
 
     def targets(self) -> Sequence[ExecutionTarget]:
-        return self._targets
+        return tuple(
+            _opendocrouter_target() if t.id == OPENDOCROUTER_TARGET_ID else t
+            for t in self._targets
+        )
 
     def connection(self, target_id: str) -> ConnectionConfig | None:
         self.probe_counts[target_id] = self.probe_counts.get(target_id, 0) + 1
@@ -669,8 +711,21 @@ class StaticExecutionTargetProvider:
             return self._models_gateway_connection()
         if target_id == LOCAL_MODELS_TARGET_ID:
             return self._managed_local_models_connection()
-        if target_id == DATALAB_TARGET_ID:
-            return self._datalab_connection()
+        if target_id in _DOCUMENT_PROVIDERS:
+            from frisket.credentials import resolve_credential_for_use
+
+            name = _DOCUMENT_PROVIDERS[target_id].env_var
+            credential = resolve_credential_for_use(
+                self._secrets,
+                name,
+                env=self._env_override,
+                context=self._credential_use_context,
+            )
+            return (
+                ConnectionConfig(token=credential.value, extra={"provider": target_id})
+                if credential
+                else None
+            )
         if target_id == CLOUDFLARE_CLEF_TARGET_ID:
             return self._cloudflare_clef_connection()
         if target_id == NOMINATIM_TARGET_ID:
@@ -713,10 +768,10 @@ class StaticExecutionTargetProvider:
                 f"Set {CLOUDFLARE_ACCOUNT_ID_ENV} and {CLOUDFLARE_API_TOKEN_ENV} "
                 "to enable Cloudflare Clef classification."
             )
-        if target_id == DATALAB_TARGET_ID:
+        if target_id in _DOCUMENT_PROVIDERS:
+            label = _DOCUMENT_PROVIDERS[target_id].label
             return (
-                f"Set {DATALAB_API_KEY_ENV} (or add it under Settings > "
-                "Secrets) to enable hosted Datalab OCR."
+                f"Add your {label} API key in the engine selector to use this engine."
             )
         if target_id in _API_KEY_VENUES:
             env_name, _provider = _API_KEY_VENUES[target_id]
@@ -821,17 +876,6 @@ class StaticExecutionTargetProvider:
             token=credential.value,
             extra={"provider": "cloudflare", "credential_source": credential.source},
         )
-
-    def _datalab_connection(self) -> ConnectionConfig | None:
-        """Probe Datalab through dispatch's credential resolver."""
-        from frisket.credentials import resolve_credential_with_source
-
-        credential = resolve_credential_with_source(
-            self._secrets, DATALAB_API_KEY_ENV, env=self._env_override
-        )
-        if credential is None:
-            return None
-        return ConnectionConfig(token=credential.value, extra={"provider": "datalab"})
 
     def _api_key_connection(
         self, env_name: str, provider: str

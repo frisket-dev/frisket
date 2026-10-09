@@ -41,7 +41,10 @@ from frisket.execution.price_book import (
     PlatformMetered,
     cost_posture_for,
 )
-from frisket.execution.credential_use import CredentialUseContext
+from frisket.execution.credential_use import (
+    ActionCredentialResolver,
+    CredentialUseContext,
+)
 from frisket.execution.targets import (
     EXECUTION_CAPABILITIES,
     ExecutionTarget,
@@ -547,6 +550,7 @@ def open_execution_composition(
     *,
     models_gateway_resolver: Callable[[], ModelsGatewayConnection | None] | None = None,
     include_managed_local_models: bool | None = None,
+    action_credential_resolver: ActionCredentialResolver | None = None,
 ) -> ExecutionComposition:
     """The open-edition production composition for one effective router.
 
@@ -561,6 +565,9 @@ def open_execution_composition(
     )
 
     del context  # Open composition has no edition-owned facts to consume.
+    credential_context = CredentialUseContext(
+        credential_resolver=action_credential_resolver
+    )
 
     return ExecutionComposition(
         facts=CompositionFacts(
@@ -571,6 +578,7 @@ def open_execution_composition(
         provider=StaticExecutionTargetProvider(
             secrets=project,
             router=router,
+            credential_use_context=credential_context,
             models_gateway_resolver=models_gateway_resolver,
             include_managed_local_models=(
                 managed_local_models_configured(os.environ)
@@ -578,5 +586,5 @@ def open_execution_composition(
                 else include_managed_local_models
             ),
         ),
-        credential_use_context=CredentialUseContext.open(),
+        credential_use_context=credential_context,
     )

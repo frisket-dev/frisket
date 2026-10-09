@@ -10,7 +10,7 @@ self-hosted/ops-managed deploys) wins, falling back to the project-scoped
 secrets store (`Project.secret_plaintext`, store/project.py:1565 — the same
 store the Settings -> Secrets panel writes, web/src/settings/
 SettingsSections.tsx `ProjectSecretsSettings`).
-For Datalab, an inline-setup provider key precedes the legacy project secret;
+For document providers, an inline-setup provider key precedes the legacy project secret;
 the process environment still wins. Catalog, target and dispatch read that
 same resolver.
 
@@ -24,9 +24,10 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
+from frisket.provider_definitions import providers_for
 from frisket.ai.llm.types import CredentialSource
 from frisket.execution.credential_use import (
     CredentialOwner,
@@ -38,7 +39,7 @@ from frisket.execution.credential_use import (
 class ResolvedCredential:
     """A credential value plus the non-secret provenance durable facts store."""
 
-    value: str
+    value: str = field(repr=False)
     source: CredentialSource
     owner: CredentialOwner | None = None
 
@@ -56,11 +57,14 @@ def resolve_credential_with_source(
     env_value = (os.environ if env is None else env).get(name)
     if env_value:
         return ResolvedCredential(env_value, "local")
-    if name == "DATALAB_API_KEY":
-        # Inline Datalab setup uses the existing encrypted provider-key store.
+    provider = next(
+        (p.id for p in providers_for(category="document") if p.env_var == name), None
+    )
+    if provider is not None:
+        # Document-provider setup uses the encrypted provider-key store.
         # Preserve environment precedence and existing project-secret keys.
         provider_keys = getattr(project, "provider_model_keys", None)
-        value = provider_keys().get("datalab") if callable(provider_keys) else None
+        value = provider_keys().get(provider) if callable(provider_keys) else None
         if value:
             return ResolvedCredential(value, "project_key")
     secret_plaintext = getattr(project, "secret_plaintext", None)
@@ -109,6 +113,7 @@ def resolve_credential_for_use(
     name: str,
     *,
     context: CredentialUseContext | None,
+    env: Mapping[str, str] | None = None,
 ) -> ResolvedCredential | None:
     """Resolve and normalize one credential for a paid external effect.
 
@@ -120,7 +125,7 @@ def resolve_credential_for_use(
 
     resolver = context.credential_resolver if context is not None else None
     if resolver is None:
-        credential = resolve_credential_with_source(project, name)
+        credential = resolve_credential_with_source(project, name, env=env)
     else:
         credential = resolver.resolve_action_credential(project, name)
         if credential is not None and not isinstance(credential, ResolvedCredential):

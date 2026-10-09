@@ -48,8 +48,8 @@ from frisket.contracts.actions.schemas._engines import (
     CENSUS_ENGINE_TABLE,
     CLASSIFY_ENGINE_TABLE,
     GEOCODE_ENGINE_TABLE,
-    OCR_ENGINE_TABLE,
-    TO_MARKDOWN_ENGINE_TABLE,
+    ocr_engine_table,
+    to_markdown_engine_table,
     TRANSCRIBE_ENGINE_TABLE,
     TRANSLATE_ENGINE_TABLE,
     EngineDeclaration,
@@ -303,6 +303,8 @@ def support_inability(
     "diarize means transcription" is precisely the kind of implicit rule this
     release exists to replace with a declaration.
     """
+    if support.unavailable_reason is not None:
+        return support.unavailable_reason
     checker = _CAPABILITY_INABILITY.get(support.capability)
     if checker is None:  # pragma: no cover - the vocabulary is closed
         raise ValueError(
@@ -499,9 +501,9 @@ def capability_engine_table(capability: str) -> tuple[EngineDeclaration, ...]:
     tables: dict[str, tuple[EngineDeclaration, ...]] = {
         CAPABILITY_CLASSIFY: CLASSIFY_ENGINE_TABLE,
         CAPABILITY_TRANSCRIBE: TRANSCRIBE_ENGINE_TABLE,
-        CAPABILITY_OCR: OCR_ENGINE_TABLE,
+        CAPABILITY_OCR: ocr_engine_table(),
         CAPABILITY_TRANSLATE: TRANSLATE_ENGINE_TABLE,
-        CAPABILITY_TO_MARKDOWN: TO_MARKDOWN_ENGINE_TABLE,
+        CAPABILITY_TO_MARKDOWN: to_markdown_engine_table(),
         CAPABILITY_GEOCODE: GEOCODE_ENGINE_TABLE,
         CAPABILITY_CENSUS: CENSUS_ENGINE_TABLE,
     }
@@ -533,7 +535,7 @@ def preferred_static_choice(
     targets simply do not declare (callers keep their own fallbacks/
     messages for those)."""
     engine_id = _canonical_engine(raw_engine, capability)
-    if engine_id is None or "/" in engine_id:
+    if engine_id is None:
         return None
     candidates = [
         (target, support)
@@ -740,7 +742,10 @@ def resolve(
         )
 
     targets = list(provider.targets())
-    if "/" in engine_id:
+    static_choice = preferred_static_choice(
+        request.engine, request.options, targets, capability=capability
+    )
+    if "/" in engine_id and static_choice is None:
         provider_name = engine_id.partition("/")[0]
         target = next(
             (t for t in targets if t.id == _REMOTE_API_PREFIX + provider_name), None

@@ -14,6 +14,7 @@ from frisket.actions.document_types import (
 from frisket.actions.types import ActionParams, EngineRef, Row, RowResult
 from frisket.contracts.actions.schemas._engines import (
     TO_MARKDOWN_ENGINE_TABLE,
+    to_markdown_engine_table,
     TO_MARKDOWN_DEAD_ENGINE_REPLACEMENTS,
     dead_engine_rejection,
     engine_ids,
@@ -34,7 +35,7 @@ class ToMarkdownParams(ActionParams):
     @field_validator("engine")
     @classmethod
     def _supported_engine(cls, value: EngineRef[DocumentConverter]):
-        if value.root not in symbolic_engine_names(TO_MARKDOWN_ENGINE_TABLE):
+        if value.root not in symbolic_engine_names(to_markdown_engine_table()):
             reason = dead_engine_rejection(
                 TO_MARKDOWN_DEAD_ENGINE_REPLACEMENTS, value.root
             )

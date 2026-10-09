@@ -14,7 +14,8 @@ list exactly (a projector parity test elsewhere pins dots.mocr to index 3).
 Every OCR runtime is optional, so every fallback entry is unavailable until
 the live catalog confirms that runtime — see engineCatalog.ts's
 OCR_ENGINE_FALLBACK doc comment for the "honest pre-catalog placeholder"
-rationale.
+rationale. OpenDocRouter models come from the runtime provider catalog,
+so they have no frozen browser fallback list.
 """
 
 from __future__ import annotations
@@ -23,7 +24,9 @@ import argparse
 import json
 from pathlib import Path
 
-from frisket.contracts.actions.schemas._engines import OCR_ENGINE_TABLE
+from frisket.contracts.actions.schemas._engines import (
+    OCR_ENGINE_TABLE,
+)
 from frisket.server.action_catalog_hints import OCR_VISION_ENGINES
 
 ROOT = Path(__file__).resolve().parents[2]

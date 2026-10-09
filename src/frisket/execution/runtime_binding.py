@@ -171,6 +171,7 @@ _TRANSPORT_PROVIDER_KIND = {
     "cloudflare.clef": "platform_api",
     "remote": "platform_api",
     "datalab.convert": "platform_api",
+    "opendocrouter.parse": "platform_api",
     # Third-party wires. Registered with the rest of the capability set and
     # inert until a recipe routes: every one of them is somebody else's HTTP
     # API reached over the operator's own key, which is what platform_api

@@ -8,6 +8,7 @@ Usage: uv run python scripts/dev/update_pricing.py
 Commit the diff like a dependency bump — these numbers feed cost_actual.
 """
 
+import http.client
 import json
 import sys
 import urllib.request
@@ -16,6 +17,12 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(ROOT / "src"))
+from frisket.opendocrouter_catalog import (  # noqa: E402 -- standalone stdlib-only updater
+    SOURCE_URL as OPENDOCROUTER_SOURCE,
+    parse_catalog,
+    catalog_document,
+)
 
 LITELLM_SOURCE = (
     "https://raw.githubusercontent.com/BerriAI/litellm/main/"
@@ -51,6 +58,7 @@ def build_price_table(
     *,
     catalog: dict[str, Any] = CATALOG,
     updated: date | None = None,
+    opendocrouter: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     text: dict[str, list[float]] = {}
     for provider, entries in catalog["providers"].items():
@@ -103,7 +111,7 @@ def build_price_table(
     for name, override in MAINTAINED_AUDIO_OVERRIDES.items():
         audio[name] = {"per_second": override["per_second"]}
 
-    return {
+    result = {
         "sources": {
             "litellm": LITELLM_SOURCE,
             "openrouter": OPENROUTER_SOURCE,
@@ -113,6 +121,34 @@ def build_price_table(
         "audio": dict(sorted(audio.items())),
     }
 
+    if opendocrouter is not None:
+        result["opendocrouter"] = catalog_document(parse_catalog(opendocrouter))
+        result["sources"]["opendocrouter"] = OPENDOCROUTER_SOURCE
+    return result
+
+
+def _fetch_opendocrouter_snapshot() -> dict[str, Any]:
+    try:
+        candidate = json.loads(
+            urllib.request.urlopen(OPENDOCROUTER_SOURCE, timeout=30).read()
+        )
+        return catalog_document(parse_catalog(candidate))
+    except (OSError, ValueError, http.client.HTTPException) as exc:
+        try:
+            previous = json.loads(OUT.read_text())
+            snapshot = catalog_document(parse_catalog(previous["opendocrouter"]))
+        except (OSError, KeyError, TypeError, ValueError) as previous_exc:
+            raise RuntimeError(
+                "OpenDocRouter pricing refresh failed and no valid previous "
+                "snapshot is available"
+            ) from previous_exc
+        print(
+            "WARNING: OpenDocRouter pricing refresh failed "
+            f"({exc}); preserving the previous complete snapshot",
+            file=sys.stderr,
+        )
+        return snapshot
+
 
 def main() -> None:
     litellm = json.loads(urllib.request.urlopen(LITELLM_SOURCE, timeout=30).read())
@@ -121,7 +157,8 @@ def main() -> None:
         headers={"User-Agent": "frisket-pricing-refresh/1"},
     )
     openrouter = json.loads(urllib.request.urlopen(request, timeout=30).read())
-    output = build_price_table(litellm, openrouter)
+    opendocrouter = _fetch_opendocrouter_snapshot()
+    output = build_price_table(litellm, openrouter, opendocrouter=opendocrouter)
 
     OUT.write_text(json.dumps(output, indent=2) + "\n")
     print(

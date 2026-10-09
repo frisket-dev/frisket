@@ -49,6 +49,7 @@ from frisket.execution.promise_compiler import (
     OperatorBorneZeroCost,
     PricedCostBasis,
     UnpriceableCost,
+    ProviderUsageCost,
 )
 from frisket.execution.promises import Promise, SetEvaluation
 from frisket.execution.resolver import CandidateBinding
@@ -259,6 +260,11 @@ def cost_basis_from_promises(promises: Any) -> CostBasis:
     if row is None:
         return OperatorBorneZeroCost()
     basis = row.get("basis")
+    if isinstance(basis, dict) and basis.get("kind") == "provider_usage":
+        try:
+            return ProviderUsageCost(pricing_key=basis["pricing_key"])
+        except (KeyError, TypeError, ValueError):
+            return UnpriceableCost()
     if not isinstance(basis, dict) or "unit_rate" not in basis:
         return UnpriceableCost()
     if "kind" in basis and basis.get("kind") != "priced":
@@ -307,6 +313,10 @@ def cost_basis_from_promises(promises: Any) -> CostBasis:
 
 
 def _cost_basis_json(cost_basis: CostBasis) -> str:
+    if isinstance(cost_basis, ProviderUsageCost):
+        return json.dumps(
+            {"kind": "provider_usage", "pricing_key": cost_basis.pricing_key}
+        )
     if isinstance(cost_basis, PricedCostBasis):
         payload: dict[str, Any] = {
             "kind": "priced",

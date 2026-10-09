@@ -141,12 +141,12 @@ async def ocr_datalab(pages: list[Path], ctx: OpContext, usage: dict) -> list[di
 
         def persist_accepted(accounting: dict[str, Any]) -> None:
             nonlocal accepted_accounting
-            from frisket.sdk.ops._datalab_accounting import (
-                persist_datalab_accepted_accounting,
+            from frisket.sdk.ops._hosted_accounting import (
+                persist_hosted_accepted_accounting,
             )
 
             accepted_accounting = accounting
-            persist_datalab_accepted_accounting(ctx, accounting)
+            persist_hosted_accepted_accounting(ctx, accounting)
             usage.setdefault("model_calls", []).extend(accounting["model_calls"])
 
         page_results, cost_usd = await datalab_ocr(

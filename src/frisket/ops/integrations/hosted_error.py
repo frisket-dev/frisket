@@ -50,6 +50,8 @@ class HostedEngineError(Exception):
     # job identity.  Such an error is not an ordinary retryable row failure:
     # another submission would create a second paid job.
     provider_job_accepted: bool = False
+    # Sent without a conclusive response: resubmitting may charge twice.
+    post_egress_ambiguous: bool = False
 
     def __str__(self) -> str:  # pragma: no cover - trivial
         return self.message

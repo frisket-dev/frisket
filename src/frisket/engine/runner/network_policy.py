@@ -34,10 +34,9 @@ from typing import Any
 
 from frisket.ai.models.metadata import is_remote_provider
 from frisket.contracts.actions.schemas._engines import (
-    OCR_ENGINE_TABLE,
-    TO_MARKDOWN_ENGINE_TABLE,
+    ocr_engine_table,
+    to_markdown_engine_table,
     TRANSCRIBE_ENGINE_TABLE,
-    EngineDeclaration,
     find_engine,
 )
 from frisket.execution.targets import CAPABILITY_TO_MARKDOWN
@@ -46,12 +45,6 @@ from frisket.execution.targets import CAPABILITY_TO_MARKDOWN
 # hosted roster is pinned here, mirroring the dispatch branches in
 # ops/translate.py (deepl/google_translate hosted vs opus_mt/hy_mt2 local).
 HOSTED_TRANSLATE_ENGINES = frozenset({"deepl", "google_translate"})
-
-_ENGINE_TABLES: dict[str, tuple[EngineDeclaration, ...]] = {
-    "media.ocr": OCR_ENGINE_TABLE,
-    "media.transcribe": TRANSCRIBE_ENGINE_TABLE,
-    "media.to_markdown": TO_MARKDOWN_ENGINE_TABLE,
-}
 
 
 def _catalog_external_capability(action_kind: str | None) -> str | None:
@@ -78,9 +71,13 @@ def _remote_table_engine(recipe: Any, action_kind: str, engine: str) -> str | No
     # Typed authors may name the action and its Params fields freely. The
     # server-bound capability, not those names or request claims, owns its table.
     table = (
-        TO_MARKDOWN_ENGINE_TABLE
+        to_markdown_engine_table()
         if getattr(recipe, "execution_capability", None) == CAPABILITY_TO_MARKDOWN
-        else _ENGINE_TABLES.get(action_kind)
+        else {
+            "media.ocr": ocr_engine_table(),
+            "media.transcribe": TRANSCRIBE_ENGINE_TABLE,
+            "media.to_markdown": to_markdown_engine_table(),
+        }.get(action_kind)
     )
     if table is None:
         return None

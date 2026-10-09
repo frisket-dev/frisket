@@ -109,44 +109,12 @@ def production_oidc_exchange(config: TeamConfig):
 
 
 async def validate_provider_credential(provider: str, secret: str) -> bool:
-    requests = {
-        "openai": (
-            "https://api.openai.com/v1/models",
-            {"Authorization": f"Bearer {secret}"},
-            None,
-        ),
-        "anthropic": (
-            "https://api.anthropic.com/v1/models",
-            {"x-api-key": secret, "anthropic-version": "2023-06-01"},
-            None,
-        ),
-        "openrouter": (
-            "https://openrouter.ai/api/v1/auth/key",
-            {"Authorization": f"Bearer {secret}"},
-            None,
-        ),
-        "gemini": (
-            "https://generativelanguage.googleapis.com/v1beta/models",
-            {},
-            {"key": secret},
-        ),
-        "exa": (
-            "https://api.exa.ai/v0/teams/me",
-            {"x-api-key": secret},
-            None,
-        ),
-        "tavily": (
-            "https://api.tavily.com/usage",
-            {"Authorization": f"Bearer {secret}"},
-            None,
-        ),
-    }
-    if provider not in requests:
-        return False
-    url, headers, params = requests[provider]
-    async with httpx.AsyncClient(timeout=10) as client:
-        response = await client.get(url, headers=headers, params=params)
-    return response.status_code < 400
+    from frisket.server.provider_config import probe_provider
+
+    result = await asyncio.to_thread(probe_provider, provider, secret, timeout=10.0)
+    if not result["reachable"]:
+        raise RuntimeError("Provider could not be reached")
+    return bool(result["ok"])
 
 
 __all__ = ["production_oidc_exchange", "smtp_sender", "validate_provider_credential"]

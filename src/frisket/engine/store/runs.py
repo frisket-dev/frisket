@@ -2816,6 +2816,16 @@ class RunResultStore:
                 raise RuntimeError(
                     f"model-call reconciliation cost drift for {call_id!r}"
                 )
+            # A synchronous provider can report its terminal cost at the
+            # acceptance boundary, before the recipe has selected the output
+            # column. The returned-row write still owns that one missing
+            # reference even when no meter reconciliation remains.
+            if existing["column_id"] is None and call.get("column_id") is not None:
+                self.db.execute(
+                    "UPDATE model_calls SET column_id=? "
+                    "WHERE id=? AND column_id IS NULL",
+                    (call["column_id"], call_id),
+                )
             return 0.0
 
         old_units = json.loads(existing["units"])

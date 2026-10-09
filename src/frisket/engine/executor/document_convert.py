@@ -85,7 +85,7 @@ _MIME_EXT = {
 def _engine_tier(engine: str) -> str:
     if engine in SIDECAR_ENGINES:
         return "sidecar"
-    if engine == DATALAB_ENGINE:
+    if engine == DATALAB_ENGINE or engine.startswith("opendocrouter/"):
         return "hosted"
     return "local"
 
@@ -134,7 +134,7 @@ class AdmittedDocumentConverter:
         self._called_rows: set[int] = set()
         # Per-row provider accounting (datalab) surfaced to the host writer via
         # the same channel geocode/ocr use; datalab's accepted-job fact is ALSO
-        # persisted immediately (persist_datalab_accepted_accounting) so it is
+        # persisted immediately (persist_hosted_accepted_accounting) so it is
         # durable independent of this envelope.
         self.accounting_by_row: dict[int, dict[str, Any]] = {}
         # Per-row PRIVATE read-facts, keyed by row_id. The host's existing
@@ -226,6 +226,16 @@ class _BoundDocumentConverter:
                 markdown = self._convert_trafilatura_html(path)
             elif engine in SIDECAR_ENGINES:
                 markdown, ocr_used = await self._convert_sidecar(engine, path)
+            elif engine.startswith("opendocrouter/"):
+                from frisket.ops.opendocrouter import parse_with_context
+
+                pages, cost_meta = await parse_with_context(
+                    ctx=self._ctx,
+                    path=path,
+                    engine=engine,
+                    capability=CAPABILITY_TO_MARKDOWN,
+                )
+                markdown = "\n\n".join(page["markdown"] for page in pages)
             elif engine == DATALAB_ENGINE:
                 markdown, cost_meta = await self._convert_datalab(path)
             else:
@@ -236,7 +246,7 @@ class _BoundDocumentConverter:
                     f"{DATALAB_ENGINE!r}, or one of {sorted(SIDECAR_ENGINES)!r})",
                 )
         if cost_meta is not None:
-            self._store_datalab_accounting(cost_meta)
+            self._store_hosted_accounting(cost_meta)
         markdown = markdown.strip()
         # Record the ACTUAL read for EVERY engine that ran, naming the engine so
         # local/sidecar provenance survives; the fact rides the publication cell
@@ -251,7 +261,7 @@ class _BoundDocumentConverter:
                 "kind": "document_convert_read",
                 "engine": engine,
                 "tier": _engine_tier(engine),
-                "external": engine == DATALAB_ENGINE,
+                "external": _engine_tier(engine) == "hosted",
                 "ocr_used": list(ocr_used),
                 "produced_markdown": bool(markdown),
                 "document_read": read,
@@ -385,7 +395,11 @@ class _BoundDocumentConverter:
         if admission is not None:
             engine = admission.route.engine
             snapshot = admission.route.target_snapshot
-            expected = _EXPECTED_TRANSPORT.get(engine)
+            expected = (
+                "opendocrouter.parse"
+                if engine.startswith("opendocrouter/")
+                else _EXPECTED_TRANSPORT.get(engine)
+            )
             if (
                 snapshot.get("capability") != CAPABILITY_TO_MARKDOWN
                 or expected is None
@@ -546,12 +560,12 @@ class _BoundDocumentConverter:
 
         def persist_accepted(accounting: dict[str, Any]) -> None:
             nonlocal accepted_accounting
-            from frisket.sdk.ops._datalab_accounting import (
-                persist_datalab_accepted_accounting,
+            from frisket.sdk.ops._hosted_accounting import (
+                persist_hosted_accepted_accounting,
             )
 
             accepted_accounting = accounting
-            persist_datalab_accepted_accounting(ctx, accounting)
+            persist_hosted_accepted_accounting(ctx, accounting)
 
         body, cost_usd = await datalab_convert(
             ctx.http,
@@ -611,7 +625,7 @@ class _BoundDocumentConverter:
                 f"{exc}; select an authorized credential before resuming",
             ) from exc
 
-    def _store_datalab_accounting(self, meta: dict[str, Any]) -> None:
+    def _store_hosted_accounting(self, meta: dict[str, Any]) -> None:
         """Bind the terminal fact to the pinned route (§6 epoch invariant) and
         surface it to the host writer.  Re-binding the enriched terminal fact
         is what makes its durable cost_source agree with what the route

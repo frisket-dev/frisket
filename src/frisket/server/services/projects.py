@@ -16,6 +16,7 @@ from frisket.ops.egress_policy import (
     media_egress_policy,
     private_hosts_locked,
 )
+from frisket.provider_definitions import KeyScope, provider_definition, providers_for
 from frisket.project_identity import validate_project_slug
 from frisket.project_settings import patch_project_settings
 from frisket.server.route_errors import RouteError
@@ -110,61 +111,21 @@ def _project_settings_response(project: Any) -> dict[str, Any]:
     }
 
 
-PROVIDER_CATALOG: list[dict[str, Any]] = [
-    {
-        "id": "anthropic",
-        "label": "Anthropic",
-        "secret_name": "ANTHROPIC_API_KEY",
-        "kind": "llm",
-        "policy_fields": ["spend_cap_usd"],
-    },
-    {
-        "id": "openai",
-        "label": "OpenAI",
-        "secret_name": "OPENAI_API_KEY",
-        "kind": "llm",
-        "policy_fields": ["spend_cap_usd"],
-    },
-    {
-        "id": "gemini",
-        "label": "Gemini",
-        "secret_name": "GEMINI_API_KEY",
-        "kind": "llm",
-        "policy_fields": ["spend_cap_usd"],
-    },
-    {
-        "id": "openrouter",
-        "label": "OpenRouter",
-        "secret_name": "OPENROUTER_API_KEY",
-        "kind": "llm",
-        "policy_fields": ["spend_cap_usd"],
-    },
-    {
-        "id": "datalab",
-        "label": "Datalab",
-        "secret_name": "DATALAB_API_KEY",
-        "kind": "document",
-        "policy_fields": [],
-    },
-]
+def _provider_catalog(scope: KeyScope) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": p.id,
+            "label": p.label,
+            "secret_name": p.env_var,
+            "kind": p.category,
+            "policy_fields": ["spend_cap_usd"] if p.spend_cap else [],
+        }
+        for p in providers_for(scope=scope)
+    ]
 
-ORGANIZATION_PROVIDER_CATALOG: list[dict[str, Any]] = [
-    *PROVIDER_CATALOG,
-    {
-        "id": "exa",
-        "label": "Exa",
-        "secret_name": "EXA_API_KEY",
-        "kind": "search",
-        "policy_fields": [],
-    },
-    {
-        "id": "tavily",
-        "label": "Tavily",
-        "secret_name": "TAVILY_API_KEY",
-        "kind": "search",
-        "policy_fields": [],
-    },
-]
+
+PROVIDER_CATALOG = _provider_catalog("project")
+ORGANIZATION_PROVIDER_CATALOG = _provider_catalog("organization")
 
 SECRET_CONSUMER_KINDS = {"plugin", "source", "job", "mcp_connector"}
 
@@ -610,10 +571,10 @@ class ProjectLifecycleService:
     ) -> dict[str, Any]:
         self._ensure_exists(project_id)
         normalized_provider = _normalize_provider(provider)
-        if normalized_provider == "datalab" and spend_cap_usd is not None:
-            raise ProjectRetentionError(
-                "Datalab provider keys do not support spend caps"
-            )
+        definition = provider_definition(normalized_provider)
+        assert definition is not None  # _normalize_provider validated the catalog ID
+        if not definition.spend_cap and spend_cap_usd is not None:
+            raise ProjectRetentionError("This provider does not support spend caps")
         if not key:
             raise ProjectRetentionError("provider key is required")
         try:

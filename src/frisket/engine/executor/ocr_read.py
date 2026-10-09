@@ -89,6 +89,8 @@ class AdmittedOcrReader:
             if engine in engines.SIDECAR_ENGINES
             else "datalab.convert"
             if engine == engines.DATALAB_ENGINE
+            else "opendocrouter.parse"
+            if engine.startswith("opendocrouter/")
             else "remote"
         )
         if admission is None and preview is None:
@@ -422,7 +424,7 @@ class _BoundOcrReader:
             source_stem,
         )
 
-        if "/" in engine or not self._owner._engines._is_pdf(path, source):
+        if not self._owner._engines._is_pdf(path, source):
             return Outcome.failed(
                 "searchable_pdf_failed",
                 "Searchable PDF requires a PDF source and an engine with text geometry",

@@ -300,13 +300,13 @@ async def execute_row(
         raise
     except HostedEngineError as e:
         persist_trace(error=safe_error(e.code, e, max_chars=500).text)
-        if e.provider_job_accepted:
+        if e.provider_job_accepted or e.post_egress_ambiguous:
             # Preserve the reservation while an accepted provider job may finish.
             raise RecipeInvocationHalt(
                 "external_effect_reconciliation_required",
-                "The provider accepted this row as an asynchronous job, but "
-                "the job did not return a consumable result; refusing another "
-                "submission until the accepted job is reconciled.",
+                "The provider may have accepted and billed this row, but "
+                "the result is unresolved; refusing another submission "
+                "until the provider request is reconciled.",
             ) from e
         # Only explicitly terminal codes are excluded from automatic backfill.
         failed = {

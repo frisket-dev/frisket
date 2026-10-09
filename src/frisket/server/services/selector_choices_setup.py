@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from frisket.provider_definitions import provider_definition
 from frisket.engine.jobs import model_pull_store
 from frisket.execution.definitions import (
     MODELS_GATEWAY_TOKEN_ENV,
@@ -47,7 +48,12 @@ class SelectorSetupService:
             row["id"]: row for row in provider_key_status(self._workspace.root)
         }
         workspace_status = status_rows.get(provider, {})
-        if provider == "datalab" and os.environ.get(ENV_VAR[provider]):
+        definition = provider_definition(provider)
+        if (
+            definition is not None
+            and not workspace_status
+            and os.environ.get(definition.env_var)
+        ):
             workspace_status = {"source": "env"}
         project_row = project.provider_key_catalog_rows().get(provider)
         source = _credential_source(router, provider, raw_source=credential_source)
@@ -99,7 +105,8 @@ class SelectorSetupService:
                     "configured": org_configured or platform_configured,
                     "can_mutate": capabilities.configure_organization_credentials
                     and not platform_configured
-                    and provider in KEY_PROVIDERS,
+                    and definition is not None
+                    and "organization" in definition.scopes,
                     "source": "platform"
                     if platform_configured
                     else "organization"

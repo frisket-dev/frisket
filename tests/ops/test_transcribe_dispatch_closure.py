@@ -20,8 +20,8 @@ from __future__ import annotations
 import pytest
 
 from frisket.contracts.actions.schemas._engines import (
-    OCR_ENGINE_TABLE,
     TRANSCRIBE_ENGINE_TABLE,
+    ocr_engine_table,
 )
 from frisket.execution.definitions import build_static_targets
 
@@ -42,14 +42,21 @@ _DISPATCHED_TRANSPORTS = {
     },
     # sidecar.ocr -> _ocr_sidecar (SIDECAR_ENGINES), datalab.convert ->
     # _ocr_datalab, remote -> the '/' VLM branch.
-    "ocr": {"local", "sidecar.ocr", "datalab.convert", "remote"},
-}
-_ROSTER = {
-    "transcribe": TRANSCRIBE_ENGINE_TABLE,
-    "ocr": OCR_ENGINE_TABLE,
+    "ocr": {
+        "local",
+        "sidecar.ocr",
+        "datalab.convert",
+        "opendocrouter.parse",
+        "remote",
+    },
 }
 
-_CAPABILITIES = tuple(_ROSTER)
+
+def _roster(capability: str):
+    return TRANSCRIBE_ENGINE_TABLE if capability == "transcribe" else ocr_engine_table()
+
+
+_CAPABILITIES = ("transcribe", "ocr")
 
 
 def _rows(capability: str):
@@ -83,7 +90,7 @@ def test_every_roster_engine_reaches_a_dispatch_branch(capability) -> None:
     # it carries a ``resolves_to`` rewrite onto a provider/model id, which
     # dispatches through the '/' branch instead.
     supported = {support.engine for _target, support in _rows(capability)}
-    for entry in _ROSTER[capability]:
+    for entry in _roster(capability):
         if entry.resolves_to is not None:
             assert "/" in entry.resolves_to, (
                 f"engine {entry.id!r} resolves to no provider/model id: "
@@ -107,7 +114,7 @@ def test_static_execution_targets_match_the_roster(capability) -> None:
         for _target, support in _rows(capability)
         if not support.engine.endswith("/*")
     }
-    roster = {entry.id for entry in _ROSTER[capability] if entry.resolves_to is None}
+    roster = {entry.id for entry in _roster(capability) if entry.resolves_to is None}
     assert target_engines == roster
 
 

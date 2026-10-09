@@ -24,14 +24,19 @@ from collections.abc import Callable, Mapping
 
 import sqlalchemy as sa
 
+from frisket.provider_definitions import providers_for
 from frisket.team.security.secrets import decrypt_secret
 from frisket.team.schema import org_keys
 
 # The providers a run's model router can be keyed for. Mirrors the provider
 # names written by the org-BYOK routes.
-MODEL_KEY_PROVIDERS: tuple[str, ...] = ("anthropic", "openai", "gemini", "openrouter")
-SEARCH_KEY_PROVIDERS: tuple[str, ...] = ("exa", "tavily")
-ORG_KEY_PROVIDERS: tuple[str, ...] = (*MODEL_KEY_PROVIDERS, *SEARCH_KEY_PROVIDERS)
+MODEL_KEY_PROVIDERS = tuple(
+    p.id for p in providers_for(scope="organization", category="llm")
+)
+SEARCH_KEY_PROVIDERS = tuple(
+    p.id for p in providers_for(scope="organization", category="search")
+)
+ORG_KEY_PROVIDERS = tuple(p.id for p in providers_for(scope="organization"))
 
 # Engines are cached per URL: a worker resolves keys once per claimed job and
 # must not open a fresh pool every time.
