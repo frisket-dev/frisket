@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -25,8 +27,10 @@ import {
 import './PacketFindStep.css';
 import { PacketThumbnail } from './PacketThumbnail';
 import { PacketReviewCard, type ReviewTab } from './PacketReviewCard';
-import { PacketLargePageView } from './PacketLargePageView';
 import { packetFindQueues } from './packetFindQueues';
+
+const PacketLargePageView = lazy(() => import('./PacketLargePageView')
+  .then((module) => ({ default: module.PacketLargePageView })));
 
 const GRID_SIZES = [44, 57, 80, 110] as const;
 
@@ -504,23 +508,25 @@ export function PacketFindStep({
         </button>
       </footer>
       {largeViewPage != null && state.snapshot ? (
-        <PacketLargePageView
-          projectId={projectId}
-          blobHash={state.snapshot.packet.blob_hash}
-          splitId={splitId}
-          page={largeViewPage}
-          pageCount={pageCount}
-          confirmed={state.confirmedStarts}
-          rejected={state.rejected}
-          unsure={unsure}
-          suggested={suggested}
-          matches={effectiveMatches}
-          onPage={setLargeViewPage}
-          onConfirm={confirmPage}
-          onReject={rejectPage}
-          onRemove={(page) => dispatch({ type: 'toggleStart', page })}
-          onClose={() => setLargeViewPage(null)}
-        />
+        <Suspense fallback={null}>
+          <PacketLargePageView
+            projectId={projectId}
+            blobHash={state.snapshot.packet.blob_hash}
+            splitId={splitId}
+            page={largeViewPage}
+            pageCount={pageCount}
+            confirmed={state.confirmedStarts}
+            rejected={state.rejected}
+            unsure={unsure}
+            suggested={suggested}
+            matches={effectiveMatches}
+            onPage={setLargeViewPage}
+            onConfirm={confirmPage}
+            onReject={rejectPage}
+            onRemove={(page) => dispatch({ type: 'toggleStart', page })}
+            onClose={() => setLargeViewPage(null)}
+          />
+        </Suspense>
       ) : null}
     </div>
   );
