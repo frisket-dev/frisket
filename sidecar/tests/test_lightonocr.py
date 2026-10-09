@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from frisket_models import lightonocr
+from frisket_models import lightonocr, markdown_plain
 from frisket_models.app import create_app
 from frisket_models.engines import Engine, Registry
 
@@ -297,12 +297,12 @@ def test_grounding_plain_text_preserves_angle_literals_and_list_numbers() -> Non
         "Plaintiff <Mark Doe> v. State\n\n1. Filed\n2. Decided",
         "Filing <party/>",
     ):
-        assert lightonocr._markdown_to_plain_text(markdown) == markdown
+        assert markdown_plain.markdown_to_plain_text(markdown) == markdown
 
 
 def test_grounding_plain_text_keeps_paired_and_void_case_variant_html() -> None:
     assert (
-        lightonocr._markdown_to_plain_text(
+        markdown_plain.markdown_to_plain_text(
             '<TABLE><TR><TD>Filed</TD></TR></TABLE>\n\nFirst<BR>Second <IMG ALT="diagram">'
         )
         == "Filed\n\nFirst\nSecond diagram"
@@ -311,7 +311,7 @@ def test_grounding_plain_text_keeps_paired_and_void_case_variant_html() -> None:
 
 def test_grounding_plain_text_preserves_paragraph_separation() -> None:
     assert (
-        lightonocr._markdown_to_plain_text("First paragraph.\n\nSecond paragraph.")
+        markdown_plain.markdown_to_plain_text("First paragraph.\n\nSecond paragraph.")
         == "First paragraph.\n\nSecond paragraph."
     )
 
@@ -431,6 +431,11 @@ def test_image_decode_applies_exif_before_geometry_and_thumbnail(
     ]
     assert ("image-close", "raw") in events
     assert ("thumbnail", "oriented", (2048, 2048)) in events
+
+
+def test_pdf_detection_requires_the_host_page_limit_signature() -> None:
+    assert lightonocr._looks_like_pdf(b"%PDF-1.7\n") is True
+    assert lightonocr._looks_like_pdf(b"\n  %PDF-1.7\n") is False
 
 
 def test_image_decode_refuses_unsafe_pixels_before_loading(
@@ -643,7 +648,7 @@ def test_pdf_pages_render_and_generate_one_at_a_time(
 
     monkeypatch.setattr(adapter, "_generate", generate)
 
-    result = adapter.to_markdown("scan.jpg", b"\n %PDF-1.7 bytes")
+    result = adapter.to_markdown("scan.jpg", b"%PDF-1.7 bytes")
 
     assert result == {"markdown": "page 0\n\npage 1", "ocr_used": [True, True]}
     assert [

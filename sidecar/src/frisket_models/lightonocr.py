@@ -6,11 +6,11 @@ import io
 import re
 import threading
 from dataclasses import dataclass
-from html.parser import HTMLParser
 from typing import Any
 
 from frisket_models import pdfium_lock
 from frisket_models.errors import InvalidDocumentError
+from frisket_models.markdown_plain import markdown_to_plain_text
 
 
 MAX_NEW_TOKENS = 8192
@@ -40,265 +40,6 @@ _GROUNDING_MARKER = re.compile(
     re.MULTILINE,
 )
 _NON_TEXT_BLOCK_TYPES = {"image", "chart"}
-_HTML_ELEMENTS = {
-    "a",
-    "abbr",
-    "address",
-    "area",
-    "article",
-    "aside",
-    "audio",
-    "b",
-    "base",
-    "bdi",
-    "bdo",
-    "blockquote",
-    "body",
-    "br",
-    "button",
-    "canvas",
-    "caption",
-    "cite",
-    "code",
-    "col",
-    "colgroup",
-    "data",
-    "datalist",
-    "dd",
-    "del",
-    "details",
-    "dfn",
-    "dialog",
-    "div",
-    "dl",
-    "dt",
-    "em",
-    "embed",
-    "fieldset",
-    "figcaption",
-    "figure",
-    "footer",
-    "form",
-    "h1",
-    "h2",
-    "h3",
-    "h4",
-    "h5",
-    "h6",
-    "head",
-    "header",
-    "hgroup",
-    "hr",
-    "html",
-    "i",
-    "iframe",
-    "img",
-    "input",
-    "ins",
-    "kbd",
-    "label",
-    "legend",
-    "li",
-    "link",
-    "main",
-    "map",
-    "mark",
-    "menu",
-    "meta",
-    "meter",
-    "nav",
-    "noscript",
-    "object",
-    "ol",
-    "optgroup",
-    "option",
-    "output",
-    "p",
-    "param",
-    "picture",
-    "pre",
-    "progress",
-    "q",
-    "rp",
-    "rt",
-    "ruby",
-    "s",
-    "samp",
-    "script",
-    "search",
-    "section",
-    "select",
-    "slot",
-    "small",
-    "source",
-    "span",
-    "strong",
-    "style",
-    "sub",
-    "summary",
-    "sup",
-    "table",
-    "tbody",
-    "td",
-    "template",
-    "textarea",
-    "tfoot",
-    "th",
-    "thead",
-    "time",
-    "title",
-    "tr",
-    "track",
-    "u",
-    "ul",
-    "var",
-    "video",
-    "wbr",
-}
-_START_TAG_NAME = re.compile(r"<\s*/?\s*([^\s/>]+)")
-_VOID_TAGS = {"br", "hr", "img"}
-
-
-def _preserve_inline_angle_text(children: list[Any]) -> None:
-    """Render unknown and unmatched case-variant HTML tokens as literal text."""
-    open_tags: list[tuple[int, str]] = []
-    paired: set[int] = set()
-    parsed: dict[int, tuple[str, str]] = {}
-
-    for index, token in enumerate(children):
-        if token.type != "html_inline":
-            continue
-        raw = token.content
-        match = _START_TAG_NAME.match(raw)
-        if match is None:
-            continue
-        raw_tag = match.group(1)
-        tag = raw_tag.lower()
-        parsed[index] = (raw_tag, tag)
-        if (
-            tag not in _HTML_ELEMENTS
-            or tag in _VOID_TAGS
-            or raw.rstrip().endswith("/>")
-        ):
-            continue
-        if raw.startswith("</"):
-            for position in range(len(open_tags) - 1, -1, -1):
-                open_index, open_tag = open_tags[position]
-                if open_tag == tag:
-                    paired.update((open_index, index))
-                    del open_tags[position]
-                    break
-        else:
-            open_tags.append((index, tag))
-
-    for index, (raw_tag, tag) in parsed.items():
-        if tag not in _HTML_ELEMENTS or (
-            raw_tag != tag and tag not in _VOID_TAGS and index not in paired
-        ):
-            children[index].type = "text"
-
-
-class _PlainText(HTMLParser):
-    """Collect readable text from HTML rendered by markdown-it-py."""
-
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self.parts: list[str] = []
-        self.hidden = 0
-        self.lists: list[int | None] = []
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag in {"script", "style"}:
-            self.hidden += 1
-            return
-        if self.hidden:
-            return
-        if tag not in _HTML_ELEMENTS:
-            self.parts.append(self.get_starttag_text() or f"<{tag}>")
-            return
-        if tag == "br":
-            self.parts.append("\n")
-        elif tag == "img":
-            self.parts.append(dict(attrs).get("alt") or "")
-        elif tag == "ol":
-            try:
-                start = int(dict(attrs).get("start") or 1)
-            except ValueError:
-                start = 1
-            self.lists.append(start)
-        elif tag == "ul":
-            self.lists.append(None)
-        elif tag == "li" and self.lists and self.lists[-1] is not None:
-            counter = self.lists[-1]
-            try:
-                counter = int(dict(attrs).get("value") or counter)
-            except ValueError:
-                pass
-            self.parts.append(f"{counter}. ")
-            self.lists[-1] = counter + 1
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag in {"script", "style"}:
-            self.hidden = max(0, self.hidden - 1)
-            return
-        if self.hidden:
-            return
-        if tag not in _HTML_ELEMENTS:
-            self.parts.append(f"</{tag}>")
-            return
-        if tag in {"ol", "ul"}:
-            if self.lists:
-                self.lists.pop()
-            return
-        if tag in {"td", "th"}:
-            self.parts.append("\t")
-        elif tag in {
-            "p",
-            "div",
-            "li",
-            "tr",
-            "blockquote",
-            "pre",
-            "h1",
-            "h2",
-            "h3",
-            "h4",
-            "h5",
-            "h6",
-        }:
-            self.parts.append("\n")
-
-    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag not in _HTML_ELEMENTS:
-            if not self.hidden:
-                self.parts.append(self.get_starttag_text() or f"<{tag}/>")
-            return
-        self.handle_starttag(tag, attrs)
-        self.handle_endtag(tag)
-
-    def handle_data(self, data: str) -> None:
-        if not self.hidden and (not self.lists or data.strip()):
-            self.parts.append(data)
-
-
-def _markdown_to_plain_text(markdown: str) -> str:
-    # The sidecar is a separate distribution, so its LightOnOCR extra must
-    # include markdown-it-py rather than importing frisket.ops.markdown_plain.
-    from markdown_it import MarkdownIt
-
-    parser = MarkdownIt("commonmark", {"html": True}).enable("table")
-    env: dict[str, Any] = {}
-    tokens = parser.parse(markdown, env)
-    for token in tokens:
-        if token.children:
-            _preserve_inline_angle_text(token.children)
-    rendered = parser.renderer.render(tokens, parser.options, env)
-    reader = _PlainText()
-    reader.feed(rendered)
-    reader.close()
-    return "\n".join(
-        line.rstrip() for line in "".join(reader.parts).splitlines()
-    ).strip()
 
 
 def _parse_bbox(raw: str, *, width: int, height: int) -> list[list[int]] | None:
@@ -346,7 +87,7 @@ def parse_grounding(
     blocks: list[dict[str, Any]] = []
 
     prefix_end = matches[0].start() if matches else len(raw)
-    prefix = _markdown_to_plain_text(raw[:prefix_end])
+    prefix = markdown_to_plain_text(raw[:prefix_end])
     if prefix:
         blocks.append({"text": prefix, "type": "text"})
 
@@ -356,7 +97,7 @@ def parse_grounding(
         if base_label in _NON_TEXT_BLOCK_TYPES:
             continue
         end = matches[index + 1].start() if index + 1 < len(matches) else len(raw)
-        text = _markdown_to_plain_text(raw[marker.end() : end])
+        text = markdown_to_plain_text(raw[marker.end() : end])
         if not text:
             continue
         block: dict[str, Any] = {"text": text, "type": label}
@@ -408,8 +149,8 @@ def _eos_token_ids(model: Any) -> set[int]:
 
 
 def _looks_like_pdf(data: bytes) -> bool:
-    # PDF readers permit leading whitespace before the header in practice.
-    return data[:1024].lstrip().startswith(b"%PDF-")
+    # Match the host's page-limit sniff so no input reaches PDFium unbounded.
+    return data.startswith(b"%PDF-")
 
 
 def _close(resource: Any) -> None:
