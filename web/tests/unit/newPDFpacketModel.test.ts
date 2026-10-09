@@ -7,6 +7,7 @@ import {
   initialPdfPacketFlowState,
   pdfPacketNamePatternError,
   pdfPacketFlowReducer,
+  preferredSamplePage,
   samplePages,
 } from '../../src/components/importWorkspace/pdfPacket/model';
 
@@ -83,6 +84,25 @@ describe('PDF packet split state', () => {
   it('chooses six samples spread from the first through last page', () => {
     expect(samplePages(284)).toEqual([1, 58, 114, 171, 227, 284]);
     expect(samplePages(3)).toEqual([1, 2, 3]);
+  });
+
+  it('starts on a native-text sample and preserves a page the user chose', () => {
+    const withLaterNativeText = {
+      ...snapshot,
+      prepare: { ...snapshot.prepare, native_text_pages: [3, 5] },
+    };
+    expect(preferredSamplePage(withLaterNativeText)).toBe(5);
+    const prepared = pdfPacketFlowReducer(initialPdfPacketFlowState, {
+      type: 'prepared',
+      snapshot: withLaterNativeText,
+    });
+    expect(prepared.selectedPage).toBe(5);
+    const chosen = pdfPacketFlowReducer(prepared, { type: 'selectPage', page: 12 });
+    const refreshed = pdfPacketFlowReducer(chosen, {
+      type: 'snapshot',
+      snapshot: { ...withLaterNativeText, prepare: { ...withLaterNativeText.prepare, native_text_pages: [1] } },
+    });
+    expect(refreshed.selectedPage).toBe(12);
   });
 
   it('previews every backend-supported filename field and adds the PDF suffix', () => {

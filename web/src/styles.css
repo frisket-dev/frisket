@@ -8319,6 +8319,30 @@ dialog.import-workspace-layer::backdrop {
   outline: 2px solid #4b4ddb;
   outline-offset: 2px;
 }
+.pdf-packet-page-picker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: -8px 0 20px;
+  color: #3b46c4;
+  font-size: 11px;
+}
+.pdf-packet-page-picker > span:last-child {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #756c66;
+}
+.pdf-packet-page-picker input {
+  width: 54px;
+  padding: 4px 5px;
+  border: 1px solid #ddd5cd;
+  border-radius: 5px;
+  background: white;
+  color: #211c19;
+  font: inherit;
+}
 .pdf-packet-engine { display: grid; gap: 8px; }
 .pdf-packet-engine > strong { font-size: 12px; }
 .pdf-packet-text-preview {
@@ -8552,7 +8576,7 @@ dialog.import-workspace-layer::backdrop {
 .pdf-packet-method-copy { display: grid; gap: 9px; padding: 0 14px 14px; }
 .pdf-packet-method-copy h3 { margin: 0; font-size: 14px; }
 .pdf-packet-method-copy p { margin: 0; color: #756c66; font-size: 11.5px; line-height: 1.4; }
-.pdf-packet-method-copy label { display: grid; gap: 5px; color: #4a433e; font-size: 11px; }
+.pdf-packet-method-copy label:not(.import-check-inline) { display: grid; gap: 5px; color: #4a433e; font-size: 11px; }
 .pdf-packet-method-copy label > span,
 .pdf-packet-method-copy label > small { display: flex; justify-content: space-between; }
 .pdf-packet-method-copy input[type='range'] { width: 100%; accent-color: #4b4ddb; }
@@ -8575,7 +8599,7 @@ dialog.import-workspace-layer::backdrop {
 .pdf-packet-suggestions > header button { border: 0; background: transparent; color: #3b46c4; font-size: 11px; font-weight: 700; }
 .pdf-packet-question-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: 34px minmax(0, 1fr) auto auto;
   gap: 5px;
   align-items: center;
   min-height: 28px;
@@ -8583,6 +8607,33 @@ dialog.import-workspace-layer::backdrop {
   color: #4a433e;
   font-size: 11px;
 }
+.pdf-packet-question-row[data-compact] { grid-template-columns: 28px minmax(0, 1fr) auto auto; }
+.pdf-packet-question-thumb,
+.pdf-packet-question-page {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pdf-packet-question-thumb img {
+  display: block;
+  width: 26px;
+  height: 34px;
+  box-sizing: border-box;
+  object-fit: cover;
+  border: 1px solid #ddd5cd;
+  background: white;
+}
+.pdf-packet-question-row:not([data-compact]) .pdf-packet-question-thumb img {
+  width: 34px;
+  height: 44px;
+}
+.pdf-packet-question-page:hover,
+.pdf-packet-question-page:focus-visible { color: #3436b8; }
 .pdf-packet-yes { border-color: #b9dccd; color: #1f7a5a; }
 .pdf-packet-find-footer {
   grid-column: 1 / -1;

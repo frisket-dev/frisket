@@ -26,6 +26,7 @@ import {
   type PdfPacketSplitSnapshot,
 } from '../../../api/pdfPacketSplits';
 import { SelectorField } from '../../../engine-selector/SelectorField';
+import { countLabel } from '../../../format';
 import { CostGateModal } from '../../CostGateModal';
 import { PanelSelect } from '../../PanelSelect';
 import { SegmentedToggle } from '../../PanelPrimitives';
@@ -93,6 +94,28 @@ function progressText(snapshot: PdfPacketSplitSnapshot): string {
 
 function firstLine(text: string | null | undefined): string {
   return text?.split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? 'No text read yet';
+}
+
+function pageMatchLabel(
+  match: PdfPacketPageMatch | null,
+  threshold: number,
+  compact: boolean,
+): string {
+  if (!match) return '';
+  const phraseMatch = match.matched_phrase_ids.length > 0;
+  const score = match.visual_score;
+  const visualMatch = score != null && score >= threshold;
+  if (phraseMatch && visualMatch) {
+    return compact
+      ? `Text · ${Math.round(score)}%`
+      : `Text match · ${Math.round(score)}% visual`;
+  }
+  if (phraseMatch) return compact ? 'Text' : 'Text match';
+  return score == null
+    ? ''
+    : compact
+      ? `${Math.round(score)}%`
+      : `${Math.round(score)}% visual`;
 }
 
 function formatBytes(bytes: number): string {
@@ -188,7 +211,7 @@ export function PdfPacketImportFlow({
       active: state.snapshot !== null,
       stage: state.stage,
       subtitle: state.snapshot
-        ? `${state.snapshot.packet.filename}${pageCount ? ` · ${pageCount} pages` : ''}`
+        ? `${state.snapshot.packet.filename}${pageCount ? ` · ${countLabel(pageCount, 'page')}` : ''}`
         : null,
       busy: uploading || state.ocrBusy || state.committing || serverCommitBusy,
     });
@@ -656,7 +679,7 @@ export function PdfPacketImportFlow({
       {ocrConsent ? (
         <CostGateModal
           estimate={ocrConsent.estimate}
-          message={`Run ${ocrConsent.engine} OCR on ${ocrConsent.scope === 'all' ? `all ${pageCount} pages` : `page ${ocrConsent.pages?.[0] ?? state.selectedPage}`}?`}
+          message={`Run ${ocrConsent.engine} OCR on ${ocrConsent.scope === 'all' ? `all ${countLabel(pageCount, 'page')}` : `page ${ocrConsent.pages?.[0] ?? state.selectedPage}`}?`}
           onCancel={() => setOcrConsent(null)}
           onConfirm={() => {
             const approved = ocrConsent;
@@ -739,7 +762,10 @@ function PacketTextStep({
   onAcceptNative(): void;
   onAcceptOcr(): void;
 }) {
-  const samples = samplePages(pageCount);
+  const defaultSamples = samplePages(pageCount);
+  const samples = defaultSamples.includes(selectedPage)
+    ? defaultSamples
+    : [selectedPage, ...defaultSamples.slice(1)].sort((left, right) => left - right);
   const nativeText = page?.native_text ?? '';
   const ocrText = page?.ocr_engine === engine ? page.ocr_text ?? '' : '';
   const [preferredSource, setPreferredSource] = useState<'native' | 'ocr' | null>(null);
@@ -760,7 +786,7 @@ function PacketTextStep({
       <aside className="pdf-packet-check-sidebar">
         <h3>Text from the PDF</h3>
         <p>{nativeCount > 0
-          ? `Extracted text is available on ${nativeCount} of ${pageCount} pages.`
+          ? `Extracted text is available on ${nativeCount} of ${countLabel(pageCount, 'page')}.`
           : 'This packet has no extracted text. Run OCR to read it.'}</p>
         <p className="form-hint">Check the text below. If it looks wrong, run OCR.</p>
         <h3>Sample pages</h3>
@@ -778,6 +804,26 @@ function PacketTextStep({
             </button>
           ))}
         </div>
+        <label className="pdf-packet-page-picker">
+          <span>Pick a different page</span>
+          <span>
+            Page
+            <input
+              type="number"
+              min="1"
+              max={pageCount}
+              value={selectedPage}
+              aria-label="Sample page number"
+              onChange={(event) => {
+                const nextPage = Number(event.target.value);
+                if (Number.isInteger(nextPage) && nextPage >= 1 && nextPage <= pageCount) {
+                  onSelectPage(nextPage);
+                }
+              }}
+            />
+            of {pageCount}
+          </span>
+        </label>
         {showOcr || nativeCount === 0 ? (
           <div className="pdf-packet-engine">
             <strong>OCR engine</strong>
@@ -845,7 +891,7 @@ function PacketTextStep({
             ) : null}
             {ocrText && source === 'ocr' ? (
               <button type="button" className="btn btn-primary" disabled={busy} onClick={onAcceptOcr}>
-                Use this OCR and read all {pageCount} pages
+                Use this OCR and read all {countLabel(pageCount, 'page')}
               </button>
             ) : null}
             {!nativeText && !ocrText ? (
@@ -891,7 +937,9 @@ function PacketFindStep({
     for (let page = document.start; page <= document.end; page += 1) pageToDocument.set(page, document);
   }
   const focusPage = (page: number) => {
-    gridRef.current?.querySelector<HTMLElement>(`[data-packet-page="${page}"]`)?.focus();
+    const cell = gridRef.current?.querySelector<HTMLElement>(`[data-packet-page="${page}"]`);
+    cell?.scrollIntoView?.({ block: 'center' });
+    cell?.focus();
   };
   useEffect(() => {
     const grid = gridRef.current;
@@ -952,6 +1000,8 @@ function PacketFindStep({
               const candidate = matchForPage(state.matches, page);
               const isSuggested = suggested.includes(page) && !confirmed;
               const isQuestion = questionPages.includes(page) && !confirmed;
+              const matchLabel = pageMatchLabel(candidate, state.threshold, true);
+              const matchDescription = pageMatchLabel(candidate, state.threshold, false);
               return (
                 <button
                   type="button"
@@ -965,7 +1015,7 @@ function PacketFindStep({
                   data-question={isQuestion || undefined}
                   aria-label={`Page ${page}${confirmed ? ', document start' : isSuggested ? ', suggested start' : ''}`}
                   aria-pressed={confirmed}
-                  title={`Page ${page}. Click to toggle document start; double-click to inspect the page.`}
+                  title={`Page ${page}${matchDescription ? `. ${matchDescription}.` : '.'} Click to toggle document start; double-click to inspect the page.`}
                   onClick={() => dispatch({ type: 'toggleStart', page })}
                   onDoubleClick={() => window.open(pdfPacketThumbnailUrl(projectId, splitId, page), '_blank', 'noopener,noreferrer')}
                 >
@@ -976,7 +1026,9 @@ function PacketFindStep({
                   </span>
                   <span className="pdf-packet-page-meta">
                     <span>{page}</span>
-                    <span>{rejected ? 'not a start' : isQuestion ? '?' : isSuggested && candidate?.visual_score != null ? `${Math.round(candidate.visual_score)}%` : ''}</span>
+                    <span title={isSuggested && matchLabel ? matchDescription : undefined}>
+                      {rejected ? 'not a start' : isQuestion ? '?' : isSuggested ? matchLabel : ''}
+                    </span>
                   </span>
                 </button>
               );
@@ -1037,27 +1089,31 @@ function PacketFindStep({
         {questionPages.length > 0 && (
           <section className="pdf-packet-questions">
             <header><strong>Does a document start here?</strong><span>{questionPages.length} to check</span></header>
-            {questionPages.map((page) => <QuestionRow key={page} page={page} match={matchForPage(state.matches, page)} onYes={() => dispatch({ type: 'confirmStart', page })} onNo={() => dispatch({ type: 'reject', page })} />)}
+            {questionPages.map((page) => <QuestionRow key={page} projectId={projectId} splitId={splitId} page={page} match={matchForPage(state.matches, page)} threshold={state.threshold} onFocus={() => focusPage(page)} onYes={() => dispatch({ type: 'confirmStart', page })} onNo={() => dispatch({ type: 'reject', page })} />)}
           </section>
         )}
         <section className="pdf-packet-suggestions">
-          <header><strong>{suggested.length} suggested starts in this packet</strong><button type="button" disabled={!suggested.length} onClick={() => dispatch({ type: 'acceptAll' })}>Accept all {suggested.length}</button></header>
+          <header><strong>{countLabel(suggested.length, 'suggested start')} in this packet</strong><button type="button" disabled={!suggested.length} onClick={() => dispatch({ type: 'acceptAll' })}>Accept all {suggested.length}</button></header>
           {suggested.slice(0, 8).map((page) => (
-            <QuestionRow key={page} page={page} match={matchForPage(state.matches, page)} onYes={() => dispatch({ type: 'confirmStart', page })} onNo={() => dispatch({ type: 'reject', page })} compact />
+            <QuestionRow key={page} projectId={projectId} splitId={splitId} page={page} match={matchForPage(state.matches, page)} threshold={state.threshold} onFocus={() => focusPage(page)} onYes={() => dispatch({ type: 'confirmStart', page })} onNo={() => dispatch({ type: 'reject', page })} compact />
           ))}
         </section>
       </aside>
       <footer className="pdf-packet-find-footer">
-        <span>{state.confirmedStarts.length} marked · {suggested.length} suggestions unaccepted</span>
-        <button type="button" className="btn btn-primary" onClick={() => dispatch({ type: 'stage', stage: 'import' })}>Continue to import →</button>
+        <span>{state.confirmedStarts.length} marked {state.confirmedStarts.length === 1 ? 'start' : 'starts'} will be imported · {suggested.length} {suggested.length === 1 ? 'suggestion remains' : 'suggestions remain'} unaccepted</span>
+        <button type="button" className="btn btn-primary" onClick={() => dispatch({ type: 'stage', stage: 'import' })}>Continue with {state.confirmedStarts.length} marked {state.confirmedStarts.length === 1 ? 'start' : 'starts'} →</button>
       </footer>
     </div>
   );
 }
 
-function QuestionRow({ page, match, onYes, onNo, compact = false }: { page: number; match: PdfPacketPageMatch | null; onYes(): void; onNo(): void; compact?: boolean }) {
+function QuestionRow({ projectId, splitId, page, match, threshold, onFocus, onYes, onNo, compact = false }: { projectId: string; splitId: string; page: number; match: PdfPacketPageMatch | null; threshold: number; onFocus(): void; onYes(): void; onNo(): void; compact?: boolean }) {
+  const matchLabel = pageMatchLabel(match, threshold, false);
   return <div className="pdf-packet-question-row" data-compact={compact || undefined}>
-    <span>Page {page}{match?.visual_score != null ? ` · ${Math.round(match.visual_score)}%` : match?.matched_phrase_ids.length ? ' · phrase match' : ''}</span>
+    <button type="button" className="pdf-packet-question-thumb" aria-label={`View page ${page} in grid`} onClick={onFocus}>
+      <img loading="lazy" src={pdfPacketThumbnailUrl(projectId, splitId, page)} alt="" />
+    </button>
+    <button type="button" className="pdf-packet-question-page" onClick={onFocus}>Page {page}{matchLabel ? ` · ${matchLabel}` : ''}</button>
     <button type="button" className="mini-btn pdf-packet-yes" aria-label={`Yes, page ${page} starts a document`} onClick={onYes}><Check size={12} /> Yes</button>
     <button type="button" className="mini-btn" aria-label={`No, page ${page} does not start a document`} onClick={onNo}><X size={12} /> No</button>
   </div>;
@@ -1113,7 +1169,7 @@ function PacketImportStep({ state, pageCount, canKeepOcrText, onBack, onSubmit, 
     document,
   ) ?? 'Invalid file name pattern';
   return <div className="pdf-packet-import-step">
-    <header><h2>Import {documents.length} documents</h2><p>Each becomes a normal PDF. The original packet stays as it is.</p></header>
+    <header><h2>Import {countLabel(documents.length, 'document')}</h2><p>Each becomes a normal PDF. The original packet stays as it is.</p></header>
     <div className="pdf-packet-import-options">
       <label>Destination
         <PanelSelect className="form-input" value="new" disabled>
@@ -1131,6 +1187,6 @@ function PacketImportStep({ state, pageCount, canKeepOcrText, onBack, onSubmit, 
     <div className="pdf-packet-import-table"><table><thead><tr><th>#</th><th>Name</th><th>Source</th><th>Starts with</th></tr></thead><tbody>
       {documents.map((document) => <tr key={document.start}><td>{document.index}</td><td>{nameFor(document)}</td><td>packet pp {document.start}–{document.end} · {document.pages} pp</td><td>{firstLine(state.pages[document.start]?.ocr_text ?? state.pages[document.start]?.native_text)}</td></tr>)}
     </tbody></table></div>
-    <footer><button type="button" className="btn" onClick={onBack}>Back</button><span>{documents.length} PDFs · {pageCount} pages · each linked to the packet and its page range</span><button type="button" className="btn btn-primary" disabled={state.committing || !state.destinationName.trim() || Boolean(patternError)} onClick={onSubmit}>{state.committing ? 'Starting import…' : `Import ${documents.length} documents`}</button></footer>
+    <footer><button type="button" className="btn" onClick={onBack}>Back</button><span>{documents.length} {documents.length === 1 ? 'PDF' : 'PDFs'} · {countLabel(pageCount, 'page')} · each linked to the packet and its page range</span><button type="button" className="btn btn-primary" disabled={state.committing || !state.destinationName.trim() || Boolean(patternError)} onClick={onSubmit}>{state.committing ? 'Starting import…' : `Import ${countLabel(documents.length, 'document')}`}</button></footer>
   </div>;
 }

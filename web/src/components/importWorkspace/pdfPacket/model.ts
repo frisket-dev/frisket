@@ -30,6 +30,7 @@ export interface PdfPacketFlowState {
   snapshot: PdfPacketSplitSnapshot | null;
   stage: PdfPacketStage;
   selectedPage: number;
+  samplePageChosen: boolean;
   pages: Record<number, PdfPacketPage>;
   pageLoading: number | null;
   confirmedStarts: number[];
@@ -84,6 +85,7 @@ export const initialPdfPacketFlowState: PdfPacketFlowState = {
   snapshot: null,
   stage: 'check',
   selectedPage: 1,
+  samplePageChosen: false,
   pages: {},
   pageLoading: null,
   confirmedStarts: [1],
@@ -121,6 +123,7 @@ export function pdfPacketFlowReducer(
       return {
         ...initialPdfPacketFlowState,
         snapshot: action.snapshot,
+        selectedPage: preferredSamplePage(action.snapshot),
         destinationName: `${base} documents`,
         namePattern: action.remembered?.namePattern ?? initialPdfPacketFlowState.namePattern,
         keepOcrText: action.remembered?.keepOcrText ?? initialPdfPacketFlowState.keepOcrText,
@@ -128,11 +131,17 @@ export function pdfPacketFlowReducer(
       };
     }
     case 'snapshot':
-      return { ...state, snapshot: action.snapshot };
+      return {
+        ...state,
+        snapshot: action.snapshot,
+        selectedPage: state.samplePageChosen
+          ? state.selectedPage
+          : preferredSamplePage(action.snapshot),
+      };
     case 'stage':
       return { ...state, stage: action.stage, error: null };
     case 'selectPage':
-      return { ...state, selectedPage: action.page };
+      return { ...state, selectedPage: action.page, samplePageChosen: true };
     case 'pageLoading':
       return { ...state, pageLoading: action.page };
     case 'pageLoaded':
@@ -242,6 +251,16 @@ export function samplePages(pageCount: number): number[] {
   return sortedUnique(Array.from({ length: 6 }, (_, index) => (
     1 + Math.round(index * (pageCount - 1) / 5)
   )));
+}
+
+export function preferredSamplePage(snapshot: PdfPacketSplitSnapshot): number {
+  const nativePages = snapshot.prepare.native_text_pages;
+  if (!nativePages.length) return 1;
+  const nativeSet = new Set(nativePages);
+  const pageCount = snapshot.packet.page_count ?? Math.max(...nativePages);
+  return samplePages(pageCount).find((page) => nativeSet.has(page))
+    ?? nativePages[0]
+    ?? 1;
 }
 
 export function matchForPage(matches: PdfPacketMatchResult | null, page: number) {

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
@@ -184,6 +184,68 @@ describe('PDF packet import flow boundaries', () => {
     );
   });
 
+  it('opens on a sample with native text and lets the user inspect any page', async () => {
+    const laterTextSnapshot = {
+      ...baseSnapshot,
+      prepare: { ...baseSnapshot.prepare, native_text_pages: [3] },
+    };
+    api.createPdfPacketSplit.mockResolvedValue(laterTextSnapshot);
+    api.getPdfPacketPage.mockImplementation(async (_projectId, _splitId, page: number) => ({
+      ...nativePage,
+      page,
+      native_text: page === 3 ? 'Native text on page three' : null,
+    }));
+
+    renderFlow();
+    fireEvent.change(screen.getByTestId('pdf-packet-input'), {
+      target: { files: [new File(['pdf'], 'Records.pdf', { type: 'application/pdf' })] },
+    });
+
+    expect(await screen.findByText('Native text on page three')).toBeInTheDocument();
+    expect(screen.getByText('Page 3')).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Sample page number' }), {
+      target: { value: '2' },
+    });
+    await waitFor(() => expect(api.getPdfPacketPage).toHaveBeenCalledWith(
+      'project-1',
+      'split-1',
+      2,
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    ));
+    expect(screen.getByText('Page 2')).toBeInTheDocument();
+  });
+
+  it('shows phrase evidence clearly and jumps from a suggestion thumbnail to its grid page', async () => {
+    const evidenceMatches: PdfPacketMatchResult = {
+      ...matches,
+      pages: [
+        { page: 2, visual_score: 58, closest_confirmed_page: 1, kind_id: 1, matched_phrase_ids: ['phrase-1'], suggested: true },
+        { page: 3, visual_score: 92, closest_confirmed_page: 1, kind_id: 1, matched_phrase_ids: ['phrase-1'], suggested: true },
+        { page: 4, visual_score: 74, closest_confirmed_page: 1, kind_id: 1, matched_phrase_ids: [], suggested: false },
+      ],
+      suggested_pages: [2, 3],
+      question_pages: [4],
+      phrase_counts: { 'phrase-1': 2 },
+    };
+    api.matchPdfPacketCandidates.mockResolvedValue(evidenceMatches);
+
+    renderFlow();
+    await choosePacket();
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, use extracted text' }));
+
+    expect(await screen.findByText('2 suggested starts in this packet')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Page 2 · Text match' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Page 3 · Text match · 92% visual' })).toBeInTheDocument();
+    const pageTwoCell = screen.getByRole('button', { name: 'Page 2, suggested start' });
+    expect(within(pageTwoCell).getByTitle('Text match')).toHaveTextContent('Text');
+    expect(pageTwoCell).not.toHaveTextContent('58%');
+
+    fireEvent.click(screen.getByRole('button', { name: 'View page 2 in grid' }));
+    expect(pageTwoCell).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'Continue with 1 marked start →' })).toBeInTheDocument();
+    expect(screen.getByText('1 marked start will be imported · 2 suggestions remain unaccepted')).toBeInTheDocument();
+  });
+
   it('selects the completed sample engine before showing its OCR text', async () => {
     let ocrSelected = false;
     api.getPdfPacketSplit.mockResolvedValue(sampleDoneSnapshot());
@@ -315,11 +377,11 @@ describe('PDF packet import flow boundaries', () => {
 
     expect(await screen.findByText('Text: 2 of 4 read')).toBeInTheDocument();
     await waitFor(() => expect(api.matchPdfPacketCandidates.mock.calls.length).toBeGreaterThanOrEqual(2), { timeout: 2_000 });
-    fireEvent.click(screen.getByRole('button', { name: 'Continue to import →' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue with 1 marked start →' }));
     const keepOcr = screen.getByRole('checkbox', { name: 'Keep OCR text and boxes with each PDF' });
     expect(keepOcr).toBeDisabled();
     expect(keepOcr).not.toBeChecked();
-    fireEvent.click(screen.getByRole('button', { name: 'Import 1 documents' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Import 1 document' }));
     await waitFor(() => expect(api.commitPdfPacketSplit).toHaveBeenCalled());
     expect(api.commitPdfPacketSplit.mock.calls[0][2]).toEqual(expect.objectContaining({
       confirmed_starts: [1],
