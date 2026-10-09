@@ -915,7 +915,7 @@ function PacketTextStep({
               }}
               onCurrentChoiceChange={(choice) => {
                 const selected = choice ? engineOf(choice) : null;
-                if (selected) onEngine(selected);
+                if (selected && selected !== engine) onEngine(selected);
               }}
               allowChoice={(choice) => {
                 const selected = engineOf(choice);

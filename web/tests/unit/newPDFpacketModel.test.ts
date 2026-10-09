@@ -143,3 +143,10 @@ it('keeps complete cached OCR without requiring a full-run job', () => {
   expect(canKeepPdfPacketOcr({ ...onePage, ocr_pages: [] })).toBe(false);
   expect(canKeepPdfPacketOcr({ ...onePage, text_source: 'native' })).toBe(false);
 });
+
+
+it('does not rerender for an unchanged selector projection', () => {
+  expect(pdfPacketFlowReducer(initialPdfPacketFlowState, {
+    type: 'ocrEngine', engine: initialPdfPacketFlowState.ocrEngine,
+  })).toBe(initialPdfPacketFlowState);
+});

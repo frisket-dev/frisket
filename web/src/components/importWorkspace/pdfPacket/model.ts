@@ -221,7 +221,7 @@ export function pdfPacketFlowReducer(
         dirty: true,
       };
     case 'ocrEngine':
-      return { ...state, ocrEngine: action.engine };
+      return state.ocrEngine === action.engine ? state : { ...state, ocrEngine: action.engine };
     case 'ocrBusy':
       return { ...state, ocrBusy: action.value };
     case 'destinationName':
