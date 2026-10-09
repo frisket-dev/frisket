@@ -1,0 +1,44 @@
+{
+  "id": "00000000-0000-0000-0000-000000000001",
+  "status": "completed",
+  "mode": "sync",
+  "model": "google/gemini-3.8-flash-low",
+  "model_version": "2026-09-28",
+  "price_version": "2026-10-06",
+  "created_at": "2026-10-08T13:21:14.670Z",
+  "error_code": null,
+  "page_count": 2,
+  "pages_done": 2,
+  "pages": [
+    {
+      "page": 1,
+      "status": "ok",
+      "markdown": "INVOICE INV-1042 - Page 1\n\nSupplier: River Press\n\nTotal: USD 120.00",
+      "cached": false,
+      "usage": {
+        "input_tokens": 1416,
+        "output_tokens": 43
+      },
+      "charge_usd": 0.001223
+    },
+    {
+      "page": 2,
+      "status": "ok",
+      "markdown": "INVOICE INV-1042 - Page 2\n\nSupplier: River Press\n\nTotal: USD 120.00",
+      "cached": false,
+      "usage": {
+        "input_tokens": 1416,
+        "output_tokens": 43
+      },
+      "charge_usd": 0.001223
+    }
+  ],
+  "usage": {
+    "input_tokens": 2832,
+    "output_tokens": 86
+  },
+  "charge_usd": 0.002446,
+  "has_more": false,
+  "next_cursor": null,
+  "results_expire_at": null
+}

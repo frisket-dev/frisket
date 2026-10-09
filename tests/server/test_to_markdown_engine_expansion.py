@@ -310,9 +310,10 @@ def test_estimate_only_prices_available_unbilled_engines_free(
             assert response.status_code == 400, response.text
         elif not configured and engine in {"datalab", "docling", "chandra"}:
             assert response.status_code == 400, response.text
-            assert (
-                "DATALAB_API_KEY" if engine == "datalab" else "FRISKET_MODELS_URL"
-            ) in response.text
+            expected_setup = (
+                "Datalab API key" if engine == "datalab" else "FRISKET_MODELS_URL"
+            )
+            assert expected_setup in response.text
         else:
             assert response.status_code == 200, response.text
             estimate = response.json()["estimate"]

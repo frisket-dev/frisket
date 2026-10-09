@@ -460,6 +460,8 @@ def test_admin_secrets_bridge_and_its_denials(tmp_path: Path) -> None:
         "openai",
         "gemini",
         "openrouter",
+        "opendocrouter",
+        "datalab",
         "exa",
         "tavily",
     }

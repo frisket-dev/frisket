@@ -29,6 +29,7 @@ import enum
 from collections.abc import Mapping
 from typing import Any, Literal, NewType, Protocol, runtime_checkable
 
+from frisket.execution.credential_use import ActionCredentialResolver
 from frisket.ai.models.gateway_config import (
     ModelsGatewayConnection,
     resolve_models_gateway_env,
@@ -54,6 +55,15 @@ class SearchCredentialPort(Protocol):
     def search_provider_keys(
         self, *, org_id: int, control_database_url: str | None
     ) -> Mapping[str, str]: ...
+
+
+@runtime_checkable
+class ActionCredentialPort(Protocol):
+    """Resolve non-LLM action credentials for a trusted queued organization."""
+
+    def action_credential_resolver(
+        self, *, org_id: int, control_database_url: str | None
+    ) -> ActionCredentialResolver: ...
 
 
 @runtime_checkable
@@ -238,10 +248,14 @@ class WorkerPorts:
     )
     # Deliberately absent by default. An org-scoped edition must opt into its
     # own search-secret authority; worker environment keys never fill this.
-    # Kept last so the existing positional carrier order remains compatible.
+    # Append optional ports to preserve the existing positional carrier order.
     search_credential_port: SearchCredentialPort | None = None
+    action_credential_port: ActionCredentialPort | None = None
 
     def __post_init__(self) -> None:
+        _require_port(
+            self.action_credential_port, ActionCredentialPort, "action credential"
+        )
         _require_port(self.credential_port, CredentialPort, "credential")
         _require_port(
             self.search_credential_port, SearchCredentialPort, "search credential"

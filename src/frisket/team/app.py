@@ -1007,12 +1007,39 @@ def create_team_app(
         encrypt=secret_box.encrypt,
         decrypt=secret_box.decrypt,
     )
+    from frisket.execution.provider import open_execution_composition
+    from frisket.team.document_credentials import TeamOrgDocumentCredentialPort
+    from frisket.engine.jobs.ports import TrustedJobOrgUnavailable
+
+    document_credentials = TeamOrgDocumentCredentialPort(secret_box.decrypt)
+
+    def team_execution_composition(project, router, context):
+        trusted_org = context.trusted_job_org_id
+        if trusted_org == TrustedJobOrgUnavailable.JOB_ROW_HAS_NO_ORG:
+            raise ValueError(
+                "Organization action credentials require trusted job identity"
+            )
+        if isinstance(trusted_org, int) and trusted_org != org_id:
+            raise ValueError("Queued organization does not match this Team server")
+        return open_execution_composition(
+            project,
+            router,
+            context,
+            action_credential_resolver=document_credentials.action_credential_resolver(
+                org_id=org_id,
+                control_database_url=config.database_url,
+            ),
+            models_gateway_resolver=gateway_service.resolve_connection,
+            include_managed_local_models=False,
+        )
+
     core = create_app(
         config.data_dir,
         queue=open_queue(database_url=config.run_queue_database_url, hosted=False),
         control_database_url=config.database_url,
         queue_payload_extra={"org_id": org_id},
         executor_deps_factory=_team_executor_deps_factory,
+        execution_composition_factory=team_execution_composition,
         provider_keys_resolver=lambda: org_provider_keys(
             engine, org_id=org_id, decryptor=secret_box.decrypt
         ),
@@ -1024,6 +1051,7 @@ def create_team_app(
         ),
         worker_ports=WorkerPorts(
             credential_port=TeamOrgKeyCredentialPort(secret_box.decrypt),
+            action_credential_port=document_credentials,
             search_credential_port=TeamOrgSearchKeyCredentialPort(secret_box.decrypt),
             models_gateway_port=TeamOrgModelsGatewayPort(secret_box.decrypt),
         ),

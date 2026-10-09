@@ -12,19 +12,30 @@ from __future__ import annotations
 
 import json
 import sys
+from typing import Any
 
 SWING_FLAG = 0.5
 
 
-def _rates(doc: dict) -> dict[str, list[float] | dict[str, float]]:
-    out: dict[str, list[float] | dict[str, float]] = {}
+def _rates(doc: dict) -> dict[str, list[float] | dict[str, Any]]:
+    out: dict[str, list[float] | dict[str, Any]] = {}
     for section in ("text", "audio"):
         for model, rates in (doc.get(section) or {}).items():
             out[f"{section}:{model}"] = rates
+    for model in (doc.get("opendocrouter") or {}).get("data", []):
+        out[f"opendocrouter:{model['id']}"] = {
+            "name": model["name"],
+            "version": model["version"],
+            "max_sync_pages": model["max_sync_pages"],
+            "price_version": doc["opendocrouter"]["price_version"],
+            "max_per_page": model["max_charge_per_page_usd"],
+            "typical_per_page": model["avg_charge_per_page_usd"],
+            **model["price_per_million_tokens"],
+        }
     return out
 
 
-def _named_rates(rates: list[float] | dict[str, float]) -> dict[str, float]:
+def _named_rates(rates: list[float] | dict[str, Any]) -> dict[str, Any]:
     if isinstance(rates, list):
         return {f"rate[{index}]": rate for index, rate in enumerate(rates)}
     return rates
@@ -54,7 +65,12 @@ def main() -> int:
         after_rates = _named_rates(a)
         for rate_name in sorted(set(before_rates) & set(after_rates)):
             x, y = before_rates[rate_name], after_rates[rate_name]
-            if x and abs(y - x) / abs(x) > SWING_FLAG:
+            if (
+                type(x) in (int, float)
+                and type(y) in (int, float)
+                and x
+                and abs(y - x) / abs(x) > SWING_FLAG
+            ):
                 marks.append(
                     f"{rate_name} moved {x} -> {y} (>{int(SWING_FLAG * 100)}%)"
                 )

@@ -1,7 +1,8 @@
 {
   "sources": {
     "litellm": "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json",
-    "openrouter": "https://openrouter.ai/api/v1/models"
+    "openrouter": "https://openrouter.ai/api/v1/models",
+    "opendocrouter": "https://www.opendocrouter.ai/v1/models"
   },
   "updated": "2026-09-25",
   "text": {
@@ -130,5 +131,153 @@
     "whisper-1": {
       "per_second": 0.0001
     }
+  },
+  "opendocrouter": {
+    "price_version": "2026-10-06",
+    "data": [
+      {
+        "id": "anthropic/claude-opus-5-5",
+        "name": "Claude Opus 5.5",
+        "version": "2026-09-25",
+        "max_sync_pages": 50,
+        "max_charge_per_page_usd": 0.784,
+        "avg_charge_per_page_usd": 0.04882,
+        "price_per_million_tokens": {
+          "input": 4,
+          "cached_input": 0.2,
+          "output": 20
+        }
+      },
+      {
+        "id": "anthropic/claude-haiku-5-5",
+        "name": "Claude Haiku 5.5",
+        "version": "2026-10-07",
+        "max_sync_pages": 50,
+        "max_charge_per_page_usd": 0.02,
+        "avg_charge_per_page_usd": 0.001225,
+        "price_per_million_tokens": {
+          "input": 0.1,
+          "cached_input": 0.01,
+          "output": 0.5
+        }
+      },
+      {
+        "id": "google/gemini-3-flash",
+        "name": "Gemini 3 Flash",
+        "version": "2026-09-28",
+        "max_sync_pages": 50,
+        "max_charge_per_page_usd": 0.199,
+        "avg_charge_per_page_usd": 0.019667,
+        "price_per_million_tokens": {
+          "input": 0.5,
+          "cached_input": 0.05,
+          "output": 3
+        }
+      },
+      {
+        "id": "google/gemini-3.8-flash-low",
+        "name": "Gemini 3.8 Flash",
+        "version": "2026-09-28",
+        "max_sync_pages": 50,
+        "max_charge_per_page_usd": 0.126,
+        "avg_charge_per_page_usd": 0.005908,
+        "price_per_million_tokens": {
+          "input": 0.75,
+          "cached_input": 0.08,
+          "output": 3.75
+        }
+      },
+      {
+        "id": "openai/gpt-5.6-terra",
+        "name": "GPT-5.6 Terra",
+        "version": "2026-09-25",
+        "max_sync_pages": 50,
+        "max_charge_per_page_usd": 0.436,
+        "avg_charge_per_page_usd": 0.019886,
+        "price_per_million_tokens": {
+          "input": 2,
+          "cached_input": 0.2,
+          "output": 12
+        }
+      },
+      {
+        "id": "openai/gpt-6-luna",
+        "name": "GPT-6 Luna",
+        "version": "2026-10-05",
+        "max_sync_pages": 50,
+        "max_charge_per_page_usd": 0.019,
+        "avg_charge_per_page_usd": 0.000798,
+        "price_per_million_tokens": {
+          "input": 0.1,
+          "cached_input": 0.01,
+          "output": 0.5
+        }
+      },
+      {
+        "id": "infly/infinity-parser2-flash",
+        "name": "Infinity-Parser2-Flash",
+        "version": "2026-09-29",
+        "max_sync_pages": 50,
+        "max_charge_per_page_usd": 0.05,
+        "avg_charge_per_page_usd": 0.004344,
+        "price_per_million_tokens": {
+          "input": 0.24,
+          "cached_input": 0.24,
+          "output": 1.16
+        }
+      },
+      {
+        "id": "opendatalab/mineru2.5-pro",
+        "name": "MinerU2.5-Pro",
+        "version": "2026-10-02",
+        "max_sync_pages": 50,
+        "max_charge_per_page_usd": 0.007,
+        "avg_charge_per_page_usd": 0.000861,
+        "price_per_million_tokens": {
+          "input": 0.08,
+          "cached_input": 0.08,
+          "output": 0.39
+        }
+      },
+      {
+        "id": "xingchen-agi/teleocr",
+        "name": "TeleOCR",
+        "version": "2026-10-03",
+        "max_sync_pages": 50,
+        "max_charge_per_page_usd": 0.045,
+        "avg_charge_per_page_usd": 0.002702,
+        "price_per_million_tokens": {
+          "input": 0.25,
+          "cached_input": 0.25,
+          "output": 1.22
+        }
+      },
+      {
+        "id": "rednote-hilab/dots.mocr",
+        "name": "dots.mocr",
+        "version": "2026-10-04",
+        "max_sync_pages": 50,
+        "max_charge_per_page_usd": 0.03,
+        "avg_charge_per_page_usd": 0.00397,
+        "price_per_million_tokens": {
+          "input": 0.31,
+          "cached_input": 0.31,
+          "output": 1.53
+        }
+      },
+      {
+        "id": "paddlepaddle/paddleocr-vl-1.6",
+        "name": "PaddleOCR-VL-1.6",
+        "version": "2026-10-04",
+        "max_sync_pages": 50,
+        "max_charge_per_page_usd": 0.044,
+        "avg_charge_per_page_usd": 0.002111,
+        "price_per_million_tokens": {
+          "input": 0.24,
+          "cached_input": 0.24,
+          "output": 1.2
+        }
+      }
+    ]
   }
 }

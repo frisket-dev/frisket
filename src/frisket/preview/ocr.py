@@ -36,7 +36,7 @@ from frisket.preview.common import (
 )
 from frisket.contracts.action import OCR_SYMBOLIC_ENGINES
 from frisket.contracts.actions.schemas._engines import (
-    OCR_ENGINE_TABLE,
+    ocr_engine_table,
     is_billable_engine,
 )
 from frisket.ops.base import OpContext
@@ -129,7 +129,7 @@ async def compare_ocr_preview(
 
     canonical_engines = [_canonical_engine(engine) for engine in req.engines]
     engine_descriptors = [
-        engine_descriptor(OCR_ENGINE_TABLE, engine) for engine in canonical_engines
+        engine_descriptor(ocr_engine_table(), engine) for engine in canonical_engines
     ]
     try:
         with project.materialize_blob(source.blob_hash) as path:
@@ -714,7 +714,7 @@ def _is_remote_engine(engine: str) -> bool:
     # Billable engines are refused outright on this surface: any
     # provider/model id, plus table engines declared billable (datalab is
     # billable even though its id has no "/").
-    return is_billable_engine(OCR_ENGINE_TABLE, engine)
+    return is_billable_engine(ocr_engine_table(), engine)
 
 
 def _is_pdf_source(path: Path, *, filename: str | None, mime: str | None) -> bool:

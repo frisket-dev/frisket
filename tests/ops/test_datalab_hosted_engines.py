@@ -980,7 +980,7 @@ def test_datalab_missing_key_refuses_the_run_with_the_remedy(tmp_path, monkeypat
     p, sheet = _project(tmp_path, [{"page": str(page1)}, {"page": str(page2)}], "image")
     result = _run_ocr(p, sheet, StubRouter(), confirm=False)
     assert result.status == "failed", result.errors
-    assert "DATALAB_API_KEY" in str(result.errors)
+    assert "Datalab API key in the engine selector" in str(result.errors)
     # Nothing was dispatched: no results rows at all, rather than two
     # identical per-row auth failures.
     assert (

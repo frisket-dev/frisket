@@ -168,6 +168,10 @@ class OcrEngines:
             return await self._ocr_tesseract(page_paths, scratch, language)
         if engine in SIDECAR_ENGINES:
             return await self._ocr_sidecar(engine, page_paths, ctx)
+        if engine.startswith("opendocrouter/"):
+            from frisket.ops.opendocrouter import ocr_pages
+
+            return await ocr_pages(engine, page_paths, ctx, usage)
         if engine == DATALAB_ENGINE:
             return await self._ocr_datalab(page_paths, ctx, usage)
         if "/" in engine:
