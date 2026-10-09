@@ -49,6 +49,8 @@ ocr = [
 # when selected; keep this optional profile out of the default CPU image.
 ocr-lighton = [
     "torch>=2.11.0",
+    # Qwen's AutoProcessor imports image/video helpers backed by torchvision.
+    "torchvision>=0.26.0",
     "transformers>=5.5.4",
     "pillow>=10",
     "pypdfium2>=4.30",

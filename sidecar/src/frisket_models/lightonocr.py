@@ -9,6 +9,9 @@ from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import Any
 
+from frisket_models import pdfium_lock
+from frisket_models.errors import InvalidDocumentError
+
 
 MAX_NEW_TOKENS = 8192
 PDF_RENDER_DPI = 400
@@ -33,22 +36,124 @@ PROFILES = {
 }
 
 _GROUNDING_MARKER = re.compile(
-    r"^[ \t]*!\[([^\]\r\n]+)\]\(([^)\r\n]*)\)[ \t]*(?:\r?\n|$)",
+    r"^[ \t]*!\[([^\]\r\n]+)\]\(([^)\r\n]*)\)[ \t]*(?:\r?\n)?",
     re.MULTILINE,
 )
-_TEXT_BLOCK_TYPES = {
-    "text",
-    "title",
-    "list",
-    "header",
-    "footer",
-    "page_number",
-    "footnote",
+_NON_TEXT_BLOCK_TYPES = {"image", "chart"}
+_HTML_ELEMENTS = {
+    "a",
+    "abbr",
+    "address",
+    "area",
+    "article",
+    "aside",
+    "audio",
+    "b",
+    "base",
+    "bdi",
+    "bdo",
+    "blockquote",
+    "body",
+    "br",
+    "button",
+    "canvas",
     "caption",
-    "formula",
+    "cite",
     "code",
+    "col",
+    "colgroup",
+    "data",
+    "datalist",
+    "dd",
+    "del",
+    "details",
+    "dfn",
+    "dialog",
+    "div",
+    "dl",
+    "dt",
+    "em",
+    "embed",
+    "fieldset",
+    "figcaption",
+    "figure",
+    "footer",
+    "form",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "head",
+    "header",
+    "hgroup",
+    "hr",
+    "html",
+    "i",
+    "iframe",
+    "img",
+    "input",
+    "ins",
+    "kbd",
+    "label",
+    "legend",
+    "li",
+    "link",
+    "main",
+    "map",
+    "mark",
+    "menu",
+    "meta",
+    "meter",
+    "nav",
+    "noscript",
+    "object",
+    "ol",
+    "optgroup",
+    "option",
+    "output",
+    "p",
+    "param",
+    "picture",
+    "pre",
+    "progress",
+    "q",
+    "rp",
+    "rt",
+    "ruby",
+    "s",
+    "samp",
+    "script",
+    "search",
+    "section",
+    "select",
+    "slot",
+    "small",
+    "source",
+    "span",
+    "strong",
+    "style",
+    "sub",
+    "summary",
+    "sup",
     "table",
-    "aside_text",
+    "tbody",
+    "td",
+    "template",
+    "textarea",
+    "tfoot",
+    "th",
+    "thead",
+    "time",
+    "title",
+    "tr",
+    "track",
+    "u",
+    "ul",
+    "var",
+    "video",
+    "wbr",
 }
 
 
@@ -59,22 +164,50 @@ class _PlainText(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
         self.hidden = 0
+        self.lists: list[int | None] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag in {"script", "style"}:
             self.hidden += 1
+            return
         if self.hidden:
+            return
+        if tag not in _HTML_ELEMENTS:
+            self.parts.append(self.get_starttag_text() or f"<{tag}>")
             return
         if tag == "br":
             self.parts.append("\n")
         elif tag == "img":
             self.parts.append(dict(attrs).get("alt") or "")
+        elif tag == "ol":
+            try:
+                start = int(dict(attrs).get("start") or 1)
+            except ValueError:
+                start = 1
+            self.lists.append(start)
+        elif tag == "ul":
+            self.lists.append(None)
+        elif tag == "li" and self.lists and self.lists[-1] is not None:
+            counter = self.lists[-1]
+            try:
+                counter = int(dict(attrs).get("value") or counter)
+            except ValueError:
+                pass
+            self.parts.append(f"{counter}. ")
+            self.lists[-1] = counter + 1
 
     def handle_endtag(self, tag: str) -> None:
         if tag in {"script", "style"}:
             self.hidden = max(0, self.hidden - 1)
             return
         if self.hidden:
+            return
+        if tag not in _HTML_ELEMENTS:
+            self.parts.append(f"</{tag}>")
+            return
+        if tag in {"ol", "ul"}:
+            if self.lists:
+                self.lists.pop()
             return
         if tag in {"td", "th"}:
             self.parts.append("\t")
@@ -95,7 +228,7 @@ class _PlainText(HTMLParser):
             self.parts.append("\n")
 
     def handle_data(self, data: str) -> None:
-        if not self.hidden:
+        if not self.hidden and (not self.lists or data.strip()):
             self.parts.append(data)
 
 
@@ -165,7 +298,7 @@ def parse_grounding(
     for index, marker in enumerate(matches):
         label = marker.group(1).strip().lower()
         base_label = label.removesuffix("+")
-        if base_label not in _TEXT_BLOCK_TYPES:
+        if base_label in _NON_TEXT_BLOCK_TYPES:
             continue
         end = matches[index + 1].start() if index + 1 < len(matches) else len(raw)
         text = _markdown_to_plain_text(raw[marker.end() : end])
@@ -258,15 +391,41 @@ class LightOnOCRAdapter:
         return converted
 
     def _decode_image(self, data: bytes) -> tuple[Any, tuple[int, int]]:
-        from PIL import Image
+        from PIL import Image, ImageOps
 
-        image = Image.open(io.BytesIO(data))
+        image = None
+        bomb_error = getattr(Image, "DecompressionBombError", OSError)
         try:
+            image = Image.open(io.BytesIO(data))
+            if int(getattr(image, "n_frames", 1)) != 1:
+                raise InvalidDocumentError(
+                    "LightOnOCR supports only single-frame images"
+                )
+            pixel_limit = getattr(Image, "MAX_IMAGE_PIXELS", None)
+            if pixel_limit is not None and image.width * image.height > pixel_limit:
+                raise InvalidDocumentError(
+                    "image exceeds Pillow's safe decoded-pixel budget"
+                )
             image.load()
+            oriented = ImageOps.exif_transpose(image)
+            if oriented is not image:
+                _close(image)
+                image = oriented
             original_size = tuple(image.size)
             return self._prepare_image(image), original_size
+        except InvalidDocumentError:
+            if image is not None:
+                _close(image)
+            raise
+        except (OSError, SyntaxError, bomb_error) as exc:
+            if image is not None:
+                _close(image)
+            raise InvalidDocumentError(
+                "LightOnOCR supports PDF and single-frame image documents"
+            ) from exc
         except BaseException:
-            _close(image)
+            if image is not None:
+                _close(image)
             raise
 
     def _generate(self, image: Any, prompt: str | None) -> str:
@@ -326,33 +485,48 @@ class LightOnOCRAdapter:
 
         markdown_pages: list[str] = []
         ocr_used: list[bool] = []
-        pdf = pdfium.PdfDocument(data)
+        pdf = None
+        pdfium_error = getattr(pdfium, "PdfiumError", OSError)
         try:
-            for index in range(len(pdf)):
-                page = pdf[index]
-                bitmap = None
-                image = None
-                try:
-                    page_width, page_height = page.get_size()
-                    longest_edge = max(float(page_width), float(page_height))
-                    if longest_edge <= 0:
-                        raise ValueError("PDF page dimensions must be positive")
-                    scale = min(
-                        PDF_RENDER_DPI / 72,
-                        MAX_IMAGE_EDGE / longest_edge,
-                    )
-                    bitmap = page.render(scale=scale)
-                    image = self._prepare_image(bitmap.to_pil())
-                    markdown_pages.append(self._generate(image, None))
-                    ocr_used.append(True)
-                finally:
-                    if image is not None:
-                        _close(image)
-                    if bitmap is not None:
-                        _close(bitmap)
-                    _close(page)
-        finally:
-            _close(pdf)
+            try:
+                with pdfium_lock.PDFIUM_LOCK:
+                    pdf = pdfium.PdfDocument(data)
+                    page_count = len(pdf)
+                for index in range(page_count):
+                    page = None
+                    bitmap = None
+                    image = None
+                    try:
+                        with pdfium_lock.PDFIUM_LOCK:
+                            page = pdf[index]
+                            page_width, page_height = page.get_size()
+                            longest_edge = max(float(page_width), float(page_height))
+                            if longest_edge <= 0:
+                                raise InvalidDocumentError(
+                                    "PDF page dimensions must be positive"
+                                )
+                            scale = min(
+                                PDF_RENDER_DPI / 72,
+                                MAX_IMAGE_EDGE / longest_edge,
+                            )
+                            bitmap = page.render(scale=scale)
+                            image = self._prepare_image(bitmap.to_pil())
+                        markdown_pages.append(self._generate(image, None))
+                        ocr_used.append(True)
+                    finally:
+                        if image is not None:
+                            _close(image)
+                        with pdfium_lock.PDFIUM_LOCK:
+                            if bitmap is not None:
+                                _close(bitmap)
+                            if page is not None:
+                                _close(page)
+            finally:
+                with pdfium_lock.PDFIUM_LOCK:
+                    if pdf is not None:
+                        _close(pdf)
+        except pdfium_error as exc:
+            raise InvalidDocumentError("LightOnOCR could not decode the PDF") from exc
         return markdown_pages, ocr_used
 
     def to_markdown(self, filename: str, data: bytes) -> dict[str, Any]:

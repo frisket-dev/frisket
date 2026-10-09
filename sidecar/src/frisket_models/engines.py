@@ -14,6 +14,8 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Callable
 
+from frisket_models import pdfium_lock
+
 from frisket_models.classification.clef import (
     MODEL_ID as CLEF_MODEL_ID,
     MODEL_REVISION as CLEF_MODEL_REVISION,
@@ -523,7 +525,8 @@ def load_docling(*, device: str | None = None) -> Callable[[str, bytes], dict]:
             f.write(data)
             scratch = f.name
         try:
-            result = converter.convert(scratch)
+            with pdfium_lock.PDFIUM_LOCK:
+                result = converter.convert(scratch)
             markdown = result.document.export_to_markdown()
             ocr_used = [
                 _docling_page_used_ocr(page)
@@ -556,7 +559,8 @@ def load_chandra() -> Callable[[str, bytes], dict]:
             f.write(data)
             scratch = f.name
         try:
-            images = load_file(scratch, {})
+            with pdfium_lock.PDFIUM_LOCK:
+                images = load_file(scratch, {})
             batch = [
                 BatchInputItem(image=img, prompt_type="ocr_layout") for img in images
             ]
@@ -721,7 +725,14 @@ def _lightonocr_engines() -> list[Engine]:
                 Engine(
                     name,
                     route,
-                    ["torch", "transformers", "PIL", "pypdfium2", "markdown_it"],
+                    [
+                        "torch",
+                        "torchvision",
+                        "transformers",
+                        "PIL",
+                        "pypdfium2",
+                        "markdown_it",
+                    ],
                     partial(load_lightonocr, name),
                     models=[profile.model_id],
                     revision=profile.revision,

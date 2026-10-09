@@ -1303,6 +1303,7 @@ ocr-lighton = [
     { name = "pypdfium2" },
     { name = "safetensors" },
     { name = "torch" },
+    { name = "torchvision" },
     { name = "transformers", version = "5.13.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-14-frisket-models-all' or extra != 'extra-14-frisket-models-classify' or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-convert') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-convert-chandra') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-embed') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-ner') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-ocr') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-ocr-paddle') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-rerank') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-transcribe')" },
     { name = "transformers", version = "5.17.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-14-frisket-models-classify' or (extra == 'extra-14-frisket-models-all' and extra == 'extra-14-frisket-models-convert-chandra') or (extra == 'extra-14-frisket-models-all' and extra == 'extra-14-frisket-models-ocr') or (extra == 'extra-14-frisket-models-convert-chandra' and extra == 'extra-14-frisket-models-embed') or (extra == 'extra-14-frisket-models-embed' and extra == 'extra-14-frisket-models-ocr')" },
 ]
@@ -1360,6 +1361,7 @@ requires-dist = [
     { name = "torch", marker = "extra == 'ocr-lighton'", specifier = ">=2.11.0" },
     { name = "torchvision", marker = "extra == 'classify'", specifier = "==0.29.0" },
     { name = "torchvision", marker = "extra == 'classify-clef'", specifier = ">=0.26.0" },
+    { name = "torchvision", marker = "extra == 'ocr-lighton'", specifier = ">=0.26.0" },
     { name = "transformers", marker = "extra == 'classify'", specifier = "==5.17.0" },
     { name = "transformers", marker = "extra == 'classify-clef'", specifier = ">=5.10.2" },
     { name = "transformers", marker = "extra == 'ocr-lighton'", specifier = ">=5.5.4" },

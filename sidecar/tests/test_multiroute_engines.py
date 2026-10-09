@@ -94,7 +94,8 @@ def test_registry_requires_route_for_ambiguous_name():
         registry.get("document-model", route="/ner")
 
 
-def test_lighton_registry_has_both_sizes_and_shared_route_state():
+def test_lighton_registry_has_both_sizes_and_shared_route_state(monkeypatch):
+    from frisket_models import engines as engine_module
     from frisket_models.engines import default_registry, EXTRAS
 
     registry = default_registry()
@@ -105,7 +106,15 @@ def test_lighton_registry_has_both_sizes_and_shared_route_state():
         assert ocr.state is markdown.state
         assert ocr.models == markdown.models
         assert ocr.revision == markdown.revision
+        assert "torchvision" in ocr.modules
         assert EXTRAS[name] == "ocr-lighton"
         assert ocr.loaded is False
     with pytest.raises(KeyError):
         registry.get("lightonocr-3-1b", route="/ocr")
+
+    monkeypatch.setattr(
+        engine_module.importlib.util,
+        "find_spec",
+        lambda module: None if module == "torchvision" else SimpleNamespace(),
+    )
+    assert registry.get("lightonocr-3-0.8b", route="/ocr").installed is False

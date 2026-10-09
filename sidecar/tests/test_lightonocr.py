@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import contextlib
+import io
 import sys
 from types import SimpleNamespace
 
 import pytest
+from fastapi.testclient import TestClient
 
 from frisket_models import lightonocr
+from frisket_models.app import create_app
+from frisket_models.engines import Engine, Registry
 
 
 class _Batch(dict):
@@ -69,6 +73,14 @@ class _Image:
         self.events = events
         self.size = size
 
+    @property
+    def width(self) -> int:
+        return self.size[0]
+
+    @property
+    def height(self) -> int:
+        return self.size[1]
+
     def load(self) -> None:
         self.events.append(("load", self.name))
 
@@ -83,6 +95,12 @@ class _Image:
 
     def close(self) -> None:
         self.events.append(("image-close", self.name))
+
+
+class _ImageOps:
+    @staticmethod
+    def exif_transpose(image: _Image) -> _Image:
+        return image
 
 
 def _fake_torch(*, cuda: bool = False, mps: bool = False, bf16: bool = False):
@@ -204,7 +222,7 @@ Malformed geometry still has *recognized text*.
 
     assert page == {
         "text": (
-            "Annual Report\nRevenue\n\nCosts\n"
+            "Annual Report\nRevenue\nCosts\n"
             "Malformed geometry still has recognized text."
         ),
         "blocks": [
@@ -214,7 +232,7 @@ Malformed geometry still has *recognized text*.
                 "bbox": [[20, 10], [900, 10], [900, 80], [20, 80]],
             },
             {
-                "text": "Revenue\n\nCosts",
+                "text": "Revenue\nCosts",
                 "type": "list+",
                 "bbox": [[30, 510], [950, 510], [950, 650], [30, 650]],
             },
@@ -254,6 +272,41 @@ def test_grounding_parser_scales_to_original_non_square_image() -> None:
     ]
 
 
+def test_grounding_parser_keeps_unknown_text_labels_and_same_line_text() -> None:
+    page = lightonocr.parse_grounding(
+        "![section_header](100,20,900,100) Introduction\n"
+        "![image](100,120,900,700) Generated description\n"
+        "![chart](100,720,900,980) Generated values"
+    )
+
+    assert page == {
+        "text": "Introduction",
+        "blocks": [
+            {
+                "text": "Introduction",
+                "type": "section_header",
+                "bbox": [[100, 20], [900, 20], [900, 100], [100, 100]],
+            }
+        ],
+    }
+
+
+def test_grounding_plain_text_preserves_angle_literals_and_list_numbers() -> None:
+    assert (
+        lightonocr._markdown_to_plain_text(
+            "Plaintiff <John Doe> v. State\n\n1. Filed\n2. Decided"
+        )
+        == "Plaintiff <John Doe> v. State\n\n1. Filed\n2. Decided"
+    )
+
+
+def test_grounding_plain_text_preserves_paragraph_separation() -> None:
+    assert (
+        lightonocr._markdown_to_plain_text("First paragraph.\n\nSecond paragraph.")
+        == "First paragraph.\n\nSecond paragraph."
+    )
+
+
 def test_public_methods_use_grounding_for_ocr_and_image_only_for_markdown(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -280,7 +333,9 @@ def test_public_methods_use_grounding_for_ocr_and_image_only_for_markdown(
             events.append(("open", stream.read()))
             return _Image("input", events, size=(4000, 2000))
 
-    monkeypatch.setitem(sys.modules, "PIL", SimpleNamespace(Image=ImageModule))
+    monkeypatch.setitem(
+        sys.modules, "PIL", SimpleNamespace(Image=ImageModule, ImageOps=_ImageOps)
+    )
 
     assert adapter.ocr([b"one"]) == [
         {
@@ -321,6 +376,199 @@ def test_public_methods_use_grounding_for_ocr_and_image_only_for_markdown(
     assert all(options["do_sample"] is False for options in calls["generate_options"])
     assert events.count(("thumbnail", "input", (2048, 2048))) == 2
     assert conversations[0][0]["content"][0]["image"].size == (2048, 1024)
+
+
+def test_image_decode_applies_exif_before_geometry_and_thumbnail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[object] = []
+    raw = _Image("raw", events, size=(4000, 2000))
+    oriented = _Image("oriented", events, size=(2000, 4000))
+
+    class ImageModule:
+        MAX_IMAGE_PIXELS = 20_000_000
+
+        @staticmethod
+        def open(_stream: object) -> _Image:
+            return raw
+
+    class ImageOps:
+        @staticmethod
+        def exif_transpose(image: _Image) -> _Image:
+            assert image is raw
+            return oriented
+
+    monkeypatch.setitem(
+        sys.modules, "PIL", SimpleNamespace(Image=ImageModule, ImageOps=ImageOps)
+    )
+    adapter = lightonocr.LightOnOCRAdapter(
+        engine="lightonocr-3-0.8b",
+        model=None,
+        processor=None,
+        torch_module=None,
+        device="cpu",
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_generate",
+        lambda _image, _prompt: "![text](0,0,1000,1000) Oriented",
+    )
+
+    assert adapter.ocr([b"image"])[0]["blocks"][0]["bbox"] == [
+        [0, 0],
+        [2000, 0],
+        [2000, 4000],
+        [0, 4000],
+    ]
+    assert ("image-close", "raw") in events
+    assert ("thumbnail", "oriented", (2048, 2048)) in events
+
+
+def test_image_decode_refuses_unsafe_pixels_before_loading(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[object] = []
+
+    class ImageModule:
+        MAX_IMAGE_PIXELS = 100
+
+        @staticmethod
+        def open(_stream: object) -> _Image:
+            return _Image("oversized", events, size=(11, 10))
+
+    monkeypatch.setitem(
+        sys.modules, "PIL", SimpleNamespace(Image=ImageModule, ImageOps=_ImageOps)
+    )
+    adapter = lightonocr.LightOnOCRAdapter(
+        engine="lightonocr-3-0.8b",
+        model=None,
+        processor=None,
+        torch_module=None,
+        device="cpu",
+    )
+
+    with pytest.raises(ValueError, match="decoded-pixel budget"):
+        adapter.to_markdown("large.png", b"image")
+
+    assert ("load", "oversized") not in events
+
+
+def test_image_decode_refuses_multiframe_and_non_image_documents(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[object] = []
+    multiframe = _Image("multiframe", events)
+    multiframe.n_frames = 2
+
+    class MultiFrameImage:
+        MAX_IMAGE_PIXELS = 100_000
+
+        @staticmethod
+        def open(_stream: object) -> _Image:
+            return multiframe
+
+    monkeypatch.setitem(
+        sys.modules, "PIL", SimpleNamespace(Image=MultiFrameImage, ImageOps=_ImageOps)
+    )
+    adapter = lightonocr.LightOnOCRAdapter(
+        engine="lightonocr-3-0.8b",
+        model=None,
+        processor=None,
+        torch_module=None,
+        device="cpu",
+    )
+    with pytest.raises(ValueError, match="single-frame"):
+        adapter.to_markdown("animation.tiff", b"image")
+
+    class InvalidImage:
+        @staticmethod
+        def open(_stream: object) -> _Image:
+            raise OSError("cannot identify image file")
+
+    monkeypatch.setitem(
+        sys.modules, "PIL", SimpleNamespace(Image=InvalidImage, ImageOps=_ImageOps)
+    )
+    with pytest.raises(ValueError, match="PDF and single-frame image"):
+        adapter.to_markdown("document.docx", b"PK zip")
+
+
+def test_image_decode_normalizes_pillow_bomb_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class BombError(Exception):
+        pass
+
+    class BombImage:
+        DecompressionBombError = BombError
+
+        @staticmethod
+        def open(_stream: object) -> _Image:
+            raise BombError("too many pixels")
+
+    monkeypatch.setitem(
+        sys.modules, "PIL", SimpleNamespace(Image=BombImage, ImageOps=_ImageOps)
+    )
+    adapter = lightonocr.LightOnOCRAdapter(
+        engine="lightonocr-3-0.8b",
+        model=None,
+        processor=None,
+        torch_module=None,
+        device="cpu",
+    )
+
+    with pytest.raises(lightonocr.InvalidDocumentError, match="single-frame image"):
+        adapter.to_markdown("bomb.png", b"image")
+
+
+def test_real_truncated_image_decode_is_a_bounded_input_error() -> None:
+    image_module = pytest.importorskip("PIL.Image")
+    image = image_module.new("RGB", (100, 100), "white")
+    output = io.BytesIO()
+    image.save(output, format="JPEG")
+    image.close()
+    truncated = output.getvalue()[:-10]
+    adapter = lightonocr.LightOnOCRAdapter(
+        engine="lightonocr-3-0.8b",
+        model=None,
+        processor=None,
+        torch_module=None,
+        device="cpu",
+    )
+
+    with pytest.raises(lightonocr.InvalidDocumentError):
+        adapter.to_markdown("truncated.jpg", truncated)
+
+
+def test_real_malformed_pdf_is_a_bounded_route_error() -> None:
+    pytest.importorskip("pypdfium2")
+    adapter = lightonocr.LightOnOCRAdapter(
+        engine="lightonocr-3-0.8b",
+        model=None,
+        processor=None,
+        torch_module=None,
+        device="cpu",
+    )
+    registry = Registry(
+        [
+            Engine(
+                "lightonocr-3-0.8b",
+                "/to-markdown",
+                [],
+                lambda: adapter.to_markdown,
+            )
+        ]
+    )
+    client = TestClient(create_app(token="token", registry=registry))
+
+    response = client.post(
+        "/to-markdown",
+        files=[("files", ("broken.pdf", b"%PDF-1.7 not a PDF", "application/pdf"))],
+        data={"engine": "lightonocr-3-0.8b"},
+        headers={"Authorization": "Bearer token"},
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "unsupported or invalid document input"}
 
 
 def test_pdf_pages_render_and_generate_one_at_a_time(
@@ -416,7 +664,9 @@ def test_generation_at_token_cap_is_reported_as_truncated(
         def open(stream: object) -> _Image:
             return _Image("large", events)
 
-    monkeypatch.setitem(sys.modules, "PIL", SimpleNamespace(Image=ImageModule))
+    monkeypatch.setitem(
+        sys.modules, "PIL", SimpleNamespace(Image=ImageModule, ImageOps=_ImageOps)
+    )
 
     with pytest.raises(RuntimeError, match="token limit"):
         adapter.to_markdown("page.png", b"png")
