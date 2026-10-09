@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'node:path'
+import { pdfjsWasmAssets } from './build/pdfjsWasmAssets'
 
 const backendURL = process.env.FRISKET_BACKEND_URL ?? 'http://127.0.0.1:7331'
 const edition = process.env.FRISKET_EDITION ?? 'local'
@@ -14,6 +15,7 @@ if (edition !== 'local' && edition !== 'team') {
 export default defineConfig({
   plugins: [
     react(),
+    pdfjsWasmAssets(),
     {
       name: 'frisket-edition-launcher',
       transformIndexHtml: {
