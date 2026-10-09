@@ -270,6 +270,20 @@ export function samplePages(pageCount: number): number[] {
   )));
 }
 
+export function resamplePages(pageCount: number, previous: readonly number[]): number[] {
+  const previousSet = new Set(previous);
+  const unseen = Array.from({ length: pageCount }, (_, index) => index + 1)
+    .filter((page) => !previousSet.has(page));
+  const seen = previous.filter((page) => page >= 1 && page <= pageCount);
+  const result: number[] = [];
+  while (result.length < Math.min(6, pageCount)) {
+    const pool = unseen.length ? unseen : seen;
+    const index = Math.floor(Math.random() * pool.length);
+    result.push(pool.splice(index, 1)[0]);
+  }
+  return result.sort((left, right) => left - right);
+}
+
 export function preferredSamplePage(snapshot: PdfPacketSplitSnapshot): number {
   const nativePages = snapshot.prepare.native_text_pages;
   if (!nativePages.length) return 1;
