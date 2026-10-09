@@ -1178,7 +1178,7 @@ function PacketFindStep({
             ))}
             <button type="button" className="btn" onClick={() => dispatch({ type: 'addPhrase' })}><Plus size={13} /> Add a phrase</button>
             <label className="import-check-inline"><input type="checkbox" checked={state.fuzzy} onChange={(event) => dispatch({ type: 'fuzzy', value: event.target.checked })} /> Allow small OCR errors</label>
-            <p>Pages still being read are checked as their text arrives.</p>
+            <p>You can mark starts while OCR runs. Text matches update when it finishes.</p>
           </div>
         ) : (
           <div className="pdf-packet-method-copy"><h3>Mark starts yourself</h3><p>Click any page to mark it as the first page of a document. Click again to remove it.</p></div>
