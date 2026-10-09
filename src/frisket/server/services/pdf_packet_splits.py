@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import hashlib
 import os
+import re
 import shutil
 import tempfile
 import threading
@@ -56,6 +57,13 @@ _SESSION_TTL_SECONDS = 60 * 60
 _PREPARE_DPI = 96
 _THUMBNAIL_MAX_EDGE = 1400
 _MAX_PACKET_PAGES = 2000
+_MAX_CHILD_FILENAME_BYTES = 255
+_NAME_PATTERN_FIELDS = frozenset({"packet", "index", "start", "end", "page"})
+_NAME_PATTERN_FIELD_RE = re.compile(r"\{([^{}]+)\}")
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def _page_signature(path: Path) -> int:
@@ -121,6 +129,7 @@ class PdfPacketSplitService:
         preview_runs: ActionPreviewRunService,
         page_signature: Callable[[Path], int] | None = None,
         ttl_seconds: float = _SESSION_TTL_SECONDS,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._workspace = workspace
         self._registry = registry
@@ -128,6 +137,7 @@ class PdfPacketSplitService:
         self._committer = PdfPacketCommitter(workspace)
         self._page_signature = page_signature or _page_signature
         self._ttl_seconds = ttl_seconds
+        self._clock = clock or _utc_now
         self._sessions: dict[str, _PacketSession] = {}
         self._lock = threading.RLock()
 
@@ -710,19 +720,39 @@ class PdfPacketSplitService:
     @staticmethod
     def _child_name(pattern: str, packet: str, index: int, start: int, end: int) -> str:
         stem = Path(packet).stem
-        try:
-            name = pattern.format(
-                packet=stem, index=index, start=start, end=end, page=start
-            ).strip()
-        except (KeyError, ValueError) as exc:
-            raise PdfPacketSplitRouteError(
-                422, "name pattern uses an unknown field"
-            ) from exc
+        fields = {
+            "packet": stem,
+            "index": str(index),
+            "start": str(start),
+            "end": str(end),
+            "page": str(start),
+        }
+        unknown = next(
+            (
+                match.group(1)
+                for match in _NAME_PATTERN_FIELD_RE.finditer(pattern)
+                if match.group(1) not in _NAME_PATTERN_FIELDS
+            ),
+            None,
+        )
+        if unknown is not None:
+            raise PdfPacketSplitRouteError(422, "name pattern uses an unknown field")
+        without_fields = _NAME_PATTERN_FIELD_RE.sub("", pattern)
+        if "{" in without_fields or "}" in without_fields:
+            raise PdfPacketSplitRouteError(422, "name pattern has invalid braces")
+        name = _NAME_PATTERN_FIELD_RE.sub(
+            lambda match: fields[match.group(1)], pattern
+        ).strip()
         if not name:
             raise PdfPacketSplitRouteError(
                 422, "name pattern produced an empty filename"
             )
-        return name if name.lower().endswith(".pdf") else f"{name}.pdf"
+        filename = name if name.lower().endswith(".pdf") else f"{name}.pdf"
+        if len(filename.encode("utf-8")) > _MAX_CHILD_FILENAME_BYTES:
+            raise PdfPacketSplitRouteError(
+                422, "generated filenames must be 255 bytes or fewer"
+            )
+        return filename
 
     def close(self, project_id: str, split_id: str) -> None:
         session = self._session(project_id, split_id)
@@ -741,7 +771,7 @@ class PdfPacketSplitService:
         self._cleanup_sessions(detached)
 
     def _reap_expired_sessions(self) -> None:
-        now = datetime.now(timezone.utc)
+        now = self._clock()
         with self._lock:
             sessions = [
                 session
@@ -779,7 +809,24 @@ class PdfPacketSplitService:
             with self._lock:
                 if self._sessions.get(session.id) is not session:
                     return None
-                if expired_at is not None and expired_at < session.expires_at:
+                if expired_at is None:
+                    return self._sessions.pop(session.id)
+                if expired_at < session.expires_at:
+                    return None
+                job_ids = tuple(session.jobs)
+            if any(
+                job is not None and job.finished_at is None
+                for job_id in job_ids
+                if (job := self._registry.get(session.project_id, job_id)) is not None
+            ):
+                with self._lock:
+                    if self._sessions.get(session.id) is session:
+                        session.expires_at = max(session.expires_at, self._expiry())
+                return None
+            with self._lock:
+                if self._sessions.get(session.id) is not session:
+                    return None
+                if expired_at < session.expires_at:
                     return None
                 return self._sessions.pop(session.id)
 
@@ -921,7 +968,7 @@ class PdfPacketSplitService:
         session = self._require(split_id=split_id)
         if session.project_id != project_id:
             raise PdfPacketSplitRouteError(404, "packet split was not found")
-        now = datetime.now(timezone.utc)
+        now = self._clock()
         if now >= session.expires_at:
             detached = self._detach_session(session, expired_at=now)
             if detached is not None:
@@ -930,9 +977,13 @@ class PdfPacketSplitService:
             with self._lock:
                 if self._sessions.get(split_id) is not session:
                     raise PdfPacketSplitRouteError(404, "packet split was not found")
-        if ready and session.status != "ready":
-            raise PdfPacketSplitRouteError(409, "packet preparation is not ready")
-        return session
+        with self._lock:
+            if self._sessions.get(split_id) is not session:
+                raise PdfPacketSplitRouteError(404, "packet split was not found")
+            if ready and session.status != "ready":
+                raise PdfPacketSplitRouteError(409, "packet preparation is not ready")
+            session.expires_at = self._expiry()
+            return session
 
     def _require(self, *, split_id: str) -> _PacketSession:
         with self._lock:
@@ -963,7 +1014,7 @@ class PdfPacketSplitService:
             )
 
     def _expiry(self) -> datetime:
-        return datetime.now(timezone.utc) + timedelta(seconds=self._ttl_seconds)
+        return self._clock() + timedelta(seconds=self._ttl_seconds)
 
 
 __all__ = ["PdfPacketSplitRouteError", "PdfPacketSplitService"]

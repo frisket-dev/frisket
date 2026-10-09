@@ -41,6 +41,7 @@ class _PreviewRuns:
     def __init__(self, registry: ActionPreviewJobRegistry) -> None:
         self.registry = registry
         self.failed_pages: set[int] = set()
+        self.run_gate = None
 
     def prepare_ocr_scratch_path(
         self,
@@ -72,6 +73,8 @@ class _PreviewRuns:
         total,
     ):
         def run(progress, _cancelled):
+            if self.run_gate is not None:
+                self.run_gate({})
             rows = []
             for index, page in enumerate(plan["pages"], 1):
                 failed = page in self.failed_pages
@@ -240,6 +243,19 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
     ready = _wait_status(service, project_id, split_id, "ready")
     assert ready["prepare"]["pages_ready"] == [1, 2, 3, 4]
     assert ready["prepare"]["visual_pages_ready"] == 4
+    for pattern in ("{packet.__class__}", "{index:x>50000}"):
+        with pytest.raises(PdfPacketSplitRouteError) as invalid_pattern:
+            service.commit(
+                project_id,
+                split_id,
+                PdfPacketCommitRequest(
+                    idempotency_key=f"invalid-pattern-{pattern}",
+                    confirmed_starts=[1],
+                    destination=PdfPacketDestination(kind="new_sheet", name="Invalid"),
+                    name_pattern=pattern,
+                ),
+            )
+        assert invalid_pattern.value.status_code == 422
 
     estimate = service.estimate_ocr(
         project_id,
@@ -502,6 +518,128 @@ def test_create_reaps_expired_packet_sessions_and_preserves_active_ones(
 
     service.shutdown()
     registry.shutdown()
+
+
+def test_packet_session_ttl_tracks_access_and_running_jobs(
+    tmp_path: Path, monkeypatch
+) -> None:
+    async def fake_text(_source, **_kwargs):
+        return [SimpleNamespace(page=1, tokens=[SimpleNamespace(text="Page 1")])]
+
+    async def fake_render(_source, scratch, *, pages, **_kwargs):
+        rendered = []
+        for page in pages:
+            path = scratch / f"page-{page}.png"
+            path.write_bytes(b"png")
+            rendered.append((page, path))
+        return PdfRenderResult(page_count=1, pages=tuple(rendered))
+
+    monkeypatch.setattr(
+        "frisket.server.services.pdf_packet_splits.extract_pdf_text", fake_text
+    )
+    monkeypatch.setattr(
+        "frisket.server.services.pdf_packet_splits.render_pdf_pages", fake_render
+    )
+    workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
+    project_id = str(workspace.create("Packet", project_id="packet")["id"])
+    registry = ActionPreviewJobRegistry()
+    preview_runs = _PreviewRuns(registry)
+    raw = _pdf(1)
+
+    with controlled_time(timeout=5) as clock:
+        service = PdfPacketSplitService(
+            workspace,
+            registry=registry,
+            preview_runs=preview_runs,  # type: ignore[arg-type]
+            page_signature=lambda _path: 1,
+            ttl_seconds=3,
+            clock=clock.now,
+        )
+
+        def create_packet(filename: str):
+            return service.create(
+                project_id,
+                AdmittedUpload(
+                    filename=filename,
+                    mime="application/pdf",
+                    source=io.BytesIO(raw),
+                    sha256=hashlib.sha256(raw).hexdigest(),
+                    size=len(raw),
+                ),
+            )
+
+        created = create_packet("active.pdf")
+        split_id = created["split_id"]
+        clock.wait_until(
+            lambda: service.status(project_id, split_id)["status"] == "ready",
+            message="packet preparation did not finish",
+        )
+        clock.advance_seconds(2.5)
+        assert service.status(project_id, split_id)["status"] == "ready"
+        clock.advance_seconds(2.5)
+        assert service.page(project_id, split_id, 1)["page"] == 1
+        clock.advance_seconds(2.5)
+
+        create_packet("reap-trigger.pdf")
+        assert split_id in service._sessions
+
+        clock.advance_seconds(3.5)
+        create_packet("expiry-trigger.pdf")
+        assert split_id not in service._sessions
+
+        active = create_packet("active-ocr.pdf")
+        active_split_id = active["split_id"]
+        clock.wait_until(
+            lambda: service.status(project_id, active_split_id)["status"] == "ready",
+            message="packet preparation did not finish",
+        )
+        preview_runs.run_gate = clock.gate()
+        started = service.start_ocr(
+            project_id,
+            active_split_id,
+            PdfPacketOcrJobRequest(engine="test-ocr", scope="all"),
+        )
+        clock.wait_entered()
+        clock.advance_seconds(4)
+
+        create_packet("active-job-reap-trigger.pdf")
+        running = registry.get(project_id, started["job_id"])
+        assert running is not None and running.status == "running"
+        assert active_split_id in service._sessions
+
+        clock.release()
+        clock.wait_until(
+            lambda: registry.get(project_id, started["job_id"]).status == "done",
+            message="OCR job did not finish",
+        )
+        status = service.status(project_id, active_split_id)
+        assert (
+            next(job for job in status["jobs"] if job["job_id"] == started["job_id"])[
+                "progress"
+            ]["status"]
+            == "done"
+        )
+        clock.advance_seconds(4)
+        create_packet("active-job-expiry-trigger.pdf")
+        assert active_split_id not in service._sessions
+
+    service.shutdown()
+    registry.shutdown()
+
+
+def test_packet_child_names_use_only_client_placeholders_and_fit_one_component():
+    child_name = PdfPacketSplitService._child_name
+    assert (
+        child_name("{packet}-{index}-{page}-{start}-{end}", "packet.pdf", 2, 10, 19)
+        == "packet-2-10-10-19.pdf"
+    )
+    for pattern in ("{packet.__class__}", "{index:x>50000}"):
+        with pytest.raises(PdfPacketSplitRouteError, match="unknown field"):
+            child_name(pattern, "packet.pdf", 2, 10, 19)
+    with pytest.raises(PdfPacketSplitRouteError, match="braces"):
+        child_name("{packet", "packet.pdf", 2, 10, 19)
+    with pytest.raises(PdfPacketSplitRouteError, match="255 bytes"):
+        child_name("x" * 252, "packet.pdf", 2, 10, 19)
 
 
 def test_close_waits_for_ocr_admission_and_releases_the_registered_job(
