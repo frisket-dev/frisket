@@ -121,6 +121,15 @@ async function choosePacket() {
   await screen.findByText('Native text from the packet');
 }
 
+async function reachImportStep() {
+  renderFlow();
+  await choosePacket();
+  fireEvent.click(screen.getByRole('button', { name: 'Yes, use extracted text' }));
+  await screen.findByText('Pages that look like your starts');
+  fireEvent.click(screen.getByRole('button', { name: 'Continue with 1 marked start →' }));
+  return screen.getByRole('button', { name: 'Import 1 document' });
+}
+
 beforeEach(() => {
   window.localStorage.clear();
   api.createPdfPacketSplit.mockResolvedValue(baseSnapshot);
@@ -443,6 +452,87 @@ describe('PDF packet import flow boundaries', () => {
       confirmed_starts: [1],
       keep_ocr_text: false,
     }));
+  });
+
+  it('shows a failed commit job once and retries an edited destination with a fresh key', async () => {
+    const failedCommit: PdfPacketSplitSnapshot = {
+      ...baseSnapshot,
+      text_source: 'native',
+      jobs: [{
+        job_id: 'commit-failed-1',
+        kind: 'commit',
+        progress: {
+          status: 'error',
+          done: 0,
+          total: 1,
+          error: 'A sheet named Records documents already exists.',
+        },
+        engine: null,
+        pages: [],
+        receipt_id: null,
+        accounting: null,
+      }],
+    };
+    api.getPdfPacketSplit.mockResolvedValue(failedCommit);
+
+    const importButton = await reachImportStep();
+    fireEvent.click(importButton);
+
+    expect(await screen.findByText('A sheet named Records documents already exists.')).toBeInTheDocument();
+    const firstRequest = api.commitPdfPacketSplit.mock.calls[0][2];
+    fireEvent.change(screen.getByRole('textbox', { name: 'New sheet' }), {
+      target: { value: 'Records imported' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Import 1 document' }));
+
+    await waitFor(() => expect(api.commitPdfPacketSplit).toHaveBeenCalledTimes(2));
+    const retryRequest = api.commitPdfPacketSplit.mock.calls[1][2];
+    expect(retryRequest.destination).toEqual({ kind: 'new_sheet', name: 'Records imported' });
+    expect(retryRequest.idempotency_key).not.toBe(firstRequest.idempotency_key);
+    await waitFor(() => {
+      expect(screen.queryByText('A sheet named Records documents already exists.')).not.toBeInTheDocument();
+    });
+  });
+
+  it('preserves the commit key after an ambiguous transport failure and stays busy from the server snapshot', async () => {
+    const committing: PdfPacketSplitSnapshot = {
+      ...baseSnapshot,
+      status: 'committing',
+      text_source: 'native',
+      jobs: [{
+        job_id: 'commit-running-1',
+        kind: 'commit',
+        progress: { status: 'running', done: 0, total: 1, error: null },
+        engine: null,
+        pages: [],
+        receipt_id: null,
+        accounting: null,
+      }],
+    };
+    api.commitPdfPacketSplit
+      .mockRejectedValueOnce(new Error('Connection lost after sending the request.'))
+      .mockResolvedValueOnce({
+        schema_version: 'frisket.pdf_packet_split.v1',
+        split_id: 'split-1',
+        job_id: 'commit-running-1',
+        kind: 'commit',
+        total: 1,
+        receipt_id: null,
+      });
+    api.getPdfPacketSplit.mockResolvedValue(committing);
+
+    const importButton = await reachImportStep();
+    fireEvent.click(importButton);
+
+    expect(await screen.findByText('Connection lost after sending the request.')).toBeInTheDocument();
+    const firstRequest = api.commitPdfPacketSplit.mock.calls[0][2];
+    fireEvent.click(screen.getByRole('button', { name: 'Import 1 document' }));
+
+    await waitFor(() => expect(api.commitPdfPacketSplit).toHaveBeenCalledTimes(2));
+    const retryRequest = api.commitPdfPacketSplit.mock.calls[1][2];
+    expect(retryRequest.idempotency_key).toBe(firstRequest.idempotency_key);
+    expect(await screen.findByRole('button', { name: 'Importing…' })).toBeDisabled();
+    expect(screen.queryByText('Connection lost after sending the request.')).not.toBeInTheDocument();
   });
 
   it('drops a pending upload when the project changes', async () => {

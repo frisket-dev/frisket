@@ -161,6 +161,7 @@ export function PdfPacketImportFlow({
   const candidateGeneration = useRef(0);
   const requestId = useRef(crypto.randomUUID());
   const commitRequestId = useRef(crypto.randomUUID());
+  const handledCommitFailureJob = useRef<string | null>(null);
   const committedSheet = useRef<number | null>(null);
   const latestStatus = useRef(state.snapshot?.status);
   const serverCommitBusy = state.snapshot?.status === 'committing';
@@ -187,6 +188,7 @@ export function PdfPacketImportFlow({
     setSessionProjectId(null);
     requestId.current = crypto.randomUUID();
     commitRequestId.current = crypto.randomUUID();
+    handledCommitFailureJob.current = null;
     committedSheet.current = null;
     latestStatus.current = undefined;
     setUploading(false);
@@ -242,7 +244,20 @@ export function PdfPacketImportFlow({
       if (signal?.aborted || epoch !== projectEpoch.current || sessionProject.current !== projectId) return;
       latestStatus.current = snapshot.status;
       dispatch({ type: 'snapshot', snapshot });
-      if (snapshot.status === 'error') {
+      const latestCommitJob = snapshot.jobs.filter((job) => job.kind === 'commit').at(-1);
+      const commitFailed = latestCommitJob?.progress.status === 'error'
+        || latestCommitJob?.progress.status === 'cancelled';
+      if (latestCommitJob && commitFailed) {
+        if (handledCommitFailureJob.current !== latestCommitJob.job_id) {
+          handledCommitFailureJob.current = latestCommitJob.job_id;
+          commitRequestId.current = crypto.randomUUID();
+          dispatch({
+            type: 'error',
+            message: latestCommitJob.progress.error
+              ?? (latestCommitJob.progress.status === 'cancelled' ? 'Import was cancelled.' : 'Import failed.'),
+          });
+        }
+      } else if (snapshot.status === 'error') {
         dispatch({ type: 'error', message: snapshot.prepare.progress.error ?? 'Packet processing failed.' });
       }
       if (snapshot.commit_result && committedSheet.current !== snapshot.commit_result.sheet_id) {
@@ -561,6 +576,7 @@ export function PdfPacketImportFlow({
       setBrowsing(false);
       requestId.current = crypto.randomUUID();
       commitRequestId.current = crypto.randomUUID();
+      handledCommitFailureJob.current = null;
       setShowOcr(false);
       setPendingFullOcrSource(null);
       dispatch({ type: 'reset' });
@@ -587,9 +603,14 @@ export function PdfPacketImportFlow({
   };
 
   const submitImport = async () => {
-    if (!splitId || !state.destinationName.trim() || pdfPacketNamePatternError(state.namePattern)) return;
+    if (!splitId
+      || state.committing
+      || state.snapshot?.status === 'committing'
+      || !state.destinationName.trim()
+      || pdfPacketNamePatternError(state.namePattern)) return;
     const { controller, epoch } = beginAction();
     const canKeepOcrText = canKeepPdfPacketOcr(state.snapshot);
+    dispatch({ type: 'error', message: null });
     dispatch({ type: 'committing', value: true });
     try {
       await commitPdfPacketSplit(projectId, splitId, {
@@ -1239,6 +1260,7 @@ function PacketMinimap({ pageCount, confirmed, suggested, questions, visibleRang
 function PacketImportStep({ state, pageCount, canKeepOcrText, onBack, onSubmit, dispatch }: { state: ReturnType<typeof pdfPacketFlowReducer>; pageCount: number; canKeepOcrText: boolean; onBack(): void; onSubmit(): void; dispatch: PacketDispatch }) {
   const documents = confirmedDocuments(state.confirmedStarts, pageCount);
   const patternError = pdfPacketNamePatternError(state.namePattern);
+  const commitBusy = state.committing || state.snapshot?.status === 'committing';
   const nameFor = (document: PdfPacketDocument) => formatPdfPacketDocumentName(
     state.namePattern,
     state.snapshot!.packet.filename,
@@ -1265,6 +1287,6 @@ function PacketImportStep({ state, pageCount, canKeepOcrText, onBack, onSubmit, 
     <div className="pdf-packet-import-table"><table><thead><tr><th>#</th><th>Name</th><th>Source</th><th>Starts with</th></tr></thead><tbody>
       {documents.map((document) => <tr key={document.start}><td>{document.index}</td><td>{nameFor(document)}</td><td>packet pp {document.start}–{document.end} · {document.pages} pp</td><td>{firstLine(state.pages[document.start]?.ocr_text ?? state.pages[document.start]?.native_text)}</td></tr>)}
     </tbody></table></div>
-    <footer><button type="button" className="btn" onClick={onBack}>Back</button><span>{documents.length} {documents.length === 1 ? 'PDF' : 'PDFs'} · {countLabel(pageCount, 'page')} · each linked to the packet and its page range</span><button type="button" className="btn btn-primary" disabled={state.committing || !state.destinationName.trim() || Boolean(patternError)} onClick={onSubmit}>{state.committing ? 'Starting import…' : `Import ${countLabel(documents.length, 'document')}`}</button></footer>
+    <footer><button type="button" className="btn" onClick={onBack}>Back</button><span>{documents.length} {documents.length === 1 ? 'PDF' : 'PDFs'} · {countLabel(pageCount, 'page')} · each linked to the packet and its page range</span><button type="button" className="btn btn-primary" disabled={commitBusy || !state.destinationName.trim() || Boolean(patternError)} onClick={onSubmit}>{commitBusy ? 'Importing…' : `Import ${countLabel(documents.length, 'document')}`}</button></footer>
   </div>;
 }
