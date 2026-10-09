@@ -22,9 +22,7 @@ from frisket.pdf_packets.signatures import signature_similarity
 # examples at the descriptor's observed family boundary is smaller and avoids
 # turning advisory layout clusters into a classifier.
 _KIND_SIMILARITY = 0.75
-_QUESTION_BAND = 30.0
-_QUESTION_LIMIT = 3
-_NEAR_DUPLICATE_SIMILARITY = 0.98
+_UNSURE_BAND = 20.0
 
 
 @dataclass(frozen=True)
@@ -55,7 +53,7 @@ class PacketMatchResult:
     kinds: tuple[StartKind, ...]
     pages: tuple[PageMatch, ...]
     suggested_pages: tuple[int, ...]
-    question_pages: tuple[int, ...]
+    unsure_pages: tuple[int, ...]
 
 
 @dataclass(frozen=True)
@@ -219,45 +217,6 @@ def _visual_match(
     return score, closest_page, kind_by_confirmed_page[closest_page], vetoed
 
 
-def _question_pages(
-    candidates: Sequence[PageMatch],
-    *,
-    threshold: float,
-    signatures: Mapping[int, int],
-) -> tuple[int, ...]:
-    def priority(match: PageMatch) -> tuple[float, int]:
-        assert match.visual_score is not None
-        return threshold - match.visual_score, match.page
-
-    ordered = sorted(candidates, key=priority)
-    representative_by_kind: dict[int, PageMatch] = {}
-    for match in ordered:
-        assert match.kind_id is not None
-        representative_by_kind.setdefault(match.kind_id, match)
-    selected = sorted(representative_by_kind.values(), key=priority)[:_QUESTION_LIMIT]
-
-    remaining = [match for match in ordered if match not in selected]
-    while len(selected) < _QUESTION_LIMIT and remaining:
-        distinct = next(
-            (
-                match
-                for match in remaining
-                if all(
-                    signature_similarity(
-                        signatures[match.page], signatures[chosen.page]
-                    )
-                    < _NEAR_DUPLICATE_SIMILARITY
-                    for chosen in selected
-                )
-            ),
-            None,
-        )
-        chosen = distinct or remaining[0]
-        selected.append(chosen)
-        remaining.remove(chosen)
-    return tuple(match.page for match in selected)
-
-
 def match_packet_pages(
     *,
     page_count: int,
@@ -268,7 +227,7 @@ def match_packet_pages(
     ocr_text: Mapping[int, str] | None = None,
     phrases: Sequence[PhraseRule] = (),
 ) -> PacketMatchResult:
-    """Derive page suggestions and questions from one packet-session snapshot.
+    """Derive suggested and unsure pages from one packet-session snapshot.
 
     Pages are 1-based. ``signatures`` and ``ocr_text`` may be partial while their
     background jobs are running. Visual scores and ``threshold`` use the same
@@ -313,7 +272,6 @@ def match_packet_pages(
     prepared_phrases = _prepare_phrases(phrases)
 
     page_matches: list[PageMatch] = []
-    vetoed_pages: set[int] = set()
     for page in range(1, page_count + 1):
         visual_score, closest_page, kind_id, vetoed = _visual_match(
             page,
@@ -332,8 +290,6 @@ def match_packet_pages(
                 or bool(matched_phrases)
             )
         )
-        if vetoed and not labeled:
-            vetoed_pages.add(page)
         page_matches.append(
             PageMatch(
                 page=page,
@@ -345,29 +301,21 @@ def match_packet_pages(
             )
         )
 
-    question_candidates = tuple(
-        match
+    unsure = tuple(
+        match.page
         for match in page_matches
         if match.visual_score is not None
         and match.page not in confirmed_pages
         and match.page not in rejected_pages
         and not match.suggested
-        and (
-            match.page in vetoed_pages
-            or threshold - _QUESTION_BAND <= match.visual_score < threshold
-        )
-    )
-    questions = _question_pages(
-        question_candidates,
-        threshold=threshold,
-        signatures=checked_signatures,
+        and threshold - _UNSURE_BAND <= match.visual_score < threshold
     )
     suggestions = tuple(match.page for match in page_matches if match.suggested)
     return PacketMatchResult(
         kinds=kinds,
         pages=tuple(page_matches),
         suggested_pages=suggestions,
-        question_pages=questions,
+        unsure_pages=unsure,
     )
 
 

@@ -129,7 +129,7 @@ class _Service:
                 }
             ],
             "suggested_pages": [3],
-            "question_pages": [2],
+            "unsure_pages": [2],
             "phrase_counts": {"letter": 1},
             "accept_all_scope": "packet",
         }
@@ -217,6 +217,7 @@ def test_pdf_packet_split_http_contract(tmp_path: Path) -> None:
     )
     assert candidates.status_code == 200, candidates.text
     assert candidates.json()["accept_all_scope"] == "packet"
+    assert candidates.json()["unsure_pages"] == [2]
 
     committed = client.post(
         "/api/projects/p/import/pdf-packet-splits/split-1/commit",

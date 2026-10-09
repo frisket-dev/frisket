@@ -165,7 +165,7 @@ class PdfPacketCandidatesResponse(WireModel):
     clusters: list[PdfPacketStartKind]
     pages: list[PdfPacketPageMatch]
     suggested_pages: list[int]
-    question_pages: list[int] = Field(max_length=3)
+    unsure_pages: list[int]
     phrase_counts: dict[str, int]
     accept_all_scope: Literal["packet"]
 
