@@ -273,7 +273,8 @@ def paid_ocr_scratch_plan(
                     page_errors.extend(_page_messages(raw["error"]))
                 if index >= len(output_pages):
                     page_errors.append("OCR engine returned no result for this page.")
-                if page_errors and not text and not blocks:
+                page_failed = bool(page_errors and not text and not blocks)
+                if page_failed:
                     failed_pages += 1
                 warnings.extend(
                     f"Page {page.page}: {message}" for message in page_warnings
@@ -291,7 +292,7 @@ def paid_ocr_scratch_plan(
                         "runtime_ms": {"value": runtime_ms},
                     }
                 )
-                if on_page is not None:
+                if on_page is not None and not page_failed:
                     on_page(
                         {
                             "page": page.page,

@@ -361,11 +361,13 @@ def test_paid_ocr_all_page_failures_raise_after_usage_is_retained(
 ) -> None:
     with closing(Project.create(tmp_path / "ocr-failed.frisket")) as project:
         router, composition = _composition(project)
+        cached = []
         plan, _summary = paid_ocr_scratch_plan(
             project,
             media_bytes=_png(),
             payload={"engine": "openai/gpt-4.1-mini", "filename": "blank.png"},
             composition=composition,
+            on_page=cached.append,
         )
 
         async def recognize(self, engine, page_paths, ctx, *, usage, **kwargs):
@@ -378,6 +380,7 @@ def test_paid_ocr_all_page_failures_raise_after_usage_is_retained(
             asyncio.run(plan.run(context))
         assert error.value.code == "ocr_preview_engine_failed"
         assert error.value.details == {"failed_pages": [1]}
+        assert cached == []
         assert context.calls == [{"capability": "ocr", "engine": "openai/gpt-4.1-mini"}]
 
 

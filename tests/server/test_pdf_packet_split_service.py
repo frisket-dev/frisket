@@ -38,6 +38,7 @@ from frisket.server.workspace import Workspace
 class _PreviewRuns:
     def __init__(self, registry: ActionPreviewJobRegistry) -> None:
         self.registry = registry
+        self.failed_pages: set[int] = set()
 
     def prepare_ocr_scratch_path(
         self,
@@ -71,12 +72,15 @@ class _PreviewRuns:
         def run(progress, _cancelled):
             rows = []
             for index, page in enumerate(plan["pages"], 1):
+                failed = page in self.failed_pages
                 rows.append(
                     {
                         "page": {"value": page},
-                        "text": {"value": f"OCR page {page}"},
+                        "text": {"value": "" if failed else f"OCR page {page}"},
                         "blocks": {
-                            "value": [
+                            "value": []
+                            if failed
+                            else [
                                 {
                                     "text": f"OCR page {page}",
                                     "bbox": {
@@ -89,9 +93,12 @@ class _PreviewRuns:
                                 }
                             ]
                         },
+                        "errors": {
+                            "value": ["provider refused page"] if failed else []
+                        },
                     }
                 )
-                if plan["on_page"] is not None:
+                if plan["on_page"] is not None and not failed:
                     plan["on_page"](
                         {
                             "page": page,
@@ -100,6 +107,8 @@ class _PreviewRuns:
                         }
                     )
                 progress(index, total)
+            if rows and all(not row["text"]["value"] for row in rows):
+                raise RuntimeError("all OCR pages failed")
             return TablePreviewResult([], rows, total)
 
         job = self.registry.start(
@@ -195,11 +204,21 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
     )
     assert estimate["pages"] == [1, 3]
     assert estimate["cached_pages"] == []
-    sample = service.start_ocr(
-        project_id,
-        split_id,
-        PdfPacketOcrJobRequest(engine="test-ocr", scope="sample", pages=[1, 3]),
+    sample_request = PdfPacketOcrJobRequest(
+        engine="test-ocr", scope="sample", pages=[1, 3]
     )
+    preview_runs.failed_pages.update({1, 3})
+    failed_sample = service.start_ocr(project_id, split_id, sample_request)
+    deadline = time.monotonic() + 4
+    while time.monotonic() < deadline:
+        job = registry.get(project_id, failed_sample["job_id"])
+        if job is not None and job.status == "error":
+            break
+        time.sleep(0.01)
+    assert job is not None and job.status == "error"
+    preview_runs.failed_pages.clear()
+    sample = service.start_ocr(project_id, split_id, sample_request)
+    assert sample["total"] == 2
     deadline = time.monotonic() + 4
     while time.monotonic() < deadline:
         job = registry.get(project_id, sample["job_id"])
@@ -208,6 +227,7 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
         time.sleep(0.01)
     assert service.page(project_id, split_id, 1)["ocr_text"] is None
 
+    preview_runs.failed_pages.add(4)
     full = service.start_ocr(
         project_id,
         split_id,
@@ -221,6 +241,7 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
         if job["progress"]["status"] == "done":
             break
         time.sleep(0.01)
+    assert job["progress"]["status"] == "done"
 
     service.select_text_source(
         project_id,
@@ -228,6 +249,34 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
         PdfPacketTextSourceRequest(kind="ocr", engine="test-ocr"),
     )
     assert service.page(project_id, split_id, 1)["ocr_text"] == "OCR page 1"
+    assert service.page(project_id, split_id, 4)["ocr_text"] is None
+    commit_body = PdfPacketCommitRequest(
+        idempotency_key="commit-once",
+        confirmed_starts=[1, 3],
+        destination=PdfPacketDestination(kind="new_sheet", name="Documents"),
+        name_pattern="{packet}-{index}-{start}-{end}",
+        keep_ocr_text=True,
+    )
+    with pytest.raises(PdfPacketSplitRouteError) as incomplete:
+        service.commit(project_id, split_id, commit_body)
+    assert incomplete.value.status_code == 409
+
+    preview_runs.failed_pages.clear()
+    retry = service.start_ocr(
+        project_id,
+        split_id,
+        PdfPacketOcrJobRequest(engine="test-ocr", scope="all"),
+    )
+    assert retry["total"] == 1
+    deadline = time.monotonic() + 4
+    while time.monotonic() < deadline:
+        status = service.status(project_id, split_id)
+        job = next(job for job in status["jobs"] if job["job_id"] == retry["job_id"])
+        if job["progress"]["status"] == "done":
+            break
+        time.sleep(0.01)
+    assert job["progress"]["status"] == "done"
+
     candidates = service.candidates(
         project_id,
         split_id,
@@ -238,13 +287,6 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
     ]
     assert candidates["accept_all_scope"] == "packet"
 
-    commit_body = PdfPacketCommitRequest(
-        idempotency_key="commit-once",
-        confirmed_starts=[1, 3],
-        destination=PdfPacketDestination(kind="new_sheet", name="Documents"),
-        name_pattern="{packet}-{index}-{start}-{end}",
-        keep_ocr_text=True,
-    )
     started = service.commit(project_id, split_id, commit_body)
     assert started["kind"] == "commit"
     completed = _wait_status(service, project_id, split_id, "completed")

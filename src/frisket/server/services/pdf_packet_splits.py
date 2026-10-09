@@ -739,9 +739,14 @@ class PdfPacketSplitService:
                     page = int(row["page"]["value"])
                 except (KeyError, TypeError, ValueError):
                     continue
+                text = str(row.get("text", {}).get("value") or "")
+                blocks = list(row.get("blocks", {}).get("value") or [])
+                errors = list(row.get("errors", {}).get("value") or [])
+                if errors and not text and not blocks:
+                    continue
                 copied[page] = {
-                    "text": str(row.get("text", {}).get("value") or ""),
-                    "blocks": list(row.get("blocks", {}).get("value") or []),
+                    "text": text,
+                    "blocks": blocks,
                 }
             with self._lock:
                 session.ocr.setdefault(tracked.engine or "", {}).update(copied)
