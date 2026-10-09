@@ -130,13 +130,14 @@ async function reachImportStep() {
   renderFlow();
   await choosePacket();
   fireEvent.click(screen.getByRole('button', { name: 'Yes, use extracted text' }));
-  await screen.findByText('Pages that look like your starts');
-  fireEvent.click(screen.getByRole('button', { name: 'Continue with 1 marked start →' }));
+  await screen.findByRole('group', { name: 'How to find document starts' });
+  fireEvent.click(screen.getByRole('button', { name: 'Continue to import →' }));
   return screen.getByRole('button', { name: 'Import 1 document' });
 }
 
 beforeEach(() => {
   window.localStorage.clear();
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   api.createPdfPacketSplit.mockResolvedValue(baseSnapshot);
   api.getPdfPacketPage.mockResolvedValue(nativePage);
   api.getPdfPacketSplit.mockResolvedValue(baseSnapshot);
@@ -177,6 +178,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe('PDF packet import flow boundaries', () => {
@@ -197,7 +199,7 @@ describe('PDF packet import flow boundaries', () => {
     expect(await screen.findByRole('status', { name: 'Reading page' })).toBeInTheDocument();
     expect(screen.queryByText('Browse the packet before checking its text.')).not.toBeInTheDocument();
     await act(async () => resolvePage(nativePage));
-    expect(await screen.findByRole('heading', { name: 'Extracted text' })).toBeInTheDocument();
+    expect(await screen.findByText('Extracted text', { selector: 'strong' })).toBeInTheDocument();
     expect(screen.getByText('Native text from the packet')).toBeInTheDocument();
   });
 
@@ -212,7 +214,7 @@ describe('PDF packet import flow boundaries', () => {
 
     const continueButton = await screen.findByRole('button', { name: 'Continue without OCR' });
     fireEvent.click(continueButton);
-    expect(await screen.findByText('Pages that look like your starts')).toBeInTheDocument();
+    expect(await screen.findByRole('group', { name: 'How to find document starts' })).toBeInTheDocument();
     expect(screen.getByText(/Learning from 1 start you marked/)).toBeInTheDocument();
     expect(api.setPdfPacketTextSource).toHaveBeenCalledWith(
       'project-1',
@@ -252,7 +254,7 @@ describe('PDF packet import flow boundaries', () => {
 
     const refreshedSamples = screen.getAllByRole('button', { name: /^p \d+$/ });
     expect(refreshedSamples).toHaveLength(6);
-    expect(new Set(refreshedSamples.map((button) => button.textContent))).toHaveSize(6);
+    expect(new Set(refreshedSamples.map((button) => button.textContent)).size).toBe(6);
     const firstNewSample = refreshedSamples.find((button) => !originalSamples.includes(button.textContent));
     expect(firstNewSample).toHaveAttribute('aria-pressed', 'true');
   });
@@ -292,7 +294,7 @@ describe('PDF packet import flow boundaries', () => {
     expect(screen.getByRole('button', { name: 'Suggested 1' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'How to find document starts' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'All pages 4' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'Starts only 1' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Starts only 4' })).toBeInTheDocument();
     expect(screen.getByRole('slider', { name: 'Page size' })).toHaveValue('1');
     fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
     expect(screen.getByRole('slider', { name: 'Page size' })).toHaveValue('2');
@@ -300,22 +302,25 @@ describe('PDF packet import flow boundaries', () => {
     expect(screen.getByText('Does a document start here?')).toBeInTheDocument();
     expect(screen.getByText('1 of 2')).toBeInTheDocument();
     expect(screen.getByText('p 1 · before')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'View page 2 large' })).toHaveTextContent('Page 2 · 74% similar');
+    expect(within(screen.getByRole('region', { name: 'Unsure pages to review' })).getByRole('button', { name: 'View page 2 large' })).toHaveTextContent('Page 2 · 74% similar');
     fireEvent.click(screen.getByRole('button', { name: 'Skip to next unsure page' }));
-    expect(screen.getByRole('button', { name: 'View page 4 large' })).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Unsure pages to review' })).getByRole('button', { name: 'View page 4 large' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Previous unsure page' }));
     fireEvent.click(screen.getByRole('button', { name: /^No/ }));
-    expect(screen.getByRole('button', { name: 'View page 4 large' })).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Unsure pages to review' })).getByRole('button', { name: 'View page 4 large' })).toBeInTheDocument();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Suggested 1' }));
     expect(screen.getByText('Likely a start')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Accept' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Not a start' })).toBeInTheDocument();
     expect(screen.getByText('1 marked · 1 suggested · 1 unsure')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Accept all 1 suggested' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Accept all 1 suggestions' })).toBeDisabled();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Accept all 1 suggested' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Accept all 1 suggested' }));
     expect(await screen.findByText('2 marked · 0 suggested · 1 unsure')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Starts only 2' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Starts only 3' }));
     expect(screen.queryByRole('button', { name: 'Page 2, unsure start' })).not.toBeInTheDocument();
   });
 
@@ -333,7 +338,7 @@ describe('PDF packet import flow boundaries', () => {
     renderFlow();
     await choosePacket();
     fireEvent.click(screen.getByRole('button', { name: 'Yes, use extracted text' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'View page 2 large' }));
+    fireEvent.click(await within(await screen.findByRole('region', { name: 'Unsure pages to review' })).findByRole('button', { name: 'View page 2 large' }));
 
     const dialog = await screen.findByRole('dialog', { name: 'Page 2' });
     expect(dialog).toHaveAttribute('aria-modal', 'true');
@@ -437,7 +442,7 @@ describe('PDF packet import flow boundaries', () => {
 
     expect(await screen.findByRole('status', { name: 'Extracting text' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Extract text' })).toBeDisabled();
-    expect(screen.getByRole('heading', { name: 'Extracted text' })).toBeInTheDocument();
+    expect(screen.getByText('Extracted text', { selector: 'strong' })).toBeInTheDocument();
   });
 
   it('waits for deliberate cost approval and echoes only the quoted token', async () => {
@@ -508,7 +513,7 @@ describe('PDF packet import flow boundaries', () => {
 
     expect(await screen.findByText('Text: 4 of 4 read')).toBeInTheDocument();
     await waitFor(() => expect(api.matchPdfPacketCandidates.mock.calls.length).toBeGreaterThanOrEqual(2), { timeout: 2_000 });
-    fireEvent.click(screen.getByRole('button', { name: 'Continue with 1 marked start →' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue to import →' }));
     expect(screen.getByRole('textbox', { name: 'New sheet' })).toHaveValue('Records documents');
     expect(screen.getByRole('textbox', { name: 'File names' })).toHaveValue('{packet} · pp {start}–{end}');
     expect(screen.queryByRole('combobox', { name: 'Destination' })).not.toBeInTheDocument();

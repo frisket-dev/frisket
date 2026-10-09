@@ -9,15 +9,12 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from 'react';
-import { Check, ChevronLeft, ChevronRight, Expand, Minus, Plus, X } from 'lucide-react';
+import { Check, Expand, Minus, Plus, X } from 'lucide-react';
 import {
-  pdfPacketThumbnailUrl,
   type PdfPacketMatchResult,
   type PdfPacketPageMatch,
 } from '../../../api/pdfPacketSplits';
-import { projectBlobUrl } from '../../../api/raw/projectResources';
 import { countLabel } from '../../../format';
-import { PdfViewer } from '../../../media/PdfViewer';
 import { SegmentedToggle } from '../../PanelPrimitives';
 import {
   confirmedDocuments,
@@ -26,14 +23,15 @@ import {
   type PdfPacketDocument,
 } from './model';
 import './PacketFindStep.css';
+import { PacketThumbnail } from './PacketThumbnail';
+import { PacketReviewCard, type ReviewTab } from './PacketReviewCard';
+import { PacketLargePageView } from './PacketLargePageView';
+import { packetFindQueues } from './packetFindQueues';
 
 const GRID_SIZES = [44, 57, 80, 110] as const;
-const ignorePdfLoaded = () => undefined;
 
 type PacketDispatch = Dispatch<Parameters<typeof pdfPacketFlowReducer>[1]>;
-type ReviewTab = 'unsure' | 'suggested';
 type GridFilter = 'all' | 'starts';
-type PacketMatches4a = PdfPacketMatchResult & { unsure_pages: number[] };
 
 export interface PacketFindStepProps {
   projectId: string;
@@ -42,45 +40,6 @@ export interface PacketFindStepProps {
   pageCount: number;
   dispatch: PacketDispatch;
   onCancelOcr(jobId: string): void;
-}
-
-// Kept here as the public behavior seam for the Find component's focused tests.
-// eslint-disable-next-line react-refresh/only-export-components
-export function packetFindQueues(
-  matches: (Pick<PdfPacketMatchResult, 'suggested_pages'> & { unsure_pages?: readonly number[] }) | null,
-  confirmed: readonly number[],
-  rejected: readonly number[],
-): { unsure: number[]; suggested: number[] } {
-  const excluded = new Set([...confirmed, ...rejected]);
-  const clean = (pages: readonly number[] | undefined) => [...new Set(pages ?? [])]
-    .filter((page) => !excluded.has(page))
-    .sort((left, right) => left - right);
-  return {
-    unsure: clean(matches?.unsure_pages),
-    suggested: clean(matches?.suggested_pages),
-  };
-}
-
-function PacketThumbnail({
-  projectId,
-  splitId,
-  page,
-  alt = '',
-  eager = false,
-}: {
-  projectId: string;
-  splitId: string;
-  page: number;
-  alt?: string;
-  eager?: boolean;
-}) {
-  return (
-    <img
-      loading={eager ? 'eager' : 'lazy'}
-      src={pdfPacketThumbnailUrl(projectId, splitId, page)}
-      alt={alt}
-    />
-  );
 }
 
 function pageMatchLabel(match: PdfPacketPageMatch | null, threshold: number, compact = false): string {
@@ -94,12 +53,6 @@ function pageMatchLabel(match: PdfPacketPageMatch | null, threshold: number, com
   if (phraseMatch) return compact ? 'Text' : 'Text match';
   if (score == null) return '';
   return compact ? `${Math.round(score)}%` : `${Math.round(score)}% visual`;
-}
-
-function candidateCaption(page: number, match: PdfPacketPageMatch | null): string {
-  if (match?.visual_score != null) return `Page ${page} · ${Math.round(match.visual_score)}% similar`;
-  if (match?.matched_phrase_ids.length) return `Page ${page} · text match`;
-  return `Page ${page}`;
 }
 
 function stopAction(event: MouseEvent<HTMLButtonElement>, action: () => void) {
@@ -181,310 +134,6 @@ function PacketMinimap({
   );
 }
 
-function ReviewCard({
-  projectId,
-  splitId,
-  tab,
-  index,
-  unsure,
-  suggested,
-  matches,
-  onTab,
-  onIndex,
-  onAccept,
-  onReject,
-  onAcceptAll,
-  onOpenLarge,
-}: {
-  projectId: string;
-  splitId: string;
-  tab: ReviewTab;
-  index: number;
-  unsure: readonly number[];
-  suggested: readonly number[];
-  matches: PdfPacketMatchResult | null;
-  onTab(tab: ReviewTab): void;
-  onIndex(index: number): void;
-  onAccept(page: number): void;
-  onReject(page: number): void;
-  onAcceptAll(): void;
-  onOpenLarge(page: number): void;
-}) {
-  const queue = tab === 'unsure' ? unsure : suggested;
-  const currentIndex = Math.min(index, Math.max(0, queue.length - 1));
-  const page = queue[currentIndex] ?? null;
-  const match = page == null ? null : matchForPage(matches, page);
-  const move = (delta: number) => {
-    if (!queue.length) return;
-    onIndex((currentIndex + delta + queue.length) % queue.length);
-  };
-  const answer = (accept: boolean) => {
-    if (page == null) return;
-    if (accept) onAccept(page);
-    else onReject(page);
-  };
-  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    const key = event.key.toLowerCase();
-    if (key === 'y' || key === 'n' || event.key === '[' || event.key === ']') {
-      event.preventDefault();
-      event.stopPropagation();
-    }
-    if (key === 'y') answer(true);
-    else if (key === 'n') answer(false);
-    else if (event.key === '[') move(-1);
-    else if (event.key === ']') move(1);
-  };
-
-  return (
-    <section
-      className="packet-review-card"
-      data-review-tab={tab}
-      aria-label={`${tab === 'unsure' ? 'Unsure' : 'Suggested'} pages to review`}
-      tabIndex={0}
-      onKeyDown={onKeyDown}
-    >
-      <div className="packet-review-tabs" role="group" aria-label="Review queue">
-        <button type="button" aria-pressed={tab === 'unsure'} onClick={() => onTab('unsure')}>
-          Unsure <strong>{unsure.length}</strong>
-        </button>
-        <button type="button" aria-pressed={tab === 'suggested'} onClick={() => onTab('suggested')}>
-          Suggested <strong>{suggested.length}</strong>
-        </button>
-      </div>
-      {page == null ? (
-        <p className="packet-review-empty">
-          {tab === 'unsure' ? 'No unsure pages left.' : 'No suggestions left.'}
-        </p>
-      ) : (
-        <>
-          <header className="packet-review-heading">
-            <strong>{tab === 'unsure' ? 'Does a document start here?' : 'Likely a start'}</strong>
-            <span>{currentIndex + 1} of {queue.length}</span>
-          </header>
-          <div className="packet-review-pages">
-            {page > 1 ? (
-              <figure className="packet-review-before">
-                <PacketThumbnail projectId={projectId} splitId={splitId} page={page - 1} alt={`Page ${page - 1}`} />
-                <figcaption>p {page - 1} · before</figcaption>
-              </figure>
-            ) : <span className="packet-review-no-before">First page</span>}
-            <button
-              type="button"
-              className="packet-review-candidate"
-              aria-label={`View page ${page} large`}
-              onClick={() => onOpenLarge(page)}
-            >
-              <PacketThumbnail projectId={projectId} splitId={splitId} page={page} alt={`Page ${page}`} eager />
-              <span>{candidateCaption(page, match)}</span>
-            </button>
-          </div>
-          <div className="packet-review-actions">
-            <button
-              type="button"
-              className="packet-review-step"
-              aria-label={`Previous ${tab} page`}
-              onClick={() => move(-1)}
-            >
-              <ChevronLeft size={14} />
-            </button>
-            <button type="button" className="btn btn-primary" onClick={() => answer(true)}>
-              {tab === 'unsure' ? 'Yes, starts here' : 'Accept'}
-            </button>
-            <button type="button" className="btn" onClick={() => answer(false)}>
-              {tab === 'unsure' ? 'No' : 'Not a start'}
-            </button>
-            <button
-              type="button"
-              className="packet-review-step"
-              aria-label={`Skip to next ${tab} page`}
-              onClick={() => move(1)}
-            >
-              <ChevronRight size={14} />
-            </button>
-          </div>
-        </>
-      )}
-      {tab === 'suggested' && suggested.length > 0 ? (
-        <button type="button" className="packet-review-accept-all" onClick={onAcceptAll}>
-          Accept all {suggested.length} suggestions
-        </button>
-      ) : null}
-    </section>
-  );
-}
-
-function pageStatus(
-  page: number,
-  confirmed: readonly number[],
-  rejected: readonly number[],
-  unsure: readonly number[],
-  suggested: readonly number[],
-  match: PdfPacketPageMatch | null,
-): { kind: 'confirmed' | 'suggested' | 'unsure' | 'rejected' | 'other'; label: string } {
-  if (confirmed.includes(page)) return { kind: 'confirmed', label: 'Start of a document' };
-  if (rejected.includes(page)) return { kind: 'rejected', label: 'Marked not a start' };
-  if (suggested.includes(page)) {
-    return {
-      kind: 'suggested',
-      label: `Suggested start${match?.visual_score == null ? '' : ` · ${Math.round(match.visual_score)}%`}`,
-    };
-  }
-  if (unsure.includes(page)) {
-    return {
-      kind: 'unsure',
-      label: `Unsure${match?.visual_score == null ? '' : ` · ${Math.round(match.visual_score)}%`}`,
-    };
-  }
-  return { kind: 'other', label: 'Continuation page' };
-}
-
-function PacketLargePageView({
-  projectId,
-  blobHash,
-  splitId,
-  page,
-  pageCount,
-  confirmed,
-  rejected,
-  unsure,
-  suggested,
-  matches,
-  onPage,
-  onConfirm,
-  onReject,
-  onRemove,
-  onClose,
-}: {
-  projectId: string;
-  blobHash: string;
-  splitId: string;
-  page: number;
-  pageCount: number;
-  confirmed: readonly number[];
-  rejected: readonly number[];
-  unsure: readonly number[];
-  suggested: readonly number[];
-  matches: PdfPacketMatchResult | null;
-  onPage(page: number): void;
-  onConfirm(page: number): void;
-  onReject(page: number): void;
-  onRemove(page: number): void;
-  onClose(): void;
-}) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const match = matchForPage(matches, page);
-  const status = pageStatus(page, confirmed, rejected, unsure, suggested, match);
-  const isConfirmed = confirmed.includes(page);
-  const canReject = suggested.includes(page) || unsure.includes(page);
-  const go = useCallback((delta: number) => {
-    onPage(Math.max(1, Math.min(pageCount, page + delta)));
-  }, [onPage, page, pageCount]);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return undefined;
-    if (typeof dialog.showModal === 'function') dialog.showModal();
-    else dialog.setAttribute('open', '');
-    dialog.focus();
-    return () => {
-      if (dialog.open && typeof dialog.close === 'function') dialog.close();
-    };
-  }, []);
-
-  const secondaryAction = () => {
-    if (isConfirmed && page !== 1) onRemove(page);
-    else if (canReject) onReject(page);
-  };
-  const onKeyDown = (event: KeyboardEvent<HTMLDialogElement>) => {
-    const key = event.key.toLowerCase();
-    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || key === 's' || key === 'x' || event.key === 'Escape') {
-      event.preventDefault();
-      event.stopPropagation();
-    }
-    if (event.key === 'ArrowLeft') go(-1);
-    else if (event.key === 'ArrowRight') go(1);
-    else if (key === 's' && !isConfirmed) onConfirm(page);
-    else if (key === 'x') secondaryAction();
-    else if (event.key === 'Escape') onClose();
-  };
-
-  return (
-    <dialog
-      ref={dialogRef}
-      className="packet-large-view"
-      data-testid="pdf-packet-large-view"
-      aria-label={`Page ${page}`}
-      aria-modal="true"
-      onKeyDown={onKeyDown}
-      onCancel={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        onClose();
-      }}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <section className="packet-large-card">
-        <header>
-          <h2>Page {page}</h2>
-          <span className="packet-page-status" data-status={status.kind}>{status.label}</span>
-          <button type="button" className="icon-btn" aria-label="Close large page view" onClick={onClose}>
-            <X size={17} />
-          </button>
-        </header>
-        <div className="packet-large-pages" data-status={status.kind}>
-          <button type="button" aria-label="Previous page" disabled={page === 1} onClick={() => go(-1)}>
-            <ChevronLeft size={18} />
-          </button>
-          {page > 1 ? (
-            <figure className="packet-large-before">
-              <PacketThumbnail projectId={projectId} splitId={splitId} page={page - 1} alt={`Page ${page - 1}`} eager />
-              <figcaption>p {page - 1} · before</figcaption>
-            </figure>
-          ) : <span className="packet-large-first">First page</span>}
-          <div className="packet-large-current">
-            <PdfViewer
-              url={projectBlobUrl(projectId, blobHash)}
-              layout="single"
-              fit="page"
-              zoom={1}
-              textLayer={false}
-              currentPage={page}
-              onLoaded={ignorePdfLoaded}
-              onCurrentPageChange={onPage}
-              className="packet-large-pdf"
-            />
-            <span>Page {page}</span>
-          </div>
-          <button type="button" aria-label="Next page" disabled={page === pageCount} onClick={() => go(1)}>
-            <ChevronRight size={18} />
-          </button>
-        </div>
-        <footer>
-          <div className="packet-large-actions">
-            {!isConfirmed ? (
-              <button type="button" className="btn btn-primary" onClick={() => onConfirm(page)}>
-                <Check size={13} /> Starts a document <kbd>S</kbd>
-              </button>
-            ) : null}
-            {isConfirmed && page !== 1 ? (
-              <button type="button" className="btn" onClick={() => onRemove(page)}>
-                <X size={13} /> Remove start <kbd>X</kbd>
-              </button>
-            ) : canReject ? (
-              <button type="button" className="btn" onClick={() => onReject(page)}>
-                <X size={13} /> Not a start <kbd>X</kbd>
-              </button>
-            ) : null}
-          </div>
-          <span>← → pages · Esc close</span>
-        </footer>
-      </section>
-    </dialog>
-  );
-}
-
 export function PacketFindStep({
   projectId,
   splitId,
@@ -494,9 +143,9 @@ export function PacketFindStep({
   onCancelOcr,
 }: PacketFindStepProps) {
   const gridRef = useRef<HTMLDivElement>(null);
-  const liveMatches = state.matches as PacketMatches4a | null;
-  const [cachedMatches, setCachedMatches] = useState<PacketMatches4a | null>(liveMatches);
-  const [seenLiveMatches, setSeenLiveMatches] = useState<PacketMatches4a | null>(liveMatches);
+  const liveMatches = state.matches;
+  const [cachedMatches, setCachedMatches] = useState<PdfPacketMatchResult | null>(liveMatches);
+  const [seenLiveMatches, setSeenLiveMatches] = useState<PdfPacketMatchResult | null>(liveMatches);
   const [visibleRange, setVisibleRange] = useState<[number, number]>([1, Math.min(40, pageCount)]);
   const [gridSizeIndex, setGridSizeIndex] = useState(1);
   const [gridFilter, setGridFilter] = useState<GridFilter>('all');
@@ -588,6 +237,7 @@ export function PacketFindStep({
     dispatch({ type: 'reject', page });
   };
   const acceptAllSuggestions = () => {
+    if (!state.matches) return;
     const pages = [...suggested];
     for (const page of pages) dispatch({ type: 'confirmStart', page });
     setReviewFeedback(`${pages.length} suggested ${pages.length === 1 ? 'start' : 'starts'} accepted.`);
@@ -824,7 +474,7 @@ export function PacketFindStep({
             <p>Click any page to mark it as the first page of a document. Click again to remove it.</p>
           </div>
         )}
-        <ReviewCard
+        <PacketReviewCard
           projectId={projectId}
           splitId={splitId}
           tab={reviewTab}
@@ -840,13 +490,15 @@ export function PacketFindStep({
           onAccept={confirmPage}
           onReject={rejectPage}
           onAcceptAll={acceptAllSuggestions}
+          canAcceptAll={state.matches != null}
           onOpenLarge={setLargeViewPage}
         />
+        {!state.matches && !state.error ? <span className="packet-match-pending" role="status">Updating suggestions…</span> : null}
         <span className="sr-only" role="status" aria-live="polite">{reviewFeedback}</span>
       </aside>
       <footer className="pdf-packet-find-footer">
         <span>{state.confirmedStarts.length} marked · {suggested.length} suggested · {unsure.length} unsure</span>
-        <button type="button" className="btn" disabled={!suggested.length} onClick={acceptAllSuggestions}>
+        <button type="button" className="btn" disabled={!state.matches || !suggested.length} onClick={acceptAllSuggestions}>
           Accept all {suggested.length} suggested
         </button>
         <button type="button" className="btn btn-primary" onClick={() => dispatch({ type: 'stage', stage: 'import' })}>

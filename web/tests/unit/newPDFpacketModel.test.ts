@@ -96,7 +96,7 @@ describe('PDF packet split state', () => {
   });
 
   it('builds sorted whole-packet review queues and omits pages already answered', async () => {
-    const { packetFindQueues } = await import('../../src/components/importWorkspace/pdfPacket/PacketFindStep');
+    const { packetFindQueues } = await import('../../src/components/importWorkspace/pdfPacket/packetFindQueues');
     const duplicatedAndUnordered = {
       ...matches,
       suggested_pages: [19, 5, 19, 14],
@@ -120,7 +120,7 @@ describe('PDF packet split state', () => {
     const refreshed = resamplePages(20, previous);
 
     expect(refreshed).toHaveLength(6);
-    expect(new Set(refreshed)).toHaveSize(6);
+    expect(new Set(refreshed).size).toBe(6);
     expect(refreshed.every((page) => !previous.includes(page))).toBe(true);
   });
 

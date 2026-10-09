@@ -278,15 +278,19 @@ export function PdfPacketImportFlow({
   const selectedPageOcrJob = state.snapshot?.jobs
     .filter((job) => job.kind === 'ocr_sample' && job.pages.includes(state.selectedPage))
     .at(-1);
+  const sampleJobId = selectedPageOcrJob?.job_id;
+  const sampleJobStatus = selectedPageOcrJob?.progress.status;
+  const sampleJobError = selectedPageOcrJob?.progress.error;
+  const sampleJobEngine = selectedPageOcrJob?.engine;
   useEffect(() => {
-    if (!splitId || !selectedPageOcrJob) return undefined;
-    if (selectedPageOcrJob.progress.status === 'error' || selectedPageOcrJob.progress.status === 'cancelled') {
-      dispatch({ type: 'error', message: selectedPageOcrJob.progress.error ?? 'Text extraction stopped.' });
+    if (!splitId || !sampleJobId) return undefined;
+    if (sampleJobStatus === 'error' || sampleJobStatus === 'cancelled') {
+      dispatch({ type: 'error', message: sampleJobError ?? 'Text extraction stopped.' });
       return undefined;
     }
-    if (selectedPageOcrJob.progress.status !== 'done' || !selectedPageOcrJob.engine) return undefined;
+    if (sampleJobStatus !== 'done' || !sampleJobEngine) return undefined;
     const controller = new AbortController();
-    const engine = selectedPageOcrJob.engine;
+    const engine = sampleJobEngine;
     const selectAndLoad = async () => {
       try {
         if (state.snapshot?.text_source !== 'ocr' || state.snapshot.ocr_engine !== engine) {
@@ -309,7 +313,7 @@ export function PdfPacketImportFlow({
     };
     void selectAndLoad();
     return () => controller.abort();
-  }, [loadPage, projectId, selectedPageOcrJob?.engine, selectedPageOcrJob?.job_id, selectedPageOcrJob?.progress.status, splitId, state.selectedPage, state.snapshot?.ocr_engine, state.snapshot?.text_source]);
+  }, [loadPage, projectId, sampleJobError, sampleJobEngine, sampleJobId, sampleJobStatus, splitId, state.selectedPage, state.snapshot?.ocr_engine, state.snapshot?.text_source]);
 
   const sampleExtracting = state.ocrBusy || selectedPageOcrJob?.progress.status === 'queued'
     || selectedPageOcrJob?.progress.status === 'running';
@@ -1004,4 +1008,8 @@ function PacketImportStep({ state, pageCount, canKeepOcrText, onBack, onSubmit, 
     </tbody></table></div>
     <footer><button type="button" className="btn" onClick={onBack}>Back</button><span>{documents.length} {documents.length === 1 ? 'PDF' : 'PDFs'} · {countLabel(pageCount, 'page')} · each linked to the packet and its page range</span><button type="button" className="btn btn-primary" disabled={commitBusy || !state.destinationName.trim() || Boolean(patternError)} onClick={onSubmit}>{commitBusy ? 'Importing…' : `Import ${countLabel(documents.length, 'document')}`}</button></footer>
   </div>;
+}
+
+function firstLine(text: string | null | undefined): string {
+  return text?.split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? 'No text read yet';
 }
