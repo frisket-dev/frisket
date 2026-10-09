@@ -599,7 +599,7 @@ class PdfPacketSplitService:
             ],
             "pages": pages,
             "suggested_pages": list(matched.suggested_pages),
-            "question_pages": list(matched.question_pages),
+            "unsure_pages": list(matched.unsure_pages),
             "phrase_counts": counts,
             "accept_all_scope": "packet",
         }

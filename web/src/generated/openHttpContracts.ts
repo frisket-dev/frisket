@@ -8103,10 +8103,10 @@ export type HttpPdfPacketCandidatesResponse = ({
   "phrase_counts": ({
   [key: string]: (number);
 });
-  "question_pages": (Array<(number)>);
   "schema_version": ("frisket.pdf_packet_split.v1") & (string);
   "split_id": (string);
   "suggested_pages": (Array<(number)>);
+  "unsure_pages": (Array<(number)>);
 });
 
 type HttpPdfPacketCommitRequest_PdfPacketDestination = ({

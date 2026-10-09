@@ -34,7 +34,7 @@ def test_feedback_groups_start_kinds_and_vetoes_when_a_rejection_is_closer():
     assert [kind.confirmed_pages for kind in learned.kinds] == [(1,), (4,)]
     assert learned.pages[2].visual_score == 97.7
     assert 3 not in learned.suggested_pages
-    assert 3 in learned.question_pages
+    assert 3 in learned.unsure_pages
     assert 5 in learned.suggested_pages
     assert learned.pages[4].visual_score == 99.2
 
@@ -48,7 +48,7 @@ def test_feedback_groups_start_kinds_and_vetoes_when_a_rejection_is_closer():
     assert regrouped.pages[1].kind_id == regrouped.pages[0].kind_id
 
 
-def test_equal_positive_and_negative_similarity_is_conservatively_a_question():
+def test_equal_positive_and_negative_match_stays_unsure_above_threshold():
     result = match_packet_pages(
         page_count=3,
         signatures={1: 0, 2: changed_bits(2), 3: changed_bits(1)},
@@ -59,31 +59,62 @@ def test_equal_positive_and_negative_similarity_is_conservatively_a_question():
 
     assert result.pages[2].visual_score == 99.6
     assert result.pages[2].suggested is False
-    assert result.question_pages == (3,)
+    assert result.unsure_pages == (3,)
 
 
-def test_questions_cover_distinct_start_kinds_before_near_duplicates():
-    signatures = {
-        1: 0,
-        2: ALL_BITS,
-        3: changed_bits(29),
-        4: changed_bits(31),
-        5: ALL_BITS ^ changed_bits(33),
-    }
+def test_negative_example_does_not_fill_unsure_queue_with_unrelated_pages():
+    result = match_packet_pages(
+        page_count=4,
+        signatures={1: 0, 2: ALL_BITS, 3: ALL_BITS, 4: ALL_BITS},
+        confirmed={1},
+        rejected={2},
+        threshold=80,
+        ocr_text={4: "Memorandum for:"},
+        phrases=(PhraseRule("Memorandum for:"),),
+    )
+
+    assert result.suggested_pages == ()
+    assert result.unsure_pages == (4,)
+
+
+def test_unsure_band_edges_labels_and_phrase_hits():
+    result = match_packet_pages(
+        page_count=7,
+        signatures={
+            1: 0,
+            2: changed_bits(50),
+            3: changed_bits(51),
+            4: changed_bits(77),
+            5: changed_bits(102),
+            6: changed_bits(102) << 154,
+            7: changed_bits(103),
+        },
+        confirmed={1},
+        rejected={6},
+        threshold=80.2,
+        ocr_text={3: "Notice of determination"},
+        phrases=(PhraseRule("notice of determination"),),
+    )
+
+    assert result.pages[4].visual_score == 60.2
+    assert result.suggested_pages == (2, 3)
+    assert result.unsure_pages == (4, 5)
+
+
+def test_unsure_pages_cover_the_whole_packet_in_page_order():
+    signatures = {1: 0}
+    signatures.update(
+        {page: changed_bits(bits) for page, bits in zip(range(2, 8), range(27, 33))}
+    )
 
     result = match_packet_pages(
-        page_count=5,
+        page_count=7,
         signatures=signatures,
-        confirmed={1, 2},
+        confirmed={1},
         threshold=90,
     )
 
-    first_two_kinds = {
-        result.pages[page - 1].kind_id for page in result.question_pages[:2]
-    }
-    assert first_two_kinds == {1, 2}
-    assert result.question_pages[0] == 3
-    assert len(result.question_pages) == 3
+    assert result.unsure_pages == (2, 3, 4, 5, 6, 7)
 
 
 def test_text_phrases_converge_with_visual_feedback_and_rejections_win_conflicts():
@@ -122,7 +153,7 @@ def test_text_phrases_converge_with_visual_feedback_and_rejections_win_conflicts
     assert result.pages[3].suggested is False
     assert result.pages[4].matched_phrases == ("notice of determination",)
     assert result.pages[4].suggested is False
-    assert 5 in result.question_pages
+    assert 5 in result.unsure_pages
     assert result.pages[5].matched_phrases == ()
 
 
@@ -175,7 +206,7 @@ def test_identical_empty_signatures_are_valid_and_confirmed_only_is_stable():
     assert result.pages[0].visual_score == 100.0
     assert result.pages[1].visual_score == 100.0
     assert result.suggested_pages == ()
-    assert result.question_pages == ()
+    assert result.unsure_pages == ()
 
 
 @pytest.mark.parametrize(
