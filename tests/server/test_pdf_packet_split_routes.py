@@ -31,7 +31,7 @@ def _status() -> dict[str, Any]:
             "progress": _progress(),
             "pages_ready": [1],
             "native_text_pages": [1, 2],
-            "embeddings_ready": 1,
+            "visual_pages_ready": 1,
         },
         "text_source": "unconfirmed",
         "ocr_engine": None,
@@ -206,7 +206,6 @@ def test_pdf_packet_split_http_contract(tmp_path: Path) -> None:
             "destination": {"kind": "new_sheet", "name": "Packet documents"},
             "name_pattern": "{packet} · pp {start}–{end}",
             "keep_ocr_text": True,
-            "remember_options": False,
         },
     )
     assert committed.status_code == 202, committed.text

@@ -22,6 +22,34 @@ PREVIEW_JOB_TTL_SECONDS = 600.0
 # result object the caller wants stashed on the job.
 PreviewRun = Callable[[Callable[[int, int | None], None], threading.Event], Any]
 PreviewFinished = Callable[[], None]
+ReplacementKey = tuple[str, str]
+
+
+class PreviewCancelEvent(threading.Event):
+    """Cancellation signal that an atomic publisher can close before commit."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._gate = threading.Lock()
+        self._sealed = False
+
+    def request_cancel(self) -> bool:
+        with self._gate:
+            if self._sealed:
+                return False
+            super().set()
+            return True
+
+    def set(self) -> None:
+        self.request_cancel()
+
+    def seal(self) -> bool:
+        """Refuse future cancellation; false means cancellation already won."""
+        with self._gate:
+            if self.is_set():
+                return False
+            self._sealed = True
+            return True
 
 # Recipe-invocation failures are an internal exception channel. Only this
 # parent-owned vocabulary may cross the preview HTTP boundary; in particular,
@@ -34,7 +62,7 @@ _PUBLIC_INVOCATION_HALT_CODES = RECIPE_INVOCATION_HALT_CODES
 class PreviewJob:
     id: str
     project_id: str
-    replacement_key: str
+    replacement_key: ReplacementKey
     total: int | None
     status: str = "running"  # running | done | error | cancelled
     progress: dict[str, int | None] = field(
@@ -42,7 +70,7 @@ class PreviewJob:
     )
     result: Any = None
     error: dict[str, Any] | None = None
-    cancel_event: threading.Event = field(default_factory=threading.Event)
+    cancel_event: PreviewCancelEvent = field(default_factory=PreviewCancelEvent)
     created_at: float = field(default_factory=time.monotonic)
     finished_at: float | None = None
     receipt: Receipt | None = None
@@ -55,14 +83,14 @@ class ActionPreviewJobRegistry:
 
     def __init__(self, *, ttl_seconds: float = PREVIEW_JOB_TTL_SECONDS) -> None:
         self._jobs: dict[str, PreviewJob] = {}
-        self._by_replacement_key: dict[str, str] = {}
+        self._by_replacement_key: dict[ReplacementKey, str] = {}
         self._threads: dict[str, threading.Thread] = {}
         # A replacement can spend meaningful time joining its predecessor, so
         # this serialization must be project-local rather than one global
         # start lock. Locks intentionally live for the registry lifetime: trying
         # to reap them while another caller is waiting on an old lock can create
         # two concurrent handoff domains for the same project.
-        self._handoffs: dict[str, threading.Lock] = {}
+        self._handoffs: dict[ReplacementKey, threading.Lock] = {}
         self._lock = threading.Lock()
         self._ttl = ttl_seconds
         self._closed = False
@@ -88,7 +116,7 @@ class ActionPreviewJobRegistry:
         cancelled predecessor stays queryable until TTL eviction.
         """
         self._evict_expired()
-        effective_replacement_key = replacement_key or project_id
+        effective_replacement_key = (project_id, replacement_key or "__project__")
         handoff = self._handoff_for(effective_replacement_key)
         with handoff:
             with self._lock:
@@ -99,7 +127,7 @@ class ActionPreviewJobRegistry:
                     self._threads.get(prior_id) if prior_id is not None else None
                 )
                 if prior is not None and prior.finished_at is None:
-                    prior.cancel_event.set()
+                    prior.cancel_event.request_cancel()
 
             # Never hold the registry lock while a process-owning preview tears
             # down. A timeout followed by starting anyway would violate the
@@ -137,7 +165,7 @@ class ActionPreviewJobRegistry:
                 self._by_replacement_key[effective_replacement_key] = job.id
             return job
 
-    def _handoff_for(self, project_id: str) -> threading.Lock:
+    def _handoff_for(self, project_id: ReplacementKey) -> threading.Lock:
         with self._lock:
             self._require_open()
             return self._handoffs.setdefault(project_id, threading.Lock())
@@ -249,8 +277,7 @@ class ActionPreviewJobRegistry:
                 or job.finished_at is not None
             ):
                 return False
-            job.cancel_event.set()
-            return True
+            return job.cancel_event.request_cancel()
 
     def release(self, project_id: str, preview_id: str) -> bool:
         """Cancel, join, and immediately discard one caller-owned job.
@@ -271,7 +298,7 @@ class ActionPreviewJobRegistry:
                 job = self._jobs.get(preview_id)
                 if job is None or job.project_id != project_id:
                     return False
-                job.cancel_event.set()
+                job.cancel_event.request_cancel()
                 thread = self._threads.get(preview_id)
             self._join_thread(thread)
             with self._lock:
@@ -296,7 +323,7 @@ class ActionPreviewJobRegistry:
             self._closed = True
             for job in self._jobs.values():
                 if job.finished_at is None:
-                    job.cancel_event.set()
+                    job.cancel_event.request_cancel()
             threads = list(self._threads.values())
         for thread in threads:
             self._join_thread(thread)

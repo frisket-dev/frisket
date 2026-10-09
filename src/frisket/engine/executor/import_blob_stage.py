@@ -15,6 +15,7 @@ from frisket.actions.types import PdfDocument, PdfPage, StagedFile, TableError
 from frisket.engine.executor.local_file_read import _ReadOnlyBinary
 from frisket.engine.store.blob_backend import ProjectBlobStore, validate_blob_digest
 from frisket.engine.store.import_blobs import ImportBlob, ImportBlobCell, ImportBlobPlan
+from frisket.engine.store.prepared_content import PreparedPageDraft
 from frisket.engine.store.disk_capacity import require_disk_headroom
 from frisket.engine.store.media_blobs import media_cell, owned_media_metadata_document
 from frisket.ops.media_probe import probe_for_ingest
@@ -222,6 +223,89 @@ class AdmittedImportBlobStager:
     def describe(self, file: StagedFile) -> ImportBlob:
         """Host-only metadata for an admitted scratch file; never publish a path."""
         return self._admitted(file)
+
+    def associate_packet_split(
+        self,
+        document: StagedFile,
+        child: StagedFile,
+        *,
+        source_page_count: int,
+        sibling_count: int,
+        page_start: int,
+        page_end: int,
+        ocr_pages,
+        prepared_column_name: str,
+    ) -> None:
+        """Attach trusted packet lineage to two invocation-owned staged files."""
+        source = self._admitted(document)
+        derived = self._admitted(child)
+        if source.role != "document" or derived.role != "attachment":
+            raise ValueError("packet split requires one document and one child")
+        if (
+            type(source_page_count) is not int
+            or type(sibling_count) is not int
+            or type(page_start) is not int
+            or type(page_end) is not int
+            or source_page_count < 1
+            or sibling_count < 1
+            or not 1 <= page_start <= page_end <= source_page_count
+        ):
+            raise ValueError("invalid packet page range")
+        page_total = page_end - page_start + 1
+        drafts = []
+        engine = None
+        token_granularity = None
+        for expected, page in enumerate(ocr_pages, 1):
+            if (
+                type(getattr(page, "page", None)) is not int
+                or page.page != expected
+                or not isinstance(getattr(page, "text", None), str)
+                or not isinstance(getattr(page, "blocks", None), tuple)
+                or not isinstance(getattr(page, "engine", None), str)
+                or not page.engine
+                or getattr(page, "token_granularity", None)
+                not in {"word", "line", "block"}
+            ):
+                raise ValueError("invalid prepared packet OCR page")
+            if engine is not None and page.engine != engine:
+                raise ValueError("packet OCR pages must use one engine")
+            if (
+                token_granularity is not None
+                and page.token_granularity != token_granularity
+            ):
+                raise ValueError("packet OCR pages must use one token granularity")
+            engine = page.engine
+            token_granularity = page.token_granularity
+            drafts.append(
+                PreparedPageDraft(
+                    page_number=page.page,
+                    text=page.text,
+                    positions={"engine": page.engine, "blocks": list(page.blocks)},
+                )
+            )
+        if drafts and len(drafts) != page_total:
+            raise ValueError("packet OCR must cover every child page")
+        if not isinstance(prepared_column_name, str) or not prepared_column_name:
+            raise ValueError("packet OCR requires a prepared output column")
+        self._manifest[document] = replace(
+            source,
+            page_count=source_page_count,
+            occurrence_ref={
+                "kind": "pdf_packet_split_source",
+                "sibling_count": sibling_count,
+            },
+        )
+        self._manifest[child] = replace(
+            derived,
+            packet_source_id=source.occurrence_id,
+            packet_page_start=page_start,
+            packet_page_end=page_end,
+            packet_sibling_count=sibling_count,
+            prepared_pages=tuple(drafts),
+            prepared_engine=engine,
+            prepared_token_granularity=token_granularity,
+            prepared_column_name=prepared_column_name if drafts else None,
+        )
 
     def stage_acquired_url(
         self,

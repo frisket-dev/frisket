@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import io
 import json
 import threading
@@ -332,6 +333,27 @@ def test_paid_ocr_confirmation_hash_is_bound_to_page_selection(
         assert consented_set_hash(
             first.resolved_execution.promise_set
         ) != consented_set_hash(second.resolved_execution.promise_set)
+
+
+def test_paid_ocr_borrowed_pdf_accepts_packet_scale_page_selection(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "packet.pdf"
+    source.write_bytes(b"%PDF-1.4\n")
+    pages = list(range(1, 12))
+    with closing(Project.create(tmp_path / "ocr-packet.frisket")) as project:
+        _router, composition = _composition(project)
+        plan, summary = paid_ocr_scratch_plan(
+            project,
+            media_path=source,
+            media_digest=hashlib.sha256(source.read_bytes()).hexdigest(),
+            media_size=source.stat().st_size,
+            payload={"engine": "tesseract", "pages": pages},
+            composition=composition,
+        )
+
+        assert summary["pages"] == pages
+        assert plan.work_scope["selection"] == {"pages": pages}
 
 
 def test_paid_ocr_all_page_failures_raise_after_usage_is_retained(

@@ -156,6 +156,7 @@ class ExecutorDeps:
     # production defaults to EmbeddingGateway(router=...) at the family edge.
     embedding_gateway: Any | None = None
     local_file_sources: Mapping[str, BoundLocalFile] | None = None
+    packet_split_reader: Any | None = None
     # Request-local trusted ingress resolves opaque email refs to borrowed
     # streams. Missing/unknown refs never fall back to opening a client path.
     email_sources: Mapping[str, EmailInput] | None = None
@@ -165,6 +166,7 @@ class ExecutorDeps:
     import_workload_limits: ImportWorkloadLimits | None = None
     cell_edit_query_limits: CellEditQueryLimits | None = None
     cancelled: Callable[[], bool] | None = None
+    seal_cancellation: Callable[[], bool] | None = None
 
 
 @dataclass(frozen=True)

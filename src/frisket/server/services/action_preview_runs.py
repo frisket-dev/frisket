@@ -14,6 +14,7 @@ import asyncio
 import threading
 import time
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Any, Callable
 
 from frisket.contracts.action import ActionError as V1ActionError
@@ -163,6 +164,46 @@ class ActionPreviewRunService:
             media_bytes=media_bytes,
             payload=payload,
             composition=composition,
+        )
+        if self._workspace.executor_deps_factory is not None:
+            plan = replace(
+                plan,
+                consent_coverage=self._workspace.executor_deps_factory(
+                    project_id, request_context
+                ).consent_coverage,
+            )
+        return plan, source, router, composition, execution_context
+
+    def prepare_ocr_scratch_path(
+        self,
+        project_id: str,
+        media_path: Path,
+        *,
+        media_digest: str,
+        media_size: int,
+        payload: dict[str, Any],
+        on_page: Callable[[dict[str, Any]], None] | None = None,
+        request_context: Any = None,
+    ):
+        """Prepare accounted OCR over a server-owned borrowed PDF path."""
+        from frisket.server.services.scratch_ocr import paid_ocr_scratch_plan
+
+        project = self._workspace.get(project_id)
+        router = self._workspace.action_execution_router_for(project)
+        execution_context = self._workspace.edition_execution_composition_context_for(
+            request_context
+        )
+        composition = self._workspace.execution_composition_for(
+            project, router, execution_context
+        )
+        plan, source = paid_ocr_scratch_plan(
+            project,
+            media_path=media_path,
+            media_digest=media_digest,
+            media_size=media_size,
+            payload=payload,
+            composition=composition,
+            on_page=on_page,
         )
         if self._workspace.executor_deps_factory is not None:
             plan = replace(

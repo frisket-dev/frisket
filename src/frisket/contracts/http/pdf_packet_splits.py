@@ -32,7 +32,7 @@ class PdfPacketPrepareState(WireModel):
     progress: PdfPacketProgress
     pages_ready: list[int] = Field(default_factory=list)
     native_text_pages: list[int] = Field(default_factory=list)
-    embeddings_ready: int = Field(default=0, ge=0)
+    visual_pages_ready: int = Field(default=0, ge=0)
 
 
 class PdfPacketJobState(WireModel):
@@ -179,7 +179,6 @@ class PdfPacketCommitRequest(WireModel):
     destination: PdfPacketDestination
     name_pattern: str = Field(min_length=1, max_length=256)
     keep_ocr_text: bool = False
-    remember_options: bool = False
 
 
 __all__ = [name for name in globals() if name.startswith("PdfPacket")]

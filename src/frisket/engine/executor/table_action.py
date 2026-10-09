@@ -19,6 +19,7 @@ from frisket.actions.core import CreateSheet, OutputField, _publication_return_s
 from frisket.actions.document_extract import PositionedDocumentReader
 from frisket.actions.url_import_types import UrlImporter
 from frisket.actions.import_inventory_types import FileInventoryReader
+from frisket.actions.pdf_packet_import_types import PacketSplitReader
 from frisket.actions.entity_types import ClusterReceiptReader
 from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.types import (
@@ -277,6 +278,7 @@ def _table_columns(
                     "type": canonical_column_type(field.column_type),
                     "format": field.format,
                     "hidden": field.hidden,
+                    "default_hidden": field.default_hidden,
                 }
                 for field in fields
             ],
@@ -513,6 +515,9 @@ def builtin_table_source(project, project_id, bound, *, deps=None) -> TableSourc
             bound, prepared.produced, prepared.readers, prepared.row_count
         )
         prepared.reads = tuple(reads)
+        seal_cancellation = (deps or ExecutorDeps()).seal_cancellation
+        if seal_cancellation is not None and not seal_cancellation():
+            raise TableError("action_cancelled", "Table import was cancelled.")
 
     return TableSource(
         _TypedProjectEnvelope(
@@ -592,6 +597,13 @@ def prepare_table_producer(
                 )
             elif capability is FileInventoryReader:
                 reader = AdmittedFileInventoryReader(inventory_admission, blob_stager)
+            elif capability is PacketSplitReader:
+                if deps.packet_split_reader is None:
+                    raise TableError(
+                        "invalid_packet_split_source",
+                        "PDF packet source was not admitted by this invocation.",
+                    )
+                reader = deps.packet_split_reader
             elif capability is EmailSourceReader:
                 reader = AdmittedEmailSourceReader(deps.email_sources)
                 resources.callback(reader.close)

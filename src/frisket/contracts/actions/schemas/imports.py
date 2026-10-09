@@ -41,6 +41,7 @@ class ImportRowsColumn(ContractModel):
     type: str = Field(min_length=1)
     format: str | None = None
     hidden: bool = False
+    default_hidden: bool = False
 
 
 def _validate_import_columns(

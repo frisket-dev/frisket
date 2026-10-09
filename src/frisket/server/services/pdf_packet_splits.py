@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 from urllib.parse import quote
 
-from pypdf import PdfReader, PdfWriter
+from pypdf import PdfReader
 
 from frisket.contracts.http.pdf_packet_splits import (
     PDF_PACKET_SPLIT_SCHEMA_VERSION,
@@ -32,14 +32,8 @@ from frisket.contracts.http.pdf_packet_splits import (
     PdfPacketOcrJobRequest,
     PdfPacketTextSourceRequest,
 )
-from frisket.engine.executor.ocr_evidence import _page_spans
 from frisket.engine.pdf_render import render_pdf_pages
 from frisket.engine.pdf_text import PdfTextError, extract_pdf_text
-from frisket.engine.store.evidence import (
-    record_evidence_link,
-    record_source_artifact,
-    record_source_span,
-)
 from frisket.engine.executor.table_preview import TablePreviewResult
 from frisket.pdf_packets import PhraseRule, match_packet_pages
 from frisket.server.route_errors import RouteError
@@ -48,8 +42,8 @@ from frisket.server.services.action_preview_jobs import (
     PreviewJob,
 )
 from frisket.server.services.action_preview_runs import ActionPreviewRunService
-from frisket.server.services.import_files import ImportFilesUploadService
 from frisket.server.services.import_uploads import AdmittedUpload
+from frisket.server.services.pdf_packet_commit import PdfPacketCommitter
 from frisket.server.workspace import Workspace
 
 
@@ -120,7 +114,7 @@ class PdfPacketSplitService:
         self._workspace = workspace
         self._registry = registry
         self._preview_runs = preview_runs
-        self._imports = ImportFilesUploadService(workspace)
+        self._committer = PdfPacketCommitter(workspace)
         # The application must supply an already configured vectorizer. Merely
         # creating a packet session never initializes or downloads a model.
         self._image_vectorizer = image_vectorizer
@@ -150,7 +144,9 @@ class PdfPacketSplitService:
                 raise PdfPacketSplitRouteError(
                     409, "uploaded PDF changed after admission"
                 )
-            if source_path.read_bytes()[:5] != b"%PDF-":
+            with source_path.open("rb") as source:
+                header = source.read(5)
+            if header != b"%PDF-":
                 raise PdfPacketSplitRouteError(422, "packet upload is not a PDF")
             try:
                 page_count = len(PdfReader(source_path, strict=False).pages)
@@ -325,11 +321,6 @@ class PdfPacketSplitService:
         session = self._session(project_id, split_id)
         self._validate_pages(session, [page])
         source = session.directory / "pages" / f"page-{page}.png"
-        if not source.exists():
-            # PDFium's stable filename is intentionally encapsulated here; a
-            # missing render is a normal 409 while preparation is in flight.
-            candidates = list((session.directory / "pages").glob(f"*{page}*.png"))
-            source = candidates[0] if len(candidates) == 1 else source
         if not source.is_file():
             raise PdfPacketSplitRouteError(409, "page thumbnail is not ready")
         fd, name = tempfile.mkstemp(prefix="frisket-packet-thumb-", suffix=".png")
@@ -347,15 +338,18 @@ class PdfPacketSplitService:
         request_context: Any = None,
     ) -> dict[str, Any]:
         session = self._session(project_id, split_id, ready=True)
+        self._sync_jobs(session)
         pages, cached = self._ocr_pages(session, body.engine, body.scope, body.pages)
         if not pages:
             estimate: dict[str, Any] = {"cost": 0.0, "claims": []}
         else:
             plan, _source, _router, _composition, _context = (
-                self._preview_runs.prepare_ocr_scratch(
+                self._preview_runs.prepare_ocr_scratch_path(
                     project_id,
-                    session.source_path.read_bytes(),
-                    self._ocr_payload(session, body.engine, pages),
+                    session.source_path,
+                    media_digest=session.source_hash,
+                    media_size=session.size,
+                    payload=self._ocr_payload(session, body.engine, pages),
                     request_context=request_context,
                 )
             )
@@ -378,14 +372,20 @@ class PdfPacketSplitService:
         request_context: Any = None,
     ) -> dict[str, Any]:
         session = self._session(project_id, split_id, ready=True)
+        self._sync_jobs(session)
         pages, cached = self._ocr_pages(session, body.engine, body.scope, body.pages)
         if not pages:
             raise PdfPacketSplitRouteError(409, "all requested pages already have OCR")
         plan, _source, router, composition, execution_context = (
-            self._preview_runs.prepare_ocr_scratch(
+            self._preview_runs.prepare_ocr_scratch_path(
                 project_id,
-                session.source_path.read_bytes(),
-                self._ocr_payload(session, body.engine, pages),
+                session.source_path,
+                media_digest=session.source_hash,
+                media_size=session.size,
+                payload=self._ocr_payload(session, body.engine, pages),
+                on_page=lambda page: self._cache_ocr_page(
+                    split_id, body.engine, page
+                ),
                 request_context=request_context,
             )
         )
@@ -419,6 +419,22 @@ class PdfPacketSplitService:
             "total": len(pages),
             "receipt_id": job.receipt.receipt_id if job and job.receipt else None,
         }
+
+    def _cache_ocr_page(
+        self, split_id: str, engine: str, page: dict[str, Any]
+    ) -> None:
+        number = page.get("page")
+        if type(number) is not int:
+            return
+        with self._lock:
+            session = self._sessions.get(split_id)
+            if session is None or not 1 <= number <= session.page_count:
+                return
+            session.ocr.setdefault(engine, {})[number] = {
+                "text": str(page.get("text") or ""),
+                "blocks": list(page.get("blocks") or []),
+            }
+            session.analysis_revision += 1
 
     @staticmethod
     def _ocr_payload(
@@ -547,8 +563,15 @@ class PdfPacketSplitService:
         *,
         request_context: Any = None,
     ) -> dict[str, Any]:
-        session = self._session(project_id, split_id, ready=True)
-        del request_context
+        session = self._session(project_id, split_id)
+        existing = session.commit_keys.get(body.idempotency_key)
+        if existing:
+            job = self._registry.get(project_id, existing)
+            return self._start_payload(
+                session, job, "commit", len(body.confirmed_starts)
+            )
+        if session.status != "ready":
+            raise PdfPacketSplitRouteError(409, "packet preparation is not ready")
         self._validate_labels(session, body.confirmed_starts, [])
         starts = sorted(set(body.confirmed_starts))
         ranges = [
@@ -560,6 +583,10 @@ class PdfPacketSplitService:
             )
             for index, start in enumerate(starts)
         ]
+        for index, (start, end) in enumerate(ranges, 1):
+            self._child_name(
+                body.name_pattern, session.filename, index, start, end
+            )
         if body.keep_ocr_text:
             if session.text_source != "ocr" or session.ocr_engine is None:
                 raise PdfPacketSplitRouteError(
@@ -575,89 +602,74 @@ class PdfPacketSplitService:
                     409, "run OCR on every page before keeping OCR text"
                 )
         with self._lock:
-            existing = session.commit_keys.get(body.idempotency_key)
-            if existing:
-                job = self._registry.get(project_id, existing)
-                return self._start_payload(session, job, "commit", len(ranges))
             if session.status == "committing":
                 raise PdfPacketSplitRouteError(409, "packet commit is already running")
             session.status = "committing"
-        job = self._registry.start(
-            project_id,
-            len(ranges),
-            lambda progress, cancelled: self._commit_run(
-                session,
-                body,
-                ranges,
-                progress=progress,
-                cancelled=cancelled,
-            ),
-            replacement_key=f"pdf-packet:{split_id}:commit",
-        )
+        try:
+            job = self._registry.start(
+                project_id,
+                len(ranges),
+                lambda progress, cancelled: self._commit_run(
+                    session,
+                    body,
+                    ranges,
+                    request_context=request_context,
+                    progress=progress,
+                    cancelled=cancelled,
+                ),
+                replacement_key=f"pdf-packet:{split_id}:commit",
+            )
+        except BaseException:
+            with self._lock:
+                session.status = "ready"
+            raise
         with self._lock:
             session.jobs[job.id] = _PacketJob(job.id, "commit")
             session.commit_keys[body.idempotency_key] = job.id
         return self._start_payload(session, job, "commit", len(ranges))
 
-    def _commit_run(self, session, body, ranges, *, progress, cancelled):
-        output = session.directory / f"commit-{uuid.uuid4().hex}"
-        output.mkdir()
-        files: list[AdmittedUpload] = []
+    def _commit_run(
+        self,
+        session,
+        body,
+        ranges,
+        *,
+        request_context,
+        progress,
+        cancelled,
+    ):
         try:
-            reader = PdfReader(session.source_path, strict=False)
-            for index, (start, end) in enumerate(ranges, 1):
-                if cancelled.is_set():
-                    raise RuntimeError("packet commit was cancelled")
-                writer = PdfWriter()
-                for page in range(start, end + 1):
-                    writer.add_page(reader.pages[page - 1])
-                filename = self._child_name(
-                    body.name_pattern,
-                    session.filename,
-                    index,
-                    start,
-                    end,
-                )
-                path = output / f"{index}.pdf"
-                with path.open("wb") as sink:
-                    writer.write(sink)
-                digest = hashlib.sha256(path.read_bytes()).hexdigest()
-                files.append(
-                    AdmittedUpload(
-                        filename=filename,
-                        mime="application/pdf",
-                        source=None,
-                        sha256=digest,
-                        size=path.stat().st_size,
-                        open_source=lambda path=path: path.open("rb"),
-                    )
-                )
-                progress(index, len(ranges))
-            result = self._imports.upload_files(
+            committed = self._committer.commit(
                 session.project_id,
-                files=files,
+                source_path=session.source_path,
+                source_filename=session.filename,
+                source_page_count=session.page_count,
+                ranges=ranges,
+                names=[
+                    self._child_name(
+                        body.name_pattern,
+                        session.filename,
+                        index,
+                        start,
+                        end,
+                    )
+                    for index, (start, end) in enumerate(ranges, 1)
+                ],
+                ocr_pages=(
+                    session.ocr[session.ocr_engine]
+                    if body.keep_ocr_text and session.ocr_engine is not None
+                    else None
+                ),
+                ocr_engine=session.ocr_engine if body.keep_ocr_text else None,
                 sheet_name=body.destination.name,
+                idempotency_key=(
+                    f"pdf-packet-split:{session.id}:{body.idempotency_key}"
+                ),
+                request_context=request_context,
+                progress=progress,
+                cancelled=cancelled.is_set,
+                seal_cancellation=cancelled.seal,
             )
-            if result.status_code != 200:
-                raise RuntimeError("packet documents could not be imported")
-            sheet_id = int(result.payload["sheet_id"])
-            try:
-                self._publish_packet_provenance(
-                    session,
-                    sheet_id,
-                    ranges,
-                    receipt_id=result.receipt_id,
-                    op_id=result.op_ids[-1] if result.op_ids else None,
-                    keep_ocr=body.keep_ocr_text,
-                )
-            except BaseException:
-                self._workspace.get(session.project_id).delete_sheet(sheet_id)
-                raise
-            committed = {
-                "sheet_id": sheet_id,
-                "document_count": len(ranges),
-                "receipt_id": result.receipt_id,
-            }
             with self._lock:
                 session.commit_result = committed
                 session.status = "completed"
@@ -666,162 +678,6 @@ class PdfPacketSplitService:
             with self._lock:
                 session.status = "cancelled" if cancelled.is_set() else "error"
             raise
-        finally:
-            shutil.rmtree(output, ignore_errors=True)
-
-    def _publish_packet_provenance(
-        self,
-        session: _PacketSession,
-        sheet_id: int,
-        ranges: list[tuple[int, int]],
-        *,
-        receipt_id: str | None,
-        op_id: int | None,
-        keep_ocr: bool,
-    ) -> None:
-        project = self._workspace.get(session.project_id)
-        columns = {
-            str(row["name"]): int(row["id"]) for row in project.columns(sheet_id)
-        }
-        media_column = columns["media"]
-        rows = [
-            int(row["id"])
-            for row in project.db.execute(
-                "SELECT id FROM rows WHERE sheet_id=? AND hidden=0 ORDER BY position",
-                (sheet_id,),
-            )
-        ]
-        media, media_refs = project.get_values_with_refs(sheet_id, media_column, rows)
-        if len(rows) != len(ranges):
-            raise RuntimeError("packet import returned the wrong document count")
-        with project.db:
-            source = record_source_artifact(
-                project,
-                artifact_kind="file",
-                media_type="application/pdf",
-                blob_hash=session.source_hash,
-                filename=session.filename,
-                page_count=session.page_count,
-                source_sheet_id=sheet_id,
-                external_ref={
-                    "kind": "pdf_packet_split_source",
-                    "sibling_count": len(ranges),
-                },
-            )
-            for row_id, (start, end) in zip(rows, ranges, strict=True):
-                child_hash = str(media[row_id]["blob"])
-                project.record_blob_derivation(
-                    derived_hash=child_hash,
-                    source_hash=session.source_hash,
-                    op="pdf_packet_split",
-                    params={"page_start": start, "page_end": end},
-                    commit=False,
-                )
-                span = record_source_span(
-                    project,
-                    artifact_id=int(source["id"]),
-                    span_kind="page_range",
-                    page_start=start,
-                    page_end=end,
-                    selector={
-                        "kind": "page_range",
-                        "page_start": start,
-                        "page_end": end,
-                    },
-                    snippet=f"Pages {start}\u2013{end}",
-                )
-                record_evidence_link(
-                    project,
-                    subject_kind="cell_value",
-                    subject_ref=media_refs[row_id],
-                    spans=[{"span_id": int(span["id"])}],
-                    sheet_id=sheet_id,
-                    row_id=row_id,
-                    column_id=media_column,
-                    op_id=op_id,
-                    receipt_id=receipt_id,
-                    link_role="source_provenance",
-                )
-        if keep_ocr:
-            self._publish_kept_ocr(
-                session,
-                project,
-                sheet_id,
-                rows,
-                ranges,
-                media,
-                media_column,
-                receipt_id=receipt_id,
-            )
-
-    def _publish_kept_ocr(
-        self,
-        session,
-        project,
-        sheet_id,
-        rows,
-        ranges,
-        media,
-        media_column,
-        *,
-        receipt_id,
-    ) -> None:
-        engine = session.ocr_engine
-        assert engine is not None
-        page_ocr = session.ocr[engine]
-        column_id = project.add_column(
-            sheet_id, "OCR text", "text", default_hidden=True
-        )
-        edits = []
-        for row_id, (start, end) in zip(rows, ranges, strict=True):
-            text = "\n\n".join(
-                str(page_ocr[page].get("text") or "") for page in range(start, end + 1)
-            )
-            edits.append({"row_id": row_id, "column_id": column_id, "value": text})
-        op_id = project.apply_edits(
-            edits,
-            label="keep packet OCR",
-            spec={"source": "pdf_packet_split", "engine": engine},
-        )
-        _values, refs = project.get_values_with_refs(sheet_id, column_id, rows)
-        with project.db:
-            for row_id, (start, end) in zip(rows, ranges, strict=True):
-                child_hash = str(media[row_id]["blob"])
-                artifact = record_source_artifact(
-                    project,
-                    artifact_kind="file",
-                    media_type="application/pdf",
-                    blob_hash=child_hash,
-                    filename=media[row_id].get("filename"),
-                    page_count=end - start + 1,
-                    source_sheet_id=sheet_id,
-                    source_row_id=row_id,
-                    source_column_id=media_column,
-                    metadata={"engine": engine},
-                )
-                span_refs = []
-                for source_page in range(start, end + 1):
-                    relative_page = source_page - start + 1
-                    entry = dict(page_ocr[source_page])
-                    entry["page"] = relative_page
-                    for descriptor in _page_spans(entry, {}, engine):
-                        span = record_source_span(
-                            project, artifact_id=int(artifact["id"]), **descriptor
-                        )
-                        span_refs.append({"span_id": int(span["id"])})
-                record_evidence_link(
-                    project,
-                    subject_kind="cell",
-                    subject_ref=refs[row_id],
-                    spans=span_refs,
-                    sheet_id=sheet_id,
-                    row_id=row_id,
-                    column_id=column_id,
-                    op_id=op_id,
-                    receipt_id=receipt_id,
-                    link_role="media_ocr_grounding",
-                    producer={"action_kind": "media.ocr", "engine": engine},
-                )
 
     @staticmethod
     def _child_name(pattern: str, packet: str, index: int, start: int, end: int) -> str:
@@ -913,7 +769,7 @@ class PdfPacketSplitService:
                 "native_text_pages": sorted(
                     page for page, text in session.native_text.items() if text
                 ),
-                "embeddings_ready": len(session.vectors),
+                "visual_pages_ready": len(session.vectors),
             },
             "text_source": session.text_source,
             "ocr_engine": session.ocr_engine,

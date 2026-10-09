@@ -1650,6 +1650,7 @@ class TableColumn:
     type: str
     format: str | None = None
     hidden: bool = False
+    default_hidden: bool = False
 
     def __post_init__(self) -> None:
         if not self.key or self.key != self.key.strip():
@@ -1870,6 +1871,21 @@ class ImportBlobStager(Protocol):
 
     def open_binary(self, file: StagedFile) -> ContextManager[BinaryIO]:
         """Borrow a read-only seekable stream for a file admitted by this invocation."""
+        ...
+
+    def associate_packet_split(
+        self,
+        document: StagedFile,
+        child: StagedFile,
+        *,
+        source_page_count: int,
+        sibling_count: int,
+        page_start: int,
+        page_end: int,
+        ocr_pages: Sequence[Any],
+        prepared_column_name: str,
+    ) -> None:
+        """Attach host-admitted split lineage and prepared OCR to one child."""
         ...
 
 

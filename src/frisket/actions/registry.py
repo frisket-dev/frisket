@@ -54,6 +54,7 @@ from frisket.actions.imports import (
 )
 from frisket.actions.import_geo import GEOJSON, KML
 from frisket.actions.import_media import FILES, PDF
+from frisket.actions.import_pdf_packet import PDF_PACKET
 from frisket.actions.import_email import EMAIL
 from frisket.actions.import_runtime import RUNTIME
 from frisket.actions.import_urls import URLS
@@ -187,6 +188,7 @@ IMPORT_ACTIONS = ActionNamespace(
         KML,
         FILES,
         PDF,
+        PDF_PACKET,
         EMAIL,
         RUNTIME,
         URLS,

@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from pypdf import PdfWriter
 
 from frisket.contracts.http.pdf_packet_splits import (
@@ -18,9 +19,15 @@ from frisket.contracts.http.pdf_packet_splits import (
 )
 from frisket.engine.pdf_render import PdfRenderResult
 from frisket.engine.executor.table_preview import TablePreviewResult
+from frisket.engine.store.evidence import resolve_evidence_viewer
+from frisket.engine.store.ocr_word_stream import (
+    resolve_current_ocr_evidence,
+    resolve_ocr_word_stream,
+)
 from frisket.server.services.action_preview_runs import ActionPreviewRunResponse
 from frisket.server.services.action_preview_jobs import ActionPreviewJobRegistry
 from frisket.server.services.import_uploads import AdmittedUpload
+from frisket.server.services.pdf_packet_commit import PdfPacketCommitter
 from frisket.server.services.pdf_packet_splits import PdfPacketSplitService
 from frisket.server.workspace import Workspace
 
@@ -29,11 +36,19 @@ class _PreviewRuns:
     def __init__(self, registry: ActionPreviewJobRegistry) -> None:
         self.registry = registry
 
-    def prepare_ocr_scratch(
-        self, project_id, media_bytes, payload, *, request_context=None
+    def prepare_ocr_scratch_path(
+        self,
+        project_id,
+        media_path,
+        *,
+        media_digest,
+        media_size,
+        payload,
+        on_page=None,
+        request_context=None,
     ):
-        assert media_bytes.startswith(b"%PDF-")
-        return payload, {}, None, None, None
+        assert media_path.read_bytes().startswith(b"%PDF-")
+        return {**payload, "on_page": on_page}, {}, None, None, None
 
     def scratch_estimate(self, project_id, plan):
         return {"cost": len(plan["pages"]) / 100, "claims": []}
@@ -73,6 +88,14 @@ class _PreviewRuns:
                         },
                     }
                 )
+                if plan["on_page"] is not None:
+                    plan["on_page"](
+                        {
+                            "page": page,
+                            "text": f"OCR page {page}",
+                            "blocks": rows[-1]["blocks"]["value"],
+                        }
+                    )
                 progress(index, total)
             return TablePreviewResult([], rows, total)
 
@@ -162,7 +185,7 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
     split_id = created["split_id"]
     ready = _wait_status(service, project_id, split_id, "ready")
     assert ready["prepare"]["pages_ready"] == [1, 2, 3, 4]
-    assert ready["prepare"]["embeddings_ready"] == 4
+    assert ready["prepare"]["visual_pages_ready"] == 4
 
     estimate = service.estimate_ocr(
         project_id,
@@ -178,9 +201,8 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
     )
     deadline = time.monotonic() + 4
     while time.monotonic() < deadline:
-        status = service.status(project_id, split_id)
-        job = next(job for job in status["jobs"] if job["job_id"] == sample["job_id"])
-        if job["progress"]["status"] == "done":
+        job = registry.get(project_id, sample["job_id"])
+        if job is not None and job.status == "done":
             break
         time.sleep(0.01)
     assert service.page(project_id, split_id, 1)["ocr_text"] is None
@@ -230,6 +252,7 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
     completed = _wait_status(service, project_id, split_id, "completed")
     assert completed["commit_result"]["document_count"] == 2
 
+    service.close(project_id, split_id)
     project = workspace.get(project_id)
     sheet_id = completed["commit_result"]["sheet_id"]
     assert project.row_count(sheet_id) == 2
@@ -246,6 +269,52 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
         "OCR page 1\n\nOCR page 2",
         "OCR page 3\n\nOCR page 4",
     ]
+    child_artifacts = project.db.execute(
+        "SELECT blob_hash,source_row_id FROM source_artifacts "
+        "WHERE source_sheet_id=? AND source_row_id IS NOT NULL ORDER BY source_row_id",
+        (sheet_id,),
+    ).fetchall()
+    assert len(child_artifacts) == 2
+    for artifact in child_artifacts:
+        stream = resolve_ocr_word_stream(project, artifact["blob_hash"])
+        assert stream is not None
+        assert stream.engine == "test-ocr"
+        assert [token.page for token in stream.stream.tokens] == [1, 2]
+        current = resolve_current_ocr_evidence(
+            project,
+            sheet_id=sheet_id,
+            row_id=int(artifact["source_row_id"]),
+            column_id=int(ocr_column["id"]),
+            blob_hash=artifact["blob_hash"],
+        )
+        assert len(current) == 1
+        assert current[0].value_ref["prepared_ref_id"] > 0
+
+    source_links = project.db.execute(
+        "SELECT id FROM evidence_links WHERE sheet_id=? "
+        "AND link_role='source_provenance' ORDER BY row_id",
+        (sheet_id,),
+    ).fetchall()
+    viewers = [
+        resolve_evidence_viewer(project, link["id"], project_id=project_id)
+        for link in source_links
+    ]
+    assert [viewer["artifacts"][0]["filename"] for viewer in viewers] == [
+        "packet.pdf",
+        "packet.pdf",
+    ]
+    assert [viewer["artifacts"][0]["page_count"] for viewer in viewers] == [4, 4]
+    assert [
+        viewer["artifacts"][0]["external_ref"]["sibling_count"]
+        for viewer in viewers
+    ] == [2, 2]
+    assert [
+        (
+            viewer["artifacts"][0]["spans"][0]["selector"]["page_start"],
+            viewer["artifacts"][0]["spans"][0]["selector"]["page_end"],
+        )
+        for viewer in viewers
+    ] == [(1, 2), (3, 4)]
     derivations = project.db.execute(
         "SELECT op,params_json FROM blob_derivations ORDER BY id"
     ).fetchall()
@@ -254,5 +323,47 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
         "pdf_packet_split",
     ]
 
-    service.close(project_id, split_id)
     registry.shutdown()
+
+
+def test_packet_commit_rolls_back_sheet_and_lineage_when_publication_fails(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
+    project_id = str(workspace.create("Packet", project_id="packet")["id"])
+    project = workspace.get(project_id)
+    source = tmp_path / "packet.pdf"
+    source.write_bytes(_pdf(2))
+
+    from frisket.engine.store import import_blobs
+
+    publish = import_blobs.publish_import_blobs
+
+    def fail_after_publication(*args, **kwargs):
+        publish(*args, **kwargs)
+        raise RuntimeError("forced publication failure")
+
+    monkeypatch.setattr(import_blobs, "publish_import_blobs", fail_after_publication)
+    with pytest.raises(RuntimeError, match="project write failed"):
+        PdfPacketCommitter(workspace).commit(
+            project_id,
+            source_path=source,
+            source_filename="packet.pdf",
+            source_page_count=2,
+            ranges=[(1, 2)],
+            names=["child.pdf"],
+            ocr_pages=None,
+            ocr_engine=None,
+            sheet_name="Documents",
+            idempotency_key="rollback",
+            request_context=None,
+            progress=lambda *_args: None,
+            cancelled=lambda: False,
+            seal_cancellation=lambda: True,
+        )
+
+    assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
+    assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
+    assert project.db.execute("SELECT COUNT(*) FROM source_artifacts").fetchone()[0] == 0
+    assert project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] == 0
+    assert project.db.execute("SELECT COUNT(*) FROM blob_derivations").fetchone()[0] == 0
