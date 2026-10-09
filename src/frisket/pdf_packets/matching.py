@@ -304,11 +304,18 @@ def match_packet_pages(
     unsure = tuple(
         match.page
         for match in page_matches
-        if match.visual_score is not None
-        and match.page not in confirmed_pages
+        if match.page not in confirmed_pages
         and match.page not in rejected_pages
         and not match.suggested
-        and threshold - _UNSURE_BAND <= match.visual_score < threshold
+        # A strong match vetoed by a negative example still needs a human
+        # decision. Ordinary above-threshold matches are already suggestions.
+        and (
+            (
+                match.visual_score is not None
+                and match.visual_score >= threshold - _UNSURE_BAND
+            )
+            or bool(match.matched_phrases)
+        )
     )
     suggestions = tuple(match.page for match in page_matches if match.suggested)
     return PacketMatchResult(
