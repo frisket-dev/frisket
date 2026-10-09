@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { PdfPacketMatchResult, PdfPacketSplitSnapshot } from '../../src/api/pdfPacketSplits';
 import {
+  canKeepPdfPacketOcr,
   confirmedDocuments,
   formatPdfPacketDocumentName,
   initialPdfPacketFlowState,
@@ -30,6 +31,7 @@ const snapshot: PdfPacketSplitSnapshot = {
     visual_pages_ready: 20,
   },
   text_source: 'unconfirmed',
+  ocr_pages: [],
   ocr_engine: null,
   jobs: [],
   analysis_revision: 0,
@@ -126,4 +128,18 @@ describe('PDF packet split state', () => {
     expect(formatPdfPacketDocumentName('{packet}.pdf', 'FOIA packet.pdf', document)).toBe('FOIA packet.pdf');
     expect(pdfPacketNamePatternError('{packet}-{unknown}')).toBe('Unknown field {unknown}.');
   });
+});
+
+
+it('keeps complete cached OCR without requiring a full-run job', () => {
+  const onePage = {
+    ...snapshot,
+    packet: { ...snapshot.packet, page_count: 1 },
+    text_source: 'ocr' as const,
+    ocr_engine: 'rapidocr',
+    ocr_pages: [1],
+  };
+  expect(canKeepPdfPacketOcr(onePage)).toBe(true);
+  expect(canKeepPdfPacketOcr({ ...onePage, ocr_pages: [] })).toBe(false);
+  expect(canKeepPdfPacketOcr({ ...onePage, text_source: 'native' })).toBe(false);
 });

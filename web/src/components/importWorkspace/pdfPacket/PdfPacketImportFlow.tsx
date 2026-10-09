@@ -1005,8 +1005,8 @@ function PacketFindStep({
     !state.confirmedStarts.includes(page) && !state.rejected.includes(page)
   ));
   const ocrJob = state.snapshot?.jobs.filter((job) => job.kind === 'ocr_full').at(-1);
-  const textRead = ocrJob
-    ? Math.min(pageCount, pageCount - ocrJob.pages.length + ocrJob.progress.done)
+  const textRead = state.snapshot?.text_source === 'ocr'
+    ? state.snapshot.ocr_pages.length
     : (state.snapshot?.text_source === 'native' ? state.snapshot.prepare.native_text_pages.length : 0);
   const documents = confirmedDocuments([...state.confirmedStarts, ...suggested], pageCount);
   const pageToDocument = new Map<number, PdfPacketDocument>();

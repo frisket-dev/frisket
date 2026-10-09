@@ -52,6 +52,7 @@ const baseSnapshot: PdfPacketSplitSnapshot = {
     visual_pages_ready: 4,
   },
   text_source: 'unconfirmed',
+  ocr_pages: [],
   ocr_engine: null,
   jobs: [],
   analysis_revision: 0,
@@ -401,7 +402,7 @@ describe('PDF packet import flow boundaries', () => {
     await choosePacket();
     fireEvent.click(screen.getByRole('button', { name: 'Yes, use extracted text' }));
 
-    expect(await screen.findByText('Text: 2 of 4 read')).toBeInTheDocument();
+    expect(await screen.findByText('Text: 4 of 4 read')).toBeInTheDocument();
     await waitFor(() => expect(api.matchPdfPacketCandidates.mock.calls.length).toBeGreaterThanOrEqual(2), { timeout: 2_000 });
     fireEvent.click(screen.getByRole('button', { name: 'Continue with 1 marked start →' }));
     const keepOcr = screen.getByRole('checkbox', { name: 'Keep OCR text and boxes with each PDF' });

@@ -302,6 +302,5 @@ export function formatPdfPacketDocumentName(
 
 export function canKeepPdfPacketOcr(snapshot: PdfPacketSplitSnapshot | null): boolean {
   if (!snapshot || snapshot.text_source !== 'ocr' || !snapshot.ocr_engine) return false;
-  const latest = snapshot.jobs.filter((job) => job.kind === 'ocr_full').at(-1);
-  return latest?.engine === snapshot.ocr_engine && latest.progress.status === 'done';
+  return snapshot.ocr_pages.length === snapshot.packet.page_count;
 }
