@@ -65,7 +65,6 @@ describe('PDF packet split API', () => {
       destination: { kind: 'new_sheet', name: 'Packet documents' },
       name_pattern: '{packet} · pp {start}–{end}',
       keep_ocr_text: true,
-      remember_options: false,
     });
 
     expect(JSON.parse(String(fetchMock.mock.calls[0][1].body))).toEqual({

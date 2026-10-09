@@ -41,7 +41,7 @@ export interface PdfPacketSplitSnapshot {
     progress: PdfPacketProgress;
     pages_ready: number[];
     native_text_pages: number[];
-    embeddings_ready: number;
+    visual_pages_ready: number;
   };
   text_source: 'unconfirmed' | 'native' | 'ocr';
   ocr_engine: string | null;
@@ -231,7 +231,6 @@ export function commitPdfPacketSplit(
     destination: { kind: 'new_sheet'; name: string };
     name_pattern: string;
     keep_ocr_text: boolean;
-    remember_options: boolean;
     idempotency_key: string;
   },
   options?: PdfPacketRequestOptions,

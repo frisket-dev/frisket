@@ -24,7 +24,7 @@ const snapshot: PdfPacketSplitSnapshot = {
     progress: { status: 'done', done: 20, total: 20, error: null },
     pages_ready: Array.from({ length: 20 }, (_, index) => index + 1),
     native_text_pages: [1, 2],
-    embeddings_ready: 20,
+    visual_pages_ready: 20,
   },
   text_source: 'unconfirmed',
   ocr_engine: null,

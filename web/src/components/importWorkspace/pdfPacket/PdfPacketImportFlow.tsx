@@ -343,7 +343,6 @@ export function PdfPacketImportFlow({
         destination: { kind: 'new_sheet', name: state.destinationName.trim() },
         name_pattern: state.namePattern,
         keep_ocr_text: state.keepOcrText,
-        remember_options: state.rememberOptions,
       });
       if (state.rememberOptions) {
         window.localStorage.setItem(rememberedOptionsKey(projectId), JSON.stringify({
