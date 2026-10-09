@@ -327,22 +327,41 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
     ]
     assert candidates["accept_all_scope"] == "packet"
 
-    started = service.commit(project_id, split_id, commit_body)
+    project = workspace.get(project_id)
+    project.add_sheet("Documents")
+    failed = service.commit(project_id, split_id, commit_body)
+    failed_status, failed_job = _wait_session_job(
+        service, project_id, split_id, failed["job_id"], "error"
+    )
+    assert failed_status["status"] == "ready"
+    assert failed_job["progress"]["status"] == "error"
+    assert (
+        service.commit(project_id, split_id, commit_body)["job_id"] == failed["job_id"]
+    )
+
+    successful_body = commit_body.model_copy(
+        update={
+            "idempotency_key": "commit-retry",
+            "destination": PdfPacketDestination(
+                kind="new_sheet", name="Imported Documents"
+            ),
+        }
+    )
+    started = service.commit(project_id, split_id, successful_body)
     assert started["kind"] == "commit"
     completed = _wait_status(service, project_id, split_id, "completed")
     assert completed["commit_result"]["document_count"] == 2
-    replayed = service.commit(project_id, split_id, commit_body)
+    replayed = service.commit(project_id, split_id, successful_body)
     assert replayed["job_id"] == started["job_id"]
     with pytest.raises(PdfPacketSplitRouteError) as conflict:
         service.commit(
             project_id,
             split_id,
-            commit_body.model_copy(update={"name_pattern": "different-{index}"}),
+            successful_body.model_copy(update={"name_pattern": "different-{index}"}),
         )
     assert conflict.value.status_code == 409
 
     service.close(project_id, split_id)
-    project = workspace.get(project_id)
     sheet_id = completed["commit_result"]["sheet_id"]
     assert project.row_count(sheet_id) == 2
     links = project.db.execute(

@@ -606,8 +606,13 @@ class PdfPacketSplitService:
                     409, "run OCR on every page before keeping OCR text"
                 )
         with self._lock:
-            if session.status == "committing":
-                raise PdfPacketSplitRouteError(409, "packet commit is already running")
+            if session.status != "ready":
+                message = (
+                    "packet commit is already running"
+                    if session.status == "committing"
+                    else "packet preparation is not ready"
+                )
+                raise PdfPacketSplitRouteError(409, message)
             session.status = "committing"
         try:
             job = self._registry.start(
@@ -683,7 +688,8 @@ class PdfPacketSplitService:
             return committed
         except BaseException:
             with self._lock:
-                session.status = "cancelled" if cancelled.is_set() else "error"
+                if self._sessions.get(session.id) is session:
+                    session.status = "ready"
             raise
 
     @staticmethod
