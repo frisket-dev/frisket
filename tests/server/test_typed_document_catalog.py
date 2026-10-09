@@ -61,10 +61,12 @@ def test_custom_document_action_receives_the_same_engine_choices(monkeypatch):
     hints = project_action_catalog_launcher_hints(sidecar)["example.read_manuscript"]
 
     assert hints["engines"] == expected
-    assert {engine["id"] for engine in hints["engines"]} == {
+    engine_ids = {engine["id"] for engine in hints["engines"]}
+    assert {
         "markitdown",
         "trafilatura_html",
         "docling",
         "chandra",
         "datalab",
-    }
+    } <= engine_ids
+    assert any(engine_id.startswith("opendocrouter/") for engine_id in engine_ids)

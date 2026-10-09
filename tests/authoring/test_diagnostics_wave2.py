@@ -155,7 +155,10 @@ def test_provider_key_validation_report_authenticated_accept_sends_the_real_key(
     response is correctly read as valid."""
     captured: list[tuple[str, dict | None]] = []
 
-    def fake_get(self, url, *, headers=None, timeout=None):  # noqa: ANN001
+    def fake_get(  # noqa: ANN001
+        self, url, *, headers=None, timeout=None, follow_redirects=None
+    ):
+        assert follow_redirects is False
         captured.append((url, headers))
         return _FakeResponse(200)
 
@@ -182,7 +185,10 @@ def test_provider_key_validation_report_authenticated_accept_sends_the_real_key(
 def test_provider_key_validation_report_anthropic_uses_x_api_key_header(monkeypatch):
     captured: list[dict | None] = []
 
-    def fake_get(self, url, *, headers=None, timeout=None):  # noqa: ANN001
+    def fake_get(  # noqa: ANN001
+        self, url, *, headers=None, timeout=None, follow_redirects=None
+    ):
+        assert follow_redirects is False
         captured.append(headers)
         return _FakeResponse(200)
 
@@ -199,7 +205,10 @@ def test_provider_key_validation_report_anthropic_uses_x_api_key_header(monkeypa
 
 
 def test_provider_key_validation_report_authenticated_reject(monkeypatch):
-    def fake_get(self, url, *, headers=None, timeout=None):  # noqa: ANN001
+    def fake_get(  # noqa: ANN001
+        self, url, *, headers=None, timeout=None, follow_redirects=None
+    ):
+        assert follow_redirects is False
         return _FakeResponse(401)
 
     monkeypatch.setattr(httpx.Client, "get", fake_get)
@@ -225,7 +234,10 @@ def test_provider_key_validation_report_rate_limit_is_indeterminate_not_accepted
     as accepted, depending on which branch ran -- either way wrong. A 429
     means the host answered but says NOTHING about key validity."""
 
-    def fake_get(self, url, *, headers=None, timeout=None):  # noqa: ANN001
+    def fake_get(  # noqa: ANN001
+        self, url, *, headers=None, timeout=None, follow_redirects=None
+    ):
+        assert follow_redirects is False
         return _FakeResponse(429)
 
     monkeypatch.setattr(httpx.Client, "get", fake_get)
@@ -242,7 +254,10 @@ def test_provider_key_validation_report_rate_limit_is_indeterminate_not_accepted
 def test_provider_key_validation_report_network_failure_is_indeterminate_never_raises(
     monkeypatch,
 ):
-    def fake_get(self, url, *, headers=None, timeout=None):  # noqa: ANN001
+    def fake_get(  # noqa: ANN001
+        self, url, *, headers=None, timeout=None, follow_redirects=None
+    ):
+        assert follow_redirects is False
         raise httpx.ConnectError("no route to host")
 
     monkeypatch.setattr(httpx.Client, "get", fake_get)
