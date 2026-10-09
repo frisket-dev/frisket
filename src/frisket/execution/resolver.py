@@ -340,10 +340,10 @@ def _ocr_inability(
             "a recognition-language hint (it detects script automatically — "
             "drop language to use it)"
         )
-    if options.get("searchable_pdf") is True and not declared.geometry:
+    if options.get("searchable_pdf") is True and not declared.searchable_pdf:
         return (
-            "searchable PDF output (it returns no text geometry to compose a "
-            "text layer from)"
+            "searchable PDF output (it returns no text geometry suitable for "
+            "a PDF text layer)"
         )
     return None
 

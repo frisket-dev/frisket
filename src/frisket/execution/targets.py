@@ -174,15 +174,16 @@ class OcrOptionSupport(BaseModel):
       (the sidecar parsers auto-detect script) and Datalab's ``/convert`` takes none
       either. Authoring one against those targets used to be a SILENT drop —
       the exact bug class the one ability checker exists to kill.
-    - ``geometry``: whether the engine returns per-block bounding boxes. It is
-      what makes ``searchable_pdf`` composable: a VLM returns text only, so an
-      authored searchable_pdf there would paint an empty layer.
+    - ``geometry``: whether the engine returns bounding boxes for highlights.
+    - ``searchable_pdf``: whether those boxes can compose a PDF text layer.
+      Region boxes alone do not guarantee usable text-layer alignment.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     language: bool = False
     geometry: bool = False
+    searchable_pdf: bool = False
 
 
 class TranslateOptionSupport(BaseModel):

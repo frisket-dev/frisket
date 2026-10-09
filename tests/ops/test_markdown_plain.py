@@ -1,6 +1,29 @@
+import importlib.util
+from pathlib import Path
+
 import pytest
 
 from frisket.ops.markdown_plain import markdown_to_plain_text
+
+
+def _load_sidecar_converter():
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "sidecar/src/frisket_models/markdown_plain.py"
+    )
+    spec = importlib.util.spec_from_file_location("sidecar_markdown_plain", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.markdown_to_plain_text
+
+
+@pytest.fixture(
+    params=(markdown_to_plain_text, _load_sidecar_converter()),
+    ids=("public", "sidecar"),
+)
+def converter(request):
+    return request.param
 
 
 @pytest.mark.parametrize(
@@ -35,20 +58,20 @@ from frisket.ops.markdown_plain import markdown_to_plain_text
         ("<Mark Doe>\nv. State of Ohio", "<Mark Doe>\nv. State of Ohio"),
     ],
 )
-def test_plain_text_preserves_content(markdown, expected):
-    assert markdown_to_plain_text(markdown) == expected
+def test_plain_text_preserves_content(converter, markdown, expected):
+    assert converter(markdown) == expected
 
 
-def test_tables_preserve_labels_and_values_without_markup():
+def test_tables_preserve_labels_and_values_without_markup(converter):
     for markdown in (
         "| Name | Amount |\n| --- | --- |\n| River Press | 120.00 |",
         "<table><tr><th>Name</th><th>Amount</th></tr><tr><td>River Press</td><td>120.00</td></tr></table>",
     ):
-        text = markdown_to_plain_text(markdown)
+        text = converter(markdown)
         assert text.split() == ["Name", "Amount", "River", "Press", "120.00"]
         assert "|" not in text and "<" not in text
 
 
-def test_tables_project_rows_and_cells_without_layout_whitespace():
+def test_tables_project_rows_and_cells_without_layout_whitespace(converter):
     markdown = "| A | B |\n| --- | --- |\n| 1 | 2 |"
-    assert markdown_to_plain_text(markdown) == "A\tB\n1\t2"
+    assert converter(markdown) == "A\tB\n1\t2"

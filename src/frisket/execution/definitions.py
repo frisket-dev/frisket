@@ -63,8 +63,10 @@ from frisket.execution.credential_use import CredentialUseContext
 from frisket.provider_definitions import providers_for
 from frisket.contracts.actions.schemas._engines import (
     OCR_ENGINE_TABLE,
+    TO_MARKDOWN_ENGINE_TABLE,
     opendocrouter_engines,
     ocr_engine_has_geometry,
+    ocr_engine_supports_searchable_pdf,
     TRANSCRIBE_ENGINE_TABLE,
     TranscriptionEngineCapabilities,
     find_engine,
@@ -258,7 +260,9 @@ def _ocr_support(
         transport=transport,  # type: ignore[arg-type]
         capability=CAPABILITY_OCR,
         options=OcrOptionSupport(
-            language=language, geometry=ocr_engine_has_geometry(engine)
+            language=language,
+            geometry=ocr_engine_has_geometry(engine),
+            searchable_pdf=ocr_engine_supports_searchable_pdf(engine),
         ),
         run_scoped=run_scoped,
         unavailable_reason=unavailable_reason,
@@ -292,12 +296,10 @@ def _roster_run_scoped(engine_id: str) -> bool:
 def _gateway_ocr_engines() -> tuple[TargetEngineSupport, ...]:
     """The gateway's OCR engines over POST /ocr. No language knob: the
     settled contract carries pages + engine only."""
-    return (
-        _ocr_support("dots.mocr", "sidecar.ocr", language=False),
-        _ocr_support("glm-ocr", "sidecar.ocr", language=False),
-        _ocr_support("surya2", "sidecar.ocr", language=False),
-        _ocr_support("pp-ocrv6", "sidecar.ocr", language=False),
-        _ocr_support("paddleocr-vl", "sidecar.ocr", language=False),
+    return tuple(
+        _ocr_support(engine.id, "sidecar.ocr", language=False)
+        for engine in OCR_ENGINE_TABLE
+        if engine.tier == "sidecar"
     )
 
 
@@ -404,9 +406,10 @@ def _local_to_markdown_engines() -> tuple[TargetEngineSupport, ...]:
 
 def _gateway_to_markdown_engines() -> tuple[TargetEngineSupport, ...]:
     """Build gateway converters served by ``POST /to-markdown``."""
-    return (
-        _to_markdown_support("docling", "sidecar.convert"),
-        _to_markdown_support("chandra", "sidecar.convert"),
+    return tuple(
+        _to_markdown_support(engine.id, "sidecar.convert")
+        for engine in TO_MARKDOWN_ENGINE_TABLE
+        if engine.tier == "sidecar"
     )
 
 
