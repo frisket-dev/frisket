@@ -12,6 +12,7 @@ from pypdf import PdfWriter
 from frisket.ai.llm import ModelRouter
 from frisket.ai.models.metadata import ModelCallMeta
 from frisket.contracts.http.action_preview_runs import ActionPreviewStatusResponse
+from frisket.engine.executor.table_preview import TablePreviewResult
 from frisket.engine.runner import MapRunner
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
@@ -268,6 +269,71 @@ def test_scratch_teardown_error_survives_receipt_settlement_failure(
         assert result["accounting"]["status"] == "failed"
         with pytest.raises(SandboxTeardownError, match="scratch sandbox teardown"):
             service._registry.start("paid", 0, lambda *_args: None)
+    finally:
+        service._registry.shutdown()
+        project.close()
+
+
+@pytest.mark.parametrize("provider_fails", [True, False])
+def test_scratch_preview_preserves_primary_failure_when_settlement_also_fails(
+    tmp_path, monkeypatch, caplog, provider_fails
+):
+    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
+    service, project, _ = _fixture(tmp_path, _Adapter())
+    plan, _source, router, composition, execution_context = service.prepare_ocr_scratch(
+        "paid",
+        _png(),
+        {
+            "engine": "anthropic/claude-haiku-4-5",
+            "filename": "scan.png",
+        },
+    )
+    provider_error = RuntimeError("provider failed after accepting the preview")
+    settlement_error = RuntimeError("settlement could not price provider usage")
+
+    async def fail_after_provider_accepts(_context):
+        raise provider_error
+
+    async def succeed_before_settlement(_context):
+        return TablePreviewResult([], [], 0)
+
+    class FailedSettlement:
+        def settle_action_receipt(self, **_kwargs):
+            raise settlement_error
+
+    service._workspace.direct_action_receipt_settlement_port = FailedSettlement()
+    plan = replace(
+        plan,
+        run=fail_after_provider_accepts
+        if provider_fails
+        else succeed_before_settlement,
+    )
+    try:
+        estimate = service.scratch_estimate("paid", plan)
+        started = service.start_scratch_preview(
+            "paid",
+            plan,
+            confirmation=estimate["promise_set_hash"],
+            router=router,
+            composition=composition,
+            execution_context=execution_context,
+        )
+        assert started.status_code == 202, started.payload
+        result = _wait(service, started.payload["preview_id"])
+        service._registry.shutdown()
+
+        assert result["status"] == "error"
+        expected_error = provider_error if provider_fails else settlement_error
+        assert result["error"]["message"] == str(expected_error)
+        [failure_record] = [
+            record
+            for record in caplog.records
+            if getattr(record, "event", None) == "action_preview_job_failed"
+            and getattr(record, "preview_id", None) == started.payload["preview_id"]
+        ]
+        raised = failure_record.exc_info[1]
+        assert raised is expected_error
+        assert raised.__cause__ is (settlement_error if provider_fails else None)
     finally:
         service._registry.shutdown()
         project.close()
