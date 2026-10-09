@@ -124,8 +124,16 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
             "extraction_template_save",
             "POST",
         ): "tenant.extraction_template_save.post",
-        ("tenant", "extraction_layout_select", "POST"): "tenant.extraction_layout_select.post",
-        ("tenant", "extraction_scope_counts", "POST"): "tenant.extraction_scope_counts.post",
+        (
+            "tenant",
+            "extraction_layout_select",
+            "POST",
+        ): "tenant.extraction_layout_select.post",
+        (
+            "tenant",
+            "extraction_scope_counts",
+            "POST",
+        ): "tenant.extraction_scope_counts.post",
         (
             "tenant",
             "cell_text_annotations",
@@ -315,6 +323,57 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
             "POST",
         ): "tenant.import_followthemoney.post",
         ("tenant", "import_pdf", "POST"): "tenant.import_pdf.post",
+        (
+            "tenant",
+            "create_pdf_packet_split",
+            "POST",
+        ): "tenant.create_pdf_packet_split.post",
+        ("tenant", "get_pdf_packet_split", "GET"): "tenant.get_pdf_packet_split.get",
+        (
+            "tenant",
+            "get_pdf_packet_split_page",
+            "GET",
+        ): "tenant.get_pdf_packet_split_page.get",
+        (
+            "tenant",
+            "get_pdf_packet_split_thumbnail",
+            "GET",
+        ): "tenant.get_pdf_packet_split_thumbnail.get",
+        (
+            "tenant",
+            "estimate_pdf_packet_split_ocr",
+            "POST",
+        ): "tenant.estimate_pdf_packet_split_ocr.post",
+        (
+            "tenant",
+            "start_pdf_packet_split_ocr",
+            "POST",
+        ): "tenant.start_pdf_packet_split_ocr.post",
+        (
+            "tenant",
+            "cancel_pdf_packet_split_job",
+            "DELETE",
+        ): "tenant.cancel_pdf_packet_split_job.delete",
+        (
+            "tenant",
+            "select_pdf_packet_split_text_source",
+            "PUT",
+        ): "tenant.select_pdf_packet_split_text_source.put",
+        (
+            "tenant",
+            "match_pdf_packet_split_candidates",
+            "POST",
+        ): "tenant.match_pdf_packet_split_candidates.post",
+        (
+            "tenant",
+            "commit_pdf_packet_split",
+            "POST",
+        ): "tenant.commit_pdf_packet_split.post",
+        (
+            "tenant",
+            "delete_pdf_packet_split",
+            "DELETE",
+        ): "tenant.delete_pdf_packet_split.delete",
         ("tenant", "import_urls", "POST"): "tenant.import_urls.post",
         ("tenant", "import_xlsx", "POST"): "tenant.import_xlsx.post",
         (
@@ -935,6 +994,7 @@ def _native_form_data_request(
         ("tenant", "import_csv_preview", "POST"),
         ("tenant", "import_xlsx", "POST"),
         ("tenant", "import_pdf", "POST"),
+        ("tenant", "create_pdf_packet_split", "POST"),
         ("tenant", "import_files", "POST"),
         ("tenant", "upload_import_session_files", "POST"),
         ("tenant", "import_followthemoney", "POST"),

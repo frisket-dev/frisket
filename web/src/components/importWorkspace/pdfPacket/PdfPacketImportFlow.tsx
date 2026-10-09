@@ -63,7 +63,14 @@ interface PendingOcrConsent {
   engine: string;
   scope: 'sample' | 'all';
   pages?: number[];
+  cachedPages: number[];
   confirmation: string;
+}
+
+interface PendingFullOcrSource {
+  engine: string;
+  jobId: string;
+  analysisRevision: number;
 }
 
 function engineOf(choice: SelectorChoice): string | null {
@@ -121,6 +128,7 @@ export function PdfPacketImportFlow({
   const [uploading, setUploading] = useState(false);
   const [showOcr, setShowOcr] = useState(false);
   const [ocrConsent, setOcrConsent] = useState<PendingOcrConsent | null>(null);
+  const [pendingFullOcrSource, setPendingFullOcrSource] = useState<PendingFullOcrSource | null>(null);
   const [sessionProjectId, setSessionProjectId] = useState<string | null>(null);
   const sessionProject = useRef<string | null>(null);
   const projectEpoch = useRef(0);
@@ -161,6 +169,7 @@ export function PdfPacketImportFlow({
     setUploading(false);
     setShowOcr(false);
     setOcrConsent(null);
+    setPendingFullOcrSource(null);
     dispatch({ type: 'reset' });
   }, [projectId]);
 
@@ -287,8 +296,53 @@ export function PdfPacketImportFlow({
     return () => controller.abort();
   }, [loadPage, projectId, selectedPageOcrJob?.engine, selectedPageOcrJob?.job_id, selectedPageOcrJob?.progress.status, splitId, state.selectedPage, state.snapshot?.ocr_engine, state.snapshot?.text_source]);
 
+  const pendingFullOcrJob = state.snapshot?.jobs.find(
+    (candidate) => candidate.job_id === pendingFullOcrSource?.jobId,
+  );
+  const pendingSnapshotRevision = state.snapshot?.analysis_revision;
+  const pendingSnapshotTextSource = state.snapshot?.text_source;
+  const pendingSnapshotOcrEngine = state.snapshot?.ocr_engine;
   useEffect(() => {
-    if (!splitId || state.stage !== 'find' || state.snapshot?.status === 'preparing') return undefined;
+    if (!splitId || !pendingFullOcrSource || pendingSnapshotRevision === undefined) return undefined;
+    const controller = new AbortController();
+    const settlePendingSource = async () => {
+      if (pendingFullOcrJob?.progress.status === 'error' || pendingFullOcrJob?.progress.status === 'cancelled') {
+        setPendingFullOcrSource(null);
+        dispatch({ type: 'stage', stage: 'check' });
+        dispatch({
+          type: 'error',
+          message: pendingFullOcrJob.progress.error ?? (pendingFullOcrJob.progress.status === 'cancelled' ? 'OCR was stopped.' : 'OCR failed.'),
+        });
+        return;
+      }
+      if (pendingSnapshotTextSource === 'ocr' && pendingSnapshotOcrEngine === pendingFullOcrSource.engine) {
+        setPendingFullOcrSource(null);
+        return;
+      }
+      if (pendingSnapshotRevision <= pendingFullOcrSource.analysisRevision) return;
+      try {
+        const snapshot = await setPdfPacketTextSource(
+          projectId,
+          splitId,
+          { kind: 'ocr', engine: pendingFullOcrSource.engine },
+          { signal: controller.signal },
+        );
+        if (controller.signal.aborted) return;
+        dispatch({ type: 'snapshot', snapshot });
+        dispatch({ type: 'ocrEngine', engine: pendingFullOcrSource.engine });
+        setPendingFullOcrSource(null);
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          dispatch({ type: 'error', message: error instanceof Error ? error.message : String(error) });
+        }
+      }
+    };
+    void settlePendingSource();
+    return () => controller.abort();
+  }, [pendingFullOcrJob?.progress.error, pendingFullOcrJob?.progress.status, pendingFullOcrSource, pendingSnapshotOcrEngine, pendingSnapshotRevision, pendingSnapshotTextSource, projectId, splitId]);
+
+  useEffect(() => {
+    if (!splitId || state.stage !== 'find' || state.snapshot?.status === 'preparing' || state.snapshot?.text_source === 'unconfirmed') return undefined;
     const generation = ++candidateGeneration.current;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
@@ -315,7 +369,7 @@ export function PdfPacketImportFlow({
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [projectId, splitId, state.confirmedStarts, state.phrases, state.rejected, state.snapshot?.analysis_revision, state.snapshot?.status, state.stage, state.threshold]);
+  }, [projectId, splitId, state.confirmedStarts, state.phrases, state.rejected, state.snapshot?.analysis_revision, state.snapshot?.status, state.snapshot?.text_source, state.stage, state.threshold]);
 
   useEffect(() => {
     if (state.stage !== 'import' || !splitId) return undefined;
@@ -354,14 +408,15 @@ export function PdfPacketImportFlow({
     engine,
     scope,
     pages,
+    cachedPages,
     confirmation,
-  }: { engine: string; scope: 'sample' | 'all'; pages?: number[]; confirmation?: string }) => {
+  }: { engine: string; scope: 'sample' | 'all'; pages?: number[]; cachedPages: number[]; confirmation?: string }) => {
     if (!splitId) return;
     const { controller, epoch } = beginAction();
     dispatch({ type: 'ocrBusy', value: true });
     dispatch({ type: 'error', message: null });
     try {
-      await startPdfPacketOcr(projectId, splitId, {
+      const started = await startPdfPacketOcr(projectId, splitId, {
         engine,
         scope,
         pages,
@@ -369,14 +424,25 @@ export function PdfPacketImportFlow({
       }, { signal: controller.signal });
       if (!actionIsCurrent(controller, epoch)) return;
       if (scope === 'all') {
-        const snapshot = await setPdfPacketTextSource(
-          projectId,
-          splitId,
-          { kind: 'ocr', engine },
-          { signal: controller.signal },
-        );
-        if (!actionIsCurrent(controller, epoch)) return;
-        dispatch({ type: 'snapshot', snapshot });
+        if (cachedPages.length > 0) {
+          const snapshot = await setPdfPacketTextSource(
+            projectId,
+            splitId,
+            { kind: 'ocr', engine },
+            { signal: controller.signal },
+          );
+          if (!actionIsCurrent(controller, epoch)) return;
+          dispatch({ type: 'snapshot', snapshot });
+          dispatch({ type: 'ocrEngine', engine });
+        } else {
+          setPendingFullOcrSource({
+            engine,
+            jobId: started.job_id,
+            analysisRevision: state.snapshot?.analysis_revision ?? 0,
+          });
+          await refreshSnapshot(controller.signal);
+          if (!actionIsCurrent(controller, epoch)) return;
+        }
         dispatch({ type: 'stage', stage: 'find' });
       } else {
         await refreshSnapshot(controller.signal);
@@ -404,13 +470,37 @@ export function PdfPacketImportFlow({
         pages,
       }, { signal: controller.signal });
       if (!actionIsCurrent(controller, epoch)) return;
+      if (quote.estimate === null) {
+        if (quote.cached_pages.length === 0) {
+          throw new Error('The OCR estimate reported no work and no cached pages.');
+        }
+        const snapshot = await setPdfPacketTextSource(
+          projectId,
+          splitId,
+          { kind: 'ocr', engine },
+          { signal: controller.signal },
+        );
+        if (!actionIsCurrent(controller, epoch)) return;
+        dispatch({ type: 'snapshot', snapshot });
+        dispatch({ type: 'ocrEngine', engine });
+        if (scope === 'all') dispatch({ type: 'stage', stage: 'find' });
+        else await loadPage(state.selectedPage, controller.signal);
+        return;
+      }
       if (quote.estimate.requires_confirmation) {
         const confirmation = quote.estimate.promise_set_hash;
         if (!confirmation) throw new Error('The OCR estimate did not include its confirmation token.');
-        setOcrConsent({ estimate: quote.estimate, engine, scope, pages, confirmation });
+        setOcrConsent({
+          estimate: quote.estimate,
+          engine,
+          scope,
+          pages,
+          cachedPages: quote.cached_pages,
+          confirmation,
+        });
         return;
       }
-      await launchOcr({ engine, scope, pages });
+      await launchOcr({ engine, scope, pages, cachedPages: quote.cached_pages });
     } catch (error) {
       if (!controller.signal.aborted) {
         dispatch({ type: 'error', message: error instanceof Error ? error.message : String(error) });
@@ -446,6 +536,7 @@ export function PdfPacketImportFlow({
       requestId.current = crypto.randomUUID();
       commitRequestId.current = crypto.randomUUID();
       setShowOcr(false);
+      setPendingFullOcrSource(null);
       dispatch({ type: 'reset' });
     } catch (error) {
       if (!controller.signal.aborted) dispatch({ type: 'error', message: error instanceof Error ? error.message : String(error) });
@@ -460,6 +551,10 @@ export function PdfPacketImportFlow({
       if (!actionIsCurrent(controller, epoch)) return;
       dispatch({ type: 'snapshot', snapshot });
       dispatch({ type: 'keepOcrText', value: false });
+      if (pendingFullOcrSource?.jobId === jobId) {
+        setPendingFullOcrSource(null);
+        dispatch({ type: 'stage', stage: 'check' });
+      }
     } catch (error) {
       if (!controller.signal.aborted) dispatch({ type: 'error', message: error instanceof Error ? error.message : String(error) });
     }
@@ -751,6 +846,11 @@ function PacketTextStep({
             {ocrText && source === 'ocr' ? (
               <button type="button" className="btn btn-primary" disabled={busy} onClick={onAcceptOcr}>
                 Use this OCR and read all {pageCount} pages
+              </button>
+            ) : null}
+            {!nativeText && !ocrText ? (
+              <button type="button" className="btn btn-primary" disabled={busy} onClick={onAcceptNative}>
+                Continue without OCR
               </button>
             ) : null}
           </div>

@@ -389,8 +389,8 @@ def _case_local_team_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         "tenant.extraction_preview.post",
         "tenant.extraction_template_save.post",
     } <= _operation_ids(document)
-    assert len(BASE_ENDPOINT_CATALOG) == 308
-    assert len(members) == 241
+    assert len(BASE_ENDPOINT_CATALOG) == 319
+    assert len(members) == 252
     assert len(team_local_models) == 9
     assert team_browser_auth == {
         "outer.accept_project_invite.post",
@@ -399,8 +399,8 @@ def _case_local_team_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         "outer.request_link.post",
         "outer.logout.post",
     }
-    assert len(exporter.CANONICAL_OPERATION_IDS) == 251
-    assert len(_operation_ids(document)) == 255
+    assert len(exporter.CANONICAL_OPERATION_IDS) == 262
+    assert len(_operation_ids(document)) == 266
 
     for operation_id in (
         "tenant.review_runs_ep.get",

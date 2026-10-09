@@ -79,7 +79,14 @@ class _Service:
             "scope": body.scope,
             "pages": body.pages or [1, 2, 3, 4],
             "cached_pages": [],
-            "estimate": {"cost": 0.0, "promise_set_hash": "free"},
+            "estimate": {
+                "rows": 1,
+                "cost": 0.0,
+                "cost_source": "free_public_api",
+                "billed_cost": 0,
+                "policy_id": "frisket.identity.v1",
+                "promise_set_hash": "free",
+            },
         }
 
     def start_ocr(self, pid, split_id, body, *, request_context=None):

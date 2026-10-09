@@ -164,6 +164,26 @@ afterEach(() => {
 });
 
 describe('PDF packet import flow boundaries', () => {
+  it('can continue to visual matching when the sampled page has no text', async () => {
+    api.getPdfPacketPage.mockResolvedValue({ ...nativePage, native_text: null });
+    api.setPdfPacketTextSource.mockResolvedValue({ ...baseSnapshot, text_source: 'native' });
+
+    renderFlow();
+    fireEvent.change(screen.getByTestId('pdf-packet-input'), {
+      target: { files: [new File(['pdf'], 'Records.pdf', { type: 'application/pdf' })] },
+    });
+
+    const continueButton = await screen.findByRole('button', { name: 'Continue without OCR' });
+    fireEvent.click(continueButton);
+    expect(await screen.findByText('Pages that look like your starts')).toBeInTheDocument();
+    expect(api.setPdfPacketTextSource).toHaveBeenCalledWith(
+      'project-1',
+      'split-1',
+      { kind: 'native' },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+  });
+
   it('selects the completed sample engine before showing its OCR text', async () => {
     let ocrSelected = false;
     api.getPdfPacketSplit.mockResolvedValue(sampleDoneSnapshot());
@@ -190,6 +210,41 @@ describe('PDF packet import flow boundaries', () => {
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     expect(screen.getByRole('button', { name: 'Use this OCR and read all 4 pages' })).toBeEnabled();
+  });
+
+  it('uses a cached OCR sample without trying to start another job', async () => {
+    let ocrSelected = false;
+    api.estimatePdfPacketOcr.mockResolvedValue({
+      schema_version: 'frisket.pdf_packet_split.v1',
+      engine: 'rapidocr',
+      scope: 'sample',
+      pages: [1],
+      cached_pages: [1],
+      estimate: null,
+    });
+    api.setPdfPacketTextSource.mockImplementation(async () => {
+      ocrSelected = true;
+      return { ...baseSnapshot, text_source: 'ocr', ocr_engine: 'rapidocr' };
+    });
+    api.getPdfPacketPage.mockImplementation(async () => ocrSelected ? {
+      ...nativePage,
+      ocr_text: 'Cached OCR text',
+      ocr_engine: 'rapidocr',
+    } : nativePage);
+
+    renderFlow();
+    await choosePacket();
+    fireEvent.click(screen.getByRole('button', { name: 'Looks wrong? Run OCR' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Run rapidocr on this sample' }));
+
+    await screen.findByText('Cached OCR text');
+    expect(api.startPdfPacketOcr).not.toHaveBeenCalled();
+    expect(api.setPdfPacketTextSource).toHaveBeenCalledWith(
+      'project-1',
+      'split-1',
+      { kind: 'ocr', engine: 'rapidocr' },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
   });
 
   it('waits for deliberate cost approval and echoes only the quoted token', async () => {

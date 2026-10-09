@@ -227,6 +227,14 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
         time.sleep(0.01)
     assert service.page(project_id, split_id, 1)["ocr_text"] is None
 
+    cached_estimate = service.estimate_ocr(
+        project_id,
+        split_id,
+        PdfPacketOcrEstimateRequest(engine="test-ocr", scope="sample", pages=[1, 3]),
+    )
+    assert cached_estimate["cached_pages"] == [1, 3]
+    assert cached_estimate["estimate"] is None
+
     preview_runs.failed_pages.add(4)
     full = service.start_ocr(
         project_id,

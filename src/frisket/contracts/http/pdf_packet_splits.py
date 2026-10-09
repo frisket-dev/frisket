@@ -6,6 +6,7 @@ from typing import Literal
 
 from pydantic import Field, JsonValue, model_validator
 
+from frisket.contracts.http.action_estimate_validation import ActionEstimate
 from frisket.contracts.http.models import WireModel
 
 
@@ -17,38 +18,38 @@ class PdfPacketInfo(WireModel):
     filename: str = Field(min_length=1, max_length=512)
     mime: Literal["application/pdf"]
     size: int = Field(ge=0)
-    page_count: int | None = Field(default=None, ge=1)
+    page_count: int | None = Field(ge=1)
 
 
 class PdfPacketProgress(WireModel):
     status: Literal["queued", "running", "done", "error", "cancelled"]
     done: int = Field(ge=0)
-    total: int | None = Field(default=None, ge=0)
-    error: str | None = None
+    total: int | None = Field(ge=0)
+    error: str | None
 
 
 class PdfPacketPrepareState(WireModel):
     job_id: str
     progress: PdfPacketProgress
-    pages_ready: list[int] = Field(default_factory=list)
-    native_text_pages: list[int] = Field(default_factory=list)
-    visual_pages_ready: int = Field(default=0, ge=0)
+    pages_ready: list[int]
+    native_text_pages: list[int]
+    visual_pages_ready: int = Field(ge=0)
 
 
 class PdfPacketJobState(WireModel):
     job_id: str
     kind: Literal["prepare", "ocr_sample", "ocr_full", "commit"]
     progress: PdfPacketProgress
-    engine: str | None = None
-    pages: list[int] = Field(default_factory=list)
-    receipt_id: str | None = None
-    accounting: dict[str, JsonValue] | None = None
+    engine: str | None
+    pages: list[int]
+    receipt_id: str | None
+    accounting: dict[str, JsonValue] | None
 
 
 class PdfPacketCommitResult(WireModel):
     sheet_id: int = Field(gt=0)
     document_count: int = Field(gt=0)
-    receipt_id: str | None = None
+    receipt_id: str | None
 
 
 class PdfPacketSplitStatus(WireModel):
@@ -60,11 +61,11 @@ class PdfPacketSplitStatus(WireModel):
     packet: PdfPacketInfo
     prepare: PdfPacketPrepareState
     text_source: Literal["unconfirmed", "native", "ocr"]
-    ocr_engine: str | None = None
-    jobs: list[PdfPacketJobState] = Field(default_factory=list)
+    ocr_engine: str | None
+    jobs: list[PdfPacketJobState]
     analysis_revision: int = Field(ge=0)
     expires_at: str
-    commit_result: PdfPacketCommitResult | None = None
+    commit_result: PdfPacketCommitResult | None
 
 
 class PdfPacketPageResponse(WireModel):
@@ -73,10 +74,10 @@ class PdfPacketPageResponse(WireModel):
     page: int = Field(gt=0)
     thumbnail_ready: bool
     thumbnail_url: str
-    native_text: str | None = None
-    ocr_text: str | None = None
-    ocr_blocks: list[dict[str, JsonValue]] = Field(default_factory=list)
-    ocr_engine: str | None = None
+    native_text: str | None
+    ocr_text: str | None
+    ocr_blocks: list[dict[str, JsonValue]]
+    ocr_engine: str | None
 
 
 class PdfPacketOcrEstimateRequest(WireModel):
@@ -99,7 +100,7 @@ class PdfPacketOcrEstimateResponse(WireModel):
     scope: Literal["sample", "all"]
     pages: list[int]
     cached_pages: list[int]
-    estimate: dict[str, JsonValue]
+    estimate: ActionEstimate | None
 
 
 class PdfPacketOcrJobRequest(PdfPacketOcrEstimateRequest):
@@ -112,7 +113,7 @@ class PdfPacketJobStartResponse(WireModel):
     job_id: str
     kind: Literal["ocr_sample", "ocr_full", "commit"]
     total: int = Field(ge=0)
-    receipt_id: str | None = None
+    receipt_id: str | None
 
 
 class PdfPacketTextSourceRequest(WireModel):
@@ -149,10 +150,10 @@ class PdfPacketStartKind(WireModel):
 
 class PdfPacketPageMatch(WireModel):
     page: int = Field(gt=0)
-    visual_score: float | None = Field(default=None, ge=0.0, le=100.0)
-    closest_confirmed_page: int | None = Field(default=None, gt=0)
-    kind_id: int | None = Field(default=None, ge=0)
-    matched_phrase_ids: list[str] = Field(default_factory=list)
+    visual_score: float | None = Field(ge=0.0, le=100.0)
+    closest_confirmed_page: int | None = Field(gt=0)
+    kind_id: int | None = Field(ge=0)
+    matched_phrase_ids: list[str]
     suggested: bool
 
 

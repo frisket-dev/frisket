@@ -343,7 +343,7 @@ class PdfPacketSplitService:
         self._sync_jobs(session)
         pages, cached = self._ocr_pages(session, body.engine, body.scope, body.pages)
         if not pages:
-            estimate: dict[str, Any] = {"cost": 0.0, "claims": []}
+            estimate = None
         else:
             plan, _source, _router, _composition, _context = (
                 self._preview_runs.prepare_ocr_scratch_path(

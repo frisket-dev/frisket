@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   commitPdfPacketSplit,
   createPdfPacketSplit,
+  estimatePdfPacketOcr,
   matchPdfPacketCandidates,
   pdfPacketThumbnailUrl,
   startPdfPacketOcr,
@@ -50,7 +51,7 @@ describe('PDF packet split API', () => {
   });
 
   it('keeps OCR confirmation and confirmed-only commit fields explicit', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(response({ job_id: 'job-1' }));
+    const fetchMock = vi.fn().mockImplementation(async () => response({ job_id: 'job-1' }));
     vi.stubGlobal('fetch', fetchMock);
 
     await startPdfPacketOcr('p', 's', {
@@ -78,5 +79,50 @@ describe('PDF packet split API', () => {
     expect(pdfPacketThumbnailUrl('p', 's', 17)).toBe(
       '/api/projects/p/import/pdf-packet-splits/s/pages/17/thumbnail',
     );
+  });
+
+  it('projects typed OCR estimates and preserves the cached-only null sentinel', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({
+        schema_version: 'frisket.pdf_packet_split.v1',
+        engine: 'rapidocr',
+        scope: 'sample',
+        pages: [17],
+        cached_pages: [],
+        estimate: {
+          rows: 1,
+          cost: 0.25,
+          cost_source: 'catalog',
+          billed_cost: 250_000,
+          policy_id: 'hosted.v1',
+          requires_confirmation: true,
+          promise_set_hash: 'quote-1',
+          claims: [{ field: 'cost', display: 'Estimated billed cost $0.25.' }],
+        },
+      }))
+      .mockResolvedValueOnce(response({
+        schema_version: 'frisket.pdf_packet_split.v1',
+        engine: 'rapidocr',
+        scope: 'sample',
+        pages: [17],
+        cached_pages: [17],
+        estimate: null,
+      }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const quoted = await estimatePdfPacketOcr('p', 's', {
+      engine: 'rapidocr', scope: 'sample', pages: [17],
+    });
+    const cached = await estimatePdfPacketOcr('p', 's', {
+      engine: 'rapidocr', scope: 'sample', pages: [17],
+    });
+
+    expect(quoted.estimate).toMatchObject({
+      billed_cost: 250_000,
+      policy_id: 'hosted.v1',
+      promise_set_hash: 'quote-1',
+    });
+    expect(cached.estimate).toBeNull();
+    expect(cached.cached_pages).toEqual([17]);
   });
 });
