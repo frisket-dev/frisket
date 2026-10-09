@@ -3,6 +3,7 @@
 // is fingerprinted, bundled, and served same-origin from our own build — never
 // from a CDN. Importing this module has the side effect of wiring the worker.
 import * as pdfjsModule from 'pdfjs-dist';
+import type { DocumentInitParameters } from 'pdfjs-dist/types/src/display/api';
 // The bundled worker (ESM build). Vite rewrites this to a hashed same-origin URL.
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 // pdf.js's own text-layer stylesheet (selectable-text positioning). Bundled by
@@ -16,9 +17,7 @@ pdfjsModule.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 // copies the installed pdfjs-dist runtime files into every production edition.
 export const pdfjsWasmUrl = `${import.meta.env.BASE_URL}pdfjs/wasm/`;
 
-type PdfDocumentParameters = NonNullable<Parameters<typeof pdfjsModule.getDocument>[0]>;
-
-function getDocument(parameters: PdfDocumentParameters) {
+function getDocument(parameters: DocumentInitParameters) {
   return pdfjsModule.getDocument({
     ...parameters,
     wasmUrl: pdfjsWasmUrl,
