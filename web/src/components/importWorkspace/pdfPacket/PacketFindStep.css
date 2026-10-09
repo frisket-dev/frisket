@@ -422,6 +422,7 @@
   grid-template-columns: 34px minmax(0, 1fr) minmax(0, 1fr) 34px;
   gap: 7px;
 }
+.packet-review-reference-actions { grid-template-columns: minmax(0, 1fr); }
 .packet-review-actions .btn { min-width: 0; justify-content: center; padding-inline: 7px; font-size: 11px; }
 .packet-review-step {
   display: grid;

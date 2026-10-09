@@ -9,8 +9,12 @@ export function packetFindQueues(
   const clean = (pages: readonly number[] | undefined) => [...new Set(pages ?? [])]
     .filter((page) => !excluded.has(page))
     .sort((left, right) => left - right);
+  const suggested = clean(matches?.suggested_pages);
+  const suggestedSet = new Set(suggested);
+  const remainingUnsure = clean(matches?.unsure_pages)
+    .filter((page) => !suggestedSet.has(page));
   return {
-    unsure: clean(matches?.unsure_pages),
-    suggested: clean(matches?.suggested_pages),
+    unsure: [...suggested, ...remainingUnsure],
+    suggested,
   };
 }

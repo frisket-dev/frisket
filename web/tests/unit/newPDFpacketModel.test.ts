@@ -95,7 +95,7 @@ describe('PDF packet split state', () => {
     expect(accepted.rejected).toEqual([5]);
   });
 
-  it('builds sorted whole-packet review queues and omits pages already answered', async () => {
+  it('builds sorted whole-packet review queues with suggestions included in unsure', async () => {
     const { packetFindQueues } = await import('../../src/components/importWorkspace/pdfPacket/packetFindQueues');
     const duplicatedAndUnordered = {
       ...matches,
@@ -104,7 +104,7 @@ describe('PDF packet split state', () => {
     };
 
     expect(packetFindQueues(duplicatedAndUnordered, [1, 5], [14, 18])).toEqual({
-      unsure: [11],
+      unsure: [19, 11],
       suggested: [19],
     });
   });
