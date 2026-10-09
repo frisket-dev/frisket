@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import io
-import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -33,6 +32,7 @@ from frisket.server.services.pdf_packet_splits import (
     PdfPacketSplitService,
 )
 from frisket.server.workspace import Workspace
+from tests.deterministic_time import controlled_time
 
 
 class _PreviewRuns:
@@ -134,15 +134,57 @@ def _pdf(page_count: int) -> bytes:
 
 
 def _wait_status(service, project_id, split_id, expected):
-    deadline = time.monotonic() + 8
-    while time.monotonic() < deadline:
+    status = None
+
+    def reached_expected_status():
+        nonlocal status
         status = service.status(project_id, split_id)
         if status["status"] == expected:
-            return status
+            return True
         if status["status"] == "error":
             raise AssertionError(status)
-        time.sleep(0.01)
-    raise AssertionError(f"packet session did not reach {expected}")
+        return False
+
+    with controlled_time(timeout=8) as clock:
+        clock.wait_until(
+            reached_expected_status,
+            message=f"packet session did not reach {expected}",
+        )
+    return status
+
+
+def _wait_registry_job(registry, project_id, job_id, expected):
+    job = None
+
+    def reached_expected_status():
+        nonlocal job
+        job = registry.get(project_id, job_id)
+        return job is not None and job.status == expected
+
+    with controlled_time(timeout=4) as clock:
+        clock.wait_until(
+            reached_expected_status,
+            message=f"preview job {job_id} did not reach {expected}",
+        )
+    return job
+
+
+def _wait_session_job(service, project_id, split_id, job_id, expected):
+    status = None
+    job = None
+
+    def reached_expected_status():
+        nonlocal job, status
+        status = service.status(project_id, split_id)
+        job = next((item for item in status["jobs"] if item["job_id"] == job_id), None)
+        return job is not None and job["progress"]["status"] == expected
+
+    with controlled_time(timeout=4) as clock:
+        clock.wait_until(
+            reached_expected_status,
+            message=f"packet job {job_id} did not reach {expected}",
+        )
+    return status, job
 
 
 def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
@@ -209,22 +251,12 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
     )
     preview_runs.failed_pages.update({1, 3})
     failed_sample = service.start_ocr(project_id, split_id, sample_request)
-    deadline = time.monotonic() + 4
-    while time.monotonic() < deadline:
-        job = registry.get(project_id, failed_sample["job_id"])
-        if job is not None and job.status == "error":
-            break
-        time.sleep(0.01)
+    job = _wait_registry_job(registry, project_id, failed_sample["job_id"], "error")
     assert job is not None and job.status == "error"
     preview_runs.failed_pages.clear()
     sample = service.start_ocr(project_id, split_id, sample_request)
     assert sample["total"] == 2
-    deadline = time.monotonic() + 4
-    while time.monotonic() < deadline:
-        job = registry.get(project_id, sample["job_id"])
-        if job is not None and job.status == "done":
-            break
-        time.sleep(0.01)
+    _wait_registry_job(registry, project_id, sample["job_id"], "done")
     assert service.page(project_id, split_id, 1)["ocr_text"] is None
 
     cached_estimate = service.estimate_ocr(
@@ -248,13 +280,9 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
         PdfPacketOcrJobRequest(engine="test-ocr", scope="all"),
     )
     assert full["total"] == 2
-    deadline = time.monotonic() + 4
-    while time.monotonic() < deadline:
-        status = service.status(project_id, split_id)
-        job = next(job for job in status["jobs"] if job["job_id"] == full["job_id"])
-        if job["progress"]["status"] == "done":
-            break
-        time.sleep(0.01)
+    _status, job = _wait_session_job(
+        service, project_id, split_id, full["job_id"], "done"
+    )
     assert job["progress"]["status"] == "done"
 
     partial_selected = service.select_text_source(
@@ -283,13 +311,9 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
         PdfPacketOcrJobRequest(engine="test-ocr", scope="all"),
     )
     assert retry["total"] == 1
-    deadline = time.monotonic() + 4
-    while time.monotonic() < deadline:
-        status = service.status(project_id, split_id)
-        job = next(job for job in status["jobs"] if job["job_id"] == retry["job_id"])
-        if job["progress"]["status"] == "done":
-            break
-        time.sleep(0.01)
+    status, job = _wait_session_job(
+        service, project_id, split_id, retry["job_id"], "done"
+    )
     assert job["progress"]["status"] == "done"
     assert status["ocr_pages"] == [1, 2, 3, 4]
 
