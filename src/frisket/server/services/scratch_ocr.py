@@ -18,6 +18,7 @@ from frisket.ops.ocr_engines import (
     rapidocr_execution_scope,
 )
 from frisket.preview.ocr import (
+    MAX_PREVIEW_PAGES,
     OcrComparePreviewError,
     OcrCompareSource,
     _canonical_engine,
@@ -39,7 +40,7 @@ def paid_ocr_scratch_plan(
     payload: Mapping[str, Any],
     composition: Any,
     on_page: Callable[[dict[str, Any]], None] | None = None,
-    max_pages: int = 2000,
+    max_pages: int = MAX_PREVIEW_PAGES,
 ) -> tuple[Any, dict[str, Any]]:
     """Prepare one accounted OCR candidate over transient image/PDF bytes."""
 

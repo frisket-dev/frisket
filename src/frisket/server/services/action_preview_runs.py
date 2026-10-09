@@ -183,6 +183,7 @@ class ActionPreviewRunService:
         media_size: int,
         payload: dict[str, Any],
         on_page: Callable[[dict[str, Any]], None] | None = None,
+        max_pages: int,
         request_context: Any = None,
     ):
         """Prepare accounted OCR over a server-owned borrowed PDF path."""
@@ -204,6 +205,7 @@ class ActionPreviewRunService:
             payload=payload,
             composition=composition,
             on_page=on_page,
+            max_pages=max_pages,
         )
         if self._workspace.executor_deps_factory is not None:
             plan = replace(

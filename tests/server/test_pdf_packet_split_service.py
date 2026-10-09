@@ -52,9 +52,11 @@ class _PreviewRuns:
         media_size,
         payload,
         on_page=None,
+        max_pages=10,
         request_context=None,
     ):
         assert media_path.read_bytes().startswith(b"%PDF-")
+        assert len(payload["pages"]) <= max_pages
         return {**payload, "on_page": on_page}, {}, None, None, None
 
     def scratch_estimate(self, project_id, plan):
@@ -75,6 +77,8 @@ class _PreviewRuns:
         def run(progress, _cancelled):
             if self.run_gate is not None:
                 self.run_gate({})
+                if _cancelled.is_set():
+                    raise RuntimeError("OCR was cancelled")
             rows = []
             for index, page in enumerate(plan["pages"], 1):
                 failed = page in self.failed_pages
@@ -597,7 +601,7 @@ def test_packet_session_ttl_tracks_access_and_running_jobs(
         started = service.start_ocr(
             project_id,
             active_split_id,
-            PdfPacketOcrJobRequest(engine="test-ocr", scope="all"),
+            PdfPacketOcrJobRequest(engine="test-ocr", scope="sample", pages=[1]),
         )
         clock.wait_entered()
         clock.advance_seconds(4)
@@ -606,15 +610,34 @@ def test_packet_session_ttl_tracks_access_and_running_jobs(
         running = registry.get(project_id, started["job_id"])
         assert running is not None and running.status == "running"
         assert active_split_id in service._sessions
+        for request in (
+            PdfPacketOcrJobRequest(engine="test-ocr", scope="sample", pages=[1]),
+            PdfPacketOcrJobRequest(engine="test-ocr", scope="all"),
+        ):
+            with pytest.raises(PdfPacketSplitRouteError) as overlapping:
+                service.start_ocr(project_id, active_split_id, request)
+            assert overlapping.value.status_code == 409
+            assert "already running" in str(overlapping.value.detail)
 
+        service.cancel_job(project_id, active_split_id, started["job_id"])
         clock.release()
         clock.wait_until(
-            lambda: registry.get(project_id, started["job_id"]).status == "done",
-            message="OCR job did not finish",
+            lambda: registry.get(project_id, started["job_id"]).status == "cancelled",
+            message="cancelled OCR job did not finish",
+        )
+        preview_runs.run_gate = None
+        retry = service.start_ocr(
+            project_id,
+            active_split_id,
+            PdfPacketOcrJobRequest(engine="test-ocr", scope="sample", pages=[1]),
+        )
+        clock.wait_until(
+            lambda: registry.get(project_id, retry["job_id"]).status == "done",
+            message="replacement OCR job did not finish",
         )
         status = service.status(project_id, active_split_id)
         assert (
-            next(job for job in status["jobs"] if job["job_id"] == started["job_id"])[
+            next(job for job in status["jobs"] if job["job_id"] == retry["job_id"])[
                 "progress"
             ]["status"]
             == "done"

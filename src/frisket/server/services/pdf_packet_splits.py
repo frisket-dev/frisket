@@ -369,6 +369,7 @@ class PdfPacketSplitService:
                         media_digest=session.source_hash,
                         media_size=session.size,
                         payload=self._ocr_payload(session, body.engine, pages),
+                        max_pages=_MAX_PACKET_PAGES,
                         request_context=request_context,
                     )
                 )
@@ -393,6 +394,7 @@ class PdfPacketSplitService:
         session = self._session(project_id, split_id, ready=True)
         with self._admit_session(session, ready=True):
             self._sync_jobs(session)
+            self._refuse_running_ocr(session, body.engine)
             pages, cached = self._ocr_pages(
                 session, body.engine, body.scope, body.pages
             )
@@ -410,6 +412,7 @@ class PdfPacketSplitService:
                     on_page=lambda page: self._cache_ocr_page(
                         split_id, body.engine, page
                     ),
+                    max_pages=_MAX_PACKET_PAGES,
                     request_context=request_context,
                 )
             )
@@ -443,6 +446,20 @@ class PdfPacketSplitService:
             "total": len(pages),
             "receipt_id": job.receipt.receipt_id if job and job.receipt else None,
         }
+
+    def _refuse_running_ocr(self, session: _PacketSession, engine: str) -> None:
+        with self._lock:
+            tracked_jobs = tuple(
+                tracked
+                for tracked in session.jobs.values()
+                if tracked.kind.startswith("ocr_") and tracked.engine == engine
+            )
+        for tracked in tracked_jobs:
+            job = self._registry.get(session.project_id, tracked.id)
+            if job is not None and job.finished_at is None:
+                raise PdfPacketSplitRouteError(
+                    409, "OCR is already running for this engine"
+                )
 
     def _cache_ocr_page(self, split_id: str, engine: str, page: dict[str, Any]) -> None:
         number = page.get("page")
