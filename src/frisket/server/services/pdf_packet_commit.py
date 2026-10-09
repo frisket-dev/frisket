@@ -130,7 +130,7 @@ class PdfPacketCommitter:
             )
             if result.status != "completed":
                 detail = (
-                    f"{result.errors[0].message}: {result.errors[0].details}"
+                    result.errors[0].message
                     if result.errors
                     else "packet import failed"
                 )

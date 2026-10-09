@@ -337,6 +337,7 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
     )
     assert failed_status["status"] == "ready"
     assert failed_job["progress"]["status"] == "error"
+    assert failed_job["progress"]["error"] == "A sheet named 'Documents' already exists"
     assert (
         service.commit(project_id, split_id, commit_body)["job_id"] == failed["job_id"]
     )
