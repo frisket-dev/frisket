@@ -10,7 +10,6 @@ from typing import Any
 
 from frisket_models import pdfium_lock
 from frisket_models.errors import InvalidDocumentError
-from frisket_models.markdown_plain import markdown_to_plain_text
 
 
 MAX_NEW_TOKENS = 8192
@@ -40,6 +39,13 @@ _GROUNDING_MARKER = re.compile(
     re.MULTILINE,
 )
 _NON_TEXT_BLOCK_TYPES = {"image", "chart"}
+
+
+def _markdown_to_plain_text(markdown: str) -> str:
+    # Keep this optional runtime dependency out of base sidecar startup.
+    from frisket_models.markdown_plain import markdown_to_plain_text
+
+    return markdown_to_plain_text(markdown)
 
 
 def _parse_bbox(raw: str, *, width: int, height: int) -> list[list[int]] | None:
@@ -87,7 +93,7 @@ def parse_grounding(
     blocks: list[dict[str, Any]] = []
 
     prefix_end = matches[0].start() if matches else len(raw)
-    prefix = markdown_to_plain_text(raw[:prefix_end])
+    prefix = _markdown_to_plain_text(raw[:prefix_end])
     if prefix:
         blocks.append({"text": prefix, "type": "text"})
 
@@ -97,7 +103,7 @@ def parse_grounding(
         if base_label in _NON_TEXT_BLOCK_TYPES:
             continue
         end = matches[index + 1].start() if index + 1 < len(matches) else len(raw)
-        text = markdown_to_plain_text(raw[marker.end() : end])
+        text = _markdown_to_plain_text(raw[marker.end() : end])
         if not text:
             continue
         block: dict[str, Any] = {"text": text, "type": label}

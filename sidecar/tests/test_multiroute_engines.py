@@ -1,6 +1,7 @@
 """A document model serves both HTTP routes from one resident load."""
 
 from concurrent.futures import ThreadPoolExecutor
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -118,3 +119,17 @@ def test_lighton_registry_has_both_sizes_and_shared_route_state(monkeypatch):
         lambda module: None if module == "torchvision" else SimpleNamespace(),
     )
     assert registry.get("lightonocr-3-0.8b", route="/ocr").installed is False
+
+
+def test_registry_build_does_not_import_lighton_markdown_dependency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from frisket_models.engines import default_registry
+
+    monkeypatch.delitem(sys.modules, "frisket_models.lightonocr", raising=False)
+    monkeypatch.delitem(sys.modules, "frisket_models.markdown_plain", raising=False)
+    monkeypatch.setitem(sys.modules, "markdown_it", None)
+
+    registry = default_registry()
+
+    assert registry.get("lightonocr-3-0.8b", route="/ocr").loaded is False
