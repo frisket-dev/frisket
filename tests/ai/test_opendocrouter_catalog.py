@@ -25,6 +25,7 @@ from frisket.actions.media_options import OcrOptions
 from frisket.execution.definitions import StaticExecutionTargetProvider
 from frisket.execution.price_book import OperatorBorne, quote_ocr, live_cost_fact
 from frisket.execution.promise_compiler import ProviderUsageCost
+from frisket.execution.resolver import Refusal, preferred_static_choice
 
 
 @pytest.fixture
@@ -165,6 +166,14 @@ def test_catalog_removal_keeps_engine_resolvable_but_unlisted_and_unpriced(docum
     assert find_known_model(engine).name == "New parser"
     declaration = next(item for item in opendocrouter_engines() if item.id == engine)
     assert not declaration.listed
+    provider = StaticExecutionTargetProvider(env={"OPEN_DOC_ROUTER_API_KEY": "test"})
+    for capability in ("ocr", "document.convert"):
+        choice = preferred_static_choice(
+            engine, {}, provider.targets(), capability=capability
+        )
+        assert isinstance(choice, Refusal)
+        assert choice.family == "no_capable_target"
+        assert "no longer offered" in choice.remedy
     assert external_unit_price_usd(engine + ".parse_page") is None
     assert (
         ToMarkdownParams.model_validate(

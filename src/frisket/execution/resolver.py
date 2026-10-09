@@ -303,6 +303,8 @@ def support_inability(
     "diarize means transcription" is precisely the kind of implicit rule this
     release exists to replace with a declaration.
     """
+    if support.unavailable_reason is not None:
+        return support.unavailable_reason
     checker = _CAPABILITY_INABILITY.get(support.capability)
     if checker is None:  # pragma: no cover - the vocabulary is closed
         raise ValueError(

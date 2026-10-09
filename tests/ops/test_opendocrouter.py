@@ -101,6 +101,8 @@ def test_sync_inline_and_reported_cost(png):
     assert fact["provider_cost_usd"] == 0.00397
     assert fact["credential_source"] == "project_key"
     assert fact["units"]["price_version"] == "2026-10-06"
+    assert len(recorded) == 1
+    assert recorded[0]["cost"] == 0.00397
     assert recorded[0]["model_calls"][0]["id"] == fact["id"]
 
 

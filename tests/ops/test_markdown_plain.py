@@ -29,6 +29,9 @@ from frisket.ops.markdown_plain import markdown_to_plain_text
             "1. Plaintiff <John Doe>\n2. Defendant State",
             "1. Plaintiff <John Doe>\n2. Defendant State",
         ),
+        ("- Total **12**\n  **34** units", "Total 12\n34 units"),
+        ("1. **Plaintiff**\n   **Defendant**", "1. Plaintiff\nDefendant"),
+        ("<Mark Doe>\n\nDefendant", "<Mark Doe>\n\nDefendant"),
     ],
 )
 def test_plain_text_preserves_content(markdown, expected):
@@ -43,3 +46,8 @@ def test_tables_preserve_labels_and_values_without_markup():
         text = markdown_to_plain_text(markdown)
         assert text.split() == ["Name", "Amount", "River", "Press", "120.00"]
         assert "|" not in text and "<" not in text
+
+
+def test_tables_project_rows_and_cells_without_layout_whitespace():
+    markdown = "| A | B |\n| --- | --- |\n| 1 | 2 |"
+    assert markdown_to_plain_text(markdown) == "A\tB\n1\t2"

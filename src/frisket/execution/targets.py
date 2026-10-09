@@ -367,6 +367,10 @@ class TargetEngineSupport:
     serves is a per-row declaration. Defaulting it to "transcribe" would have
     made every future capability's rows silently claim to be transcription
     rows, which is the failure this field exists to prevent.
+
+    ``unavailable_reason`` keeps a known engine row addressable for saved
+    specs and persisted-route snapshots while making new live resolution
+    refuse with the provider's concrete remedy.
     """
 
     engine: str
@@ -380,6 +384,7 @@ class TargetEngineSupport:
     # when the sidecar source does.
     sizes: tuple[str, ...] = ()
     run_scoped: bool = False  # adapter resource behavior
+    unavailable_reason: str | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -419,6 +424,14 @@ class TargetEngineSupport:
             raise ValueError("sizes entries must be unique")
         if not isinstance(self.run_scoped, bool):
             raise ValueError("run_scoped must be a bool")
+        if self.unavailable_reason is not None and (
+            not isinstance(self.unavailable_reason, str)
+            or not self.unavailable_reason.strip()
+            or self.unavailable_reason != self.unavailable_reason.strip()
+        ):
+            raise ValueError(
+                "unavailable_reason must be None or a non-empty, whitespace-clean string"
+            )
 
 
 @dataclass(frozen=True)

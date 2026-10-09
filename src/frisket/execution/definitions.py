@@ -251,6 +251,7 @@ def _ocr_support(
     *,
     language: bool,
     run_scoped: bool = False,
+    unavailable_reason: str | None = None,
 ) -> TargetEngineSupport:
     return TargetEngineSupport(
         engine=engine,
@@ -260,6 +261,7 @@ def _ocr_support(
             language=language, geometry=ocr_engine_has_geometry(engine)
         ),
         run_scoped=run_scoped,
+        unavailable_reason=unavailable_reason,
     )
 
 
@@ -357,12 +359,15 @@ def _translate_support(
     )
 
 
-def _to_markdown_support(engine: str, transport: str) -> TargetEngineSupport:
+def _to_markdown_support(
+    engine: str, transport: str, *, unavailable_reason: str | None = None
+) -> TargetEngineSupport:
     return TargetEngineSupport(
         engine=engine,
         transport=transport,  # type: ignore[arg-type]
         capability=CAPABILITY_TO_MARKDOWN,
         options=ToMarkdownOptionSupport(),
+        unavailable_reason=unavailable_reason,
     )
 
 
@@ -418,8 +423,21 @@ def _opendocrouter_target() -> ExecutionTarget:
                     declaration.id,
                     "opendocrouter.parse",
                     language=False,
+                    unavailable_reason=(
+                        None
+                        if declaration.listed
+                        else "execution because it is no longer offered; choose a current model"
+                    ),
                 ),
-                _to_markdown_support(declaration.id, "opendocrouter.parse"),
+                _to_markdown_support(
+                    declaration.id,
+                    "opendocrouter.parse",
+                    unavailable_reason=(
+                        None
+                        if declaration.listed
+                        else "execution because it is no longer offered; choose a current model"
+                    ),
+                ),
             )
         ),
     )

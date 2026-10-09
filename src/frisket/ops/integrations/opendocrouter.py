@@ -448,9 +448,8 @@ async def parse_document(
             raise
         job_url = f"{BASE_URL}/parse/{accounting['model_calls'][0]['request_id']}"
         remote_job = asynchronous or body.get("status") not in TERMINAL_STATUSES
-        # Acceptance is durable with unknown meters. The normal returned-row
-        # writer later enriches that same fact and attaches its output column.
-        notify_accounting()
+        # Persist the accepted fact after enriching all meters already present
+        # on the submission response. Later polls update the same identity.
         record(body)
         if interrupted:
             raise HostedEngineError(

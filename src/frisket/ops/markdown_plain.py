@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from html import escape
 from html.parser import HTMLParser
 
 from markdown_it import MarkdownIt
@@ -70,7 +71,7 @@ _VOID_TAGS = {"br", "hr", "img"}
 
 def _preserve_inline_angle_text(children):
     """Render unknown and unmatched case-variant HTML tokens as literal text."""
-    open_tags: list[tuple[int, str]] = []
+    open_tags: dict[str, list[int]] = {}
     paired: set[int] = set()
     parsed: dict[int, tuple[str, str]] = {}
 
@@ -87,20 +88,32 @@ def _preserve_inline_angle_text(children):
         if tag not in _HTML_TAGS or tag in _VOID_TAGS or raw.rstrip().endswith("/>"):
             continue
         if raw.startswith("</"):
-            for position in range(len(open_tags) - 1, -1, -1):
-                open_index, open_tag = open_tags[position]
-                if open_tag == tag:
-                    paired.update((open_index, index))
-                    del open_tags[position]
-                    break
+            openings = open_tags.get(tag)
+            if openings:
+                paired.update((openings.pop(), index))
         else:
-            open_tags.append((index, tag))
+            open_tags.setdefault(tag, []).append(index)
 
     for index, (raw_tag, tag) in parsed.items():
         if tag not in _HTML_TAGS or (
             raw_tag != tag and tag not in _VOID_TAGS and index not in paired
         ):
             children[index].type = "text"
+
+
+def _preserve_block_angle_text(token):
+    """Keep a standalone suspicious angle token that CommonMark made HTML."""
+    raw = token.content.strip()
+    match = _START_TAG_NAME.match(raw)
+    if match is None or not raw.endswith(">") or raw.find(">") != len(raw) - 1:
+        return
+    raw_tag = match.group(1)
+    tag = raw_tag.lower()
+    if tag not in _HTML_TAGS or (raw_tag != tag and tag not in _VOID_TAGS):
+        # Leave the token boundary to MarkdownIt; escaping only prevents the
+        # downstream HTML projector from mistaking literal legal prose for a
+        # structural tag. Two line breaks retain the source block boundary.
+        token.content = escape(raw) + "\n\n"
 
 
 class _PlainText(HTMLParser):
@@ -111,6 +124,7 @@ class _PlainText(HTMLParser):
         self.parts: list[str] = []
         self.hidden = 0
         self.lists: list[list[str | int]] = []
+        self.table_depth = 0
 
     def _break(self):
         if self.parts and not self.parts[-1].endswith("\n"):
@@ -134,6 +148,8 @@ class _PlainText(HTMLParser):
             self.lists.append(["ol", start - 1])
         elif tag == "ul":
             self.lists.append(["ul", 0])
+        elif tag == "table":
+            self.table_depth += 1
         elif tag == "li" and self.lists and self.lists[-1][0] == "ol":
             self._break()
             self.lists[-1][1] = int(self.lists[-1][1]) + 1
@@ -157,6 +173,9 @@ class _PlainText(HTMLParser):
             if self.lists:
                 self.lists.pop()
             self._break()
+            return
+        if tag == "table":
+            self.table_depth = max(0, self.table_depth - 1)
             return
         if tag in {"td", "th"}:
             self.parts.append("\t")
@@ -185,9 +204,15 @@ class _PlainText(HTMLParser):
         self.handle_endtag(tag)
 
     def handle_data(self, data):
-        list_layout_whitespace = self.lists and not data.strip() and "\n" in data
-        if not self.hidden and not list_layout_whitespace:
-            self.parts.append(data)
+        if self.hidden:
+            return
+        if not data.strip() and "\n" in data:
+            if self.lists:
+                self._break()
+                return
+            if self.table_depth:
+                return
+        self.parts.append(data)
 
 
 def markdown_to_plain_text(markdown: str) -> str:
@@ -199,6 +224,8 @@ def markdown_to_plain_text(markdown: str) -> str:
     for token in tokens:
         if token.children:
             _preserve_inline_angle_text(token.children)
+        elif token.type == "html_block":
+            _preserve_block_angle_text(token)
     rendered = parser.renderer.render(tokens, parser.options, env)
     reader = _PlainText()
     reader.feed(rendered)
