@@ -34,6 +34,7 @@ _PUBLIC_INVOCATION_HALT_CODES = RECIPE_INVOCATION_HALT_CODES
 class PreviewJob:
     id: str
     project_id: str
+    replacement_key: str
     total: int | None
     status: str = "running"  # running | done | error | cancelled
     progress: dict[str, int | None] = field(
@@ -54,7 +55,7 @@ class ActionPreviewJobRegistry:
 
     def __init__(self, *, ttl_seconds: float = PREVIEW_JOB_TTL_SECONDS) -> None:
         self._jobs: dict[str, PreviewJob] = {}
-        self._by_project: dict[str, str] = {}
+        self._by_replacement_key: dict[str, str] = {}
         self._threads: dict[str, threading.Thread] = {}
         # A replacement can spend meaningful time joining its predecessor, so
         # this serialization must be project-local rather than one global
@@ -76,6 +77,7 @@ class ActionPreviewJobRegistry:
         receipt: Receipt | None = None,
         on_finished: PreviewFinished | None = None,
         preparation_message: str | None = None,
+        replacement_key: str | None = None,
     ) -> PreviewJob:
         """Cancel and join the prior same-project job, then start its successor.
 
@@ -86,11 +88,12 @@ class ActionPreviewJobRegistry:
         cancelled predecessor stays queryable until TTL eviction.
         """
         self._evict_expired()
-        handoff = self._handoff_for(project_id)
+        effective_replacement_key = replacement_key or project_id
+        handoff = self._handoff_for(effective_replacement_key)
         with handoff:
             with self._lock:
                 self._require_open()
-                prior_id = self._by_project.get(project_id)
+                prior_id = self._by_replacement_key.get(effective_replacement_key)
                 prior = self._jobs.get(prior_id) if prior_id is not None else None
                 prior_thread = (
                     self._threads.get(prior_id) if prior_id is not None else None
@@ -110,6 +113,7 @@ class ActionPreviewJobRegistry:
                 preparation_message=preparation_message,
                 id=uuid.uuid4().hex,
                 project_id=project_id,
+                replacement_key=effective_replacement_key,
                 total=total,
                 progress={"done": 0, "total": total},
             )
@@ -130,7 +134,7 @@ class ActionPreviewJobRegistry:
                 thread.start()
                 self._jobs[job.id] = job
                 self._threads[job.id] = thread
-                self._by_project[project_id] = job.id
+                self._by_replacement_key[effective_replacement_key] = job.id
             return job
 
     def _handoff_for(self, project_id: str) -> threading.Lock:
@@ -248,6 +252,38 @@ class ActionPreviewJobRegistry:
             job.cancel_event.set()
             return True
 
+    def release(self, project_id: str, preview_id: str) -> bool:
+        """Cancel, join, and immediately discard one caller-owned job.
+
+        This is useful for short-lived feature sessions that should release
+        their ephemeral result before the ordinary finished-job TTL. Other
+        jobs sharing the project remain untouched when they use another
+        replacement key.
+        """
+        with self._lock:
+            job = self._jobs.get(preview_id)
+            if job is None or job.project_id != project_id:
+                return False
+            replacement_key = job.replacement_key
+        handoff = self._handoff_for(replacement_key)
+        with handoff:
+            with self._lock:
+                job = self._jobs.get(preview_id)
+                if job is None or job.project_id != project_id:
+                    return False
+                job.cancel_event.set()
+                thread = self._threads.get(preview_id)
+            self._join_thread(thread)
+            with self._lock:
+                job = self._jobs.pop(preview_id, None)
+                self._threads.pop(preview_id, None)
+                if self._by_replacement_key.get(replacement_key) == preview_id:
+                    self._by_replacement_key.pop(replacement_key, None)
+            if job is not None:
+                _close_result(job.result, preview_id=preview_id)
+                job.result = None
+            return job is not None
+
     def shutdown(self) -> None:
         """Stop accepting previews, cancel every worker, and join them all.
 
@@ -287,8 +323,11 @@ class ActionPreviewJobRegistry:
                 self._threads.pop(pid, None)
                 if job is not None:
                     removed.append(job)
-                if job is not None and self._by_project.get(job.project_id) == pid:
-                    self._by_project.pop(job.project_id, None)
+                if (
+                    job is not None
+                    and self._by_replacement_key.get(job.replacement_key) == pid
+                ):
+                    self._by_replacement_key.pop(job.replacement_key, None)
         for job in removed:
             _close_result(job.result, preview_id=job.id)
             job.result = None

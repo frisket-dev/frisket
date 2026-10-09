@@ -1084,6 +1084,36 @@ def test_preview_registry_serializes_concurrent_same_project_replacements() -> N
     assert all(job.status == "cancelled" for job in jobs)
 
 
+def test_preview_registry_replacement_keys_isolate_same_project_jobs() -> None:
+    registry = ActionPreviewJobRegistry()
+    started = [threading.Event(), threading.Event()]
+    stopped = [threading.Event(), threading.Event()]
+
+    def run_at(index: int):
+        def run(_progress_cb, cancel_event):
+            started[index].set()
+            cancel_event.wait()
+            stopped[index].set()
+
+        return run
+
+    ordinary = registry.start("proj", 1, run_at(0))
+    packet = registry.start(
+        "proj", 1, run_at(1), replacement_key="pdf-packet:split-1:prepare"
+    )
+    assert all(event.wait(_STARTED_WAIT_SECONDS) for event in started)
+    assert ordinary.cancel_event.is_set() is False
+
+    assert registry.release("proj", packet.id) is True
+    assert stopped[1].is_set()
+    assert ordinary.cancel_event.is_set() is False
+    assert registry.get("proj", packet.id) is None
+    assert registry.release("proj", packet.id) is False
+
+    registry.shutdown()
+    assert stopped[0].is_set()
+
+
 def test_local_app_lifespan_joins_preview_workers(tmp_path: Path) -> None:
     app = create_app(tmp_path / "ws")
     registry = app.state.action_preview_job_registry
