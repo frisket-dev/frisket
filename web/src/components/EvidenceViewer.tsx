@@ -15,6 +15,7 @@ import { SavedTextContext } from './EvidenceTextContext';
 import { textSegments, type TextSegment } from './evidenceTextSegments';
 import { PageRegion } from './PageRegion';
 import { normalizeRegion } from './regionGeometry';
+import { pdfPacketSourceCardData, type PdfPacketSourceCardData } from './evidence/pdfPacketSourceCardModel';
 
 const PdfViewer = lazy(async () => {
   const module = await import('../media/PdfViewer');
@@ -56,7 +57,7 @@ export function EvidenceViewer({
   highlight = true,
   defaultShowDetails = false,
 }: EvidenceViewerProps) {
-  const { projectApi } = useWorkspaceStores();
+  const { projectApi, route } = useWorkspaceStores();
   const [state, setState] = useState<ViewerState>({ phase: 'loading' });
   const [recovery, setRecovery] = useState<RecoveryState>({ phase: 'idle' });
   const requestEpoch = useRef(0);
@@ -148,6 +149,17 @@ export function EvidenceViewer({
           defaultShowDetails={defaultShowDetails}
           recovery={recovery}
           onLocateCurrent={locateCurrentPassage}
+          onOpenSiblingSheet={(sheetId) => {
+            const current = route.store.get();
+            route.navigate({
+              ...current,
+              sheetId: String(sheetId),
+              actionKind: null,
+              review: false,
+              panel: null,
+            });
+            onClose();
+          }}
         />
       )}
     </>
@@ -228,6 +240,7 @@ function EvidencePayloadView({
   defaultShowDetails = false,
   recovery,
   onLocateCurrent,
+  onOpenSiblingSheet,
 }: {
   payload: EvidenceViewerPayload;
   scopeRowId?: string | null;
@@ -236,6 +249,7 @@ function EvidencePayloadView({
   defaultShowDetails?: boolean;
   recovery: RecoveryState;
   onLocateCurrent(): void;
+  onOpenSiblingSheet(sheetId: number): void;
 }) {
   const focusedArtifacts = useMemo(() => {
     if (!scopeSpanId) return payload.artifacts;
@@ -259,12 +273,22 @@ function EvidencePayloadView({
     return scoped.length > 0 ? scoped : focusedArtifacts;
   }, [focusedArtifacts, scopeRowId]);
   const [showDetails, setShowDetails] = useState(defaultShowDetails);
+  const packetSource = payload.link.role === 'source_provenance'
+    ? orderedArtifacts.map((artifact) => ({ artifact, data: pdfPacketSourceCardData(artifact) }))
+      .find((candidate) => candidate.data !== null) ?? null
+    : null;
   return (
     <div
       className={`evidence-viewer-content${showDetails ? '' : ' evidence-viewer-content-compact'}`}
     >
       <main className="evidence-viewer-source-pane">
-        {payload.link.role === 'source_provenance' && (
+        {packetSource?.data ? (
+          <PdfPacketSourceCard
+            data={packetSource.data}
+            splitAt={payload.link.created_at}
+            onOpenSiblingSheet={onOpenSiblingSheet}
+          />
+        ) : payload.link.role === 'source_provenance' && (
           <div className="evidence-viewer-provenance-notice" data-testid="evidence-provenance-notice">
             Original document used to create this text.
           </div>
@@ -275,14 +299,16 @@ function EvidencePayloadView({
           </div>
         ) : (
           orderedArtifacts.map((artifact) => (
-            <ArtifactSource
-              key={`${artifact.stable_id}:${scopeSpanId ?? ''}:${highlight}`}
-              artifact={artifact}
-              scopeSpanId={scopeSpanId}
-              highlight={highlight}
-              recovery={recovery}
-              onLocateCurrent={onLocateCurrent}
-            />
+            pdfPacketSourceCardData(artifact) ? null : (
+              <ArtifactSource
+                key={`${artifact.stable_id}:${scopeSpanId ?? ''}:${highlight}`}
+                artifact={artifact}
+                scopeSpanId={scopeSpanId}
+                highlight={highlight}
+                recovery={recovery}
+                onLocateCurrent={onLocateCurrent}
+              />
+            )
           ))
         )}
         <button
@@ -307,6 +333,66 @@ function EvidencePayloadView({
         </aside>
       )}
     </div>
+  );
+}
+
+function PdfPacketSourceCard({
+  data,
+  splitAt,
+  onOpenSiblingSheet,
+}: {
+  data: PdfPacketSourceCardData;
+  splitAt: string;
+  onOpenSiblingSheet(sheetId: number): void;
+}) {
+  const splitDate = new Date(splitAt);
+  const dateLabel = Number.isNaN(splitDate.getTime())
+    ? null
+    : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(splitDate);
+  return (
+    <section className="pdf-packet-source-card" data-testid="pdf-packet-source-card">
+      <div className="pdf-packet-source-thumb" aria-label={`Page ${data.pageStart} of source packet`}>
+        <Suspense fallback={<FileText size={24} aria-hidden />}>
+          <PdfViewer
+            url={data.blobUrl}
+            layout="single"
+            fit="page"
+            zoom={1}
+            textLayer={false}
+            currentPage={data.pageStart}
+            onLoaded={ignorePdfPageCount}
+            onCurrentPageChange={ignorePdfPageChange}
+          />
+        </Suspense>
+      </div>
+      <div className="pdf-packet-source-summary">
+        <span className="pdf-packet-source-kicker">Source packet</span>
+        <strong>{data.filename}</strong>
+        <span>
+          Pages {data.pageStart}–{data.pageEnd} of {data.pageCount}
+          {dateLabel ? ` · split on ${dateLabel}` : ''}
+        </span>
+        <div className="pdf-packet-source-strip" aria-label={`Pages ${data.pageStart} through ${data.pageEnd} selected from ${data.pageCount}`}>
+          {Array.from({ length: data.pageCount }, (_, index) => index + 1).map((page) => (
+            <i key={page} data-selected={page >= data.pageStart && page <= data.pageEnd ? 'true' : undefined} />
+          ))}
+        </div>
+        <div className="pdf-packet-source-actions">
+          <a href={data.sourceUrl} target="_blank" rel="noopener noreferrer">
+            Open in source packet <ExternalLink size={12} />
+          </a>
+          <button
+            type="button"
+            disabled={data.sourceSheetId === null}
+            onClick={() => {
+              if (data.sourceSheetId !== null) onOpenSiblingSheet(data.sourceSheetId);
+            }}
+          >
+            Other documents from this packet ({data.siblingCount})
+          </button>
+        </div>
+      </div>
+    </section>
   );
 }
 
