@@ -780,6 +780,11 @@ class PdfPacketSplitService:
                 },
                 "text_source": session.text_source,
                 "ocr_engine": session.ocr_engine,
+                "ocr_pages": sorted(
+                    session.ocr.get(session.ocr_engine, {})
+                    if session.ocr_engine is not None
+                    else ()
+                ),
                 "analysis_revision": session.analysis_revision,
                 "expires_at": session.expires_at.isoformat().replace("+00:00", "Z"),
                 "commit_result": (

@@ -35,6 +35,7 @@ def _status() -> dict[str, Any]:
         },
         "text_source": "unconfirmed",
         "ocr_engine": None,
+        "ocr_pages": [],
         "jobs": [],
         "analysis_revision": 1,
         "expires_at": "2026-10-09T01:00:00Z",
@@ -106,6 +107,7 @@ class _Service:
         value = _status()
         value["text_source"] = body.kind
         value["ocr_engine"] = body.engine
+        value["ocr_pages"] = [1, 3] if body.kind == "ocr" else []
         return value
 
     def candidates(self, pid, split_id, body):
@@ -190,6 +192,7 @@ def test_pdf_packet_split_http_contract(tmp_path: Path) -> None:
     )
     assert selected.status_code == 200
     assert selected.json()["text_source"] == "ocr"
+    assert selected.json()["ocr_pages"] == [1, 3]
 
     candidates = client.post(
         "/api/projects/p/import/pdf-packet-splits/split-1/candidates",

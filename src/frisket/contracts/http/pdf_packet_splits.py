@@ -62,6 +62,7 @@ class PdfPacketSplitStatus(WireModel):
     prepare: PdfPacketPrepareState
     text_source: Literal["unconfirmed", "native", "ocr"]
     ocr_engine: str | None
+    ocr_pages: list[int]
     jobs: list[PdfPacketJobState]
     analysis_revision: int = Field(ge=0)
     expires_at: str

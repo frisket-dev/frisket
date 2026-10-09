@@ -8242,6 +8242,7 @@ export type HttpPdfPacketSplitStatus = ({
   "expires_at": (string);
   "jobs": (Array<(HttpPdfPacketSplitStatus_PdfPacketJobState)>);
   "ocr_engine": (((string)) | ((null)));
+  "ocr_pages": (Array<(number)>);
   "packet": (HttpPdfPacketSplitStatus_PdfPacketInfo);
   "prepare": (HttpPdfPacketSplitStatus_PdfPacketPrepareState);
   "schema_version": ("frisket.pdf_packet_split.v1") & (string);

@@ -234,6 +234,12 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
     )
     assert cached_estimate["cached_pages"] == [1, 3]
     assert cached_estimate["estimate"] is None
+    cached_selected = service.select_text_source(
+        project_id,
+        split_id,
+        PdfPacketTextSourceRequest(kind="ocr", engine="test-ocr"),
+    )
+    assert cached_selected["ocr_pages"] == [1, 3]
 
     preview_runs.failed_pages.add(4)
     full = service.start_ocr(
@@ -251,11 +257,12 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
         time.sleep(0.01)
     assert job["progress"]["status"] == "done"
 
-    service.select_text_source(
+    partial_selected = service.select_text_source(
         project_id,
         split_id,
         PdfPacketTextSourceRequest(kind="ocr", engine="test-ocr"),
     )
+    assert partial_selected["ocr_pages"] == [1, 2, 3]
     assert service.page(project_id, split_id, 1)["ocr_text"] == "OCR page 1"
     assert service.page(project_id, split_id, 4)["ocr_text"] is None
     commit_body = PdfPacketCommitRequest(
@@ -284,6 +291,7 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
             break
         time.sleep(0.01)
     assert job["progress"]["status"] == "done"
+    assert status["ocr_pages"] == [1, 2, 3, 4]
 
     candidates = service.candidates(
         project_id,
