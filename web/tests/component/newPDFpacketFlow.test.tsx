@@ -138,6 +138,10 @@ async function reachImportStep() {
 beforeEach(() => {
   window.localStorage.clear();
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+  Object.defineProperty(HTMLDialogElement.prototype, 'close', {
+    configurable: true,
+    value(this: HTMLDialogElement) { this.removeAttribute('open'); },
+  });
   api.createPdfPacketSplit.mockResolvedValue(baseSnapshot);
   api.getPdfPacketPage.mockResolvedValue(nativePage);
   api.getPdfPacketSplit.mockResolvedValue(baseSnapshot);
@@ -178,6 +182,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  delete (HTMLDialogElement.prototype as Partial<HTMLDialogElement>).close;
   vi.unstubAllGlobals();
 });
 
@@ -320,6 +325,12 @@ describe('PDF packet import flow boundaries', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Accept all 1 suggested' }));
     expect(await screen.findByText('2 marked · 0 suggested · 1 unsure')).toBeInTheDocument();
 
+    const review = screen.getByRole('region', { name: 'Suggested pages to review' });
+    fireEvent.click(screen.getByRole('button', { name: 'Unsure 1' }));
+    fireEvent.keyDown(review, { key: 'y', ctrlKey: true });
+    fireEvent.keyDown(review, { key: 'y', repeat: true });
+    expect(screen.getByText('2 marked · 0 suggested · 1 unsure')).toBeInTheDocument();
+
     fireEvent.click(screen.getByRole('button', { name: 'Starts only 3' }));
     expect(screen.queryByRole('button', { name: 'Page 2, unsure start' })).not.toBeInTheDocument();
   });
@@ -350,6 +361,9 @@ describe('PDF packet import flow boundaries', () => {
     fireEvent.keyDown(dialog, { key: 'ArrowRight' });
     expect(screen.getByRole('dialog', { name: 'Page 3' })).toBeInTheDocument();
     expect(screen.getByTestId('mock-pdf-viewer')).toHaveAttribute('data-page', '3');
+    fireEvent.keyDown(screen.getByRole('dialog', { name: 'Page 3' }), { key: 'x', ctrlKey: true });
+    fireEvent.keyDown(screen.getByRole('dialog', { name: 'Page 3' }), { key: 'x', repeat: true });
+    expect(screen.queryByText('Marked not a start')).not.toBeInTheDocument();
     fireEvent.keyDown(screen.getByRole('dialog', { name: 'Page 3' }), { key: 'x' });
     expect(screen.getByText('Marked not a start')).toBeInTheDocument();
     fireEvent.keyDown(screen.getByRole('dialog', { name: 'Page 3' }), { key: 'Escape' });

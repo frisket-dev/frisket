@@ -149,7 +149,6 @@ export function PacketFindStep({
   const [visibleRange, setVisibleRange] = useState<[number, number]>([1, Math.min(40, pageCount)]);
   const [gridSizeIndex, setGridSizeIndex] = useState(1);
   const [gridFilter, setGridFilter] = useState<GridFilter>('all');
-  const [hoveredPage, setHoveredPage] = useState<number | null>(null);
   const [reviewTab, setReviewTab] = useState<ReviewTab>('unsure');
   const [reviewIndex, setReviewIndex] = useState(0);
   const [largeViewPage, setLargeViewPage] = useState<number | null>(null);
@@ -218,7 +217,9 @@ export function PacketFindStep({
       event.preventDefault();
       const nextPosition = Math.max(0, Math.min(displayedPages.length - 1, position + (event.key === 'ArrowRight' ? 1 : -1)));
       focusPage(displayedPages[nextPosition]);
-    } else if (event.key.toLowerCase() === 's' && (event.target as HTMLElement).classList.contains('pdf-packet-page-toggle')) {
+    } else if (event.key.toLowerCase() === 's' && !event.repeat
+      && !event.ctrlKey && !event.metaKey && !event.altKey
+      && (event.target as HTMLElement).classList.contains('pdf-packet-page-toggle')) {
       event.preventDefault();
       dispatch({ type: 'toggleStart', page });
     }
@@ -317,9 +318,6 @@ export function PacketFindStep({
                   data-confirmed={confirmed || undefined}
                   data-suggested={isSuggested || undefined}
                   data-unsure={isUnsure || undefined}
-                  data-hovered={hoveredPage === page || undefined}
-                  onMouseEnter={() => setHoveredPage(page)}
-                  onMouseLeave={() => setHoveredPage((hovered) => hovered === page ? null : hovered)}
                 >
                   <button
                     type="button"

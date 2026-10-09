@@ -58,6 +58,11 @@ export function PacketReviewCard({
   };
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     const key = event.key.toLowerCase();
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.repeat && (key === 'y' || key === 'n')) {
+      event.preventDefault();
+      return;
+    }
     if (key === 'y' || key === 'n' || event.key === '[' || event.key === ']') {
       event.preventDefault();
       event.stopPropagation();

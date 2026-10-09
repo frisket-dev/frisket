@@ -86,12 +86,23 @@ export function PacketLargePageView({
     };
   }, []);
 
+  const close = () => {
+    // Close while mounted so the browser restores focus to the opener.
+    dialogRef.current?.close();
+    onClose();
+  };
+
   const secondaryAction = () => {
     if (isConfirmed && page !== 1) onRemove(page);
     else if (canReject) onReject(page);
   };
   const onKeyDown = (event: KeyboardEvent<HTMLDialogElement>) => {
     const key = event.key.toLowerCase();
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.repeat && (key === 's' || key === 'x')) {
+      event.preventDefault();
+      return;
+    }
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || key === 's' || key === 'x' || event.key === 'Escape') {
       event.preventDefault();
       event.stopPropagation();
@@ -100,7 +111,7 @@ export function PacketLargePageView({
     else if (event.key === 'ArrowRight') go(1);
     else if (key === 's' && !isConfirmed) onConfirm(page);
     else if (key === 'x') secondaryAction();
-    else if (event.key === 'Escape') onClose();
+    else if (event.key === 'Escape') close();
   };
 
   return (
@@ -114,17 +125,17 @@ export function PacketLargePageView({
       onCancel={(event) => {
         event.preventDefault();
         event.stopPropagation();
-        onClose();
+        close();
       }}
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        if (event.target === event.currentTarget) close();
       }}
     >
       <section className="packet-large-card">
         <header>
           <h2>Page {page}</h2>
           <span className="packet-page-status" data-status={status.kind}>{status.label}</span>
-          <button type="button" className="icon-btn" aria-label="Close large page view" onClick={onClose}>
+          <button type="button" className="icon-btn" aria-label="Close large page view" onClick={close}>
             <X size={17} />
           </button>
         </header>

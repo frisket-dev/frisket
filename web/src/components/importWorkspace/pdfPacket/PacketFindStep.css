@@ -188,8 +188,7 @@
   transition: opacity 100ms ease, transform 100ms ease;
 }
 .pdf-packet-page-cell:hover .packet-page-hover-actions,
-.pdf-packet-page-cell:focus-within .packet-page-hover-actions,
-.pdf-packet-page-cell[data-hovered] .packet-page-hover-actions {
+.pdf-packet-page-cell:focus-within .packet-page-hover-actions {
   opacity: 1;
   pointer-events: auto;
   transform: translateY(0);
