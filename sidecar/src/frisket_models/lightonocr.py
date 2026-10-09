@@ -155,6 +155,47 @@ _HTML_ELEMENTS = {
     "video",
     "wbr",
 }
+_START_TAG_NAME = re.compile(r"<\s*/?\s*([^\s/>]+)")
+_VOID_TAGS = {"br", "hr", "img"}
+
+
+def _preserve_inline_angle_text(children: list[Any]) -> None:
+    """Render unknown and unmatched case-variant HTML tokens as literal text."""
+    open_tags: list[tuple[int, str]] = []
+    paired: set[int] = set()
+    parsed: dict[int, tuple[str, str]] = {}
+
+    for index, token in enumerate(children):
+        if token.type != "html_inline":
+            continue
+        raw = token.content
+        match = _START_TAG_NAME.match(raw)
+        if match is None:
+            continue
+        raw_tag = match.group(1)
+        tag = raw_tag.lower()
+        parsed[index] = (raw_tag, tag)
+        if (
+            tag not in _HTML_ELEMENTS
+            or tag in _VOID_TAGS
+            or raw.rstrip().endswith("/>")
+        ):
+            continue
+        if raw.startswith("</"):
+            for position in range(len(open_tags) - 1, -1, -1):
+                open_index, open_tag = open_tags[position]
+                if open_tag == tag:
+                    paired.update((open_index, index))
+                    del open_tags[position]
+                    break
+        else:
+            open_tags.append((index, tag))
+
+    for index, (raw_tag, tag) in parsed.items():
+        if tag not in _HTML_ELEMENTS or (
+            raw_tag != tag and tag not in _VOID_TAGS and index not in paired
+        ):
+            children[index].type = "text"
 
 
 class _PlainText(HTMLParser):
@@ -227,6 +268,14 @@ class _PlainText(HTMLParser):
         }:
             self.parts.append("\n")
 
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag not in _HTML_ELEMENTS:
+            if not self.hidden:
+                self.parts.append(self.get_starttag_text() or f"<{tag}/>")
+            return
+        self.handle_starttag(tag, attrs)
+        self.handle_endtag(tag)
+
     def handle_data(self, data: str) -> None:
         if not self.hidden and (not self.lists or data.strip()):
             self.parts.append(data)
@@ -237,7 +286,13 @@ def _markdown_to_plain_text(markdown: str) -> str:
     # include markdown-it-py rather than importing frisket.ops.markdown_plain.
     from markdown_it import MarkdownIt
 
-    rendered = MarkdownIt("commonmark", {"html": True}).enable("table").render(markdown)
+    parser = MarkdownIt("commonmark", {"html": True}).enable("table")
+    env: dict[str, Any] = {}
+    tokens = parser.parse(markdown, env)
+    for token in tokens:
+        if token.children:
+            _preserve_inline_angle_text(token.children)
+    rendered = parser.renderer.render(tokens, parser.options, env)
     reader = _PlainText()
     reader.feed(rendered)
     reader.close()

@@ -292,11 +292,20 @@ def test_grounding_parser_keeps_unknown_text_labels_and_same_line_text() -> None
 
 
 def test_grounding_plain_text_preserves_angle_literals_and_list_numbers() -> None:
+    for markdown in (
+        "Plaintiff <John Doe> v. State\n\n1. Filed\n2. Decided",
+        "Plaintiff <Mark Doe> v. State\n\n1. Filed\n2. Decided",
+        "Filing <party/>",
+    ):
+        assert lightonocr._markdown_to_plain_text(markdown) == markdown
+
+
+def test_grounding_plain_text_keeps_paired_and_void_case_variant_html() -> None:
     assert (
         lightonocr._markdown_to_plain_text(
-            "Plaintiff <John Doe> v. State\n\n1. Filed\n2. Decided"
+            '<TABLE><TR><TD>Filed</TD></TR></TABLE>\n\nFirst<BR>Second <IMG ALT="diagram">'
         )
-        == "Plaintiff <John Doe> v. State\n\n1. Filed\n2. Decided"
+        == "Filed\n\nFirst\nSecond diagram"
     )
 
 
