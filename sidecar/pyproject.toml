@@ -62,6 +62,9 @@ ocr-paddle = [
 ]
 convert = [
     "docling>=2.97.0",
+    # RapidOCR 3.10 removed an API still imported by Docling 2.135.
+    # https://github.com/docling-project/docling/issues/4702
+    "rapidocr>=3.9.1,<3.10.0",
 ]
 # GLiClass Base and the vendored Jeff inference adapter share this exact CPU
 # profile. It is installed only in Frisket's versioned classifier environment;

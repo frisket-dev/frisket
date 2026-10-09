@@ -1256,6 +1256,7 @@ all = [
     { name = "fastembed" },
     { name = "faster-whisper" },
     { name = "gliner" },
+    { name = "rapidocr" },
     { name = "sentence-transformers" },
 ]
 classify = [
@@ -1281,6 +1282,7 @@ classify-clef = [
 ]
 convert = [
     { name = "docling" },
+    { name = "rapidocr" },
 ]
 convert-chandra = [
     { name = "chandra-ocr", extra = ["hf"], marker = "(extra == 'extra-14-frisket-models-all' and extra == 'extra-14-frisket-models-classify') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-convert') or (extra != 'extra-14-frisket-models-convert' and extra == 'extra-14-frisket-models-convert-chandra') or (extra != 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-convert-chandra') or (extra == 'extra-14-frisket-models-all' and extra != 'extra-14-frisket-models-convert-chandra' and extra == 'extra-14-frisket-models-ocr') or (extra == 'extra-14-frisket-models-classify' and extra != 'extra-14-frisket-models-convert-chandra' and extra == 'extra-14-frisket-models-embed') or (extra == 'extra-14-frisket-models-classify' and extra != 'extra-14-frisket-models-convert-chandra' and extra == 'extra-14-frisket-models-ner') or (extra == 'extra-14-frisket-models-classify' and extra != 'extra-14-frisket-models-convert-chandra' and extra == 'extra-14-frisket-models-ocr') or (extra == 'extra-14-frisket-models-classify' and extra != 'extra-14-frisket-models-convert-chandra' and extra == 'extra-14-frisket-models-ocr-paddle') or (extra == 'extra-14-frisket-models-classify' and extra != 'extra-14-frisket-models-convert-chandra' and extra == 'extra-14-frisket-models-rerank') or (extra == 'extra-14-frisket-models-classify' and extra != 'extra-14-frisket-models-convert-chandra' and extra == 'extra-14-frisket-models-transcribe') or (extra != 'extra-14-frisket-models-convert-chandra' and extra == 'extra-14-frisket-models-embed' and extra == 'extra-14-frisket-models-ocr')" },
@@ -1334,6 +1336,7 @@ requires-dist = [
     { name = "pillow", marker = "extra == 'classify-clef'", specifier = ">=10" },
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "python-multipart", specifier = ">=0.0.32" },
+    { name = "rapidocr", marker = "extra == 'convert'", specifier = ">=3.9.1,<3.10.0" },
     { name = "safetensors", marker = "extra == 'classify'", specifier = "==0.8.0" },
     { name = "safetensors", marker = "extra == 'classify-clef'", specifier = ">=0.7.0" },
     { name = "sentence-transformers", marker = "extra == 'rerank'", specifier = ">=3.0" },
@@ -3746,7 +3749,7 @@ wheels = [
 
 [[package]]
 name = "rapidocr"
-version = "3.8.1"
+version = "3.9.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "colorlog", marker = "extra == 'extra-14-frisket-models-all' or extra != 'extra-14-frisket-models-classify' or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-convert') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-convert-chandra') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-embed') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-ner') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-ocr') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-ocr-paddle') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-rerank') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-transcribe')" },
@@ -3763,7 +3766,7 @@ dependencies = [
     { name = "tqdm", marker = "extra == 'extra-14-frisket-models-all' or extra != 'extra-14-frisket-models-classify' or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-convert') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-convert-chandra') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-embed') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-ner') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-ocr') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-ocr-paddle') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-rerank') or (extra == 'extra-14-frisket-models-classify' and extra == 'extra-14-frisket-models-transcribe')" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ea/4a/fa521d947f0fc7bb304bf11bec4cb66266bd81494588b4cb48dc01001719/rapidocr-3.8.1-py3-none-any.whl", hash = "sha256:650044b1fbce9e6bae5cae462dcf8be754cde11e2f23fc51f65dcc08deae2c46", size = 15080319, upload-time = "2026-04-11T07:13:22.56Z" },
+    { url = "https://files.pythonhosted.org/packages/55/ed/0ee9b9281986974be9d2406ae0134c8d7c91d2fc613f16ffda9701eeda6f/rapidocr-3.9.2-py3-none-any.whl", hash = "sha256:04d6b8d151f823d930bd91910555f57bea897c0c44fa6794267b94cf9c1ef9a0", size = 27275208, upload-time = "2026-07-21T10:59:01.599Z" },
 ]
 
 [[package]]
