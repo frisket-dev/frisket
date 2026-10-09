@@ -167,9 +167,7 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
         workspace,
         registry=registry,
         preview_runs=preview_runs,  # type: ignore[arg-type]
-        image_vectorizer=lambda paths: [
-            [1.0, float(path.stem.rsplit("-", 1)[1]) / 100] for path in paths
-        ],
+        page_signature=lambda path: int(path.stem.rsplit("-", 1)[1]),
     )
     raw = _pdf(4)
     created = service.create(
@@ -305,8 +303,7 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
     ]
     assert [viewer["artifacts"][0]["page_count"] for viewer in viewers] == [4, 4]
     assert [
-        viewer["artifacts"][0]["external_ref"]["sibling_count"]
-        for viewer in viewers
+        viewer["artifacts"][0]["external_ref"]["sibling_count"] for viewer in viewers
     ] == [2, 2]
     assert [
         (
@@ -364,6 +361,10 @@ def test_packet_commit_rolls_back_sheet_and_lineage_when_publication_fails(
 
     assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
     assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
-    assert project.db.execute("SELECT COUNT(*) FROM source_artifacts").fetchone()[0] == 0
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM source_artifacts").fetchone()[0] == 0
+    )
     assert project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] == 0
-    assert project.db.execute("SELECT COUNT(*) FROM blob_derivations").fetchone()[0] == 0
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM blob_derivations").fetchone()[0] == 0
+    )

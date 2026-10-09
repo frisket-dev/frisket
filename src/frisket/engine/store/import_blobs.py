@@ -503,7 +503,9 @@ def _publish_packet_ocr_evidence(
     spans = []
     for pin in prepared.pins:
         positions = pin.positions if isinstance(pin.positions, dict) else {}
-        blocks = positions.get("blocks") if isinstance(positions.get("blocks"), list) else []
+        blocks = (
+            positions.get("blocks") if isinstance(positions.get("blocks"), list) else []
+        )
         engine = str(positions.get("engine") or blob.prepared_engine or "")
         selector = {
             "prepared_ref_id": int(prepared.ref_id),

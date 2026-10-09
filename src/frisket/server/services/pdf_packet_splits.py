@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 from urllib.parse import quote
 
+from PIL import Image
 from pypdf import PdfReader
 
 from frisket.contracts.http.pdf_packet_splits import (
@@ -35,7 +36,11 @@ from frisket.contracts.http.pdf_packet_splits import (
 from frisket.engine.pdf_render import render_pdf_pages
 from frisket.engine.pdf_text import PdfTextError, extract_pdf_text
 from frisket.engine.executor.table_preview import TablePreviewResult
-from frisket.pdf_packets import PhraseRule, match_packet_pages
+from frisket.pdf_packets import (
+    PhraseRule,
+    match_packet_pages,
+    page_perceptual_signature,
+)
 from frisket.server.route_errors import RouteError
 from frisket.server.services.action_preview_jobs import (
     ActionPreviewJobRegistry,
@@ -51,6 +56,11 @@ _SESSION_TTL_SECONDS = 60 * 60
 _PREPARE_DPI = 96
 _THUMBNAIL_MAX_EDGE = 1400
 _MAX_PACKET_PAGES = 2000
+
+
+def _page_signature(path: Path) -> int:
+    with Image.open(path) as image:
+        return page_perceptual_signature(image)
 
 
 class PdfPacketSplitRouteError(RouteError):
@@ -81,7 +91,7 @@ class _PacketSession:
     status: str = "preparing"
     pages_ready: set[int] = field(default_factory=set)
     native_text: dict[int, str] = field(default_factory=dict)
-    vectors: dict[int, tuple[float, ...]] = field(default_factory=dict)
+    signatures: dict[int, int] = field(default_factory=dict)
     jobs: dict[str, _PacketJob] = field(default_factory=dict)
     ocr: dict[str, dict[int, dict[str, Any]]] = field(default_factory=dict)
     text_source: str = "unconfirmed"
@@ -108,16 +118,14 @@ class PdfPacketSplitService:
         *,
         registry: ActionPreviewJobRegistry,
         preview_runs: ActionPreviewRunService,
-        image_vectorizer: Callable[[list[Path]], list[list[float]]] | None = None,
+        page_signature: Callable[[Path], int] | None = None,
         ttl_seconds: float = _SESSION_TTL_SECONDS,
     ) -> None:
         self._workspace = workspace
         self._registry = registry
         self._preview_runs = preview_runs
         self._committer = PdfPacketCommitter(workspace)
-        # The application must supply an already configured vectorizer. Merely
-        # creating a packet session never initializes or downloads a model.
-        self._image_vectorizer = image_vectorizer
+        self._page_signature = page_signature or _page_signature
         self._ttl_seconds = ttl_seconds
         self._sessions: dict[str, _PacketSession] = {}
         self._lock = threading.RLock()
@@ -247,21 +255,15 @@ class PdfPacketSplitService:
                         timeout_seconds=max(30, len(pages) * 5),
                     )
                 )
-                paths = [path for _page, path in rendered.pages]
-                vectors = (
-                    self._image_vectorizer(paths)
-                    if self._image_vectorizer is not None
-                    else []
-                )
-                if vectors and len(vectors) != len(paths):
-                    raise RuntimeError("image vectorizer returned the wrong page count")
+                signatures = [
+                    self._page_signature(path) for _page, path in rendered.pages
+                ]
                 with self._lock:
-                    for index, (page, _path) in enumerate(rendered.pages):
+                    for (page, _path), signature in zip(
+                        rendered.pages, signatures, strict=True
+                    ):
                         session.pages_ready.add(page)
-                        if vectors:
-                            session.vectors[page] = tuple(
-                                float(v) for v in vectors[index]
-                            )
+                        session.signatures[page] = signature
                     session.analysis_revision += 1
                     done = len(session.pages_ready)
                 progress(done, session.page_count)
@@ -383,9 +385,7 @@ class PdfPacketSplitService:
                 media_digest=session.source_hash,
                 media_size=session.size,
                 payload=self._ocr_payload(session, body.engine, pages),
-                on_page=lambda page: self._cache_ocr_page(
-                    split_id, body.engine, page
-                ),
+                on_page=lambda page: self._cache_ocr_page(split_id, body.engine, page),
                 request_context=request_context,
             )
         )
@@ -420,9 +420,7 @@ class PdfPacketSplitService:
             "receipt_id": job.receipt.receipt_id if job and job.receipt else None,
         }
 
-    def _cache_ocr_page(
-        self, split_id: str, engine: str, page: dict[str, Any]
-    ) -> None:
+    def _cache_ocr_page(self, split_id: str, engine: str, page: dict[str, Any]) -> None:
         number = page.get("page")
         if type(number) is not int:
             return
@@ -514,7 +512,7 @@ class PdfPacketSplitService:
             phrase_ids[key] = phrase.id
         matched = match_packet_pages(
             page_count=session.page_count,
-            vectors=session.vectors,
+            signatures=session.signatures,
             confirmed=body.confirmed_starts,
             rejected=body.rejected,
             threshold=body.threshold_pct,
@@ -584,9 +582,7 @@ class PdfPacketSplitService:
             for index, start in enumerate(starts)
         ]
         for index, (start, end) in enumerate(ranges, 1):
-            self._child_name(
-                body.name_pattern, session.filename, index, start, end
-            )
+            self._child_name(body.name_pattern, session.filename, index, start, end)
         if body.keep_ocr_text:
             if session.text_source != "ocr" or session.ocr_engine is None:
                 raise PdfPacketSplitRouteError(
@@ -769,7 +765,7 @@ class PdfPacketSplitService:
                 "native_text_pages": sorted(
                     page for page, text in session.native_text.items() if text
                 ),
-                "visual_pages_ready": len(session.vectors),
+                "visual_pages_ready": len(session.signatures),
             },
             "text_source": session.text_source,
             "ocr_engine": session.ocr_engine,

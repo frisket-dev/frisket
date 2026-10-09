@@ -39,9 +39,7 @@ class PacketSplitReader(Protocol):
 
     def open_source(self, ref: str) -> AbstractContextManager[BinaryIO]: ...
 
-    def open_child(
-        self, ref: str, index: int
-    ) -> AbstractContextManager[BinaryIO]: ...
+    def open_child(self, ref: str, index: int) -> AbstractContextManager[BinaryIO]: ...
 
 
 __all__ = [

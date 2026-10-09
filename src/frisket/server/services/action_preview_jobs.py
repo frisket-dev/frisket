@@ -51,6 +51,7 @@ class PreviewCancelEvent(threading.Event):
             self._sealed = True
             return True
 
+
 # Recipe-invocation failures are an internal exception channel. Only this
 # parent-owned vocabulary may cross the preview HTTP boundary; in particular,
 # a child protocol's fatal code must never become a public error code merely

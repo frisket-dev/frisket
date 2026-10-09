@@ -412,7 +412,9 @@ def _coerce_scratch_pages(value: Any, *, max_pages: int) -> list[int]:
         )
     if any(type(page) is not int or page < 1 for page in value):
         raise OcrComparePreviewError(
-            "invalid_page_ref", "Scratch OCR pages must be positive integers.", field="pages"
+            "invalid_page_ref",
+            "Scratch OCR pages must be positive integers.",
+            field="pages",
         )
     if len(value) != len(set(value)):
         raise OcrComparePreviewError(
